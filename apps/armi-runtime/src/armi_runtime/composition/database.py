@@ -20,8 +20,11 @@ from armi_activity.bootstrap import (
 from armi_artifact_store.bootstrap import bootstrap_artifact_catalog
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_capability.api import (
+    CapabilityActionAuthorizationPort,
+    CapabilityAdmissionPort,
     CapabilityCommitPort,
-    CapabilityGrantConsumptionPort,
+    CapabilityDispatchAuthorizationPort,
+    CapabilityOperationReadPort,
     CapabilityReadPort,
 )
 from armi_capability.bootstrap import (
@@ -29,10 +32,17 @@ from armi_capability.bootstrap import (
     bootstrap_capability,
     bootstrap_capability_recovery,
 )
-from armi_codex.api import CodexDelegationViolation, CodexRuntimePort
+from armi_codex.api import (
+    CodexCommitPort,
+    CodexDelegationViolation,
+    CodexExecutionReadPort,
+    CodexRuntimePort,
+    CodexTaskSourceReadPort,
+)
 from armi_codex.bootstrap import (
+    CodexReadPorts,
     bootstrap_codex,
-    bootstrap_codex_commit,
+    bootstrap_codex_read_ports,
     bootstrap_codex_recovery,
     bootstrap_codex_timeline_projection,
 )
@@ -40,6 +50,7 @@ from armi_cognition.api import (
     CognitionCandidateParser,
     CognitionExactLifeQueryPort,
     CognitionModelPort,
+    CognitionOperationReadPort,
     CognitionWorkerPort,
 )
 from armi_cognition.bootstrap import (
@@ -47,6 +58,7 @@ from armi_cognition.bootstrap import (
     bootstrap_cognition_change_set_codec,
     bootstrap_cognition_exact_life_query,
     bootstrap_cognition_model,
+    bootstrap_cognition_operation,
     bootstrap_cognition_recovery,
 )
 from armi_context.api import (
@@ -66,6 +78,7 @@ from armi_context.bootstrap import (
     bootstrap_context_recovery,
 )
 from armi_data_rights.api import (
+    DataRightsEffectGate,
     DataRightsInteractionGate,
     DataRightsProjectionInvalidationPort,
     DataRightsSubjectCommitGate,
@@ -79,13 +92,17 @@ from armi_data_rights.bootstrap import (
 )
 from armi_effect.api import (
     ActionAdapterPort,
+    EffectCodexArtifactPort,
     EffectGrantCancellationPort,
+    EffectOperationReadPort,
+    EffectRegistrationContextPort,
     EffectRuntimePort,
     ResponseAdmissionRuntimePort,
 )
 from armi_effect.bootstrap import (
-    bootstrap_effect_dispatch_boundary,
+    bootstrap_effect_codex_lifecycle,
     bootstrap_effect_grant_cancellation,
+    bootstrap_effect_operation_read,
     bootstrap_effect_recovery,
     bootstrap_effect_runtime,
     bootstrap_expression_effect_registration,
@@ -97,16 +114,26 @@ from armi_evidence.bootstrap import (
     bootstrap_evidence,
     bootstrap_evidence_recovery,
 )
+from armi_expression.api import (
+    ExpressionCommitPort,
+    ExpressionEffectLinkPort,
+    ExpressionIntentReadPort,
+    ExpressionResponseAdmissionPort,
+)
 from armi_expression.bootstrap import (
+    ExpressionModule,
     bootstrap_expression,
     bootstrap_expression_recovery,
 )
 from armi_interaction.api import (
     CreatorIdentityContext,
     CreatorInputTransactionPort,
+    CreatorOperationQueryPort,
     InteractionEffectDeliveryPort,
+    InteractionEffectRoutePort,
     InteractionIdentityPort,
     InteractionPerceptionPort,
+    InteractionSceneTransitionPort,
 )
 from armi_interaction.bootstrap import (
     InteractionModule,
@@ -153,11 +180,13 @@ from armi_mood.api import MoodCognitionPort, MoodCommitPort, MoodReadPort
 from armi_mood.bootstrap import MoodModule, bootstrap_mood, bootstrap_mood_recovery
 from armi_opportunity.api import (
     OpportunityAdmissionPort,
+    OpportunityOperationReadPort,
     OpportunityRuntimePort,
 )
 from armi_opportunity.bootstrap import (
     bootstrap_opportunity,
     bootstrap_opportunity_admission,
+    bootstrap_opportunity_operation,
     bootstrap_opportunity_recovery,
     bootstrap_opportunity_transition,
 )
@@ -260,6 +289,14 @@ from armi_runtime.adapters.persistence.schema_gateway import (
     SchemaStatus,
 )
 from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWorkFactory
+from armi_runtime.application.action_lifecycle import (
+    RuntimeCodexArtifactReference,
+    RuntimeCodexGrantActivation,
+    RuntimeEffectRegistrationContext,
+)
+from armi_runtime.application.operation_assembler import (
+    RuntimeCreatorOperationAssembler,
+)
 
 from .birth_manifest import packaged_birth_digests
 from .config_assets import runtime_config_path
@@ -529,6 +566,35 @@ def compose_opportunity_admission() -> OpportunityAdmissionPort:
     """Bind the transaction-scoped Opportunity owner port once."""
 
     return bootstrap_opportunity_admission()
+
+
+def compose_creator_operation_query(
+    *,
+    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
+    creator_party_id: UUID,
+    interaction: CreatorInputTransactionPort,
+    evidence: EvidenceReadPort,
+    expression: ExpressionIntentReadPort,
+    capability: CapabilityOperationReadPort,
+    codex: CodexTaskSourceReadPort,
+    codex_executions: CodexExecutionReadPort,
+) -> CreatorOperationQueryPort:
+    opportunity: OpportunityOperationReadPort = bootstrap_opportunity_operation()
+    cognition: CognitionOperationReadPort = bootstrap_cognition_operation()
+    effect: EffectOperationReadPort = bootstrap_effect_operation_read()
+    return RuntimeCreatorOperationAssembler(
+        factory=unit_of_work_factory,
+        creator_party_id=creator_party_id,
+        opportunity=opportunity,
+        cognition=cognition,
+        interaction=interaction,
+        evidence=evidence,
+        expression=expression,
+        capability=capability,
+        effect=effect,
+        codex=codex,
+        codex_executions=codex_executions,
+    )
 
 
 def compose_interaction_module(
@@ -1037,6 +1103,7 @@ def compose_context_pipeline(
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     activity_read: ActivityReadPort,
     capability_read: CapabilityReadPort,
+    codex_commit: CodexCommitPort,
     memory_read: MemoryReadPort,
     memory_projection: MemoryProjectionPort,
     mood_read: MoodReadPort,
@@ -1307,10 +1374,12 @@ def compose_subject_commit_pipeline(
     activity_commit: ActivityCommitPort,
     capability_commit: CapabilityCommitPort,
     capability_read: CapabilityReadPort,
+    codex_commit: CodexCommitPort,
     context_projections: ContextProjectionInvalidationPort,
     data_rights: DataRightsSubjectCommitGate,
     evidence: EvidenceWritePort,
     evidence_read: EvidenceReadPort,
+    expression_commit: ExpressionCommitPort,
     memory_commit: MemoryCommitPort,
     memory_cognition: MemoryCognitionPort,
     mood_commit: MoodCommitPort,
@@ -1321,8 +1390,6 @@ def compose_subject_commit_pipeline(
     material_commit: MaterialCommitPort,
     relationship_cognition: RelationshipCognitionPort,
     relationship_commit: RelationshipCommitPort,
-    relationship_read: RelationshipReadPort,
-    relationship_policy: RelationshipPolicyPort,
     sleep_cognition: SleepCognitionPort,
     sleep_commit: SleepCommitPort,
     subject_state_cognition: SubjectStateCognitionPort,
@@ -1335,11 +1402,6 @@ def compose_subject_commit_pipeline(
     """Resolve the Runtime credential for the sole active T-03 coordinator."""
 
     config = prepared.effective.config
-    expression = bootstrap_expression(
-        relationship_read,
-        relationship_policy,
-        bootstrap_expression_effect_registration(),
-    )
     return build_subject_commit_pipeline(
         unit_of_work_factory,
         data_root=prepared.data_root,
@@ -1358,12 +1420,12 @@ def compose_subject_commit_pipeline(
         activity_commit=activity_commit,
         capability_commit=capability_commit,
         capability_read=capability_read,
-        codex_commit=bootstrap_codex_commit(),
+        codex_commit=codex_commit,
         context_projections=context_projections,
         data_rights=data_rights,
         evidence=evidence,
         evidence_read=evidence_read,
-        expression_commit=expression.commit,
+        expression_commit=expression_commit,
         memory_commit=memory_commit,
         memory_cognition=memory_cognition,
         mood_commit=mood_commit,
@@ -1391,12 +1453,29 @@ def compose_effect_grant_cancellation() -> EffectGrantCancellationPort:
     return bootstrap_effect_grant_cancellation()
 
 
+def compose_expression_module(
+    *,
+    relationship_read: RelationshipReadPort,
+    relationship_policy: RelationshipPolicyPort,
+    interaction_routes: InteractionEffectRoutePort,
+    interaction_scenes: InteractionSceneTransitionPort,
+) -> ExpressionModule:
+    return bootstrap_expression(
+        relationship_read,
+        relationship_policy,
+        bootstrap_expression_effect_registration(),
+        interaction_routes,
+        interaction_scenes,
+    )
+
+
 def compose_capability_policy(
     prepared: PreparedEnvironment,
     *,
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     cursor_key: bytes,
     effect_cancellation: EffectGrantCancellationPort,
+    codex_activation: RuntimeCodexGrantActivation,
     notifier: CreatorProjectionNotifier | None = None,
 ) -> CapabilityModule:
     """Resolve the Runtime credential for the sole active T-04 policy."""
@@ -1406,6 +1485,7 @@ def compose_capability_policy(
         environment_id=prepared.effective.config.environment.environment_id,
         cursor_key=cursor_key,
         effect_cancellation=effect_cancellation,
+        codex_activation=codex_activation,
         notifier=notifier,
     )
 
@@ -1414,6 +1494,9 @@ def compose_response_admission_pipeline(
     prepared: PreparedEnvironment,
     *,
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
+    expression: ExpressionResponseAdmissionPort,
+    capability: CapabilityAdmissionPort,
+    data_rights: DataRightsEffectGate,
     wakeups: WorkWakeupBus,
     diagnostic: Callable[[str], None] | None = None,
 ) -> ResponseAdmissionRuntimePort:
@@ -1427,6 +1510,10 @@ def compose_response_admission_pipeline(
             max_object_bytes=config.artifacts.max_object_bytes,
         ),
         work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
+        artifacts=bootstrap_artifact_catalog(),
+        capability=capability,
+        data_rights=data_rights,
+        expression=expression,
         wakeups=wakeups,
         diagnostic=diagnostic,
     )
@@ -1523,7 +1610,12 @@ def compose_effect_registration_pipeline(
     prepared: PreparedEnvironment,
     *,
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
-    capability_consumption: CapabilityGrantConsumptionPort,
+    authorization: CapabilityActionAuthorizationPort,
+    intents: ExpressionIntentReadPort,
+    effect_links: ExpressionEffectLinkPort,
+    registration_context: EffectRegistrationContextPort,
+    codex_artifacts: EffectCodexArtifactPort,
+    routes: InteractionEffectRoutePort,
     interaction_delivery: InteractionEffectDeliveryPort,
     notifier: CreatorProjectionNotifier | None = None,
     wakeups: WorkWakeupBus,
@@ -1541,13 +1633,43 @@ def compose_effect_registration_pipeline(
             max_object_bytes=config.artifacts.max_object_bytes,
         ),
         work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
-        capability_consumption=capability_consumption,
+        authorization=authorization,
+        intents=intents,
+        effect_links=effect_links,
+        registration_context=registration_context,
+        codex_artifacts=codex_artifacts,
+        routes=routes,
         interaction_delivery=interaction_delivery,
         notifier=notifier,
         wakeups=wakeups,
         diagnostic=diagnostic,
         fault_injector=fault_injector,
         external_message_adapter=external_message_adapter,
+    )
+
+
+def compose_codex_read_ports() -> CodexReadPorts:
+    return bootstrap_codex_read_ports()
+
+
+def compose_effect_owner_context(
+    *,
+    expression: ExpressionIntentReadPort,
+    interaction: InteractionEffectRoutePort,
+    codex: CodexReadPorts,
+) -> tuple[RuntimeEffectRegistrationContext, RuntimeCodexArtifactReference]:
+    catalog = bootstrap_artifact_catalog()
+    return (
+        RuntimeEffectRegistrationContext(
+            artifacts=catalog,
+            codex=codex.task_sources,
+            expression=expression,
+            interaction=interaction,
+        ),
+        RuntimeCodexArtifactReference(
+            artifacts=catalog,
+            codex=codex.artifacts,
+        ),
     )
 
 
@@ -1558,7 +1680,12 @@ def compose_codex_pipeline(
     creator_party_id: UUID,
     creator_input: CreatorInputTransactionPort,
     evidence: EvidenceWritePort,
+    evidence_read: EvidenceReadPort,
+    identity: InteractionIdentityPort,
     opportunity: OpportunityAdmissionPort,
+    dispatch_authorization: CapabilityDispatchAuthorizationPort,
+    expression: ExpressionIntentReadPort,
+    sources: CodexTaskSourceReadPort,
     notifier: CreatorProjectionNotifier | None = None,
     diagnostic: Callable[[str], None] | None = None,
 ) -> CodexRuntimePort:
@@ -1581,8 +1708,12 @@ def compose_codex_pipeline(
         creator_party_id=creator_party_id,
         creator_input=creator_input,
         evidence=evidence,
+        evidence_read=evidence_read,
+        identity=identity,
         opportunity=opportunity,
-        dispatch_boundary=bootstrap_effect_dispatch_boundary(),
+        effect=bootstrap_effect_codex_lifecycle(dispatch_authorization),
+        expression=expression,
+        sources=sources,
         runner_entry_module="armi_runtime.codex_runner_cli",
         notifier=notifier,
         diagnostic=diagnostic,
@@ -1599,14 +1730,18 @@ __all__ = (
     "compose_candidate_validation_pipeline",
     "compose_capability_policy",
     "compose_codex_pipeline",
+    "compose_codex_read_ports",
     "compose_cognition_exact_life_query",
     "compose_context_pipeline",
+    "compose_creator_operation_query",
     "compose_data_rights_core",
     "compose_data_rights_module",
     "compose_effect_grant_cancellation",
+    "compose_effect_owner_context",
     "compose_effect_registration_pipeline",
     "compose_evidence_module",
     "compose_exact_life_query_pipeline",
+    "compose_expression_module",
     "compose_interaction_identity",
     "compose_interaction_module",
     "compose_life_opportunity_pipeline",

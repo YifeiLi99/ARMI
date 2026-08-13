@@ -8,6 +8,8 @@ from typing import Any, Literal, cast
 from uuid import UUID, uuid7
 
 import rfc8785
+from armi_capability.api import CapabilityDispatchAuthorizationPort
+from armi_interaction.api import InteractionEffectRoutePort
 from armi_kernel.application import (
     AuditDraft,
     AuditEventId,
@@ -18,10 +20,7 @@ from armi_kernel.application import (
 from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
-from ._grant import (
-    coordinate_dispatch_boundary,
-    supersede_effect_policy,
-)
+from ._grant import coordinate_dispatch_boundary
 from .api import (
     EffectAdapterReceipt,
     EffectAttemptId,
@@ -56,7 +55,15 @@ class EffectDispatchSnapshot:
 class PostgreSQLEffectDispatchRepository:
     """The only effect-ledger writer used by the dispatcher."""
 
-    __slots__ = ()
+    __slots__ = ("_authorization", "_routes")
+
+    def __init__(
+        self,
+        authorization: CapabilityDispatchAuthorizationPort,
+        routes: InteractionEffectRoutePort,
+    ) -> None:
+        self._authorization = authorization
+        self._routes = routes
 
     async def claim(
         self, uow: PostgreSQLRuntimeUnitOfWork, *, claim_owner: UUID
@@ -69,15 +76,10 @@ class PostgreSQLEffectDispatchRepository:
                        effect.subject_id, effect.scene_id,
                        effect.destination_party_id, effect.payload_artifact_id,
                        effect.payload_digest, effect.payload_bytes, effect.trace_id,
-                       scene.scene_key, outbox.attempt_count, outbox.claim_token,
-                       effect.destination_kind, binding.channel_kind,
-                       binding.account_key, binding.external_key
+                       outbox.attempt_count, outbox.claim_token,
+                       effect.destination_kind
                 FROM armi.effect_outbox_items AS outbox
                 JOIN armi.effects AS effect ON effect.effect_id = outbox.effect_id
-                JOIN armi.interaction_scenes AS scene
-                  ON scene.scene_id = effect.scene_id
-                LEFT JOIN armi.external_channel_bindings AS binding
-                  ON binding.external_binding_id = effect.destination_binding_id
                 WHERE outbox.status = 'ready'
                   AND outbox.available_at <= statement_timestamp()
                   AND statement_timestamp() < outbox.dispatch_deadline
@@ -96,9 +98,16 @@ class PostgreSQLEffectDispatchRepository:
         if row is None:
             return None
         attempt_id = uuid7()
-        attempt_no = int(row[10]) + 1
-        claim_token = int(row[11]) + 1
-        adapter_binding = _adapter_binding(str(row[12]))
+        attempt_no = int(row[9]) + 1
+        claim_token = int(row[10]) + 1
+        destination_kind = str(row[11])
+        route = await self._routes.effect_route(
+            connection,
+            scene_id=row[3],
+            context_party_id=row[4],
+            intended_destination_kind=destination_kind,
+        )
+        adapter_binding = _adapter_binding(destination_kind)
         updated = await (
             await connection.execute(
                 """
@@ -150,17 +159,23 @@ class PostgreSQLEffectDispatchRepository:
                     "external_group",
                     "external_private",
                 ],
-                str(row[12]),
+                destination_kind,
             ),
-            None if row[13] is None else str(row[13]),
-            None if row[14] is None else str(row[14]),
-            None if row[15] is None else str(row[15]),
+            route.external_channel,
+            route.external_account_key,
+            route.external_conversation_key,
             Digest(str(row[6])),
             int(row[7]),
             TraceId(str(row[8])),
         )
         return EffectDispatchSnapshot(
-            row[0], claim_owner, claim_token, attempt_no, row[5], str(row[9]), request
+            row[0],
+            claim_owner,
+            claim_token,
+            attempt_no,
+            row[5],
+            route.scene_key,
+            request,
         )
 
     async def expired(
@@ -172,21 +187,16 @@ class PostgreSQLEffectDispatchRepository:
                 """
                 SELECT outbox.effect_outbox_item_id, outbox.claim_owner,
                        outbox.claim_token, outbox.attempt_count,
-                       effect.payload_artifact_id, scene.scene_key,
+                       effect.payload_artifact_id, effect.scene_id,
                        effect.effect_id, attempt.effect_attempt_id,
                        effect.subject_id, effect.scene_id,
                        effect.destination_party_id, effect.payload_digest,
                        effect.payload_bytes, effect.trace_id,
-                       effect.destination_kind, binding.channel_kind,
-                       binding.account_key, binding.external_key
+                       effect.destination_kind, NULL::text, NULL::text, NULL::text
                 FROM armi.effect_outbox_items AS outbox
                 JOIN armi.effects AS effect ON effect.effect_id = outbox.effect_id
                 JOIN armi.effect_attempts AS attempt
                   ON attempt.effect_attempt_id = effect.current_attempt_id
-                JOIN armi.interaction_scenes AS scene
-                  ON scene.scene_id = effect.scene_id
-                LEFT JOIN armi.external_channel_bindings AS binding
-                  ON binding.external_binding_id = effect.destination_binding_id
                 WHERE outbox.status = 'claimed'
                   AND outbox.claim_expires_at <= statement_timestamp()
                   AND effect.status = 'dispatching'
@@ -203,13 +213,19 @@ class PostgreSQLEffectDispatchRepository:
         ).fetchone()
         if row is None:
             return None
+        route = await self._routes.effect_route(
+            connection,
+            scene_id=row[9],
+            context_party_id=row[10],
+            intended_destination_kind=str(row[14]),
+        )
         return EffectDispatchSnapshot(
             row[0],
             row[1],
             int(row[2]),
             int(row[3]),
             row[4],
-            str(row[5]),
+            route.scene_key,
             FrozenEffectRequest(
                 EffectId(row[6]),
                 EffectAttemptId(row[7]),
@@ -225,9 +241,9 @@ class PostgreSQLEffectDispatchRepository:
                     ],
                     str(row[14]),
                 ),
-                None if row[15] is None else str(row[15]),
-                None if row[16] is None else str(row[16]),
-                None if row[17] is None else str(row[17]),
+                route.external_channel,
+                route.external_account_key,
+                route.external_conversation_key,
                 Digest(str(row[11])),
                 int(row[12]),
                 TraceId(str(row[13])),
@@ -243,21 +259,16 @@ class PostgreSQLEffectDispatchRepository:
                 """
                 SELECT outbox.effect_outbox_item_id, attempt.effect_attempt_id,
                        outbox.claim_token, outbox.attempt_count,
-                       effect.payload_artifact_id, scene.scene_key,
+                       effect.payload_artifact_id, effect.scene_id,
                        effect.effect_id, effect.subject_id,
                        effect.scene_id, effect.destination_party_id,
                        effect.payload_digest, effect.payload_bytes,
                        effect.trace_id,
-                       effect.destination_kind, binding.channel_kind,
-                       binding.account_key, binding.external_key
+                       effect.destination_kind, NULL::text, NULL::text, NULL::text
                 FROM armi.effect_outbox_items AS outbox
                 JOIN armi.effects AS effect ON effect.effect_id = outbox.effect_id
                 JOIN armi.effect_attempts AS attempt
                   ON attempt.effect_attempt_id = effect.current_attempt_id
-                JOIN armi.interaction_scenes AS scene
-                  ON scene.scene_id = effect.scene_id
-                LEFT JOIN armi.external_channel_bindings AS binding
-                  ON binding.external_binding_id = effect.destination_binding_id
                 WHERE outbox.status = 'unknown'
                   AND effect.status = 'unknown'
                   AND effect.destination_kind IN (
@@ -274,13 +285,19 @@ class PostgreSQLEffectDispatchRepository:
         ).fetchone()
         if row is None:
             return None
+        route = await self._routes.effect_route(
+            connection,
+            scene_id=row[8],
+            context_party_id=row[9],
+            intended_destination_kind=str(row[13]),
+        )
         return EffectDispatchSnapshot(
             row[0],
             None,
             int(row[2]),
             int(row[3]),
             row[4],
-            str(row[5]),
+            route.scene_key,
             FrozenEffectRequest(
                 EffectId(row[6]),
                 EffectAttemptId(row[1]),
@@ -296,9 +313,9 @@ class PostgreSQLEffectDispatchRepository:
                     ],
                     str(row[13]),
                 ),
-                None if row[14] is None else str(row[14]),
-                None if row[15] is None else str(row[15]),
-                None if row[16] is None else str(row[16]),
+                route.external_channel,
+                route.external_account_key,
+                route.external_conversation_key,
                 Digest(str(row[10])),
                 int(row[11]),
                 TraceId(str(row[12])),
@@ -315,10 +332,8 @@ class PostgreSQLEffectDispatchRepository:
             await connection.execute(
                 """
                 SELECT effect.authorization_basis, effect.destination_kind,
-                       binding.status
+                       effect.scene_id, effect.destination_party_id
                 FROM armi.effects AS effect
-                LEFT JOIN armi.external_channel_bindings AS binding
-                  ON binding.external_binding_id = effect.destination_binding_id
                 WHERE effect.effect_id = %s AND effect.current_attempt_id = %s
                 """,
                 (
@@ -334,6 +349,7 @@ class PostgreSQLEffectDispatchRepository:
         if basis == "creator_grant":
             boundary = await coordinate_dispatch_boundary(
                 uow,
+                authorization=self._authorization,
                 effect_id=snapshot.request.effect_id.value,
                 attempt_id=snapshot.request.attempt_id.value,
                 outbox_id=snapshot.outbox_id,
@@ -346,14 +362,19 @@ class PostgreSQLEffectDispatchRepository:
                 raise EffectViolation("EFFECT-CLAIM-STALE")
             if not boundary.allowed:
                 return False
-        elif not (
-            (basis == "runtime_builtin" and destination_kind == "other_human_inbox")
-            or (
-                basis == "runtime_configuration"
-                and destination_kind in {"external_group", "external_private"}
-                and authorization[2] == "active"
+        elif basis == "runtime_builtin" and destination_kind == "other_human_inbox":
+            pass
+        elif basis == "runtime_configuration" and destination_kind in {
+            "external_group",
+            "external_private",
+        }:
+            await self._routes.effect_route(
+                connection,
+                scene_id=authorization[2],
+                context_party_id=authorization[3],
+                intended_destination_kind=destination_kind,
             )
-        ):
+        else:
             raise EffectViolation("EFFECT-AUTHORIZATION-INVALID")
         row = await (
             await connection.execute(
@@ -510,60 +531,40 @@ class PostgreSQLEffectDispatchRepository:
         connection: Any,
         snapshot: EffectDispatchSnapshot,
     ) -> tuple[_AbsentDisposition, UUID | None, str]:
-        policy_ref = await (
+        current = await (
             await connection.execute(
                 """
-                SELECT effect.authorization_basis, policy.matched_grant_id
-                FROM armi.effects AS effect
-                LEFT JOIN armi.policy_decisions AS policy
-                  ON policy.policy_decision_id = effect.policy_decision_id
-                WHERE effect.effect_id = %s
+                SELECT outbox.attempt_count, outbox.max_attempts,
+                       statement_timestamp() < outbox.dispatch_deadline,
+                       attempt.dispatch_state, effect.authorization_basis,
+                       effect.policy_decision_id,
+                       effect.action_intent_revision_id
+                FROM armi.effect_outbox_items AS outbox
+                JOIN armi.effects AS effect ON effect.effect_id = outbox.effect_id
+                JOIN armi.effect_attempts AS attempt
+                  ON attempt.effect_attempt_id = effect.current_attempt_id
+                WHERE outbox.effect_outbox_item_id = %s
+                  AND outbox.status = 'claimed'
+                  AND outbox.claim_owner = %s
+                  AND outbox.claim_token = %s
+                  AND effect.effect_id = %s
+                  AND effect.status = 'dispatching'
                   AND effect.current_attempt_id = %s
+                  AND attempt.dispatch_state IN ('prepared', 'dispatching')
+                FOR UPDATE OF outbox, effect, attempt
                 """,
                 (
+                    snapshot.outbox_id,
+                    snapshot.claim_owner,
+                    snapshot.claim_token,
                     snapshot.request.effect_id.value,
                     snapshot.request.attempt_id.value,
                 ),
             )
         ).fetchone()
-        if policy_ref is None:
+        if current is None:
             raise EffectViolation("EFFECT-SETTLEMENT-STALE")
-        if str(policy_ref[0]) != "creator_grant":
-            current = await (
-                await connection.execute(
-                    """
-                    SELECT outbox.attempt_count, outbox.max_attempts,
-                           statement_timestamp() < outbox.dispatch_deadline,
-                           attempt.dispatch_state
-                    FROM armi.effect_outbox_items AS outbox
-                    JOIN armi.effects AS effect
-                      ON effect.effect_id = outbox.effect_id
-                    JOIN armi.effect_attempts AS attempt
-                      ON attempt.effect_attempt_id = effect.current_attempt_id
-                    WHERE outbox.effect_outbox_item_id = %s
-                      AND outbox.status = 'claimed'
-                      AND outbox.claim_owner = %s
-                      AND outbox.claim_token = %s
-                      AND effect.effect_id = %s
-                      AND effect.status = 'dispatching'
-                      AND effect.current_attempt_id = %s
-                      AND effect.authorization_basis IN (
-                          'runtime_builtin', 'runtime_configuration'
-                      )
-                      AND attempt.dispatch_state IN ('prepared', 'dispatching')
-                    FOR UPDATE OF outbox, effect, attempt
-                    """,
-                    (
-                        snapshot.outbox_id,
-                        snapshot.claim_owner,
-                        snapshot.claim_token,
-                        snapshot.request.effect_id.value,
-                        snapshot.request.attempt_id.value,
-                    ),
-                )
-            ).fetchone()
-            if current is None:
-                raise EffectViolation("EFFECT-SETTLEMENT-STALE")
+        if str(current[4]) != "creator_grant":
             return (
                 _classify_absent_effect(
                     attempt_count=int(current[0]),
@@ -576,68 +577,33 @@ class PostgreSQLEffectDispatchRepository:
                 None,
                 str(current[3]),
             )
-        if policy_ref[1] is None:
+        if current[5] is None:
             raise EffectViolation("EFFECT-SETTLEMENT-STALE")
-        grant_id = UUID(str(policy_ref[1]))
-        grant = await (
-            await connection.execute(
-                """
-                SELECT status,
-                       valid_from <= statement_timestamp()
-                       AND statement_timestamp() < valid_until
-                FROM armi.permission_grants
-                WHERE grant_id = %s
-                FOR UPDATE
-                """,
-                (grant_id,),
-            )
-        ).fetchone()
-        current = await (
-            await connection.execute(
-                """
-                SELECT outbox.attempt_count, outbox.max_attempts,
-                       statement_timestamp() < outbox.dispatch_deadline,
-                       policy.is_current
-                         AND policy.decision_outcome = 'allowed',
-                       attempt.dispatch_state
-                FROM armi.effect_outbox_items AS outbox
-                JOIN armi.effects AS effect ON effect.effect_id = outbox.effect_id
-                JOIN armi.effect_attempts AS attempt
-                  ON attempt.effect_attempt_id = effect.current_attempt_id
-                JOIN armi.policy_decisions AS policy
-                  ON policy.policy_decision_id = effect.policy_decision_id
-                WHERE outbox.effect_outbox_item_id = %s
-                  AND outbox.status = 'claimed'
-                  AND outbox.claim_owner = %s
-                  AND outbox.claim_token = %s
-                  AND effect.effect_id = %s
-                  AND effect.status = 'dispatching'
-                  AND effect.current_attempt_id = %s
-                  AND attempt.dispatch_state IN ('prepared', 'dispatching')
-                FOR UPDATE OF outbox, effect, attempt, policy
-                """,
-                (
-                    snapshot.outbox_id,
-                    snapshot.claim_owner,
-                    snapshot.claim_token,
-                    snapshot.request.effect_id.value,
-                    snapshot.request.attempt_id.value,
-                ),
-            )
-        ).fetchone()
-        if grant is None or current is None:
-            raise EffectViolation("EFFECT-SETTLEMENT-STALE")
-        return (
-            _classify_absent_effect(
+        authorization = await self._authorization.authorize_dispatch(
+            connection,
+            policy_decision_id=current[5],
+            action_intent_revision_id=current[6],
+            before_dispatch_deadline=bool(current[2]),
+        )
+        if authorization.allowed:
+            disposition = _classify_absent_effect(
                 attempt_count=int(current[0]),
                 max_attempts=int(current[1]),
-                before_dispatch_deadline=bool(current[2]),
-                policy_current=bool(current[3]),
-                grant_status=str(grant[0]),
-                grant_time_valid=bool(grant[1]),
-            ),
-            grant_id,
-            str(current[4]),
+                before_dispatch_deadline=True,
+                policy_current=True,
+                grant_status="active",
+                grant_time_valid=True,
+            )
+        elif authorization.reason_code == "POLICY-GRANT-REVOKED":
+            disposition = _AbsentDisposition.CANCELLED_REVOKED
+        elif authorization.reason_code == "POLICY-GRANT-EXPIRED":
+            disposition = _AbsentDisposition.CANCELLED_EXPIRED
+        else:
+            disposition = _AbsentDisposition.CANCELLED_SUPERSEDED
+        return (
+            disposition,
+            authorization.grant_id,
+            str(current[3]),
         )
 
     async def settle_unknown(
@@ -826,7 +792,7 @@ class PostgreSQLEffectDispatchRepository:
                     settled_at=%s, cancelled_at=%s
                 WHERE effect_id=%s AND current_attempt_id=%s
                   AND status='dispatching'
-                RETURNING policy_decision_id, action_intent_revision_id
+                RETURNING effect_id
                 """,
                 (
                     observation_id,
@@ -851,14 +817,6 @@ class PostgreSQLEffectDispatchRepository:
             )
         ).fetchone()
         if effect is None or outbox is None:
-            raise EffectViolation("EFFECT-SETTLEMENT-STALE")
-        current_decision_id = await supersede_effect_policy(
-            connection,
-            prior_decision_id=UUID(str(effect[0])),
-            action_revision_id=UUID(str(effect[1])),
-            reason_code=reason_code,
-        )
-        if current_decision_id is None:
             raise EffectViolation("EFFECT-SETTLEMENT-STALE")
         await uow.audit.append(
             AuditDraft(

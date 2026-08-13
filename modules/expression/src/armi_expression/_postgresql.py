@@ -6,6 +6,10 @@ from datetime import timedelta
 from typing import Any
 from uuid import UUID, uuid7
 
+from armi_interaction.api import (
+    InteractionEffectRoutePort,
+    InteractionSceneTransitionPort,
+)
 from armi_kernel.application import (
     ArtifactRef,
     AuditDraft,
@@ -25,6 +29,7 @@ from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 from .api import (
     CreatorReplyDraft,
     DeclaredResponseEffectDraft,
+    DelegatedActionIntentDraft,
     ExpressionCommitContext,
     ExpressionEffectRegistrationPort,
     FormalNoActionDraft,
@@ -40,17 +45,27 @@ _RESPONSE_WORK_KIND = "cognition.response.admit"
 class PostgreSQLExpressionOwner:
     """Commit expression choices without owning subject transaction lifetime."""
 
-    __slots__ = ("_effect_registration", "_relationship_policy", "_relationships")
+    __slots__ = (
+        "_effect_registration",
+        "_interaction_routes",
+        "_interaction_scenes",
+        "_relationship_policy",
+        "_relationships",
+    )
 
     def __init__(
         self,
         relationships: RelationshipReadPort,
         relationship_policy: RelationshipPolicyPort,
         effect_registration: ExpressionEffectRegistrationPort,
+        interaction_routes: InteractionEffectRoutePort,
+        interaction_scenes: InteractionSceneTransitionPort,
     ) -> None:
         self._relationships = relationships
         self._relationship_policy = relationship_policy
         self._effect_registration = effect_registration
+        self._interaction_routes = interaction_routes
+        self._interaction_scenes = interaction_scenes
 
     async def commit(
         self,
@@ -132,6 +147,59 @@ class PostgreSQLExpressionOwner:
             response_artifact=response_artifact,
             action_id=action_id,
             revision_id=revision_id,
+        )
+
+    async def commit_delegation(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        commit_id: UUID,
+        draft: DelegatedActionIntentDraft,
+    ) -> None:
+        connection = unit_of_work.transaction
+        action_id, revision_id = uuid7(), uuid7()
+        await connection.execute(
+            """
+            INSERT INTO armi.action_intents (
+                action_intent_id, subject_id, scene_id, context_party_id,
+                root_opportunity_id, purpose, action_kind,
+                current_revision_id, operation_ref) VALUES (
+                %s,%s,%s,%s,%s,'delegate_codex_work','codex_delegation',NULL,%s)
+            """,
+            (
+                action_id,
+                draft.subject_id,
+                draft.scene_id,
+                draft.creator_party_id,
+                draft.root_opportunity_id,
+                draft.operation_ref,
+            ),
+        )
+        await connection.execute(
+            """
+            INSERT INTO armi.action_intent_revisions (
+                action_intent_revision_id, action_intent_id, revision_no,
+                capability_kind, operation_class, purpose,
+                candidate_validation_id, proposal_ref, subject_commit_id,
+                codex_task_source_id, task_manifest_digest, validator_id) VALUES (
+                %s,%s,1,'codex.delegated-work','execute','delegate_codex_work',
+                %s,%s,%s,%s,%s,%s)
+            """,
+            (
+                revision_id,
+                action_id,
+                draft.validation_id,
+                draft.proposal_ref,
+                commit_id,
+                draft.task_source_id,
+                draft.task_manifest_digest.value,
+                draft.validator_id,
+            ),
+        )
+        await connection.execute(
+            "UPDATE armi.action_intents SET current_revision_id=%s "
+            "WHERE action_intent_id=%s",
+            (revision_id, action_id),
         )
 
     async def record_terminal(
@@ -291,51 +359,16 @@ class PostgreSQLExpressionOwner:
         ):
             raise ResponseViolation("SUBJECT-OTHER-HUMAN-SCOPE")
         connection = unit_of_work.transaction
-        route = await (
-            await connection.execute(
-                """
-                SELECT scene.scene_kind, scene.primary_party_id,
-                       group_binding.external_binding_id,
-                       person_binding.external_binding_id,
-                       context_party.party_kind
-                FROM armi.interaction_scenes AS scene
-                JOIN armi.parties AS context_party ON context_party.party_id = %s
-                LEFT JOIN armi.external_channel_bindings AS group_binding
-                  ON group_binding.scene_id = scene.scene_id
-                 AND group_binding.party_id = scene.primary_party_id
-                 AND group_binding.external_kind = 'group'
-                 AND group_binding.status = 'active'
-                LEFT JOIN armi.external_channel_bindings AS person_binding
-                  ON person_binding.scene_id = scene.scene_id
-                 AND person_binding.party_id = %s
-                 AND person_binding.external_kind = 'person'
-                 AND person_binding.status = 'active'
-                WHERE scene.scene_id = %s AND scene.subject_id = %s
-                  AND scene.current_status = 'open'
-                  AND scene.scene_kind IN ('other_human_dialogue', 'group_dialogue')
-                """,
-                (
-                    context.other_party_id,
-                    context.other_party_id,
-                    context.scene_id,
-                    context.subject_id,
-                ),
-            )
-        ).fetchone()
-        if route is None:
-            raise ResponseViolation("SUBJECT-OTHER-HUMAN-SCENE")
-        group_route = str(route[0]) == "group_dialogue"
-        private_route = str(route[0]) == "other_human_dialogue" and route[3] is not None
-        relationship_scope = (
-            "creator_social" if route[4] == "creator" else "other_human_social"
+        route = await self._interaction_routes.effect_route(
+            connection,
+            scene_id=context.scene_id,
+            context_party_id=context.other_party_id,
         )
-        if group_route:
-            if route[2] is None:
-                raise ResponseViolation("SUBJECT-OTHER-HUMAN-SCENE")
-        elif route[1] != context.other_party_id or route[2] is not None:
-            raise ResponseViolation("SUBJECT-OTHER-HUMAN-SCENE")
-        destination_party_id = route[1] if group_route else context.other_party_id
-        destination_binding_id = route[2] if group_route else route[3]
+        group_route = route.destination_kind == "external_group"
+        private_route = route.destination_kind == "external_private"
+        relationship_scope = "other_human_social"
+        destination_party_id = route.destination_party_id
+        destination_binding_id = route.destination_binding_id
         action = replies[0] if replies else endings[0]
         if (
             action.subject_id != context.subject_id
@@ -349,24 +382,12 @@ class PostgreSQLExpressionOwner:
                 raise ResponseViolation("SUBJECT-OTHER-HUMAN-GROUP-END")
             if response_artifact is not None:
                 raise ResponseViolation("SUBJECT-RESPONSE-ARTIFACT")
-            updated = await (
-                await connection.execute(
-                    """
-                    UPDATE armi.interaction_scenes
-                    SET current_status = 'closed',
-                        closed_at = statement_timestamp(),
-                        scene_version = scene_version + 1
-                    WHERE scene_id = %s AND subject_id = %s
-                      AND primary_party_id = %s
-                      AND scene_kind = 'other_human_dialogue'
-                      AND current_status = 'open'
-                    RETURNING scene_id
-                    """,
-                    (context.scene_id, context.subject_id, context.other_party_id),
-                )
-            ).fetchone()
-            if updated is None:
-                raise ResponseViolation("SUBJECT-OTHER-HUMAN-SCENE")
+            await self._interaction_scenes.close_other_human_scene(
+                connection,
+                subject_id=context.subject_id,
+                scene_id=context.scene_id,
+                other_party_id=context.other_party_id,
+            )
             await connection.execute(
                 """
                 INSERT INTO armi.dialogue_decisions (

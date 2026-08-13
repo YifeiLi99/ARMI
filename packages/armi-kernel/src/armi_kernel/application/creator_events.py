@@ -56,9 +56,9 @@ _PROJECTIONS = {
     CreatorEventResourceKind.RELATIONSHIP: "creator-relationship.v2",
     CreatorEventResourceKind.SCENE_TIMELINE: "scene-timeline.v5",
     CreatorEventResourceKind.CAPABILITY_REQUEST: "capability-request.v4",
-    CreatorEventResourceKind.OPERATION: "creator-operation.v1",
+    CreatorEventResourceKind.OPERATION: "creator-operation.v2",
     CreatorEventResourceKind.OTHER_HUMAN_RECORD: "other-human-record.v1",
-    CreatorEventResourceKind.EFFECT: "creator-effect.v2",
+    CreatorEventResourceKind.EFFECT: "creator-effect.v3",
     CreatorEventResourceKind.SUBJECT_SUMMARY: "subject-summary.v1",
     CreatorEventResourceKind.DATA_RIGHTS: "data-rights-order.v2",
 }

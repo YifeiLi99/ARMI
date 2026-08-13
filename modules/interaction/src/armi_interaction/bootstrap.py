@@ -16,6 +16,7 @@ from armi_runtime_foundation import (
 )
 from armi_subject_state.api import SubjectStateReadPort
 
+from ._action_postgresql import PostgreSQLInteractionActionOwner
 from ._birth_postgresql import PostgreSQLInteractionBirth
 from ._creator import EvidenceAcceptanceTransaction
 from ._creator_postgresql import CreatorInputRepository
@@ -33,15 +34,16 @@ from ._timeline_postgresql import PostgreSQLSceneTimelineQuery
 from .api import (
     CreatorInputTransactionPort,
     CreatorInteractionPort,
-    CreatorOperationQueryPort,
     CreatorScenePort,
     ExternalMessageInputPort,
     InteractionArtifactCatalogPort,
     InteractionBirthPort,
     InteractionDataRightsGate,
     InteractionEffectDeliveryPort,
+    InteractionEffectRoutePort,
     InteractionIdentityPort,
     InteractionPerceptionPort,
+    InteractionSceneTransitionPort,
     InteractionSubjectCommitPort,
     InteractionWakeupPort,
     OtherHumanInputPort,
@@ -65,7 +67,6 @@ def bootstrap_interaction_subject_commit() -> InteractionSubjectCommitPort:
 @dataclass(frozen=True, slots=True)
 class InteractionModule:
     creator_input: CreatorInteractionPort
-    creator_operations: CreatorOperationQueryPort
     creator_transaction: CreatorInputTransactionPort
     creator_scenes: CreatorScenePort
     scene_timeline: SceneTimelineQueryPort
@@ -73,6 +74,8 @@ class InteractionModule:
     external_message_input: ExternalMessageInputPort
     perception: InteractionPerceptionPort
     effect_delivery: InteractionEffectDeliveryPort
+    effect_routes: InteractionEffectRoutePort
+    scene_transitions: InteractionSceneTransitionPort
     identity: InteractionIdentityPort
     _timeline: PostgreSQLSceneTimelineQuery
 
@@ -81,6 +84,17 @@ class InteractionModule:
 
     async def close(self) -> None:
         await self._timeline.close()
+
+
+@dataclass(frozen=True, slots=True)
+class InteractionActionPorts:
+    routes: InteractionEffectRoutePort
+    scenes: InteractionSceneTransitionPort
+
+
+def bootstrap_interaction_action_ports() -> InteractionActionPorts:
+    owner = PostgreSQLInteractionActionOwner()
+    return InteractionActionPorts(owner, owner)
 
 
 def bootstrap_interaction(
@@ -103,7 +117,7 @@ def bootstrap_interaction(
     fault_injector: Callable[[str], None] | None = None,
     identity: InteractionIdentityPort,
 ) -> InteractionModule:
-    creator_repository = CreatorInputRepository(evidence, opportunity)
+    creator_repository = CreatorInputRepository(evidence, evidence_read, opportunity)
     other_repository = OtherHumanInputRepository(evidence, opportunity)
     creator_input = EvidenceAcceptanceTransaction(
         creator_party_id=creator_party_id,
@@ -152,9 +166,9 @@ def bootstrap_interaction(
         codex_tasks=codex_task_projection,
     )
     perception = PostgreSQLInteractionPerception()
+    actions = bootstrap_interaction_action_ports()
     return InteractionModule(
         creator_input=creator_input,
-        creator_operations=creator_input,
         creator_transaction=creator_repository,
         creator_scenes=creator_scenes,
         scene_timeline=timeline,
@@ -162,6 +176,8 @@ def bootstrap_interaction(
         external_message_input=external,
         perception=perception,
         effect_delivery=perception,
+        effect_routes=actions.routes,
+        scene_transitions=actions.scenes,
         identity=identity,
         _timeline=timeline,
     )
@@ -172,8 +188,10 @@ def bootstrap_interaction_recovery() -> RecoveryParticipant:
 
 
 __all__ = (
+    "InteractionActionPorts",
     "InteractionModule",
     "bootstrap_interaction",
+    "bootstrap_interaction_action_ports",
     "bootstrap_interaction_birth",
     "bootstrap_interaction_identity",
     "bootstrap_interaction_recovery",

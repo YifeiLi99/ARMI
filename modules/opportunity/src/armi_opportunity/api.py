@@ -217,6 +217,30 @@ class OpportunityCommitSnapshot:
     activity_id: UUID | None
 
 
+@dataclass(frozen=True, slots=True)
+class OpportunityOperationSnapshot:
+    root_opportunity_id: UUID
+    current_opportunity_id: UUID
+    evidence_id: UUID
+    subject_id: UUID
+    scene_id: UUID
+    context_party_id: UUID
+    purpose: str
+    disposition: str
+    reconsideration_no: int
+
+
+@runtime_checkable
+class OpportunityOperationReadPort(Protocol):
+    async def operation_snapshot(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        root_opportunity_id: UUID,
+        context_party_id: UUID,
+    ) -> OpportunityOperationSnapshot | None: ...
+
+
 @runtime_checkable
 class OpportunityWakeupPort(Protocol):
     def notify(self, channel: str) -> None: ...
@@ -342,6 +366,8 @@ __all__ = (
     "OpportunityAdmissionStatus",
     "OpportunityCommitSnapshot",
     "OpportunityId",
+    "OpportunityOperationReadPort",
+    "OpportunityOperationSnapshot",
     "OpportunityPurpose",
     "OpportunityRuntimePort",
     "OpportunitySelector",

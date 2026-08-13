@@ -10,7 +10,9 @@ from datetime import UTC, datetime
 from typing import cast
 from uuid import UUID, uuid7
 
-from armi_capability.api import CapabilityGrantConsumptionPort
+from armi_capability.api import CapabilityActionAuthorizationPort
+from armi_expression.api import ExpressionEffectLinkPort, ExpressionIntentReadPort
+from armi_interaction.api import InteractionEffectRoutePort
 from armi_kernel.application import (
     ArtifactViolation,
     CreatorEventResourceKind,
@@ -18,6 +20,7 @@ from armi_kernel.application import (
     CreatorProjectionNotifier,
     DurableWorkPort,
     WorkLease,
+    WorkRecord,
     WorkViolation,
 )
 from armi_kernel.contracts import ContractViolation
@@ -32,7 +35,6 @@ from ._dispatch import (
 )
 from ._inbox import PostgreSQLLocalInbox
 from ._ledger import (
-    EffectRegistrationSnapshot,
     PostgreSQLEffectLedgerRepository,
 )
 from ._router import RoutedActionAdapter
@@ -42,7 +44,10 @@ from .api import (
     EffectArtifactContent,
     EffectArtifactKind,
     EffectArtifactStorePort,
+    EffectCodexArtifactPort,
     EffectId,
+    EffectRegistrationContext,
+    EffectRegistrationContextPort,
     EffectRegistrationResult,
     EffectTimelinePort,
     EffectView,
@@ -62,12 +67,15 @@ def _ignore_diagnostic(event: str) -> None:
 class EffectRegistrationPipeline:
     __slots__ = (
         "_adapter",
+        "_codex_artifacts",
         "_diagnostic",
         "_dispatcher",
         "_factory",
         "_fault_injector",
+        "_intents",
         "_lease_owner",
         "_notifier",
+        "_registration_context",
         "_repository",
         "_stop",
         "_storage",
@@ -81,7 +89,12 @@ class EffectRegistrationPipeline:
         factory: PostgreSQLRuntimeUnitOfWorkFactory,
         storage: EffectArtifactStorePort,
         work: DurableWorkPort,
-        capability_consumption: CapabilityGrantConsumptionPort,
+        authorization: CapabilityActionAuthorizationPort,
+        intents: ExpressionIntentReadPort,
+        effect_links: ExpressionEffectLinkPort,
+        registration_context: EffectRegistrationContextPort,
+        codex_artifacts: EffectCodexArtifactPort,
+        routes: InteractionEffectRoutePort,
         interaction_delivery: EffectTimelinePort,
         notifier: CreatorProjectionNotifier | None = None,
         adapter: ActionAdapterPort | None = None,
@@ -92,22 +105,29 @@ class EffectRegistrationPipeline:
     ) -> None:
         self._factory = factory
         self._storage = storage
-        self._repository = PostgreSQLEffectLedgerRepository(capability_consumption)
-        self._dispatcher = PostgreSQLEffectDispatchRepository()
+        self._repository = PostgreSQLEffectLedgerRepository(
+            authorization,
+            intents,
+            effect_links,
+        )
+        self._intents = intents
+        self._registration_context = registration_context
+        self._codex_artifacts = codex_artifacts
+        self._dispatcher = PostgreSQLEffectDispatchRepository(authorization, routes)
         if adapter is not None and external_message_adapter is not None:
             raise ValueError("whole-effect and external-message adapters are exclusive")
         if adapter is not None:
             self._adapter = adapter
         else:
             local_inbox = PostgreSQLLocalInbox(factory, interaction_delivery)
-            routes: dict[str, ActionAdapterPort] = {
+            adapter_routes: dict[str, ActionAdapterPort] = {
                 "creator_inbox": local_inbox,
                 "other_human_inbox": local_inbox,
             }
             if external_message_adapter is not None:
-                routes["external_group"] = external_message_adapter
-                routes["external_private"] = external_message_adapter
-            self._adapter = RoutedActionAdapter(routes)
+                adapter_routes["external_group"] = external_message_adapter
+                adapter_routes["external_private"] = external_message_adapter
+            self._adapter = RoutedActionAdapter(adapter_routes)
         self._work = work
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
@@ -137,13 +157,17 @@ class EffectRegistrationPipeline:
             raise EffectViolation("EFFECT-DATABASE") from None
         if not records:
             return False
-        lease = cast(WorkLease, records[0].lease)
+        work_record = records[0]
+        lease = cast(WorkLease, work_record.lease)
         try:
             async with self._factory.unit_of_work() as uow:
-                snapshot = await self._repository.snapshot(uow, lease)
+                snapshot = await self._registration_context.resolve(
+                    uow,
+                    work=work_record,
+                )
             integrity_ok = (
                 await self._read_payload(
-                    snapshot.artifact_id,
+                    snapshot.payload_artifact_id,
                     snapshot.payload_digest.value,
                     snapshot.payload_bytes,
                 )
@@ -158,27 +182,27 @@ class EffectRegistrationPipeline:
             return True
         except EffectViolation as error:
             if error.code == "EFFECT-WORK-STALE":
-                await self._settle_registration_work(lease)
+                await self._settle_registration_work(work_record)
             else:
-                await self._fail_registration_work(lease, error.code)
+                await self._fail_registration_work(work_record, error.code)
             return True
         except RuntimeTransactionFailure, WorkViolation:
             self._diagnostic("effect.registration.transient_failure")
             return True
 
-    async def _settle_registration_work(self, lease: WorkLease) -> None:
+    async def _settle_registration_work(self, work: WorkRecord) -> None:
         try:
             async with self._factory.unit_of_work() as unit_of_work:
-                await self._repository.settle_current_work(unit_of_work, lease)
+                await self._repository.settle_current_work(unit_of_work, work)
         except RuntimeTransactionFailure, EffectViolation, WorkViolation:
             self._diagnostic("effect.registration.settlement_deferred")
 
-    async def _fail_registration_work(self, lease: WorkLease, code: str) -> None:
+    async def _fail_registration_work(self, work: WorkRecord, code: str) -> None:
         try:
             async with self._factory.unit_of_work() as unit_of_work:
                 await self._repository.fail_current_work(
                     unit_of_work,
-                    lease,
+                    work,
                     code=code,
                 )
         except RuntimeTransactionFailure, EffectViolation, WorkViolation:
@@ -220,8 +244,10 @@ class EffectRegistrationPipeline:
                 digest,
                 size,
                 media_type,
-            ) = await self._repository.codex_artifact_reference(
-                uow, effect_id, creator_party_id, kind.value
+            ) = await self._codex_artifacts.artifact_reference(
+                uow,
+                effect_id=effect_id.value,
+                kind=kind.value,
             )
         value = await self._read_payload(artifact_id, digest.value, size)
         if value is None:
@@ -356,14 +382,14 @@ class EffectRegistrationPipeline:
 
     async def _notify_registration(
         self,
-        snapshot: EffectRegistrationSnapshot,
+        snapshot: EffectRegistrationContext,
         result: EffectRegistrationResult | None,
     ) -> None:
         invalidations = [
             (
                 CreatorEventResourceKind.OPERATION,
-                str(snapshot.root_operation_id),
-                "creator-operation.v1",
+                str(snapshot.operation_ref),
+                "creator-operation.v2",
             )
         ]
         if result is not None:
@@ -388,6 +414,10 @@ class EffectRegistrationPipeline:
                     snapshot.request.effect_id,
                     creator_party_id=snapshot.request.destination_party_id,
                 )
+                intent = await self._intents.intent_snapshot(
+                    unit_of_work.transaction,
+                    action_intent_id=view.action_intent_ref,
+                )
         except RuntimeTransactionFailure, EffectViolation:
             self._diagnostic("effect.notification.lookup_failed")
             return
@@ -399,8 +429,8 @@ class EffectRegistrationPipeline:
             ),
             (
                 CreatorEventResourceKind.OPERATION,
-                str(view.root_operation_ref),
-                "creator-operation.v1",
+                str(intent.operation_ref),
+                "creator-operation.v2",
             ),
         ]
         if include_scene:

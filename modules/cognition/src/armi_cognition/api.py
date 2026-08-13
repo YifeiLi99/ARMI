@@ -244,6 +244,24 @@ class CognitionApplicationSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class CognitionOperationSnapshot:
+    episode_status: str | None
+    failure_code: str | None
+    application_resolution: str | None
+    observed_subject_version: int | None
+
+
+@runtime_checkable
+class CognitionOperationReadPort(Protocol):
+    async def operation_snapshot(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        opportunity_id: UUID,
+    ) -> CognitionOperationSnapshot: ...
+
+
+@dataclass(frozen=True, slots=True)
 class CognitionExperienceDraft:
     experience_id: UUID
     subject_id: UUID
@@ -382,6 +400,8 @@ __all__ = (
     "CognitionExperienceDraft",
     "CognitionModelAdapterFactory",
     "CognitionModelPort",
+    "CognitionOperationReadPort",
+    "CognitionOperationSnapshot",
     "CognitionSubjectCommitPort",
     "CognitionWakeupPort",
     "CognitionWorkerPort",

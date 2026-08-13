@@ -1019,6 +1019,25 @@ export interface components {
       /** Truncated */
       truncated: boolean;
     };
+    /** CreatorCodexExecutionDetails */
+    CreatorCodexExecutionDetails: {
+      /** Execution Status */
+      execution_status?: string | null;
+      /** Final Tree Digest */
+      final_tree_digest?: string | null;
+      /** Model Id */
+      model_id?: string | null;
+      /** Sdk Identity */
+      sdk_identity?: string | null;
+      /** Source Tree Digest */
+      source_tree_digest: string;
+      /** Task Source Ref */
+      task_source_ref: string;
+      /** Validator Id */
+      validator_id: string;
+      /** Verification Ref */
+      verification_ref?: string | null;
+    };
     /** CreatorCodexTaskRequest */
     CreatorCodexTaskRequest: {
       /**
@@ -1330,39 +1349,84 @@ export interface components {
     };
     /** CreatorOperationDetails */
     CreatorOperationDetails: {
-      /**
-       * Completion Kind
-       * @enum {string}
-       */
-      completion_kind:
-        | "cognition"
-        | "subject_change"
-        | "formal_decline"
-        | "formal_no_action"
-        | "no_change"
-        | "response_effect"
-        | "codex_effect";
-      /** Delivery State */
-      delivery_state?:
-        | (
-            | "not_started"
-            | "registered"
-            | "dispatching"
-            | "completed"
-            | "failed"
-            | "unknown"
-            | "cancelled"
-          )
-        | null;
+      codex_execution?:
+        components["schemas"]["CreatorCodexExecutionDetails"] | null;
+      /** Dialogue Decision Ref */
+      dialogue_decision_ref?: string | null;
       /** Effect Ref */
       effect_ref?: string | null;
+      /** Intent Ref */
+      intent_ref?: string | null;
+      /**
+       * Operation Kind
+       * @enum {string}
+       */
+      operation_kind:
+        | "cognition"
+        | "subject_change"
+        | "creator_response"
+        | "other_human_response"
+        | "codex_delegation"
+        | "formal_dialogue";
+      /** Operation Ref */
+      operation_ref: string;
+      /**
+       * Outcome
+       * @enum {string}
+       */
+      outcome:
+        | "pending"
+        | "applied"
+        | "completed"
+        | "rejected"
+        | "unavailable"
+        | "failed"
+        | "unknown"
+        | "cancelled"
+        | "no_action"
+        | "deferred"
+        | "stale";
+      /** Policy Decision Ref */
+      policy_decision_ref?: string | null;
       /**
        * Projection Version
        * @constant
        */
-      projection_version: "creator-operation.v1";
-      /** Root Operation Ref */
-      root_operation_ref: string;
+      projection_version: "creator-operation.v2";
+      /** Reason Code */
+      reason_code?: string | null;
+      /**
+       * Stage
+       * @enum {string}
+       */
+      stage:
+        | "accepted"
+        | "context_preparing"
+        | "model_pending"
+        | "candidate_validating"
+        | "subject_committing"
+        | "candidate_rejected"
+        | "applied"
+        | "no_change"
+        | "need_information"
+        | "stale"
+        | "no_action"
+        | "declined"
+        | "deferred"
+        | "ended"
+        | "awaiting_authorization"
+        | "confirmation_required"
+        | "authorization_denied"
+        | "unavailable"
+        | "registering_effect"
+        | "registered"
+        | "dispatching"
+        | "completed"
+        | "failed"
+        | "unknown"
+        | "cancelled";
+      /** Work Ref */
+      work_ref?: string | null;
     };
     /** CreatorProjectionEventResponse */
     CreatorProjectionEventResponse: {
@@ -1404,7 +1468,7 @@ export interface components {
         | "creator-relationship.v2"
         | "scene-timeline.v5"
         | "capability-request.v4"
-        | "creator-operation.v1"
+        | "creator-operation.v2"
         | "other-human-record.v1"
         | "creator-effect.v3"
         | "subject-summary.v1"
@@ -1943,6 +2007,10 @@ export interface components {
     };
     /** EffectResponse */
     EffectResponse: {
+      /** Action Intent Ref */
+      action_intent_ref: string;
+      /** Action Intent Revision Ref */
+      action_intent_revision_ref: string;
       /** Attempt Count */
       attempt_count: number;
       /** Cancelled At */
@@ -1952,8 +2020,6 @@ export interface components {
        * @enum {string}
        */
       capability_kind: "creator.scene.reply" | "codex.delegated-work";
-      /** Capability Request Ref */
-      capability_request_ref: string;
       /**
        * Contract Version
        * @constant
@@ -1966,8 +2032,6 @@ export interface components {
        * @enum {string}
        */
       effect_kind: "creator_response" | "codex_delegation";
-      /** Grant Ref */
-      grant_ref: string;
       /** Last Observation Kind */
       last_observation_kind?:
         | (
@@ -1983,6 +2047,8 @@ export interface components {
         | null;
       /** Last Observation Reliability */
       last_observation_reliability?: ("reliable" | "inconclusive") | null;
+      /** Policy Decision Ref */
+      policy_decision_ref?: string | null;
       /**
        * Projection Version
        * @constant
@@ -1992,8 +2058,6 @@ export interface components {
       registered_at: string;
       /** Response Text */
       response_text?: string | null;
-      /** Root Operation Ref */
-      root_operation_ref: string;
       /** Settled At */
       settled_at?: string | null;
       /**

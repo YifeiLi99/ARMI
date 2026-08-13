@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from typing import cast
 from uuid import uuid7
 
-from armi_expression.api import ResponseViolation
+from armi_artifact_store.api import ArtifactCatalogPort
+from armi_capability.api import CapabilityAdmissionPort
+from armi_data_rights.api import DataRightsEffectGate
+from armi_expression.api import ExpressionResponseAdmissionPort, ResponseViolation
 from armi_kernel.application import (
     ArtifactViolation,
     DurableWorkPort,
-    WorkLease,
+    WorkRecord,
     WorkViolation,
 )
 from armi_kernel.contracts import ContractViolation
@@ -55,12 +57,21 @@ class ResponseAdmissionPipeline:
         factory: PostgreSQLRuntimeUnitOfWorkFactory,
         storage: EffectArtifactStorePort,
         work: DurableWorkPort,
+        artifacts: ArtifactCatalogPort,
+        capability: CapabilityAdmissionPort,
+        data_rights: DataRightsEffectGate,
+        expression: ExpressionResponseAdmissionPort,
         wakeups: EffectWakeupPort,
         diagnostic: Diagnostic | None = None,
     ) -> None:
         self._factory = factory
         self._storage = storage
-        self._repository = PostgreSQLResponseAdmissionRepository()
+        self._repository = PostgreSQLResponseAdmissionRepository(
+            artifacts=artifacts,
+            capability=capability,
+            data_rights=data_rights,
+            expression=expression,
+        )
         self._work = work
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
@@ -88,16 +99,16 @@ class ResponseAdmissionPipeline:
             raise ResponseViolation("RESPONSE-DATABASE") from None
         if not records:
             return False
-        lease = cast(WorkLease, records[0].lease)
+        work = records[0]
         snapshot: ResponseAdmissionSnapshot | None = None
         try:
             async with self._factory.unit_of_work() as unit_of_work:
-                snapshot = await self._repository.snapshot(unit_of_work, lease)
+                snapshot = await self._repository.snapshot(unit_of_work, work)
             integrity_ok = await self._verify(snapshot)
             async with self._factory.unit_of_work() as unit_of_work:
                 await self._repository.settle(
                     unit_of_work,
-                    lease=lease,
+                    work=work,
                     snapshot=snapshot,
                     integrity_ok=integrity_ok,
                 )
@@ -105,27 +116,27 @@ class ResponseAdmissionPipeline:
             return True
         except ResponseViolation as error:
             if error.code == "RESPONSE-WORK-STALE":
-                await self._settle_current_work(lease)
+                await self._settle_current_work(work)
                 return True
-            await self._fail_current_work(lease, error.code)
+            await self._fail_current_work(work, error.code)
             return True
         except RuntimeTransactionFailure, WorkViolation:
             self._diagnostic("response.admission.transient_failure")
             return True
 
-    async def _settle_current_work(self, lease: WorkLease) -> None:
+    async def _settle_current_work(self, work: WorkRecord) -> None:
         try:
             async with self._factory.unit_of_work() as unit_of_work:
-                await self._repository.settle_current_work(unit_of_work, lease)
+                await self._repository.settle_current_work(unit_of_work, work)
         except RuntimeTransactionFailure, ResponseViolation, WorkViolation:
             self._diagnostic("response.admission.settlement_deferred")
 
-    async def _fail_current_work(self, lease: WorkLease, code: str) -> None:
+    async def _fail_current_work(self, work: WorkRecord, code: str) -> None:
         try:
             async with self._factory.unit_of_work() as unit_of_work:
                 await self._repository.fail_current_work(
                     unit_of_work,
-                    lease,
+                    work,
                     code=code,
                 )
         except RuntimeTransactionFailure, ResponseViolation, WorkViolation:

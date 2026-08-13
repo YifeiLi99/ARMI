@@ -17,12 +17,15 @@ from typing import Any, cast
 from uuid import UUID, uuid7
 
 import rfc8785
-from armi_effect.api import EffectDispatchBoundaryPort
-from armi_evidence.api import EvidenceWritePort
+from armi_artifact_store.api import ArtifactCatalogPort
+from armi_effect.api import EffectCodexLifecyclePort
+from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
+from armi_expression.api import ExpressionIntentReadPort
 from armi_interaction.api import (
     CreatorInputAcceptance,
     CreatorInputContext,
     CreatorInputTransactionPort,
+    InteractionIdentityPort,
 )
 from armi_kernel.application import (
     ArtifactId,
@@ -71,7 +74,7 @@ from ._runner_contract import (
     CodexTaskManifest,
 )
 from ._subprocess_client import run_custodied_subprocess
-from .api import CodexArtifactCatalogPort, CodexArtifactStorePort
+from .api import CodexArtifactStorePort, CodexTaskSourceReadPort
 
 Diagnostic = Callable[[str], None]
 
@@ -100,12 +103,16 @@ class CodexTaskSourceGateway(
         factory: PostgreSQLRuntimeUnitOfWorkFactory,
         *,
         storage: CodexArtifactStorePort,
-        catalog: CodexArtifactCatalogPort,
+        catalog: ArtifactCatalogPort,
         creator_party_id: UUID,
         input_repository: CreatorInputTransactionPort,
         evidence: EvidenceWritePort,
+        evidence_read: EvidenceReadPort,
+        identity: InteractionIdentityPort,
         opportunity: OpportunityAdmissionPort,
-        dispatch_boundary: EffectDispatchBoundaryPort,
+        effect: EffectCodexLifecyclePort,
+        expression: ExpressionIntentReadPort,
+        sources: CodexTaskSourceReadPort,
         notifier: CreatorProjectionNotifier | None,
         diagnostic: Diagnostic,
     ) -> None:
@@ -117,7 +124,13 @@ class CodexTaskSourceGateway(
         self._repository = PostgreSQLCodexDelegationRepository(
             evidence,
             opportunity,
-            dispatch_boundary,
+            effect,
+            expression,
+            catalog,
+            sources,
+            evidence_read,
+            identity,
+            input_repository,
         )
         self._input_repository = input_repository
         self._catalog = catalog
@@ -302,7 +315,7 @@ class CodexTaskSourceGateway(
                     CreatorEventResourceKind.OPERATION,
                     str(acceptance.opportunity_id),
                     now,
-                    "creator-operation.v1",
+                    "creator-operation.v2",
                 )
             )
         except Exception:
@@ -329,14 +342,18 @@ class CodexEffectPipeline:
         *,
         factory: PostgreSQLRuntimeUnitOfWorkFactory,
         storage: CodexArtifactStorePort,
-        catalog: CodexArtifactCatalogPort,
+        catalog: ArtifactCatalogPort,
         environment_root: Path,
         run_root: Path,
         creator_party_id: UUID,
         creator_input: CreatorInputTransactionPort,
         evidence: EvidenceWritePort,
+        evidence_read: EvidenceReadPort,
+        identity: InteractionIdentityPort,
         opportunity: OpportunityAdmissionPort,
-        dispatch_boundary: EffectDispatchBoundaryPort,
+        effect: EffectCodexLifecyclePort,
+        expression: ExpressionIntentReadPort,
+        sources: CodexTaskSourceReadPort,
         runner_entry_module: str,
         notifier: CreatorProjectionNotifier | None,
         diagnostic: Diagnostic | None = None,
@@ -349,7 +366,13 @@ class CodexEffectPipeline:
         self._repository = PostgreSQLCodexDelegationRepository(
             evidence,
             opportunity,
-            dispatch_boundary,
+            effect,
+            expression,
+            catalog,
+            sources,
+            evidence_read,
+            identity,
+            creator_input,
         )
         self._catalog = catalog
         self._lease_owner = uuid7()
@@ -362,8 +385,12 @@ class CodexEffectPipeline:
             creator_party_id=creator_party_id,
             input_repository=creator_input,
             evidence=evidence,
+            evidence_read=evidence_read,
+            identity=identity,
             opportunity=opportunity,
-            dispatch_boundary=dispatch_boundary,
+            effect=effect,
+            expression=expression,
+            sources=sources,
             notifier=notifier,
             diagnostic=self._diagnostic,
         )

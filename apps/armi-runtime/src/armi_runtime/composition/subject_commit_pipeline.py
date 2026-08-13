@@ -694,7 +694,7 @@ class SubjectCommitPipeline:
                 CreatorEventResourceKind.OPERATION,
                 str(snapshot.root_opportunity_id),
                 now,
-                "creator-operation.v1",
+                "creator-operation.v2",
             )
         ]
         if result.subject_commit_id is not None:

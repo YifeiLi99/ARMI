@@ -18,6 +18,7 @@ from ._postgresql import DataRightsOrderRepository
 from .api import (
     CreatorExportPort,
     DataRightsArtifactStorePort,
+    DataRightsEffectGate,
     DataRightsInteractionGate,
     DataRightsMemoryPort,
     DataRightsOrderPort,
@@ -41,6 +42,10 @@ class DataRightsCore:
     def gate(self) -> DataRightsInteractionGate:
         return self._gate
 
+    @property
+    def effect_gate(self) -> DataRightsEffectGate:
+        return self._gate
+
     def seal(self) -> DataRightsOrderRepository:
         if self._sealed:
             raise RuntimeError("data rights core is already sealed")
@@ -54,6 +59,7 @@ class DataRightsModule:
     exports: CreatorExportPort
     gate: DataRightsInteractionGate
     subject_commit: DataRightsSubjectCommitGate
+    effect_gate: DataRightsEffectGate
     _orders: DataRightsOrderService
     _exports: CreatorExportService
 
@@ -113,7 +119,7 @@ def bootstrap_data_rights(
         unit_of_work_factory=unit_of_work_factory,
         catalog=catalog,
     )
-    return DataRightsModule(orders, exports, gate, gate, orders, exports)
+    return DataRightsModule(orders, exports, gate, gate, gate, orders, exports)
 
 
 def bootstrap_data_rights_recovery() -> RecoveryParticipant:

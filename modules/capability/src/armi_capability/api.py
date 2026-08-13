@@ -534,15 +534,124 @@ class CapabilityGrantConsumptionPort(Protocol):
     ) -> CapabilityConsumptionResult: ...
 
 
+@dataclass(frozen=True, slots=True)
+class CapabilityAdmissionRequest:
+    capability_kind: str
+    operation_class: str
+    subject_id: UUID
+    scene_id: UUID
+    creator_party_id: UUID
+    purpose: str
+    payload_bytes: int
+    effect_kind: str
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilityAdmissionResult:
+    outcome: CapabilityAuthorizationOutcome
+    grant_id: UUID | None
+    reason_code: str
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilityPolicyDecisionSnapshot:
+    policy_decision_id: UUID
+    action_intent_revision_id: UUID
+    outcome: CapabilityAuthorizationOutcome
+    grant_id: UUID | None
+    valid_until: datetime | None
+    reason_code: str
+    is_current: bool
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilityDispatchAuthorization:
+    allowed: bool
+    grant_id: UUID | None
+    reason_code: str | None
+
+
+@runtime_checkable
+class CapabilityAdmissionPort(Protocol):
+    async def preflight(
+        self,
+        transaction: PostgreSQLTransaction,
+        request: CapabilityAdmissionRequest,
+    ) -> CapabilityAdmissionResult: ...
+
+
+@runtime_checkable
+class CapabilityEffectAuthorizationPort(Protocol):
+    async def authorize_effect(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        action_intent_revision_id: UUID,
+        request: CapabilityConsumptionRequest,
+    ) -> CapabilityPolicyDecisionSnapshot: ...
+
+    async def record_effect_outcome(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        action_intent_revision_id: UUID,
+        outcome: CapabilityAuthorizationOutcome,
+        reason_code: str,
+    ) -> CapabilityPolicyDecisionSnapshot: ...
+
+
+@runtime_checkable
+class CapabilityOperationReadPort(Protocol):
+    async def policy_for_revision(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        action_intent_revision_id: UUID,
+    ) -> CapabilityPolicyDecisionSnapshot | None: ...
+
+
+@runtime_checkable
+class CapabilityDispatchAuthorizationPort(Protocol):
+    async def authorize_dispatch(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        policy_decision_id: UUID,
+        action_intent_revision_id: UUID,
+        before_dispatch_deadline: bool,
+    ) -> CapabilityDispatchAuthorization: ...
+
+
+@runtime_checkable
+class CapabilityActionAuthorizationPort(
+    CapabilityEffectAuthorizationPort,
+    CapabilityDispatchAuthorizationPort,
+    Protocol,
+):
+    """Single owner port used across registration and dispatch."""
+
+
 @runtime_checkable
 class CapabilityEffectCancellationPort(Protocol):
     async def cancel_registered(
         self,
         transaction: PostgreSQLTransaction,
         *,
-        grant_id: UUID,
+        policy_decision_ids: tuple[UUID, ...],
         reason_code: str,
     ) -> tuple[tuple[UUID, UUID, UUID], ...]: ...
+
+
+@runtime_checkable
+class CapabilityCodexActivationPort(Protocol):
+    async def activate_codex_registration(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        subject_commit_id: UUID,
+        grant_id: UUID,
+        valid_until: datetime,
+    ) -> None: ...
 
 
 def _uuid7(value: UUID, code: str) -> None:
@@ -552,19 +661,29 @@ def _uuid7(value: UUID, code: str) -> None:
 
 __all__ = (
     "CapabilityAcceptedBasis",
+    "CapabilityActionAuthorizationPort",
+    "CapabilityAdmissionPort",
+    "CapabilityAdmissionRequest",
+    "CapabilityAdmissionResult",
     "CapabilityAuthorizationOutcome",
     "CapabilityAvailability",
+    "CapabilityCodexActivationPort",
     "CapabilityCommitContext",
     "CapabilityCommitPort",
     "CapabilityConsumptionRequest",
     "CapabilityConsumptionResult",
     "CapabilityContextStatePayload",
     "CapabilityDecisionId",
+    "CapabilityDispatchAuthorization",
+    "CapabilityDispatchAuthorizationPort",
+    "CapabilityEffectAuthorizationPort",
     "CapabilityEffectCancellationPort",
     "CapabilityGrantConsumptionPort",
     "CapabilityId",
     "CapabilityKind",
     "CapabilityOperation",
+    "CapabilityOperationReadPort",
+    "CapabilityPolicyDecisionSnapshot",
     "CapabilityPolicyPort",
     "CapabilityReadPort",
     "CapabilityRequestDraft",

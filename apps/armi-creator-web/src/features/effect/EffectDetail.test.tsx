@@ -46,9 +46,8 @@ describe("Creator effect detail", () => {
       contract_version: "1.0",
       projection_version: "creator-effect.v3",
       effect_id: EFFECT_ID,
-      root_operation_ref: OPERATION_ID,
-      capability_request_ref: OPERATION_ID,
-      grant_ref: "018f47a6-7b2d-7c35-8b18-684e38ab6ef9",
+      action_intent_ref: OPERATION_ID,
+      action_intent_revision_ref: "018f47a6-7b2d-7c35-8b18-684e38ab6ef9",
       capability_kind: "creator.scene.reply",
       effect_kind: "creator_response",
       status: "completed",
@@ -62,7 +61,7 @@ describe("Creator effect detail", () => {
     });
 
     expect(await screen.findByText("已核验回应")).toBeInTheDocument();
-    expect(screen.getByText("授权依据")).toBeInTheDocument();
+    expect(screen.getByText("Action Intent")).toBeInTheDocument();
     expect(screen.getByText("creator.scene.reply")).toBeInTheDocument();
     expect(screen.getByText(malicious)).toBeInTheDocument();
     expect(document.querySelector("img")).toBeNull();
@@ -74,9 +73,8 @@ describe("Creator effect detail", () => {
       contract_version: "1.0",
       projection_version: "creator-effect.v3",
       effect_id: EFFECT_ID,
-      root_operation_ref: OPERATION_ID,
-      capability_request_ref: OPERATION_ID,
-      grant_ref: "018f47a6-7b2d-7c35-8b18-684e38ab6ef9",
+      action_intent_ref: OPERATION_ID,
+      action_intent_revision_ref: "018f47a6-7b2d-7c35-8b18-684e38ab6ef9",
       capability_kind: "creator.scene.reply",
       effect_kind: "creator_response",
       status: "unknown",

@@ -212,8 +212,10 @@ name = "armi-codex"
 version = "0.0.0"
 source = { editable = "modules/codex" }
 dependencies = [
+    { name = "armi-artifact-store" },
     { name = "armi-effect" },
     { name = "armi-evidence" },
+    { name = "armi-expression" },
     { name = "armi-interaction" },
     { name = "armi-kernel" },
     { name = "armi-opportunity" },
@@ -224,8 +226,10 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "armi-artifact-store", editable = "packages/armi-artifact-store" },
     { name = "armi-effect", editable = "modules/effect" },
     { name = "armi-evidence", editable = "modules/evidence" },
+    { name = "armi-expression", editable = "modules/expression" },
     { name = "armi-interaction", editable = "modules/interaction" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-opportunity", editable = "modules/opportunity" },
@@ -344,8 +348,11 @@ name = "armi-effect"
 version = "0.0.0"
 source = { editable = "modules/effect" }
 dependencies = [
+    { name = "armi-artifact-store" },
     { name = "armi-capability" },
+    { name = "armi-data-rights" },
     { name = "armi-expression" },
+    { name = "armi-interaction" },
     { name = "armi-kernel" },
     { name = "armi-runtime-foundation" },
     { name = "psycopg", extra = ["binary"] },
@@ -354,8 +361,11 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "armi-artifact-store", editable = "packages/armi-artifact-store" },
     { name = "armi-capability", editable = "modules/capability" },
+    { name = "armi-data-rights", editable = "modules/data-rights" },
     { name = "armi-expression", editable = "modules/expression" },
+    { name = "armi-interaction", editable = "modules/interaction" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
@@ -378,6 +388,7 @@ name = "armi-expression"
 version = "0.0.0"
 source = { editable = "modules/expression" }
 dependencies = [
+    { name = "armi-interaction" },
     { name = "armi-kernel" },
     { name = "armi-relationship" },
     { name = "armi-runtime-foundation" },
@@ -386,6 +397,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "armi-interaction", editable = "modules/interaction" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-relationship", editable = "modules/relationship" },
     { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },

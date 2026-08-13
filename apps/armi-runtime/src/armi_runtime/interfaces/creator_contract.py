@@ -33,6 +33,7 @@ _SCENE_KEY_PATTERN = r"[a-z0-9][a-z0-9._-]{0,63}"
 _CURSOR_PATTERN = r"v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
 _EVENT_ID_PATTERN = r"sse-v1\.[A-Za-z0-9_-]{22}\.[1-9][0-9]*"
 _IDEMPOTENCY_KEY_PATTERN = r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}"
+_DIGEST_PATTERN = r"sha256:[0-9a-f]{64}"
 type ReasonCode = Annotated[str, Field(pattern=_ERROR_CODE_PATTERN)]
 type ErrorCategoryValue = Literal[
     "input",
@@ -624,7 +625,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
         "creator-relationship.v2",
         "scene-timeline.v5",
         "capability-request.v4",
-        "creator-operation.v1",
+        "creator-operation.v2",
         "other-human-record.v1",
         "creator-effect.v3",
         "subject-summary.v1",
@@ -760,31 +761,75 @@ class UnavailableOutcomeResponse(_CommonOutcomeResponse):
     recovery_hint: Annotated[str, Field(min_length=1, max_length=4096)] | None = None
 
 
+class CreatorCodexExecutionDetails(_StrictWireModel):
+    task_source_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    verification_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
+    execution_status: Annotated[str, Field(min_length=1, max_length=64)] | None = None
+    model_id: Annotated[str, Field(min_length=1, max_length=128)] | None = None
+    sdk_identity: Annotated[str, Field(min_length=1, max_length=256)] | None = None
+    validator_id: Annotated[str, Field(min_length=1, max_length=128)]
+    source_tree_digest: Annotated[str, Field(pattern=_DIGEST_PATTERN)]
+    final_tree_digest: Annotated[str, Field(pattern=_DIGEST_PATTERN)] | None = None
+
+
 class CreatorOperationDetails(_StrictWireModel):
-    projection_version: Literal["creator-operation.v1"]
-    root_operation_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
-    completion_kind: Literal[
+    projection_version: Literal["creator-operation.v2"]
+    operation_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    operation_kind: Literal[
         "cognition",
         "subject_change",
-        "formal_decline",
-        "formal_no_action",
-        "no_change",
-        "response_effect",
-        "codex_effect",
+        "creator_response",
+        "other_human_response",
+        "codex_delegation",
+        "formal_dialogue",
     ]
-    delivery_state: (
-        Literal[
-            "not_started",
-            "registered",
-            "dispatching",
-            "completed",
-            "failed",
-            "unknown",
-            "cancelled",
-        ]
-        | None
-    ) = None
+    intent_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
+    dialogue_decision_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
+    policy_decision_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
     effect_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
+    work_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
+    stage: Literal[
+        "accepted",
+        "context_preparing",
+        "model_pending",
+        "candidate_validating",
+        "subject_committing",
+        "candidate_rejected",
+        "applied",
+        "no_change",
+        "need_information",
+        "stale",
+        "no_action",
+        "declined",
+        "deferred",
+        "ended",
+        "awaiting_authorization",
+        "confirmation_required",
+        "authorization_denied",
+        "unavailable",
+        "registering_effect",
+        "registered",
+        "dispatching",
+        "completed",
+        "failed",
+        "unknown",
+        "cancelled",
+    ]
+    outcome: Literal[
+        "pending",
+        "applied",
+        "completed",
+        "rejected",
+        "unavailable",
+        "failed",
+        "unknown",
+        "cancelled",
+        "no_action",
+        "deferred",
+        "stale",
+    ]
+    reason_code: Annotated[str, Field(min_length=1, max_length=128)] | None = None
+    codex_execution: CreatorCodexExecutionDetails | None = None
 
 
 class OperationAcceptedOutcomeResponse(_CommonOutcomeResponse):
@@ -862,9 +907,9 @@ class EffectResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
     projection_version: Literal["creator-effect.v3"]
     effect_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
-    root_operation_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
-    capability_request_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
-    grant_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    action_intent_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    action_intent_revision_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    policy_decision_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
     capability_kind: Literal["creator.scene.reply", "codex.delegated-work"]
     effect_kind: Literal["creator_response", "codex_delegation"]
     status: Literal[

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any, Literal, cast
 from uuid import UUID, uuid7
 
@@ -10,9 +9,13 @@ import rfc8785
 from armi_capability.api import (
     CapabilityAuthorizationOutcome,
     CapabilityConsumptionRequest,
-    CapabilityGrantConsumptionPort,
+    CapabilityEffectAuthorizationPort,
 )
-from armi_expression.api import DeclaredResponseEffectDraft
+from armi_expression.api import (
+    DeclaredResponseEffectDraft,
+    ExpressionEffectLinkPort,
+    ExpressionIntentReadPort,
+)
 from armi_kernel.application import (
     AuditDraft,
     AuditEventId,
@@ -20,19 +23,21 @@ from armi_kernel.application import (
     AuditResultStatus,
     AuditSensitivity,
     WorkLease,
+    WorkRecord,
     WorkResultRef,
 )
-from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId, TraceId
+from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWork,
     PostgreSQLTransaction,
 )
-from psycopg import sql
 
 from .api import (
     EffectId,
+    EffectLedgerSnapshot,
     EffectObservationKind,
     EffectObservationReliability,
+    EffectRegistrationContext,
     EffectRegistrationResult,
     EffectStatus,
     EffectVerificationStatus,
@@ -40,26 +45,6 @@ from .api import (
     EffectViolation,
     PolicyDecisionId,
 )
-
-
-@dataclass(frozen=True, slots=True)
-class EffectRegistrationSnapshot:
-    operation_ref: UUID
-    root_operation_id: UUID
-    action_revision_id: UUID
-    subject_id: UUID
-    scene_id: UUID
-    creator_party_id: UUID
-    artifact_id: UUID
-    payload_digest: Digest
-    payload_bytes: int
-    trace_id: TraceId
-    effect_kind: str
-    capability_kind: str
-    operation_class: str
-    purpose: str
-    action_intent_id: UUID
-    destination_binding_id: UUID | None
 
 
 class PostgreSQLDeclaredResponseEffectRegistration:
@@ -141,51 +126,111 @@ class PostgreSQLDeclaredResponseEffectRegistration:
 
 
 class PostgreSQLEffectLedgerRepository:
-    __slots__ = ("_capability_consumption",)
+    __slots__ = ("_authorization", "_effect_links", "_intents")
 
     def __init__(
         self,
-        capability_consumption: CapabilityGrantConsumptionPort,
+        authorization: CapabilityEffectAuthorizationPort,
+        intents: ExpressionIntentReadPort,
+        effect_links: ExpressionEffectLinkPort,
     ) -> None:
-        self._capability_consumption = capability_consumption
+        self._authorization = authorization
+        self._intents = intents
+        self._effect_links = effect_links
+
+    async def by_action_intent(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        action_intent_id: UUID,
+    ) -> EffectLedgerSnapshot | None:
+        row = await (
+            await transaction.execute(
+                "SELECT effect_id FROM armi.effects WHERE action_intent_id=%s",
+                (action_intent_id,),
+            )
+        ).fetchone()
+        return (
+            None
+            if row is None
+            else await self.by_effect_id(transaction, effect_id=row[0])
+        )
+
+    async def by_effect_id(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        effect_id: UUID,
+    ) -> EffectLedgerSnapshot | None:
+        row = await (
+            await transaction.execute(
+                """
+                SELECT effect.effect_id, effect.action_intent_revision_id,
+                       effect.action_intent_id, effect.policy_decision_id,
+                       effect.subject_id, effect.scene_id, effect.context_party_id,
+                       effect.payload_artifact_id, effect.payload_digest,
+                       effect.payload_bytes, effect.effect_kind,
+                       effect.capability_kind, effect.status,
+                       effect.verification_status, effect.registered_at,
+                       effect.cancelled_at, effect.settled_at,
+                       (SELECT count(*) FROM armi.effect_attempts AS attempt
+                        WHERE attempt.effect_id=effect.effect_id),
+                       observation.observation_kind, observation.reliability
+                FROM armi.effects AS effect
+                LEFT JOIN armi.effect_observations AS observation
+                  ON observation.effect_observation_id=effect.current_observation_id
+                WHERE effect.effect_id=%s
+                """,
+                (effect_id,),
+            )
+        ).fetchone()
+        if row is None:
+            return None
+        return EffectLedgerSnapshot(
+            row[0],
+            row[1],
+            row[2],
+            row[3],
+            row[4],
+            row[5],
+            row[6],
+            row[7],
+            Digest(str(row[8])),
+            int(row[9]),
+            str(row[10]),
+            str(row[11]),
+            EffectStatus(str(row[12])),
+            EffectVerificationStatus(str(row[13])),
+            Instant(row[14]),
+            None if row[15] is None else Instant(row[15]),
+            None if row[16] is None else Instant(row[16]),
+            int(row[17]),
+            None if row[18] is None else EffectObservationKind(str(row[18])),
+            None if row[19] is None else EffectObservationReliability(str(row[19])),
+        )
 
     async def settle_current_work(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
-        lease: WorkLease,
+        work: WorkRecord,
     ) -> None:
         connection = unit_of_work.transaction
+        lease = work.lease
+        if lease is None:
+            return
         row = await (
             await connection.execute(
                 """
-                SELECT intent.operation_ref, effect.effect_id
-                FROM armi.durable_work AS work
-                JOIN armi.action_intents AS intent
-                  ON intent.action_intent_id = work.owner_ref
-                LEFT JOIN armi.effects AS effect
-                  ON effect.action_intent_id = intent.action_intent_id
-                WHERE work.work_id = %s
-                  AND work.status = 'leased'
-                  AND work.current_attempt_id = %s
-                  AND work.lease_owner = %s
-                  AND work.lease_token = %s
-                  AND work.lease_expires_at > statement_timestamp()
-                FOR UPDATE OF work
+                SELECT effect_id FROM armi.effects
+                WHERE action_intent_id=%s
                 """,
-                (
-                    lease.work_id.value,
-                    lease.attempt_id.value,
-                    lease.owner,
-                    lease.token,
-                ),
+                (work.draft.owner.reference,),
             )
         ).fetchone()
-        if row is None:
-            return
-        if row[1] is not None:
+        if row is not None:
             await unit_of_work.work.complete(
                 lease,
-                WorkResultRef("effect", row[1]),
+                WorkResultRef("effect", row[0]),
             )
             return
         await self._fail_locked(unit_of_work, lease, "EFFECT-REGISTRATION-STATE")
@@ -193,43 +238,12 @@ class PostgreSQLEffectLedgerRepository:
     async def fail_current_work(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
-        lease: WorkLease,
+        work: WorkRecord,
         *,
         code: str,
     ) -> None:
-        connection = unit_of_work.transaction
-        row = await (
-            await connection.execute(
-                """
-                SELECT intent.operation_ref, effect.effect_id
-                FROM armi.durable_work AS work
-                JOIN armi.action_intents AS intent
-                  ON intent.action_intent_id = work.owner_ref
-                LEFT JOIN armi.effects AS effect
-                  ON effect.action_intent_id = intent.action_intent_id
-                WHERE work.work_id = %s
-                  AND work.status = 'leased'
-                  AND work.current_attempt_id = %s
-                  AND work.lease_owner = %s
-                  AND work.lease_token = %s
-                  AND work.lease_expires_at > statement_timestamp()
-                FOR UPDATE OF work
-                """,
-                (
-                    lease.work_id.value,
-                    lease.attempt_id.value,
-                    lease.owner,
-                    lease.token,
-                ),
-            )
-        ).fetchone()
-        if row is None:
-            return
-        if row[1] is not None:
-            await unit_of_work.work.complete(
-                lease,
-                WorkResultRef("effect", row[1]),
-            )
+        lease = work.lease
+        if lease is None:
             return
         await self._fail_locked(unit_of_work, lease, code)
 
@@ -241,90 +255,22 @@ class PostgreSQLEffectLedgerRepository:
     ) -> None:
         await unit_of_work.work.fail(lease, error_code=code)
 
-    async def snapshot(
-        self, uow: PostgreSQLRuntimeUnitOfWork, lease: WorkLease
-    ) -> EffectRegistrationSnapshot:
-        connection = uow.transaction
-        row = await (
-            await connection.execute(
-                """
-            SELECT intent.operation_ref, intent.root_opportunity_id,
-                   revision.action_intent_revision_id, intent.subject_id,
-                   intent.scene_id, intent.context_party_id,
-                   COALESCE(revision.response_artifact_id, source.task_manifest_artifact_id),
-                   COALESCE(revision.response_digest, revision.task_manifest_digest),
-                   artifact.byte_size, work.trace_id,
-                   intent.action_kind, revision.capability_kind,
-                   revision.operation_class, revision.purpose,
-                   intent.action_intent_id,
-                   CASE WHEN intent.action_kind = 'party_response'
-                        THEN binding.external_binding_id END
-            FROM armi.durable_work AS work
-            JOIN armi.action_intents AS intent
-              ON intent.action_intent_id = work.owner_ref
-            JOIN armi.action_intent_revisions AS revision
-              ON revision.action_intent_revision_id = intent.current_revision_id
-            LEFT JOIN armi.codex_task_sources AS source
-              ON source.codex_task_source_id = revision.codex_task_source_id
-            LEFT JOIN armi.external_channel_bindings AS binding
-              ON binding.scene_id = intent.scene_id
-             AND binding.party_id = intent.context_party_id
-             AND binding.external_kind = 'person'
-             AND binding.status = 'active'
-            JOIN armi.artifacts AS artifact
-              ON artifact.artifact_id = COALESCE(
-                    revision.response_artifact_id, source.task_manifest_artifact_id
-                 )
-            WHERE work.work_id = %s AND work.work_kind = 'effect.register'
-              AND work.status = 'leased' AND work.current_attempt_id = %s
-              AND work.lease_owner = %s AND work.lease_token = %s
-              AND work.lease_expires_at > statement_timestamp()
-            """,
-                (lease.work_id.value, lease.attempt_id.value, lease.owner, lease.token),
-            )
-        ).fetchone()
-        if row is None:
-            raise EffectViolation("EFFECT-WORK-STALE")
-        return EffectRegistrationSnapshot(
-            row[0],
-            row[1],
-            row[2],
-            row[3],
-            row[4],
-            row[5],
-            row[6],
-            Digest(str(row[7])),
-            int(row[8]),
-            TraceId(str(row[9])),
-            "codex_delegation"
-            if str(row[10]) == "codex_delegation"
-            else "creator_response",
-            str(row[11]),
-            str(row[12]),
-            str(row[13]),
-            row[14],
-            row[15],
-        )
-
     async def settle(
         self,
         uow: PostgreSQLRuntimeUnitOfWork,
         *,
         lease: WorkLease,
-        snapshot: EffectRegistrationSnapshot,
+        snapshot: EffectRegistrationContext,
         integrity_ok: bool,
     ) -> EffectRegistrationResult | None:
         connection = uow.transaction
         if uow.runtime_fence is None:
             raise EffectViolation("EFFECT-FENCE")
-        locked = await (
-            await connection.execute(
-                "SELECT operation_ref FROM armi.action_intents "
-                "WHERE action_intent_id = %s AND operation_ref = %s FOR UPDATE",
-                (snapshot.action_intent_id, snapshot.operation_ref),
-            )
-        ).fetchone()
-        if locked is None:
+        intent = await self._intents.intent_snapshot(
+            connection,
+            action_intent_id=snapshot.action_intent_id,
+        )
+        if intent.operation_ref != snapshot.operation_ref:
             raise EffectViolation("EFFECT-WORK-STALE")
         registration_digest = _registration_digest(snapshot)
         existing = await self._existing(connection, snapshot, registration_digest)
@@ -334,49 +280,35 @@ class PostgreSQLEffectLedgerRepository:
             )
             return existing
 
-        outcome = "unavailable"
-        reason = "POLICY-PAYLOAD-UNAVAILABLE"
-        grant_id: UUID | None = None
-        valid_until = None
         if integrity_ok:
-            authorization = await self._capability_consumption.authorize_and_consume(
+            authorization = await self._authorization.authorize_effect(
                 connection,
-                CapabilityConsumptionRequest(
+                action_intent_revision_id=snapshot.action_intent_revision_id,
+                request=CapabilityConsumptionRequest(
                     capability_kind=snapshot.capability_kind,
                     operation_class=snapshot.operation_class,
                     subject_id=snapshot.subject_id,
                     scene_id=snapshot.scene_id,
-                    creator_party_id=snapshot.creator_party_id,
+                    creator_party_id=snapshot.context_party_id,
                     purpose=snapshot.purpose,
                     effect_kind=snapshot.effect_kind,
                     payload_bytes=snapshot.payload_bytes,
                 ),
             )
-            outcome = authorization.outcome.value
-            reason = authorization.reason_code
-            grant_id = authorization.grant_id
-            valid_until = authorization.valid_until
-            if authorization.outcome is CapabilityAuthorizationOutcome.ALLOWED:
-                assert grant_id is not None and valid_until is not None
+        else:
+            authorization = await self._authorization.record_effect_outcome(
+                connection,
+                action_intent_revision_id=snapshot.action_intent_revision_id,
+                outcome=CapabilityAuthorizationOutcome.UNAVAILABLE,
+                reason_code="POLICY-PAYLOAD-UNAVAILABLE",
+            )
+        outcome = authorization.outcome.value
+        grant_id = authorization.grant_id
+        valid_until = authorization.valid_until
+        if authorization.outcome is CapabilityAuthorizationOutcome.ALLOWED:
+            assert grant_id is not None and valid_until is not None
 
-        decision_id = uuid7()
-        await connection.execute(
-            """
-            INSERT INTO armi.policy_decisions (
-                policy_decision_id, action_intent_revision_id,
-                matched_grant_id, decision_outcome, policy_identity,
-                reason_code, valid_until) VALUES (
-                %s, %s, %s, %s, 'armi.policy-engine.deterministic-v1', %s, %s)
-            """,
-            (
-                decision_id,
-                snapshot.action_revision_id,
-                grant_id,
-                outcome,
-                reason,
-                valid_until,
-            ),
-        )
+        decision_id = authorization.policy_decision_id
         result: EffectRegistrationResult | None = None
         if outcome == "allowed":
             effect_id, outbox_id = uuid7(), uuid7()
@@ -397,13 +329,13 @@ class PostgreSQLEffectLedgerRepository:
                 """,
                     (
                         effect_id,
-                        snapshot.action_revision_id,
+                        snapshot.action_intent_revision_id,
                         snapshot.action_intent_id,
                         decision_id,
                         snapshot.subject_id,
                         snapshot.scene_id,
-                        snapshot.creator_party_id,
-                        snapshot.artifact_id,
+                        snapshot.context_party_id,
+                        snapshot.payload_artifact_id,
                         snapshot.payload_digest.value,
                         snapshot.payload_bytes,
                         snapshot.effect_kind,
@@ -422,7 +354,7 @@ class PostgreSQLEffectLedgerRepository:
                         else "external_private"
                         if snapshot.effect_kind == "creator_response"
                         else "codex_workspace",
-                        snapshot.creator_party_id,
+                        snapshot.destination_party_id,
                         snapshot.destination_binding_id,
                         registration_digest.value,
                         snapshot.trace_id.value,
@@ -431,12 +363,10 @@ class PostgreSQLEffectLedgerRepository:
             ).fetchone()
             row = cast(tuple[Any, ...], row)
             if snapshot.effect_kind == "creator_response":
-                await connection.execute(
-                    """UPDATE armi.dialogue_decisions
-                       SET effect_id = %s
-                       WHERE action_intent_id = %s
-                         AND decision_kind = 'reply' AND effect_id IS NULL""",
-                    (effect_id, snapshot.action_intent_id),
+                await self._effect_links.link_effect(
+                    connection,
+                    action_intent_id=snapshot.action_intent_id,
+                    effect_id=effect_id,
                 )
             await connection.execute(
                 """
@@ -502,25 +432,15 @@ class PostgreSQLEffectLedgerRepository:
         row = await (
             await connection.execute(
                 """
-            SELECT effect.effect_id, intent.root_opportunity_id, effect.effect_kind,
-                   request.capability_request_id, permission.grant_id,
-                   effect.capability_kind, effect.status,
+            SELECT effect.effect_id, effect.action_intent_id,
+                   effect.action_intent_revision_id, effect.policy_decision_id,
+                   effect.effect_kind, effect.capability_kind, effect.status,
                    effect.verification_status, effect.registered_at, effect.cancelled_at,
                    (SELECT count(*) FROM armi.effect_attempts AS attempt
                     WHERE attempt.effect_id = effect.effect_id),
                    observation.observation_kind, observation.reliability,
                    effect.settled_at
             FROM armi.effects AS effect
-            JOIN armi.action_intents AS intent
-              ON intent.action_intent_id = effect.action_intent_id
-            JOIN armi.policy_decisions AS policy
-              ON policy.policy_decision_id = effect.policy_decision_id
-            JOIN armi.permission_grants AS permission
-              ON permission.grant_id = policy.matched_grant_id
-             AND permission.creator_party_id = effect.context_party_id
-            JOIN armi.capability_requests AS request
-              ON request.capability_request_id = permission.capability_request_id
-             AND request.capability_kind = effect.capability_kind
             LEFT JOIN armi.effect_observations AS observation
               ON observation.effect_observation_id = effect.current_observation_id
             WHERE effect.effect_id=%s AND effect.context_party_id=%s
@@ -530,7 +450,7 @@ class PostgreSQLEffectLedgerRepository:
         ).fetchone()
         if row is None:
             raise EffectViolation("SCOPE-EFFECT-NOT-VISIBLE")
-        raw_effect_kind = str(row[2])
+        raw_effect_kind = str(row[4])
         if raw_effect_kind not in {"creator_response", "codex_delegation"}:
             raise EffectViolation("CON-EFFECT-KIND")
         effect_kind = cast(
@@ -538,13 +458,13 @@ class PostgreSQLEffectLedgerRepository:
         )
         return EffectView(
             effect_id=EffectId(row[0]),
-            root_operation_ref=row[1],
+            action_intent_ref=row[1],
+            action_intent_revision_ref=row[2],
+            policy_decision_ref=row[3],
             effect_kind=effect_kind,
             status=EffectStatus(str(row[6])),
             verification_status=EffectVerificationStatus(str(row[7])),
             registered_at=Instant(row[8]),
-            capability_request_ref=row[3],
-            grant_ref=row[4],
             capability_kind=cast(
                 Literal["creator.scene.reply", "codex.delegated-work"], str(row[5])
             ),
@@ -584,79 +504,10 @@ class PostgreSQLEffectLedgerRepository:
             raise EffectViolation("EFFECT-PAYLOAD-UNAVAILABLE")
         return row[0], Digest(str(row[1])), int(row[2])
 
-    async def codex_manifest_reference(
-        self,
-        uow: PostgreSQLRuntimeUnitOfWork,
-        effect_id: EffectId,
-    ) -> tuple[UUID, Digest, int]:
-        connection = uow.transaction
-        row = await (
-            await connection.execute(
-                """
-                SELECT artifact.artifact_id, artifact.content_digest,
-                       artifact.byte_size
-                FROM armi.effects AS effect
-                JOIN armi.action_intent_revisions AS revision
-                  ON revision.action_intent_revision_id
-                   = effect.action_intent_revision_id
-                JOIN armi.codex_task_sources AS source
-                  ON source.codex_task_source_id = revision.codex_task_source_id
-                JOIN armi.artifacts AS artifact
-                  ON artifact.artifact_id = source.task_manifest_artifact_id
-                WHERE effect.effect_id=%s
-                  AND effect.effect_kind='codex_delegation'
-                """,
-                (effect_id.value,),
-            )
-        ).fetchone()
-        if row is None:
-            raise EffectViolation("EFFECT-PAYLOAD-UNAVAILABLE")
-        return row[0], Digest(str(row[1])), int(row[2])
-
-    async def codex_artifact_reference(
-        self,
-        uow: PostgreSQLRuntimeUnitOfWork,
-        effect_id: EffectId,
-        creator_party_id: UUID,
-        kind: str,
-    ) -> tuple[UUID, Digest, int, str]:
-        column = {
-            "patch": "patch_artifact_id",
-            "final_result": "final_result_artifact_id",
-            "validation_report": "validation_report_artifact_id",
-        }.get(kind)
-        if column is None:
-            raise EffectViolation("EFFECT-ARTIFACT-KIND")
-        connection = uow.transaction
-        row = await (
-            await connection.execute(
-                sql.SQL(
-                    """
-                SELECT artifact.artifact_id, artifact.content_digest,
-                       artifact.byte_size, artifact.media_type
-                FROM armi.effects AS effect
-                JOIN armi.codex_verification_results AS verification
-                  ON verification.effect_id = effect.effect_id
-                JOIN armi.artifacts AS artifact
-                  ON artifact.artifact_id = verification.{column}
-                WHERE effect.effect_id=%s
-                  AND effect.context_party_id=%s
-                  AND effect.effect_kind='codex_delegation'
-                  AND effect.status='completed'
-                  AND effect.verification_status='verified'
-                """
-                ).format(column=sql.Identifier(column)),
-                (effect_id.value, creator_party_id),
-            )
-        ).fetchone()
-        if row is None:
-            raise EffectViolation("SCOPE-EFFECT-NOT-VISIBLE")
-        return row[0], Digest(str(row[1])), int(row[2]), str(row[3])
-
     async def _existing(
         self,
         connection: Any,
-        snapshot: EffectRegistrationSnapshot,
+        snapshot: EffectRegistrationContext,
         registration_digest: Digest,
     ) -> EffectRegistrationResult | None:
         row = await (
@@ -667,7 +518,7 @@ class PostgreSQLEffectLedgerRepository:
             FROM armi.effects AS effect
             WHERE effect.action_intent_revision_id=%s AND effect.effect_kind=%s
             """,
-                (snapshot.action_revision_id, snapshot.effect_kind),
+                (snapshot.action_intent_revision_id, snapshot.effect_kind),
             )
         ).fetchone()
         if row is None:
@@ -684,18 +535,20 @@ class PostgreSQLEffectLedgerRepository:
         )
 
 
-def _registration_digest(snapshot: EffectRegistrationSnapshot) -> Digest:
+def _registration_digest(snapshot: EffectRegistrationContext) -> Digest:
     return Digest.from_bytes(
         rfc8785.dumps(
             cast(
                 Any,
                 {
                     "schema_version": "armi.effect-registration.v1",
-                    "action_intent_revision_id": str(snapshot.action_revision_id),
+                    "action_intent_revision_id": str(
+                        snapshot.action_intent_revision_id
+                    ),
                     "effect_kind": snapshot.effect_kind,
                     "subject_id": str(snapshot.subject_id),
                     "scene_id": str(snapshot.scene_id),
-                    "creator_party_id": str(snapshot.creator_party_id),
+                    "creator_party_id": str(snapshot.context_party_id),
                     "payload_digest": snapshot.payload_digest.value,
                     "payload_bytes": snapshot.payload_bytes,
                     "purpose": snapshot.purpose,
@@ -706,7 +559,6 @@ def _registration_digest(snapshot: EffectRegistrationSnapshot) -> Digest:
 
 
 __all__ = (
-    "EffectRegistrationSnapshot",
     "PostgreSQLDeclaredResponseEffectRegistration",
     "PostgreSQLEffectLedgerRepository",
 )

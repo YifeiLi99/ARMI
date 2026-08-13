@@ -44,9 +44,6 @@ from ._creator_contract import (
     CreatorInputAcceptancePort,
     CreatorInputCommand,
     CreatorInputViolation,
-    CreatorOperation,
-    CreatorOperationQueryPort,
-    OpportunityId,
 )
 from ._creator_postgresql import (
     CreatorInputContext,
@@ -74,10 +71,7 @@ def _ignore_diagnostic(_event: str) -> None:
     return None
 
 
-class EvidenceAcceptanceTransaction(
-    CreatorInputAcceptancePort,
-    CreatorOperationQueryPort,
-):
+class EvidenceAcceptanceTransaction(CreatorInputAcceptancePort):
     """Publish exact bytes, then atomically establish all T-02 database facts."""
 
     __slots__ = (
@@ -201,21 +195,6 @@ class EvidenceAcceptanceTransaction(
 
     async def close(self) -> None:
         return None
-
-    async def get(self, opportunity_id: OpportunityId) -> CreatorOperation:
-        try:
-            async with self._uow_factory.unit_of_work(
-                read_only=True,
-            ) as unit_of_work:
-                return await self._repository.operation(
-                    unit_of_work,
-                    opportunity_id=opportunity_id,
-                    creator_party_id=self._creator_party_id,
-                )
-        except CreatorInputViolation:
-            raise
-        except RuntimeTransactionFailure:
-            raise CreatorInputViolation("DB-INPUT-UNAVAILABLE") from None
 
     async def get_subject_summary(self) -> SubjectSummary:
         try:

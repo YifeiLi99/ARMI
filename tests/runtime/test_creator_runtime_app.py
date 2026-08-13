@@ -1058,25 +1058,6 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             CreatorOperationPhase.STALE_CONFLICT: "cognition",
             CreatorOperationPhase.FAILED: "cognition",
         }
-        delivery_state = {
-            CreatorOperationPhase.RESPONSE_ACCEPTED: "not_started",
-            CreatorOperationPhase.EFFECT_REGISTRATION: "not_started",
-            CreatorOperationPhase.EFFECT_REGISTERED: "registered",
-            CreatorOperationPhase.EFFECT_DISPATCHING: "dispatching",
-            CreatorOperationPhase.EFFECT_COMPLETED: "completed",
-            CreatorOperationPhase.EFFECT_FAILED: "failed",
-            CreatorOperationPhase.EFFECT_UNKNOWN: "unknown",
-            CreatorOperationPhase.EFFECT_CANCELLED: "cancelled",
-            CreatorOperationPhase.CODEX_CAPABILITY_DECISION: "not_started",
-            CreatorOperationPhase.CODEX_DISPATCHING: "dispatching",
-            CreatorOperationPhase.CODEX_VERIFYING: "dispatching",
-            CreatorOperationPhase.CODEX_RESULT_ACCEPTANCE: "completed",
-            CreatorOperationPhase.CODEX_RESULT_REJECTED: "completed",
-            CreatorOperationPhase.CODEX_COMPLETED: "completed",
-            CreatorOperationPhase.CODEX_FAILED: "failed",
-            CreatorOperationPhase.CODEX_UNKNOWN: "unknown",
-            CreatorOperationPhase.CODEX_CANCELLED: "cancelled",
-        }
         effect_phases = {
             CreatorOperationPhase.EFFECT_REGISTERED,
             CreatorOperationPhase.EFFECT_DISPATCHING,
@@ -1130,11 +1111,14 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                 details = cast(dict[str, object], wire["details"])
                 self.assertIsInstance(details, dict)
                 self.assertEqual(wire["status"], expected_status[phase])
-                self.assertEqual(details["completion_kind"], completion_kind[phase])
-                if phase in delivery_state:
-                    self.assertEqual(details["delivery_state"], delivery_state[phase])
-                else:
-                    self.assertNotIn("delivery_state", details)
+                self.assertEqual(details["projection_version"], "creator-operation.v2")
+                self.assertEqual(
+                    details["operation_ref"], str(acceptance.opportunity_id)
+                )
+                self.assertIn("stage", details)
+                self.assertIn("outcome", details)
+                self.assertNotIn("completion_kind", details)
+                self.assertNotIn("delivery_state", details)
 
     def test_codex_final_result_projects_only_verified_deliverable(self) -> None:
         content, media_type = _creator_visible_codex_artifact(

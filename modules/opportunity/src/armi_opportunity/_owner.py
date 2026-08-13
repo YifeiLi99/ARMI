@@ -14,11 +14,56 @@ from .api import (
     OpportunityAdmissionStatus,
     OpportunityCommitSnapshot,
     OpportunityId,
+    OpportunityOperationSnapshot,
     OpportunityPurpose,
 )
 
 
 class PostgreSQLOpportunityOwner:
+    async def operation_snapshot(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        root_opportunity_id: UUID,
+        context_party_id: UUID,
+    ) -> OpportunityOperationSnapshot | None:
+        row = await (
+            await transaction.execute(
+                """
+                SELECT root.opportunity_id, current.opportunity_id,
+                       root.evidence_id, current.subject_id, current.scene_id,
+                       current.context_party_id, root.purpose,
+                       current.current_disposition, current.reconsideration_no
+                FROM armi.opportunities AS root
+                JOIN LATERAL (
+                    SELECT item.* FROM armi.opportunities AS item
+                    WHERE item.root_opportunity_id=root.opportunity_id
+                    ORDER BY item.reconsideration_no DESC LIMIT 1
+                ) AS current ON true
+                WHERE root.opportunity_id=%s
+                  AND root.root_opportunity_id=root.opportunity_id
+                  AND current.context_party_id=%s
+                  AND root.purpose IN ('consider_creator_input','consider_codex_task')
+                  AND current.eligibility_status='eligible'
+                  AND current.expires_at IS NULL
+                """,
+                (root_opportunity_id, context_party_id),
+            )
+        ).fetchone()
+        if row is None or row[2] is None or row[4] is None or row[5] is None:
+            return None
+        return OpportunityOperationSnapshot(
+            row[0],
+            row[1],
+            row[2],
+            row[3],
+            row[4],
+            row[5],
+            str(row[6]),
+            str(row[7]),
+            int(row[8]),
+        )
+
     async def subject_commit_snapshot(
         self, transaction: PostgreSQLTransaction, *, opportunity_id: UUID
     ) -> OpportunityCommitSnapshot:

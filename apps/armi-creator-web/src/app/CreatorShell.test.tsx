@@ -79,9 +79,11 @@ function acceptedOperationProjection(): object {
     result_ref: OPPORTUNITY_ID,
     custodian: "runtime",
     details: {
-      projection_version: "creator-operation.v1",
-      root_operation_ref: OPPORTUNITY_ID,
-      completion_kind: "cognition",
+      projection_version: "creator-operation.v2",
+      operation_ref: OPPORTUNITY_ID,
+      operation_kind: "cognition",
+      stage: "accepted",
+      outcome: "pending",
     },
   };
 }
@@ -97,9 +99,11 @@ function preparedContextOperation(): object {
     waiting_for: "model_attempt",
     resume_condition: "model_step_available",
     details: {
-      projection_version: "creator-operation.v1",
-      root_operation_ref: OPPORTUNITY_ID,
-      completion_kind: "cognition",
+      projection_version: "creator-operation.v2",
+      operation_ref: OPPORTUNITY_ID,
+      operation_kind: "cognition",
+      stage: "context_preparing",
+      outcome: "pending",
     },
   };
 }
@@ -875,9 +879,9 @@ describe("Creator local connection shell", () => {
           contract_version: "1.0",
           projection_version: "creator-effect.v3",
           effect_id: EFFECT_ID,
-          root_operation_ref: OPPORTUNITY_ID,
-          capability_request_ref: "018f47a6-7b2d-7c35-8b18-684e38ab6efb",
-          grant_ref: "018f47a6-7b2d-7c35-8b18-684e38ab6efc",
+          action_intent_ref: OPPORTUNITY_ID,
+          action_intent_revision_ref: "018f47a6-7b2d-7c35-8b18-684e38ab6efb",
+          policy_decision_ref: "018f47a6-7b2d-7c35-8b18-684e38ab6efc",
           capability_kind: "creator.scene.reply",
           effect_kind: "creator_response",
           status: "completed",
@@ -909,7 +913,7 @@ describe("Creator local connection shell", () => {
     ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "对话" }));
     await user.click(screen.getByRole("button", { name: "记录" }));
-    expect(await screen.findByText("授权依据")).toBeInTheDocument();
+    expect(await screen.findByText("Action Intent")).toBeInTheDocument();
     expect(screen.getByText("creator.scene.reply")).toBeInTheDocument();
     expect(keys).toHaveLength(1);
     expect(keys[0]).toMatch(/^creator-input-v1\.[A-Za-z0-9_-]{22}$/);

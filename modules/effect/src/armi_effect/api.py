@@ -10,7 +10,7 @@ from typing import Literal, Protocol, cast, runtime_checkable
 from uuid import UUID
 
 from armi_expression.api import ResponseAdmissionPort
-from armi_kernel.application import ArtifactPort
+from armi_kernel.application import ArtifactPort, WorkRecord
 from armi_kernel.contracts import Digest, Instant, TraceId
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWork,
@@ -92,13 +92,14 @@ class EffectArtifactContent:
 @dataclass(frozen=True, slots=True)
 class EffectDispatchBoundaryResult:
     allowed: bool
-    grant_id: UUID
+    grant_id: UUID | None
     reason_code: str | None = None
 
     def __post_init__(self) -> None:
         if type(self.allowed) is not bool:
             raise EffectViolation("CON-EFFECT-DISPATCH-BOUNDARY")
-        _uuid7(self.grant_id)
+        if self.grant_id is not None:
+            _uuid7(self.grant_id)
         if self.reason_code is not None and (
             type(self.reason_code) is not str or not self.reason_code
         ):
@@ -285,13 +286,13 @@ class EffectRegistrationResult:
 @dataclass(frozen=True, slots=True)
 class EffectView:
     effect_id: EffectId
-    root_operation_ref: UUID
+    action_intent_ref: UUID
+    action_intent_revision_ref: UUID
+    policy_decision_ref: UUID | None
     effect_kind: Literal["creator_response", "codex_delegation"]
     status: EffectStatus
     verification_status: EffectVerificationStatus
     registered_at: Instant
-    capability_request_ref: UUID
-    grant_ref: UUID
     capability_kind: Literal["creator.scene.reply", "codex.delegated-work"]
     cancelled_at: Instant | None = None
     attempt_count: int = 0
@@ -304,9 +305,10 @@ class EffectView:
     response_text: str | None = None
 
     def __post_init__(self) -> None:
-        _uuid7(self.root_operation_ref)
-        _uuid7(self.capability_request_ref)
-        _uuid7(self.grant_ref)
+        _uuid7(self.action_intent_ref)
+        _uuid7(self.action_intent_revision_ref)
+        if self.policy_decision_ref is not None:
+            _uuid7(self.policy_decision_ref)
         if self.effect_kind not in {"creator_response", "codex_delegation"}:
             raise EffectViolation("CON-EFFECT-KIND")
         if (
@@ -337,6 +339,170 @@ class EffectView:
             raise EffectViolation("CON-EFFECT-PAYLOAD")
         if self.effect_kind == "codex_delegation" and self.response_text is not None:
             raise EffectViolation("CON-EFFECT-VISIBILITY")
+
+
+@dataclass(frozen=True, slots=True)
+class EffectRegistrationDraft:
+    action_intent_revision_id: UUID
+    action_intent_id: UUID
+    policy_decision_id: UUID | None
+    subject_id: UUID
+    scene_id: UUID
+    context_party_id: UUID
+    payload_artifact_id: UUID
+    payload_digest: Digest
+    payload_bytes: int
+    effect_kind: str
+    capability_kind: str
+    operation_class: str
+    purpose: str
+    authorization_basis: str
+    destination_kind: str
+    destination_party_id: UUID
+    destination_binding_id: UUID | None
+    trace_id: TraceId
+    dispatch_deadline: Instant
+    max_attempts: int
+
+
+@dataclass(frozen=True, slots=True)
+class EffectRegistrationContext:
+    operation_ref: UUID
+    root_opportunity_id: UUID
+    action_intent_revision_id: UUID
+    action_intent_id: UUID
+    subject_id: UUID
+    scene_id: UUID
+    context_party_id: UUID
+    payload_artifact_id: UUID
+    payload_digest: Digest
+    payload_bytes: int
+    trace_id: TraceId
+    effect_kind: str
+    capability_kind: str
+    operation_class: str
+    purpose: str
+    destination_party_id: UUID
+    destination_kind: str
+    destination_binding_id: UUID | None
+
+
+@runtime_checkable
+class EffectRegistrationContextPort(Protocol):
+    async def resolve(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        work: WorkRecord,
+    ) -> EffectRegistrationContext: ...
+
+
+@runtime_checkable
+class EffectCodexArtifactPort(Protocol):
+    async def artifact_reference(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        effect_id: UUID,
+        kind: str,
+    ) -> tuple[UUID, Digest, int, str]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class EffectLedgerSnapshot:
+    effect_id: UUID
+    action_intent_revision_id: UUID
+    action_intent_id: UUID
+    policy_decision_id: UUID | None
+    subject_id: UUID
+    scene_id: UUID
+    context_party_id: UUID
+    payload_artifact_id: UUID
+    payload_digest: Digest
+    payload_bytes: int
+    effect_kind: str
+    capability_kind: str
+    status: EffectStatus
+    verification_status: EffectVerificationStatus
+    registered_at: Instant
+    cancelled_at: Instant | None
+    settled_at: Instant | None
+    attempt_count: int
+    current_observation_kind: EffectObservationKind | None
+    current_observation_reliability: EffectObservationReliability | None
+
+
+@dataclass(frozen=True, slots=True)
+class EffectCodexClaim:
+    outbox_id: UUID
+    effect_id: UUID
+    attempt_id: UUID
+    claim_owner: UUID
+    claim_token: int
+    action_intent_id: UUID
+    action_intent_revision_id: UUID
+    subject_id: UUID
+    scene_id: UUID
+    context_party_id: UUID
+    trace_id: TraceId
+
+
+@runtime_checkable
+class EffectCodexLifecyclePort(Protocol):
+    async def claim_codex(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        claim_owner: UUID,
+    ) -> EffectCodexClaim | None: ...
+
+    async def mark_codex_dispatching(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        claim: EffectCodexClaim,
+    ) -> bool: ...
+
+    async def heartbeat_codex(
+        self,
+        transaction: PostgreSQLTransaction,
+        claim: EffectCodexClaim,
+    ) -> bool: ...
+
+    async def settle_codex(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        claim: EffectCodexClaim,
+        status: str,
+        observation_digest: Digest,
+        error_code: str | None,
+    ) -> None: ...
+
+
+@runtime_checkable
+class EffectRegistrationPort(Protocol):
+    async def register(
+        self,
+        transaction: PostgreSQLTransaction,
+        draft: EffectRegistrationDraft,
+    ) -> EffectRegistrationResult: ...
+
+
+@runtime_checkable
+class EffectOperationReadPort(Protocol):
+    async def by_action_intent(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        action_intent_id: UUID,
+    ) -> EffectLedgerSnapshot | None: ...
+
+    async def by_effect_id(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        effect_id: UUID,
+    ) -> EffectLedgerSnapshot | None: ...
 
 
 class EffectViolation(RuntimeError):
@@ -396,7 +562,7 @@ class EffectGrantCancellationPort(Protocol):
         self,
         transaction: PostgreSQLTransaction,
         *,
-        grant_id: UUID,
+        policy_decision_ids: tuple[UUID, ...],
         reason_code: str,
     ) -> tuple[tuple[UUID, UUID, UUID], ...]: ...
 
@@ -477,16 +643,25 @@ __all__ = (
     "EffectAttemptId",
     "EffectAttemptResult",
     "EffectAttemptState",
+    "EffectCodexArtifactPort",
+    "EffectCodexClaim",
+    "EffectCodexLifecyclePort",
     "EffectDeliveryId",
     "EffectDispatchBoundaryPort",
     "EffectDispatchBoundaryResult",
     "EffectGrantCancellationPort",
     "EffectId",
     "EffectLedgerPort",
+    "EffectLedgerSnapshot",
     "EffectObservation",
     "EffectObservationId",
     "EffectObservationKind",
     "EffectObservationReliability",
+    "EffectOperationReadPort",
+    "EffectRegistrationContext",
+    "EffectRegistrationContextPort",
+    "EffectRegistrationDraft",
+    "EffectRegistrationPort",
     "EffectRegistrationResult",
     "EffectRuntimePort",
     "EffectSettlement",

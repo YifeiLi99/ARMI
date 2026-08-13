@@ -15,6 +15,7 @@ from armi_runtime_foundation import (
 from armi_subject_state.api import SubjectSummary
 
 from ._creator_contract import (
+    CreatorCodexExecutionSummary,
     CreatorInputAcceptance,
     CreatorInputAcceptancePort,
     CreatorInputCommand,
@@ -108,6 +109,7 @@ class InteractionWakeupPort(Protocol):
 @dataclass(frozen=True, slots=True)
 class CreatorIdentityContext:
     party_id: UUID
+    scene_id: UUID
     default_scene_key: str
 
 
@@ -177,7 +179,6 @@ class InteractionBirthPort(Protocol):
 @runtime_checkable
 class CreatorInteractionPort(
     CreatorInputAcceptancePort,
-    CreatorOperationQueryPort,
     Protocol,
 ):
     async def get_subject_summary(self) -> SubjectSummary: ...
@@ -192,6 +193,18 @@ class CreatorInputTransactionPort(Protocol):
         scene_id: UUID,
     ) -> None: ...
 
+    async def operation_acceptance(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        interaction_id: UUID | None,
+        scene_id: UUID,
+        creator_party_id: UUID,
+        codex_content_digest: Digest | None,
+        evidence_id: UUID,
+        opportunity_id: UUID,
+    ) -> CreatorInputAcceptance | None: ...
+
     async def context(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
@@ -199,6 +212,29 @@ class CreatorInputTransactionPort(Protocol):
         scene_key: str,
         creator_party_id: UUID,
     ) -> CreatorInputContext: ...
+
+    async def find_codex_task_input(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        creator_party_id: UUID,
+        scene_id: UUID,
+        idempotency_key: str,
+    ) -> tuple[UUID, Digest, Digest] | None: ...
+
+    async def record_codex_task_input(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        interaction_id: UUID,
+        subject_id: UUID,
+        scene_id: UUID,
+        creator_party_id: UUID,
+        idempotency_key: str,
+        request_digest: Digest,
+        content_digest: Digest,
+        trace_id: TraceId,
+    ) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -342,10 +378,48 @@ class InteractionEffectDeliveryPort(Protocol):
     ) -> None: ...
 
 
+@dataclass(frozen=True, slots=True)
+class InteractionEffectRoute:
+    scene_id: UUID
+    scene_key: str
+    scene_kind: str
+    destination_party_id: UUID
+    destination_kind: str
+    destination_binding_id: UUID | None
+    external_channel: str | None
+    external_account_key: str | None
+    external_conversation_key: str | None
+
+
+@runtime_checkable
+class InteractionEffectRoutePort(Protocol):
+    async def effect_route(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        scene_id: UUID,
+        context_party_id: UUID,
+        intended_destination_kind: str | None = None,
+    ) -> InteractionEffectRoute: ...
+
+
+@runtime_checkable
+class InteractionSceneTransitionPort(Protocol):
+    async def close_other_human_scene(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        scene_id: UUID,
+        other_party_id: UUID,
+    ) -> None: ...
+
+
 __all__ = (
     "PROJECTION_VERSION",
     "SCENE_COLLECTION_PROJECTION_VERSION",
     "ConfigureExternalCreatorCommand",
+    "CreatorCodexExecutionSummary",
     "CreatorIdentityContext",
     "CreatorInputAcceptance",
     "CreatorInputAcceptancePort",
@@ -391,8 +465,11 @@ __all__ = (
     "InteractionBirthPort",
     "InteractionDataRightsGate",
     "InteractionEffectDeliveryPort",
+    "InteractionEffectRoute",
+    "InteractionEffectRoutePort",
     "InteractionIdentityPort",
     "InteractionPerceptionPort",
+    "InteractionSceneTransitionPort",
     "InteractionSubjectCommitPort",
     "InteractionSubjectCommitSnapshot",
     "InteractionWakeupPort",

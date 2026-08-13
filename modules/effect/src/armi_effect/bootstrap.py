@@ -4,8 +4,20 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from armi_capability.api import CapabilityGrantConsumptionPort
-from armi_expression.api import ExpressionEffectRegistrationPort
+from armi_artifact_store.api import ArtifactCatalogPort
+from armi_capability.api import (
+    CapabilityActionAuthorizationPort,
+    CapabilityAdmissionPort,
+    CapabilityDispatchAuthorizationPort,
+)
+from armi_data_rights.api import DataRightsEffectGate
+from armi_expression.api import (
+    ExpressionEffectLinkPort,
+    ExpressionEffectRegistrationPort,
+    ExpressionIntentReadPort,
+    ExpressionResponseAdmissionPort,
+)
+from armi_interaction.api import InteractionEffectRoutePort
 from armi_kernel.application import CreatorProjectionNotifier, DurableWorkPort
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
@@ -13,18 +25,24 @@ from armi_runtime_foundation import (
 )
 
 from ._application import EffectRegistrationPipeline
+from ._codex_postgresql import PostgreSQLEffectCodexLifecycle
 from ._grant import (
     PostgreSQLEffectDispatchBoundary,
     PostgreSQLEffectGrantCancellation,
 )
 from ._ledger import PostgreSQLDeclaredResponseEffectRegistration
+from ._read_postgresql import PostgreSQLEffectOperationRead
 from ._recovery import EffectRecoveryParticipant
 from ._response import ResponseAdmissionPipeline
 from .api import (
     ActionAdapterPort,
     EffectArtifactStorePort,
+    EffectCodexArtifactPort,
+    EffectCodexLifecyclePort,
     EffectDispatchBoundaryPort,
     EffectGrantCancellationPort,
+    EffectOperationReadPort,
+    EffectRegistrationContextPort,
     EffectRuntimePort,
     EffectTimelinePort,
     EffectWakeupPort,
@@ -39,8 +57,16 @@ def bootstrap_effect_grant_cancellation() -> EffectGrantCancellationPort:
     return PostgreSQLEffectGrantCancellation()
 
 
-def bootstrap_effect_dispatch_boundary() -> EffectDispatchBoundaryPort:
-    return PostgreSQLEffectDispatchBoundary()
+def bootstrap_effect_dispatch_boundary(
+    authorization: CapabilityDispatchAuthorizationPort,
+) -> EffectDispatchBoundaryPort:
+    return PostgreSQLEffectDispatchBoundary(authorization)
+
+
+def bootstrap_effect_codex_lifecycle(
+    authorization: CapabilityDispatchAuthorizationPort,
+) -> EffectCodexLifecyclePort:
+    return PostgreSQLEffectCodexLifecycle(authorization)
 
 
 def bootstrap_expression_effect_registration() -> ExpressionEffectRegistrationPort:
@@ -52,7 +78,12 @@ def bootstrap_effect_runtime(
     factory: PostgreSQLRuntimeUnitOfWorkFactory,
     storage: EffectArtifactStorePort,
     work: DurableWorkPort,
-    capability_consumption: CapabilityGrantConsumptionPort,
+    authorization: CapabilityActionAuthorizationPort,
+    intents: ExpressionIntentReadPort,
+    effect_links: ExpressionEffectLinkPort,
+    registration_context: EffectRegistrationContextPort,
+    codex_artifacts: EffectCodexArtifactPort,
+    routes: InteractionEffectRoutePort,
     interaction_delivery: EffectTimelinePort,
     wakeups: EffectWakeupPort,
     notifier: CreatorProjectionNotifier | None = None,
@@ -65,7 +96,12 @@ def bootstrap_effect_runtime(
         factory=factory,
         storage=storage,
         work=work,
-        capability_consumption=capability_consumption,
+        authorization=authorization,
+        intents=intents,
+        effect_links=effect_links,
+        registration_context=registration_context,
+        codex_artifacts=codex_artifacts,
+        routes=routes,
         interaction_delivery=interaction_delivery,
         wakeups=wakeups,
         notifier=notifier,
@@ -81,6 +117,10 @@ def bootstrap_response_admission(
     factory: PostgreSQLRuntimeUnitOfWorkFactory,
     storage: EffectArtifactStorePort,
     work: DurableWorkPort,
+    artifacts: ArtifactCatalogPort,
+    capability: CapabilityAdmissionPort,
+    data_rights: DataRightsEffectGate,
+    expression: ExpressionResponseAdmissionPort,
     wakeups: EffectWakeupPort,
     diagnostic: Diagnostic | None = None,
 ) -> ResponseAdmissionRuntimePort:
@@ -88,6 +128,10 @@ def bootstrap_response_admission(
         factory=factory,
         storage=storage,
         work=work,
+        artifacts=artifacts,
+        capability=capability,
+        data_rights=data_rights,
+        expression=expression,
         wakeups=wakeups,
         diagnostic=diagnostic,
     )
@@ -97,9 +141,15 @@ def bootstrap_effect_recovery() -> RecoveryParticipant:
     return EffectRecoveryParticipant()
 
 
+def bootstrap_effect_operation_read() -> EffectOperationReadPort:
+    return PostgreSQLEffectOperationRead()
+
+
 __all__ = (
+    "bootstrap_effect_codex_lifecycle",
     "bootstrap_effect_dispatch_boundary",
     "bootstrap_effect_grant_cancellation",
+    "bootstrap_effect_operation_read",
     "bootstrap_effect_recovery",
     "bootstrap_effect_runtime",
     "bootstrap_expression_effect_registration",

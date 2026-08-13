@@ -8,7 +8,9 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-from armi_runtime_foundation import PostgreSQLTransactionAccess
+from armi_runtime_foundation import PostgreSQLTransaction, PostgreSQLTransactionAccess
+
+type EvidenceTransaction = PostgreSQLTransaction | PostgreSQLTransactionAccess
 
 
 class EvidenceViolation(RuntimeError):
@@ -114,19 +116,22 @@ class ExperienceEvidenceLink:
 class EvidenceSnapshot:
     evidence_id: EvidenceId
     received_at: datetime
+    interaction_id: UUID | None
+    artifact_id: UUID
+    codex_task_source_id: UUID | None
 
 
 @runtime_checkable
 class EvidenceWritePort(Protocol):
     async def accept(
         self,
-        transaction: PostgreSQLTransactionAccess,
+        transaction: EvidenceTransaction,
         draft: EvidenceDraft,
     ) -> EvidenceId: ...
 
     async def link_experience(
         self,
-        transaction: PostgreSQLTransactionAccess,
+        transaction: EvidenceTransaction,
         link: ExperienceEvidenceLink,
     ) -> None: ...
 
@@ -135,16 +140,23 @@ class EvidenceWritePort(Protocol):
 class EvidenceReadPort(Protocol):
     async def snapshot(
         self,
-        transaction: PostgreSQLTransactionAccess,
+        transaction: EvidenceTransaction,
         *,
         evidence_id: EvidenceId,
     ) -> EvidenceSnapshot: ...
 
     async def find_by_interaction(
         self,
-        transaction: PostgreSQLTransactionAccess,
+        transaction: EvidenceTransaction,
         *,
         interaction_id: UUID,
+    ) -> EvidenceId | None: ...
+
+    async def find_by_codex_task_source(
+        self,
+        transaction: EvidenceTransaction,
+        *,
+        task_source_id: UUID,
     ) -> EvidenceId | None: ...
 
 

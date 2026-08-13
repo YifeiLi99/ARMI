@@ -279,6 +279,8 @@ def _rejected(
         if code.startswith("SCOPE_")
         else ErrorCategory.CONFLICT
         if code.startswith("CONFLICT_")
+        else ErrorCategory.IDEMPOTENCY
+        if code.startswith("IDEMPOTENCY_")
         else ErrorCategory.AUTH
     )
     return RejectedOutcome(
@@ -1241,77 +1243,149 @@ def _operation_outcome_wire(operation: CreatorOperation) -> dict[str, object]:
 def _operation_wire(operation: CreatorOperation) -> dict[str, object]:
     wire = _operation_outcome_wire(operation)
     phase = operation.phase
-    completion_kind = {
-        CreatorOperationPhase.ACCEPTED: "cognition",
-        CreatorOperationPhase.CONTEXT_PREPARING: "cognition",
-        CreatorOperationPhase.CONTEXT_PREPARED: "cognition",
-        CreatorOperationPhase.MODEL_CALLING: "cognition",
-        CreatorOperationPhase.MODEL_RETURNED: "cognition",
-        CreatorOperationPhase.CANDIDATE_VALIDATING: "cognition",
-        CreatorOperationPhase.CANDIDATE_VALIDATED: "cognition",
-        CreatorOperationPhase.CANDIDATE_REJECTED: "cognition",
-        CreatorOperationPhase.SUBJECT_COMMITTING: "cognition",
-        CreatorOperationPhase.RESPONSE_ADMISSION: "response_effect",
-        CreatorOperationPhase.RESPONSE_ACCEPTED: "response_effect",
-        CreatorOperationPhase.EFFECT_REGISTRATION: "response_effect",
-        CreatorOperationPhase.EFFECT_REGISTERED: "response_effect",
-        CreatorOperationPhase.EFFECT_DISPATCHING: "response_effect",
-        CreatorOperationPhase.EFFECT_COMPLETED: "response_effect",
-        CreatorOperationPhase.EFFECT_FAILED: "response_effect",
-        CreatorOperationPhase.EFFECT_UNKNOWN: "response_effect",
-        CreatorOperationPhase.EFFECT_CANCELLED: "response_effect",
-        CreatorOperationPhase.CODEX_CAPABILITY_DECISION: "codex_effect",
-        CreatorOperationPhase.CODEX_DISPATCHING: "codex_effect",
-        CreatorOperationPhase.CODEX_VERIFYING: "codex_effect",
-        CreatorOperationPhase.CODEX_RESULT_ACCEPTANCE: "codex_effect",
-        CreatorOperationPhase.CODEX_RESULT_REJECTED: "codex_effect",
-        CreatorOperationPhase.CODEX_COMPLETED: "codex_effect",
-        CreatorOperationPhase.CODEX_FAILED: "codex_effect",
-        CreatorOperationPhase.CODEX_UNKNOWN: "codex_effect",
-        CreatorOperationPhase.CODEX_CANCELLED: "codex_effect",
-        CreatorOperationPhase.FORMAL_DECLINED: "formal_decline",
-        CreatorOperationPhase.FORMAL_NO_ACTION: "formal_no_action",
-        CreatorOperationPhase.RESPONSE_UNAUTHORIZED: "response_effect",
-        CreatorOperationPhase.RESPONSE_UNAVAILABLE: "response_effect",
-        CreatorOperationPhase.RESPONSE_FAILED: "response_effect",
-        CreatorOperationPhase.APPLIED: "subject_change",
-        CreatorOperationPhase.COMPLETED: "no_change",
-        CreatorOperationPhase.DEFERRED: "cognition",
-        CreatorOperationPhase.NEED_INFORMATION: "cognition",
-        CreatorOperationPhase.STALE_CONFLICT: "cognition",
-        CreatorOperationPhase.FAILED: "cognition",
-    }[phase]
-    delivery_state = {
-        CreatorOperationPhase.RESPONSE_ACCEPTED: "not_started",
-        CreatorOperationPhase.EFFECT_REGISTRATION: "not_started",
+    stage = _operation_stage(phase)
+    outcome = _operation_outcome(phase)
+    wire["details"] = {
+        "projection_version": "creator-operation.v2",
+        "operation_ref": str(operation.acceptance.opportunity_id),
+        "operation_kind": operation.operation_kind,
+        "stage": stage,
+        "outcome": outcome,
+        **({"intent_ref": str(operation.intent_ref)} if operation.intent_ref else {}),
+        **(
+            {"dialogue_decision_ref": str(operation.dialogue_decision_ref)}
+            if operation.dialogue_decision_ref
+            else {}
+        ),
+        **(
+            {"policy_decision_ref": str(operation.policy_decision_ref)}
+            if operation.policy_decision_ref
+            else {}
+        ),
+        **(
+            {"effect_ref": str(operation.effect_ref)}
+            if operation.effect_ref is not None
+            else {}
+        ),
+        **({"work_ref": str(operation.work_ref)} if operation.work_ref else {}),
+        **(
+            {"reason_code": operation.failure_code}
+            if operation.failure_code is not None
+            else {}
+        ),
+        **(
+            {
+                "codex_execution": {
+                    "task_source_ref": str(operation.codex_execution.task_source_ref),
+                    "verification_ref": (
+                        None
+                        if operation.codex_execution.verification_ref is None
+                        else str(operation.codex_execution.verification_ref)
+                    ),
+                    "execution_status": operation.codex_execution.execution_status,
+                    "model_id": operation.codex_execution.model_id,
+                    "sdk_identity": operation.codex_execution.sdk_identity,
+                    "validator_id": operation.codex_execution.validator_id,
+                    "source_tree_digest": operation.codex_execution.source_tree_digest.value,
+                    "final_tree_digest": (
+                        None
+                        if operation.codex_execution.final_tree_digest is None
+                        else operation.codex_execution.final_tree_digest.value
+                    ),
+                }
+            }
+            if operation.codex_execution is not None
+            else {}
+        ),
+    }
+    return wire
+
+
+def _operation_stage(phase: CreatorOperationPhase) -> str:
+    return {
+        CreatorOperationPhase.ACCEPTED: "accepted",
+        CreatorOperationPhase.CONTEXT_PREPARING: "context_preparing",
+        CreatorOperationPhase.CONTEXT_PREPARED: "context_preparing",
+        CreatorOperationPhase.MODEL_CALLING: "model_pending",
+        CreatorOperationPhase.MODEL_RETURNED: "model_pending",
+        CreatorOperationPhase.CANDIDATE_VALIDATING: "candidate_validating",
+        CreatorOperationPhase.CANDIDATE_VALIDATED: "candidate_validating",
+        CreatorOperationPhase.CANDIDATE_REJECTED: "candidate_rejected",
+        CreatorOperationPhase.SUBJECT_COMMITTING: "subject_committing",
+        CreatorOperationPhase.RESPONSE_ADMISSION: "awaiting_authorization",
+        CreatorOperationPhase.RESPONSE_ACCEPTED: "awaiting_authorization",
+        CreatorOperationPhase.EFFECT_REGISTRATION: "registering_effect",
         CreatorOperationPhase.EFFECT_REGISTERED: "registered",
         CreatorOperationPhase.EFFECT_DISPATCHING: "dispatching",
         CreatorOperationPhase.EFFECT_COMPLETED: "completed",
         CreatorOperationPhase.EFFECT_FAILED: "failed",
         CreatorOperationPhase.EFFECT_UNKNOWN: "unknown",
         CreatorOperationPhase.EFFECT_CANCELLED: "cancelled",
-        CreatorOperationPhase.CODEX_CAPABILITY_DECISION: "not_started",
+        CreatorOperationPhase.CODEX_CAPABILITY_DECISION: "awaiting_authorization",
         CreatorOperationPhase.CODEX_DISPATCHING: "dispatching",
         CreatorOperationPhase.CODEX_VERIFYING: "dispatching",
         CreatorOperationPhase.CODEX_RESULT_ACCEPTANCE: "completed",
-        CreatorOperationPhase.CODEX_RESULT_REJECTED: "completed",
+        CreatorOperationPhase.CODEX_RESULT_REJECTED: "candidate_rejected",
         CreatorOperationPhase.CODEX_COMPLETED: "completed",
         CreatorOperationPhase.CODEX_FAILED: "failed",
         CreatorOperationPhase.CODEX_UNKNOWN: "unknown",
         CreatorOperationPhase.CODEX_CANCELLED: "cancelled",
-    }.get(phase)
-    wire["details"] = {
-        "projection_version": "creator-operation.v1",
-        "root_operation_ref": str(operation.acceptance.opportunity_id),
-        "completion_kind": completion_kind,
-        **({"delivery_state": delivery_state} if delivery_state is not None else {}),
-        **(
-            {"effect_ref": str(operation.effect_ref)}
-            if operation.effect_ref is not None
-            else {}
-        ),
-    }
-    return wire
+        CreatorOperationPhase.FORMAL_DECLINED: "declined",
+        CreatorOperationPhase.FORMAL_NO_ACTION: "no_action",
+        CreatorOperationPhase.RESPONSE_UNAUTHORIZED: "authorization_denied",
+        CreatorOperationPhase.RESPONSE_UNAVAILABLE: "unavailable",
+        CreatorOperationPhase.RESPONSE_FAILED: "failed",
+        CreatorOperationPhase.APPLIED: "applied",
+        CreatorOperationPhase.COMPLETED: "no_change",
+        CreatorOperationPhase.DEFERRED: "deferred",
+        CreatorOperationPhase.NEED_INFORMATION: "need_information",
+        CreatorOperationPhase.STALE_CONFLICT: "stale",
+        CreatorOperationPhase.FAILED: "failed",
+    }[phase]
+
+
+def _operation_outcome(phase: CreatorOperationPhase) -> str:
+    if phase is CreatorOperationPhase.APPLIED:
+        return "applied"
+    if phase in {
+        CreatorOperationPhase.EFFECT_COMPLETED,
+        CreatorOperationPhase.CODEX_COMPLETED,
+        CreatorOperationPhase.COMPLETED,
+    }:
+        return "completed"
+    if phase is CreatorOperationPhase.FORMAL_NO_ACTION:
+        return "no_action"
+    if phase is CreatorOperationPhase.DEFERRED:
+        return "deferred"
+    if phase is CreatorOperationPhase.STALE_CONFLICT:
+        return "stale"
+    if phase in {CreatorOperationPhase.RESPONSE_UNAVAILABLE}:
+        return "unavailable"
+    if phase in {
+        CreatorOperationPhase.EFFECT_FAILED,
+        CreatorOperationPhase.CODEX_FAILED,
+        CreatorOperationPhase.RESPONSE_FAILED,
+        CreatorOperationPhase.FAILED,
+    }:
+        return "failed"
+    if phase in {
+        CreatorOperationPhase.EFFECT_UNKNOWN,
+        CreatorOperationPhase.CODEX_UNKNOWN,
+    }:
+        return "unknown"
+    if phase in {
+        CreatorOperationPhase.EFFECT_CANCELLED,
+        CreatorOperationPhase.CODEX_CANCELLED,
+    }:
+        return "cancelled"
+    if phase in {
+        CreatorOperationPhase.CANDIDATE_REJECTED,
+        CreatorOperationPhase.CODEX_RESULT_REJECTED,
+        CreatorOperationPhase.FORMAL_DECLINED,
+        CreatorOperationPhase.RESPONSE_UNAUTHORIZED,
+    }:
+        return "rejected"
+    return "pending"
 
 
 def _input_failure(error: CreatorInputViolation) -> tuple[int, dict[str, object]]:
@@ -2571,7 +2645,7 @@ def create_runtime_app(
                         CreatorEventResourceKind.OPERATION,
                         str(acceptance.opportunity_id),
                         Instant(datetime.now(UTC)),
-                        "creator-operation.v1",
+                        "creator-operation.v2",
                     )
                 )
             except Exception:
@@ -3960,7 +4034,7 @@ def create_runtime_app(
                         CreatorEventResourceKind.OPERATION,
                         str(acceptance.opportunity_id),
                         Instant(datetime.now(UTC)),
-                        "creator-operation.v1",
+                        "creator-operation.v2",
                     )
                 )
             except Exception:
@@ -4126,9 +4200,13 @@ def create_runtime_app(
                 contract_version="1.0",
                 projection_version="creator-effect.v3",
                 effect_id=str(view.effect_id.value),
-                root_operation_ref=str(view.root_operation_ref),
-                capability_request_ref=str(view.capability_request_ref),
-                grant_ref=str(view.grant_ref),
+                action_intent_ref=str(view.action_intent_ref),
+                action_intent_revision_ref=str(view.action_intent_revision_ref),
+                policy_decision_ref=(
+                    None
+                    if view.policy_decision_ref is None
+                    else str(view.policy_decision_ref)
+                ),
                 capability_kind=view.capability_kind,
                 effect_kind=view.effect_kind,
                 status=view.status.value,

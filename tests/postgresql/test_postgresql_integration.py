@@ -52,6 +52,7 @@ from armi_artifact_store.content_store import (
 )
 from armi_capability.api import (
     CapabilityDecisionId,
+    CapabilityDispatchAuthorization,
     CapabilityRequestId,
     CapabilityRequestStatus,
     CapabilityViolation,
@@ -65,6 +66,7 @@ from armi_codex._application import CodexTaskSourceGateway
 from armi_codex.api import CreatorCodexTaskCommand
 from armi_codex.bootstrap import (
     bootstrap_codex_commit,
+    bootstrap_codex_read_ports,
     bootstrap_codex_timeline_projection,
 )
 from armi_cognition._model_contract import (
@@ -97,13 +99,16 @@ from armi_effect._ledger import (
 )
 from armi_effect.api import EffectStatus
 from armi_effect.bootstrap import (
-    bootstrap_effect_dispatch_boundary,
+    bootstrap_effect_codex_lifecycle,
     bootstrap_effect_grant_cancellation,
     bootstrap_expression_effect_registration,
 )
 from armi_evidence.bootstrap import bootstrap_evidence
 from armi_expression.api import CreatorReplyDraft, ResponseAdmissionStatus
-from armi_expression.bootstrap import bootstrap_expression
+from armi_expression.bootstrap import (
+    bootstrap_expression,
+    bootstrap_expression_action_ports,
+)
 from armi_interaction._creator_postgresql import CreatorInputRepository
 from armi_interaction._external import ExternalMessageInputService
 from armi_interaction._external_postgresql import ExternalMessageInputRepository
@@ -113,7 +118,6 @@ from armi_interaction._timeline_postgresql import PostgreSQLSceneTimelineQuery
 from armi_interaction.api import (
     ConfigureExternalCreatorCommand,
     CreatorInputAcceptance,
-    CreatorOperationPhase,
     ExternalAccountKey,
     ExternalChannel,
     ExternalConversationKey,
@@ -129,7 +133,9 @@ from armi_interaction.api import (
     SceneTimelineQuery,
 )
 from armi_interaction.bootstrap import (
+    bootstrap_interaction_action_ports,
     bootstrap_interaction_birth,
+    bootstrap_interaction_identity,
     bootstrap_interaction_subject_commit,
 )
 from armi_kernel.application import (
@@ -238,6 +244,7 @@ from armi_runtime.adapters.persistence.unit_of_work import (
     PostgreSQLUnitOfWorkFactory,
 )
 from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
+from armi_runtime.application.action_lifecycle import RuntimeEffectRegistrationContext
 from armi_runtime.cli import main
 from armi_runtime.composition.artifacts import (
     ContentAddressedArtifactCoordinator,
@@ -249,6 +256,7 @@ from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
 from armi_runtime.composition.database import compose_recovery_participants
 from armi_runtime.composition.runtime_process import RuntimeProcessManager
 from armi_runtime.composition.work_wakeup import WorkWakeupBus
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
 from armi_sleep.api import CreatorMaintenanceViolation
 from armi_sleep.bootstrap import bootstrap_sleep, bootstrap_sleep_cognition
 from armi_subject_state.bootstrap import (
@@ -271,6 +279,36 @@ from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 from tools.live_ark_credential import load_live_ark_credential
+
+
+class _NoopCodexActivation:
+    async def activate_codex_registration(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        subject_commit_id: UUID,
+        grant_id: UUID,
+        valid_until: datetime,
+    ) -> None:
+        del unit_of_work, subject_commit_id, grant_id, valid_until
+
+
+class _AllowDispatchAuthorization:
+    async def authorize_dispatch(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        policy_decision_id: UUID,
+        action_intent_revision_id: UUID,
+        before_dispatch_deadline: bool,
+    ) -> CapabilityDispatchAuthorization:
+        del transaction, policy_decision_id, action_intent_revision_id
+        return CapabilityDispatchAuthorization(
+            before_dispatch_deadline,
+            None,
+            None if before_dispatch_deadline else "POLICY-GRANT-EXPIRED",
+        )
+
 
 _ADMIN_DSN = os.environ.get("S009_ADMIN_DSN")
 
@@ -692,7 +730,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     bootstrap_opportunity_admission(),
                 ),
                 creator_inputs=CreatorInputRepository(
-                    bootstrap_evidence().write, bootstrap_opportunity_admission()
+                    bootstrap_evidence().write,
+                    bootstrap_evidence().read,
+                    bootstrap_opportunity_admission(),
                 ),
                 other_inputs=OtherHumanInputRepository(
                     bootstrap_evidence().write, bootstrap_opportunity_admission()
@@ -2489,11 +2529,18 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     creator_party_id=creator_party_id,
                     input_repository=CreatorInputRepository(
                         bootstrap_evidence().write,
+                        bootstrap_evidence().read,
                         bootstrap_opportunity_admission(),
                     ),
                     evidence=bootstrap_evidence().write,
+                    evidence_read=bootstrap_evidence().read,
+                    identity=bootstrap_interaction_identity(),
                     opportunity=bootstrap_opportunity_admission(),
-                    dispatch_boundary=bootstrap_effect_dispatch_boundary(),
+                    effect=bootstrap_effect_codex_lifecycle(
+                        _AllowDispatchAuthorization()
+                    ),
+                    expression=bootstrap_expression_action_ports().intents,
+                    sources=bootstrap_codex_read_ports().task_sources,
                     notifier=None,
                     diagnostic=lambda _event: None,
                 )
@@ -2505,17 +2552,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
                 first = await gateway.accept(command)
                 repeated = await gateway.accept(command)
-                async with factory.unit_of_work(read_only=True) as unit_of_work:
-                    operation = await CreatorInputRepository(
-                        bootstrap_evidence().write,
-                        bootstrap_opportunity_admission(),
-                    ).operation(
-                        unit_of_work,
-                        opportunity_id=first.opportunity_id,
-                        creator_party_id=creator_party_id,
-                    )
-                self.assertEqual(operation.phase, CreatorOperationPhase.ACCEPTED)
-                self.assertEqual(operation.acceptance, repeated)
+                self.assertEqual(first, repeated)
                 timeline_query = PostgreSQLSceneTimelineQuery(
                     factory,
                     environment_id=fixture.environment_id,
@@ -5824,16 +5861,20 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             subject_state_module = bootstrap_subject_state()
             mood_module = bootstrap_mood()
             prompt_module = bootstrap_prompt()
+            interaction_actions = bootstrap_interaction_action_ports()
             expression_module = bootstrap_expression(
                 relationship_module.read,
                 relationship_module.policy,
                 bootstrap_expression_effect_registration(),
+                interaction_actions.routes,
+                interaction_actions.scenes,
             )
             capability_module = bootstrap_capability(
                 factory,
                 environment_id=fixture.environment_id,
                 cursor_key=hashlib.sha256(b"t03-capability-cursor-key").digest(),
                 effect_cancellation=bootstrap_effect_grant_cancellation(),
+                codex_activation=_NoopCodexActivation(),
             )
             evidence_module = bootstrap_evidence()
             data_rights_core = bootstrap_data_rights_core()
@@ -5841,7 +5882,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 activity_commit=activity_module.commit,
                 capability_commit=capability_module.commit,
                 capability_read=capability_module.read,
-                codex_commit=bootstrap_codex_commit(),
+                codex_commit=bootstrap_codex_commit(
+                    bootstrap_codex_read_ports().task_sources,
+                    expression_module.commit,
+                ),
                 cognition_commit=bootstrap_cognition_subject_commit(),
                 context_projections=_ContextProjectionInvalidation(),
                 data_rights=data_rights_core.seal(),
@@ -6149,6 +6193,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 environment_id=fixture.environment_id,
                 cursor_key=b"s027-capability-policy-cursor-key",
                 effect_cancellation=bootstrap_effect_grant_cancellation(),
+                codex_activation=_NoopCodexActivation(),
             )
             await policy_factory.open()
             await policy.open()
@@ -6225,15 +6270,21 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     self.assertEqual(len(claimed), 1)
                     response_lease = claimed[0].lease
                     assert response_lease is not None
-                    response_repository = PostgreSQLResponseAdmissionRepository()
+                    response_actions = bootstrap_expression_action_ports()
+                    response_repository = PostgreSQLResponseAdmissionRepository(
+                        artifacts=ArtifactCatalogRepository(),
+                        capability=policy.admission,
+                        data_rights=bootstrap_data_rights_core().effect_gate,
+                        expression=response_actions.admission,
+                    )
                     async with response_factory.unit_of_work() as unit_of_work:
                         response_snapshot = await response_repository.snapshot(
-                            unit_of_work, response_lease
+                            unit_of_work, claimed[0]
                         )
                     async with response_factory.unit_of_work() as unit_of_work:
                         response_result = await response_repository.settle(
                             unit_of_work,
-                            lease=response_lease,
+                            work=claimed[0],
                             snapshot=response_snapshot,
                             integrity_ok=True,
                         )
@@ -6249,12 +6300,23 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     self.assertEqual(len(effect_claimed), 1)
                     effect_lease = effect_claimed[0].lease
                     assert effect_lease is not None
+                    expression_actions = bootstrap_expression_action_ports()
                     effect_repository = PostgreSQLEffectLedgerRepository(
-                        policy.consumption
+                        policy.authorization,
+                        expression_actions.intents,
+                        expression_actions.effect_links,
+                    )
+                    interaction_actions = bootstrap_interaction_action_ports()
+                    registration_context = RuntimeEffectRegistrationContext(
+                        artifacts=ArtifactCatalogRepository(),
+                        codex=bootstrap_codex_read_ports().task_sources,
+                        expression=expression_actions.intents,
+                        interaction=interaction_actions.routes,
                     )
                     async with response_factory.unit_of_work() as unit_of_work:
-                        effect_snapshot = await effect_repository.snapshot(
-                            unit_of_work, effect_lease
+                        effect_snapshot = await registration_context.resolve(
+                            unit_of_work,
+                            work=effect_claimed[0],
                         )
                     async with response_factory.unit_of_work() as unit_of_work:
                         effect_result = await effect_repository.settle(
@@ -6265,7 +6327,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         )
                     assert effect_result is not None
                     self.assertIs(effect_result.status, EffectStatus.REGISTERED)
-                    dispatch_repository = PostgreSQLEffectDispatchRepository()
+                    dispatch_repository = PostgreSQLEffectDispatchRepository(
+                        policy.dispatch_authorization,
+                        interaction_actions.routes,
+                    )
                     async with response_factory.unit_of_work() as unit_of_work:
                         dispatch_snapshot = await dispatch_repository.claim(
                             unit_of_work,
@@ -6455,9 +6520,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "delivered",
                 "effect_completed",
                 1,
+                False,
                 True,
                 True,
-                None,
                 1,
                 1,
                 1,
@@ -7250,7 +7315,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         (
                             "operation",
                             accepted["result_ref"],
-                            "creator-operation.v1",
+                            "creator-operation.v2",
                         ),
                     )
                     self.assertEqual(operation_event_lines[3], b"\n")
@@ -7267,8 +7332,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         headers=input_headers,
                     )
                     replay_response = connection.getresponse()
-                    replay = json.loads(replay_response.read())
-                    self.assertEqual(replay_response.status, 202)
+                    replay_body = replay_response.read()
+                    if replay_response.status != 202:
+                        process.send_signal(signal.CTRL_BREAK_EVENT)
+                        _stdout, replay_stderr = process.communicate(timeout=35)
+                        self.fail(
+                            f"idempotent input failed: status={replay_response.status} "
+                            f"body={replay_body!r} stderr={replay_stderr!r}"
+                        )
+                    replay = json.loads(replay_body)
                     self.assertEqual(
                         (
                             replay["status"],

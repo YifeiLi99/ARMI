@@ -1,9 +1,10 @@
-"""Commit accepted Codex delegation intents in the caller's subject transaction."""
+"""Validate Codex-owned sources and delegate Expression-owned intent writes."""
 
 from __future__ import annotations
 
 from uuid import UUID, uuid7
 
+from armi_expression.api import DelegatedActionIntentDraft, ExpressionCommitPort
 from armi_kernel.application import (
     AuditDraft,
     AuditEventId,
@@ -15,11 +16,19 @@ from armi_kernel.contracts import Purpose, SubjectId
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
 from ._delegation_contract import CodexDelegationDraft, CodexDelegationViolation
-from .api import CodexCommitContext
+from .api import CodexCommitContext, CodexTaskSourceReadPort
 
 
 class PostgreSQLCodexCommit:
-    __slots__ = ()
+    __slots__ = ("_expression", "_sources")
+
+    def __init__(
+        self,
+        sources: CodexTaskSourceReadPort,
+        expression: ExpressionCommitPort,
+    ) -> None:
+        self._sources = sources
+        self._expression = expression
 
     async def commit_delegations(
         self,
@@ -36,71 +45,33 @@ class PostgreSQLCodexCommit:
         if len(delegations) != 1:
             raise CodexDelegationViolation("CODEX-DELEGATION-COUNT")
         draft = delegations[0]
-        connection = unit_of_work.transaction
-        source = await (
-            await connection.execute(
-                """
-                SELECT task_manifest_digest, validator_id
-                FROM armi.codex_task_sources
-                WHERE codex_task_source_id = %s AND subject_id = %s
-                """,
-                (draft.task_source_id.value, context.subject_id),
-            )
-        ).fetchone()
+        source = await self._sources.task_source(
+            unit_of_work.transaction,
+            task_source_id=draft.task_source_id.value,
+        )
         if (
-            source is None
-            or str(source[0]) != draft.task_manifest_digest.value
-            or str(source[1]) != draft.validator_id
+            source.subject_id != context.subject_id
+            or source.task_manifest_digest != draft.task_manifest_digest
+            or source.validator_id != draft.validator_id
         ):
             raise CodexDelegationViolation("CODEX-DELEGATION-VALIDATION")
-        action_id = uuid7()
-        revision_id = uuid7()
-        await connection.execute(
-            """
-            INSERT INTO armi.action_intents (
-                action_intent_id, subject_id, scene_id,
-                context_party_id, root_opportunity_id, purpose,
-                action_kind, current_revision_id, operation_ref) VALUES (
-                %s, %s, %s, %s, %s, 'delegate_codex_work',
-                'codex_delegation', NULL, %s)
-            """,
-            (
-                action_id,
+        if context.scene_id is None or context.creator_party_id is None:
+            raise CodexDelegationViolation("CODEX-DELEGATION-COMMIT-CONTEXT")
+        await self._expression.commit_delegation(
+            unit_of_work,
+            commit_id=commit_id,
+            draft=DelegatedActionIntentDraft(
+                context.root_opportunity_id,
                 context.subject_id,
                 context.scene_id,
                 context.creator_party_id,
                 context.root_opportunity_id,
-                context.root_opportunity_id,
-            ),
-        )
-        await connection.execute(
-            """
-            INSERT INTO armi.action_intent_revisions (
-                action_intent_revision_id, action_intent_id, revision_no,
-                capability_kind, operation_class, purpose,
-                candidate_validation_id, proposal_ref, subject_commit_id,
-                codex_task_source_id, task_manifest_digest, validator_id) VALUES (
-                %s, %s, 1, 'codex.delegated-work', 'execute',
-                'delegate_codex_work', %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                revision_id,
-                action_id,
                 context.validation_id,
                 draft.proposal_ref,
-                commit_id,
                 draft.task_source_id.value,
-                draft.task_manifest_digest.value,
+                draft.task_manifest_digest,
                 draft.validator_id,
             ),
-        )
-        await connection.execute(
-            """
-            UPDATE armi.action_intents
-            SET current_revision_id = %s
-            WHERE action_intent_id = %s
-            """,
-            (revision_id, action_id),
         )
         await unit_of_work.audit.append(
             AuditDraft(
@@ -108,7 +79,7 @@ class PostgreSQLCodexCommit:
                 AuditReference("runtime", unit_of_work.environment_id),
                 Purpose("subject.commit"),
                 "codex.delegation.intent.recorded",
-                AuditReference("action_intent", action_id),
+                AuditReference("codex_task_source", draft.task_source_id.value),
                 AuditResultStatus.ACCEPTED,
                 context.trace_id,
                 AuditSensitivity.PRIVATE,

@@ -5,6 +5,7 @@ from typing import Any, cast
 from uuid import uuid7
 
 import pytest
+from armi_capability.api import CapabilityDispatchAuthorization
 from armi_effect._grant import (
     coordinate_dispatch_boundary,
 )
@@ -29,6 +30,17 @@ class _Connection:
     async def execute(self, query: str, params: tuple[object, ...] = ()) -> _Cursor:
         statement = " ".join(query.split())
         self.statements.append(statement)
+        if "SELECT statement_timestamp()<outbox.dispatch_deadline" in statement:
+            return _Cursor(
+                (
+                    True,
+                    uuid7(),
+                    "respond_to_creator",
+                    "1" * 32,
+                    self.ids["policy"],
+                    self.ids["revision"],
+                )
+            )
         if "SELECT policy.matched_grant_id" in statement:
             return _Cursor((self.ids["grant"],))
         if "FROM armi.permission_grants" in statement:
@@ -103,7 +115,6 @@ async def test_revoked_grant_cancels_prepared_attempt_before_dispatch() -> None:
     assert result is not None and not result.allowed
     assert result.reason_code == "POLICY-GRANT-REVOKED"
     assert any("result_status='cancelled'" in item for item in connection.statements)
-    assert any("decision_outcome" in item for item in connection.statements)
     assert len(uow.audit.events) == 1
     assert uow.audit.events[0].operation == "effect.cancelled"
 
@@ -111,6 +122,7 @@ async def test_revoked_grant_cancels_prepared_attempt_before_dispatch() -> None:
 async def _coordinate(uow: _UnitOfWork):
     return await coordinate_dispatch_boundary(
         cast(PostgreSQLRuntimeUnitOfWork, cast(Any, uow)),
+        authorization=_Authorization(),
         effect_id=uuid7(),
         attempt_id=uuid7(),
         outbox_id=uuid7(),
@@ -119,3 +131,20 @@ async def _coordinate(uow: _UnitOfWork):
         expected_operation_status="effect_dispatching",
         cancelled_operation_status="effect_cancelled",
     )
+
+
+class _Authorization:
+    async def authorize_dispatch(
+        self,
+        transaction: Any,
+        *,
+        policy_decision_id: Any,
+        action_intent_revision_id: Any,
+        before_dispatch_deadline: bool,
+    ) -> CapabilityDispatchAuthorization:
+        del policy_decision_id, action_intent_revision_id, before_dispatch_deadline
+        if transaction.revoked:
+            return CapabilityDispatchAuthorization(
+                False, transaction.ids["grant"], "POLICY-GRANT-REVOKED"
+            )
+        return CapabilityDispatchAuthorization(True, transaction.ids["grant"], None)

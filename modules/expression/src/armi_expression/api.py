@@ -8,7 +8,7 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-from armi_kernel.application import ArtifactRef
+from armi_kernel.application import ArtifactRef, WorkRecord
 from armi_kernel.contracts import Digest, TraceId
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWork,
@@ -342,6 +342,97 @@ class ResponseAdmissionPort(Protocol):
         ...
 
 
+@dataclass(frozen=True, slots=True)
+class ExpressionIntentSnapshot:
+    operation_ref: UUID
+    action_intent_id: UUID
+    action_intent_revision_id: UUID
+    root_opportunity_id: UUID
+    subject_id: UUID
+    scene_id: UUID
+    context_party_id: UUID
+    action_kind: str
+    capability_kind: str
+    operation_class: str
+    purpose: str
+    response_artifact_id: UUID | None
+    response_digest: Digest | None
+    response_bytes: int | None
+    codex_task_source_id: UUID | None
+    task_manifest_digest: Digest | None
+    validator_id: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class ExpressionOperationSnapshot:
+    operation_ref: UUID
+    intent_id: UUID | None
+    intent_revision_id: UUID | None
+    dialogue_decision_id: UUID | None
+    action_kind: str | None
+    decision_kind: str | None
+    reason_code: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class DelegatedActionIntentDraft:
+    operation_ref: UUID
+    subject_id: UUID
+    scene_id: UUID
+    creator_party_id: UUID
+    root_opportunity_id: UUID
+    validation_id: UUID
+    proposal_ref: str
+    task_source_id: UUID
+    task_manifest_digest: Digest
+    validator_id: str
+
+
+@runtime_checkable
+class ExpressionResponseAdmissionPort(Protocol):
+    async def response_admission_snapshot(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        work: WorkRecord,
+    ) -> ExpressionIntentSnapshot: ...
+
+
+@runtime_checkable
+class ExpressionIntentReadPort(Protocol):
+    async def intent_snapshot(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        action_intent_id: UUID,
+    ) -> ExpressionIntentSnapshot: ...
+
+    async def delegation_for_commit(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_commit_id: UUID,
+    ) -> ExpressionIntentSnapshot | None: ...
+
+    async def operation_snapshot(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        operation_ref: UUID,
+    ) -> ExpressionOperationSnapshot | None: ...
+
+
+@runtime_checkable
+class ExpressionEffectLinkPort(Protocol):
+    async def link_effect(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        action_intent_id: UUID,
+        effect_id: UUID,
+    ) -> None: ...
+
+
 @runtime_checkable
 class ExpressionEffectRegistrationPort(Protocol):
     async def register_declared_response(
@@ -380,6 +471,14 @@ class ExpressionCommitPort(Protocol):
         """Record a committed silence, refusal, or deferred social response."""
         ...
 
+    async def commit_delegation(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        commit_id: UUID,
+        draft: DelegatedActionIntentDraft,
+    ) -> None: ...
+
 
 def _proposal(proposal_ref: str, group_ref: str, basis: tuple[int, ...]) -> None:
     if (
@@ -405,9 +504,15 @@ __all__ = (
     "CreatorReplyDraft",
     "CreatorResponseOperationId",
     "DeclaredResponseEffectDraft",
+    "DelegatedActionIntentDraft",
     "ExpressionCommitContext",
     "ExpressionCommitPort",
+    "ExpressionEffectLinkPort",
     "ExpressionEffectRegistrationPort",
+    "ExpressionIntentReadPort",
+    "ExpressionIntentSnapshot",
+    "ExpressionOperationSnapshot",
+    "ExpressionResponseAdmissionPort",
     "FormalNoActionDraft",
     "FormalNoActionId",
     "FormalNoActionKind",

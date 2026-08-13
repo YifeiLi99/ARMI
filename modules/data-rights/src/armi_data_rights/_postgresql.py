@@ -282,6 +282,15 @@ class DataRightsOrderRepository:
         ).fetchone()
         return row is not None and bool(row[0])
 
+    async def blocks_effect(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        requester_party_id: UUID,
+    ) -> bool:
+        """Apply the same contact/use/delete boundary to effect admission and dispatch."""
+        return await self.blocks_new_interaction(unit_of_work, requester_party_id)
+
 
 def _snapshot(row: tuple[Any, ...]) -> DataRightsOrderSnapshot:
     return DataRightsOrderSnapshot(

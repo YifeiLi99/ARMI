@@ -6,7 +6,7 @@ from armi_effect._dispatch import (
     _classify_absent_effect,
 )
 from armi_effect._grant import (
-    _dispatch_cancellation_reason,
+    dispatch_cancellation_reason,
 )
 
 
@@ -73,4 +73,4 @@ def test_dispatch_boundary_rechecks_current_grant(
     }
     values.update(overrides)
 
-    assert _dispatch_cancellation_reason(**values) == expected  # type: ignore[arg-type]
+    assert dispatch_cancellation_reason(**values) == expected  # type: ignore[arg-type]

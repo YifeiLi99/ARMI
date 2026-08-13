@@ -13,8 +13,8 @@ from armi_kernel.application import (
     ArtifactRegistration,
     PublishedArtifact,
 )
-from armi_kernel.contracts import TraceId
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
+from armi_kernel.contracts import Digest, TraceId
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
 
 from ._delegation_contract import (
     CodexCleanupStatus,
@@ -84,6 +84,65 @@ class CodexCommitPort(Protocol):
     ) -> None: ...
 
 
+@dataclass(frozen=True, slots=True)
+class CodexTaskSourceSnapshot:
+    task_source_id: UUID
+    subject_id: UUID
+    source_bundle_artifact_id: UUID
+    source_bundle_digest: Digest
+    source_tree_digest: Digest
+    task_manifest_artifact_id: UUID
+    task_manifest_digest: Digest
+    validator_id: str
+    deadline_seconds: int
+    trace_id: TraceId
+
+
+@dataclass(frozen=True, slots=True)
+class CodexExecutionSnapshot:
+    effect_id: UUID
+    task_source_id: UUID
+    verification_id: UUID | None
+    execution_status: str | None
+    model_id: str | None
+    sdk_identity: str | None
+    validator_id: str
+    source_tree_digest: Digest
+    final_tree_digest: Digest | None
+
+
+@runtime_checkable
+class CodexTaskSourceReadPort(Protocol):
+    async def task_source(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        task_source_id: UUID,
+    ) -> CodexTaskSourceSnapshot: ...
+
+
+@runtime_checkable
+class CodexExecutionReadPort(Protocol):
+    async def execution_for_effect(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        effect_id: UUID,
+        task_source_id: UUID,
+    ) -> CodexExecutionSnapshot | None: ...
+
+
+@runtime_checkable
+class CodexArtifactReadPort(Protocol):
+    async def artifact_ref(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        effect_id: UUID,
+        kind: str,
+    ) -> ArtifactId | None: ...
+
+
 @runtime_checkable
 class CodexArtifactStorePort(ArtifactPort, Protocol):
     async def prepare(self) -> None: ...
@@ -120,6 +179,7 @@ class CodexRuntimePort(CodexDelegationPort, Protocol):
 
 __all__ = (
     "CodexArtifactCatalogPort",
+    "CodexArtifactReadPort",
     "CodexArtifactStorePort",
     "CodexCleanupStatus",
     "CodexCommitContext",
@@ -128,6 +188,8 @@ __all__ = (
     "CodexDelegationPort",
     "CodexDelegationViolation",
     "CodexExecutionId",
+    "CodexExecutionReadPort",
+    "CodexExecutionSnapshot",
     "CodexModel",
     "CodexReasoningEffort",
     "CodexResultEvidence",
@@ -142,7 +204,9 @@ __all__ = (
     "CodexTaskSourceAdmissionPort",
     "CodexTaskSourceDraft",
     "CodexTaskSourceId",
+    "CodexTaskSourceReadPort",
     "CodexTaskSourceRuntimePort",
+    "CodexTaskSourceSnapshot",
     "CodexUsage",
     "CodexVerificationId",
     "CodexVerificationResult",

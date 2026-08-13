@@ -31,15 +31,15 @@ class EffectContractTests(unittest.TestCase):
         effect_id = EffectId(uuid7())
         decision_id = PolicyDecisionId(uuid7())
         view = EffectView(
-            effect_id,
-            uuid7(),
-            "creator_response",
-            EffectStatus.REGISTERED,
-            EffectVerificationStatus.NOT_STARTED,
-            Instant(datetime.now(UTC)),
-            uuid7(),
-            uuid7(),
-            "creator.scene.reply",
+            effect_id=effect_id,
+            action_intent_ref=uuid7(),
+            action_intent_revision_ref=uuid7(),
+            policy_decision_ref=uuid7(),
+            effect_kind="creator_response",
+            status=EffectStatus.REGISTERED,
+            verification_status=EffectVerificationStatus.NOT_STARTED,
+            registered_at=Instant(datetime.now(UTC)),
+            capability_kind="creator.scene.reply",
         )
         self.assertEqual(view.effect_id, effect_id)
         self.assertEqual(decision_id.value.version, 7)
@@ -54,15 +54,15 @@ class EffectContractTests(unittest.TestCase):
         self.assertEqual(identity.exception.code, "CON-EFFECT-ID")
         with self.assertRaises(EffectViolation) as state:
             EffectView(
-                EffectId(uuid7()),
-                uuid7(),
-                "creator_response",
-                EffectStatus.CANCELLED,
-                EffectVerificationStatus.NOT_STARTED,
-                Instant(datetime.now(UTC)),
-                uuid7(),
-                uuid7(),
-                "creator.scene.reply",
+                effect_id=EffectId(uuid7()),
+                action_intent_ref=uuid7(),
+                action_intent_revision_ref=uuid7(),
+                policy_decision_ref=uuid7(),
+                effect_kind="creator_response",
+                status=EffectStatus.CANCELLED,
+                verification_status=EffectVerificationStatus.NOT_STARTED,
+                registered_at=Instant(datetime.now(UTC)),
+                capability_kind="creator.scene.reply",
             )
         self.assertEqual(state.exception.code, "CON-EFFECT-STATE")
 
@@ -108,15 +108,15 @@ class EffectContractTests(unittest.TestCase):
     def test_unknown_requires_explicit_verification_action(self) -> None:
         with self.assertRaises(EffectViolation) as invalid:
             EffectView(
-                EffectId(uuid7()),
-                uuid7(),
-                "creator_response",
-                EffectStatus.UNKNOWN,
-                EffectVerificationStatus.INCONCLUSIVE,
-                Instant(datetime.now(UTC)),
-                uuid7(),
-                uuid7(),
-                "creator.scene.reply",
+                effect_id=EffectId(uuid7()),
+                action_intent_ref=uuid7(),
+                action_intent_revision_ref=uuid7(),
+                policy_decision_ref=uuid7(),
+                effect_kind="creator_response",
+                status=EffectStatus.UNKNOWN,
+                verification_status=EffectVerificationStatus.INCONCLUSIVE,
+                registered_at=Instant(datetime.now(UTC)),
+                capability_kind="creator.scene.reply",
                 attempt_count=1,
             )
         self.assertEqual(invalid.exception.code, "CON-EFFECT-VERIFICATION")
@@ -179,15 +179,15 @@ class EffectContractTests(unittest.TestCase):
 
     def test_codex_effect_view_contains_only_effect_ledger_facts(self) -> None:
         view = EffectView(
-            EffectId(uuid7()),
-            uuid7(),
-            "codex_delegation",
-            EffectStatus.COMPLETED,
-            EffectVerificationStatus.VERIFIED,
-            Instant(datetime.now(UTC)),
-            uuid7(),
-            uuid7(),
-            "codex.delegated-work",
+            effect_id=EffectId(uuid7()),
+            action_intent_ref=uuid7(),
+            action_intent_revision_ref=uuid7(),
+            policy_decision_ref=uuid7(),
+            effect_kind="codex_delegation",
+            status=EffectStatus.COMPLETED,
+            verification_status=EffectVerificationStatus.VERIFIED,
+            registered_at=Instant(datetime.now(UTC)),
+            capability_kind="codex.delegated-work",
             attempt_count=1,
         )
 

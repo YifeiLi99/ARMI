@@ -953,6 +953,97 @@
         "title": "CreatorActivityTimelineResponse",
         "type": "object"
       },
+      "CreatorCodexExecutionDetails": {
+        "additionalProperties": false,
+        "properties": {
+          "execution_status": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Status"
+          },
+          "final_tree_digest": {
+            "anyOf": [
+              {
+                "pattern": "sha256:[0-9a-f]{64}",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Final Tree Digest"
+          },
+          "model_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Id"
+          },
+          "sdk_identity": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sdk Identity"
+          },
+          "source_tree_digest": {
+            "pattern": "sha256:[0-9a-f]{64}",
+            "title": "Source Tree Digest",
+            "type": "string"
+          },
+          "task_source_ref": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Task Source Ref",
+            "type": "string"
+          },
+          "validator_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Validator Id",
+            "type": "string"
+          },
+          "verification_ref": {
+            "anyOf": [
+              {
+                "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verification Ref"
+          }
+        },
+        "required": [
+          "task_source_ref",
+          "validator_id",
+          "source_tree_digest"
+        ],
+        "title": "CreatorCodexExecutionDetails",
+        "type": "object"
+      },
       "CreatorCodexTaskRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1801,38 +1892,27 @@
       "CreatorOperationDetails": {
         "additionalProperties": false,
         "properties": {
-          "completion_kind": {
-            "enum": [
-              "cognition",
-              "subject_change",
-              "formal_decline",
-              "formal_no_action",
-              "no_change",
-              "response_effect",
-              "codex_effect"
-            ],
-            "title": "Completion Kind",
-            "type": "string"
-          },
-          "delivery_state": {
+          "codex_execution": {
             "anyOf": [
               {
-                "enum": [
-                  "not_started",
-                  "registered",
-                  "dispatching",
-                  "completed",
-                  "failed",
-                  "unknown",
-                  "cancelled"
-                ],
+                "$ref": "#/components/schemas/CreatorCodexExecutionDetails"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dialogue_decision_ref": {
+            "anyOf": [
+              {
+                "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Delivery State"
+            "title": "Dialogue Decision Ref"
           },
           "effect_ref": {
             "anyOf": [
@@ -1846,21 +1926,132 @@
             ],
             "title": "Effect Ref"
           },
+          "intent_ref": {
+            "anyOf": [
+              {
+                "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intent Ref"
+          },
+          "operation_kind": {
+            "enum": [
+              "cognition",
+              "subject_change",
+              "creator_response",
+              "other_human_response",
+              "codex_delegation",
+              "formal_dialogue"
+            ],
+            "title": "Operation Kind",
+            "type": "string"
+          },
+          "operation_ref": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Operation Ref",
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "pending",
+              "applied",
+              "completed",
+              "rejected",
+              "unavailable",
+              "failed",
+              "unknown",
+              "cancelled",
+              "no_action",
+              "deferred",
+              "stale"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "policy_decision_ref": {
+            "anyOf": [
+              {
+                "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Decision Ref"
+          },
           "projection_version": {
-            "const": "creator-operation.v1",
+            "const": "creator-operation.v2",
             "title": "Projection Version",
             "type": "string"
           },
-          "root_operation_ref": {
-            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
-            "title": "Root Operation Ref",
+          "reason_code": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "stage": {
+            "enum": [
+              "accepted",
+              "context_preparing",
+              "model_pending",
+              "candidate_validating",
+              "subject_committing",
+              "candidate_rejected",
+              "applied",
+              "no_change",
+              "need_information",
+              "stale",
+              "no_action",
+              "declined",
+              "deferred",
+              "ended",
+              "awaiting_authorization",
+              "confirmation_required",
+              "authorization_denied",
+              "unavailable",
+              "registering_effect",
+              "registered",
+              "dispatching",
+              "completed",
+              "failed",
+              "unknown",
+              "cancelled"
+            ],
+            "title": "Stage",
             "type": "string"
+          },
+          "work_ref": {
+            "anyOf": [
+              {
+                "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Ref"
           }
         },
         "required": [
           "projection_version",
-          "root_operation_ref",
-          "completion_kind"
+          "operation_ref",
+          "operation_kind",
+          "stage",
+          "outcome"
         ],
         "title": "CreatorOperationDetails",
         "type": "object"
@@ -1911,7 +2102,7 @@
               "creator-relationship.v2",
               "scene-timeline.v5",
               "capability-request.v4",
-              "creator-operation.v1",
+              "creator-operation.v2",
               "other-human-record.v1",
               "creator-effect.v3",
               "subject-summary.v1",
@@ -3268,6 +3459,16 @@
       "EffectResponse": {
         "additionalProperties": false,
         "properties": {
+          "action_intent_ref": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Action Intent Ref",
+            "type": "string"
+          },
+          "action_intent_revision_ref": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Action Intent Revision Ref",
+            "type": "string"
+          },
           "attempt_count": {
             "maximum": 2.0,
             "minimum": 0.0,
@@ -3294,11 +3495,6 @@
             "title": "Capability Kind",
             "type": "string"
           },
-          "capability_request_ref": {
-            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
-            "title": "Capability Request Ref",
-            "type": "string"
-          },
           "contract_version": {
             "const": "1.0",
             "title": "Contract Version",
@@ -3315,11 +3511,6 @@
               "codex_delegation"
             ],
             "title": "Effect Kind",
-            "type": "string"
-          },
-          "grant_ref": {
-            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
-            "title": "Grant Ref",
             "type": "string"
           },
           "last_observation_kind": {
@@ -3358,6 +3549,18 @@
             ],
             "title": "Last Observation Reliability"
           },
+          "policy_decision_ref": {
+            "anyOf": [
+              {
+                "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Decision Ref"
+          },
           "projection_version": {
             "const": "creator-effect.v3",
             "title": "Projection Version",
@@ -3380,11 +3583,6 @@
               }
             ],
             "title": "Response Text"
-          },
-          "root_operation_ref": {
-            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
-            "title": "Root Operation Ref",
-            "type": "string"
           },
           "settled_at": {
             "anyOf": [
@@ -3440,9 +3638,8 @@
           "contract_version",
           "projection_version",
           "effect_id",
-          "root_operation_ref",
-          "capability_request_ref",
-          "grant_ref",
+          "action_intent_ref",
+          "action_intent_revision_ref",
           "capability_kind",
           "effect_kind",
           "status",

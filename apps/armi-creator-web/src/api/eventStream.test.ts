@@ -81,7 +81,7 @@ describe("authenticated Creator event stream parser", () => {
       "operation.invalidated",
       "operation",
       "018f47a6-7b2d-7c35-8b18-684e38ab6ef8",
-      "creator-operation.v1",
+      "creator-operation.v2",
     ],
     [
       "effect.invalidated",

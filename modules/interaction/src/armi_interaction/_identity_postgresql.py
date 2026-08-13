@@ -53,7 +53,7 @@ class PostgreSQLInteractionIdentity:
         rows = await (
             await transaction.execute(
                 """
-                SELECT creator.party_id, scene.scene_key
+                SELECT creator.party_id, scene.scene_id, scene.scene_key
                 FROM armi.parties AS creator
                 JOIN armi.interaction_scenes AS scene
                   ON scene.primary_party_id = creator.party_id
@@ -70,11 +70,17 @@ class PostgreSQLInteractionIdentity:
                 (subject_id,),
             )
         ).fetchall()
-        if len(rows) != 1 or type(rows[0][0]) is not UUID or rows[0][1] != "default":
+        if (
+            len(rows) != 1
+            or type(rows[0][0]) is not UUID
+            or type(rows[0][1]) is not UUID
+            or rows[0][2] != "default"
+        ):
             return None
         return CreatorIdentityContext(
             party_id=rows[0][0],
-            default_scene_key=str(rows[0][1]),
+            scene_id=rows[0][1],
+            default_scene_key=str(rows[0][2]),
         )
 
 

@@ -278,6 +278,7 @@ DISTRIBUTIONS = (
         project_dir=Path("modules/expression"),
         layers=(),
         dependencies=(
+            "armi-interaction==0.0.0",
             "armi-kernel==0.0.0",
             "armi-relationship==0.0.0",
             "armi-runtime-foundation==0.0.0",
@@ -290,8 +291,11 @@ DISTRIBUTIONS = (
         project_dir=Path("modules/effect"),
         layers=(),
         dependencies=(
+            "armi-artifact-store==0.0.0",
             "armi-capability==0.0.0",
+            "armi-data-rights==0.0.0",
             "armi-expression==0.0.0",
+            "armi-interaction==0.0.0",
             "armi-kernel==0.0.0",
             "armi-runtime-foundation==0.0.0",
             "psycopg[binary]==3.3.4",
@@ -319,8 +323,10 @@ DISTRIBUTIONS = (
         project_dir=Path("modules/codex"),
         layers=(),
         dependencies=(
+            "armi-artifact-store==0.0.0",
             "armi-effect==0.0.0",
             "armi-evidence==0.0.0",
+            "armi-expression==0.0.0",
             "armi-interaction==0.0.0",
             "armi-kernel==0.0.0",
             "armi-opportunity==0.0.0",
@@ -1059,6 +1065,7 @@ def _check_import(
             not in {
                 None,
                 "armi-expression",
+                "armi-interaction",
                 "armi-kernel",
                 "armi-relationship",
                 "armi-runtime-foundation",
@@ -1069,9 +1076,12 @@ def _check_import(
             and target_distribution
             not in {
                 None,
+                "armi-artifact-store",
                 "armi-capability",
+                "armi-data-rights",
                 "armi-effect",
                 "armi-expression",
+                "armi-interaction",
                 "armi-kernel",
                 "armi-runtime-foundation",
             }
@@ -1093,9 +1103,11 @@ def _check_import(
             and target_distribution
             not in {
                 None,
+                "armi-artifact-store",
                 "armi-codex",
                 "armi-effect",
                 "armi-evidence",
+                "armi-expression",
                 "armi-interaction",
                 "armi-kernel",
                 "armi-opportunity",
@@ -2268,7 +2280,7 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
             )
     database_path = root / "apps/armi-runtime/src/armi_runtime/composition/database.py"
     database_source = database_path.read_text(encoding="utf-8")
-    if "expression = bootstrap_expression(" not in database_source:
+    if "return bootstrap_expression(" not in database_source:
         violations.append(
             Violation(
                 "ARC-ACTIVE-MODULE",

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from typing import cast
 from uuid import UUID
 
-from armi_runtime_foundation import PostgreSQLTransactionAccess
+from armi_runtime_foundation import PostgreSQLTransaction, PostgreSQLTransactionAccess
 
 from .api import (
     EvidenceDraft,
@@ -14,16 +15,25 @@ from .api import (
     ExperienceEvidenceLink,
 )
 
+type EvidenceTransaction = PostgreSQLTransaction | PostgreSQLTransactionAccess
+
+
+def _connection(transaction: EvidenceTransaction) -> PostgreSQLTransaction:
+    nested = getattr(transaction, "transaction", None)
+    if nested is not None and not callable(nested):
+        return nested
+    return cast(PostgreSQLTransaction, transaction)
+
 
 class PostgreSQLEvidenceWriter:
     __slots__ = ()
 
     async def accept(
         self,
-        transaction: PostgreSQLTransactionAccess,
+        transaction: EvidenceTransaction,
         draft: EvidenceDraft,
     ) -> EvidenceId:
-        await transaction.transaction.execute(
+        await _connection(transaction).execute(
             """
             INSERT INTO armi.external_evidence (
                 evidence_id, interaction_id, subject_id, scene_id,
@@ -53,10 +63,10 @@ class PostgreSQLEvidenceWriter:
 
     async def link_experience(
         self,
-        transaction: PostgreSQLTransactionAccess,
+        transaction: EvidenceTransaction,
         link: ExperienceEvidenceLink,
     ) -> None:
-        await transaction.transaction.execute(
+        await _connection(transaction).execute(
             """
             INSERT INTO armi.experience_evidence_links (
                 experience_id, evidence_id, context_item_id, link_kind, ordinal)
@@ -72,12 +82,12 @@ class PostgreSQLEvidenceWriter:
 
     async def find_by_interaction(
         self,
-        transaction: PostgreSQLTransactionAccess,
+        transaction: EvidenceTransaction,
         *,
         interaction_id: UUID,
     ) -> EvidenceId | None:
         row = await (
-            await transaction.transaction.execute(
+            await _connection(transaction).execute(
                 """
                 SELECT evidence_id
                 FROM armi.external_evidence
@@ -88,16 +98,32 @@ class PostgreSQLEvidenceWriter:
         ).fetchone()
         return None if row is None else EvidenceId(row[0])
 
+    async def find_by_codex_task_source(
+        self,
+        transaction: EvidenceTransaction,
+        *,
+        task_source_id: UUID,
+    ) -> EvidenceId | None:
+        row = await (
+            await _connection(transaction).execute(
+                "SELECT evidence_id FROM armi.external_evidence "
+                "WHERE codex_task_source_id=%s",
+                (task_source_id,),
+            )
+        ).fetchone()
+        return None if row is None else EvidenceId(row[0])
+
     async def snapshot(
         self,
-        transaction: PostgreSQLTransactionAccess,
+        transaction: EvidenceTransaction,
         *,
         evidence_id: EvidenceId,
     ) -> EvidenceSnapshot:
         row = await (
-            await transaction.transaction.execute(
+            await _connection(transaction).execute(
                 """
-                SELECT received_at
+                SELECT received_at, interaction_id, artifact_id,
+                       codex_task_source_id
                 FROM armi.external_evidence
                 WHERE evidence_id = %s AND acceptance_status = 'accepted'
                 """,
@@ -106,7 +132,7 @@ class PostgreSQLEvidenceWriter:
         ).fetchone()
         if row is None:
             raise EvidenceViolation("EVIDENCE-NOT-FOUND")
-        return EvidenceSnapshot(evidence_id, row[0])
+        return EvidenceSnapshot(evidence_id, row[0], row[1], row[2], row[3])
 
 
 __all__ = ("PostgreSQLEvidenceWriter",)

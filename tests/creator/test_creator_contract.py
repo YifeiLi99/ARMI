@@ -706,9 +706,9 @@ class CreatorContractTests(unittest.TestCase):
                 "contract_version": "1.0",
                 "projection_version": "creator-effect.v3",
                 "effect_id": "01890f47-7ac2-7cc4-98c2-9f4e3f13b9ae",
-                "root_operation_ref": "01890f47-7ac2-7cc4-98c2-9f4e3f13b9af",
-                "capability_request_ref": request_id,
-                "grant_ref": grant_id,
+                "action_intent_ref": "01890f47-7ac2-7cc4-98c2-9f4e3f13b9af",
+                "action_intent_revision_ref": request_id,
+                "policy_decision_ref": grant_id,
                 "capability_kind": "creator.scene.reply",
                 "effect_kind": "creator_response",
                 "status": "registered",
@@ -717,7 +717,7 @@ class CreatorContractTests(unittest.TestCase):
                 "attempt_count": 0,
             }
         )
-        self.assertEqual(effect.capability_request_ref, request_id)
+        self.assertEqual(effect.action_intent_revision_ref, request_id)
 
     def test_timeline_v5_exposes_creator_text_and_public_refs(self) -> None:
         operation_ref = "01890f47-7ac2-7cc4-98c2-9f4e3f13b9ad"

@@ -77,13 +77,19 @@ export function EffectDetail({
               <dd>{effect.data.capability_kind}</dd>
             </div>
             <div>
-              <dt>Capability 申请</dt>
-              <dd>{effect.data.capability_request_ref}</dd>
+              <dt>Action Intent</dt>
+              <dd>{effect.data.action_intent_ref}</dd>
             </div>
             <div>
-              <dt>授权依据</dt>
-              <dd>{effect.data.grant_ref}</dd>
+              <dt>Intent Revision</dt>
+              <dd>{effect.data.action_intent_revision_ref}</dd>
             </div>
+            {effect.data.policy_decision_ref ? (
+              <div>
+                <dt>Policy Decision</dt>
+                <dd>{effect.data.policy_decision_ref}</dd>
+              </div>
+            ) : null}
             <div>
               <dt>状态</dt>
               <dd>{effect.data.status}</dd>
@@ -197,7 +203,7 @@ export function EffectDetail({
           ) : null}
           {effect.data.status === "cancelled" ? (
             <p className="authority-note" role="status">
-              账本确认该效果已在派发前取消；申请、grant、policy、attempt
+              账本确认该效果已在派发前取消；intent、policy、attempt
               与取消历史仍被保留。
             </p>
           ) : null}

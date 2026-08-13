@@ -7,24 +7,27 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID, uuid7
 
-from armi_effect.api import EffectDispatchBoundaryPort
+from armi_artifact_store.api import ArtifactCatalogPort
+from armi_effect.api import EffectCodexClaim, EffectCodexLifecyclePort
 from armi_evidence.api import (
     EvidenceDraft,
     EvidenceId,
     EvidencePrivacyScope,
+    EvidenceReadPort,
     EvidenceSourceKind,
     EvidenceWritePort,
 )
+from armi_expression.api import ExpressionIntentReadPort
 from armi_interaction.api import (
     CreatorInputAcceptance,
     CreatorInputContext,
+    CreatorInputTransactionPort,
     CreatorInteractionId,
+    InteractionIdentityPort,
     OpportunityId,
 )
 from armi_kernel.application import (
     ArtifactId,
-    ArtifactIntegrityStatus,
-    ArtifactPrivacyScope,
     ArtifactRef,
     AuditDraft,
     AuditEventId,
@@ -49,6 +52,7 @@ from ._delegation_contract import (
     CodexTaskSourceId,
     CodexVerificationStatus,
 )
+from .api import CodexTaskSourceReadPort
 
 _BINDING = "armi.codex-runner.openai-python-sdk-v1"
 
@@ -77,17 +81,39 @@ class CodexDispatchSnapshot:
 
 
 class PostgreSQLCodexDelegationRepository:
-    __slots__ = ("_dispatch_boundary", "_evidence", "_opportunity")
+    __slots__ = (
+        "_artifacts",
+        "_effect",
+        "_evidence",
+        "_evidence_read",
+        "_expression",
+        "_identity",
+        "_input",
+        "_opportunity",
+        "_sources",
+    )
 
     def __init__(
         self,
         evidence: EvidenceWritePort,
         opportunity: OpportunityAdmissionPort,
-        dispatch_boundary: EffectDispatchBoundaryPort,
+        effect: EffectCodexLifecyclePort,
+        expression: ExpressionIntentReadPort,
+        artifacts: ArtifactCatalogPort,
+        sources: CodexTaskSourceReadPort,
+        evidence_read: EvidenceReadPort,
+        identity: InteractionIdentityPort,
+        input_port: CreatorInputTransactionPort,
     ) -> None:
         self._evidence = evidence
         self._opportunity = opportunity
-        self._dispatch_boundary = dispatch_boundary
+        self._effect = effect
+        self._expression = expression
+        self._artifacts = artifacts
+        self._sources = sources
+        self._evidence_read = evidence_read
+        self._identity = identity
+        self._input = input_port
 
     async def admit_task_source(
         self,
@@ -115,31 +141,17 @@ class PostgreSQLCodexDelegationRepository:
             ):
                 raise CodexDelegationViolation("CODEX-TASK-IDEMPOTENCY")
             return draft.task_source_id
-        subject = await (
-            await connection.execute(
-                """
-                SELECT scene.scene_id, scene.primary_party_id
-                FROM armi.subjects AS subject
-                JOIN armi.interaction_scenes AS scene
-                  ON scene.subject_id = subject.subject_id
-                 AND scene.scene_key = 'default'
-                 AND scene.current_status = 'open'
-                WHERE subject.subject_id = %s AND subject.singleton_key = 1
-                """,
-                (draft.subject_id.value,),
-            )
-        ).fetchone()
+        subject = await self._identity.creator_context(
+            connection,
+            subject_id=draft.subject_id.value,
+        )
         if subject is None:
             raise CodexDelegationViolation("CODEX-TASK-SUBJECT")
-        await _require_artifact(
-            connection,
-            draft.source_bundle_artifact_id.value,
-            draft.source_bundle_digest,
+        await self._require_artifact(
+            uow, draft.source_bundle_artifact_id.value, draft.source_bundle_digest
         )
-        await _require_artifact(
-            connection,
-            draft.manifest_artifact_id.value,
-            draft.manifest_digest,
+        await self._require_artifact(
+            uow, draft.manifest_artifact_id.value, draft.manifest_digest
         )
         await connection.execute(
             """
@@ -168,8 +180,8 @@ class PostgreSQLCodexDelegationRepository:
             EvidenceDraft(
                 evidence_id=EvidenceId(evidence_id),
                 subject_id=draft.subject_id.value,
-                scene_id=subject[0],
-                context_party_id=subject[1],
+                scene_id=subject.scene_id,
+                context_party_id=subject.party_id,
                 artifact_id=draft.manifest_artifact_id.value,
                 source_kind=EvidenceSourceKind.CODEX_TASK_SOURCE,
                 privacy_scope=EvidencePrivacyScope.PRIVATE,
@@ -181,8 +193,8 @@ class PostgreSQLCodexDelegationRepository:
             ExternalEvidenceOpportunityDraft(
                 evidence_id=evidence_id,
                 subject_id=draft.subject_id.value,
-                scene_id=subject[0],
-                context_party_id=subject[1],
+                scene_id=subject.scene_id,
+                context_party_id=subject.party_id,
                 purpose=OpportunityPurpose.CONSIDER_CODEX_TASK,
             ),
         )
@@ -212,51 +224,47 @@ class PostgreSQLCodexDelegationRepository:
         request_digest: Digest,
     ) -> CreatorInputAcceptance | None:
         connection = uow.transaction
-        row = await (
+        interaction = await self._input.find_codex_task_input(
+            connection,
+            creator_party_id=context.creator_party_id,
+            scene_id=context.scene_id,
+            idempotency_key=idempotency_key,
+        )
+        if interaction is None:
+            return None
+        interaction_id, stored_request, content_digest = interaction
+        if stored_request != request_digest:
+            raise CodexDelegationViolation("CODEX-TASK-IDEMPOTENCY")
+        source = await (
             await connection.execute(
                 """
-                SELECT interaction.interaction_id, evidence.evidence_id,
-                       interaction.request_digest,
-                       interaction.content_digest
-                FROM armi.party_input_interactions AS interaction
-                JOIN armi.codex_task_sources AS source
-                  ON source.subject_id = interaction.subject_id
-                 AND source.task_manifest_digest = interaction.content_digest
-                JOIN armi.external_evidence AS evidence
-                  ON evidence.codex_task_source_id=source.codex_task_source_id
-                 AND evidence.subject_id=interaction.subject_id
-                 AND evidence.scene_id=interaction.scene_id
-                 AND evidence.context_party_id=interaction.source_party_id
-                 AND evidence.source_kind='codex_task_source'
-                WHERE interaction.source_party_id=%s
-                  AND interaction.scene_id=%s
-                  AND interaction.purpose='codex_task_request'
-                  AND interaction.idempotency_key=%s
+                SELECT codex_task_source_id FROM armi.codex_task_sources
+                WHERE subject_id=%s AND task_manifest_digest=%s
                 """,
-                (
-                    context.creator_party_id,
-                    context.scene_id,
-                    idempotency_key,
-                ),
+                (context.subject_id, content_digest.value),
             )
         ).fetchone()
-        if row is None:
-            return None
-        if str(row[2]) != request_digest.value:
-            raise CodexDelegationViolation("CODEX-TASK-IDEMPOTENCY")
+        if source is None:
+            raise CodexDelegationViolation("CODEX-TASK-ADMISSION")
+        evidence_id = await self._evidence_read.find_by_codex_task_source(
+            connection,
+            task_source_id=source[0],
+        )
+        if evidence_id is None:
+            raise CodexDelegationViolation("CODEX-TASK-ADMISSION")
         opportunity = await self._opportunity.find_external_evidence(
             connection,
-            evidence_id=row[1],
+            evidence_id=evidence_id.value,
             purpose=OpportunityPurpose.CONSIDER_CODEX_TASK,
         )
         if opportunity is None:
             raise CodexDelegationViolation("CODEX-TASK-ADMISSION")
         return CreatorInputAcceptance(
-            CreatorInteractionId(row[0]),
-            EvidenceId(row[1]),
+            CreatorInteractionId(interaction_id),
+            evidence_id,
             OpportunityId(opportunity.value),
-            Digest(str(row[2])),
-            Digest(str(row[3])),
+            stored_request,
+            content_digest,
             False,
         )
 
@@ -280,39 +288,24 @@ class PostgreSQLCodexDelegationRepository:
         connection = uow.transaction
         if draft.subject_id.value != context.subject_id:
             raise CodexDelegationViolation("CODEX-TASK-SUBJECT")
-        await _require_artifact(
-            connection,
-            draft.source_bundle_artifact_id.value,
-            draft.source_bundle_digest,
+        await self._require_artifact(
+            uow, draft.source_bundle_artifact_id.value, draft.source_bundle_digest
         )
-        await _require_artifact(
-            connection,
-            draft.manifest_artifact_id.value,
-            draft.manifest_digest,
+        await self._require_artifact(
+            uow, draft.manifest_artifact_id.value, draft.manifest_digest
         )
         await _insert_task_source(connection, draft)
-        interaction_id, evidence_id, timeline_id = (
-            uuid7(),
-            uuid7(),
-            uuid7(),
-        )
-        await connection.execute(
-            """
-            INSERT INTO armi.party_input_interactions (
-                interaction_id, subject_id, scene_id, source_party_id,
-                purpose, idempotency_key, request_digest, content_digest,
-                trace_id) VALUES (%s,%s,%s,%s,'codex_task_request',%s,%s,%s,%s)
-            """,
-            (
-                interaction_id,
-                context.subject_id,
-                context.scene_id,
-                context.creator_party_id,
-                idempotency_key,
-                request_digest.value,
-                draft.manifest_digest.value,
-                draft.trace_id.value,
-            ),
+        interaction_id, evidence_id = uuid7(), uuid7()
+        await self._input.record_codex_task_input(
+            connection,
+            interaction_id=interaction_id,
+            subject_id=context.subject_id,
+            scene_id=context.scene_id,
+            creator_party_id=context.creator_party_id,
+            idempotency_key=idempotency_key,
+            request_digest=request_digest,
+            content_digest=draft.manifest_digest,
+            trace_id=draft.trace_id,
         )
         await self._evidence.accept(
             uow,
@@ -342,28 +335,6 @@ class PostgreSQLCodexDelegationRepository:
         opportunity_id = admitted.opportunity_id
         if opportunity_id is None:
             raise CodexDelegationViolation("CODEX-TASK-ADMISSION")
-        await connection.execute(
-            """
-            INSERT INTO armi.scene_timeline_items (
-                timeline_item_id, scene_id, source_kind, source_ref,
-                source_event_no, result_status, occurred_at) VALUES (%s,%s,'creator_input',%s,1,'accepted',statement_timestamp())
-            """,
-            (timeline_id, context.scene_id, interaction_id),
-        )
-        boundary = await connection.execute(
-            """
-            UPDATE armi.interaction_scenes
-            SET recent_context_boundary = %s,
-                scene_version = scene_version + 1
-            WHERE scene_id = %s
-              AND current_status = 'open'
-              AND closed_at IS NULL
-              AND recent_context_boundary IS DISTINCT FROM %s
-            """,
-            (timeline_id, context.scene_id, timeline_id),
-        )
-        if boundary.rowcount != 1:
-            raise CodexDelegationViolation("CODEX-TASK-SUBJECT")
         await uow.audit.append(
             AuditDraft(
                 AuditEventId(uuid7()),
@@ -393,149 +364,63 @@ class PostgreSQLCodexDelegationRepository:
         *,
         claim_owner: UUID,
     ) -> CodexDispatchSnapshot | None:
-        connection = uow.transaction
-        row = await (
-            await connection.execute(
-                """
-                SELECT outbox.effect_outbox_item_id, effect.effect_id,
-                       intent.operation_ref,
-                       intent.root_opportunity_id, effect.subject_id,
-                       effect.scene_id, effect.context_party_id,
-                       source.codex_task_source_id,
-                       source.source_bundle_artifact_id, source.source_bundle_digest,
-                       source.source_tree_digest, source.task_manifest_artifact_id,
-                       source.task_manifest_digest, source.validator_id,
-                       source.deadline_seconds, effect.trace_id,
-                       outbox.attempt_count, outbox.claim_token,
-                       bundle.byte_size, bundle.media_type, bundle.logical_kind,
-                       bundle.privacy_scope, bundle.integrity_status,
-                       manifest.byte_size, manifest.media_type, manifest.logical_kind,
-                       manifest.privacy_scope, manifest.integrity_status
-                FROM armi.effect_outbox_items AS outbox
-                JOIN armi.effects AS effect ON effect.effect_id = outbox.effect_id
-                JOIN armi.action_intents AS intent
-                  ON intent.action_intent_id = effect.action_intent_id
-                JOIN armi.action_intent_revisions AS revision
-                  ON revision.action_intent_revision_id = effect.action_intent_revision_id
-                JOIN armi.codex_task_sources AS source
-                  ON source.codex_task_source_id = revision.codex_task_source_id
-                JOIN armi.artifacts AS bundle
-                  ON bundle.artifact_id = source.source_bundle_artifact_id
-                JOIN armi.artifacts AS manifest
-                  ON manifest.artifact_id = source.task_manifest_artifact_id
-                WHERE outbox.status = 'ready'
-                  AND outbox.available_at <= statement_timestamp()
-                  AND statement_timestamp() < outbox.dispatch_deadline
-                  AND outbox.attempt_count = 0 AND outbox.max_attempts = 1
-                  AND effect.status = 'registered'
-                  AND effect.effect_kind = 'codex_delegation'
-                ORDER BY outbox.available_at, outbox.effect_outbox_item_id
-                FOR UPDATE OF outbox, effect SKIP LOCKED
-                LIMIT 1
-                """
-            )
-        ).fetchone()
-        if row is None:
+        claim = await self._effect.claim_codex(uow, claim_owner=claim_owner)
+        if claim is None:
             return None
-        attempt_id = uuid7()
-        claim_token = int(row[17]) + 1
-        await connection.execute(
-            """
-            UPDATE armi.effect_outbox_items
-            SET status='claimed', claim_owner=%s,
-                claim_expires_at=statement_timestamp()+interval '60 seconds',
-                claim_token=%s, attempt_count=1
-            WHERE effect_outbox_item_id=%s AND status='ready'
-            """,
-            (claim_owner, claim_token, row[0]),
+        intent = await self._expression.intent_snapshot(
+            uow.transaction,
+            action_intent_id=claim.action_intent_id,
         )
-        await connection.execute(
-            """
-            INSERT INTO armi.effect_attempts (
-                effect_attempt_id, effect_id, attempt_no, adapter_binding,
-                claim_token, dispatch_state) VALUES (%s,%s,1,%s,%s,'prepared')
-            """,
-            (attempt_id, row[1], _BINDING, claim_token),
+        if intent.codex_task_source_id is None:
+            raise CodexDelegationViolation("CODEX-DELEGATION-STALE")
+        source = await self._sources.task_source(
+            uow.transaction,
+            task_source_id=intent.codex_task_source_id,
         )
-        await connection.execute(
-            """
-            UPDATE armi.effects SET status='dispatching', verification_status='pending',
-                current_attempt_id=%s WHERE effect_id=%s AND status='registered'
-            """,
-            (attempt_id, row[1]),
+        bundle = await self._artifacts.retained_ref_in(
+            uow.transaction,
+            ArtifactId(source.source_bundle_artifact_id),
         )
+        manifest = await self._artifacts.retained_ref_in(
+            uow.transaction,
+            ArtifactId(source.task_manifest_artifact_id),
+        )
+        if bundle is None or manifest is None:
+            raise CodexDelegationViolation("CODEX-TASK-ARTIFACT")
         return CodexDispatchSnapshot(
-            row[0],
-            row[1],
-            attempt_id,
+            claim.outbox_id,
+            claim.effect_id,
+            claim.attempt_id,
             1,
-            claim_owner,
-            claim_token,
-            row[2],
-            row[3],
-            row[4],
-            row[5],
-            row[6],
-            row[7],
-            _artifact(row[8], row[9], row[18:23]),
-            Digest(str(row[10])),
-            _artifact(row[11], row[12], row[23:28]),
-            Digest(str(row[12])),
-            str(row[13]),
-            int(row[14]),
-            TraceId(str(row[15])),
+            claim.claim_owner,
+            claim.claim_token,
+            intent.operation_ref,
+            intent.root_opportunity_id,
+            claim.subject_id,
+            claim.scene_id,
+            claim.context_party_id,
+            source.task_source_id,
+            bundle,
+            source.source_tree_digest,
+            manifest,
+            source.task_manifest_digest,
+            source.validator_id,
+            source.deadline_seconds,
+            claim.trace_id,
         )
 
     async def mark_dispatching(
         self, uow: PostgreSQLRuntimeUnitOfWork, snapshot: CodexDispatchSnapshot
     ) -> bool:
-        connection = uow.transaction
-        boundary = await self._dispatch_boundary.coordinate(
-            uow,
-            effect_id=snapshot.effect_id,
-            attempt_id=snapshot.attempt_id,
-            outbox_id=snapshot.outbox_id,
-            claim_owner=snapshot.claim_owner,
-            claim_token=snapshot.claim_token,
-            expected_operation_status="codex_dispatching",
-            cancelled_operation_status="codex_cancelled",
-        )
-        if boundary is None:
-            raise CodexDelegationViolation("CODEX-DELEGATION-STALE")
-        if not boundary.allowed:
-            return False
-        updated = await (
-            await connection.execute(
-                """
-                UPDATE armi.effect_attempts
-                SET dispatch_state='dispatching', dispatched_at=statement_timestamp()
-                WHERE effect_attempt_id=%s AND dispatch_state='prepared'
-                RETURNING effect_attempt_id
-                """,
-                (snapshot.attempt_id,),
-            )
-        ).fetchone()
-        if updated is None:
-            raise CodexDelegationViolation("CODEX-DELEGATION-STALE")
-        return True
+        return await self._effect.mark_codex_dispatching(uow, _effect_claim(snapshot))
 
     async def heartbeat(
         self, uow: PostgreSQLRuntimeUnitOfWork, snapshot: CodexDispatchSnapshot
     ) -> bool:
-        connection = uow.transaction
-        row = await (
-            await connection.execute(
-                """
-                UPDATE armi.effect_outbox_items
-                SET claim_expires_at=statement_timestamp()+interval '60 seconds'
-                WHERE effect_outbox_item_id=%s AND status='claimed'
-                  AND claim_owner=%s AND claim_token=%s
-                RETURNING effect_outbox_item_id
-                """,
-                (snapshot.outbox_id, snapshot.claim_owner, snapshot.claim_token),
-            )
-        ).fetchone()
-        return row is not None
+        return await self._effect.heartbeat_codex(
+            uow.transaction,
+            _effect_claim(snapshot),
+        )
 
     async def settle(
         self,
@@ -553,35 +438,6 @@ class PostgreSQLCodexDelegationRepository:
         cleanup_error_code: str | None,
     ) -> UUID:
         connection = uow.transaction
-        current = await (
-            await connection.execute(
-                """
-                SELECT outbox.effect_outbox_item_id
-                FROM armi.effect_outbox_items AS outbox
-                JOIN armi.effects AS effect ON effect.effect_id=outbox.effect_id
-                JOIN armi.effect_attempts AS attempt
-                  ON attempt.effect_attempt_id=effect.current_attempt_id
-                WHERE outbox.effect_outbox_item_id=%s
-                  AND outbox.status='claimed'
-                  AND outbox.claim_owner=%s AND outbox.claim_token=%s
-                  AND outbox.claim_expires_at > statement_timestamp()
-                  AND effect.effect_id=%s AND effect.status='dispatching'
-                  AND effect.verification_status='pending'
-                  AND effect.current_attempt_id=%s
-                  AND attempt.dispatch_state='dispatching'
-                FOR UPDATE OF outbox, effect, attempt
-                """,
-                (
-                    snapshot.outbox_id,
-                    snapshot.claim_owner,
-                    snapshot.claim_token,
-                    snapshot.effect_id,
-                    snapshot.attempt_id,
-                ),
-            )
-        ).fetchone()
-        if current is None:
-            raise CodexDelegationViolation("CODEX-DELEGATION-STALE")
         verification_id = uuid7()
         validation = artifacts["validation_report"].content_digest
         event_transcript = artifacts.get("event_transcript")
@@ -622,39 +478,6 @@ class PostgreSQLCodexDelegationRepository:
                 cleanup_error_code,
             ),
         )
-        observation_id = uuid7()
-        observation_kind = {
-            CodexVerificationStatus.VERIFIED: "runner_verified",
-            CodexVerificationStatus.FAILED: "runner_failed",
-            CodexVerificationStatus.UNKNOWN: "runner_unknown",
-            CodexVerificationStatus.CANCELLED: "runner_cancelled",
-        }[status]
-        reliability = (
-            "inconclusive" if status is CodexVerificationStatus.UNKNOWN else "reliable"
-        )
-        observation_digest = validation
-        await connection.execute(
-            """
-            INSERT INTO armi.effect_observations (
-                effect_observation_id, effect_id, effect_attempt_id,
-                observation_kind, reliability, receiver_ref,
-                observation_digest) VALUES (%s,%s,%s,%s,%s,NULL,%s)
-            """,
-            (
-                observation_id,
-                snapshot.effect_id,
-                snapshot.attempt_id,
-                observation_kind,
-                reliability,
-                observation_digest.value,
-            ),
-        )
-        result_status = {
-            CodexVerificationStatus.VERIFIED: "succeeded",
-            CodexVerificationStatus.FAILED: "failed",
-            CodexVerificationStatus.UNKNOWN: "unknown",
-            CodexVerificationStatus.CANCELLED: "cancelled",
-        }[status]
         terminal_error_code = (
             execution_error_code
             or cleanup_error_code
@@ -664,70 +487,16 @@ class PostgreSQLCodexDelegationRepository:
                 else "CODEX-DELEGATION-UNKNOWN"
             )
         )
-        effect_status = {
-            CodexVerificationStatus.VERIFIED: "completed",
-            CodexVerificationStatus.FAILED: "failed",
-            CodexVerificationStatus.UNKNOWN: "unknown",
-            CodexVerificationStatus.CANCELLED: "cancelled",
-        }[status]
-        verification_status = (
-            "inconclusive" if status is CodexVerificationStatus.UNKNOWN else "verified"
-        )
-        await connection.execute(
-            """
-            UPDATE armi.effect_attempts
-            SET dispatch_state='settled', result_status=%s, error_code=%s,
-                settled_at=statement_timestamp()
-            WHERE effect_attempt_id=%s AND dispatch_state='dispatching'
-            """,
-            (
-                result_status,
+        await self._effect.settle_codex(
+            connection,
+            claim=_effect_claim(snapshot),
+            status=status.value,
+            observation_digest=validation,
+            error_code=(
                 terminal_error_code
                 if status
                 in {CodexVerificationStatus.FAILED, CodexVerificationStatus.UNKNOWN}
-                else None,
-                snapshot.attempt_id,
-            ),
-        )
-        await connection.execute(
-            """
-            UPDATE armi.effects
-            SET status=%s, verification_status=%s,
-                current_observation_id=%s,
-                settled_at=statement_timestamp()
-            WHERE effect_id=%s AND current_attempt_id=%s
-            """,
-            (
-                effect_status,
-                verification_status,
-                observation_id,
-                snapshot.effect_id,
-                snapshot.attempt_id,
-            ),
-        )
-        outbox_status = {
-            CodexVerificationStatus.VERIFIED: "delivered",
-            CodexVerificationStatus.FAILED: "dead",
-            CodexVerificationStatus.UNKNOWN: "unknown",
-            CodexVerificationStatus.CANCELLED: "cancelled",
-        }[status]
-        await connection.execute(
-            """
-            UPDATE armi.effect_outbox_items
-            SET status=%s, claim_owner=NULL, claim_expires_at=NULL,
-                delivered_at=CASE WHEN %s='delivered' THEN statement_timestamp() ELSE NULL END,
-                cancelled_at=CASE WHEN %s='cancelled' THEN statement_timestamp() ELSE NULL END,
-                last_error_code=%s
-            WHERE effect_outbox_item_id=%s AND claim_owner=%s AND claim_token=%s
-            """,
-            (
-                outbox_status,
-                outbox_status,
-                outbox_status,
-                terminal_error_code if outbox_status in {"dead", "unknown"} else None,
-                snapshot.outbox_id,
-                snapshot.claim_owner,
-                snapshot.claim_token,
+                else None
             ),
         )
         evidence_id, result_source_id = uuid7(), uuid7()
@@ -803,24 +572,34 @@ class PostgreSQLCodexDelegationRepository:
         )
         return verification_id
 
-
-async def _require_artifact(connection: Any, artifact_id: UUID, digest: Digest) -> None:
-    row = await (
-        await connection.execute(
-            """
-            SELECT content_digest, integrity_status, retention_status
-            FROM armi.artifacts WHERE artifact_id=%s
-            """,
-            (artifact_id,),
+    async def _require_artifact(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        artifact_id: UUID,
+        digest: Digest,
+    ) -> None:
+        ref = await self._artifacts.retained_ref_in(
+            unit_of_work.transaction,
+            ArtifactId(artifact_id),
         )
-    ).fetchone()
-    if (
-        row is None
-        or str(row[0]) != digest.value
-        or str(row[1]) != "verified"
-        or str(row[2]) != "retained"
-    ):
-        raise CodexDelegationViolation("CODEX-TASK-ARTIFACT")
+        if ref is None or ref.content_digest != digest:
+            raise CodexDelegationViolation("CODEX-TASK-ARTIFACT")
+
+
+def _effect_claim(snapshot: CodexDispatchSnapshot) -> EffectCodexClaim:
+    return EffectCodexClaim(
+        snapshot.outbox_id,
+        snapshot.effect_id,
+        snapshot.attempt_id,
+        snapshot.claim_owner,
+        snapshot.claim_token,
+        snapshot.task_source_id,
+        snapshot.task_source_id,
+        snapshot.subject_id,
+        snapshot.scene_id,
+        snapshot.creator_party_id,
+        snapshot.trace_id,
+    )
 
 
 async def _insert_task_source(connection: Any, draft: CodexTaskSourceDraft) -> None:
@@ -844,18 +623,6 @@ async def _insert_task_source(connection: Any, draft: CodexTaskSourceDraft) -> N
             draft.deadline_seconds,
             draft.trace_id.value,
         ),
-    )
-
-
-def _artifact(artifact_id: UUID, digest: object, tail: tuple[Any, ...]) -> ArtifactRef:
-    return ArtifactRef(
-        ArtifactId(artifact_id),
-        Digest(str(digest)),
-        int(tail[0]),
-        str(tail[1]),
-        str(tail[2]),
-        ArtifactPrivacyScope(str(tail[3])),
-        ArtifactIntegrityStatus(str(tail[4])),
     )
 
 

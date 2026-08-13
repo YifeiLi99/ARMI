@@ -22,10 +22,40 @@ from .api import (
     CognitionEpisodeStatus,
     CognitionExactLifeQueryIntentDraft,
     CognitionExperienceDraft,
+    CognitionOperationSnapshot,
 )
 
 
 class PostgreSQLCognitionSubjectCommit:
+    async def operation_snapshot(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        opportunity_id: UUID,
+    ) -> CognitionOperationSnapshot:
+        row = await (
+            await transaction.execute(
+                """
+                SELECT episode.status, episode.failure_code,
+                       application.resolution,
+                       application.observed_subject_version
+                FROM armi.cognitive_episodes AS episode
+                LEFT JOIN armi.cognitive_candidate_applications AS application
+                  ON application.cognitive_episode_id=episode.cognitive_episode_id
+                WHERE episode.opportunity_id=%s
+                """,
+                (opportunity_id,),
+            )
+        ).fetchone()
+        if row is None:
+            return CognitionOperationSnapshot(None, None, None, None)
+        return CognitionOperationSnapshot(
+            str(row[0]),
+            None if row[1] is None else str(row[1]),
+            None if row[2] is None else str(row[2]),
+            None if row[3] is None else int(row[3]),
+        )
+
     """Own Cognition reads and writes used by the Runtime commit coordinator."""
 
     __slots__ = ()

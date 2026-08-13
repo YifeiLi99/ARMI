@@ -14,7 +14,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function outcome(status: string): object {
+function outcome(status: string, codex = false): object {
   const common = {
     contract_version: "1.0",
     status,
@@ -22,12 +22,29 @@ function outcome(status: string): object {
     occurred_at: "2026-07-30T10:00:00.000000Z",
     message: "safe",
     details: {
-      projection_version: "creator-operation.v1",
-      root_operation_ref: OPERATION_ID,
-      completion_kind:
-        status === "completed" ? "formal_no_action" : "response_effect",
-      ...(status === "accepted"
-        ? { delivery_state: "registered", effect_ref: EFFECT_ID }
+      projection_version: "creator-operation.v2",
+      operation_ref: OPERATION_ID,
+      operation_kind: codex
+        ? "codex_delegation"
+        : status === "completed"
+          ? "formal_dialogue"
+          : "creator_response",
+      stage: status === "completed" ? "no_action" : "registered",
+      outcome: status === "completed" ? "no_action" : "pending",
+      ...(status === "accepted" ? { effect_ref: EFFECT_ID } : {}),
+      ...(codex
+        ? {
+            codex_execution: {
+              task_source_ref: "018f47a6-7b2d-7c35-8b18-684e38ab6efa",
+              verification_ref: "018f47a6-7b2d-7c35-8b18-684e38ab6efb",
+              execution_status: "verified",
+              model_id: "gpt-5.6-sol",
+              sdk_identity: "openai-codex/1",
+              validator_id: "validator-v1",
+              source_tree_digest: `sha256:${"a".repeat(64)}`,
+              final_tree_digest: `sha256:${"b".repeat(64)}`,
+            },
+          }
         : {}),
     },
   };
@@ -74,11 +91,11 @@ function outcome(status: string): object {
   };
 }
 
-async function renderOutcome(status: string) {
+async function renderOutcome(status: string, codex = false) {
   vi.stubGlobal(
     "fetch",
     vi.fn<typeof fetch>().mockResolvedValue(
-      new Response(JSON.stringify(outcome(status)), {
+      new Response(JSON.stringify(outcome(status, codex)), {
         headers: { "Content-Type": "application/json" },
       }),
     ),
@@ -118,8 +135,15 @@ describe("Creator operation projection", () => {
 
   it("uses strict completion details and exposes an explicit effect action", async () => {
     const selected = await renderOutcome("accepted");
-    expect(screen.getByText("回应效果责任")).toBeInTheDocument();
+    expect(screen.getByText("Creator 回应")).toBeInTheDocument();
     screen.getByRole("button", { name: "查看效果详情" }).click();
     expect(selected).toHaveBeenCalledWith(EFFECT_ID);
+  });
+
+  it("renders the Codex owner execution summary", async () => {
+    await renderOutcome("accepted", true);
+    expect(screen.getByText("gpt-5.6-sol")).toBeInTheDocument();
+    expect(screen.getByText("verified")).toBeInTheDocument();
+    expect(screen.getByText(`sha256:${"b".repeat(64)}`)).toBeInTheDocument();
   });
 });

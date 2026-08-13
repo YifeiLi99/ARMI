@@ -29,14 +29,13 @@ const waitingLabels = {
   codex_result_acceptance: "Codex 结果已保管，正在等待主体接纳",
 } as const;
 
-const completionLabels = {
-  cognition: "认知责任已结算",
-  subject_change: "主体变化已应用",
-  formal_decline: "ARMI 正式选择拒绝回应",
-  formal_no_action: "ARMI 正式选择不行动",
-  no_change: "认知完成，本次没有形成变化",
-  response_effect: "回应效果责任",
-  codex_effect: "Codex 委托效果责任",
+const operationKindLabels = {
+  cognition: "认知",
+  subject_change: "主体变化",
+  creator_response: "Creator 回应",
+  other_human_response: "其他人回应",
+  codex_delegation: "Codex 委托",
+  formal_dialogue: "正式对话决定",
 } as const;
 
 export function OperationPanel({
@@ -87,12 +86,20 @@ export function OperationPanel({
         <>
           <dl>
             <div>
-              <dt>Outcome</dt>
+              <dt>合同状态</dt>
               <dd>{data.status}</dd>
             </div>
             <div>
-              <dt>语义</dt>
-              <dd>{completionLabels[data.details.completion_kind]}</dd>
+              <dt>阶段</dt>
+              <dd>{data.details.stage}</dd>
+            </div>
+            <div>
+              <dt>结果</dt>
+              <dd>{data.details.outcome}</dd>
+            </div>
+            <div>
+              <dt>行动类型</dt>
+              <dd>{operationKindLabels[data.details.operation_kind]}</dd>
             </div>
             {data.status === "waiting" ? (
               <div>
@@ -120,17 +127,52 @@ export function OperationPanel({
                 <dd>{data.verification_action}</dd>
               </div>
             ) : null}
-            {data.details.delivery_state === undefined ||
-            data.details.delivery_state === null ? null : (
-              <div>
-                <dt>交付状态</dt>
-                <dd>{data.details.delivery_state}</dd>
-              </div>
-            )}
             <div>
-              <dt>根 operation</dt>
-              <dd>{data.details.root_operation_ref}</dd>
+              <dt>Operation</dt>
+              <dd>{data.details.operation_ref}</dd>
             </div>
+            {data.details.intent_ref ? (
+              <div>
+                <dt>Intent</dt>
+                <dd>{data.details.intent_ref}</dd>
+              </div>
+            ) : null}
+            {data.details.policy_decision_ref ? (
+              <div>
+                <dt>Policy</dt>
+                <dd>{data.details.policy_decision_ref}</dd>
+              </div>
+            ) : null}
+            {data.details.codex_execution ? (
+              <>
+                <div>
+                  <dt>Codex 执行状态</dt>
+                  <dd>
+                    {data.details.codex_execution.execution_status ?? "待核验"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Codex Task Source</dt>
+                  <dd>{data.details.codex_execution.task_source_ref}</dd>
+                </div>
+                <div>
+                  <dt>Validator</dt>
+                  <dd>{data.details.codex_execution.validator_id}</dd>
+                </div>
+                {data.details.codex_execution.model_id ? (
+                  <div>
+                    <dt>Codex Model</dt>
+                    <dd>{data.details.codex_execution.model_id}</dd>
+                  </div>
+                ) : null}
+                {data.details.codex_execution.final_tree_digest ? (
+                  <div>
+                    <dt>Final Tree</dt>
+                    <dd>{data.details.codex_execution.final_tree_digest}</dd>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
           </dl>
           {data.details.effect_ref === undefined ||
           data.details.effect_ref === null ? null : (
@@ -142,12 +184,12 @@ export function OperationPanel({
               查看效果详情
             </button>
           )}
-          {data.details.delivery_state === "dispatching" ? (
+          {data.details.stage === "dispatching" ? (
             <p className="critical-note" role="status">
               效果已进入派发边界；撤回 grant 不会把在途事实改写为未发生。
             </p>
           ) : null}
-          {data.details.delivery_state === "cancelled" ? (
+          {data.details.stage === "cancelled" ? (
             <p className="authority-note" role="status">
               Runtime 已确认效果在派发前取消；历史责任链仍保留。
             </p>

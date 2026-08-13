@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
@@ -107,7 +107,7 @@ class CreatorInputAcceptance:
     opportunity_id: OpportunityId
     request_digest: Digest
     content_digest: Digest
-    newly_accepted: bool
+    newly_accepted: bool = field(compare=False)
 
     def __post_init__(self) -> None:
         if (
@@ -163,12 +163,54 @@ class CreatorOperationPhase(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class CreatorCodexExecutionSummary:
+    task_source_ref: UUID
+    verification_ref: UUID | None
+    execution_status: str | None
+    model_id: str | None
+    sdk_identity: str | None
+    validator_id: str
+    source_tree_digest: Digest
+    final_tree_digest: Digest | None
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.task_source_ref) is not UUID
+            or self.task_source_ref.version != 7
+            or (
+                self.verification_ref is not None
+                and (
+                    type(self.verification_ref) is not UUID
+                    or self.verification_ref.version != 7
+                )
+            )
+            or type(self.validator_id) is not str
+            or not self.validator_id
+            or type(self.source_tree_digest) is not Digest
+            or (
+                self.final_tree_digest is not None
+                and type(self.final_tree_digest) is not Digest
+            )
+        ):
+            raise CreatorInputViolation("CON-INPUT-OPERATION")
+        for value in (self.execution_status, self.model_id, self.sdk_identity):
+            if value is not None and (type(value) is not str or not value):
+                raise CreatorInputViolation("CON-INPUT-OPERATION")
+
+
+@dataclass(frozen=True, slots=True)
 class CreatorOperation:
     acceptance: CreatorInputAcceptance
     phase: CreatorOperationPhase
     failure_code: str | None = None
     subject_version: int | None = None
     effect_ref: UUID | None = None
+    intent_ref: UUID | None = None
+    dialogue_decision_ref: UUID | None = None
+    policy_decision_ref: UUID | None = None
+    work_ref: UUID | None = None
+    operation_kind: str = "cognition"
+    codex_execution: CreatorCodexExecutionSummary | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -203,6 +245,30 @@ class CreatorOperation:
             raise CreatorInputViolation("CON-INPUT-OPERATION")
         if self.effect_ref is not None and (
             type(self.effect_ref) is not UUID or self.effect_ref.version != 7
+        ):
+            raise CreatorInputViolation("CON-INPUT-OPERATION")
+        for owner_ref in (
+            self.intent_ref,
+            self.dialogue_decision_ref,
+            self.policy_decision_ref,
+            self.work_ref,
+        ):
+            if owner_ref is not None and (
+                type(owner_ref) is not UUID or owner_ref.version != 7
+            ):
+                raise CreatorInputViolation("CON-INPUT-OPERATION")
+        if self.operation_kind not in {
+            "cognition",
+            "subject_change",
+            "creator_response",
+            "other_human_response",
+            "codex_delegation",
+            "formal_dialogue",
+        }:
+            raise CreatorInputViolation("CON-INPUT-OPERATION")
+        if self.codex_execution is not None and (
+            self.operation_kind != "codex_delegation"
+            or type(self.codex_execution) is not CreatorCodexExecutionSummary
         ):
             raise CreatorInputViolation("CON-INPUT-OPERATION")
         if self.phase is CreatorOperationPhase.FAILED:
@@ -257,6 +323,7 @@ class CreatorOperationQueryPort(Protocol):
 
 
 __all__ = (
+    "CreatorCodexExecutionSummary",
     "CreatorInputAcceptance",
     "CreatorInputAcceptancePort",
     "CreatorInputCommand",

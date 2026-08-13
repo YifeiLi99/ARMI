@@ -29,7 +29,7 @@ const RESOURCES = {
     "capability-request.v4",
     UUID_V7,
   ],
-  operation: ["operation.invalidated", "creator-operation.v1", UUID_V7],
+  operation: ["operation.invalidated", "creator-operation.v2", UUID_V7],
   other_human_record: [
     "other_human.record.invalidated",
     "other-human-record.v1",

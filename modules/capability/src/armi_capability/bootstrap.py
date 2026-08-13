@@ -14,9 +14,14 @@ from armi_runtime_foundation import (
 from ._postgresql import PostgreSQLCreatorGrantPolicy
 from ._recovery import CapabilityRecoveryParticipant
 from .api import (
+    CapabilityActionAuthorizationPort,
+    CapabilityAdmissionPort,
+    CapabilityCodexActivationPort,
     CapabilityCommitPort,
+    CapabilityDispatchAuthorizationPort,
     CapabilityEffectCancellationPort,
     CapabilityGrantConsumptionPort,
+    CapabilityOperationReadPort,
     CapabilityPolicyPort,
     CapabilityReadPort,
     CreatorGrantCommand,
@@ -30,6 +35,10 @@ class CapabilityModule:
     read: CapabilityReadPort
     commit: CapabilityCommitPort
     consumption: CapabilityGrantConsumptionPort
+    admission: CapabilityAdmissionPort
+    authorization: CapabilityActionAuthorizationPort
+    dispatch_authorization: CapabilityDispatchAuthorizationPort
+    operations: CapabilityOperationReadPort
     _owner: PostgreSQLCreatorGrantPolicy
 
     async def open(self) -> None:
@@ -70,6 +79,7 @@ def bootstrap_capability(
     environment_id: UUID,
     cursor_key: bytes,
     effect_cancellation: CapabilityEffectCancellationPort,
+    codex_activation: CapabilityCodexActivationPort,
     notifier: CreatorProjectionNotifier | None = None,
 ) -> CapabilityModule:
     owner = PostgreSQLCreatorGrantPolicy(
@@ -77,9 +87,12 @@ def bootstrap_capability(
         environment_id=environment_id,
         cursor_key=cursor_key,
         effect_cancellation=effect_cancellation,
+        codex_activation=codex_activation,
         notifier=notifier,
     )
-    return CapabilityModule(owner, owner, owner, owner, owner)
+    return CapabilityModule(
+        owner, owner, owner, owner, owner, owner, owner, owner, owner
+    )
 
 
 def bootstrap_capability_recovery() -> RecoveryParticipant:

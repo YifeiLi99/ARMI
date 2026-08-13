@@ -22,14 +22,9 @@ from armi_kernel.application import (
     CreatorEventViolation,
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
-    WorkDraft,
-    WorkId,
-    WorkOwner,
-    WorkPayloadRef,
 )
 from armi_kernel.contracts import (
     Digest,
-    IdempotencyKey,
     Instant,
     Purpose,
     SubjectId,
@@ -44,13 +39,18 @@ from armi_runtime_foundation import (
 
 from ._context import load_context_state_payloads
 from .api import (
+    CapabilityAdmissionRequest,
+    CapabilityAdmissionResult,
     CapabilityAuthorizationOutcome,
+    CapabilityCodexActivationPort,
     CapabilityCommitContext,
     CapabilityConsumptionRequest,
     CapabilityConsumptionResult,
+    CapabilityDispatchAuthorization,
     CapabilityEffectCancellationPort,
     CapabilityKind,
     CapabilityOperation,
+    CapabilityPolicyDecisionSnapshot,
     CapabilityRequestDraft,
     CapabilityRequestId,
     CapabilityRequestStatus,
@@ -70,6 +70,7 @@ class PostgreSQLCreatorGrantPolicy:
     """Apply exact Creator decisions; never dispatch or execute the capability."""
 
     __slots__ = (
+        "_codex_activation",
         "_cursor_key",
         "_effect_cancellation",
         "_environment_id",
@@ -85,6 +86,7 @@ class PostgreSQLCreatorGrantPolicy:
         environment_id: UUID,
         cursor_key: bytes,
         effect_cancellation: CapabilityEffectCancellationPort,
+        codex_activation: CapabilityCodexActivationPort,
         notifier: CreatorProjectionNotifier | None = None,
     ) -> None:
         self._factory = factory
@@ -95,6 +97,7 @@ class PostgreSQLCreatorGrantPolicy:
         ).digest()
         self._environment_id = environment_id
         self._effect_cancellation = effect_cancellation
+        self._codex_activation = codex_activation
         self._notifier = notifier
         self._stop = asyncio.Event()
 
@@ -197,6 +200,207 @@ class PostgreSQLCreatorGrantPolicy:
             grant_id=grant[0],
             valid_until=grant[1],
         )
+
+    async def preflight(
+        self,
+        transaction: PostgreSQLTransaction,
+        request: CapabilityAdmissionRequest,
+    ) -> CapabilityAdmissionResult:
+        row = await (
+            await transaction.execute(
+                """
+                SELECT permission.grant_id
+                FROM armi.capabilities AS capability
+                JOIN armi.permission_grants AS permission
+                  ON permission.capability_id=capability.capability_id
+                WHERE capability.capability_kind=%s
+                  AND capability.operation_class=%s
+                  AND capability.availability_status='available'
+                  AND permission.subject_id=%s AND permission.interaction_scene_id=%s
+                  AND permission.creator_party_id=%s AND permission.purpose=%s
+                  AND permission.status='active'
+                  AND permission.valid_from<=statement_timestamp()
+                  AND statement_timestamp()<permission.valid_until
+                  AND permission.consumed_uses<permission.max_uses
+                  AND (%s<>'creator_response' OR %s<=permission.max_payload_bytes)
+                ORDER BY permission.valid_until, permission.grant_id LIMIT 1
+                """,
+                (
+                    request.capability_kind,
+                    request.operation_class,
+                    request.subject_id,
+                    request.scene_id,
+                    request.creator_party_id,
+                    request.purpose,
+                    request.effect_kind,
+                    request.payload_bytes,
+                ),
+            )
+        ).fetchone()
+        if row is None:
+            return CapabilityAdmissionResult(
+                CapabilityAuthorizationOutcome.DENIED,
+                None,
+                "POLICY-GRANT-NOT-CURRENT",
+            )
+        return CapabilityAdmissionResult(
+            CapabilityAuthorizationOutcome.ALLOWED,
+            UUID(str(row[0])),
+            "POLICY-GRANT-CURRENT",
+        )
+
+    async def authorize_effect(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        action_intent_revision_id: UUID,
+        request: CapabilityConsumptionRequest,
+    ) -> CapabilityPolicyDecisionSnapshot:
+        authorization = await self.authorize_and_consume(transaction, request)
+        decision_id = uuid7()
+        await transaction.execute(
+            """
+            INSERT INTO armi.policy_decisions (
+                policy_decision_id, action_intent_revision_id,
+                matched_grant_id, decision_outcome, policy_identity,
+                reason_code, valid_until) VALUES (
+                %s,%s,%s,%s,'armi.policy-engine.deterministic-v1',%s,%s)
+            """,
+            (
+                decision_id,
+                action_intent_revision_id,
+                authorization.grant_id,
+                authorization.outcome.value,
+                authorization.reason_code,
+                authorization.valid_until,
+            ),
+        )
+        return CapabilityPolicyDecisionSnapshot(
+            decision_id,
+            action_intent_revision_id,
+            authorization.outcome,
+            authorization.grant_id,
+            authorization.valid_until,
+            authorization.reason_code,
+            True,
+        )
+
+    async def policy_for_revision(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        action_intent_revision_id: UUID,
+    ) -> CapabilityPolicyDecisionSnapshot | None:
+        row = await (
+            await transaction.execute(
+                """
+                SELECT policy_decision_id, decision_outcome, matched_grant_id,
+                       valid_until, reason_code, is_current
+                FROM armi.policy_decisions
+                WHERE action_intent_revision_id=%s AND is_current
+                """,
+                (action_intent_revision_id,),
+            )
+        ).fetchone()
+        if row is None:
+            return None
+        return CapabilityPolicyDecisionSnapshot(
+            UUID(str(row[0])),
+            action_intent_revision_id,
+            CapabilityAuthorizationOutcome(str(row[1])),
+            None if row[2] is None else UUID(str(row[2])),
+            row[3],
+            str(row[4]),
+            bool(row[5]),
+        )
+
+    async def record_effect_outcome(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        action_intent_revision_id: UUID,
+        outcome: CapabilityAuthorizationOutcome,
+        reason_code: str,
+    ) -> CapabilityPolicyDecisionSnapshot:
+        if outcome is CapabilityAuthorizationOutcome.ALLOWED:
+            raise CapabilityViolation("POLICY-DECISION-OUTCOME")
+        decision_id = uuid7()
+        await transaction.execute(
+            """
+            INSERT INTO armi.policy_decisions (
+                policy_decision_id, action_intent_revision_id,
+                decision_outcome, policy_identity, reason_code)
+            VALUES (%s,%s,%s,'armi.policy-engine.deterministic-v1',%s)
+            """,
+            (decision_id, action_intent_revision_id, outcome.value, reason_code),
+        )
+        return CapabilityPolicyDecisionSnapshot(
+            decision_id,
+            action_intent_revision_id,
+            outcome,
+            None,
+            None,
+            reason_code,
+            True,
+        )
+
+    async def authorize_dispatch(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        policy_decision_id: UUID,
+        action_intent_revision_id: UUID,
+        before_dispatch_deadline: bool,
+    ) -> CapabilityDispatchAuthorization:
+        row = await (
+            await transaction.execute(
+                """
+                SELECT policy.is_current, policy.decision_outcome,
+                       permission.grant_id, permission.status,
+                       permission.valid_from<=statement_timestamp()
+                       AND statement_timestamp()<permission.valid_until
+                FROM armi.policy_decisions AS policy
+                JOIN armi.permission_grants AS permission
+                  ON permission.grant_id=policy.matched_grant_id
+                WHERE policy.policy_decision_id=%s
+                  AND policy.action_intent_revision_id=%s
+                FOR UPDATE OF policy, permission
+                """,
+                (policy_decision_id, action_intent_revision_id),
+            )
+        ).fetchone()
+        if row is None or row[2] is None:
+            return CapabilityDispatchAuthorization(
+                False,
+                None,
+                "POLICY-GRANT-NOT-CURRENT",
+            )
+        grant_id = UUID(str(row[2]))
+        reason = _dispatch_cancellation_reason(
+            policy_current=bool(row[0]) and str(row[1]) == "allowed",
+            before_dispatch_deadline=before_dispatch_deadline,
+            grant_status=str(row[3]),
+            grant_time_valid=bool(row[4]),
+        )
+        if reason is None:
+            return CapabilityDispatchAuthorization(True, grant_id, None)
+        if bool(row[0]):
+            await transaction.execute(
+                "UPDATE armi.policy_decisions SET is_current=false "
+                "WHERE policy_decision_id=%s AND is_current",
+                (policy_decision_id,),
+            )
+            await transaction.execute(
+                """
+                INSERT INTO armi.policy_decisions (
+                    policy_decision_id, action_intent_revision_id,
+                    decision_outcome, policy_identity, reason_code,
+                    supersedes_policy_decision_id)
+                VALUES (%s,%s,'denied','armi.policy-engine.deterministic-v1',%s,%s)
+                """,
+                (uuid7(), action_intent_revision_id, reason, policy_decision_id),
+            )
+        return CapabilityDispatchAuthorization(False, grant_id, reason)
 
     async def list_requests(
         self,
@@ -405,7 +609,8 @@ class PostgreSQLCreatorGrantPolicy:
                                request.workspace_scope, request.artifact_scope,
                                request.network_access,
                                request.current_status, request.request_version,
-                               capability.availability_status
+                               capability.availability_status,
+                               request.subject_commit_id
                         FROM armi.capability_requests AS request
                         JOIN armi.capabilities AS capability
                           ON capability.capability_id = request.capability_id
@@ -575,10 +780,15 @@ class PostgreSQLCreatorGrantPolicy:
                     if revoked is None:
                         raise CapabilityViolation("POLICY-GRANT-NOT-ACTIVE")
                     cancellation_grant_id = UUID(str(revoked[0]))
+                    affected_policies = await _supersede_grant_policies(
+                        connection,
+                        grant_id=cancellation_grant_id,
+                        reason_code="POLICY-GRANT-REVOKED",
+                    )
                     cancelled_effects = (
                         await self._effect_cancellation.cancel_registered(
                             connection,
-                            grant_id=cancellation_grant_id,
+                            policy_decision_ids=affected_policies,
                             reason_code="POLICY-GRANT-REVOKED",
                         )
                     )
@@ -628,9 +838,9 @@ class PostgreSQLCreatorGrantPolicy:
                     grant is not None
                     and capability is CapabilityKind.CODEX_DELEGATED_WORK
                 ):
-                    await _activate_codex_registration(
+                    await self._codex_activation.activate_codex_registration(
                         unit_of_work,
-                        capability_request_id=UUID(str(request[0])),
+                        subject_commit_id=UUID(str(request[19])),
                         grant_id=grant.grant_id.value,
                         valid_until=grant.valid_until,
                     )
@@ -980,9 +1190,14 @@ class PostgreSQLCreatorGrantPolicy:
                     "UPDATE armi.capability_requests SET current_status='expired', request_version=request_version+1, resolved_at=statement_timestamp() WHERE capability_request_id=%s",
                     (row[1],),
                 )
-                cancelled_effects = await self._effect_cancellation.cancel_registered(
+                affected_policies = await _supersede_grant_policies(
                     connection,
                     grant_id=UUID(str(row[0])),
+                    reason_code="POLICY-GRANT-EXPIRED",
+                )
+                cancelled_effects = await self._effect_cancellation.cancel_registered(
+                    connection,
+                    policy_decision_ids=affected_policies,
                     reason_code="POLICY-GRANT-EXPIRED",
                 )
                 expired_request_ids.append(UUID(str(row[1])))
@@ -1071,7 +1286,7 @@ class PostgreSQLCreatorGrantPolicy:
                         CreatorEventResourceKind.OPERATION,
                         str(root_operation_id),
                         now,
-                        "creator-operation.v1",
+                        "creator-operation.v2",
                     ),
                 )
             )
@@ -1119,12 +1334,70 @@ def _validate_transition(
         raise CapabilityViolation("CONFLICT-POLICY-STATE")
 
 
+async def _supersede_grant_policies(
+    transaction: PostgreSQLTransaction,
+    *,
+    grant_id: UUID,
+    reason_code: str,
+) -> tuple[UUID, ...]:
+    rows = await (
+        await transaction.execute(
+            """
+            SELECT policy_decision_id, action_intent_revision_id
+            FROM armi.policy_decisions
+            WHERE matched_grant_id=%s AND is_current
+            FOR UPDATE
+            """,
+            (grant_id,),
+        )
+    ).fetchall()
+    for policy_id, revision_id in rows:
+        await transaction.execute(
+            "UPDATE armi.policy_decisions SET is_current=false "
+            "WHERE policy_decision_id=%s AND is_current",
+            (policy_id,),
+        )
+        await transaction.execute(
+            """
+            INSERT INTO armi.policy_decisions (
+                policy_decision_id, action_intent_revision_id,
+                decision_outcome, policy_identity, reason_code,
+                supersedes_policy_decision_id)
+            VALUES (%s,%s,'denied','armi.policy-engine.deterministic-v1',%s,%s)
+            """,
+            (uuid7(), revision_id, reason_code, policy_id),
+        )
+    return tuple(UUID(str(row[0])) for row in rows)
+
+
 def _narrow(requested: int | None, maximum: int) -> int:
     if requested is None:
         return maximum
     if type(requested) is not int or requested <= 0 or requested > maximum:
         raise CapabilityViolation("POLICY-SCOPE-EXPANSION")
     return requested
+
+
+def _dispatch_cancellation_reason(
+    *,
+    policy_current: bool,
+    before_dispatch_deadline: bool,
+    grant_status: str,
+    grant_time_valid: bool,
+) -> str | None:
+    if not policy_current:
+        return "POLICY-GRANT-NOT-CURRENT"
+    if grant_status == "revoked":
+        return "POLICY-GRANT-REVOKED"
+    if (
+        grant_status == "expired"
+        or not grant_time_valid
+        or not before_dispatch_deadline
+    ):
+        return "POLICY-GRANT-EXPIRED"
+    if grant_status != "active":
+        return "POLICY-GRANT-NOT-CURRENT"
+    return None
 
 
 def _command_digest(command: CreatorGrantCommand) -> Digest:
@@ -1144,76 +1417,6 @@ def _command_digest(command: CreatorGrantCommand) -> Digest:
                     "reason_code": command.reason_code,
                 },
             )
-        )
-    )
-
-
-async def _activate_codex_registration(
-    unit_of_work: PostgreSQLRuntimeUnitOfWork,
-    *,
-    capability_request_id: UUID,
-    grant_id: UUID,
-    valid_until: datetime,
-) -> None:
-    connection = unit_of_work.transaction
-    row = await (
-        await connection.execute(
-            """
-            SELECT intent.operation_ref, intent.subject_id,
-                   revision.task_manifest_digest, revision.codex_task_source_id,
-                   commit.trace_id, intent.action_intent_id
-            FROM armi.capability_requests AS request
-            JOIN armi.action_intent_revisions AS revision
-              ON revision.subject_commit_id = request.subject_commit_id
-             AND revision.capability_kind = 'codex.delegated-work'
-            JOIN armi.action_intents AS intent
-              ON intent.current_revision_id = revision.action_intent_revision_id
-            JOIN armi.subject_commits AS commit
-              ON commit.subject_commit_id = request.subject_commit_id
-            WHERE request.capability_request_id = %s
-              AND intent.action_kind = 'codex_delegation'
-            FOR UPDATE OF intent
-            """,
-            (capability_request_id,),
-        )
-    ).fetchone()
-    if row is None:
-        return
-    now_row = await (
-        await connection.execute("SELECT statement_timestamp()")
-    ).fetchone()
-    if now_row is None or valid_until <= now_row[0]:
-        raise CapabilityViolation("POLICY-GRANT-NOT-ACTIVE")
-    registration_work_digest = Digest.from_bytes(
-        rfc8785.dumps(
-            cast(
-                Any,
-                {
-                    "schema_version": "armi.codex-delegation.v1",
-                    "operation_ref": str(row[0]),
-                    "task_source_id": str(row[3]),
-                    "task_manifest_digest": str(row[2]),
-                    "grant_id": str(grant_id),
-                    "delivery_state": "not_started",
-                },
-            )
-        )
-    )
-    work_id = WorkId(uuid7())
-    await unit_of_work.work.enqueue(
-        WorkDraft(
-            work_id,
-            "effect.register",
-            WorkOwner("action_intent", row[5]),
-            IdempotencyKey(f"effect-register:{row[5]}"),
-            registration_work_digest,
-            60,
-            Instant(now_row[0]),
-            Instant(valid_until),
-            2,
-            TraceId(str(row[4])),
-            subject_id=SubjectId(row[1]),
-            payload=WorkPayloadRef("action_intent", row[5]),
         )
     )
 

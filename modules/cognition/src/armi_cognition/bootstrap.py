@@ -38,6 +38,7 @@ from .api import (
     CognitionArtifactCatalogPort,
     CognitionExactLifeQueryPort,
     CognitionModelAdapterFactory,
+    CognitionOperationReadPort,
     CognitionSubjectCommitPort,
     CognitionWakeupPort,
     CognitionWorkerPort,
@@ -51,6 +52,10 @@ def bootstrap_cognition_exact_life_query() -> CognitionExactLifeQueryPort:
 
 
 def bootstrap_cognition_subject_commit() -> CognitionSubjectCommitPort:
+    return PostgreSQLCognitionSubjectCommit()
+
+
+def bootstrap_cognition_operation() -> CognitionOperationReadPort:
     return PostgreSQLCognitionSubjectCommit()
 
 
@@ -215,6 +220,7 @@ __all__ = (
     "bootstrap_cognition_change_set_codec",
     "bootstrap_cognition_exact_life_query",
     "bootstrap_cognition_model",
+    "bootstrap_cognition_operation",
     "bootstrap_cognition_recovery",
     "bootstrap_cognition_subject_commit",
 )

@@ -17,6 +17,7 @@ import uvicorn
 from armi_activity.api import ActivityViolation
 from armi_capability.api import CapabilityViolation
 from armi_codex.api import CodexDelegationViolation, CodexRuntimePort
+from armi_codex.bootstrap import bootstrap_codex_commit
 from armi_context.api import ContextViolation
 from armi_data_rights.api import CreatorExportViolation, DataRightsViolation
 from armi_effect.api import EffectViolation
@@ -57,6 +58,7 @@ from armi_runtime.adapters.persistence.runtime_observability import (
 from armi_runtime.adapters.persistence.unit_of_work import (
     PostgreSQLUnitOfWorkFactory,
 )
+from armi_runtime.application.action_lifecycle import RuntimeCodexGrantActivation
 from armi_runtime.interfaces.browser_sessions import (
     BrowserSessionStore,
     BrowserSessionViolation,
@@ -82,17 +84,21 @@ from .database import (
     compose_candidate_validation_pipeline,
     compose_capability_policy,
     compose_codex_pipeline,
+    compose_codex_read_ports,
     compose_cognition_exact_life_query,
     compose_context_candidate_read,
     compose_context_embedding_pipeline,
     compose_context_pipeline,
     compose_context_projection_invalidation,
+    compose_creator_operation_query,
     compose_data_rights_core,
     compose_data_rights_module,
     compose_effect_grant_cancellation,
+    compose_effect_owner_context,
     compose_effect_registration_pipeline,
     compose_evidence_module,
     compose_exact_life_query_pipeline,
+    compose_expression_module,
     compose_interaction_identity,
     compose_interaction_module,
     compose_life_opportunity_pipeline,
@@ -213,6 +219,7 @@ async def _serve(
     prompt_module = None
     creator_events: CreatorEventBroker | None = None
     creator_input = None
+    creator_operations = None
     other_human_input = None
     external_message_input = None
     perception_module = None
@@ -457,6 +464,18 @@ async def _serve(
                 notifier=creator_events,
             )
             await data_rights_module.open()
+            expression_module = compose_expression_module(
+                relationship_read=relationship_module.read,
+                relationship_policy=relationship_module.policy,
+                interaction_routes=interaction_module.effect_routes,
+                interaction_scenes=interaction_module.scene_transitions,
+            )
+            codex_reads = compose_codex_read_ports()
+            effect_registration_context, codex_artifacts = compose_effect_owner_context(
+                expression=expression_module.intents,
+                interaction=interaction_module.effect_routes,
+                codex=codex_reads,
+            )
             scene_timeline_query = interaction_module.scene_timeline
             creator_scenes = interaction_module.creator_scenes
             creator_input = interaction_module.creator_input
@@ -468,9 +487,20 @@ async def _serve(
                 unit_of_work_factory=runtime_unit_of_work_factory,
                 cursor_key=derive_timeline_cursor_key(prepared),
                 effect_cancellation=effect_grant_cancellation,
+                codex_activation=RuntimeCodexGrantActivation(expression_module.intents),
                 notifier=creator_events,
             )
             await capability_policy.open()
+            creator_operations = compose_creator_operation_query(
+                unit_of_work_factory=runtime_unit_of_work_factory,
+                creator_party_id=creator_context.party_id,
+                interaction=interaction_module.creator_transaction,
+                evidence=evidence_module.read,
+                expression=expression_module.intents,
+                capability=capability_policy.operations,
+                codex=codex_reads.task_sources,
+                codex_executions=codex_reads.executions,
+            )
             qq_channel = await compose_qq_channel(
                 prepared,
                 input_port=external_message_input,
@@ -515,6 +545,10 @@ async def _serve(
                 unit_of_work_factory=runtime_unit_of_work_factory,
                 activity_read=activity_module.read,
                 capability_read=capability_policy.read,
+                codex_commit=bootstrap_codex_commit(
+                    codex_reads.task_sources,
+                    expression_module.commit,
+                ),
                 memory_read=memory_module.read,
                 memory_projection=memory_module.projection,
                 mood_read=mood_module.read,
@@ -566,10 +600,15 @@ async def _serve(
                 activity_commit=activity_module.commit,
                 capability_commit=capability_policy.commit,
                 capability_read=capability_policy.read,
+                codex_commit=bootstrap_codex_commit(
+                    codex_reads.task_sources,
+                    expression_module.commit,
+                ),
                 context_projections=context_projection_invalidation,
                 data_rights=data_rights_module.subject_commit,
                 evidence=evidence_module.write,
                 evidence_read=evidence_module.read,
+                expression_commit=expression_module.commit,
                 memory_commit=memory_module.commit,
                 memory_cognition=memory_module.cognition,
                 mood_commit=mood_module.commit,
@@ -580,8 +619,6 @@ async def _serve(
                 material_commit=material_module.commit,
                 relationship_cognition=relationship_module.cognition,
                 relationship_commit=relationship_module.commit,
-                relationship_read=relationship_module.read,
-                relationship_policy=relationship_module.policy,
                 sleep_cognition=sleep_module.cognition,
                 sleep_commit=sleep_module.commit,
                 subject_state_cognition=subject_state_module.cognition,
@@ -598,6 +635,9 @@ async def _serve(
             response_pipeline = compose_response_admission_pipeline(
                 prepared,
                 unit_of_work_factory=runtime_unit_of_work_factory,
+                expression=expression_module.admission,
+                capability=capability_policy.admission,
+                data_rights=data_rights_module.effect_gate,
                 wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
                     event,
@@ -608,7 +648,12 @@ async def _serve(
             effect_pipeline = compose_effect_registration_pipeline(
                 prepared,
                 unit_of_work_factory=runtime_unit_of_work_factory,
-                capability_consumption=capability_policy.consumption,
+                authorization=capability_policy.authorization,
+                intents=expression_module.intents,
+                effect_links=expression_module.effect_links,
+                registration_context=effect_registration_context,
+                codex_artifacts=codex_artifacts,
+                routes=interaction_module.effect_routes,
                 interaction_delivery=interaction_module.effect_delivery,
                 notifier=creator_events,
                 wakeups=work_wakeups,
@@ -629,7 +674,14 @@ async def _serve(
                         creator_party_id=creator_context.party_id,
                         creator_input=interaction_module.creator_transaction,
                         evidence=evidence_module.write,
+                        evidence_read=evidence_module.read,
+                        identity=interaction_module.identity,
                         opportunity=opportunity_admission,
+                        dispatch_authorization=(
+                            capability_policy.dispatch_authorization
+                        ),
+                        expression=expression_module.intents,
+                        sources=codex_reads.task_sources,
                         notifier=creator_events,
                         diagnostic=lambda event: diagnostic.emit(
                             event, result_code="CODEX_DELEGATION"
@@ -1266,7 +1318,7 @@ async def _serve(
         creator_events=creator_events,
         creator_input=creator_input,
         other_human_input=other_human_input,
-        creator_operations=creator_input,
+        creator_operations=creator_operations,
         subject_summary=(
             creator_input.get_subject_summary if creator_input is not None else None
         ),
