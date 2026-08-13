@@ -129,7 +129,6 @@ from armi_relationship.api import (
 )
 from armi_relationship.bootstrap import RelationshipModule, bootstrap_relationship
 from armi_sleep.api import (
-    CreatorMaintenanceViolation,
     SleepCognitionPort,
     SleepCommitPort,
     SleepMaintenancePort,
@@ -905,41 +904,16 @@ def compose_memory_module(
 
 
 def compose_sleep_module(
-    prepared: PreparedEnvironment,
+    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     *,
     creator_party_id: UUID,
 ) -> SleepModule:
     """Resolve and bind the one active sleep owner implementation."""
 
-    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
-    if locator is None:
-        raise CreatorMaintenanceViolation("MAINTENANCE-QUERY-UNAVAILABLE")
-    try:
-        with prepared.credential_port.resolve(
-            locator,
-            CredentialPurpose("database.runtime"),
-        ) as handle:
-
-            def create(value: memoryview) -> SleepModule:
-                try:
-                    conninfo = bytes(value).decode("utf-8")
-                except UnicodeDecodeError:
-                    raise CreatorMaintenanceViolation(
-                        "MAINTENANCE-QUERY-UNAVAILABLE"
-                    ) from None
-                config = prepared.effective.config
-                return bootstrap_sleep(
-                    conninfo,
-                    expected_role=physical_role_name(
-                        config.environment.environment_id, "runtime"
-                    ),
-                    creator_party_id=creator_party_id,
-                    pool_timeout_seconds=config.database.pool_acquire_timeout_seconds,
-                )
-
-            return handle.consume(create)
-    except ConfigurationViolation:
-        raise CreatorMaintenanceViolation("MAINTENANCE-QUERY-UNAVAILABLE") from None
+    return bootstrap_sleep(
+        unit_of_work_factory,
+        creator_party_id=creator_party_id,
+    )
 
 
 def compose_runtime_authority(

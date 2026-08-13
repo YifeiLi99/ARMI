@@ -199,14 +199,10 @@ class OpportunityPipeline(LifeOpportunitySourcePort):
         )
 
     async def open(self) -> None:
-        try:
-            await self._factory.open()
-        except RuntimeTransactionFailure:
-            raise LifeViolation("LIFE-DATABASE") from None
+        return None
 
     async def close(self) -> None:
         self._stop.set()
-        await self._factory.close()
 
     def stop(self) -> None:
         self._stop.set()

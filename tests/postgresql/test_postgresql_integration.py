@@ -2051,10 +2051,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             await material_module.open()
             sleep_module = bootstrap_sleep(
-                fixture.runtime_dsn,
-                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                factories[0],
                 creator_party_id=manifest.creator_party_id,
-                pool_timeout_seconds=2,
             )
             await sleep_module.open()
             pipelines = tuple(
@@ -2072,6 +2070,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
                 for factory in factories
             )
+            for factory in factories:
+                await factory.open()
             for pipeline in pipelines:
                 await pipeline.open()
             try:
@@ -2086,6 +2086,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             finally:
                 for pipeline in pipelines:
                     await pipeline.close()
+                for factory in factories:
+                    await factory.close()
                 await activity_module.close()
                 await material_module.close()
                 await relationship_module.close()
@@ -2156,6 +2158,26 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
 
         async def exercise(root: Path) -> None:
+            birth_factory = PostgreSQLUnitOfWorkFactory(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+                pool_min=1,
+                pool_max=1,
+                acquire_timeout_seconds=2,
+                statement_timeout_seconds=5,
+                require_runtime_fence=False,
+            )
+            await birth_factory.open()
+            try:
+                await BirthTransaction(
+                    ContentAddressedArtifactStore(root, max_object_bytes=1024 * 1024),
+                    ArtifactCatalogRepository(),
+                    _birth_repository(),
+                    birth_factory,
+                ).birth(manifest)
+            finally:
+                await birth_factory.close()
+
             factory = PostgreSQLUnitOfWorkFactory(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
@@ -2165,16 +2187,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 statement_timeout_seconds=5,
                 require_runtime_fence=False,
             )
-            await factory.open()
-            try:
-                await BirthTransaction(
-                    ContentAddressedArtifactStore(root, max_object_bytes=1024 * 1024),
-                    ArtifactCatalogRepository(),
-                    _birth_repository(),
-                    factory,
-                ).birth(manifest)
-            finally:
-                await factory.close()
 
             relationship_module = bootstrap_relationship(
                 factory,
@@ -2348,10 +2360,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             await material_module.open()
             sleep_module = bootstrap_sleep(
-                fixture.runtime_dsn,
-                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                maintenance_factory,
                 creator_party_id=creator_party_id,
-                pool_timeout_seconds=2,
             )
             await sleep_module.open()
             pipeline = bootstrap_opportunity(
@@ -2364,6 +2374,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 sleep_read=sleep_module.read,
                 subject_state_read=bootstrap_subject_state().read,
             )
+            await maintenance_factory.open()
             await pipeline.open()
             try:
                 outcome = await pipeline.maintain_sleep_once()
@@ -2393,6 +2404,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 await activity_module.close()
                 await material_module.close()
                 await relationship_module.close()
+                await maintenance_factory.close()
 
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             asyncio.run(
@@ -5768,10 +5780,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 pool_timeout_seconds=2,
             )
             sleep_module = bootstrap_sleep(
-                fixture.runtime_dsn,
-                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                factory,
                 creator_party_id=creator_party_id,
-                pool_timeout_seconds=2,
             )
             activity_module = bootstrap_activity(
                 factory,

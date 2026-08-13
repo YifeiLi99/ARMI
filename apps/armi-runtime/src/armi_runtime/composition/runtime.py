@@ -394,7 +394,7 @@ async def _serve(
             )
             await exact_life_query_pipeline.open()
             sleep_module = compose_sleep_module(
-                prepared,
+                runtime_unit_of_work_factory,
                 creator_party_id=creator_context.party_id,
             )
             await sleep_module.open()
