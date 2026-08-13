@@ -4124,7 +4124,7 @@ def create_runtime_app(
         return JSONResponse(
             content=EffectResponse(
                 contract_version="1.0",
-                projection_version="creator-effect.v2",
+                projection_version="creator-effect.v3",
                 effect_id=str(view.effect_id.value),
                 root_operation_ref=str(view.root_operation_ref),
                 capability_request_ref=str(view.capability_request_ref),
@@ -4155,25 +4155,6 @@ def create_runtime_app(
                     view.settled_at.to_wire() if view.settled_at is not None else None
                 ),
                 response_text=view.response_text,
-                model_id=view.model_id,
-                sdk_identity=view.sdk_identity,
-                source_tree_digest=(
-                    view.source_tree_digest.value
-                    if view.source_tree_digest is not None
-                    else None
-                ),
-                result_tree_digest=(
-                    view.result_tree_digest.value
-                    if view.result_tree_digest is not None
-                    else None
-                ),
-                patch_digest=(
-                    view.patch_digest.value if view.patch_digest is not None else None
-                ),
-                changed_path_count=view.changed_path_count,
-                validation_status=view.validation_status,
-                cleanup_status=view.cleanup_status,
-                result_acceptance_status=view.result_acceptance_status,
             ).model_dump(exclude_none=True)
         )
 

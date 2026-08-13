@@ -1061,7 +1061,7 @@ class PostgreSQLCreatorGrantPolicy:
                         CreatorEventResourceKind.EFFECT,
                         str(effect_id),
                         now,
-                        "creator-effect.v2",
+                        "creator-effect.v3",
                     ),
                     CreatorProjectionInvalidation(
                         CreatorEventResourceKind.OPERATION,

@@ -1913,7 +1913,7 @@
               "capability-request.v4",
               "creator-operation.v1",
               "other-human-record.v1",
-              "creator-effect.v2",
+              "creator-effect.v3",
               "subject-summary.v1",
               "data-rights-order.v2"
             ],
@@ -3299,34 +3299,6 @@
             "title": "Capability Request Ref",
             "type": "string"
           },
-          "changed_path_count": {
-            "anyOf": [
-              {
-                "maximum": 500.0,
-                "minimum": 0.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Changed Path Count"
-          },
-          "cleanup_status": {
-            "anyOf": [
-              {
-                "enum": [
-                  "succeeded",
-                  "failed"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Cleanup Status"
-          },
           "contract_version": {
             "const": "1.0",
             "title": "Contract Version",
@@ -3386,36 +3358,8 @@
             ],
             "title": "Last Observation Reliability"
           },
-          "model_id": {
-            "anyOf": [
-              {
-                "enum": [
-                  "gpt-5.6-sol",
-                  "gpt-5.6-terra",
-                  "gpt-5.6-luna"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Model Id"
-          },
-          "patch_digest": {
-            "anyOf": [
-              {
-                "pattern": "sha256:[0-9a-f]{64}",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Patch Digest"
-          },
           "projection_version": {
-            "const": "creator-effect.v2",
+            "const": "creator-effect.v3",
             "title": "Projection Version",
             "type": "string"
           },
@@ -3437,49 +3381,10 @@
             ],
             "title": "Response Text"
           },
-          "result_acceptance_status": {
-            "anyOf": [
-              {
-                "enum": [
-                  "pending",
-                  "accepted"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Result Acceptance Status"
-          },
-          "result_tree_digest": {
-            "anyOf": [
-              {
-                "pattern": "sha256:[0-9a-f]{64}",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Result Tree Digest"
-          },
           "root_operation_ref": {
             "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
             "title": "Root Operation Ref",
             "type": "string"
-          },
-          "sdk_identity": {
-            "anyOf": [
-              {
-                "const": "openai-codex==0.144.4",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Sdk Identity"
           },
           "settled_at": {
             "anyOf": [
@@ -3493,18 +3398,6 @@
             ],
             "title": "Settled At"
           },
-          "source_tree_digest": {
-            "anyOf": [
-              {
-                "pattern": "sha256:[0-9a-f]{64}",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source Tree Digest"
-          },
           "status": {
             "enum": [
               "registered",
@@ -3516,22 +3409,6 @@
             ],
             "title": "Status",
             "type": "string"
-          },
-          "validation_status": {
-            "anyOf": [
-              {
-                "enum": [
-                  "passed",
-                  "failed",
-                  "not_run"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Validation Status"
           },
           "verification_action": {
             "anyOf": [

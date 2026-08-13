@@ -704,7 +704,7 @@ class CreatorContractTests(unittest.TestCase):
         effect = EffectResponse.model_validate(
             {
                 "contract_version": "1.0",
-                "projection_version": "creator-effect.v2",
+                "projection_version": "creator-effect.v3",
                 "effect_id": "01890f47-7ac2-7cc4-98c2-9f4e3f13b9ae",
                 "root_operation_ref": "01890f47-7ac2-7cc4-98c2-9f4e3f13b9af",
                 "capability_request_ref": request_id,

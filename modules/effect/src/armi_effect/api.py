@@ -302,15 +302,6 @@ class EffectView:
     ) = None
     settled_at: Instant | None = None
     response_text: str | None = None
-    model_id: Literal["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"] | None = None
-    sdk_identity: Literal["openai-codex==0.144.4"] | None = None
-    source_tree_digest: Digest | None = None
-    result_tree_digest: Digest | None = None
-    patch_digest: Digest | None = None
-    changed_path_count: int | None = None
-    validation_status: Literal["passed", "failed", "not_run"] | None = None
-    cleanup_status: Literal["succeeded", "failed"] | None = None
-    result_acceptance_status: Literal["pending", "accepted"] | None = None
 
     def __post_init__(self) -> None:
         _uuid7(self.root_operation_ref)
@@ -344,41 +335,8 @@ class EffectView:
             not self.response_text.strip() or "\x00" in self.response_text
         ):
             raise EffectViolation("CON-EFFECT-PAYLOAD")
-        codex_fields = (
-            self.model_id,
-            self.sdk_identity,
-            self.source_tree_digest,
-            self.result_tree_digest,
-            self.patch_digest,
-            self.changed_path_count,
-            self.validation_status,
-            self.cleanup_status,
-            self.result_acceptance_status,
-        )
-        if self.effect_kind == "creator_response" and any(
-            value is not None for value in codex_fields
-        ):
+        if self.effect_kind == "codex_delegation" and self.response_text is not None:
             raise EffectViolation("CON-EFFECT-VISIBILITY")
-        if self.effect_kind == "codex_delegation":
-            if self.response_text is not None:
-                raise EffectViolation("CON-EFFECT-VISIBILITY")
-            if self.status in {
-                EffectStatus.COMPLETED,
-                EffectStatus.FAILED,
-                EffectStatus.UNKNOWN,
-            } and any(
-                value is None
-                for value in (
-                    self.sdk_identity,
-                    self.source_tree_digest,
-                    self.validation_status,
-                    self.cleanup_status,
-                    self.result_acceptance_status,
-                )
-            ):
-                raise EffectViolation("CON-EFFECT-VERIFICATION")
-            if self.changed_path_count is not None and self.changed_path_count < 0:
-                raise EffectViolation("CON-EFFECT-VERIFICATION")
 
 
 class EffectViolation(RuntimeError):

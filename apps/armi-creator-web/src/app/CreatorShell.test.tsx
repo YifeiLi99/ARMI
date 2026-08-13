@@ -873,7 +873,7 @@ describe("Creator local connection shell", () => {
       if (url === `/v1/effects/${EFFECT_ID}`) {
         return jsonResponse({
           contract_version: "1.0",
-          projection_version: "creator-effect.v2",
+          projection_version: "creator-effect.v3",
           effect_id: EFFECT_ID,
           root_operation_ref: OPPORTUNITY_ID,
           capability_request_ref: "018f47a6-7b2d-7c35-8b18-684e38ab6efb",

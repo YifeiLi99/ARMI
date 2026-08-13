@@ -626,7 +626,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
         "capability-request.v4",
         "creator-operation.v1",
         "other-human-record.v1",
-        "creator-effect.v2",
+        "creator-effect.v3",
         "subject-summary.v1",
         "data-rights-order.v2",
     ]
@@ -860,7 +860,7 @@ class SubjectSummaryResponse(_StrictWireModel):
 
 class EffectResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["creator-effect.v2"]
+    projection_version: Literal["creator-effect.v3"]
     effect_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     root_operation_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     capability_request_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
@@ -893,19 +893,6 @@ class EffectResponse(_StrictWireModel):
     ) = None
     settled_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None = None
     response_text: Annotated[str, Field(min_length=1, max_length=65536)] | None = None
-    model_id: Literal["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"] | None = None
-    sdk_identity: Literal["openai-codex==0.144.4"] | None = None
-    source_tree_digest: Annotated[str, Field(pattern=r"sha256:[0-9a-f]{64}")] | None = (
-        None
-    )
-    result_tree_digest: Annotated[str, Field(pattern=r"sha256:[0-9a-f]{64}")] | None = (
-        None
-    )
-    patch_digest: Annotated[str, Field(pattern=r"sha256:[0-9a-f]{64}")] | None = None
-    changed_path_count: Annotated[int, Field(ge=0, le=500)] | None = None
-    validation_status: Literal["passed", "failed", "not_run"] | None = None
-    cleanup_status: Literal["succeeded", "failed"] | None = None
-    result_acceptance_status: Literal["pending", "accepted"] | None = None
 
 
 class _EffectiveGrantResponseBase(_StrictWireModel):

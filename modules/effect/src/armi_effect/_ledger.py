@@ -509,11 +509,7 @@ class PostgreSQLEffectLedgerRepository:
                    (SELECT count(*) FROM armi.effect_attempts AS attempt
                     WHERE attempt.effect_id = effect.effect_id),
                    observation.observation_kind, observation.reliability,
-                   effect.settled_at,
-                   verification.execution_status, verification.cleanup_status,
-                   verification.source_tree_digest, verification.final_tree_digest,
-                   verification.patch_digest, verification.changed_path_count,
-                   result_opportunity.current_disposition
+                   effect.settled_at
             FROM armi.effects AS effect
             JOIN armi.action_intents AS intent
               ON intent.action_intent_id = effect.action_intent_id
@@ -527,12 +523,6 @@ class PostgreSQLEffectLedgerRepository:
              AND request.capability_kind = effect.capability_kind
             LEFT JOIN armi.effect_observations AS observation
               ON observation.effect_observation_id = effect.current_observation_id
-            LEFT JOIN armi.codex_verification_results AS verification
-              ON verification.effect_id = effect.effect_id
-            LEFT JOIN armi.codex_result_sources AS result_source
-              ON result_source.codex_verification_id = verification.codex_verification_id
-            LEFT JOIN armi.opportunities AS result_opportunity
-              ON result_opportunity.opportunity_id = result_source.opportunity_id
             WHERE effect.effect_id=%s AND effect.context_party_id=%s
             """,
                 (effect_id.value, creator_party_id),
@@ -546,7 +536,6 @@ class PostgreSQLEffectLedgerRepository:
         effect_kind = cast(
             Literal["creator_response", "codex_delegation"], raw_effect_kind
         )
-        execution_status = None if row[14] is None else str(row[14])
         return EffectView(
             effect_id=EffectId(row[0]),
             root_operation_ref=row[1],
@@ -579,35 +568,6 @@ class PostgreSQLEffectLedgerRepository:
                 else None
             ),
             settled_at=Instant(row[13]) if row[13] is not None else None,
-            # The current schema does not persist the selected execution profile.
-            # Do not guess a model identity in a public projection.
-            model_id=None,
-            sdk_identity="openai-codex==0.144.4"
-            if execution_status is not None
-            else None,
-            source_tree_digest=Digest(str(row[16])) if row[16] is not None else None,
-            result_tree_digest=Digest(str(row[17])) if row[17] is not None else None,
-            patch_digest=Digest(str(row[18])) if row[18] is not None else None,
-            changed_path_count=int(row[19]) if row[19] is not None else None,
-            validation_status=(
-                "passed"
-                if execution_status == "verified"
-                else (
-                    "not_run"
-                    if execution_status in {"unknown", "cancelled"}
-                    else "failed"
-                )
-            )
-            if execution_status is not None
-            else None,
-            cleanup_status=("succeeded" if str(row[15]) == "clean" else "failed")
-            if row[15] is not None
-            else None,
-            result_acceptance_status=(
-                "accepted" if str(row[20]) == "resolved" else "pending"
-            )
-            if row[20] is not None
-            else None,
         )
 
     async def payload_reference(

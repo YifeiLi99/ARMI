@@ -124,28 +124,6 @@ export function EffectDetail({
               <dt>安全引用</dt>
               <dd>{effect.data.effect_id}</dd>
             </div>
-            {effect.data.effect_kind === "codex_delegation" ? (
-              <>
-                <div>
-                  <dt>模型与 SDK</dt>
-                  <dd>
-                    {effect.data.model_id ?? "尚未运行"} ·{" "}
-                    {effect.data.sdk_identity ?? "尚未运行"}
-                  </dd>
-                </div>
-                <div>
-                  <dt>独立核验</dt>
-                  <dd>
-                    {effect.data.validation_status ?? "pending"} · cleanup{" "}
-                    {effect.data.cleanup_status ?? "pending"}
-                  </dd>
-                </div>
-                <div>
-                  <dt>变更路径数</dt>
-                  <dd>{effect.data.changed_path_count ?? 0}</dd>
-                </div>
-              </>
-            ) : null}
           </dl>
           {effect.data.status === "completed" &&
           effect.data.response_text !== undefined &&

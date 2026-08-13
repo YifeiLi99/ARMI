@@ -35,7 +35,7 @@ const RESOURCES = {
     "other-human-record.v1",
     UUID_V7,
   ],
-  effect: ["effect.invalidated", "creator-effect.v2", UUID_V7],
+  effect: ["effect.invalidated", "creator-effect.v3", UUID_V7],
   subject_summary: [
     "subject.summary.invalidated",
     "subject-summary.v1",

@@ -1406,7 +1406,7 @@ export interface components {
         | "capability-request.v4"
         | "creator-operation.v1"
         | "other-human-record.v1"
-        | "creator-effect.v2"
+        | "creator-effect.v3"
         | "subject-summary.v1"
         | "data-rights-order.v2";
       /**
@@ -1954,10 +1954,6 @@ export interface components {
       capability_kind: "creator.scene.reply" | "codex.delegated-work";
       /** Capability Request Ref */
       capability_request_ref: string;
-      /** Changed Path Count */
-      changed_path_count?: number | null;
-      /** Cleanup Status */
-      cleanup_status?: ("succeeded" | "failed") | null;
       /**
        * Contract Version
        * @constant
@@ -1987,31 +1983,19 @@ export interface components {
         | null;
       /** Last Observation Reliability */
       last_observation_reliability?: ("reliable" | "inconclusive") | null;
-      /** Model Id */
-      model_id?: ("gpt-5.6-sol" | "gpt-5.6-terra" | "gpt-5.6-luna") | null;
-      /** Patch Digest */
-      patch_digest?: string | null;
       /**
        * Projection Version
        * @constant
        */
-      projection_version: "creator-effect.v2";
+      projection_version: "creator-effect.v3";
       /** Registered At */
       registered_at: string;
       /** Response Text */
       response_text?: string | null;
-      /** Result Acceptance Status */
-      result_acceptance_status?: ("pending" | "accepted") | null;
-      /** Result Tree Digest */
-      result_tree_digest?: string | null;
       /** Root Operation Ref */
       root_operation_ref: string;
-      /** Sdk Identity */
-      sdk_identity?: "openai-codex==0.144.4" | null;
       /** Settled At */
       settled_at?: string | null;
-      /** Source Tree Digest */
-      source_tree_digest?: string | null;
       /**
        * Status
        * @enum {string}
@@ -2023,8 +2007,6 @@ export interface components {
         | "failed"
         | "unknown"
         | "cancelled";
-      /** Validation Status */
-      validation_status?: ("passed" | "failed" | "not_run") | null;
       /** Verification Action */
       verification_action?:
         ("verify_creator_inbox" | "verify_codex_result") | null;
