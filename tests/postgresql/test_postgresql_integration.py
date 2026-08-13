@@ -1062,6 +1062,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             ).unlink()
             (schema_root / "alembic/versions/0006_relationship_lifecycle.py").unlink()
             (schema_root / "alembic/versions/0007_mood_owner.py").unlink()
+            (
+                schema_root / "alembic/versions/0008_cognition_candidate_contracts.py"
+            ).unlink()
             installed = PostgreSQLSchemaGateway(resource_root=schema_root).install(
                 fixture.migrator_dsn,
                 environment_id=fixture.environment_id,
@@ -1071,7 +1074,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(migrated.current_revision, "0007")
+        self.assertEqual(migrated.current_revision, "0008")
         with psycopg.connect(fixture.runtime_dsn) as connection:
             shape = connection.execute(
                 """
@@ -1147,6 +1150,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             ).unlink()
             (schema_root / "alembic/versions/0006_relationship_lifecycle.py").unlink()
             (schema_root / "alembic/versions/0007_mood_owner.py").unlink()
+            (
+                schema_root / "alembic/versions/0008_cognition_candidate_contracts.py"
+            ).unlink()
             installed = PostgreSQLSchemaGateway(resource_root=schema_root).install(
                 fixture.migrator_dsn,
                 environment_id=fixture.environment_id,
@@ -1176,7 +1182,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(migrated.current_revision, "0007")
+        self.assertEqual(migrated.current_revision, "0008")
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             activation = connection.execute(
                 """
@@ -1244,10 +1250,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             schema_root = Path(temporary) / "schema"
             shutil.copytree(source, schema_root)
-            (schema_root / "alembic/versions/0008_probe.py").write_text(
+            (schema_root / "alembic/versions/0009_probe.py").write_text(
                 "from alembic import op\n"
-                "revision = '0008'\n"
-                "down_revision = '0007'\n"
+                "revision = '0009'\n"
+                "down_revision = '0008'\n"
                 "branch_labels = None\n"
                 "depends_on = None\n"
                 "def upgrade(): op.execute('CREATE TABLE armi.revision_probe (id bigint PRIMARY KEY)')\n"
@@ -1302,8 +1308,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(migrated.status, "current")
             self.assertEqual(migrated.table_count, installed.table_count + 1)
-            self.assertEqual(migrated.current_revision, "0008")
-            self.assertEqual(migrated.head_revision, "0008")
+            self.assertEqual(migrated.current_revision, "0009")
+            self.assertEqual(migrated.head_revision, "0009")
             self.assertEqual(
                 gateway.migrate(
                     fixture.migrator_dsn,
@@ -1324,10 +1330,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             schema_root = Path(temporary) / "schema"
             shutil.copytree(source, schema_root)
-            (schema_root / "alembic/versions/0008_failing_probe.py").write_text(
+            (schema_root / "alembic/versions/0009_failing_probe.py").write_text(
                 "from alembic import op\n"
-                "revision = '0008'\n"
-                "down_revision = '0007'\n"
+                "revision = '0009'\n"
+                "down_revision = '0008'\n"
                 "branch_labels = None\n"
                 "depends_on = None\n"
                 "def upgrade():\n"
@@ -1352,7 +1358,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "SELECT version_num FROM armi.alembic_version"
                 ).fetchall()
             self.assertEqual(table, (None,))
-            self.assertEqual(history, [("0007",)])
+            self.assertEqual(history, [("0008",)])
 
     def test_p0_clean_environment_cli_start_restart_and_capacity(self) -> None:
         fixture = self.create_database()
@@ -6612,7 +6618,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 restored = connection.execute(
                     "SELECT version_num FROM armi.alembic_version"
                 ).fetchall()
-            self.assertEqual(restored, [("0007",)])
+            self.assertEqual(restored, [("0008",)])
 
             second_quarantine = root / "second-quarantine"
             second_quarantine.mkdir()

@@ -41,7 +41,7 @@ def test_schema_resources_use_one_linear_alembic_history() -> None:
     assert not (RESOURCE / "migrations").exists()
     assert not list(RESOURCE.glob("**/manifest.json"))
     script = _script()
-    assert script.get_heads() == ["0007"]
+    assert script.get_heads() == ["0008"]
     revisions = list(script.walk_revisions(base="base", head="heads"))
     assert [revision.revision for revision in reversed(revisions)] == [
         "0000",
@@ -52,6 +52,7 @@ def test_schema_resources_use_one_linear_alembic_history() -> None:
         "0005",
         "0006",
         "0007",
+        "0008",
     ]
 
 
@@ -71,6 +72,22 @@ def test_baseline_contains_authoritative_schema() -> None:
     assert "CREATE TABLE armi.deletion_orders" in sql
     assert "CREATE TABLE armi.schema_migrations" not in sql
     assert "external.private.message.send" in sql
+
+
+def test_active_cognition_contracts_have_a_forward_schema_revision() -> None:
+    migration = (
+        RESOURCE / "alembic/versions/0008_cognition_candidate_contracts.py"
+    ).read_text(encoding="utf-8")
+    for contract in (
+        "armi.creator-dialogue-candidate.v21",
+        "armi.creator-dialogue-candidate.v22",
+        "armi.other-human-dialogue-candidate.v4",
+    ):
+        assert contract in migration
+    assert "cognitive_attempts_candidate_schema_version_check" in migration
+    assert (
+        "cognitive_candidate_validation_candidate_contract_version_check" in migration
+    )
 
 
 def test_gateway_exposes_install_status_and_explicit_migration() -> None:
