@@ -5,9 +5,10 @@ from typing import cast
 from uuid import uuid7
 
 import pytest
+from armi_data_rights.api import EmptyDataRightsParticipant
 from armi_mood.api import MoodReadPort
 from armi_prompt.api import PromptReadPort
-from armi_runtime.composition.database import compose_recovery_participants
+from armi_runtime.composition.owner_roster import compose_runtime_owner_roster
 from armi_runtime_foundation import (
     EmptyRecoveryParticipant,
     PostgreSQLTransaction,
@@ -24,11 +25,14 @@ def _scope() -> RecoveryScope:
 
 
 def test_runtime_composition_builds_the_fixed_twenty_owner_roster() -> None:
-    participants, expected = compose_recovery_participants(
+    roster = compose_runtime_owner_roster(
+        data_rights=EmptyDataRightsParticipant("data-rights"),
         mood_read=cast(MoodReadPort, object()),
         prompt_read=cast(PromptReadPort, object()),
         subject_state_read=cast(SubjectStateReadPort, object()),
     )
+    participants = roster.recovery
+    expected = roster.expected_recovery_owners
 
     assert len(participants) == 20
     assert tuple(item.owner_identity for item in participants) == expected

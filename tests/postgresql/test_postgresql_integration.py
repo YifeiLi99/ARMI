@@ -28,7 +28,6 @@ from uuid import UUID
 import psycopg
 import rfc8785
 from armi_activity.api import ActivityViolation
-from armi_activity.bootstrap import bootstrap_activity, bootstrap_activity_cognition
 from armi_admin.application import AdminConfig, AdminCredentialPort
 from armi_admin.composition import bootstrap_admin
 from armi_admin.mcp.contracts import (
@@ -44,9 +43,6 @@ from armi_admin.mcp.contracts import (
 )
 from armi_admin.mcp.service import AdminToolService
 from armi_admin.persistence.role_session import AdminRoleBoundPool
-from armi_artifact_store.bootstrap import (
-    bootstrap_artifact_catalog as ArtifactCatalogRepository,
-)
 from armi_artifact_store.content_store import (
     ContentAddressedArtifactStore,
 )
@@ -61,60 +57,10 @@ from armi_capability.api import (
     CreatorGrantDecision,
     CreatorSceneReplyScope,
 )
-from armi_capability.bootstrap import bootstrap_capability
-from armi_codex._application import CodexTaskSourceGateway
 from armi_codex.api import CreatorCodexTaskCommand
-from armi_codex.bootstrap import (
-    bootstrap_codex_commit,
-    bootstrap_codex_read_ports,
-    bootstrap_codex_timeline_projection,
-)
-from armi_cognition._model_contract import (
-    build_request_bytes,
-    candidate_schema,
-    checked_model_request,
-    load_active_binding,
-    parse_candidate,
-)
-from armi_cognition._validator import (
-    CandidateValidationContext,
-    DeterministicCandidateValidator,
-)
-from armi_cognition.bootstrap import (
-    bootstrap_cognition_change_set_codec,
-    bootstrap_cognition_subject_commit,
-)
-from armi_data_rights.bootstrap import bootstrap_data_rights_core
-from armi_effect._admission import (
-    PostgreSQLResponseAdmissionRepository,
-)
-from armi_effect._dispatch import (
-    PostgreSQLEffectDispatchRepository,
-)
-from armi_effect._inbox import (
-    PostgreSQLLocalInbox,
-)
-from armi_effect._ledger import (
-    PostgreSQLEffectLedgerRepository,
-)
+from armi_cognition.api import CognitionSchemaDocument
 from armi_effect.api import EffectStatus
-from armi_effect.bootstrap import (
-    bootstrap_effect_codex_lifecycle,
-    bootstrap_effect_grant_cancellation,
-    bootstrap_expression_effect_registration,
-)
-from armi_evidence.bootstrap import bootstrap_evidence
 from armi_expression.api import CreatorReplyDraft, ResponseAdmissionStatus
-from armi_expression.bootstrap import (
-    bootstrap_expression,
-    bootstrap_expression_action_ports,
-)
-from armi_interaction._creator_postgresql import CreatorInputRepository
-from armi_interaction._external import ExternalMessageInputService
-from armi_interaction._external_postgresql import ExternalMessageInputRepository
-from armi_interaction._other_human_postgresql import OtherHumanInputRepository
-from armi_interaction._perception_postgresql import PostgreSQLInteractionPerception
-from armi_interaction._timeline_postgresql import PostgreSQLSceneTimelineQuery
 from armi_interaction.api import (
     ConfigureExternalCreatorCommand,
     CreatorInputAcceptance,
@@ -131,12 +77,6 @@ from armi_interaction.api import (
     SceneKey,
     SceneTimelinePage,
     SceneTimelineQuery,
-)
-from armi_interaction.bootstrap import (
-    bootstrap_interaction_action_ports,
-    bootstrap_interaction_birth,
-    bootstrap_interaction_identity,
-    bootstrap_interaction_subject_commit,
 )
 from armi_kernel.application import (
     ArtifactId,
@@ -183,31 +123,11 @@ from armi_kernel.contracts import (
     SubjectId,
     TraceId,
 )
-from armi_material.bootstrap import (
-    bootstrap_material,
-    bootstrap_material_cognition,
-)
-from armi_memory.bootstrap import bootstrap_memory, bootstrap_memory_cognition
-from armi_mood.bootstrap import (
-    bootstrap_mood,
-    bootstrap_mood_cognition,
-)
 from armi_opportunity.api import OpportunityAdmissionOutcome, OpportunityAdmissionStatus
-from armi_opportunity.bootstrap import (
-    bootstrap_opportunity,
-    bootstrap_opportunity_admission,
-    bootstrap_opportunity_transition,
-)
-from armi_perception._application import ExternalContentPipeline
 from armi_perception.api import (
     ExternalContentRecognitionResult,
     ExternalContentRecognitionStatus,
     ExternalMediaContent,
-)
-from armi_prompt.bootstrap import bootstrap_prompt, bootstrap_prompt_cognition
-from armi_relationship.bootstrap import (
-    bootstrap_relationship,
-    bootstrap_relationship_cognition,
 )
 from armi_runtime.adapters.model.volcengine_ark import VolcengineArkModelAdapter
 from armi_runtime.adapters.persistence.audit_events import AuditEventRepository
@@ -243,6 +163,9 @@ from armi_runtime.adapters.persistence.unit_of_work import (
 )
 from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 from armi_runtime.application.action_lifecycle import RuntimeEffectRegistrationContext
+from armi_runtime.application.creator_timeline import CreatorTimelineProjectionAssembler
+from armi_runtime.application.life_opportunity import RuntimeLifeOpportunityFacts
+from armi_runtime.application.maintenance import RuntimeSleepFacts
 from armi_runtime.cli import main
 from armi_runtime.composition.artifacts import (
     ContentAddressedArtifactCoordinator,
@@ -251,26 +174,82 @@ from armi_runtime.composition.audit import AuditQueryGateway
 from armi_runtime.composition.birth import BirthTransaction
 from armi_runtime.composition.birth_manifest import packaged_birth_digests
 from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
-from armi_runtime.composition.database import compose_recovery_participants
+from armi_runtime.composition.owner_roster import compose_runtime_owner_roster
+from armi_runtime.composition.postgresql_test import (
+    ArtifactCatalogRepository,
+    CandidateValidationContext,
+    CodexTaskSourceGateway,
+    CreatorInputRepository,
+    DeterministicCandidateValidator,
+    ExternalContentPipeline,
+    ExternalMessageInputRepository,
+    ExternalMessageInputService,
+    OtherHumanInputRepository,
+    PostgreSQLEffectDispatchRepository,
+    PostgreSQLEffectLedgerRepository,
+    PostgreSQLInteractionPerception,
+    PostgreSQLLocalInbox,
+    PostgreSQLResponseAdmissionRepository,
+    PostgreSQLSceneTimelineQuery,
+    bootstrap_activity,
+    bootstrap_activity_cognition,
+    bootstrap_capability,
+    bootstrap_codex_commit,
+    bootstrap_codex_read_ports,
+    bootstrap_codex_timeline_projection,
+    bootstrap_cognition_change_set_codec,
+    bootstrap_cognition_life_records,
+    bootstrap_cognition_operation,
+    bootstrap_cognition_subject_commit,
+    bootstrap_data_rights_core,
+    bootstrap_effect_codex_lifecycle,
+    bootstrap_effect_grant_cancellation,
+    bootstrap_effect_operation_read,
+    bootstrap_evidence,
+    bootstrap_expression,
+    bootstrap_expression_action_ports,
+    bootstrap_expression_effect_registration,
+    bootstrap_interaction_action_ports,
+    bootstrap_interaction_birth,
+    bootstrap_interaction_identity,
+    bootstrap_interaction_subject_commit,
+    bootstrap_material,
+    bootstrap_material_cognition,
+    bootstrap_memory,
+    bootstrap_memory_cognition,
+    bootstrap_mood,
+    bootstrap_mood_cognition,
+    bootstrap_opportunity,
+    bootstrap_opportunity_admission,
+    bootstrap_opportunity_cognition,
+    bootstrap_opportunity_sleep,
+    bootstrap_opportunity_transition,
+    bootstrap_prompt,
+    bootstrap_prompt_cognition,
+    bootstrap_relationship,
+    bootstrap_relationship_cognition,
+    bootstrap_sleep,
+    bootstrap_sleep_cognition,
+    bootstrap_subject_state,
+    bootstrap_subject_state_cognition,
+    bootstrap_web_observation,
+    bootstrap_web_research_commit,
+    build_request_bytes,
+    candidate_schema,
+    checked_model_request,
+    load_active_binding,
+    normalize_full_response,
+    parse_candidate,
+)
 from armi_runtime.composition.runtime_process import RuntimeProcessManager
 from armi_runtime.composition.work_wakeup import WorkWakeupBus
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
 from armi_sleep.api import CreatorMaintenanceViolation
-from armi_sleep.bootstrap import bootstrap_sleep, bootstrap_sleep_cognition
-from armi_subject_state.bootstrap import (
-    bootstrap_subject_state,
-    bootstrap_subject_state_cognition,
-)
-from armi_web_observation._custody import normalize_full_response
 from armi_web_observation.api import (
     WebObservationDraft,
     WebObservationInvocationResult,
     WebObservationRequestId,
     WebObservationResultStatus,
-)
-from armi_web_observation.bootstrap import (
-    bootstrap_web_observation,
-    bootstrap_web_research_commit,
 )
 from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
@@ -288,6 +267,29 @@ class _NoopCodexActivation:
         valid_until: datetime,
     ) -> None:
         del unit_of_work, subject_commit_id, grant_id, valid_until
+
+
+def _life_opportunity_facts(
+    factory: PostgreSQLUnitOfWorkFactory,
+    *,
+    environment_id: UUID,
+    activity_read: Any,
+) -> RuntimeLifeOpportunityFacts:
+    capability = bootstrap_capability(
+        factory,
+        environment_id=environment_id,
+        cursor_key=hashlib.sha256(b"opportunity-test-cursor-key").digest(),
+        effect_cancellation=bootstrap_effect_grant_cancellation(),
+        codex_activation=_NoopCodexActivation(),
+    )
+    return RuntimeLifeOpportunityFacts(
+        activities=activity_read,
+        capabilities=capability.operations,
+        cognition=bootstrap_cognition_operation(),
+        effects=bootstrap_effect_operation_read(),
+        expression=bootstrap_expression_action_ports().intents,
+        interaction=bootstrap_interaction_identity(),
+    )
 
 
 class _AllowDispatchAuthorization:
@@ -702,7 +704,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             await factory.open()
             try:
-                await BirthTransaction(
+                born = await BirthTransaction(
                     storage,
                     ArtifactCatalogRepository(),
                     _birth_repository(),
@@ -732,10 +734,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     bootstrap_opportunity_admission(),
                 ),
                 other_inputs=OtherHumanInputRepository(
-                    bootstrap_evidence().write, bootstrap_opportunity_admission()
+                    bootstrap_evidence().write,
+                    bootstrap_evidence().read,
+                    bootstrap_opportunity_admission(),
                 ),
                 unit_of_work_factory=input_factory,
                 data_rights=bootstrap_data_rights_core().gate,
+                subject_id=born.subject_id,
             )
             await input_factory.open()
             await service.open()
@@ -2058,7 +2063,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             await birth_factory.open()
             try:
-                await BirthTransaction(
+                born = await BirthTransaction(
                     ContentAddressedArtifactStore(root, max_object_bytes=1024 * 1024),
                     ArtifactCatalogRepository(),
                     _birth_repository(),
@@ -2092,12 +2097,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             relationship_module = bootstrap_relationship(
                 factories[0],
+                subject_id=born.subject_id,
                 creator_party_id=manifest.creator_party_id,
                 visibility=bootstrap_data_rights_core().visibility,
             )
             await relationship_module.open()
             activity_module = bootstrap_activity(
                 factories[0],
+                subject_id=record.fence.subject_id,
                 creator_party_id=manifest.creator_party_id,
                 focus=bootstrap_subject_state().read,
             )
@@ -2112,12 +2119,23 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             await material_module.open()
             sleep_module = bootstrap_sleep(
                 factories[0],
+                subject_id=record.fence.subject_id,
                 creator_party_id=manifest.creator_party_id,
+                runtime_facts=RuntimeSleepFacts(
+                    cognition=bootstrap_cognition_operation(),
+                    effects=bootstrap_effect_operation_read(),
+                ),
+                opportunities=bootstrap_opportunity_sleep(),
             )
             await sleep_module.open()
             pipelines = tuple(
                 bootstrap_opportunity(
                     factory=factory,
+                    facts=_life_opportunity_facts(
+                        factory,
+                        environment_id=fixture.environment_id,
+                        activity_read=activity_module.read,
+                    ),
                     activity_read=activity_module.read,
                     material_read=material_module.read,
                     relationship_read=relationship_module.read,
@@ -2250,6 +2268,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
             relationship_module = bootstrap_relationship(
                 factory,
+                subject_id=born.subject_id,
                 creator_party_id=creator_party_id,
                 visibility=bootstrap_data_rights_core().visibility,
             )
@@ -2263,6 +2282,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             activity_module = bootstrap_activity(
                 factory,
+                subject_id=born.subject_id,
                 creator_party_id=creator_party_id,
                 focus=bootstrap_subject_state().read,
             )
@@ -2282,6 +2302,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 factory,
                 environment_id=fixture.environment_id,
                 creator_party_id=creator_party_id,
+                subject_id=born.subject_id,
                 cursor_key=hashlib.sha256(b"p0-s022-life-record-cursor-key").digest(),
                 activities=activity_module.read,
                 materials=material_module.read,
@@ -2289,6 +2310,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 relationships=relationship_module.read,
                 subject_state=bootstrap_subject_state().read,
                 visibility=bootstrap_data_rights_core().visibility,
+                cognition=bootstrap_cognition_life_records(),
             )
             await life_records.open()
             try:
@@ -2301,7 +2323,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
                 self.assertTrue(
                     any(
-                        item.record_kind is LifeRecordKind.SELF_CHANGE
+                        item.record_kind == LifeRecordKind("self_change")
                         for item in page.items
                     )
                 )
@@ -2401,12 +2423,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             relationship_module = bootstrap_relationship(
                 maintenance_factory,
+                subject_id=scope[0],
                 creator_party_id=creator_party_id,
                 visibility=bootstrap_data_rights_core().visibility,
             )
             await relationship_module.open()
             activity_module = bootstrap_activity(
                 maintenance_factory,
+                subject_id=record.fence.subject_id,
                 creator_party_id=creator_party_id,
                 focus=bootstrap_subject_state().read,
             )
@@ -2421,11 +2445,22 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             await material_module.open()
             sleep_module = bootstrap_sleep(
                 maintenance_factory,
+                subject_id=record.fence.subject_id,
                 creator_party_id=creator_party_id,
+                runtime_facts=RuntimeSleepFacts(
+                    cognition=bootstrap_cognition_operation(),
+                    effects=bootstrap_effect_operation_read(),
+                ),
+                opportunities=bootstrap_opportunity_sleep(),
             )
             await sleep_module.open()
             pipeline = bootstrap_opportunity(
                 factory=maintenance_factory,
+                facts=_life_opportunity_facts(
+                    maintenance_factory,
+                    environment_id=fixture.environment_id,
+                    activity_read=activity_module.read,
+                ),
                 activity_read=activity_module.read,
                 material_read=material_module.read,
                 relationship_read=relationship_module.read,
@@ -2563,6 +2598,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     storage=storage,
                     codex_tasks=bootstrap_codex_timeline_projection(),
                     visibility=bootstrap_data_rights_core().visibility,
+                    projections=CreatorTimelineProjectionAssembler(
+                        evidence=bootstrap_evidence().read,
+                        opportunity_admission=bootstrap_opportunity_admission(),
+                        opportunity_read=bootstrap_opportunity_cognition(),
+                        cognition=bootstrap_cognition_operation(),
+                        catalog=ArtifactCatalogRepository(),
+                        codex=bootstrap_codex_read_ports().task_sources,
+                    ),
                 )
                 await timeline_query.open()
                 try:
@@ -4676,6 +4719,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             probe_continuity(
                 fixture.runtime_dsn,
                 birth_contract_digest=packaged["birth_contract_digest"],
+                interaction=bootstrap_interaction_birth(),
             ),
             ContinuityState.BORN,
         )
@@ -4743,6 +4787,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ),
                 codex_tasks=bootstrap_codex_timeline_projection(),
                 visibility=bootstrap_data_rights_core().visibility,
+                projections=CreatorTimelineProjectionAssembler(
+                    evidence=bootstrap_evidence().read,
+                    opportunity_admission=bootstrap_opportunity_admission(),
+                    opportunity_read=bootstrap_opportunity_cognition(),
+                    cognition=bootstrap_cognition_operation(),
+                    catalog=ArtifactCatalogRepository(),
+                    codex=bootstrap_codex_read_ports().task_sources,
+                ),
             )
             await factory.open()
             await gateway.open()
@@ -5168,7 +5220,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     binding=binding,
                     credential_port=live_credential.port,
                     locator=live_credential.locator,
-                    candidate_schema=candidate_schema(),
+                    candidate_schema=CognitionSchemaDocument(
+                        canonical_bytes=rfc8785.dumps(candidate_schema())
+                    ),
                     candidate_parser=parse_candidate,
                 )
                 input_tokens = await adapter.tokenize(request_bytes)
@@ -5823,6 +5877,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             relationship_module = bootstrap_relationship(
                 factory,
+                subject_id=born.subject_id,
                 creator_party_id=creator_party_id,
                 visibility=bootstrap_data_rights_core().visibility,
             )
@@ -5836,10 +5891,17 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             sleep_module = bootstrap_sleep(
                 factory,
+                subject_id=born.subject_id,
                 creator_party_id=creator_party_id,
+                runtime_facts=RuntimeSleepFacts(
+                    cognition=bootstrap_cognition_operation(),
+                    effects=bootstrap_effect_operation_read(),
+                ),
+                opportunities=bootstrap_opportunity_sleep(),
             )
             activity_module = bootstrap_activity(
                 factory,
+                subject_id=born.subject_id,
                 creator_party_id=creator_party_id,
                 focus=bootstrap_subject_state().read,
             )
@@ -6195,15 +6257,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     limit=10,
                     cursor=None,
                 )
-                items = cast(list[dict[str, object]], page["items"])
+                items = page.items
                 self.assertEqual(len(items), 4)
                 codex_item = next(
                     item
                     for item in items
-                    if item["capability_request_id"] == str(codex_request_id)
+                    if item.capability_request_id == codex_request_id
                 )
-                self.assertEqual(codex_item["capability_availability"], "available")
-                self.assertEqual(codex_item["workspace_scope"], "isolated_ephemeral")
+                self.assertEqual(codex_item.capability_availability, "available")
+                self.assertEqual(codex_item.workspace_scope, "isolated_ephemeral")
                 codex_granted = await policy.decide(
                     CreatorGrantCommand(
                         CapabilityDecisionId(_uuid7()),
@@ -6406,11 +6468,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     limit=10,
                     cursor=None,
                 )
-                final_items = cast(list[dict[str, object]], final_page["items"])
+                final_items = final_page.items
                 expired_status = next(
-                    str(item["status"])
+                    item.status
                     for item in final_items
-                    if item["capability_request_id"] == str(expiry_request_id)
+                    if item.capability_request_id == expiry_request_id
                 )
                 return (
                     limited.status.value,
@@ -7000,7 +7062,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     statement_timeout_seconds=5,
                     authority_admission=lambda: record.fence,
                 )
-                participants, expected_owners = compose_recovery_participants(
+                owner_roster = compose_runtime_owner_roster(
+                    data_rights=bootstrap_data_rights_core().participant,
                     mood_read=bootstrap_mood().read,
                     prompt_read=bootstrap_prompt().read,
                     subject_state_read=bootstrap_subject_state().read,
@@ -7011,8 +7074,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     data_root=root.parent,
                     max_object_bytes=1024 * 1024,
                     authority_admission=lambda: record.fence,
-                    participants=participants,
-                    expected_owners=expected_owners,
+                    participants=owner_roster.recovery,
+                    expected_owners=owner_roster.expected_recovery_owners,
                     catalog=ArtifactCatalogRepository(),
                 )
                 await recovery_factory.open()

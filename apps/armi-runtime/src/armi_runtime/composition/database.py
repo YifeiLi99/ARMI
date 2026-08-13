@@ -15,9 +15,8 @@ from armi_activity.api import (
 from armi_activity.bootstrap import (
     ActivityModule,
     bootstrap_activity,
-    bootstrap_activity_recovery,
 )
-from armi_artifact_store.bootstrap import bootstrap_artifact_catalog
+from armi_artifact_store.api import ArtifactCatalogPort
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_capability.api import (
     CapabilityActionAuthorizationPort,
@@ -30,7 +29,6 @@ from armi_capability.api import (
 from armi_capability.bootstrap import (
     CapabilityModule,
     bootstrap_capability,
-    bootstrap_capability_recovery,
 )
 from armi_codex.api import (
     CodexCommitPort,
@@ -44,16 +42,18 @@ from armi_codex.bootstrap import (
     CodexReadPorts,
     bootstrap_codex,
     bootstrap_codex_read_ports,
-    bootstrap_codex_recovery,
     bootstrap_codex_timeline_projection,
 )
 from armi_cognition.api import (
     CognitionCandidateParser,
     CognitionContextLifecyclePort,
     CognitionExactLifeQueryPort,
+    CognitionLifeRecordPort,
     CognitionModelPort,
     CognitionOperationReadPort,
     CognitionRuntimeStatePort,
+    CognitionSchemaDocument,
+    CognitionSubjectCommitPort,
     CognitionWorkerPort,
 )
 from armi_cognition.bootstrap import (
@@ -61,8 +61,6 @@ from armi_cognition.bootstrap import (
     bootstrap_cognition_change_set_codec,
     bootstrap_cognition_exact_life_query,
     bootstrap_cognition_model,
-    bootstrap_cognition_operation,
-    bootstrap_cognition_recovery,
 )
 from armi_context.api import (
     EMBEDDING_DIMENSIONS,
@@ -78,12 +76,12 @@ from armi_context.bootstrap import (
     bootstrap_context_candidate_read,
     bootstrap_context_embedding,
     bootstrap_context_projection_invalidation,
-    bootstrap_context_recovery,
 )
 from armi_data_rights.api import (
     DataRightsCognitionGate,
     DataRightsEffectGate,
     DataRightsInteractionGate,
+    DataRightsParticipant,
     DataRightsSubjectCommitGate,
     DataRightsVisibilityPort,
 )
@@ -92,13 +90,13 @@ from armi_data_rights.bootstrap import (
     DataRightsModule,
     bootstrap_data_rights,
     bootstrap_data_rights_core,
-    bootstrap_data_rights_recovery,
 )
 from armi_effect.api import (
     ActionAdapterPort,
     EffectCodexArtifactPort,
     EffectGrantCancellationPort,
     EffectOperationReadPort,
+    EffectReadPort,
     EffectRegistrationContextPort,
     EffectRuntimePort,
     ResponseAdmissionRuntimePort,
@@ -106,8 +104,6 @@ from armi_effect.api import (
 from armi_effect.bootstrap import (
     bootstrap_effect_codex_lifecycle,
     bootstrap_effect_grant_cancellation,
-    bootstrap_effect_operation_read,
-    bootstrap_effect_recovery,
     bootstrap_effect_runtime,
     bootstrap_expression_effect_registration,
     bootstrap_response_admission,
@@ -116,7 +112,6 @@ from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
 from armi_evidence.bootstrap import (
     EvidenceModule,
     bootstrap_evidence,
-    bootstrap_evidence_recovery,
 )
 from armi_expression.api import (
     ExpressionCommitPort,
@@ -127,7 +122,6 @@ from armi_expression.api import (
 from armi_expression.bootstrap import (
     ExpressionModule,
     bootstrap_expression,
-    bootstrap_expression_recovery,
 )
 from armi_interaction.api import (
     CreatorIdentityContext,
@@ -135,18 +129,20 @@ from armi_interaction.api import (
     CreatorOperationQueryPort,
     InteractionCognitionReadPort,
     InteractionContextReadPort,
+    InteractionCreatorTimelineProjectionPort,
     InteractionEffectDeliveryPort,
     InteractionEffectRoutePort,
     InteractionIdentityPort,
+    InteractionOtherHumanReadPort,
     InteractionPerceptionPort,
     InteractionSceneTransitionPort,
+    InteractionSubjectCommitPort,
 )
 from armi_interaction.bootstrap import (
     InteractionModule,
     bootstrap_interaction,
-    bootstrap_interaction_cognition,
+    bootstrap_interaction_birth,
     bootstrap_interaction_identity,
-    bootstrap_interaction_recovery,
 )
 from armi_kernel import load_yaml_file
 from armi_kernel.application import (
@@ -168,7 +164,6 @@ from armi_material.api import (
 from armi_material.bootstrap import (
     MaterialModule,
     bootstrap_material,
-    bootstrap_material_recovery,
 )
 from armi_memory.api import (
     MemoryCandidateContextPort,
@@ -180,30 +175,27 @@ from armi_memory.api import (
 from armi_memory.bootstrap import (
     MemoryModule,
     bootstrap_memory,
-    bootstrap_memory_recovery,
 )
 from armi_mood.api import MoodCognitionPort, MoodCommitPort, MoodReadPort
-from armi_mood.bootstrap import MoodModule, bootstrap_mood, bootstrap_mood_recovery
+from armi_mood.bootstrap import MoodModule, bootstrap_mood
 from armi_opportunity.api import (
+    LifeOpportunityFactsPort,
     OpportunityAdmissionPort,
     OpportunityCognitionPort,
     OpportunityCognitionSelectionPort,
     OpportunityContextReadPort,
     OpportunityOperationReadPort,
     OpportunityRuntimePort,
+    OpportunityTransitionPort,
 )
 from armi_opportunity.bootstrap import (
     bootstrap_opportunity,
     bootstrap_opportunity_admission,
-    bootstrap_opportunity_operation,
-    bootstrap_opportunity_recovery,
-    bootstrap_opportunity_transition,
 )
 from armi_perception.api import ExternalMediaFetchPort
 from armi_perception.bootstrap import (
     PerceptionModule,
     bootstrap_perception,
-    bootstrap_perception_recovery,
 )
 from armi_prompt.api import (
     PromptCognitionPort,
@@ -213,7 +205,6 @@ from armi_prompt.api import (
 from armi_prompt.bootstrap import (
     PromptModule,
     bootstrap_prompt,
-    bootstrap_prompt_recovery,
 )
 from armi_relationship.api import (
     RelationshipCognitionPort,
@@ -224,19 +215,16 @@ from armi_relationship.api import (
 from armi_relationship.bootstrap import (
     RelationshipModule,
     bootstrap_relationship,
-    bootstrap_relationship_recovery,
-)
-from armi_runtime_foundation import (
-    RecoveryOwnerIdentity,
-    RecoveryParticipant,
 )
 from armi_sleep.api import (
     SleepCognitionPort,
     SleepCommitPort,
     SleepMaintenancePort,
+    SleepOpportunityPort,
     SleepReadPort,
+    SleepRuntimeFactsPort,
 )
-from armi_sleep.bootstrap import SleepModule, bootstrap_sleep, bootstrap_sleep_recovery
+from armi_sleep.bootstrap import SleepModule, bootstrap_sleep
 from armi_subject_state.api import (
     SubjectStateCognitionPort,
     SubjectStateCommitPort,
@@ -245,7 +233,6 @@ from armi_subject_state.api import (
 from armi_subject_state.bootstrap import (
     SubjectStateModule,
     bootstrap_subject_state,
-    bootstrap_subject_state_recovery,
     probe_subject_state_counts,
 )
 from armi_web_observation.api import (
@@ -256,7 +243,6 @@ from armi_web_observation.api import (
 )
 from armi_web_observation.bootstrap import (
     bootstrap_web_observation,
-    bootstrap_web_observation_recovery,
     bootstrap_web_research,
     bootstrap_web_research_commit,
 )
@@ -320,6 +306,7 @@ from .exact_life_query_pipeline import (
     ExactLifeQueryPipeline,
     build_exact_life_query_pipeline,
 )
+from .owner_roster import RuntimeOwnerRoster
 from .subject_commit_pipeline import (
     SubjectCommitPipeline,
     build_subject_commit_pipeline,
@@ -521,6 +508,7 @@ def inspect_runtime_continuity(prepared: PreparedEnvironment) -> ContinuityState
                 state = probe_continuity(
                     conninfo,
                     birth_contract_digest=digests["birth_contract_digest"],
+                    interaction=bootstrap_interaction_birth(),
                 )
                 if state is ContinuityState.BORN:
                     heads, revisions = probe_subject_state_counts(conninfo)
@@ -535,10 +523,17 @@ def inspect_runtime_continuity(prepared: PreparedEnvironment) -> ContinuityState
 
 def compose_runtime_observation(
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
+    *,
+    effects: EffectReadPort,
+    artifacts: ArtifactCatalogPort,
 ) -> PostgreSQLRuntimeObservation:
     """Resolve the Runtime credential for the private read-only sampler."""
 
-    return PostgreSQLRuntimeObservation(unit_of_work_factory)
+    return PostgreSQLRuntimeObservation(
+        unit_of_work_factory,
+        effects=effects,
+        artifacts=artifacts,
+    )
 
 
 async def inspect_creator_context(
@@ -592,10 +587,10 @@ def compose_creator_operation_query(
     capability: CapabilityOperationReadPort,
     codex: CodexTaskSourceReadPort,
     codex_executions: CodexExecutionReadPort,
+    opportunity: OpportunityOperationReadPort,
+    cognition: CognitionOperationReadPort,
+    effect: EffectOperationReadPort,
 ) -> CreatorOperationQueryPort:
-    opportunity: OpportunityOperationReadPort = bootstrap_opportunity_operation()
-    cognition: CognitionOperationReadPort = bootstrap_cognition_operation()
-    effect: EffectOperationReadPort = bootstrap_effect_operation_read()
     return RuntimeCreatorOperationAssembler(
         factory=unit_of_work_factory,
         creator_party_id=creator_party_id,
@@ -615,6 +610,7 @@ def compose_interaction_module(
     prepared: PreparedEnvironment,
     *,
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
+    subject_id: UUID,
     creator_party_id: UUID,
     cursor_key: bytes,
     notifier: CreatorProjectionNotifier | None,
@@ -625,6 +621,8 @@ def compose_interaction_module(
     data_rights: DataRightsInteractionGate,
     visibility: DataRightsVisibilityPort,
     identity: InteractionIdentityPort,
+    catalog: ArtifactCatalogPort,
+    timeline_projections: InteractionCreatorTimelineProjectionPort,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
     fault_injector: Callable[[str], None] | None = None,
@@ -635,6 +633,7 @@ def compose_interaction_module(
     return bootstrap_interaction(
         unit_of_work_factory,
         environment_id=config.environment.environment_id,
+        subject_id=subject_id,
         creator_party_id=creator_party_id,
         cursor_key=cursor_key,
         storage=ContentAddressedArtifactStore(
@@ -642,9 +641,10 @@ def compose_interaction_module(
             max_object_bytes=config.artifacts.max_object_bytes,
         ),
         codex_task_projection=bootstrap_codex_timeline_projection(),
-        catalog=bootstrap_artifact_catalog(),
+        catalog=catalog,
         data_rights=data_rights,
         visibility=visibility,
+        timeline_projections=timeline_projections,
         identity=identity,
         subject_state=subject_state_read,
         evidence=evidence,
@@ -660,6 +660,7 @@ def compose_interaction_module(
 def compose_activity_module(
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     *,
+    subject_id: UUID,
     creator_party_id: UUID,
     subject_state: SubjectStateReadPort,
 ) -> ActivityModule:
@@ -667,6 +668,7 @@ def compose_activity_module(
 
     return bootstrap_activity(
         unit_of_work_factory,
+        subject_id=subject_id,
         creator_party_id=creator_party_id,
         focus=subject_state,
     )
@@ -689,6 +691,7 @@ def compose_life_record_query(
     *,
     environment_id: UUID,
     creator_party_id: UUID,
+    subject_id: UUID,
     cursor_key: bytes,
     activity_read: ActivityReadPort,
     memory_read: MemoryReadPort,
@@ -696,6 +699,7 @@ def compose_life_record_query(
     relationship_read: RelationshipReadPort,
     subject_state_read: SubjectStateReadPort,
     visibility: DataRightsVisibilityPort,
+    cognition: CognitionLifeRecordPort,
 ) -> PostgreSQLLifeRecordQuery:
     """Resolve the shared read-only exact-life and memory projection."""
 
@@ -703,6 +707,7 @@ def compose_life_record_query(
         unit_of_work_factory,
         environment_id=environment_id,
         creator_party_id=creator_party_id,
+        subject_id=subject_id,
         cursor_key=cursor_key,
         activities=activity_read,
         materials=material_read,
@@ -710,6 +715,7 @@ def compose_life_record_query(
         relationships=relationship_read,
         subject_state=subject_state_read,
         visibility=visibility,
+        cognition=cognition,
     )
 
 
@@ -719,12 +725,13 @@ def compose_material_module(
     subject_id: UUID,
     data_root: Path,
     max_object_bytes: int,
+    catalog: ArtifactCatalogPort,
 ) -> MaterialModule:
     """Resolve and bind the one active life-material owner implementation."""
 
     return bootstrap_material(
         unit_of_work_factory,
-        catalog=bootstrap_artifact_catalog(),
+        catalog=catalog,
         subject_id=subject_id,
         data_root=data_root,
         max_object_bytes=max_object_bytes,
@@ -739,6 +746,10 @@ def compose_other_human_record_query(
     data_root: Path,
     max_object_bytes: int,
     visibility: DataRightsVisibilityPort,
+    interaction: InteractionOtherHumanReadPort,
+    evidence: EvidenceReadPort,
+    effect: EffectOperationReadPort,
+    catalog: ArtifactCatalogPort,
 ) -> PostgreSQLOtherHumanRecordQuery:
     """Resolve the read-only Creator record projection for other humans."""
 
@@ -749,6 +760,10 @@ def compose_other_human_record_query(
         data_root=data_root,
         max_object_bytes=max_object_bytes,
         visibility=visibility,
+        interaction=interaction,
+        evidence=evidence,
+        effect=effect,
+        catalog=catalog,
     )
 
 
@@ -759,6 +774,7 @@ def compose_exact_life_query_pipeline(
     query: LifeRecordQueryPort,
     cognition: CognitionExactLifeQueryPort,
     opportunity: OpportunityAdmissionPort,
+    catalog: ArtifactCatalogPort,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
 ) -> ExactLifeQueryPipeline:
@@ -767,6 +783,7 @@ def compose_exact_life_query_pipeline(
         unit_of_work_factory,
         data_root=prepared.data_root,
         max_object_bytes=config.artifacts.max_object_bytes,
+        catalog=catalog,
         query=query,
         cognition=cognition,
         opportunity=opportunity,
@@ -782,6 +799,7 @@ def compose_cognition_exact_life_query() -> CognitionExactLifeQueryPort:
 def compose_relationship_module(
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     *,
+    subject_id: UUID,
     creator_party_id: UUID,
     visibility: DataRightsVisibilityPort,
 ) -> RelationshipModule:
@@ -789,6 +807,7 @@ def compose_relationship_module(
 
     return bootstrap_relationship(
         unit_of_work_factory,
+        subject_id=subject_id,
         creator_party_id=creator_party_id,
         visibility=visibility,
     )
@@ -870,13 +889,19 @@ def compose_memory_module(
 def compose_sleep_module(
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     *,
+    subject_id: UUID,
     creator_party_id: UUID,
+    runtime_facts: SleepRuntimeFactsPort,
+    opportunities: SleepOpportunityPort,
 ) -> SleepModule:
     """Resolve and bind the one active sleep owner implementation."""
 
     return bootstrap_sleep(
         unit_of_work_factory,
+        subject_id=subject_id,
         creator_party_id=creator_party_id,
+        runtime_facts=runtime_facts,
+        opportunities=opportunities,
     )
 
 
@@ -935,6 +960,7 @@ def compose_perception_module(
     evidence_read: EvidenceReadPort,
     interaction: InteractionPerceptionPort,
     opportunity: OpportunityAdmissionPort,
+    catalog: ArtifactCatalogPort,
     wakeups: WorkWakeupBus,
     diagnostic: Callable[[str], None] | None = None,
 ) -> PerceptionModule:
@@ -953,7 +979,7 @@ def compose_perception_module(
                 prepared.data_root / "artifacts",
                 max_object_bytes=config.artifacts.max_object_bytes,
             ),
-            catalog=bootstrap_artifact_catalog(),
+            catalog=catalog,
             work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
             evidence=evidence,
             evidence_read=evidence_read,
@@ -984,13 +1010,15 @@ def compose_prompt_module(
     prepared: PreparedEnvironment,
     *,
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
+    subject_id: UUID,
     creator_party_id: UUID,
+    catalog: ArtifactCatalogPort,
 ) -> PromptModule:
     """Resolve the Runtime credential for the T-04 Creator Prompt owner."""
 
     config = prepared.effective.config
-    catalog = bootstrap_artifact_catalog()
     return bootstrap_prompt(
+        subject_id=subject_id,
         creator_party_id=creator_party_id,
         storage=ContentAddressedArtifactStore(
             prepared.data_root / "artifacts",
@@ -1005,23 +1033,20 @@ def compose_interaction_identity() -> InteractionIdentityPort:
     return bootstrap_interaction_identity()
 
 
-def compose_interaction_cognition_ports():
-    return bootstrap_interaction_cognition()
-
-
 def compose_data_rights_module(
     prepared: PreparedEnvironment,
     *,
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     creator_party_id: UUID,
     core: DataRightsCore,
+    business_participants: tuple[DataRightsParticipant, ...],
+    catalog: ArtifactCatalogPort,
     parties: InteractionIdentityPort,
     notifier: CreatorProjectionNotifier | None = None,
 ) -> DataRightsModule:
     config = prepared.effective.config
-    catalog = bootstrap_artifact_catalog()
     participants = compose_data_rights_participants(
-        data_rights=core.participant,
+        business=business_participants,
         catalog=catalog,
     )
     return bootstrap_data_rights(
@@ -1056,6 +1081,7 @@ def compose_life_opportunity_pipeline(
     prepared: PreparedEnvironment,
     *,
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
+    facts: LifeOpportunityFactsPort,
     activity_read: ActivityReadPort,
     relationship_read: RelationshipReadPort,
     relationship_policy: RelationshipPolicyPort,
@@ -1071,6 +1097,7 @@ def compose_life_opportunity_pipeline(
     config = prepared.effective.config
     return bootstrap_opportunity(
         factory=unit_of_work_factory,
+        facts=facts,
         activity_read=activity_read,
         relationship_read=relationship_read,
         relationship_policy=relationship_policy,
@@ -1114,6 +1141,7 @@ def compose_context_pipeline(
     relationship_read: RelationshipReadPort,
     sleep_read: SleepReadPort,
     subject_state_read: SubjectStateReadPort,
+    catalog: ArtifactCatalogPort,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
 ) -> ContextRuntimePort:
@@ -1145,7 +1173,7 @@ def compose_context_pipeline(
             prepared.data_root / "artifacts",
             max_object_bytes=config.artifacts.max_object_bytes,
         ),
-        catalog=bootstrap_artifact_catalog(),
+        catalog=catalog,
         work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
         activity_read=activity_read,
         capability_read=capability_read,
@@ -1218,6 +1246,7 @@ def compose_model_pipeline(
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     context: ContextCognitionReadPort,
     opportunities: OpportunityCognitionSelectionPort,
+    catalog: ArtifactCatalogPort,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
 ) -> CognitionWorkerPort:
@@ -1231,7 +1260,7 @@ def compose_model_pipeline(
     def adapter_factory(
         *,
         binding: ModelBinding,
-        candidate_schema: dict[str, Any],
+        candidate_schema: CognitionSchemaDocument,
         candidate_parser: CognitionCandidateParser,
         instructions: str | None = None,
         schema_name: str | None = None,
@@ -1263,7 +1292,7 @@ def compose_model_pipeline(
             prepared.data_root / "artifacts",
             max_object_bytes=config.artifacts.max_object_bytes,
         ),
-        catalog=bootstrap_artifact_catalog(),
+        catalog=catalog,
         context=context,
         opportunities=opportunities,
         work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
@@ -1281,6 +1310,7 @@ def compose_web_search_pipeline(
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     evidence: EvidenceWritePort,
     opportunity: OpportunityAdmissionPort,
+    catalog: ArtifactCatalogPort,
     diagnostic: Callable[[str], None] | None = None,
 ) -> WebObservationRuntimePort:
     """Resolve the fixed database and Ark credentials for S033 custody."""
@@ -1299,7 +1329,7 @@ def compose_web_search_pipeline(
             prepared.data_root / "artifacts",
             max_object_bytes=config.artifacts.max_object_bytes,
         ),
-        catalog=bootstrap_artifact_catalog(),
+        catalog=catalog,
         work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
         credential_port=prepared.credential_port,
         credential_locator=model_locator,
@@ -1317,6 +1347,7 @@ def compose_web_research_admission_pipeline(
     custody: WebObservationRuntimePort,
     evidence: EvidenceWritePort,
     opportunity: OpportunityAdmissionPort,
+    catalog: ArtifactCatalogPort,
     diagnostic: Callable[[str], None] | None = None,
 ) -> WebResearchRuntimePort:
     """Resolve the active S034 intent-to-custody worker."""
@@ -1328,6 +1359,7 @@ def compose_web_research_admission_pipeline(
             prepared.data_root / "artifacts",
             max_object_bytes=config.artifacts.max_object_bytes,
         ),
+        catalog=catalog,
         work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
         custody=custody,
         evidence=evidence,
@@ -1365,6 +1397,7 @@ def compose_candidate_validation_pipeline(
     sleep_read: SleepReadPort,
     subject_state_cognition: SubjectStateCognitionPort,
     subject_state_read: SubjectStateReadPort,
+    catalog: ArtifactCatalogPort,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
 ) -> CognitionWorkerPort:
@@ -1377,7 +1410,7 @@ def compose_candidate_validation_pipeline(
             prepared.data_root / "artifacts",
             max_object_bytes=config.artifacts.max_object_bytes,
         ),
-        catalog=bootstrap_artifact_catalog(),
+        catalog=catalog,
         work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
         activity_cognition=activity_cognition,
         activity_read=activity_read,
@@ -1419,15 +1452,18 @@ def compose_subject_commit_pipeline(
     capability_commit: CapabilityCommitPort,
     capability_read: CapabilityReadPort,
     codex_commit: CodexCommitPort,
+    cognition_commit: CognitionSubjectCommitPort,
     context_projections: ContextProjectionInvalidationPort,
     data_rights: DataRightsSubjectCommitGate,
     evidence: EvidenceWritePort,
     evidence_read: EvidenceReadPort,
     expression_commit: ExpressionCommitPort,
+    interaction_commit: InteractionSubjectCommitPort,
     memory_commit: MemoryCommitPort,
     memory_cognition: MemoryCognitionPort,
     mood_commit: MoodCommitPort,
     mood_cognition: MoodCognitionPort,
+    opportunity_transition: OpportunityTransitionPort,
     prompt_cognition: PromptCognitionPort,
     prompt_commit: PromptCommitPort,
     material_cognition: MaterialCognitionPort,
@@ -1438,6 +1474,7 @@ def compose_subject_commit_pipeline(
     sleep_commit: SleepCommitPort,
     subject_state_cognition: SubjectStateCognitionPort,
     subject_state_commit: SubjectStateCommitPort,
+    catalog: ArtifactCatalogPort,
     notifier: CreatorProjectionNotifier | None,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
@@ -1450,6 +1487,7 @@ def compose_subject_commit_pipeline(
         unit_of_work_factory,
         data_root=prepared.data_root,
         max_object_bytes=config.artifacts.max_object_bytes,
+        catalog=catalog,
         change_set_codec=bootstrap_cognition_change_set_codec(
             activity=activity_cognition,
             material=material_cognition,
@@ -1465,16 +1503,18 @@ def compose_subject_commit_pipeline(
         capability_commit=capability_commit,
         capability_read=capability_read,
         codex_commit=codex_commit,
+        cognition_commit=cognition_commit,
         context_projections=context_projections,
         data_rights=data_rights,
         evidence=evidence,
         evidence_read=evidence_read,
         expression_commit=expression_commit,
+        interaction_commit=interaction_commit,
         memory_commit=memory_commit,
         memory_cognition=memory_cognition,
         mood_commit=mood_commit,
         mood_cognition=mood_cognition,
-        opportunity_transition=bootstrap_opportunity_transition(),
+        opportunity_transition=opportunity_transition,
         prompt_cognition=prompt_cognition,
         prompt_commit=prompt_commit,
         material_cognition=material_cognition,
@@ -1541,6 +1581,7 @@ def compose_response_admission_pipeline(
     expression: ExpressionResponseAdmissionPort,
     capability: CapabilityAdmissionPort,
     data_rights: DataRightsEffectGate,
+    catalog: ArtifactCatalogPort,
     wakeups: WorkWakeupBus,
     diagnostic: Callable[[str], None] | None = None,
 ) -> ResponseAdmissionRuntimePort:
@@ -1554,7 +1595,7 @@ def compose_response_admission_pipeline(
             max_object_bytes=config.artifacts.max_object_bytes,
         ),
         work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
-        artifacts=bootstrap_artifact_catalog(),
+        artifacts=catalog,
         capability=capability,
         data_rights=data_rights,
         expression=expression,
@@ -1563,90 +1604,26 @@ def compose_response_admission_pipeline(
     )
 
 
-def compose_recovery_participants(
-    *,
-    mood_read: MoodReadPort,
-    prompt_read: PromptReadPort,
-    subject_state_read: SubjectStateReadPort,
-) -> tuple[tuple[RecoveryParticipant, ...], tuple[RecoveryOwnerIdentity, ...]]:
-    """Construct the fixed owner roster without starting external adapters."""
-
-    expected_owners = tuple(
-        RecoveryOwnerIdentity(value)
-        for value in (
-            "subject-state",
-            "mood",
-            "prompt",
-            "activity",
-            "material",
-            "memory",
-            "relationship",
-            "sleep",
-            "context",
-            "interaction",
-            "perception",
-            "evidence",
-            "cognition",
-            "opportunity",
-            "expression",
-            "capability",
-            "effect",
-            "web-observation",
-            "codex",
-            "data-rights",
-        )
-    )
-    participants: tuple[RecoveryParticipant, ...] = (
-        bootstrap_subject_state_recovery(subject_state_read),
-        bootstrap_mood_recovery(mood_read),
-        bootstrap_prompt_recovery(prompt_read),
-        bootstrap_activity_recovery(),
-        bootstrap_material_recovery(),
-        bootstrap_memory_recovery(),
-        bootstrap_relationship_recovery(),
-        bootstrap_sleep_recovery(),
-        bootstrap_context_recovery(),
-        bootstrap_interaction_recovery(),
-        bootstrap_perception_recovery(),
-        bootstrap_evidence_recovery(),
-        bootstrap_cognition_recovery(),
-        bootstrap_opportunity_recovery(),
-        bootstrap_expression_recovery(),
-        bootstrap_capability_recovery(),
-        bootstrap_effect_recovery(),
-        bootstrap_web_observation_recovery(),
-        bootstrap_codex_recovery(),
-        bootstrap_data_rights_recovery(),
-    )
-    return participants, expected_owners
-
-
 def compose_runtime_recovery(
     prepared: PreparedEnvironment,
     *,
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     authority_admission: Callable[[], RuntimeFence],
-    mood_read: MoodReadPort,
-    prompt_read: PromptReadPort,
-    subject_state_read: SubjectStateReadPort,
+    owner_roster: RuntimeOwnerRoster,
+    catalog: ArtifactCatalogPort,
 ) -> PostgreSQLRuntimeRecovery:
     """Resolve the Runtime credential for the fenced startup recovery gateway."""
 
     config = prepared.effective.config
-    participants, expected_owners = compose_recovery_participants(
-        mood_read=mood_read,
-        prompt_read=prompt_read,
-        subject_state_read=subject_state_read,
-    )
     return PostgreSQLRuntimeRecovery(
         unit_of_work_factory,
         environment_id=config.environment.environment_id,
         data_root=prepared.data_root,
         max_object_bytes=config.artifacts.max_object_bytes,
         authority_admission=authority_admission,
-        participants=participants,
-        expected_owners=expected_owners,
-        catalog=bootstrap_artifact_catalog(),
+        participants=owner_roster.recovery,
+        expected_owners=owner_roster.expected_recovery_owners,
+        catalog=catalog,
     )
 
 
@@ -1701,8 +1678,8 @@ def compose_effect_owner_context(
     expression: ExpressionIntentReadPort,
     interaction: InteractionEffectRoutePort,
     codex: CodexReadPorts,
+    catalog: ArtifactCatalogPort,
 ) -> tuple[RuntimeEffectRegistrationContext, RuntimeCodexArtifactReference]:
-    catalog = bootstrap_artifact_catalog()
     return (
         RuntimeEffectRegistrationContext(
             artifacts=catalog,
@@ -1730,6 +1707,7 @@ def compose_codex_pipeline(
     dispatch_authorization: CapabilityDispatchAuthorizationPort,
     expression: ExpressionIntentReadPort,
     sources: CodexTaskSourceReadPort,
+    catalog: ArtifactCatalogPort,
     notifier: CreatorProjectionNotifier | None = None,
     diagnostic: Callable[[str], None] | None = None,
 ) -> CodexRuntimePort:
@@ -1746,7 +1724,7 @@ def compose_codex_pipeline(
             prepared.data_root / "artifacts",
             max_object_bytes=config.artifacts.max_object_bytes,
         ),
-        catalog=bootstrap_artifact_catalog(),
+        catalog=catalog,
         environment_root=prepared.root,
         run_root=run_root,
         creator_party_id=creator_party_id,
@@ -1786,7 +1764,6 @@ __all__ = (
     "compose_evidence_module",
     "compose_exact_life_query_pipeline",
     "compose_expression_module",
-    "compose_interaction_cognition_ports",
     "compose_interaction_identity",
     "compose_interaction_module",
     "compose_life_opportunity_pipeline",
@@ -1799,7 +1776,6 @@ __all__ = (
     "compose_other_human_record_query",
     "compose_perception_module",
     "compose_prompt_module",
-    "compose_recovery_participants",
     "compose_relationship_module",
     "compose_response_admission_pipeline",
     "compose_runtime_authority",

@@ -22,9 +22,9 @@ from armi_kernel.application import (
     AuditResultStatus,
     AuditSensitivity,
     AuditViolation,
-    CreatorEventResourceKind,
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
+    CreatorResourceKind,
     PublishedArtifact,
 )
 from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId
@@ -33,11 +33,7 @@ from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
     RuntimeTransactionFailure,
 )
-from armi_subject_state.api import (
-    SubjectStateReadPort,
-    SubjectStateViolation,
-    SubjectSummary,
-)
+from armi_subject_state.api import SubjectStateReadPort
 
 from ._creator_contract import (
     CreatorInputAcceptance,
@@ -196,20 +192,6 @@ class EvidenceAcceptanceTransaction(CreatorInputAcceptancePort):
     async def close(self) -> None:
         return None
 
-    async def get_subject_summary(self) -> SubjectSummary:
-        try:
-            async with self._uow_factory.unit_of_work(
-                read_only=True,
-            ) as unit_of_work:
-                return await self._subject_state.creator_summary(
-                    unit_of_work.transaction,
-                    creator_party_id=self._creator_party_id,
-                )
-        except CreatorInputViolation, SubjectStateViolation:
-            raise
-        except RuntimeTransactionFailure:
-            raise CreatorInputViolation("DB-SUBJECT-SUMMARY") from None
-
     async def _attempt(
         self,
         command: CreatorInputCommand,
@@ -360,7 +342,7 @@ class EvidenceAcceptanceTransaction(CreatorInputAcceptancePort):
         try:
             await self._notifier.notify(
                 CreatorProjectionInvalidation(
-                    resource_kind=CreatorEventResourceKind.SCENE_TIMELINE,
+                    resource_kind=CreatorResourceKind("scene_timeline"),
                     resource_ref=SceneKey(scene_key).value,
                     occurred_at=Instant(datetime.now(UTC)),
                     projection_version="scene-timeline.v5",

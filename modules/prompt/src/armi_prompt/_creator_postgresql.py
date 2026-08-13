@@ -44,6 +44,7 @@ class CreatorPromptRepository:
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
+        subject_id: UUID,
         creator_party_id: UUID,
         prompt_kind: PromptKind,
         for_update: bool = False,
@@ -64,22 +65,14 @@ class CreatorPromptRepository:
                        revision.content_digest,
                        revision.activated_at
                 FROM armi.prompt_documents AS document
-                JOIN armi.subjects AS subject
-                  ON subject.subject_id = document.subject_id
-                 AND subject.singleton_key = 1
-                 AND subject.status = 'active'
-                JOIN armi.parties AS creator
-                  ON creator.party_id = %s
-                 AND creator.party_kind = 'creator'
-                 AND creator.creator_role = 'unique_primary_creator'
-                 AND creator.status = 'active'
                 LEFT JOIN armi.prompt_revisions AS revision
                   ON revision.prompt_revision_id = document.current_revision_id
                  AND revision.prompt_document_id = document.prompt_document_id
-                WHERE document.prompt_kind = %s
+                WHERE document.subject_id = %s
+                  AND document.prompt_kind = %s
                 {suffix}
                 """,
-                (creator_party_id, prompt_kind.value),
+                (subject_id, prompt_kind.value),
             )
         ).fetchone()
         if row is None:

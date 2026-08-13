@@ -19,6 +19,21 @@ from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTrans
 
 
 class PostgreSQLArtifactCatalog:
+    async def observation(
+        self, transaction: PostgreSQLTransaction
+    ) -> tuple[tuple[tuple[str, int], ...], int]:
+        rows = await (
+            await transaction.execute(
+                """SELECT integrity_status, count(*), COALESCE(sum(byte_size),0)
+                   FROM armi.artifacts GROUP BY integrity_status
+                   ORDER BY integrity_status"""
+            )
+        ).fetchall()
+        return (
+            tuple((str(row[0]), int(row[1])) for row in rows),
+            sum(int(row[2]) for row in rows),
+        )
+
     async def register(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,

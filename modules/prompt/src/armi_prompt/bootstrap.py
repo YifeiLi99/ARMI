@@ -51,6 +51,7 @@ class PromptModule:
 
 def bootstrap_prompt(
     *,
+    subject_id: UUID | None = None,
     creator_party_id: UUID | None = None,
     storage: Any = None,
     catalog: Any = None,
@@ -59,6 +60,7 @@ def bootstrap_prompt(
     application = PromptApplication()
     owner = PostgreSQLPromptOwner(application)
     provided = (
+        subject_id is not None,
         creator_party_id is not None,
         storage is not None,
         catalog is not None,
@@ -69,11 +71,13 @@ def bootstrap_prompt(
     creator: CreatorPromptService | None = None
     if (
         creator_party_id is not None
+        and subject_id is not None
         and storage is not None
         and catalog is not None
         and unit_of_work_factory is not None
     ):
         creator = CreatorPromptService(
+            subject_id=subject_id,
             creator_party_id=creator_party_id,
             storage=storage,
             catalog=catalog,

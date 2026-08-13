@@ -11,7 +11,11 @@ from uuid import UUID
 
 from armi_activity.api import ActivityId
 from armi_kernel.contracts import Digest
-from armi_runtime_foundation import PostgreSQLAdminTransaction, PostgreSQLTransaction
+from armi_runtime_foundation import (
+    PostgreSQLAdminTransaction,
+    PostgreSQLRuntimeUnitOfWork,
+    PostgreSQLTransaction,
+)
 
 _TOKEN = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 _CODE = re.compile(r"^(?:LIFE|ACTIVITY)-[A-Z0-9-]+$", re.ASCII)
@@ -132,6 +136,60 @@ class CreatorOutreachPolicy:
 
 
 @dataclass(frozen=True, slots=True)
+class LifeGenerationFacts:
+    generation_no: int
+    activation_reason: str
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class AttentionRetryFacts:
+    failed_ready: bool
+    need_information_at: datetime | None
+    creator_input_after_need: bool
+
+
+@dataclass(frozen=True, slots=True)
+class CreatorOutreachFacts:
+    scene_id: UUID
+    creator_party_id: UUID
+    latest_input_id: UUID | None
+    latest_input_at: datetime | None
+    generation_id: UUID
+    generation_no: int
+    generation_created_at: datetime
+    now: datetime
+    awaiting_creator: bool
+    last_cognition_at: datetime | None
+    last_timeline_at: datetime | None
+
+
+@runtime_checkable
+class LifeOpportunityFactsPort(Protocol):
+    async def generation(
+        self, unit_of_work: PostgreSQLRuntimeUnitOfWork
+    ) -> LifeGenerationFacts: ...
+
+    async def active_cognition_count(
+        self, transaction: PostgreSQLTransaction, *, subject_id: UUID
+    ) -> int: ...
+
+    async def attention_retry(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        root_opportunity_id: UUID,
+        resolved_at: datetime | None,
+    ) -> AttentionRetryFacts: ...
+
+    async def outreach(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+    ) -> CreatorOutreachFacts | None: ...
+
+
+@dataclass(frozen=True, slots=True)
 class LifeOpportunitySourceSnapshot:
     subject_id: UUID
     generation_id: UUID
@@ -214,6 +272,8 @@ class OpportunityCommitSnapshot:
     source_ref: UUID
     source_version: int
     activity_id: UUID | None
+    available_after: datetime
+    expires_at: datetime | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -388,6 +448,17 @@ class OpportunityTransitionPort(Protocol):
 
 
 @runtime_checkable
+class OpportunityOwnerPort(
+    OpportunityAdmissionPort,
+    OpportunityCognitionPort,
+    OpportunityOperationReadPort,
+    OpportunityTransitionPort,
+    Protocol,
+):
+    """Complete owner surface implemented by the single active repository."""
+
+
+@runtime_checkable
 @runtime_checkable
 class OpportunityRuntimePort(LifeOpportunitySourcePort, Protocol):
     async def open(self) -> None: ...
@@ -443,8 +514,12 @@ class OpportunityAdminPort(Protocol):
 
 
 __all__ = (
+    "AttentionRetryFacts",
+    "CreatorOutreachFacts",
     "CreatorOutreachPolicy",
     "ExternalEvidenceOpportunityDraft",
+    "LifeGenerationFacts",
+    "LifeOpportunityFactsPort",
     "LifeOpportunitySourceKind",
     "LifeOpportunitySourcePort",
     "LifeOpportunitySourceSnapshot",
@@ -464,6 +539,7 @@ __all__ = (
     "OpportunityId",
     "OpportunityOperationReadPort",
     "OpportunityOperationSnapshot",
+    "OpportunityOwnerPort",
     "OpportunityPurpose",
     "OpportunityRuntimePort",
     "OpportunitySelectionCursor",

@@ -15,10 +15,14 @@ from uuid import uuid7
 
 import uvicorn
 from armi_activity.api import ActivityViolation
+from armi_artifact_store.bootstrap import bootstrap_artifact_catalog
 from armi_capability.api import CapabilityViolation
 from armi_codex.api import CodexDelegationViolation, CodexRuntimePort
 from armi_codex.bootstrap import bootstrap_codex_commit
-from armi_cognition.bootstrap import bootstrap_cognition_context
+from armi_cognition.bootstrap import (
+    bootstrap_cognition_context,
+    bootstrap_cognition_owner,
+)
 from armi_context.api import ContextViolation
 from armi_data_rights.api import CreatorExportViolation, DataRightsViolation
 from armi_effect.api import EffectViolation
@@ -44,7 +48,10 @@ from armi_kernel.application import (
 from armi_kernel.contracts import IdempotencyKey, TraceId
 from armi_memory.api import MemoryViolation
 from armi_opportunity.api import LifeViolation
-from armi_opportunity.bootstrap import bootstrap_opportunity_cognition
+from armi_opportunity.bootstrap import (
+    bootstrap_opportunity_owner,
+    bootstrap_opportunity_sleep,
+)
 from armi_prompt.api import CreatorPromptViolation
 from armi_relationship.api import RelationshipViolation
 from armi_sleep.api import CreatorMaintenanceViolation, SleepViolation
@@ -64,6 +71,10 @@ from armi_runtime.adapters.persistence.unit_of_work import (
 )
 from armi_runtime.application.action_lifecycle import RuntimeCodexGrantActivation
 from armi_runtime.application.cognition_cycle import RuntimeCognitionState
+from armi_runtime.application.creator_timeline import CreatorTimelineProjectionAssembler
+from armi_runtime.application.life_opportunity import RuntimeLifeOpportunityFacts
+from armi_runtime.application.maintenance import RuntimeSleepFacts
+from armi_runtime.application.subject_summary import RuntimeSubjectSummaryAssembler
 from armi_runtime.interfaces.browser_sessions import (
     BrowserSessionStore,
     BrowserSessionViolation,
@@ -104,7 +115,6 @@ from .database import (
     compose_evidence_module,
     compose_exact_life_query_pipeline,
     compose_expression_module,
-    compose_interaction_cognition_ports,
     compose_interaction_identity,
     compose_interaction_module,
     compose_life_opportunity_pipeline,
@@ -135,6 +145,7 @@ from .database import (
 from .diagnostics import StructuredDiagnosticLog
 from .environment import PreparedEnvironment
 from .lifecycle import RUNTIME_BLOCKING_REASONS, LifecycleController
+from .owner_roster import compose_runtime_owner_roster
 from .qq_channel import QQChannelBinding, compose_qq_channel
 from .runtime_errors import RuntimeViolation
 from .runtime_observability import RuntimeObservationDriver
@@ -225,6 +236,7 @@ async def _serve(
     prompt_module = None
     creator_events: CreatorEventBroker | None = None
     creator_input = None
+    subject_summary_provider: RuntimeSubjectSummaryAssembler | None = None
     creator_operations = None
     other_human_input = None
     external_message_input = None
@@ -276,6 +288,8 @@ async def _serve(
                 authority_admission=authority.require_writable,
             )
             await runtime_unit_of_work_factory.open()
+            artifact_catalog = bootstrap_artifact_catalog()
+            effect_owner = bootstrap_effect_operation_read()
             interaction_identity = compose_interaction_identity()
             creator_context = await inspect_creator_context(
                 runtime_unit_of_work_factory,
@@ -290,9 +304,18 @@ async def _serve(
             prompt_module = compose_prompt_module(
                 prepared,
                 unit_of_work_factory=runtime_unit_of_work_factory,
+                subject_id=authority.require_writable().subject_id,
                 creator_party_id=creator_context.party_id,
+                catalog=artifact_catalog,
             )
             await prompt_module.open()
+            data_rights_core = compose_data_rights_core()
+            owner_roster = compose_runtime_owner_roster(
+                data_rights=data_rights_core.participant,
+                mood_read=mood_module.read,
+                prompt_read=prompt_module.read,
+                subject_state_read=subject_state_module.read,
+            )
             lifecycle.begin_recovery()
             diagnostic.emit(
                 "runtime.lifecycle.recovering",
@@ -302,9 +325,8 @@ async def _serve(
                 prepared,
                 unit_of_work_factory=runtime_unit_of_work_factory,
                 authority_admission=authority.require_writable,
-                mood_read=mood_module.read,
-                prompt_read=prompt_module.read,
-                subject_state_read=subject_state_module.read,
+                owner_roster=owner_roster,
+                catalog=artifact_catalog,
             )
             await recovery_port.open()
             recovery = await recovery_port.recover()
@@ -324,7 +346,9 @@ async def _serve(
                 )
             try:
                 observation_port = compose_runtime_observation(
-                    runtime_unit_of_work_factory
+                    runtime_unit_of_work_factory,
+                    effects=effect_owner,
+                    artifacts=artifact_catalog,
                 )
                 await observation_port.open()
                 observation_driver = RuntimeObservationDriver(
@@ -370,15 +394,21 @@ async def _serve(
             )
             evidence_module = compose_evidence_module()
             await evidence_module.open()
-            data_rights_core = compose_data_rights_core()
+            cognition_owner = bootstrap_cognition_owner()
+            cognition_context = bootstrap_cognition_context()
+            opportunity_owner = bootstrap_opportunity_owner()
+            opportunity_sleep = bootstrap_opportunity_sleep()
+            web_context = bootstrap_web_context_read()
             activity_module = compose_activity_module(
                 runtime_unit_of_work_factory,
+                subject_id=authority.require_writable().subject_id,
                 creator_party_id=creator_context.party_id,
                 subject_state=subject_state_module.read,
             )
             await activity_module.open()
             relationship_module = compose_relationship_module(
                 runtime_unit_of_work_factory,
+                subject_id=authority.require_writable().subject_id,
                 creator_party_id=creator_context.party_id,
                 visibility=data_rights_core.visibility,
             )
@@ -398,12 +428,14 @@ async def _serve(
                 subject_id=authority.require_writable().subject_id,
                 data_root=prepared.data_root,
                 max_object_bytes=config.artifacts.max_object_bytes,
+                catalog=artifact_catalog,
             )
             await material_module.open()
             life_record_query = compose_life_record_query(
                 runtime_unit_of_work_factory,
                 environment_id=config.environment.environment_id,
                 creator_party_id=creator_context.party_id,
+                subject_id=authority.require_writable().subject_id,
                 cursor_key=derive_timeline_cursor_key(prepared),
                 activity_read=activity_module.read,
                 memory_read=memory_module.read,
@@ -411,24 +443,27 @@ async def _serve(
                 relationship_read=relationship_module.read,
                 subject_state_read=subject_state_module.read,
                 visibility=data_rights_core.visibility,
+                cognition=cognition_owner,
             )
             await life_record_query.open()
-            other_human_record_query = compose_other_human_record_query(
-                runtime_unit_of_work_factory,
-                environment_id=config.environment.environment_id,
-                cursor_key=derive_timeline_cursor_key(prepared),
-                data_root=prepared.data_root,
-                max_object_bytes=config.artifacts.max_object_bytes,
-                visibility=data_rights_core.visibility,
-            )
-            await other_human_record_query.open()
             opportunity_admission = compose_opportunity_admission()
+            cognition_operation = cognition_owner
+            codex_reads = compose_codex_read_ports()
+            timeline_projections = CreatorTimelineProjectionAssembler(
+                evidence=evidence_module.read,
+                opportunity_admission=opportunity_admission,
+                opportunity_read=opportunity_owner,
+                cognition=cognition_operation,
+                catalog=artifact_catalog,
+                codex=codex_reads.task_sources,
+            )
             exact_life_query_pipeline = compose_exact_life_query_pipeline(
                 prepared,
                 unit_of_work_factory=runtime_unit_of_work_factory,
                 query=life_record_query,
                 cognition=compose_cognition_exact_life_query(),
                 opportunity=opportunity_admission,
+                catalog=artifact_catalog,
                 wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
                     event,
@@ -438,13 +473,20 @@ async def _serve(
             await exact_life_query_pipeline.open()
             sleep_module = compose_sleep_module(
                 runtime_unit_of_work_factory,
+                subject_id=authority.require_writable().subject_id,
                 creator_party_id=creator_context.party_id,
+                runtime_facts=RuntimeSleepFacts(
+                    cognition=cognition_operation,
+                    effects=effect_owner,
+                ),
+                opportunities=opportunity_sleep,
             )
             await sleep_module.open()
             context_projection_invalidation = compose_context_projection_invalidation()
             interaction_module = compose_interaction_module(
                 prepared,
                 unit_of_work_factory=runtime_unit_of_work_factory,
+                subject_id=authority.require_writable().subject_id,
                 creator_party_id=creator_context.party_id,
                 cursor_key=derive_timeline_cursor_key(prepared),
                 notifier=creator_events,
@@ -455,6 +497,8 @@ async def _serve(
                 data_rights=data_rights_core.gate,
                 visibility=data_rights_core.visibility,
                 identity=interaction_identity,
+                catalog=artifact_catalog,
+                timeline_projections=timeline_projections,
                 wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
                     event,
@@ -463,11 +507,26 @@ async def _serve(
                 fault_injector=inject_admin_fault,
             )
             await interaction_module.open()
+            other_human_record_query = compose_other_human_record_query(
+                runtime_unit_of_work_factory,
+                environment_id=config.environment.environment_id,
+                cursor_key=derive_timeline_cursor_key(prepared),
+                data_root=prepared.data_root,
+                max_object_bytes=config.artifacts.max_object_bytes,
+                catalog=artifact_catalog,
+                visibility=data_rights_core.visibility,
+                interaction=interaction_module.other_human_read,
+                evidence=evidence_module.read,
+                effect=effect_owner,
+            )
+            await other_human_record_query.open()
             data_rights_module = compose_data_rights_module(
                 prepared,
                 unit_of_work_factory=runtime_unit_of_work_factory,
                 creator_party_id=creator_context.party_id,
                 core=data_rights_core,
+                business_participants=owner_roster.data_rights,
+                catalog=artifact_catalog,
                 parties=interaction_module.identity,
                 notifier=creator_events,
             )
@@ -478,15 +537,20 @@ async def _serve(
                 interaction_routes=interaction_module.effect_routes,
                 interaction_scenes=interaction_module.scene_transitions,
             )
-            codex_reads = compose_codex_read_ports()
             effect_registration_context, codex_artifacts = compose_effect_owner_context(
                 expression=expression_module.intents,
                 interaction=interaction_module.effect_routes,
                 codex=codex_reads,
+                catalog=artifact_catalog,
             )
             scene_timeline_query = interaction_module.scene_timeline
             creator_scenes = interaction_module.creator_scenes
             creator_input = interaction_module.creator_input
+            subject_summary_provider = RuntimeSubjectSummaryAssembler(
+                runtime_unit_of_work_factory,
+                subject_id=authority.require_writable().subject_id,
+                subject_state=subject_state_module.read,
+            )
             other_human_input = interaction_module.other_human_input
             external_message_input = interaction_module.external_message_input
             effect_grant_cancellation = compose_effect_grant_cancellation()
@@ -508,6 +572,9 @@ async def _serve(
                 capability=capability_policy.operations,
                 codex=codex_reads.task_sources,
                 codex_executions=codex_reads.executions,
+                opportunity=opportunity_owner,
+                cognition=cognition_owner,
+                effect=effect_owner,
             )
             qq_channel = await compose_qq_channel(
                 prepared,
@@ -523,6 +590,7 @@ async def _serve(
                         evidence_read=evidence_module.read,
                         interaction=interaction_module.perception,
                         opportunity=opportunity_admission,
+                        catalog=artifact_catalog,
                         wakeups=work_wakeups,
                         diagnostic=lambda event: diagnostic.emit(
                             event,
@@ -537,6 +605,14 @@ async def _serve(
             life_opportunity_pipeline = compose_life_opportunity_pipeline(
                 prepared,
                 unit_of_work_factory=runtime_unit_of_work_factory,
+                facts=RuntimeLifeOpportunityFacts(
+                    activities=activity_module.read,
+                    capabilities=capability_policy.operations,
+                    cognition=cognition_operation,
+                    effects=effect_owner,
+                    expression=expression_module.intents,
+                    interaction=interaction_module.identity,
+                ),
                 activity_read=activity_module.read,
                 material_read=material_module.read,
                 relationship_read=relationship_module.read,
@@ -548,9 +624,7 @@ async def _serve(
                 notifier=creator_events,
             )
             await life_opportunity_pipeline.open()
-            interaction_cognition = compose_interaction_cognition_ports()
-            cognition_context = bootstrap_cognition_context()
-            opportunity_cognition = bootstrap_opportunity_cognition()
+            opportunity_cognition = opportunity_owner
             runtime_cognition_state = RuntimeCognitionState()
             context_pipeline = compose_context_pipeline(
                 prepared,
@@ -561,13 +635,13 @@ async def _serve(
                 codex_context=codex_reads.context,
                 cognition_context=cognition_context,
                 evidence_read=evidence_module.read,
-                interaction_context=interaction_cognition.context,
-                interaction_cognition=interaction_cognition.cognition,
+                interaction_context=interaction_module.context_read,
+                interaction_cognition=interaction_module.cognition_read,
                 opportunity_cognition=opportunity_cognition,
                 runtime_subjects=runtime_cognition_state,
-                web_context=bootstrap_web_context_read(),
+                web_context=web_context,
                 expression_read=expression_module.intents,
-                effect_read=bootstrap_effect_operation_read(),
+                effect_read=effect_owner,
                 data_rights=data_rights_module.cognition,
                 memory_read=memory_module.read,
                 memory_projection=memory_module.projection,
@@ -577,6 +651,7 @@ async def _serve(
                 relationship_read=relationship_module.read,
                 sleep_read=sleep_module.read,
                 subject_state_read=subject_state_module.read,
+                catalog=artifact_catalog,
                 wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
                     event,
@@ -594,7 +669,7 @@ async def _serve(
                 memory_context=candidate_context.memory,
                 context=candidate_context.cognition,
                 runtime_state=runtime_cognition_state,
-                interaction=interaction_cognition.cognition,
+                interaction=interaction_module.cognition_read,
                 opportunity_context=opportunity_cognition,
                 opportunity_transitions=opportunity_cognition,
                 evidence=evidence_module.read,
@@ -613,6 +688,7 @@ async def _serve(
                 sleep_read=sleep_module.read,
                 subject_state_cognition=subject_state_module.cognition,
                 subject_state_read=subject_state_module.read,
+                catalog=artifact_catalog,
                 wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
                     event,
@@ -631,15 +707,18 @@ async def _serve(
                     codex_reads.task_sources,
                     expression_module.commit,
                 ),
+                cognition_commit=cognition_owner,
                 context_projections=context_projection_invalidation,
                 data_rights=data_rights_module.subject_commit,
                 evidence=evidence_module.write,
                 evidence_read=evidence_module.read,
                 expression_commit=expression_module.commit,
+                interaction_commit=interaction_module.subject_commit,
                 memory_commit=memory_module.commit,
                 memory_cognition=memory_module.cognition,
                 mood_commit=mood_module.commit,
                 mood_cognition=mood_module.cognition,
+                opportunity_transition=opportunity_owner,
                 prompt_cognition=prompt_module.cognition,
                 prompt_commit=prompt_module.commit,
                 material_cognition=material_module.cognition,
@@ -650,6 +729,7 @@ async def _serve(
                 sleep_commit=sleep_module.commit,
                 subject_state_cognition=subject_state_module.cognition,
                 subject_state_commit=subject_state_module.commit,
+                catalog=artifact_catalog,
                 notifier=creator_events,
                 wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
@@ -665,6 +745,7 @@ async def _serve(
                 expression=expression_module.admission,
                 capability=capability_policy.admission,
                 data_rights=data_rights_module.effect_gate,
+                catalog=artifact_catalog,
                 wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
                     event,
@@ -709,6 +790,7 @@ async def _serve(
                         ),
                         expression=expression_module.intents,
                         sources=codex_reads.task_sources,
+                        catalog=artifact_catalog,
                         notifier=creator_events,
                         diagnostic=lambda event: diagnostic.emit(
                             event, result_code="CODEX_DELEGATION"
@@ -750,6 +832,7 @@ async def _serve(
                         unit_of_work_factory=runtime_unit_of_work_factory,
                         context=candidate_context.cognition,
                         opportunities=opportunity_cognition,
+                        catalog=artifact_catalog,
                         wakeups=work_wakeups,
                         diagnostic=lambda event: diagnostic.emit(
                             event,
@@ -773,6 +856,7 @@ async def _serve(
                             unit_of_work_factory=runtime_unit_of_work_factory,
                             evidence=evidence_module.write,
                             opportunity=opportunity_admission,
+                            catalog=artifact_catalog,
                             diagnostic=lambda event: diagnostic.emit(
                                 event,
                                 result_code="WEB_SEARCH_CUSTODY",
@@ -785,6 +869,7 @@ async def _serve(
                             custody=web_search_pipeline,
                             evidence=evidence_module.write,
                             opportunity=opportunity_admission,
+                            catalog=artifact_catalog,
                             diagnostic=lambda event: diagnostic.emit(
                                 event,
                                 result_code="WEB_RESEARCH_ADMISSION",
@@ -1348,9 +1433,7 @@ async def _serve(
         creator_input=creator_input,
         other_human_input=other_human_input,
         creator_operations=creator_operations,
-        subject_summary=(
-            creator_input.get_subject_summary if creator_input is not None else None
-        ),
+        subject_summary=subject_summary_provider,
         capability_policy=capability_policy,
         effect_ledger=effect_pipeline,
         codex_task_admission=(

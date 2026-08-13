@@ -43,16 +43,19 @@ class PostgreSQLSleepRead:
     __slots__ = (
         "_creator_party_id",
         "_factory",
+        "_subject_id",
     )
 
     def __init__(
         self,
         factory: PostgreSQLRuntimeUnitOfWorkFactory,
         *,
+        subject_id: UUID,
         creator_party_id: UUID,
     ) -> None:
         self._creator_party_id = creator_party_id
         self._factory = factory
+        self._subject_id = subject_id
 
     async def open(self) -> None:
         return None
@@ -87,32 +90,26 @@ class PostgreSQLSleepRead:
         self,
         transaction: PostgreSQLTransaction,
         *,
-        episode_id: UUID,
+        source_revision_id: UUID | None,
+        expected_head_version: int | None,
     ) -> SleepMaintenanceSnapshot | None:
+        if source_revision_id is None or expected_head_version is None:
+            return None
         row = await (
             await transaction.execute(
                 """
                 SELECT session.maintenance_session_id,
                        session.current_revision_id,
                        session.head_version, revision.phase
-                FROM armi.cognitive_episodes AS episode
-                JOIN armi.opportunities AS opportunity
-                  ON opportunity.opportunity_id = episode.opportunity_id
-                JOIN armi.maintenance_session_revisions AS revision
-                  ON revision.maintenance_revision_id = opportunity.source_ref
+                FROM armi.maintenance_session_revisions AS revision
                 JOIN armi.maintenance_sessions AS session
                   ON session.maintenance_session_id = revision.maintenance_session_id
                  AND session.current_revision_id = revision.maintenance_revision_id
-                 AND session.head_version = opportunity.source_version
+                 AND session.head_version = %s
                  AND session.finished_at IS NULL
-                WHERE episode.cognitive_episode_id = %s
-                  AND episode.purpose IN (
-                      'maintain_subjective_memory',
-                      'perform_subject_self_check'
-                  )
-                  AND opportunity.source_kind = 'maintenance_phase_revision'
+                WHERE revision.maintenance_revision_id = %s
                 """,
-                (episode_id,),
+                (expected_head_version, source_revision_id),
             )
         ).fetchone()
         return None if row is None else _snapshot(row)
@@ -121,7 +118,7 @@ class PostgreSQLSleepRead:
         try:
             async with self._factory.unit_of_work(read_only=True) as unit_of_work:
                 connection = unit_of_work.transaction
-                subject_id = await self._scope(connection)
+                subject_id = self._subject_id
                 row = await (
                     await connection.execute(
                         """
@@ -150,25 +147,6 @@ class PostgreSQLSleepRead:
                     return CreatorMaintenanceStatus(None, 0)
                 session = self._session(row)
                 waiting_input_count = 0
-                if session.result_status is MaintenanceResultStatus.RUNNING:
-                    count_row = await (
-                        await connection.execute(
-                            """
-                            SELECT count(*)
-                            FROM armi.opportunities
-                            WHERE subject_id = %s
-                              AND purpose = 'consider_creator_input'
-                              AND eligibility_status = 'eligible'
-                              AND current_disposition = 'open'
-                            """,
-                            (subject_id,),
-                        )
-                    ).fetchone()
-                    if count_row is None:
-                        raise CreatorMaintenanceViolation(
-                            "MAINTENANCE-QUERY-UNAVAILABLE"
-                        )
-                    waiting_input_count = int(count_row[0])
         except CreatorMaintenanceViolation:
             raise
         except RuntimeTransactionFailure:
@@ -179,7 +157,7 @@ class PostgreSQLSleepRead:
         try:
             async with self._factory.unit_of_work(read_only=True) as unit_of_work:
                 connection = unit_of_work.transaction
-                subject_id = await self._scope(connection)
+                subject_id = self._subject_id
                 visible = await (
                     await connection.execute(
                         """
@@ -189,11 +167,12 @@ class PostgreSQLSleepRead:
                         (session_id, subject_id),
                     )
                 ).fetchone()
-                if visible is None:
-                    raise CreatorMaintenanceViolation("MAINTENANCE-QUERY-NOT-FOUND")
-                rows = await (
-                    await connection.execute(
-                        """
+                rows = (
+                    ()
+                    if visible is None
+                    else await (
+                        await connection.execute(
+                            """
                         SELECT revision.maintenance_revision_id,
                                revision.revision_no, revision.phase,
                                revision.result_status, revision.transition_kind,
@@ -207,44 +186,21 @@ class PostgreSQLSleepRead:
                         ORDER BY revision.revision_no DESC
                         LIMIT %s
                         """,
-                        (session_id, _PAGE_SIZE + 1),
-                    )
-                ).fetchall()
+                            (session_id, _PAGE_SIZE + 1),
+                        )
+                    ).fetchall()
+                )
         except CreatorMaintenanceViolation:
             raise
         except RuntimeTransactionFailure:
             raise CreatorMaintenanceViolation("MAINTENANCE-QUERY-UNAVAILABLE") from None
+        if visible is None:
+            raise CreatorMaintenanceViolation("MAINTENANCE-QUERY-NOT-FOUND")
         return CreatorMaintenanceTimeline(
             session_id,
             tuple(self._timeline_item(row) for row in rows[:_PAGE_SIZE]),
             len(rows) > _PAGE_SIZE,
         )
-
-    async def _scope(
-        self,
-        connection: PostgreSQLTransaction,
-    ) -> UUID:
-        creator = await (
-            await connection.execute(
-                """
-                SELECT 1 FROM armi.parties
-                WHERE party_id = %s AND party_kind = 'creator'
-                  AND creator_role = 'unique_primary_creator' AND status = 'active'
-                """,
-                (self._creator_party_id,),
-            )
-        ).fetchone()
-        subject = await (
-            await connection.execute(
-                """
-                SELECT subject_id FROM armi.subjects
-                WHERE singleton_key = 1 AND status = 'active'
-                """
-            )
-        ).fetchone()
-        if creator is None or subject is None or not isinstance(subject[0], UUID):
-            raise CreatorMaintenanceViolation("MAINTENANCE-QUERY-UNAVAILABLE")
-        return subject[0]
 
     @staticmethod
     def _session(row: tuple[Any, ...]) -> CreatorMaintenanceSession:

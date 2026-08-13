@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import LiteralString
+
 from armi_data_rights.api import (
     DataRightsApplyContribution,
     DataRightsApplyRequest,
@@ -20,7 +22,7 @@ from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("perception")
 _VERSION = DataRightsContributionVersion(1)
-_SEGMENTS: tuple[tuple[str, str], ...] = (
+_SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "external_content_recognition_attempts",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')

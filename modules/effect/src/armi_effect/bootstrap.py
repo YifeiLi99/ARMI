@@ -25,14 +25,20 @@ from armi_runtime_foundation import (
 )
 
 from ._admin import PostgreSQLEffectAdmin
+from ._admission import PostgreSQLResponseAdmissionRepository
 from ._application import EffectRegistrationPipeline
 from ._codex_postgresql import PostgreSQLEffectCodexLifecycle
 from ._data_rights import PostgreSQLEffectDataRightsParticipant
+from ._dispatch import PostgreSQLEffectDispatchRepository
 from ._grant import (
     PostgreSQLEffectDispatchBoundary,
     PostgreSQLEffectGrantCancellation,
 )
-from ._ledger import PostgreSQLDeclaredResponseEffectRegistration
+from ._inbox import PostgreSQLLocalInbox
+from ._ledger import (
+    PostgreSQLDeclaredResponseEffectRegistration,
+    PostgreSQLEffectLedgerRepository,
+)
 from ._read_postgresql import PostgreSQLEffectOperationRead
 from ._recovery import EffectRecoveryParticipant
 from ._response import ResponseAdmissionPipeline
@@ -44,7 +50,7 @@ from .api import (
     EffectCodexLifecyclePort,
     EffectDispatchBoundaryPort,
     EffectGrantCancellationPort,
-    EffectOperationReadPort,
+    EffectReadPort,
     EffectRegistrationContextPort,
     EffectRuntimePort,
     EffectTimelinePort,
@@ -59,6 +65,13 @@ def bootstrap_effect_admin() -> EffectAdminPort:
 
 Diagnostic = Callable[[str], None]
 FaultInjector = Callable[[str], None]
+
+# Fixed constructors used by the Runtime PostgreSQL integration composition.
+# They remain composition-only entry points; consumers never import owner internals.
+compose_response_admission_repository = PostgreSQLResponseAdmissionRepository
+compose_effect_dispatch_repository = PostgreSQLEffectDispatchRepository
+compose_local_inbox = PostgreSQLLocalInbox
+compose_effect_ledger_repository = PostgreSQLEffectLedgerRepository
 
 
 def bootstrap_effect_grant_cancellation() -> EffectGrantCancellationPort:
@@ -153,7 +166,7 @@ def bootstrap_effect_recovery() -> RecoveryParticipant:
     return EffectRecoveryParticipant()
 
 
-def bootstrap_effect_operation_read() -> EffectOperationReadPort:
+def bootstrap_effect_operation_read() -> EffectReadPort:
     return PostgreSQLEffectOperationRead()
 
 
@@ -168,4 +181,8 @@ __all__ = (
     "bootstrap_effect_runtime",
     "bootstrap_expression_effect_registration",
     "bootstrap_response_admission",
+    "compose_effect_dispatch_repository",
+    "compose_effect_ledger_repository",
+    "compose_local_inbox",
+    "compose_response_admission_repository",
 )

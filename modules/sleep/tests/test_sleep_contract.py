@@ -3,7 +3,7 @@ from uuid import uuid7
 
 import pytest
 import rfc8785
-from armi_kernel.application import CandidateFactClass, CandidateOwner
+from armi_kernel.application import CandidateFactClass
 from armi_sleep.api import (
     CandidateMaintenanceDecisionDraft,
     CandidateSleepDecisionDraft,
@@ -32,7 +32,7 @@ def test_sleep_decision_round_trip_uses_canonical_owner_payload() -> None:
 
     draft = cognition.bind_sleep(decision)
 
-    assert draft.owner == CandidateOwner.SLEEP.value
+    assert draft.owner == "sleep"
     assert draft.fact_class is CandidateFactClass.SUBJECTIVE_UNDERSTANDING
     assert cognition.decode(draft.canonical_payload) == decision
     assert rfc8785.dumps(json.loads(draft.canonical_payload)) == (

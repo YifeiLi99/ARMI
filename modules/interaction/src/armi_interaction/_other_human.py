@@ -18,9 +18,9 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
-    CreatorEventResourceKind,
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
+    CreatorResourceKind,
     PublishedArtifact,
 )
 from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId
@@ -64,6 +64,7 @@ class OtherHumanInputService(OtherHumanInputPort):
         "_notifier",
         "_repository",
         "_storage",
+        "_subject_id",
         "_uow_factory",
         "_wakeups",
     )
@@ -76,11 +77,13 @@ class OtherHumanInputService(OtherHumanInputPort):
         repository: OtherHumanInputRepository,
         unit_of_work_factory: PostgreSQLRuntimeUnitOfWorkFactory,
         data_rights: InteractionDataRightsGate,
+        subject_id: UUID,
         wakeups: InteractionWakeupPort | None = None,
         notifier: CreatorProjectionNotifier | None = None,
     ) -> None:
         self._storage = storage
         self._data_rights = data_rights
+        self._subject_id = subject_id
         self._catalog = catalog
         self._repository = repository
         self._uow_factory = unit_of_work_factory
@@ -128,6 +131,7 @@ class OtherHumanInputService(OtherHumanInputPort):
             async with self._uow_factory.unit_of_work() as unit_of_work:
                 view = await self._repository.set_scene(
                     unit_of_work,
+                    subject_id=self._subject_id,
                     party_key=command.party_key,
                     scene_key=command.scene_key,
                     target_status=command.target_status,
@@ -219,7 +223,7 @@ class OtherHumanInputService(OtherHumanInputPort):
         try:
             await self._notifier.notify(
                 CreatorProjectionInvalidation(
-                    CreatorEventResourceKind.OTHER_HUMAN_RECORD,
+                    CreatorResourceKind("other_human_record"),
                     str(party_id),
                     Instant(datetime.now(UTC)),
                     "other-human-record.v1",
@@ -237,6 +241,7 @@ class OtherHumanInputService(OtherHumanInputPort):
             ) as unit_of_work:
                 return await self._repository.context(
                     unit_of_work,
+                    subject_id=self._subject_id,
                     party_key=command.party_key,
                     scene_key=command.scene_key,
                     lock=lock,
@@ -270,6 +275,7 @@ class OtherHumanInputService(OtherHumanInputPort):
         async with self._uow_factory.unit_of_work() as unit_of_work:
             current = await self._repository.context(
                 unit_of_work,
+                subject_id=self._subject_id,
                 party_key=command.party_key,
                 scene_key=command.scene_key,
                 lock=True,

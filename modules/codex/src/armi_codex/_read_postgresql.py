@@ -49,6 +49,23 @@ class PostgreSQLCodexReadOwner:
             TraceId(str(row[8])),
         )
 
+    async def find_by_manifest_digest(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        manifest_digest: Digest,
+    ) -> CodexTaskSourceSnapshot | None:
+        row = await (
+            await transaction.execute(
+                "SELECT codex_task_source_id FROM armi.codex_task_sources "
+                "WHERE task_manifest_digest=%s",
+                (manifest_digest.value,),
+            )
+        ).fetchone()
+        if row is None:
+            return None
+        return await self.task_source(transaction, task_source_id=row[0])
+
     async def execution_for_effect(
         self,
         transaction: PostgreSQLTransaction,

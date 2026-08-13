@@ -224,6 +224,7 @@ class PromptCommitPort(Protocol):
         *,
         validation_id: UUID,
         subject_id: UUID,
+        author_party_id: UUID,
         commit_id: UUID,
         drafts: tuple[CandidatePromptDraft, ...],
         artifacts: dict[str, ArtifactRef],

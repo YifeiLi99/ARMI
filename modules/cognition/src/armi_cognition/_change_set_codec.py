@@ -35,11 +35,10 @@ from armi_expression.api import (
 )
 from armi_kernel.application import (
     CandidateDisposition,
-    CandidateExactLifeQueryDraft,
     CandidateExperienceDraft,
     CandidateFactClass,
-    CandidateOwner,
     CandidateOwnerDraft,
+    CandidateOwnerIdentity,
     CandidateRejection,
     CandidateViolation,
     LifeRecordKind,
@@ -107,7 +106,8 @@ from armi_subject_state.api import (
 )
 from armi_web_observation.api import WebResearchRequestDraft
 
-from ._contracts import SubjectChangeSet
+from ._owners import CandidateOwner
+from .api import CandidateExactLifeQueryDraft, SubjectChangeSet
 
 _TOP_KEYS_V1 = {
     "schema_version",
@@ -1561,7 +1561,7 @@ def _rejection(value: object) -> CandidateRejection:
         _text(item["atomic_group_ref"]),
         _ordinals(item["basis_ordinals"]),
         CandidateFactClass(_text(item["fact_class"])),
-        CandidateOwner(_text(item["owner"])),
+        CandidateOwnerIdentity(_text(item["owner"])),
         _text(item["code"]),
     )
 

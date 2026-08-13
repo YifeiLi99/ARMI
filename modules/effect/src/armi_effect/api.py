@@ -547,6 +547,23 @@ class EffectOperationReadPort(Protocol):
     ) -> EffectLedgerSnapshot | None: ...
 
 
+@dataclass(frozen=True, slots=True)
+class EffectObservationSnapshot:
+    counts: tuple[tuple[str, int], ...]
+    oldest_open_seconds: int | None
+
+
+@runtime_checkable
+class EffectObservationPort(Protocol):
+    async def observe(
+        self, transaction: PostgreSQLTransaction
+    ) -> EffectObservationSnapshot: ...
+
+
+@runtime_checkable
+class EffectReadPort(EffectOperationReadPort, EffectObservationPort, Protocol): ...
+
+
 class EffectViolation(RuntimeError):
     __slots__ = ("code",)
 
@@ -700,8 +717,11 @@ __all__ = (
     "EffectObservation",
     "EffectObservationId",
     "EffectObservationKind",
+    "EffectObservationPort",
     "EffectObservationReliability",
+    "EffectObservationSnapshot",
     "EffectOperationReadPort",
+    "EffectReadPort",
     "EffectRegistrationContext",
     "EffectRegistrationContextPort",
     "EffectRegistrationDraft",

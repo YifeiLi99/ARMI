@@ -21,7 +21,9 @@ from .api import (
     SleepCognitionPort,
     SleepCommitPort,
     SleepMaintenancePort,
+    SleepOpportunityPort,
     SleepReadPort,
+    SleepRuntimeFactsPort,
 )
 
 
@@ -43,18 +45,22 @@ class SleepModule:
 def bootstrap_sleep(
     factory: PostgreSQLRuntimeUnitOfWorkFactory,
     *,
+    subject_id: UUID,
     creator_party_id: UUID,
+    runtime_facts: SleepRuntimeFactsPort,
+    opportunities: SleepOpportunityPort,
 ) -> SleepModule:
     cognition = SleepApplication()
     query = PostgreSQLSleepRead(
         factory,
+        subject_id=subject_id,
         creator_party_id=creator_party_id,
     )
     return SleepModule(
         query,
         cognition,
         PostgreSQLSleepCommit(cognition),
-        PostgreSQLMaintenanceRepository(),
+        PostgreSQLMaintenanceRepository(runtime_facts, opportunities),
         query,
     )
 

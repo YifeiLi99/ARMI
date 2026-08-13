@@ -44,15 +44,34 @@ from ._context_postgresql import PostgreSQLCognitionContextLifecycle
 from ._data_rights import PostgreSQLCognitionDataRightsParticipant
 from ._exact_life_query import PostgreSQLCognitionExactLifeQuery
 from ._model_application import ModelPipeline
+from ._model_contract import (
+    build_request_bytes as build_model_request_bytes,
+)
+from ._model_contract import (
+    candidate_schema as build_candidate_schema,
+)
+from ._model_contract import (
+    checked_model_request as check_model_request,
+)
+from ._model_contract import (
+    load_active_binding as load_active_model_binding,
+)
+from ._model_contract import (
+    parse_candidate as parse_model_candidate,
+)
 from ._recovery import CognitionRecoveryParticipant
 from ._subject_commit import PostgreSQLCognitionSubjectCommit
+from ._validator import CandidateValidationContext, DeterministicCandidateValidator
 from .api import (
+    CandidateValidator,
     CognitionAdminPort,
     CognitionArtifactCatalogPort,
     CognitionContextLifecyclePort,
     CognitionExactLifeQueryPort,
+    CognitionLifeRecordPort,
     CognitionModelAdapterFactory,
     CognitionOperationReadPort,
+    CognitionOwnerPort,
     CognitionRuntimeStatePort,
     CognitionSubjectCommitPort,
     CognitionWakeupPort,
@@ -60,6 +79,35 @@ from .api import (
     SubjectChangeSet,
     SubjectChangeSetCodec,
 )
+
+
+def bootstrap_cognition_validator(
+    context: CandidateValidationContext,
+    *,
+    activity: ActivityCognitionPort,
+    material: MaterialCognitionPort,
+    memory: MemoryCognitionPort,
+    mood: MoodCognitionPort,
+    prompt: PromptCognitionPort,
+    relationship: RelationshipCognitionPort,
+    sleep: SleepCognitionPort,
+    subject_state: SubjectStateCognitionPort,
+) -> CandidateValidator:
+    return DeterministicCandidateValidator(
+        context,
+        activity_cognition=activity,
+        material_cognition=material,
+        memory_cognition=memory,
+        mood_cognition=mood,
+        prompt_cognition=prompt,
+        relationship_cognition=relationship,
+        sleep_cognition=sleep,
+        subject_state_cognition=subject_state,
+    )
+
+
+compose_candidate_validation_context = CandidateValidationContext
+compose_deterministic_candidate_validator = DeterministicCandidateValidator
 
 
 def bootstrap_cognition_admin() -> CognitionAdminPort:
@@ -74,11 +122,19 @@ def bootstrap_cognition_subject_commit() -> CognitionSubjectCommitPort:
     return PostgreSQLCognitionSubjectCommit()
 
 
+def bootstrap_cognition_owner() -> CognitionOwnerPort:
+    return PostgreSQLCognitionSubjectCommit()
+
+
 def bootstrap_cognition_context() -> CognitionContextLifecyclePort:
     return PostgreSQLCognitionContextLifecycle()
 
 
 def bootstrap_cognition_operation() -> CognitionOperationReadPort:
+    return PostgreSQLCognitionSubjectCommit()
+
+
+def bootstrap_cognition_life_records() -> CognitionLifeRecordPort:
     return PostgreSQLCognitionSubjectCommit()
 
 
@@ -267,8 +323,18 @@ __all__ = (
     "bootstrap_cognition_context",
     "bootstrap_cognition_data_rights",
     "bootstrap_cognition_exact_life_query",
+    "bootstrap_cognition_life_records",
     "bootstrap_cognition_model",
     "bootstrap_cognition_operation",
+    "bootstrap_cognition_owner",
     "bootstrap_cognition_recovery",
     "bootstrap_cognition_subject_commit",
+    "bootstrap_cognition_validator",
+    "build_candidate_schema",
+    "build_model_request_bytes",
+    "check_model_request",
+    "compose_candidate_validation_context",
+    "compose_deterministic_candidate_validator",
+    "load_active_model_binding",
+    "parse_model_candidate",
 )

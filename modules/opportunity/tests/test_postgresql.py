@@ -7,16 +7,16 @@ from typing import Any, cast
 from uuid import UUID, uuid7
 
 import pytest
-from armi_activity.bootstrap import bootstrap_activity
-from armi_artifact_store.bootstrap import bootstrap_artifact_catalog
 from armi_kernel.application import RuntimeFence, RuntimeInstanceId
-from armi_material.bootstrap import bootstrap_material
 from armi_opportunity._postgresql import (
     PostgreSQLLifeOpportunityRepository,
 )
 from armi_opportunity.api import (
+    AttentionRetryFacts,
+    CreatorOutreachFacts,
     CreatorOutreachPolicy,
     ExternalEvidenceOpportunityDraft,
+    LifeGenerationFacts,
     OpportunityAdmissionPort,
     OpportunityAdmissionStatus,
     OpportunityPurpose,
@@ -25,7 +25,12 @@ from armi_opportunity.bootstrap import (
     bootstrap_opportunity_admission,
     bootstrap_opportunity_transition,
 )
-from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWork
+from armi_runtime.composition.postgresql_test import (
+    bootstrap_activity,
+    bootstrap_artifact_catalog,
+    bootstrap_material,
+)
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 from armi_subject_state.api import LifeModeHead
 
 
@@ -67,9 +72,54 @@ class _SubjectState:
         )
 
 
+class _LifeFacts:
+    async def generation(self, unit_of_work: object) -> LifeGenerationFacts:
+        connection = cast(Any, unit_of_work).transaction
+        created_at = getattr(connection, "now", datetime.now(UTC)) - timedelta(days=30)
+        return LifeGenerationFacts(1, "birth", created_at)
+
+    async def active_cognition_count(
+        self, _transaction: object, *, subject_id: UUID
+    ) -> int:
+        del subject_id
+        return 0
+
+    async def attention_retry(
+        self,
+        transaction: object,
+        *,
+        subject_id: UUID,
+        root_opportunity_id: UUID,
+        resolved_at: datetime | None,
+    ) -> AttentionRetryFacts:
+        del subject_id, root_opportunity_id, resolved_at
+        if hasattr(transaction, "saw_signal_query"):
+            cast(Any, transaction).saw_signal_query = True
+        return AttentionRetryFacts(False, datetime.now(UTC), True)
+
+    async def outreach(self, unit_of_work: object) -> CreatorOutreachFacts | None:
+        connection = cast(Any, unit_of_work).transaction
+        if not hasattr(connection, "scene_id"):
+            return None
+        return CreatorOutreachFacts(
+            connection.scene_id,
+            connection.creator_party_id,
+            connection.interaction_id,
+            connection.now - timedelta(days=4),
+            connection.generation_id,
+            1,
+            connection.now - timedelta(days=30),
+            connection.now,
+            connection.awaiting,
+            None,
+            connection.now - timedelta(days=4),
+        )
+
+
 def _repository(*, boundary: bool = False) -> PostgreSQLLifeOpportunityRepository:
     activity = bootstrap_activity(
         cast(Any, object()),
+        subject_id=uuid7(),
         creator_party_id=uuid7(),
         focus=cast(Any, _SubjectState()),
     )
@@ -87,6 +137,7 @@ def _repository(*, boundary: bool = False) -> PostgreSQLLifeOpportunityRepositor
         activity.read,
         material.read,
         cast(Any, _SubjectState()),
+        cast(Any, _LifeFacts()),
     )
 
 
@@ -257,12 +308,12 @@ def test_current_active_material_admits_one_idempotent_autonomous_opportunity() 
 
     first = asyncio.run(
         repository.admit_life_material_revision(
-            cast(PostgreSQLUnitOfWork, unit_of_work)
+            cast(PostgreSQLRuntimeUnitOfWork, unit_of_work)
         )
     )
     replay = asyncio.run(
         repository.admit_life_material_revision(
-            cast(PostgreSQLUnitOfWork, unit_of_work)
+            cast(PostgreSQLRuntimeUnitOfWork, unit_of_work)
         )
     )
 
@@ -335,13 +386,13 @@ def test_active_in_progress_activity_admits_one_durable_internal_work_step() -> 
 
     first = asyncio.run(
         repository.admit_activity_internal_work(
-            cast(PostgreSQLUnitOfWork, unit_of_work),
+            cast(PostgreSQLRuntimeUnitOfWork, unit_of_work),
             model_concurrency=2,
         )
     )
     replay = asyncio.run(
         repository.admit_activity_internal_work(
-            cast(PostgreSQLUnitOfWork, unit_of_work),
+            cast(PostgreSQLRuntimeUnitOfWork, unit_of_work),
             model_concurrency=2,
         )
     )
@@ -373,11 +424,7 @@ class _AttentionRetryConnection:
             return _Cursor((False, 0))
         if "SELECT revision.semantic_payload" in statement:
             return _Cursor(({"active_activities": []}, False, 0, False))
-        if "max(previous.available_after)" in statement:
-            self.saw_signal_query = (
-                "decision.decision_kind = 'need_information'" in statement
-                and "input.received_at > decision.decided_at" in statement
-            )
+        if "ORDER BY revision.created_at, activity.activity_id" in statement:
             return _Cursor(
                 (
                     self.activity_id,
@@ -385,13 +432,6 @@ class _AttentionRetryConnection:
                     1,
                     "ready",
                     datetime.now(UTC) - timedelta(minutes=2),
-                    datetime.now(UTC) - timedelta(minutes=1),
-                    None,
-                    None,
-                    False,
-                    "review evidence over time",
-                    None,
-                    "classify one example",
                     None,
                     None,
                 )
@@ -403,6 +443,10 @@ class _AttentionRetryConnection:
             self.retry_id = cast(UUID, parameters[0])
             return _Cursor((self.retry_id,))
         if "SELECT root.opportunity_id" in statement:
+            self.saw_signal_query = (
+                "decision.decision_kind = 'need_information'" in statement
+                and "input.received_at > decision.decided_at" in statement
+            )
             return _Cursor((self.root_id, "resolved", True, None))
         raise AssertionError(statement)
 
@@ -413,7 +457,7 @@ def test_attention_need_information_retries_after_new_creator_input() -> None:
 
     outcome = asyncio.run(
         _repository().admit_activity_attention(
-            cast(PostgreSQLUnitOfWork, unit_of_work),
+            cast(PostgreSQLRuntimeUnitOfWork, unit_of_work),
             model_concurrency=2,
         )
     )
@@ -494,12 +538,12 @@ def test_long_absence_admits_one_scene_bound_creator_outreach_condition() -> Non
 
     first = asyncio.run(
         repository.admit_creator_outreach(
-            cast(PostgreSQLUnitOfWork, unit_of_work), policy=policy
+            cast(PostgreSQLRuntimeUnitOfWork, unit_of_work), policy=policy
         )
     )
     replay = asyncio.run(
         repository.admit_creator_outreach(
-            cast(PostgreSQLUnitOfWork, unit_of_work), policy=policy
+            cast(PostgreSQLRuntimeUnitOfWork, unit_of_work), policy=policy
         )
     )
 
@@ -533,7 +577,7 @@ def test_creator_outreach_stops_at_relationship_and_unanswered_boundaries(
 
     result = asyncio.run(
         _repository(boundary=boundary).admit_creator_outreach(
-            cast(PostgreSQLUnitOfWork, unit_of_work),
+            cast(PostgreSQLRuntimeUnitOfWork, unit_of_work),
             policy=CreatorOutreachPolicy(259_200, 86_400),
         )
     )

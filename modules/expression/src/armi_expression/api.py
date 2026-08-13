@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
@@ -386,6 +387,7 @@ class ExpressionIntentSnapshot:
     codex_task_source_id: UUID | None
     task_manifest_digest: Digest | None
     validator_id: str | None
+    created_at: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -425,6 +427,15 @@ class ExpressionResponseAdmissionPort(Protocol):
 
 @runtime_checkable
 class ExpressionIntentReadPort(Protocol):
+    async def outreach_intents(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        scene_id: UUID,
+        context_party_id: UUID,
+    ) -> tuple[ExpressionIntentSnapshot, ...]: ...
+
     async def intent_snapshot(
         self,
         transaction: PostgreSQLTransaction,

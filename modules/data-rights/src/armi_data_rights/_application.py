@@ -12,9 +12,9 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
-    CreatorEventResourceKind,
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
+    CreatorResourceKind,
 )
 from armi_kernel.contracts import Digest, Instant, Purpose
 from armi_runtime_foundation import (
@@ -280,7 +280,7 @@ class DataRightsOrderService(DataRightsOrderPort):
         try:
             await self._notifier.notify(
                 CreatorProjectionInvalidation(
-                    CreatorEventResourceKind.DATA_RIGHTS,
+                    CreatorResourceKind("data_rights"),
                     str(order_id),
                     Instant(datetime.now(UTC)),
                     "data-rights-order.v2",

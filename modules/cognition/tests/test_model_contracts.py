@@ -39,21 +39,12 @@ from armi_cognition._other_human_contract import (
     OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
     OTHER_HUMAN_DIALOGUE_INSTRUCTIONS,
 )
+from armi_kernel import load_yaml_file
 from armi_kernel.application import (
-    CredentialLocator,
     ModelBinding,
-    ModelResultStatus,
     ModelViolation,
 )
-from armi_kernel.config_yaml import load_yaml_file
 from armi_kernel.contracts import Digest
-from armi_runtime.adapters.model.volcengine_ark import (
-    ArkTransport,
-    VolcengineArkModelAdapter,
-    _provider_input,
-    _strict_provider_schema,
-)
-from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
 
 _BUNDLE_ID = UUID("01980f7d-7b8f-7e2a-8a11-2ab8e1234567")
 
@@ -403,37 +394,6 @@ def test_only_evolving_binding_is_active_and_request_is_stable() -> None:
     assert _request(first).canonical_bytes == _request(second).canonical_bytes
 
 
-def test_provider_dialogue_schema_is_strict_and_binds_runtime_refs() -> None:
-    schema = _strict_provider_schema(
-        dialogue_model_output_schema(web_search=False),
-        available_refs=("ctx:1", "ctx:7"),
-    )
-    assert isinstance(schema, dict)
-
-    def assert_strict(value: object) -> None:
-        if isinstance(value, list):
-            for item in value:
-                assert_strict(item)
-            return
-        if not isinstance(value, dict):
-            return
-        properties = value.get("properties")
-        if isinstance(properties, dict):
-            assert value.get("additionalProperties") is False
-            assert value.get("required") == list(properties)
-        for item in value.values():
-            assert_strict(item)
-
-    assert_strict(schema)
-    encoded = json.dumps(schema, separators=(",", ":"))
-    assert '"enum":["ctx:1","ctx:7"]' not in encoded
-    assert '"pattern":"^ctx:' in encoded
-    assert schema == _strict_provider_schema(
-        dialogue_model_output_schema(web_search=False),
-        available_refs=("ctx:99",),
-    )
-
-
 def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     legacy = load_active_binding()
     dialogue = load_purpose_binding("consider_creator_input")
@@ -711,21 +671,6 @@ def test_creator_dialogue_request_prioritizes_exact_recent_turns_and_local_refs(
     assert request["prompt_version"] == "armi.dialogue-prompt.v2"
     assert request["diagnostics"]["section_bytes"]["memories"] > 0
     assert source_id not in json.dumps(request, ensure_ascii=False)
-
-    assert (
-        _provider_input(
-            build_request_bytes(
-                binding=binding,
-                compiled_context=compiled,
-                context_digest=Digest.from_bytes(compiled),
-                base_subject_version=9,
-                base_state_epoch=4,
-                bundle_activation_id=_BUNDLE_ID,
-                included_context_refs=tuple(refs),
-            )
-        )
-        == messages
-    )
 
 
 def test_other_human_dialogue_uses_the_same_compact_native_message_plan() -> None:
@@ -1647,193 +1592,3 @@ def test_codex_observation_may_omit_nullable_uncertainty() -> None:
 
     assert isinstance(parsed, CognitionCandidateV7)
     assert parsed.experiences[0].payload.uncertainty is None
-
-
-class _Transport(ArkTransport):
-    def __init__(
-        self,
-        *,
-        provider_model_id: str,
-        candidate: dict[str, object] | None = None,
-    ) -> None:
-        self.provider_model_id = provider_model_id
-        self.candidate = candidate or _candidate()
-        self.keys_seen: list[bytes] = []
-
-    async def tokenize(
-        self,
-        *,
-        api_key: memoryview,
-        binding: ModelBinding,
-        request_bytes: bytes,
-    ) -> int:
-        del binding, request_bytes
-        self.keys_seen.append(bytes(api_key))
-        return 128
-
-    async def invoke(
-        self,
-        *,
-        api_key: memoryview,
-        binding: ModelBinding,
-        request,
-    ) -> dict[str, object]:
-        del binding, request
-        self.keys_seen.append(bytes(api_key))
-        candidate = json.dumps(self.candidate, ensure_ascii=False)
-        return {
-            "provider_request_id": "req-safe-id",
-            "model_id": self.provider_model_id,
-            "output_text": candidate,
-            "usage": {
-                "input_tokens": 128,
-                "output_tokens": 64,
-                "cached_input_tokens": 0,
-            },
-            "raw": {
-                "output": [{"type": "message"}],
-            },
-        }
-
-
-@pytest.mark.asyncio
-async def test_adapter_records_provider_resolved_model_identity_without_fallback() -> (
-    None
-):
-    binding = load_active_binding()
-    transport = _Transport(provider_model_id="doubao-seed-evolving-20260731")
-    locator = CredentialLocator.parse("env:ARMI_SECRET_MODEL_TEST")
-    adapter = VolcengineArkModelAdapter(
-        binding=binding,
-        credential_port=EnvironmentFileCredentialPort(
-            environment={"ARMI_SECRET_MODEL_TEST": "test-" + "credential"},
-            secret_roots=(Path.cwd(),),
-        ),
-        locator=locator,
-        candidate_schema=candidate_schema(),
-        candidate_parser=parse_candidate,
-        transport=transport,
-    )
-    result = await adapter.invoke(_request(binding))
-    assert result.status is ModelResultStatus.SUCCEEDED
-    assert result.provider_model_id == "doubao-seed-evolving-20260731"
-    assert result.response_bytes is not None
-    assert b"credential" not in result.response_bytes
-    assert transport.keys_seen == [b"test-credential"]
-
-
-@pytest.mark.asyncio
-async def test_dialogue_artifact_keeps_call_metadata_outside_minimal_candidate() -> (
-    None
-):
-    binding = load_purpose_binding("consider_creator_input")
-    locator = CredentialLocator.parse("env:ARMI_SECRET_MODEL_TEST")
-    adapter = VolcengineArkModelAdapter(
-        binding=binding,
-        credential_port=EnvironmentFileCredentialPort(
-            environment={"ARMI_SECRET_MODEL_TEST": "test-credential"},
-            secret_roots=(Path.cwd(),),
-        ),
-        locator=locator,
-        candidate_schema=dialogue_model_output_schema(web_search=False),
-        candidate_parser=parse_candidate,
-        transport=_Transport(
-            provider_model_id="doubao-seed-evolving-20260731",
-            candidate=_dialogue_candidate(),
-        ),
-    )
-
-    result = await adapter.invoke(_request(binding))
-
-    assert result.status is ModelResultStatus.SUCCEEDED
-    assert result.response_bytes is not None
-    artifact = json.loads(result.response_bytes)
-    assert artifact["candidate"] == {
-        "kind": "reply",
-        "content": "Hello, I am here.",
-    }
-    assert artifact["provider_model_id"] == "doubao-seed-evolving-20260731"
-    assert artifact["usage"] == {
-        "input_tokens": 128,
-        "output_tokens": 64,
-        "cached_input_tokens": 0,
-    }
-
-
-@pytest.mark.asyncio
-async def test_adapter_preserves_invalid_runtime_reference_failure() -> None:
-    binding = load_purpose_binding("consider_creator_input")
-    locator = CredentialLocator.parse("env:ARMI_SECRET_MODEL_TEST")
-    adapter = VolcengineArkModelAdapter(
-        binding=binding,
-        credential_port=EnvironmentFileCredentialPort(
-            environment={"ARMI_SECRET_MODEL_TEST": "test-credential"},
-            secret_roots=(Path.cwd(),),
-        ),
-        locator=locator,
-        candidate_schema=dialogue_model_output_schema(web_search=False),
-        candidate_parser=parse_candidate,
-        transport=_Transport(
-            provider_model_id="doubao-seed-evolving-20260731",
-            candidate={
-                **_dialogue_candidate(),
-                "experience": {"first_person_gist": "我决定请求一项能力。"},
-                "changes": [{"op": "codex.request", "target_ref": "ctx:7"}],
-            },
-        ),
-    )
-
-    result = await adapter.invoke(_request(binding))
-
-    assert result.status is ModelResultStatus.REJECTED
-    assert result.error_code == "MODEL-RESPONSE-REFERENCE"
-
-
-@pytest.mark.asyncio
-async def test_adapter_rejects_non_seed_provider_identity() -> None:
-    binding = load_active_binding()
-    locator = CredentialLocator.parse("env:ARMI_SECRET_MODEL_TEST")
-    adapter = VolcengineArkModelAdapter(
-        binding=binding,
-        credential_port=EnvironmentFileCredentialPort(
-            environment={"ARMI_SECRET_MODEL_TEST": "test-" + "credential"},
-            secret_roots=(Path.cwd(),),
-        ),
-        locator=locator,
-        candidate_schema=candidate_schema(),
-        candidate_parser=parse_candidate,
-        transport=_Transport(provider_model_id="foreign-model"),
-    )
-    with pytest.raises(ModelViolation, match="MODEL-PROVIDER-RESPONSE"):
-        await adapter.invoke(_request(binding))
-
-
-@pytest.mark.asyncio
-async def test_active_adapter_rejects_historical_candidate_contract() -> None:
-    binding = load_active_binding()
-    historical = _candidate()
-    historical["schema_version"] = "armi.cognition-candidate.v3"
-    historical["action_intents"] = historical.pop("action_choices")
-    locator = CredentialLocator.parse("env:ARMI_SECRET_MODEL_TEST")
-    adapter = VolcengineArkModelAdapter(
-        binding=binding,
-        credential_port=EnvironmentFileCredentialPort(
-            environment={"ARMI_SECRET_MODEL_TEST": "test-" + "credential"},
-            secret_roots=(Path.cwd(),),
-        ),
-        locator=locator,
-        candidate_schema=candidate_schema(),
-        candidate_parser=parse_candidate,
-        transport=_Transport(
-            provider_model_id="doubao-seed-evolving-20260731",
-            candidate=historical,
-        ),
-    )
-    result = await adapter.invoke(_request(binding))
-    assert result.status is ModelResultStatus.REJECTED
-    assert result.error_code == "MODEL-RESPONSE-SCHEMA"
-    assert result.provider_request_id == "req-safe-id"
-    assert result.provider_model_id == "doubao-seed-evolving-20260731"
-    assert result.usage is not None
-    assert result.usage.input_tokens == 128
-    assert result.usage.output_tokens == 64

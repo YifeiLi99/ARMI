@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import cast
 from uuid import uuid7
 
 import pytest
@@ -12,6 +13,7 @@ from armi_evidence.api import (
     ExperienceEvidenceLink,
 )
 from armi_evidence.bootstrap import bootstrap_evidence
+from armi_runtime_foundation import PostgreSQLTransactionAccess
 
 
 class _Connection:
@@ -59,9 +61,10 @@ async def test_writer_uses_caller_transaction_for_acceptance_and_link() -> None:
     unit = _Unit()
     module = bootstrap_evidence()
     draft = _creator_draft()
-    assert await module.write.accept(unit, draft) == draft.evidence_id
+    transaction = cast(PostgreSQLTransactionAccess, unit)
+    assert await module.write.accept(transaction, draft) == draft.evidence_id
     await module.write.link_experience(
-        unit,
+        transaction,
         ExperienceEvidenceLink(uuid7(), draft.evidence_id, uuid7(), 1),
     )
     assert "INSERT INTO armi.external_evidence" in unit.transaction.calls[0][0]

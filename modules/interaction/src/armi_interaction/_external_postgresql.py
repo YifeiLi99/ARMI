@@ -75,6 +75,7 @@ class ExternalMessageInputRepository:
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
+        subject_id: UUID,
         command: ConfigureExternalCreatorCommand,
         scene_key: str,
     ) -> ExternalCreatorBinding:
@@ -82,10 +83,8 @@ class ExternalMessageInputRepository:
         creator = await (
             await connection.execute(
                 """
-                SELECT party.party_id, subject.subject_id
+                SELECT party.party_id
                 FROM armi.parties AS party
-                JOIN armi.subjects AS subject
-                  ON subject.singleton_key = 1 AND subject.status = 'active'
                 WHERE party.party_kind = 'creator'
                   AND party.creator_role = 'unique_primary_creator'
                   AND party.status = 'active'
@@ -105,7 +104,7 @@ class ExternalMessageInputRepository:
             ON CONFLICT (subject_id, primary_party_id, scene_key)
             DO UPDATE SET current_status = 'open', closed_at = NULL
             """,
-            (creator[1], scene_key, creator[0]),
+            (subject_id, scene_key, creator[0]),
         )
         scene = await (
             await connection.execute(
@@ -115,7 +114,7 @@ class ExternalMessageInputRepository:
                   AND scene_key = %s AND scene_kind = 'creator_dialogue'
                   AND audience_scope = 'creator' AND current_status = 'open'
                 """,
-                (creator[1], creator[0], scene_key),
+                (subject_id, creator[0], scene_key),
             )
         ).fetchone()
         if scene is None:
@@ -128,7 +127,7 @@ class ExternalMessageInputRepository:
             ON CONFLICT (scene_id, party_id)
             DO UPDATE SET last_observed_at = statement_timestamp()
             """,
-            (scene[0], creator[1], creator[0]),
+            (scene[0], subject_id, creator[0]),
         )
         await connection.execute(
             """
@@ -180,6 +179,7 @@ class ExternalMessageInputRepository:
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
+        subject_id: UUID,
         command: ObservedExternalMessage,
         person_identity_key: str,
         conversation_identity_key: str,
@@ -247,12 +247,14 @@ class ExternalMessageInputRepository:
                 connection,
                 command=command,
                 person=person_binding,
+                subject_id=subject_id,
                 scene_key=scene_key,
             )
         return await self._bind_group(
             connection,
             command=command,
             person=person_binding,
+            subject_id=subject_id,
             conversation_identity_key=conversation_identity_key,
             scene_key=scene_key,
         )
@@ -451,16 +453,10 @@ class ExternalMessageInputRepository:
         *,
         command: ObservedExternalMessage,
         person: _PersonBinding,
+        subject_id: UUID,
         scene_key: str,
     ) -> ExternalMessageInputContext:
         execute = connection.execute
-        subject = await (
-            await execute(
-                "SELECT subject_id FROM armi.subjects WHERE singleton_key = 1 AND status = 'active'"
-            )
-        ).fetchone()
-        if subject is None:
-            raise ExternalMessageViolation("DB-EXTERNAL-MESSAGE-SUBJECT")
         scene_kind = (
             "creator_dialogue" if person[2] == "creator" else "other_human_dialogue"
         )
@@ -475,7 +471,7 @@ class ExternalMessageInputRepository:
                 ) VALUES (uuidv7(), %s, %s, %s, %s, %s, %s, 'open')
                 ON CONFLICT (subject_id, primary_party_id, scene_key) DO NOTHING
                 """,
-                (subject[0], scene_key, scene_kind, person[1], person[2], audience),
+                (subject_id, scene_key, scene_kind, person[1], person[2], audience),
             )
             scene = await (
                 await execute(
@@ -485,7 +481,7 @@ class ExternalMessageInputRepository:
                       AND scene_key = %s AND scene_kind = %s
                       AND audience_scope = %s AND current_status = 'open'
                     """,
-                    (subject[0], person[1], scene_key, scene_kind, audience),
+                    (subject_id, person[1], scene_key, scene_kind, audience),
                 )
             ).fetchone()
             if scene is None:
@@ -511,20 +507,20 @@ class ExternalMessageInputRepository:
             ON CONFLICT (scene_id, party_id)
             DO UPDATE SET last_observed_at = statement_timestamp()
             """,
-            (scene_id, subject[0], person[1]),
+            (scene_id, subject_id, person[1]),
         )
         if person[2] == "creator":
             return ExternalMessageInputContext(
                 person[0],
                 "creator",
-                CreatorInputContext(subject[0], scene_id, person[1]),
+                CreatorInputContext(subject_id, scene_id, person[1]),
                 None,
             )
         return ExternalMessageInputContext(
             person[0],
             "other_human",
             None,
-            OtherHumanInputContext(subject[0], person[1], scene_id),
+            OtherHumanInputContext(subject_id, person[1], scene_id),
         )
 
     async def _bind_group(
@@ -533,6 +529,7 @@ class ExternalMessageInputRepository:
         *,
         command: ObservedExternalMessage,
         person: _PersonBinding,
+        subject_id: UUID,
         conversation_identity_key: str,
         scene_key: str,
     ) -> ExternalMessageInputContext:
@@ -557,12 +554,11 @@ class ExternalMessageInputRepository:
             INSERT INTO armi.interaction_scenes (
                 scene_id, subject_id, scene_key, scene_kind,
                 primary_party_id, primary_party_kind, audience_scope, current_status
-            ) SELECT uuidv7(), subject_id, %s, 'group_dialogue', %s,
-                     'social_group', 'social_group', 'open'
-              FROM armi.subjects WHERE singleton_key = 1 AND status = 'active'
+            ) VALUES (uuidv7(), %s, %s, 'group_dialogue', %s,
+                     'social_group', 'social_group', 'open')
             ON CONFLICT (subject_id, primary_party_id, scene_key) DO NOTHING
             """,
-            (scene_key, group_party[0]),
+            (subject_id, scene_key, group_party[0]),
         )
         scene = await (
             await execute(

@@ -393,6 +393,13 @@ class MemoryCognitionPort(Protocol):
     def bind_wire(self, value: object, *, revision: bool) -> CandidateOwnerDraft: ...
 
 
+@dataclass(frozen=True, slots=True)
+class MemoryExperienceSource:
+    proposal_ref: str
+    experience_id: UUID
+    uncertainty: str | None
+
+
 @runtime_checkable
 class MemoryCommitPort(Protocol):
     async def heads_match(
@@ -412,7 +419,7 @@ class MemoryCommitPort(Protocol):
         commit_id: UUID,
         validation_id: UUID,
         drafts: tuple[CandidateMemoryDraft | CandidateMemoryRevisionDraft, ...],
-        experience_ids: dict[str, UUID],
+        experience_sources: tuple[MemoryExperienceSource, ...],
     ) -> tuple[UUID, ...]: ...
 
     async def affected_memory_ids(
@@ -473,6 +480,7 @@ __all__ = (
     "MemoryCognitionPort",
     "MemoryCommitPort",
     "MemoryContextItem",
+    "MemoryExperienceSource",
     "MemoryFormationRequest",
     "MemoryLifeRecordItem",
     "MemoryProjectionPort",

@@ -71,8 +71,8 @@ from armi_interaction.api import (
     SceneTimelineQueryPort,
 )
 from armi_kernel.application import (
-    CreatorEventResourceKind,
     CreatorProjectionInvalidation,
+    CreatorResourceKind,
     LifeRecordActor,
     LifeRecordKind,
     LifeRecordQuery,
@@ -184,6 +184,7 @@ from .creator_contract import (
     DataRightsTimelineItemResponse,
     EffectResponse,
     LifeRecordItemResponse,
+    LifeRecordKindValue,
     LifeRecordPageResponse,
     LiveResponse,
     OtherHumanPartyRecordPageResponse,
@@ -338,7 +339,7 @@ def _strict_object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
-def _creator_visible_codex_artifact(
+def creator_visible_codex_artifact(
     kind: EffectArtifactKind,
     content: bytes,
     media_type: str,
@@ -1240,7 +1241,7 @@ def _operation_outcome_wire(operation: CreatorOperation) -> dict[str, object]:
     return assert_never(operation.phase)
 
 
-def _operation_wire(operation: CreatorOperation) -> dict[str, object]:
+def operation_wire(operation: CreatorOperation) -> dict[str, object]:
     wire = _operation_outcome_wire(operation)
     phase = operation.phase
     stage = _operation_stage(phase)
@@ -1410,6 +1411,15 @@ def _life_query_parameters(
     allow_kind: bool,
     allow_text: bool,
 ) -> tuple[int, str | None, LifeRecordKind | None, OpaqueCursor | None]:
+    supported_record_kinds = {
+        "activity",
+        "conversation",
+        "experience",
+        "material",
+        "memory",
+        "relationship",
+        "self_change",
+    }
     allowed = {"limit", "cursor"}
     if allow_kind:
         allowed.add("kind")
@@ -1435,9 +1445,11 @@ def _life_query_parameters(
         if not query_text.strip() or b"\x00" in encoded or len(encoded) > 1024:
             raise ContractViolation("CON-PAGE", "query text is invalid")
     try:
-        record_kind = (
-            LifeRecordKind(values["kind"]) if allow_kind and "kind" in values else None
-        )
+        record_kind = None
+        if allow_kind and "kind" in values:
+            if values["kind"] not in supported_record_kinds:
+                raise ValueError("unsupported life-record kind")
+            record_kind = LifeRecordKind(values["kind"])
         cursor = (
             OpaqueCursor.from_wire(values["cursor"]) if "cursor" in values else None
         )
@@ -2145,74 +2157,70 @@ def create_runtime_app(
                 status_code=503,
                 content=_unavailable("DEPENDENCY_CAPABILITY_POLICY_UNAVAILABLE"),
             )
-        raw_items = cast(list[dict[str, object]], page["items"])
         response = CapabilityRequestPageResponse(
             contract_version="1.0",
             projection_version="capability-request.v4",
             items=[
                 CapabilityRequestItemResponse.model_validate(
                     {
-                        **item,
-                        "created_at": Instant(
-                            cast(datetime, item["created_at"])
-                        ).to_wire(),
-                        "status_changed_at": Instant(
-                            cast(datetime, item["status_changed_at"])
-                        ).to_wire(),
+                        "capability_request_id": str(item.capability_request_id),
+                        "capability_kind": item.capability_kind,
+                        "operation": item.operation,
+                        "subject_id": str(item.subject_id),
+                        "scene_id": str(item.scene_id),
+                        "audience_scope": item.audience_scope,
+                        "data_scope": item.data_scope,
+                        "purpose": item.purpose,
+                        "workspace_scope": item.workspace_scope,
+                        "artifact_scope": item.artifact_scope,
+                        "network_access": item.network_access,
+                        "valid_for_seconds": item.valid_for_seconds,
+                        "max_uses": item.max_uses,
+                        "max_payload_bytes": item.max_payload_bytes,
+                        "status": item.status,
+                        "request_version": item.request_version,
+                        "capability_availability": item.capability_availability,
+                        "resolution_reason_code": item.resolution_reason_code,
+                        "created_at": Instant(item.created_at).to_wire(),
+                        "status_changed_at": Instant(item.status_changed_at).to_wire(),
                         **(
                             {
                                 "effective_grant": {
-                                    **cast(
-                                        dict[str, object],
-                                        item["effective_grant"],
-                                    ),
+                                    "scope_kind": item.effective_grant.scope_kind,
+                                    "grant_ref": str(item.effective_grant.grant_ref),
+                                    "status": item.effective_grant.status,
+                                    "max_uses": item.effective_grant.max_uses,
+                                    "consumed_uses": item.effective_grant.consumed_uses,
+                                    "remaining_uses": item.effective_grant.remaining_uses,
+                                    "max_payload_bytes": item.effective_grant.max_payload_bytes,
+                                    "workspace_scope": item.effective_grant.workspace_scope,
+                                    "artifact_scope": item.effective_grant.artifact_scope,
+                                    "network_access": item.effective_grant.network_access,
                                     "valid_from": Instant(
-                                        cast(
-                                            datetime,
-                                            cast(
-                                                dict[str, object],
-                                                item["effective_grant"],
-                                            )["valid_from"],
-                                        )
+                                        item.effective_grant.valid_from
                                     ).to_wire(),
                                     "valid_until": Instant(
-                                        cast(
-                                            datetime,
-                                            cast(
-                                                dict[str, object],
-                                                item["effective_grant"],
-                                            )["valid_until"],
-                                        )
+                                        item.effective_grant.valid_until
                                     ).to_wire(),
                                     **(
                                         {
                                             "ended_at": Instant(
-                                                cast(
-                                                    datetime,
-                                                    cast(
-                                                        dict[str, object],
-                                                        item["effective_grant"],
-                                                    )["ended_at"],
-                                                )
+                                                item.effective_grant.ended_at
                                             ).to_wire()
                                         }
-                                        if cast(
-                                            dict[str, object],
-                                            item["effective_grant"],
-                                        ).get("ended_at")
-                                        is not None
+                                        if item.effective_grant.ended_at is not None
                                         else {}
                                     ),
                                 }
                             }
-                            if item.get("effective_grant") is not None
+                            if item.effective_grant is not None
                             else {}
                         ),
                     }
                 )
-                for item in raw_items
+                for item in page.items
             ],
-            next_cursor=cast(str | None, page["next_cursor"]),
+            next_cursor=page.next_cursor,
         )
         return JSONResponse(content=response.model_dump(mode="json", exclude_none=True))
 
@@ -2295,7 +2303,7 @@ def create_runtime_app(
             try:
                 await creator_events.notify(
                     CreatorProjectionInvalidation(
-                        CreatorEventResourceKind.CAPABILITY_REQUEST,
+                        CreatorResourceKind("capability_request"),
                         str(result.request_id.value),
                         Instant(datetime.now(UTC)),
                         "capability-request.v4",
@@ -2642,7 +2650,7 @@ def create_runtime_app(
             try:
                 await creator_events.notify(
                     CreatorProjectionInvalidation(
-                        CreatorEventResourceKind.OPERATION,
+                        CreatorResourceKind("operation"),
                         str(acceptance.opportunity_id),
                         Instant(datetime.now(UTC)),
                         "creator-operation.v2",
@@ -2731,7 +2739,7 @@ def create_runtime_app(
             items=[
                 LifeRecordItemResponse(
                     record_ref=str(item.record_ref),
-                    record_kind=item.record_kind.value,
+                    record_kind=cast(LifeRecordKindValue, str(item.record_kind)),
                     summary=item.summary,
                     source_kind=item.source_kind,
                     occurred_at=item.occurred_at.to_wire(),
@@ -4031,7 +4039,7 @@ def create_runtime_app(
             try:
                 await creator_events.notify(
                     CreatorProjectionInvalidation(
-                        CreatorEventResourceKind.OPERATION,
+                        CreatorResourceKind("operation"),
                         str(acceptance.opportunity_id),
                         Instant(datetime.now(UTC)),
                         "creator-operation.v2",
@@ -4151,7 +4159,7 @@ def create_runtime_app(
             else:
                 status, content = 404, _rejected("SCOPE_OPERATION_NOT_VISIBLE")
             return JSONResponse(status_code=status, content=content)
-        return JSONResponse(content=_operation_wire(operation))
+        return JSONResponse(content=operation_wire(operation))
 
     del get_creator_operation
 
@@ -4267,7 +4275,7 @@ def create_runtime_app(
                 creator_party_id=metadata.creator_party_id,
                 kind=kind,
             )
-            content, media_type = _creator_visible_codex_artifact(
+            content, media_type = creator_visible_codex_artifact(
                 kind,
                 artifact.content,
                 artifact.media_type,

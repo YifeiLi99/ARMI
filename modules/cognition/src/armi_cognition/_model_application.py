@@ -8,9 +8,10 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 from uuid import uuid7
 
+import rfc8785
 from armi_artifact_store.content_store import (
     ContentAddressedArtifactStore,
 )
@@ -28,6 +29,7 @@ from armi_kernel.application import (
     AuditSensitivity,
     DurableWorkPort,
     ModelAttemptId,
+    ModelBinding,
     ModelInvocationResult,
     ModelRequest,
     ModelResultStatus,
@@ -81,8 +83,10 @@ from ._other_human_contract import (
 )
 from .api import (
     CognitionArtifactCatalogPort,
+    CognitionCandidateParser,
     CognitionModelAdapterFactory,
     CognitionModelPort,
+    CognitionSchemaDocument,
     CognitionWakeupPort,
 )
 
@@ -334,31 +338,49 @@ class ModelPipeline:
                 expected_version=MAINTENANCE_WORK_CANDIDATE_VERSION,
             )
 
+        def build_adapter(
+            *,
+            binding: ModelBinding,
+            candidate_schema: dict[str, Any],
+            candidate_parser: CognitionCandidateParser,
+            instructions: str | None = None,
+            schema_name: str | None = None,
+        ) -> CognitionModelPort:
+            return adapter_factory(
+                binding=binding,
+                candidate_schema=CognitionSchemaDocument(
+                    rfc8785.dumps(cast(Any, candidate_schema))
+                ),
+                candidate_parser=candidate_parser,
+                instructions=instructions,
+                schema_name=schema_name,
+            )
+
         self._factory = factory
         self._storage = storage
         self._adapters = {
-            "consider_web_evidence": adapter_factory(
+            "consider_web_evidence": build_adapter(
                 binding=web_evidence_binding,
                 candidate_schema=candidate_schema(
                     web_evidence_binding.response_contract_version
                 ),
                 candidate_parser=parse_candidate,
             ),
-            "consider_codex_task": adapter_factory(
+            "consider_codex_task": build_adapter(
                 binding=codex_task_binding,
                 candidate_schema=candidate_schema(
                     codex_task_binding.response_contract_version
                 ),
                 candidate_parser=parse_candidate,
             ),
-            "consider_codex_result": adapter_factory(
+            "consider_codex_result": build_adapter(
                 binding=codex_result_binding,
                 candidate_schema=candidate_schema(
                     codex_result_binding.response_contract_version
                 ),
                 candidate_parser=parse_candidate,
             ),
-            "consider_creator_input": adapter_factory(
+            "consider_creator_input": build_adapter(
                 binding=dialogue_binding,
                 candidate_schema=dialogue_model_output_schema(
                     web_search=web_search_active
@@ -375,7 +397,7 @@ class ModelPipeline:
                     else "armi_creator_dialogue_model_output_v1"
                 ),
             ),
-            "consider_life_query_result": adapter_factory(
+            "consider_life_query_result": build_adapter(
                 binding=life_query_result_binding,
                 candidate_schema=dialogue_model_output_schema(
                     web_search=web_search_active
@@ -392,14 +414,14 @@ class ModelPipeline:
                     else "armi_creator_dialogue_model_output_v1"
                 ),
             ),
-            "consider_creator_outreach": adapter_factory(
+            "consider_creator_outreach": build_adapter(
                 binding=outreach_binding,
                 candidate_schema=candidate_schema(DIALOGUE_CANDIDATE_VERSION),
                 candidate_parser=parse_outreach,
                 instructions=CREATOR_OUTREACH_INSTRUCTIONS,
                 schema_name="armi_creator_outreach_candidate_v1",
             ),
-            "consider_other_human_input": adapter_factory(
+            "consider_other_human_input": build_adapter(
                 binding=other_human_binding,
                 candidate_schema=candidate_schema(
                     OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION
@@ -408,7 +430,7 @@ class ModelPipeline:
                 instructions=OTHER_HUMAN_DIALOGUE_INSTRUCTIONS,
                 schema_name="armi_other_human_dialogue_candidate_v1",
             ),
-            "consider_autonomous_life": adapter_factory(
+            "consider_autonomous_life": build_adapter(
                 binding=autonomous_binding,
                 candidate_schema=candidate_schema(
                     autonomous_binding.response_contract_version
@@ -417,7 +439,7 @@ class ModelPipeline:
                 instructions=AUTONOMOUS_ACTIVITY_INSTRUCTIONS,
                 schema_name="armi_autonomous_activity_candidate_v1",
             ),
-            "consider_activity_attention": adapter_factory(
+            "consider_activity_attention": build_adapter(
                 binding=attention_binding,
                 candidate_schema=candidate_schema(
                     attention_binding.response_contract_version
@@ -426,7 +448,7 @@ class ModelPipeline:
                 instructions=ACTIVITY_ATTENTION_INSTRUCTIONS,
                 schema_name="armi_activity_attention_candidate_v2",
             ),
-            "consider_activity_internal_work": adapter_factory(
+            "consider_activity_internal_work": build_adapter(
                 binding=internal_work_binding,
                 candidate_schema=candidate_schema(
                     internal_work_binding.response_contract_version
@@ -435,7 +457,7 @@ class ModelPipeline:
                 instructions=ACTIVITY_INTERNAL_WORK_INSTRUCTIONS,
                 schema_name="armi_activity_internal_work_candidate_v1",
             ),
-            "consider_sleep": adapter_factory(
+            "consider_sleep": build_adapter(
                 binding=sleep_binding,
                 candidate_schema=candidate_schema(
                     sleep_binding.response_contract_version
@@ -444,7 +466,7 @@ class ModelPipeline:
                 instructions=SLEEP_DECISION_INSTRUCTIONS,
                 schema_name="armi_sleep_decision_candidate_v1",
             ),
-            "maintain_subjective_memory": adapter_factory(
+            "maintain_subjective_memory": build_adapter(
                 binding=memory_maintenance_binding,
                 candidate_schema=candidate_schema(
                     memory_maintenance_binding.response_contract_version
@@ -453,7 +475,7 @@ class ModelPipeline:
                 instructions=MEMORY_MAINTENANCE_INSTRUCTIONS,
                 schema_name="armi_maintenance_work_candidate_v1",
             ),
-            "perform_subject_self_check": adapter_factory(
+            "perform_subject_self_check": build_adapter(
                 binding=self_check_binding,
                 candidate_schema=candidate_schema(
                     self_check_binding.response_contract_version

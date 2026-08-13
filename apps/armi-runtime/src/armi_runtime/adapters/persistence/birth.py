@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import cast
 from uuid import UUID, uuid7
 
 import psycopg
@@ -15,6 +16,10 @@ from armi_prompt.api import (
     PromptBirthPort,
     PromptViolation,
     probe_prompt_continuity,
+)
+from armi_runtime_foundation import (
+    PostgreSQLAdminParameter,
+    PostgreSQLAdminResult,
 )
 from armi_subject_state.api import SubjectStateBirthPort
 
@@ -31,6 +36,7 @@ def probe_continuity(
     conninfo: str,
     *,
     birth_contract_digest: Digest,
+    interaction: InteractionBirthPort,
 ) -> ContinuityState:
     try:
         with psycopg.connect(conninfo, autocommit=True) as connection:
@@ -45,22 +51,10 @@ def probe_continuity(
                           AND life_generation_id = subject.current_generation_id
                           AND generation_no = 1 AND status = 'active'
                     ),
-                    (
-                        SELECT count(*) FROM armi.parties
-                        WHERE represented_subject_id = subject.subject_id
-                           OR creator_role = 'unique_primary_creator'
-                    ),
                     0::bigint,
                     0::bigint,
-                    (
-                        SELECT count(*) FROM armi.interaction_scenes
-                        WHERE subject_id = subject.subject_id
-                          AND scene_key = 'default'
-                          AND scene_kind = 'creator_dialogue'
-                          AND audience_scope = 'creator'
-                          AND current_status = 'open'
-                          AND closed_at IS NULL
-                    )
+                    0::bigint,
+                    0::bigint
                 FROM armi.subjects AS subject
                 JOIN armi.runtime_bundle_activations AS activation
                   ON activation.bundle_activation_id =
@@ -74,21 +68,27 @@ def probe_continuity(
                     SELECT
                         (SELECT count(*) FROM armi.life_generations)
                       + (SELECT count(*) FROM armi.runtime_bundle_activations)
-                      + (SELECT count(*) FROM armi.parties)
                       + 0
-                      + (SELECT count(*) FROM armi.interaction_scenes)
-                      + (SELECT count(*) FROM armi.scene_timeline_items)
                     """
                 ).fetchone()
+                interaction_counts = interaction.continuity(
+                    _BirthAdminTransaction(connection), subject_id=None
+                )
                 prompt_counts = probe_prompt_continuity(conninfo, subject_id=None)
                 return (
                     ContinuityState.UNBORN
                     if counts is not None
                     and counts[0] == 0
+                    and interaction_counts.party_count == 0
+                    and interaction_counts.default_scene_count == 0
+                    and interaction_counts.timeline_count == 0
                     and prompt_counts.document_count == 0
                     and prompt_counts.revision_count == 0
                     else ContinuityState.INVALID
                 )
+            interaction_counts = interaction.continuity(
+                _BirthAdminTransaction(connection), subject_id=rows[0][0]
+            )
     except psycopg.Error, PromptViolation:
         return ContinuityState.INVALID
     if len(rows) != 1:
@@ -102,13 +102,34 @@ def probe_continuity(
         return ContinuityState.INVALID
     counts = tuple(int(value) for value in row[2:])
     if (
-        counts[0:2] != (1, 2)
+        counts[0] != 1
+        or interaction_counts.party_count != 2
         or prompt_counts.document_count != 3
         or prompt_counts.revision_count < 1
-        or counts[4] != 1
+        or interaction_counts.default_scene_count != 1
     ):
         return ContinuityState.INVALID
     return ContinuityState.BORN
+
+
+class _BirthAdminTransaction:
+    __slots__ = ("_connection",)
+
+    def __init__(self, connection: psycopg.Connection[tuple[object, ...]]) -> None:
+        self._connection = connection
+
+    def execute(
+        self,
+        statement: str,
+        parameters: tuple[PostgreSQLAdminParameter, ...] = (),
+    ) -> PostgreSQLAdminResult[tuple[object, ...]]:
+        return cast(
+            PostgreSQLAdminResult[tuple[object, ...]],
+            self._connection.execute(  # pyright: ignore[reportArgumentType]
+                statement,  # pyright: ignore[reportArgumentType]
+                parameters,
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)

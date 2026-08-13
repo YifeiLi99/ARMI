@@ -30,15 +30,17 @@ from ._scenes_postgresql import CreatorSceneRepository
 
 
 class CreatorSceneService(CreatorScenePort):
-    __slots__ = ("_creator_party_id", "_factory", "_repository")
+    __slots__ = ("_creator_party_id", "_factory", "_repository", "_subject_id")
 
     def __init__(
         self,
         *,
+        subject_id: UUID,
         creator_party_id: UUID,
         factory: PostgreSQLRuntimeUnitOfWorkFactory,
         repository: CreatorSceneRepository,
     ) -> None:
+        self._subject_id = subject_id
         self._creator_party_id = creator_party_id
         self._factory = factory
         self._repository = repository
@@ -54,6 +56,7 @@ class CreatorSceneService(CreatorScenePort):
             async with self._factory.unit_of_work(read_only=True) as unit_of_work:
                 return await self._repository.list(
                     unit_of_work,
+                    subject_id=self._subject_id,
                     creator_party_id=self._creator_party_id,
                 )
         except SceneQueryViolation:
@@ -64,14 +67,10 @@ class CreatorSceneService(CreatorScenePort):
     async def create(self, command: CreatorSceneCreateCommand) -> CreatorSceneView:
         try:
             async with self._factory.unit_of_work() as unit_of_work:
-                subject_id = await self._repository.subject_id(
-                    unit_of_work,
-                    creator_party_id=self._creator_party_id,
-                )
                 created = await self._repository.create(
                     unit_of_work,
                     scene_id=uuid7(),
-                    subject_id=subject_id,
+                    subject_id=self._subject_id,
                     creator_party_id=self._creator_party_id,
                     scene_key=command.scene_key,
                 )
@@ -80,7 +79,7 @@ class CreatorSceneService(CreatorScenePort):
                         operation="creator.scene.created",
                         view=created,
                         creator_party_id=self._creator_party_id,
-                        subject_id=subject_id,
+                        subject_id=self._subject_id,
                         trace_id=command.trace_id,
                     )
                 )
@@ -105,6 +104,7 @@ class CreatorSceneService(CreatorScenePort):
             async with self._factory.unit_of_work() as unit_of_work:
                 subject_id, changed, applied = await self._repository.set_status(
                     unit_of_work,
+                    subject_id=self._subject_id,
                     creator_party_id=self._creator_party_id,
                     scene_key=command.scene_key,
                     target_status=command.target_status,

@@ -35,6 +35,7 @@ from .api import (
     MemoryAccessibility,
     MemoryCandidateSourceRef,
     MemoryContextItem,
+    MemoryExperienceSource,
     MemoryLifeRecordItem,
     MemoryProjectionSource,
     MemoryRelationKind,
@@ -243,9 +244,10 @@ class PostgreSQLMemoryOwner:
                 JOIN armi.subjective_memory_revisions AS revision
                   ON revision.memory_revision_id=memory.current_revision_id
                 WHERE memory.subject_id=%s
-                  AND (%s::text IS NULL OR revision.summary ILIKE '%%' || %s || '%%')
+                  AND (%s::text IS NULL OR revision.summary ILIKE '%%' || %s::text || '%%')
                   AND (%s::timestamptz IS NULL OR
-                       (revision.created_at, 'memory'::text, memory.memory_id) < (%s,%s,%s))
+                       (revision.created_at, 'memory'::text, memory.memory_id)
+                           < (%s::timestamptz,%s::text,%s::uuid))
                 ORDER BY revision.created_at DESC, memory.memory_id DESC LIMIT %s
                 """,
                 (
@@ -477,12 +479,19 @@ class PostgreSQLMemoryOwner:
         commit_id: UUID,
         validation_id: UUID,
         drafts: tuple[CandidateMemoryDraft | CandidateMemoryRevisionDraft, ...],
-        experience_ids: dict[str, UUID],
+        experience_sources: tuple[MemoryExperienceSource, ...],
     ) -> tuple[UUID, ...]:
         affected: list[UUID] = []
         for value in self._memory_drafts(drafts):
             if isinstance(value, CandidateMemoryDraft):
-                source = experience_ids.get(value.source_experience_ref)
+                source = next(
+                    (
+                        item
+                        for item in experience_sources
+                        if item.proposal_ref == value.source_experience_ref
+                    ),
+                    None,
+                )
                 if source is None:
                     raise MemoryViolation("MEMORY-SOURCE")
                 memory_id, revision_id = uuid7(), uuid7()
@@ -499,23 +508,21 @@ class PostgreSQLMemoryOwner:
                         source_experience_id,source_kind,source_fact_class,summary,
                         uncertainty,revision_kind,accessibility,mechanism_identity,
                         mechanism_config_identity,privacy_scope)
-                       SELECT %s,%s,1,NULL,%s,%s,%s,%s,%s,%s,%s,
-                              experience.uncertainty,'formed','available',%s,
-                              'formation-v1','private'
-                       FROM armi.accepted_experiences AS experience
-                       WHERE experience.experience_id=%s""",
+                       VALUES (%s,%s,1,NULL,%s,%s,%s,%s,%s,%s,%s,%s,
+                               'formed','available',%s,
+                               'formation-v1','private')""",
                     (
                         revision_id,
                         memory_id,
                         commit_id,
                         validation_id,
                         value.proposal_ref,
-                        source,
+                        source.experience_id,
                         value.source_kind.value,
                         value.fact_class.value,
                         value.summary,
+                        source.uncertainty,
                         value.mechanism_identity,
-                        source,
                     ),
                 )
                 affected.append(memory_id)

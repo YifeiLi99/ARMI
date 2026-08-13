@@ -25,15 +25,24 @@ from armi_runtime_foundation import (
 )
 
 from ._admin import PostgreSQLCodexAdmin
-from ._application import CodexEffectPipeline
-from ._codec import decode_task, encode_result
+from ._application import CodexEffectPipeline, CodexTaskSourceGateway
+from ._codec import decode_result, decode_task, encode_result, encode_task
 from ._commit import PostgreSQLCodexCommit
 from ._custody_codec import encode_custodied_result
 from ._data_rights import PostgreSQLCodexDataRightsParticipant
 from ._read_postgresql import PostgreSQLCodexReadOwner
 from ._recovery import CodexRecoveryParticipant
-from ._runner import IsolatedCodexRunner
+from ._runner import (
+    IsolatedCodexRunner,
+    owner_only,
+    runner_config,
+    sanitize_platform_home,
+    validate_platform_home,
+    write_platform_state,
+)
 from ._timeline_projection import CodexTaskTimelineProjection
+from ._windows_job import WindowsJob
+from ._workspace import snapshot_tree
 from .api import (
     CodexAdminPort,
     CodexArtifactReadPort,
@@ -48,6 +57,9 @@ from .api import (
 
 def bootstrap_codex_admin() -> CodexAdminPort:
     return PostgreSQLCodexAdmin()
+
+
+compose_codex_task_source_gateway = CodexTaskSourceGateway
 
 
 Diagnostic = Callable[[str], None]
@@ -136,6 +148,10 @@ def bootstrap_codex_runner(
 decode_runner_task = decode_task
 encode_runner_result = encode_result
 encode_custodied_runner_result = encode_custodied_result
+decode_runner_result = decode_result
+encode_runner_task = encode_task
+RunnerWindowsJob = WindowsJob
+snapshot_runner_workspace = snapshot_tree
 
 
 def bootstrap_codex_data_rights() -> DataRightsParticipant:
@@ -148,6 +164,7 @@ def bootstrap_codex_recovery() -> RecoveryParticipant:
 
 __all__ = (
     "CodexReadPorts",
+    "RunnerWindowsJob",
     "bootstrap_codex",
     "bootstrap_codex_admin",
     "bootstrap_codex_commit",
@@ -156,7 +173,16 @@ __all__ = (
     "bootstrap_codex_recovery",
     "bootstrap_codex_runner",
     "bootstrap_codex_timeline_projection",
+    "compose_codex_task_source_gateway",
+    "decode_runner_result",
     "decode_runner_task",
     "encode_custodied_runner_result",
     "encode_runner_result",
+    "encode_runner_task",
+    "owner_only",
+    "runner_config",
+    "sanitize_platform_home",
+    "snapshot_runner_workspace",
+    "validate_platform_home",
+    "write_platform_state",
 )

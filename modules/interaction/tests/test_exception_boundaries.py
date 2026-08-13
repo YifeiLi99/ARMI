@@ -17,11 +17,11 @@ from armi_kernel.application import (
     StagedArtifact,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, TraceId
-from armi_runtime.adapters.transaction_errors import (
-    CommitState,
-    DatabaseFailureKind,
-    DatabaseTransactionError,
-)
+from armi_runtime_foundation import RuntimeTransactionFailure
+
+
+class _TransactionFailure(RuntimeTransactionFailure):
+    code = "DB-TX-POOL-TIMEOUT"
 
 
 class _StagingStorage:
@@ -64,12 +64,7 @@ async def test_creator_input_lookup_failure_discards_stage_without_publish(
         _context: CreatorInputContext,
         _request_digest: Digest,
     ) -> None:
-        raise DatabaseTransactionError(
-            "DB-TX-POOL-TIMEOUT",
-            DatabaseFailureKind.DEPENDENCY,
-            False,
-            CommitState.NOT_STARTED,
-        )
+        raise _TransactionFailure("database unavailable")
 
     monkeypatch.setattr(EvidenceAcceptanceTransaction, "_read_context", read_context)
     monkeypatch.setattr(EvidenceAcceptanceTransaction, "_read_existing", fail_lookup)

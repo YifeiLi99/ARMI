@@ -32,8 +32,19 @@ class ArtifactAdminSnapshot:
     integrity_status: ArtifactIntegrityStatus
 
 
+@dataclass(frozen=True, slots=True)
+class ArtifactBackupSnapshot:
+    artifact_id: UUID
+    content_digest: str
+    byte_size: int
+    storage_locator: str
+
+
 @runtime_checkable
 class ArtifactAdminPort(Protocol):
+    def retained_verified(
+        self, transaction: PostgreSQLAdminTransaction
+    ) -> tuple[ArtifactBackupSnapshot, ...]: ...
     def snapshot(
         self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
     ) -> ArtifactAdminSnapshot | None: ...
@@ -48,6 +59,10 @@ class ArtifactAdminPort(Protocol):
 
 @runtime_checkable
 class ArtifactCatalogPort(Protocol):
+    async def observation(
+        self, transaction: PostgreSQLTransaction
+    ) -> tuple[tuple[tuple[str, int], ...], int]: ...
+
     async def register(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
@@ -95,4 +110,9 @@ class ArtifactCatalogPort(Protocol):
     ) -> bool: ...
 
 
-__all__ = ("ArtifactAdminPort", "ArtifactAdminSnapshot", "ArtifactCatalogPort")
+__all__ = (
+    "ArtifactAdminPort",
+    "ArtifactAdminSnapshot",
+    "ArtifactBackupSnapshot",
+    "ArtifactCatalogPort",
+)

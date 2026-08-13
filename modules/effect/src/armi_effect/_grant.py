@@ -59,7 +59,7 @@ class PostgreSQLEffectGrantCancellation:
                 FROM armi.effects AS effect
                 JOIN armi.effect_outbox_items AS outbox
                   ON outbox.effect_id=effect.effect_id
-                WHERE effect.policy_decision_id=ANY(%s)
+                WHERE effect.policy_decision_id=ANY(%s::uuid[])
                   AND effect.status='registered' AND outbox.status='ready'
                 ORDER BY effect.effect_id
                 FOR UPDATE OF effect, outbox

@@ -14,7 +14,6 @@ from uuid import UUID, uuid7
 import pytest
 import rfc8785
 from armi_activity.api import ActivityStatus
-from armi_activity.bootstrap import bootstrap_activity_cognition
 from armi_capability.api import CodexDelegatedWorkScope, CreatorSceneReplyScope
 from armi_codex.api import CodexDelegationDraft
 from armi_cognition._candidate_postgresql import (
@@ -28,6 +27,7 @@ from armi_cognition._change_set_codec import (
 from armi_cognition._other_human_contract import (
     OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
 )
+from armi_cognition._owners import CandidateOwner
 from armi_cognition._validator import (
     CandidateLifeMaterialContext,
     CandidateMemoryContext,
@@ -50,7 +50,6 @@ from armi_expression.api import (
 from armi_kernel.application import (
     CandidateBasis,
     CandidateFactClass,
-    CandidateOwner,
     CandidateOwnerDraft,
     LifeRecordKind,
     SubjectCommitViolation,
@@ -64,17 +63,12 @@ from armi_material.api import (
     LifeMaterialRevisionKind,
     LifeMaterialStatus,
 )
-from armi_material.bootstrap import bootstrap_material_cognition
 from armi_memory.api import (
     MemoryAccessibility,
     MemoryRelationKind,
     MemoryRevisionKind,
     MemorySourceKind,
 )
-from armi_memory.bootstrap import bootstrap_memory_cognition
-from armi_mood.bootstrap import bootstrap_mood_cognition
-from armi_prompt.bootstrap import bootstrap_prompt_cognition
-from armi_relationship._application import RelationshipApplication
 from armi_relationship.api import (
     RelationshipBoundary,
     RelationshipBoundaryAction,
@@ -88,15 +82,23 @@ from armi_relationship.api import (
     RelationshipPartyRole,
     RelationshipStatus,
 )
+from armi_runtime.composition.candidate_validation_tool import (
+    bootstrap_activity_cognition,
+    bootstrap_material_cognition,
+    bootstrap_memory_cognition,
+    bootstrap_mood_cognition,
+    bootstrap_prompt_cognition,
+    bootstrap_relationship_cognition,
+    bootstrap_sleep_cognition,
+    bootstrap_subject_state_cognition,
+)
 from armi_sleep.api import (
     MaintenancePhase,
     MaintenanceWorkOutcome,
 )
-from armi_sleep.bootstrap import bootstrap_sleep_cognition
 from armi_subject_state.api import (
     SubjectStateKind,
 )
-from armi_subject_state.bootstrap import bootstrap_subject_state_cognition
 
 
 def DeterministicCandidateValidator(
@@ -109,7 +111,7 @@ def DeterministicCandidateValidator(
         memory_cognition=bootstrap_memory_cognition(),
         mood_cognition=bootstrap_mood_cognition(),
         prompt_cognition=bootstrap_prompt_cognition(),
-        relationship_cognition=RelationshipApplication(),
+        relationship_cognition=bootstrap_relationship_cognition(),
         sleep_cognition=bootstrap_sleep_cognition(),
         subject_state_cognition=bootstrap_subject_state_cognition(),
     )
@@ -118,7 +120,7 @@ def DeterministicCandidateValidator(
 def parse_subject_change_set(value: bytes) -> Any:
     return _parse_subject_change_set(
         value,
-        RelationshipApplication(),
+        bootstrap_relationship_cognition(),
         bootstrap_memory_cognition(),
         bootstrap_sleep_cognition(),
         bootstrap_activity_cognition(),
@@ -130,7 +132,7 @@ def parse_subject_change_set(value: bytes) -> Any:
 
 
 def _relationships(change_set: Any) -> tuple[Any, ...]:
-    application = RelationshipApplication()
+    application = bootstrap_relationship_cognition()
     return tuple(
         application.decode_change_set(item.canonical_payload)
         for item in change_set.owner_drafts
@@ -1825,7 +1827,7 @@ def test_compact_dialogue_exact_life_query_is_typed_and_rejects_audit_scope() ->
     assert b"armi.subject-change-set.v29" in first.change_set.canonical_bytes
     assert len(first.change_set.exact_life_queries) == 1
     query = first.change_set.exact_life_queries[0]
-    assert query.record_kind is LifeRecordKind.MEMORY
+    assert query.record_kind == LifeRecordKind("memory")
     assert query.query_text == candidate["query_text"]
     assert query.limit == 20
     assert (

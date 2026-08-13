@@ -33,7 +33,7 @@ class PostgreSQLInteractionPerception:
                    FROM armi.party_input_interactions
                    WHERE interaction_id=ANY(%s) AND recognition_status='pending'
                    FOR UPDATE""",
-                (list(interaction_ids),),
+                (interaction_ids,),
             )
         ).fetchall()
         recovered: list[ExternalRecognitionRecovery] = []

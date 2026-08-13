@@ -15,9 +15,9 @@ from armi_expression.api import ExpressionEffectLinkPort, ExpressionIntentReadPo
 from armi_interaction.api import InteractionEffectRoutePort
 from armi_kernel.application import (
     ArtifactViolation,
-    CreatorEventResourceKind,
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
+    CreatorResourceKind,
     DurableWorkPort,
     WorkLease,
     WorkRecord,
@@ -387,7 +387,7 @@ class EffectRegistrationPipeline:
     ) -> None:
         invalidations = [
             (
-                CreatorEventResourceKind.OPERATION,
+                CreatorResourceKind("operation"),
                 str(snapshot.operation_ref),
                 "creator-operation.v2",
             )
@@ -395,7 +395,7 @@ class EffectRegistrationPipeline:
         if result is not None:
             invalidations.append(
                 (
-                    CreatorEventResourceKind.EFFECT,
+                    CreatorResourceKind("effect"),
                     str(result.effect_id.value),
                     "creator-effect.v3",
                 )
@@ -423,12 +423,12 @@ class EffectRegistrationPipeline:
             return
         invalidations = [
             (
-                CreatorEventResourceKind.EFFECT,
+                CreatorResourceKind("effect"),
                 str(snapshot.request.effect_id.value),
                 "creator-effect.v3",
             ),
             (
-                CreatorEventResourceKind.OPERATION,
+                CreatorResourceKind("operation"),
                 str(intent.operation_ref),
                 "creator-operation.v2",
             ),
@@ -437,7 +437,7 @@ class EffectRegistrationPipeline:
             invalidations.insert(
                 0,
                 (
-                    CreatorEventResourceKind.SCENE_TIMELINE,
+                    CreatorResourceKind("scene_timeline"),
                     snapshot.scene_key,
                     "scene-timeline.v5",
                 ),
@@ -446,7 +446,7 @@ class EffectRegistrationPipeline:
 
     async def _notify(
         self,
-        invalidations: list[tuple[CreatorEventResourceKind, str, str]],
+        invalidations: list[tuple[CreatorResourceKind, str, str]],
     ) -> None:
         if self._notifier is None:
             return

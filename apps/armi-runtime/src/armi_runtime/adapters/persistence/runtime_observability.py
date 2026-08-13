@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import LiteralString
 
+from armi_artifact_store.api import ArtifactCatalogPort
+from armi_effect.api import EffectObservationPort
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
     PostgreSQLTransaction,
@@ -16,9 +18,6 @@ _COUNT_QUERIES: dict[str, LiteralString] = {
     "armi.durable_work": (
         "SELECT status, count(*) FROM armi.durable_work GROUP BY status ORDER BY status"
     ),
-    "armi.effects": (
-        "SELECT status, count(*) FROM armi.effects GROUP BY status ORDER BY status"
-    ),
 }
 _AGE_QUERIES: dict[tuple[str, str, str], LiteralString] = {
     (
@@ -28,15 +27,6 @@ _AGE_QUERIES: dict[tuple[str, str, str], LiteralString] = {
     ): (
         "SELECT EXTRACT(EPOCH FROM (clock_timestamp() - min(created_at))) "
         "FROM armi.durable_work WHERE status IN ('ready', 'leased')"
-    ),
-    (
-        "armi.effects",
-        "status IN ('registered', 'dispatching', 'unknown')",
-        "registered_at",
-    ): (
-        "SELECT EXTRACT(EPOCH FROM (clock_timestamp() - min(registered_at))) "
-        "FROM armi.effects "
-        "WHERE status IN ('registered', 'dispatching', 'unknown')"
     ),
 }
 
@@ -61,13 +51,18 @@ class DatabaseObservation:
 class PostgreSQLRuntimeObservation:
     """Own one read-only diagnostic connection without write authority."""
 
-    __slots__ = ("_factory",)
+    __slots__ = ("_artifacts", "_effects", "_factory")
 
     def __init__(
         self,
         factory: PostgreSQLRuntimeUnitOfWorkFactory,
+        *,
+        effects: EffectObservationPort,
+        artifacts: ArtifactCatalogPort,
     ) -> None:
         self._factory = factory
+        self._effects = effects
+        self._artifacts = artifacts
 
     async def open(self) -> None:
         return None
@@ -86,13 +81,7 @@ class PostgreSQLRuntimeObservation:
                     "status IN ('ready', 'leased')",
                     "created_at",
                 )
-                effect_counts = await _counts(connection, "armi.effects")
-                effect_age = await _oldest_age(
-                    connection,
-                    "armi.effects",
-                    "status IN ('registered', 'dispatching', 'unknown')",
-                    "registered_at",
-                )
+                effect = await self._effects.observe(connection)
                 runtime_row = await (
                     await connection.execute(
                         """
@@ -105,17 +94,9 @@ class PostgreSQLRuntimeObservation:
                             """
                     )
                 ).fetchone()
-                artifact_rows = await (
-                    await connection.execute(
-                        """
-                            SELECT integrity_status, count(*),
-                                   COALESCE(sum(byte_size), 0)
-                            FROM armi.artifacts
-                            GROUP BY integrity_status
-                            ORDER BY integrity_status
-                            """
-                    )
-                ).fetchall()
+                artifact_counts, artifact_bytes = await self._artifacts.observation(
+                    connection
+                )
                 database_row = await (
                     await connection.execute(
                         "SELECT pg_database_size(current_database())"
@@ -130,14 +111,12 @@ class PostgreSQLRuntimeObservation:
         return DatabaseObservation(
             work_counts=work_counts,
             work_oldest_open_seconds=work_age,
-            effect_counts=effect_counts,
-            effect_oldest_open_seconds=effect_age,
+            effect_counts=effect.counts,
+            effect_oldest_open_seconds=effect.oldest_open_seconds,
             active_runtime_count=int(runtime_row[0]),
             runtime_heartbeat_age_seconds=_age(runtime_row[1]),
-            artifact_counts=tuple(
-                (str(status), int(count)) for status, count, _bytes in artifact_rows
-            ),
-            artifact_bytes=sum(int(row[2]) for row in artifact_rows),
+            artifact_counts=artifact_counts,
+            artifact_bytes=artifact_bytes,
             database_bytes=int(database_row[0]),
         )
 

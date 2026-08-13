@@ -83,7 +83,7 @@ class PostgreSQLInteractionContextRead:
                  ON input.interaction_id=item.source_ref
                 AND item.source_kind IN ('creator_input','other_human_input')
                LEFT JOIN armi.parties AS party ON party.party_id=input.source_party_id
-               WHERE item.scene_id=%s AND item.source_kind=ANY(%s)
+               WHERE item.scene_id=%s AND item.source_kind=ANY(%s::text[])
                  AND (%s::timestamptz IS NULL OR (item.occurred_at,item.timeline_item_id)<(%s,%s))
                  AND (%s::timestamptz IS NULL OR item.occurred_at<=%s)
                ORDER BY item.occurred_at DESC, item.timeline_item_id DESC LIMIT %s""",

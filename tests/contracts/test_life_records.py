@@ -32,7 +32,7 @@ def test_subject_exact_query_and_creator_view_are_distinct() -> None:
         actor=LifeRecordActor.SUBJECT,
         retrieval_kind=LifeRecordRetrievalKind.EXACT_QUERY,
         limit=20,
-        record_kind=LifeRecordKind.MEMORY,
+        record_kind=LifeRecordKind("memory"),
         query_text="旧理解",
     )
     creator = LifeRecordQuery(
@@ -61,7 +61,7 @@ def test_exact_query_can_return_a_forgotten_memory_without_changing_its_head() -
     memory_id = uuid7()
     record = LifeRecordItem(
         record_ref=memory_id,
-        record_kind=LifeRecordKind.MEMORY,
+        record_kind=LifeRecordKind("memory"),
         summary="记录仍存在、但当前没有自然想起",
         source_kind="reported",
         occurred_at=_now(),
@@ -88,7 +88,7 @@ def test_exact_query_can_return_a_forgotten_memory_without_changing_its_head() -
     with pytest.raises(LifeRecordQueryViolation, match="CON-LIFE-QUERY-ITEM"):
         LifeRecordItem(
             record_ref=memory_id,
-            record_kind=LifeRecordKind.ACTIVITY,
+            record_kind=LifeRecordKind("activity"),
             summary="活动",
             source_kind="activity_current",
             occurred_at=_now(),
@@ -100,7 +100,7 @@ def test_exact_query_can_return_a_forgotten_memory_without_changing_its_head() -
 def test_exact_query_accepts_current_relationship_understanding() -> None:
     relationship = LifeRecordItem(
         record_ref=uuid7(),
-        record_kind=LifeRecordKind.RELATIONSHIP,
+        record_kind=LifeRecordKind("relationship"),
         summary="我理解我们正在从真实交往中了解彼此。",
         source_kind="relationship_current",
         occurred_at=_now(),
@@ -108,15 +108,15 @@ def test_exact_query_accepts_current_relationship_understanding() -> None:
         retrieval_kind=LifeRecordRetrievalKind.EXACT_QUERY,
     )
 
-    assert LifeRecordPage((relationship,)).items[0].record_kind is (
-        LifeRecordKind.RELATIONSHIP
+    assert LifeRecordPage((relationship,)).items[0].record_kind == (
+        LifeRecordKind("relationship")
     )
 
 
 def test_creator_view_accepts_only_projected_material_summary_shape() -> None:
     material = LifeRecordItem(
         record_ref=uuid7(),
-        record_kind=LifeRecordKind.MATERIAL,
+        record_kind=LifeRecordKind("material"),
         summary="一份由 ARMI 决定对 Creator 可见的日记",
         source_kind="life_material_current",
         occurred_at=_now(),
@@ -125,7 +125,7 @@ def test_creator_view_accepts_only_projected_material_summary_shape() -> None:
     )
 
     page = LifeRecordPage((material,))
-    assert page.items[0].record_kind is LifeRecordKind.MATERIAL
+    assert page.items[0].record_kind == LifeRecordKind("material")
     assert page.projection_version == "life-record-query.v2"
 
 

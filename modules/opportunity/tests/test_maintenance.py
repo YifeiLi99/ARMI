@@ -138,5 +138,5 @@ async def test_checkpoint_publishes_a_creator_maintenance_invalidation() -> None
     notifier = AsyncMock()
     await _coordinator(repository, notifier=notifier).maintain_once()
     invalidation = notifier.notify.await_args.args[0]
-    assert invalidation.resource_kind.value == "maintenance"
+    assert str(invalidation.resource_kind) == "maintenance"
     assert invalidation.resource_ref == str(session_id)

@@ -45,10 +45,12 @@ from .api import (
     InteractionBirthPort,
     InteractionCognitionReadPort,
     InteractionContextReadPort,
+    InteractionCreatorTimelineProjectionPort,
     InteractionDataRightsGate,
     InteractionEffectDeliveryPort,
     InteractionEffectRoutePort,
     InteractionIdentityPort,
+    InteractionOtherHumanReadPort,
     InteractionPerceptionPort,
     InteractionSceneTransitionPort,
     InteractionSubjectCommitPort,
@@ -99,6 +101,10 @@ class InteractionModule:
     effect_routes: InteractionEffectRoutePort
     scene_transitions: InteractionSceneTransitionPort
     identity: InteractionIdentityPort
+    other_human_read: InteractionOtherHumanReadPort
+    context_read: InteractionContextReadPort
+    cognition_read: InteractionCognitionReadPort
+    subject_commit: InteractionSubjectCommitPort
     _timeline: PostgreSQLSceneTimelineQuery
 
     async def open(self) -> None:
@@ -119,10 +125,20 @@ def bootstrap_interaction_action_ports() -> InteractionActionPorts:
     return InteractionActionPorts(owner, owner)
 
 
+# Fixed constructors for the Runtime PostgreSQL integration composition.
+compose_creator_input_repository = CreatorInputRepository
+compose_external_message_input_service = ExternalMessageInputService
+compose_external_message_input_repository = ExternalMessageInputRepository
+compose_other_human_input_repository = OtherHumanInputRepository
+compose_interaction_perception = PostgreSQLInteractionPerception
+compose_scene_timeline_query = PostgreSQLSceneTimelineQuery
+
+
 def bootstrap_interaction(
     unit_of_work_factory: PostgreSQLRuntimeUnitOfWorkFactory,
     *,
     environment_id: UUID,
+    subject_id: UUID,
     creator_party_id: UUID,
     cursor_key: bytes,
     storage: ContentAddressedArtifactStore,
@@ -139,9 +155,10 @@ def bootstrap_interaction(
     diagnostic: Callable[[str], None] | None = None,
     fault_injector: Callable[[str], None] | None = None,
     identity: InteractionIdentityPort,
+    timeline_projections: InteractionCreatorTimelineProjectionPort,
 ) -> InteractionModule:
     creator_repository = CreatorInputRepository(evidence, evidence_read, opportunity)
-    other_repository = OtherHumanInputRepository(evidence, opportunity)
+    other_repository = OtherHumanInputRepository(evidence, evidence_read, opportunity)
     creator_input = EvidenceAcceptanceTransaction(
         creator_party_id=creator_party_id,
         storage=storage,
@@ -156,6 +173,7 @@ def bootstrap_interaction(
         fault_injector=fault_injector,
     )
     creator_scenes = CreatorSceneService(
+        subject_id=subject_id,
         creator_party_id=creator_party_id,
         factory=unit_of_work_factory,
         repository=CreatorSceneRepository(),
@@ -166,6 +184,7 @@ def bootstrap_interaction(
         repository=other_repository,
         unit_of_work_factory=unit_of_work_factory,
         data_rights=data_rights,
+        subject_id=subject_id,
         wakeups=wakeups,
         notifier=notifier,
     )
@@ -177,6 +196,7 @@ def bootstrap_interaction(
         other_inputs=other_repository,
         unit_of_work_factory=unit_of_work_factory,
         data_rights=data_rights,
+        subject_id=subject_id,
         wakeups=wakeups,
         notifier=notifier,
     )
@@ -188,9 +208,11 @@ def bootstrap_interaction(
         storage=storage,
         codex_tasks=codex_task_projection,
         visibility=visibility,
+        projections=timeline_projections,
     )
     perception = PostgreSQLInteractionPerception()
     actions = bootstrap_interaction_action_ports()
+    cognition = PostgreSQLInteractionContextRead()
     return InteractionModule(
         creator_input=creator_input,
         creator_transaction=creator_repository,
@@ -203,6 +225,10 @@ def bootstrap_interaction(
         effect_routes=actions.routes,
         scene_transitions=actions.scenes,
         identity=identity,
+        other_human_read=other_repository,
+        context_read=cognition,
+        cognition_read=cognition,
+        subject_commit=PostgreSQLInteractionSubjectCommit(),
         _timeline=timeline,
     )
 
@@ -228,4 +254,10 @@ __all__ = (
     "bootstrap_interaction_identity",
     "bootstrap_interaction_recovery",
     "bootstrap_interaction_subject_commit",
+    "compose_creator_input_repository",
+    "compose_external_message_input_repository",
+    "compose_external_message_input_service",
+    "compose_interaction_perception",
+    "compose_other_human_input_repository",
+    "compose_scene_timeline_query",
 )

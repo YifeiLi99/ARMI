@@ -2,14 +2,66 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
 from armi_runtime_foundation import PostgreSQLTransaction
 
-from .api import CreatorIdentityContext
+from .api import CreatorIdentityContext, InteractionOutreachScene
 
 
 class PostgreSQLInteractionIdentity:
+    async def outreach_scenes(
+        self, transaction: PostgreSQLTransaction, *, subject_id: UUID
+    ) -> tuple[InteractionOutreachScene, ...]:
+        rows = await (
+            await transaction.execute(
+                """
+                SELECT scene.scene_id, scene.primary_party_id, scene.scene_key,
+                       latest.interaction_id, latest.received_at,
+                       (SELECT max(occurred_at) FROM armi.scene_timeline_items
+                        WHERE scene_id=scene.scene_id
+                          AND source_kind IN ('creator_input','party_response'))
+                FROM armi.interaction_scenes AS scene
+                LEFT JOIN LATERAL (
+                    SELECT interaction_id, received_at
+                    FROM armi.party_input_interactions
+                    WHERE subject_id=scene.subject_id AND scene_id=scene.scene_id
+                      AND source_party_id=scene.primary_party_id
+                    ORDER BY received_at DESC, interaction_id DESC LIMIT 1
+                ) AS latest ON true
+                WHERE scene.subject_id=%s AND scene.current_status='open'
+                  AND scene.scene_kind='creator_dialogue'
+                ORDER BY latest.received_at DESC NULLS LAST,
+                         (scene.scene_key='default') DESC, scene.scene_id
+                """,
+                (subject_id,),
+            )
+        ).fetchall()
+        return tuple(
+            InteractionOutreachScene(
+                row[0], row[1], str(row[2]), row[3], row[4], row[5]
+            )
+            for row in rows
+        )
+
+    async def input_after(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        scene_id: UUID,
+        party_id: UUID,
+        after: datetime,
+    ) -> bool:
+        row = await (
+            await transaction.execute(
+                """SELECT 1 FROM armi.party_input_interactions
+                   WHERE scene_id=%s AND source_party_id=%s AND received_at>%s LIMIT 1""",
+                (scene_id, party_id, after),
+            )
+        ).fetchone()
+        return row is not None
+
     async def creator_party(
         self,
         transaction: PostgreSQLTransaction,

@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
+from typing import cast
 from uuid import UUID, uuid7
 
 from armi_evidence.api import (
     EvidenceDraft,
     EvidenceId,
     EvidencePrivacyScope,
+    EvidenceReadPort,
     EvidenceSourceKind,
     EvidenceWritePort,
 )
@@ -19,7 +23,7 @@ from armi_opportunity.api import (
     OpportunityAdmissionStatus,
     OpportunityPurpose,
 )
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
 
 from ._creator_contract import OpportunityId
 from ._other_human_contract import (
@@ -31,6 +35,11 @@ from ._other_human_contract import (
     OtherHumanSceneView,
 )
 from ._scene_contract import SceneKey, SceneStatus
+from .api import (
+    InteractionOtherHumanPartySnapshot,
+    InteractionOtherHumanSceneSnapshot,
+    InteractionOtherHumanTimelineSource,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,15 +50,163 @@ class OtherHumanInputContext:
 
 
 class OtherHumanInputRepository:
-    __slots__ = ("_evidence", "_opportunity")
+    __slots__ = ("_evidence", "_evidence_read", "_opportunity")
 
     def __init__(
         self,
         evidence: EvidenceWritePort,
+        evidence_read: EvidenceReadPort,
         opportunity: OpportunityAdmissionPort,
     ) -> None:
         self._evidence = evidence
+        self._evidence_read = evidence_read
         self._opportunity = opportunity
+
+    async def list_other_human_parties(
+        self, transaction: PostgreSQLTransaction, *, before_id: UUID | None, limit: int
+    ) -> tuple[InteractionOtherHumanPartySnapshot, ...]:
+        rows = cast(
+            list[tuple[object, ...]],
+            await (
+                await transaction.execute(
+                    """
+                SELECT party.party_id, party.declared_identity_key,
+                       party.display_label, count(DISTINCT scene.scene_id),
+                       count(item.timeline_item_id), max(item.occurred_at)
+                FROM armi.parties AS party
+                JOIN armi.interaction_scenes AS scene
+                  ON scene.primary_party_id = party.party_id
+                 AND scene.scene_kind = 'other_human_dialogue'
+                JOIN armi.scene_timeline_items AS item
+                  ON item.scene_id = scene.scene_id
+                 AND item.source_kind IN ('other_human_input','other_human_response')
+                WHERE party.party_kind = 'other_human'
+                  AND (%s::uuid IS NULL OR party.party_id < %s::uuid)
+                GROUP BY party.party_id, party.declared_identity_key,
+                         party.display_label
+                ORDER BY party.party_id DESC LIMIT %s
+                """,
+                    (before_id, before_id, limit),
+                )
+            ).fetchall(),
+        )
+        return tuple(self._party_snapshot(row) for row in rows)
+
+    async def other_human_party(
+        self, transaction: PostgreSQLTransaction, *, party_id: UUID
+    ) -> InteractionOtherHumanPartySnapshot | None:
+        rows = await self.list_other_human_parties(
+            transaction, before_id=None, limit=10000
+        )
+        return next((item for item in rows if item.party_id == party_id), None)
+
+    async def list_other_human_scenes(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        party_id: UUID,
+        before_id: UUID | None,
+        limit: int,
+    ) -> tuple[InteractionOtherHumanSceneSnapshot, ...]:
+        rows = cast(
+            list[tuple[object, ...]],
+            await (
+                await transaction.execute(
+                    """
+                SELECT scene.scene_id, scene.scene_key, scene.current_status,
+                       count(item.timeline_item_id), max(item.occurred_at)
+                FROM armi.interaction_scenes AS scene
+                JOIN armi.scene_timeline_items AS item
+                  ON item.scene_id = scene.scene_id
+                 AND item.source_kind IN ('other_human_input','other_human_response')
+                WHERE scene.primary_party_id = %s
+                  AND scene.scene_kind = 'other_human_dialogue'
+                  AND (%s::uuid IS NULL OR scene.scene_id < %s::uuid)
+                GROUP BY scene.scene_id, scene.scene_key, scene.current_status
+                ORDER BY scene.scene_id DESC LIMIT %s
+                """,
+                    (party_id, before_id, before_id, limit),
+                )
+            ).fetchall(),
+        )
+        return tuple(
+            InteractionOtherHumanSceneSnapshot(
+                cast(UUID, row[0]),
+                str(row[1]),
+                str(row[2]),
+                cast(int, row[3]),
+                cast(datetime | None, row[4]),
+            )
+            for row in rows
+        )
+
+    async def other_human_scene_exists(
+        self, transaction: PostgreSQLTransaction, *, party_id: UUID, scene_id: UUID
+    ) -> bool:
+        row = await (
+            await transaction.execute(
+                """
+                SELECT 1 FROM armi.interaction_scenes
+                WHERE scene_id = %s AND primary_party_id = %s
+                  AND scene_kind = 'other_human_dialogue'
+                """,
+                (scene_id, party_id),
+            )
+        ).fetchone()
+        return row is not None
+
+    async def other_human_timeline(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        party_id: UUID,
+        scene_id: UUID,
+        before_at: datetime | None,
+        before_id: UUID | None,
+        limit: int,
+    ) -> tuple[InteractionOtherHumanTimelineSource, ...]:
+        rows = cast(
+            list[tuple[object, ...]],
+            await (
+                await transaction.execute(
+                    """
+                SELECT item.timeline_item_id, item.source_kind, item.source_ref,
+                       item.result_status, item.occurred_at
+                FROM armi.scene_timeline_items AS item
+                JOIN armi.interaction_scenes AS scene ON scene.scene_id = item.scene_id
+                WHERE scene.primary_party_id = %s AND scene.scene_id = %s
+                  AND scene.scene_kind = 'other_human_dialogue'
+                  AND item.source_kind IN ('other_human_input','other_human_response')
+                  AND (%s::timestamptz IS NULL OR
+                       (item.occurred_at, item.timeline_item_id) <
+                       (%s::timestamptz, %s::uuid))
+                ORDER BY item.occurred_at DESC, item.timeline_item_id DESC LIMIT %s
+                """,
+                    (party_id, scene_id, before_at, before_at, before_id, limit),
+                )
+            ).fetchall(),
+        )
+        return tuple(
+            InteractionOtherHumanTimelineSource(
+                cast(UUID, row[0]),
+                str(row[1]),
+                cast(UUID, row[2]),
+                str(row[3]),
+                cast(datetime, row[4]),
+            )
+            for row in rows
+        )
+
+    @staticmethod
+    def _party_snapshot(row: Sequence[object]) -> InteractionOtherHumanPartySnapshot:
+        return InteractionOtherHumanPartySnapshot(
+            cast(UUID, row[0]),
+            str(row[1]),
+            str(row[2]),
+            cast(int, row[3]),
+            cast(int, row[4]),
+            cast(datetime | None, row[5]),
+        )
 
     async def register_party(
         self,
@@ -91,6 +248,7 @@ class OtherHumanInputRepository:
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
+        subject_id: UUID,
         party_key: OtherHumanPartyKey,
         scene_key: SceneKey,
         target_status: SceneStatus,
@@ -116,17 +274,15 @@ class OtherHumanInputRepository:
                     primary_party_id, primary_party_kind, audience_scope,
                     current_status
                 )
-                SELECT uuidv7(), subject_id, %s, 'other_human_dialogue',
-                       %s, 'other_human', 'other_human', 'open'
-                FROM armi.subjects
-                WHERE singleton_key = 1 AND status = 'active'
+                VALUES (uuidv7(), %s, %s, 'other_human_dialogue',
+                       %s, 'other_human', 'other_human', 'open')
                 ON CONFLICT (subject_id, primary_party_id, scene_key)
                 DO UPDATE SET current_status = 'open', closed_at = NULL,
                               scene_version = interaction_scenes.scene_version + 1
                 WHERE interaction_scenes.current_status IS DISTINCT FROM 'open'
                    OR interaction_scenes.closed_at IS NOT NULL
                 """,
-                (scene_key.value, party[0]),
+                (subject_id, scene_key.value, party[0]),
             )
         else:
             cursor = await connection.execute(
@@ -176,6 +332,7 @@ class OtherHumanInputRepository:
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
+        subject_id: UUID,
         party_key: OtherHumanPartyKey,
         scene_key: SceneKey,
         lock: bool = False,
@@ -185,24 +342,22 @@ class OtherHumanInputRepository:
         row = await (
             await connection.execute(
                 """
-                SELECT subject.subject_id, party.party_id, scene.scene_id
-                FROM armi.subjects AS subject
-                JOIN armi.parties AS party
-                  ON party.party_kind = 'other_human'
+                SELECT scene.subject_id, party.party_id, scene.scene_id
+                FROM armi.parties AS party
+                JOIN armi.interaction_scenes AS scene
+                  ON scene.subject_id = %s
+                 AND party.party_kind = 'other_human'
                  AND party.creator_role IS NULL
                  AND party.declared_identity_key = %s
                  AND party.status = 'active'
-                JOIN armi.interaction_scenes AS scene
-                  ON scene.subject_id = subject.subject_id
                  AND scene.primary_party_id = party.party_id
                  AND scene.scene_key = %s
                  AND scene.scene_kind = 'other_human_dialogue'
                  AND scene.audience_scope = 'other_human'
                  AND scene.current_status = 'open' AND scene.closed_at IS NULL
-                WHERE subject.singleton_key = 1 AND subject.status = 'active'
                 """
                 + suffix,
-                (party_key.value, scene_key.value),
+                (subject_id, party_key.value, scene_key.value),
             )
         ).fetchone()
         if row is None:
@@ -221,13 +376,10 @@ class OtherHumanInputRepository:
         row = await (
             await connection.execute(
                 """
-                SELECT interaction.interaction_id, evidence.evidence_id,
-                       interaction.request_digest,
+                SELECT interaction.interaction_id, interaction.request_digest,
                        COALESCE(interaction.cognition_content_digest,
                                 interaction.content_digest)
                 FROM armi.party_input_interactions AS interaction
-                JOIN armi.external_evidence AS evidence
-                  ON evidence.interaction_id = interaction.interaction_id
                 WHERE interaction.source_party_id = %s AND interaction.scene_id = %s
                   AND interaction.purpose = 'other_human_message'
                   AND interaction.idempotency_key = %s
@@ -237,11 +389,16 @@ class OtherHumanInputRepository:
         ).fetchone()
         if row is None:
             return None
-        if row[2] != request_digest.value:
+        if row[1] != request_digest.value:
             raise OtherHumanInputViolation("IDEMPOTENCY-OTHER-HUMAN-INPUT-MISMATCH")
+        evidence_id = await self._evidence_read.find_by_interaction(
+            connection, interaction_id=row[0]
+        )
+        if evidence_id is None:
+            raise OtherHumanInputViolation("DB-OTHER-HUMAN-INPUT")
         opportunity = await self._opportunity.find_external_evidence(
             connection,
-            evidence_id=row[1],
+            evidence_id=evidence_id.value,
             purpose=OpportunityPurpose.CONSIDER_OTHER_HUMAN_INPUT,
         )
         if opportunity is None:
@@ -250,10 +407,10 @@ class OtherHumanInputRepository:
             context.party_id,
             context.scene_id,
             OtherHumanInteractionId(row[0]),
-            EvidenceId(row[1]),
+            evidence_id,
             OpportunityId(opportunity.value),
+            Digest(row[1]),
             Digest(row[2]),
-            Digest(row[3]),
             False,
         )
 

@@ -37,11 +37,10 @@ from armi_expression.api import (
 from armi_kernel.application import (
     CandidateBasis,
     CandidateDisposition,
-    CandidateExactLifeQueryDraft,
     CandidateExperienceDraft,
     CandidateFactClass,
-    CandidateOwner,
     CandidateOwnerDraft,
+    CandidateOwnerIdentity,
     CandidateRejection,
     CandidateValidationId,
     CandidateViolation,
@@ -131,11 +130,6 @@ from ._autonomous_activity_contract import (
     AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
     AutonomousTerminalDecision,
     StartActivityDecision,
-)
-from ._contracts import (
-    CandidateValidationResult,
-    CandidateValidationStatus,
-    SubjectChangeSet,
 )
 from ._dialogue_contract import (
     DIALOGUE_CANDIDATE_VERSION,
@@ -242,9 +236,16 @@ from ._other_human_contract import (
     OtherHumanReplyDecision,
     OtherHumanTerminalDecision,
 )
+from ._owners import CandidateOwner
 from ._sleep_contract import (
     SLEEP_DECISION_CANDIDATE_VERSION,
     SleepDecisionCandidate,
+)
+from .api import (
+    CandidateExactLifeQueryDraft,
+    CandidateValidationResult,
+    CandidateValidationStatus,
+    SubjectChangeSet,
 )
 
 CANDIDATE_POLICY_VERSION = "armi.cognition-candidate-policy.v3"
@@ -1002,7 +1003,7 @@ class DeterministicCandidateValidator:
                 proposal.atomic_group_ref,
                 tuple(basis.ordinal for basis in proposal_bases),
                 CandidateFactClass(proposal.payload.fact_class),
-                owner,
+                CandidateOwnerIdentity(owner.value),
                 failure,
             )
 
@@ -1059,7 +1060,7 @@ class DeterministicCandidateValidator:
                     draft.atomic_group_ref,
                     draft.basis_ordinals,
                     draft.fact_class,
-                    _draft_owner(draft),
+                    CandidateOwnerIdentity(_draft_owner(draft).value),
                     "CANDIDATE-EXPERIENCE-REQUIRED",
                 )
                 accepted.pop(proposal_ref)
@@ -1076,7 +1077,7 @@ class DeterministicCandidateValidator:
                     draft.atomic_group_ref,
                     draft.basis_ordinals,
                     CandidateFactClass.INFERENCE,
-                    CandidateOwner.CODEX_DELEGATION,
+                    CandidateOwnerIdentity(CandidateOwner.CODEX_DELEGATION.value),
                     "CANDIDATE-CODEX-CAPABILITY-REQUEST",
                 )
                 accepted.pop(proposal_ref)
@@ -1091,7 +1092,7 @@ class DeterministicCandidateValidator:
                         group,
                         draft.basis_ordinals,
                         _draft_fact_class(draft),
-                        _draft_owner(draft),
+                        CandidateOwnerIdentity(_draft_owner(draft).value),
                         "CANDIDATE-ATOMIC-GROUP",
                     )
 
@@ -2222,7 +2223,7 @@ def _recover_dialogue_expression(
         "group:2",
         (evidence.ordinal,),
         CandidateFactClass.INFERENCE,
-        owner,
+        CandidateOwnerIdentity(owner.value),
         cast(str, error_code),
     )
     return cast(CognitionCandidateV7, candidate), replace(
@@ -4564,7 +4565,7 @@ def _exact_life_query_wire(
         "atomic_group_ref": value.atomic_group_ref,
         "basis_ordinals": list(value.basis_ordinals),
         "fact_class": value.fact_class.value,
-        "record_kind": value.record_kind.value,
+        "record_kind": str(value.record_kind),
         "query_text": value.query_text,
         "limit": value.limit,
     }

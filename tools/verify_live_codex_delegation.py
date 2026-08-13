@@ -15,22 +15,24 @@ import rfc8785
 import verify_codex_runner
 from armi_capability.api import CapabilityRequestDraft, CodexDelegatedWorkScope
 from armi_codex.api import CodexDelegationDraft
-from armi_cognition import (
-    CandidateValidationContext,
-    CandidateValidationStatus,
-    build_request_bytes,
-    candidate_schema,
-    checked_model_request,
-    load_active_binding,
-    parse_candidate,
-)
+from armi_cognition.api import CandidateValidationStatus, CognitionSchemaDocument
 from armi_kernel.application import (
     CandidateBasis,
     ModelResultStatus,
 )
 from armi_kernel.contracts import Digest
 from armi_runtime.adapters.model.volcengine_ark import VolcengineArkModelAdapter
-from candidate_validation_composition import build_candidate_validator
+from armi_runtime.composition.candidate_validation_tool import (
+    build_candidate_validator,
+)
+from armi_runtime.composition.model_verification import (
+    CandidateValidationContext,
+    build_request_bytes,
+    candidate_schema,
+    checked_model_request,
+    load_active_binding,
+    parse_candidate,
+)
 from live_ark_credential import DEFAULT_ENVIRONMENT_ROOT, load_live_ark_credential
 
 _ARK_SUCCESS_BUDGET_MICROYUAN = 2_000_000
@@ -120,7 +122,9 @@ async def _verify(root: Path, environment_root: Path) -> dict[str, object]:
         binding=binding,
         credential_port=credential.port,
         locator=credential.locator,
-        candidate_schema=candidate_schema(),
+        candidate_schema=CognitionSchemaDocument(
+            canonical_bytes=rfc8785.dumps(candidate_schema())
+        ),
         candidate_parser=parse_candidate,
     )
     subject_id, generation_id, activation_id = uuid7(), uuid7(), uuid7()

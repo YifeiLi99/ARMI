@@ -21,6 +21,7 @@ from armi_kernel.application import (
     RuntimeFence,
     TransactionIsolation,
 )
+from armi_runtime_foundation import PostgreSQLTransaction
 from psycopg import sql
 from psycopg.pq import TransactionStatus
 from psycopg_pool import AsyncConnectionPool, PoolTimeout
@@ -298,11 +299,11 @@ class PostgreSQLUnitOfWork:
         return self._runtime_fence
 
     @property
-    def transaction(self) -> psycopg.AsyncConnection[tuple[Any, ...]]:
+    def transaction(self) -> PostgreSQLTransaction:
         """Return the active caller-owned transaction for owner participants."""
 
         self._require_active()
-        return cast(psycopg.AsyncConnection[tuple[Any, ...]], self._connection)
+        return cast(PostgreSQLTransaction, self._connection)
 
     @property
     def committed_actions(self) -> tuple[PostCommitAction, ...]:

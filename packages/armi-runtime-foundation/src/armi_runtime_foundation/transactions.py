@@ -1,16 +1,53 @@
-"""Minimal transaction surface shared with in-process business modules."""
+"""Typed transaction surface shared with in-process business modules."""
 
 from __future__ import annotations
 
-from typing import Any, Protocol, runtime_checkable
+from collections.abc import Sequence
+from datetime import date, datetime
+from decimal import Decimal
+from types import TracebackType
+from typing import LiteralString, Never, Protocol, TypeVar, runtime_checkable
 from uuid import UUID
+
+from armi_kernel.application import (
+    AuditWriter,
+    BeforeCommitHook,
+    DurableWorkWriter,
+    PostCommitAction,
+    RuntimeFence,
+    TransactionIsolation,
+)
+
+type PostgreSQLScalar = (
+    bool | int | float | Decimal | str | bytes | UUID | date | datetime | None
+)
+type PostgreSQLParameter = PostgreSQLScalar | Sequence[PostgreSQLScalar]
+type PostgreSQLParameters = tuple[PostgreSQLParameter, ...]
+RowT_co = TypeVar("RowT_co", covariant=True)
+
+
+@runtime_checkable
+class PostgreSQLResult(Protocol[RowT_co]):
+    """Result of one literal SQL statement without exposing a driver cursor."""
+
+    @property
+    def rowcount(self) -> int: ...
+
+    async def fetchone(self) -> RowT_co | None: ...
+
+    async def fetchall(self) -> Sequence[RowT_co]: ...
 
 
 @runtime_checkable
 class PostgreSQLTransaction(Protocol):
     """The active PostgreSQL transaction made available to owner participants."""
 
-    execute: Any
+    async def execute(
+        self,
+        statement: LiteralString,
+        parameters: PostgreSQLParameters = (),
+        /,
+    ) -> PostgreSQLResult[tuple[Never, ...]]: ...
 
 
 @runtime_checkable
@@ -29,13 +66,34 @@ class PostgreSQLRuntimeUnitOfWork(PostgreSQLTransactionAccess, Protocol):
     def environment_id(self) -> UUID: ...
 
     @property
-    def runtime_fence(self) -> Any: ...
+    def runtime_fence(self) -> RuntimeFence | None: ...
 
     @property
-    def audit(self) -> Any: ...
+    def audit(self) -> AuditWriter: ...
 
     @property
-    def work(self) -> Any: ...
+    def work(self) -> DurableWorkWriter: ...
+
+    @property
+    def committed_actions(self) -> tuple[PostCommitAction, ...]: ...
+
+    def add_before_commit(self, hook: BeforeCommitHook) -> None: ...
+
+    def defer_after_commit(self, action: PostCommitAction) -> None: ...
+
+    def request_rollback(self) -> None: ...
+
+
+@runtime_checkable
+class PostgreSQLRuntimeUnitOfWorkContext(Protocol):
+    async def __aenter__(self) -> PostgreSQLRuntimeUnitOfWork: ...
+
+    async def __aexit__(
+        self,
+        exception_type: type[BaseException] | None,
+        exception: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> bool | None: ...
 
 
 class PostgreSQLRuntimeUnitOfWorkFactory(Protocol):
@@ -46,7 +104,12 @@ class PostgreSQLRuntimeUnitOfWorkFactory(Protocol):
 
     async def open(self) -> None: ...
     async def close(self) -> None: ...
-    def unit_of_work(self, *, read_only: bool = False) -> Any: ...
+    def unit_of_work(
+        self,
+        *,
+        isolation: TransactionIsolation = TransactionIsolation.READ_COMMITTED,
+        read_only: bool = False,
+    ) -> PostgreSQLRuntimeUnitOfWorkContext: ...
 
 
 @runtime_checkable
@@ -64,8 +127,13 @@ class RuntimeTransactionFailure(RuntimeError):
 
 
 __all__ = (
+    "PostgreSQLParameter",
+    "PostgreSQLParameters",
+    "PostgreSQLResult",
     "PostgreSQLRuntimeUnitOfWork",
+    "PostgreSQLRuntimeUnitOfWorkContext",
     "PostgreSQLRuntimeUnitOfWorkFactory",
+    "PostgreSQLScalar",
     "PostgreSQLTransaction",
     "PostgreSQLTransactionAccess",
     "RuntimeTransactionFailure",

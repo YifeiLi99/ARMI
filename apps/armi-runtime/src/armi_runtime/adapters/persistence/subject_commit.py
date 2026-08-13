@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, cast
 from uuid import UUID, uuid7
 
@@ -29,6 +29,7 @@ from armi_codex.api import (
     CodexDelegationViolation,
 )
 from armi_cognition.api import (
+    CandidateExactLifeQueryDraft,
     CognitionAcceptedCandidate,
     CognitionApplicationDraft,
     CognitionEpisodeStatus,
@@ -65,7 +66,6 @@ from armi_kernel.application import (
     CandidateApplicationId,
     CandidateApplicationStatus,
     CandidateDisposition,
-    CandidateExactLifeQueryDraft,
     ExperienceId,
     RuntimeFence,
     SubjectCommitId,
@@ -95,6 +95,7 @@ from armi_memory.api import (
     CandidateMemoryDraft,
     CandidateMemoryRevisionDraft,
     MemoryCommitPort,
+    MemoryExperienceSource,
     MemoryViolation,
 )
 from armi_mood.api import CandidateMoodDraft, MoodCommitPort, MoodViolation
@@ -143,6 +144,7 @@ class SubjectCommitSnapshot:
     scene_key: str | None
     creator_party_id: UUID | None
     other_party_id: UUID | None
+    subject_party_id: UUID
     change_set_artifact: ArtifactRef
     base_subject_version: int
     base_state_epoch: int
@@ -153,6 +155,8 @@ class SubjectCommitSnapshot:
     source_ref: UUID
     source_version: int
     source_activity_id: UUID | None
+    opportunity_available_after: datetime
+    opportunity_expires_at: datetime | None
     accepted_candidates: tuple[CognitionAcceptedCandidate, ...]
 
 
@@ -182,6 +186,8 @@ def _sleep_commit_context(snapshot: SubjectCommitSnapshot) -> SleepCommitContext
         source_ref=snapshot.source_ref,
         source_version=snapshot.source_version,
         base_state_epoch=snapshot.base_state_epoch,
+        opportunity_available_after=snapshot.opportunity_available_after,
+        opportunity_expires_at=snapshot.opportunity_expires_at,
     )
 
 
@@ -510,6 +516,7 @@ class PostgreSQLSubjectCommitRepository:
             interaction.scene_key,
             interaction.creator_party_id,
             interaction.other_party_id,
+            interaction.subject_party_id,
             artifact,
             cognition.base_subject_version,
             cognition.base_state_epoch,
@@ -520,6 +527,8 @@ class PostgreSQLSubjectCommitRepository:
             opportunity.source_ref,
             opportunity.source_version,
             opportunity.activity_id,
+            opportunity.available_after,
+            opportunity.expires_at,
             cognition.accepted_candidates,
         )
 
@@ -771,9 +780,17 @@ class PostgreSQLSubjectCommitRepository:
             ),
         )
         experience_ids: dict[str, ExperienceId] = {}
+        memory_experience_sources: list[MemoryExperienceSource] = []
         for experience in change_set.experiences:
             experience_id = ExperienceId(uuid7())
             experience_ids[experience.proposal_ref] = experience_id
+            memory_experience_sources.append(
+                MemoryExperienceSource(
+                    experience.proposal_ref,
+                    experience_id.value,
+                    experience.uncertainty,
+                )
+            )
             proof = next(
                 (
                     item
@@ -847,9 +864,7 @@ class PostgreSQLSubjectCommitRepository:
                 commit_id=commit_id.value,
                 validation_id=snapshot.validation_id,
                 drafts=owner_drafts.memory,
-                experience_ids={
-                    key: value.value for key, value in experience_ids.items()
-                },
+                experience_sources=tuple(memory_experience_sources),
             )
         except MemoryViolation as error:
             raise SubjectCommitViolation(
@@ -939,6 +954,7 @@ class PostgreSQLSubjectCommitRepository:
                 unit_of_work.transaction,
                 validation_id=snapshot.validation_id,
                 subject_id=snapshot.subject_id,
+                author_party_id=snapshot.subject_party_id,
                 commit_id=commit_id.value,
                 drafts=owner_drafts.prompt,
                 artifacts=prompt_artifacts,
@@ -1445,7 +1461,7 @@ async def _insert_exact_life_query_intent(
     intent_id = uuid7()
     work_id = WorkId(uuid7())
     payload = {
-        "record_kind": query.record_kind.value,
+        "record_kind": str(query.record_kind),
         "query_text": query.query_text,
         "limit": query.limit,
     }
@@ -1476,7 +1492,7 @@ async def _insert_exact_life_query_intent(
             scene_id=snapshot.scene_id,
             creator_party_id=snapshot.creator_party_id,
             proposal_ref=query.proposal_ref,
-            record_kind=query.record_kind.value,
+            record_kind=str(query.record_kind),
             query_text=query.query_text,
             result_limit=query.limit,
             query_digest=query_digest,

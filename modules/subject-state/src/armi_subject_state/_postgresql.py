@@ -14,12 +14,10 @@ from ._application import SubjectStateApplication
 from .api import (
     CandidateSubjectStateDraft,
     LifeModeHead,
-    SubjectComponentSummary,
     SubjectStateHead,
     SubjectStateKind,
     SubjectStateLifeRecordItem,
     SubjectStateViolation,
-    SubjectSummary,
 )
 
 _INITIAL: dict[SubjectStateKind, dict[str, object]] = {
@@ -156,8 +154,10 @@ class PostgreSQLSubjectStateOwner:
             SELECT component_revision_id, left(semantic_payload::text, 4096), origin_kind, created_at
             FROM armi.subject_component_revisions
             WHERE subject_id = %s AND component_kind = 'self'
-              AND (%s::text IS NULL OR semantic_payload::text ILIKE '%%' || %s || '%%')
-              AND (%s::timestamptz IS NULL OR (created_at, 'self_change'::text, component_revision_id) < (%s, %s, %s))
+              AND (%s::text IS NULL OR semantic_payload::text ILIKE '%%' || %s::text || '%%')
+              AND (%s::timestamptz IS NULL OR
+                   (created_at, 'self_change'::text, component_revision_id)
+                       < (%s::timestamptz, %s::text, %s::uuid))
             ORDER BY created_at DESC, component_revision_id DESC LIMIT %s
         """,
                 (
@@ -175,43 +175,6 @@ class PostgreSQLSubjectStateOwner:
         return tuple(
             SubjectStateLifeRecordItem(row[0], str(row[1]), str(row[2]), row[3])
             for row in rows
-        )
-
-    async def creator_summary(
-        self, transaction: PostgreSQLTransaction, *, creator_party_id: UUID
-    ) -> SubjectSummary:
-        rows = await (
-            await transaction.execute(
-                """
-            SELECT subject.subject_version, head.component_kind, head.component_version,
-                   commit.subject_commit_id, statement_timestamp()
-            FROM armi.subjects AS subject
-            JOIN armi.parties AS creator ON creator.party_id = %s AND creator.party_kind = 'creator'
-              AND creator.creator_role = 'unique_primary_creator' AND creator.status = 'active'
-            JOIN armi.subject_component_heads AS head ON head.subject_id = subject.subject_id
-            LEFT JOIN LATERAL (SELECT subject_commit_id FROM armi.subject_commits WHERE subject_id = subject.subject_id ORDER BY new_subject_version DESC LIMIT 1) AS commit ON true
-            WHERE subject.singleton_key = 1 AND subject.status = 'active'
-            ORDER BY CASE head.component_kind WHEN 'self' THEN 1 WHEN 'mind' THEN 2 ELSE 3 END
-        """,
-                (creator_party_id,),
-            )
-        ).fetchall()
-        if len(rows) != 3:
-            raise SubjectStateViolation("SUBJECT-STATE-SUMMARY")
-        schema = {
-            SubjectStateKind.SELF: "armi.self.v1",
-            SubjectStateKind.MIND: "armi.mind.v2",
-            SubjectStateKind.LIFE_MODE: "armi.life-mode.v1",
-        }
-        kinds = tuple(SubjectStateKind(str(row[1])) for row in rows)
-        return SubjectSummary(
-            int(rows[0][0]),
-            tuple(
-                SubjectComponentSummary(kind, int(row[2]), schema[kind])
-                for row, kind in zip(rows, kinds, strict=True)
-            ),
-            rows[0][3],
-            rows[0][4],
         )
 
     async def current_head_count(

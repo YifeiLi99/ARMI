@@ -17,7 +17,16 @@ from ._admin import PostgreSQLWebObservationAdmin
 from ._application import WebSearchPipeline
 from ._commit import PostgreSQLWebResearchCommit
 from ._context_postgresql import PostgreSQLWebContextRead
+from ._custody import normalize_full_response
 from ._data_rights import PostgreSQLWebObservationDataRightsParticipant
+from ._provider_contract import (
+    API_BASE,
+    BINDING_ID,
+    MODEL,
+    TOOL_DECLARATION,
+    WebSearchViolation,
+    normalize_provider_response,
+)
 from ._recovery import WebObservationRecoveryParticipant
 from ._research import WebResearchAdmissionPipeline
 from .api import (
@@ -36,6 +45,13 @@ def bootstrap_web_observation_admin() -> WebObservationAdminPort:
 
 
 Diagnostic = Callable[[str], None]
+normalize_web_observation_response = normalize_full_response
+web_search_api_base = API_BASE
+web_search_binding_id = BINDING_ID
+web_search_model = MODEL
+web_search_tool_declaration = TOOL_DECLARATION
+normalize_web_search_provider_response = normalize_provider_response
+web_search_violation = WebSearchViolation
 
 
 def bootstrap_web_research_commit() -> WebResearchCommitPort:
@@ -77,6 +93,7 @@ def bootstrap_web_research(
     *,
     factory: PostgreSQLRuntimeUnitOfWorkFactory,
     storage: WebArtifactStorePort,
+    catalog: WebArtifactCatalogPort,
     work: DurableWorkPort,
     custody: WebObservationRuntimePort,
     evidence: EvidenceWritePort,
@@ -86,6 +103,7 @@ def bootstrap_web_research(
     return WebResearchAdmissionPipeline(
         factory=factory,
         storage=storage,
+        catalog=catalog,
         work=work,
         custody=custody,
         evidence=evidence,
@@ -110,4 +128,11 @@ __all__ = (
     "bootstrap_web_observation_recovery",
     "bootstrap_web_research",
     "bootstrap_web_research_commit",
+    "normalize_web_observation_response",
+    "normalize_web_search_provider_response",
+    "web_search_api_base",
+    "web_search_binding_id",
+    "web_search_model",
+    "web_search_tool_declaration",
+    "web_search_violation",
 )

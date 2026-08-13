@@ -18,10 +18,10 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
-    CreatorEventResourceKind,
     CreatorEventViolation,
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
+    CreatorResourceKind,
 )
 from armi_kernel.contracts import (
     Digest,
@@ -48,11 +48,14 @@ from .api import (
     CapabilityConsumptionResult,
     CapabilityDispatchAuthorization,
     CapabilityEffectCancellationPort,
+    CapabilityEffectiveGrantSnapshot,
     CapabilityKind,
     CapabilityOperation,
     CapabilityPolicyDecisionSnapshot,
     CapabilityRequestDraft,
     CapabilityRequestId,
+    CapabilityRequestPage,
+    CapabilityRequestSnapshot,
     CapabilityRequestStatus,
     CapabilityViolation,
     CodexDelegatedWorkScope,
@@ -408,7 +411,7 @@ class PostgreSQLCreatorGrantPolicy:
         creator_party_id: UUID,
         limit: int,
         cursor: str | None,
-    ) -> dict[str, object]:
+    ) -> CapabilityRequestPage:
         boundary = (
             _decode_cursor(
                 cursor,
@@ -500,68 +503,62 @@ class PostgreSQLCreatorGrantPolicy:
                 )
             ).fetchall()
         visible = rows[:limit]
-        items = [
-            {
-                "capability_request_id": str(row[0]),
-                "capability_kind": str(row[1]),
-                "operation": str(row[2]),
-                "subject_id": str(row[3]),
-                "scene_id": str(row[4]),
-                "audience_scope": row[5],
-                "data_scope": row[6],
-                "purpose": str(row[7]),
-                "workspace_scope": row[8],
-                "artifact_scope": row[9],
-                "network_access": row[10],
-                "valid_for_seconds": int(row[11]),
-                "max_uses": int(row[12]),
-                "max_payload_bytes": int(row[13]) if row[13] is not None else None,
-                "status": str(row[14]),
-                "request_version": int(row[15]),
-                "created_at": row[16],
-                "status_changed_at": row[17],
-                "capability_availability": str(row[19]),
-                "resolution_reason_code": (
+        items = tuple(
+            CapabilityRequestSnapshot(
+                capability_request_id=row[0],
+                capability_kind=str(row[1]),
+                operation=str(row[2]),
+                subject_id=row[3],
+                scene_id=row[4],
+                audience_scope=row[5],
+                data_scope=row[6],
+                purpose=str(row[7]),
+                workspace_scope=row[8],
+                artifact_scope=row[9],
+                network_access=row[10],
+                valid_for_seconds=int(row[11]),
+                max_uses=int(row[12]),
+                max_payload_bytes=int(row[13]) if row[13] is not None else None,
+                status=str(row[14]),
+                request_version=int(row[15]),
+                created_at=row[16],
+                status_changed_at=row[17],
+                capability_availability=str(row[19]),
+                resolution_reason_code=(
                     str(row[20]).upper().replace("_", "-")
                     if row[20] is not None
                     else None
                 ),
-                "effective_grant": (
-                    (
-                        {
-                            "scope_kind": "creator_scene_reply",
-                            "grant_ref": str(row[18]),
-                            "status": str(row[21]),
-                            "ended_at": row[22],
-                            "valid_from": row[23],
-                            "valid_until": row[24],
-                            "max_uses": int(row[25]),
-                            "consumed_uses": int(row[26]),
-                            "remaining_uses": int(row[25]) - int(row[26]),
-                            "max_payload_bytes": int(row[27]),
-                        }
-                        if str(row[1]) == "creator.scene.reply"
-                        else {
-                            "scope_kind": "codex_delegated_work",
-                            "grant_ref": str(row[18]),
-                            "status": str(row[21]),
-                            "ended_at": row[22],
-                            "valid_from": row[23],
-                            "valid_until": row[24],
-                            "max_uses": int(row[25]),
-                            "consumed_uses": int(row[26]),
-                            "remaining_uses": int(row[25]) - int(row[26]),
-                            "workspace_scope": row[28],
-                            "artifact_scope": row[29],
-                            "network_access": row[30],
-                        }
+                effective_grant=(
+                    CapabilityEffectiveGrantSnapshot(
+                        scope_kind=(
+                            "creator_scene_reply"
+                            if str(row[1]) == "creator.scene.reply"
+                            else "codex_delegated_work"
+                        ),
+                        grant_ref=row[18],
+                        status=str(row[21]),
+                        ended_at=row[22],
+                        valid_from=row[23],
+                        valid_until=row[24],
+                        max_uses=int(row[25]),
+                        consumed_uses=int(row[26]),
+                        remaining_uses=int(row[25]) - int(row[26]),
+                        max_payload_bytes=(
+                            int(row[27])
+                            if str(row[1]) == "creator.scene.reply"
+                            else None
+                        ),
+                        workspace_scope=row[28],
+                        artifact_scope=row[29],
+                        network_access=row[30],
                     )
                     if row[18] is not None
                     else None
                 ),
-            }
+            )
             for row in visible
-        ]
+        )
         next_cursor = None
         if len(rows) > limit and visible:
             last = visible[-1]
@@ -573,7 +570,7 @@ class PostgreSQLCreatorGrantPolicy:
                 created_at=last[16],
                 request_id=last[0],
             )
-        return {"items": items, "next_cursor": next_cursor}
+        return CapabilityRequestPage(items, next_cursor)
 
     async def decide(self, command: CreatorGrantCommand) -> CreatorGrantResult:
         try:
@@ -1266,7 +1263,7 @@ class PostgreSQLCreatorGrantPolicy:
         now = Instant(datetime.now(UTC))
         invalidations = [
             CreatorProjectionInvalidation(
-                CreatorEventResourceKind.CAPABILITY_REQUEST,
+                CreatorResourceKind("capability_request"),
                 str(request_id),
                 now,
                 "capability-request.v4",
@@ -1277,13 +1274,13 @@ class PostgreSQLCreatorGrantPolicy:
             invalidations.extend(
                 (
                     CreatorProjectionInvalidation(
-                        CreatorEventResourceKind.EFFECT,
+                        CreatorResourceKind("effect"),
                         str(effect_id),
                         now,
                         "creator-effect.v3",
                     ),
                     CreatorProjectionInvalidation(
-                        CreatorEventResourceKind.OPERATION,
+                        CreatorResourceKind("operation"),
                         str(root_operation_id),
                         now,
                         "creator-operation.v2",
@@ -1295,6 +1292,34 @@ class PostgreSQLCreatorGrantPolicy:
                 await self._notifier.notify(invalidation)
             except CreatorEventViolation:
                 continue
+
+    async def has_scene_reply_grant(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        scene_id: UUID,
+        creator_party_id: UUID,
+    ) -> bool:
+        row = await (
+            await transaction.execute(
+                """SELECT 1 FROM armi.permission_grants AS permission
+                   JOIN armi.capabilities AS capability
+                     ON capability.capability_id=permission.capability_id
+                   WHERE permission.subject_id=%s
+                     AND permission.interaction_scene_id=%s
+                     AND permission.creator_party_id=%s
+                     AND permission.status='active'
+                     AND permission.valid_from<=statement_timestamp()
+                     AND statement_timestamp()<permission.valid_until
+                     AND permission.consumed_uses<permission.max_uses
+                     AND capability.capability_kind='creator.scene.reply'
+                     AND capability.operation_class='send'
+                     AND capability.availability_status='available' LIMIT 1""",
+                (subject_id, scene_id, creator_party_id),
+            )
+        ).fetchone()
+        return row is not None
 
 
 def _commit_audit(

@@ -56,18 +56,21 @@ class CreatorPromptService(CreatorPromptPort):
         "_creator_party_id",
         "_repository",
         "_storage",
+        "_subject_id",
         "_uow_factory",
     )
 
     def __init__(
         self,
         *,
+        subject_id: UUID,
         creator_party_id: UUID,
         storage: Any,
         catalog: Any,
         repository: CreatorPromptRepository,
         unit_of_work_factory: PostgreSQLRuntimeUnitOfWorkFactory,
     ) -> None:
+        self._subject_id = subject_id
         self._creator_party_id = creator_party_id
         self._storage = storage
         self._catalog = catalog
@@ -190,6 +193,7 @@ class CreatorPromptService(CreatorPromptPort):
         async with self._uow_factory.unit_of_work() as unit_of_work:
             current = await self._repository.get(
                 unit_of_work,
+                subject_id=self._subject_id,
                 creator_party_id=self._creator_party_id,
                 prompt_kind=command.prompt_kind,
                 for_update=True,
@@ -242,6 +246,7 @@ class CreatorPromptService(CreatorPromptPort):
         async with self._uow_factory.unit_of_work() as unit_of_work:
             current = await self._repository.get(
                 unit_of_work,
+                subject_id=self._subject_id,
                 creator_party_id=self._creator_party_id,
                 prompt_kind=command.prompt_kind,
                 for_update=True,
@@ -280,6 +285,7 @@ class CreatorPromptService(CreatorPromptPort):
             ) as unit_of_work:
                 return await self._repository.get(
                     unit_of_work,
+                    subject_id=self._subject_id,
                     creator_party_id=self._creator_party_id,
                     prompt_kind=prompt_kind,
                 )

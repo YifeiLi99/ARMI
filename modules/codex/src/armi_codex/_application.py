@@ -38,9 +38,9 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
-    CreatorEventResourceKind,
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
+    CreatorResourceKind,
 )
 from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId, TraceId
 from armi_opportunity.api import OpportunityAdmissionPort
@@ -304,7 +304,7 @@ class CodexTaskSourceGateway(
         try:
             await self._notifier.notify(
                 CreatorProjectionInvalidation(
-                    CreatorEventResourceKind.SCENE_TIMELINE,
+                    CreatorResourceKind("scene_timeline"),
                     scene_key,
                     now,
                     "scene-timeline.v5",
@@ -312,7 +312,7 @@ class CodexTaskSourceGateway(
             )
             await self._notifier.notify(
                 CreatorProjectionInvalidation(
-                    CreatorEventResourceKind.OPERATION,
+                    CreatorResourceKind("operation"),
                     str(acceptance.opportunity_id),
                     now,
                     "creator-operation.v2",

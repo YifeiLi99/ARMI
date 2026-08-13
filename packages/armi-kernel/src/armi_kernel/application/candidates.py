@@ -7,8 +7,6 @@ from dataclasses import dataclass
 from enum import StrEnum
 from uuid import UUID
 
-from .life_records import LifeRecordKind
-
 _CODE = re.compile(r"^(?:CON|CANDIDATE)-[A-Z0-9-]+$", re.ASCII)
 _REF = re.compile(r"^proposal:[1-9][0-9]{0,2}$", re.ASCII)
 _GROUP = re.compile(r"^group:[1-9][0-9]{0,2}$", re.ASCII)
@@ -32,23 +30,17 @@ class CandidateFactClass(StrEnum):
     UNKNOWN = "unknown"
 
 
-class CandidateOwner(StrEnum):
-    EXPERIENCE = "experience"
-    SELF = "self"
-    MIND = "mind"
-    MOOD = "mood"
-    LIFE_MODE = "life_mode"
-    MEMORY = "memory"
-    RELATIONSHIP = "relationship"
-    ACTIVITY = "activity"
-    CAPABILITY = "capability"
-    ACTION = "action"
-    WEB_RESEARCH = "web_research"
-    CODEX_DELEGATION = "codex_delegation"
-    SLEEP = "sleep"
-    MATERIAL = "material"
-    PROMPT = "prompt"
-    EXACT_LIFE_QUERY = "exact_life_query"
+class CandidateOwnerIdentity(str):
+    """Validated opaque owner token; the kernel does not enumerate owners."""
+
+    def __new__(cls, value: str) -> CandidateOwnerIdentity:
+        if type(value) is not str or _TOKEN.fullmatch(value) is None:
+            raise CandidateViolation("CON-CANDIDATE-OWNER")
+        return str.__new__(cls, value)
+
+    @property
+    def value(self) -> str:
+        return str(self)
 
 
 class CandidateViolation(RuntimeError):
@@ -173,36 +165,12 @@ class CandidateOwnerDraft:
 
 
 @dataclass(frozen=True, slots=True)
-class CandidateExactLifeQueryDraft:
-    proposal_ref: str
-    atomic_group_ref: str
-    basis_ordinals: tuple[int, ...]
-    fact_class: CandidateFactClass
-    record_kind: LifeRecordKind
-    query_text: str | None
-    limit: int = 20
-
-    def __post_init__(self) -> None:
-        _validate_proposal(
-            self.proposal_ref, self.atomic_group_ref, self.basis_ordinals
-        )
-        if (
-            self.fact_class is not CandidateFactClass.SUBJECTIVE_UNDERSTANDING
-            or type(self.record_kind) is not LifeRecordKind
-            or not _optional_text(self.query_text, 1024)
-            or type(self.limit) is not int
-            or not 1 <= self.limit <= 20
-        ):
-            raise CandidateViolation("CON-CANDIDATE-EXACT-LIFE-QUERY")
-
-
-@dataclass(frozen=True, slots=True)
 class CandidateRejection:
     proposal_ref: str
     atomic_group_ref: str
     basis_ordinals: tuple[int, ...]
     fact_class: CandidateFactClass
-    owner: CandidateOwner
+    owner: CandidateOwnerIdentity
     code: str
 
     def __post_init__(self) -> None:
@@ -210,7 +178,7 @@ class CandidateRejection:
             _REF.fullmatch(self.proposal_ref) is None
             or _GROUP.fullmatch(self.atomic_group_ref) is None
             or type(self.fact_class) is not CandidateFactClass
-            or type(self.owner) is not CandidateOwner
+            or type(self.owner) is not CandidateOwnerIdentity
             or _CODE.fullmatch(self.code) is None
         ):
             raise CandidateViolation("CON-CANDIDATE-REJECTION")
@@ -241,25 +209,13 @@ def _validate_proposal(
         raise CandidateViolation("CON-CANDIDATE-PROPOSAL")
 
 
-def _optional_text(value: str | None, maximum: int) -> bool:
-    if value is None:
-        return True
-    if type(value) is not str or not value.strip() or "\x00" in value:
-        return False
-    try:
-        return 1 <= len(value.encode("utf-8", errors="strict")) <= maximum
-    except UnicodeEncodeError:
-        return False
-
-
 __all__ = (
     "CandidateBasis",
     "CandidateDisposition",
-    "CandidateExactLifeQueryDraft",
     "CandidateExperienceDraft",
     "CandidateFactClass",
-    "CandidateOwner",
     "CandidateOwnerDraft",
+    "CandidateOwnerIdentity",
     "CandidateRejection",
     "CandidateValidationId",
     "CandidateViolation",

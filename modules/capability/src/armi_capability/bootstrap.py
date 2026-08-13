@@ -26,6 +26,7 @@ from .api import (
     CapabilityOperationReadPort,
     CapabilityPolicyPort,
     CapabilityReadPort,
+    CapabilityRequestPage,
     CreatorGrantCommand,
     CreatorGrantResult,
 )
@@ -61,7 +62,7 @@ class CapabilityModule:
         creator_party_id: UUID,
         limit: int,
         cursor: str | None,
-    ) -> dict[str, object]:
+    ) -> CapabilityRequestPage:
         return await self._owner.list_requests(
             creator_party_id=creator_party_id,
             limit=limit,

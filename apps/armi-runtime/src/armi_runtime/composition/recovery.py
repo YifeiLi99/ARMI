@@ -14,11 +14,16 @@ from typing import Any, Final, cast
 from uuid import uuid7
 
 import psycopg
+from armi_artifact_store.api import ArtifactAdminPort
+from armi_artifact_store.bootstrap import bootstrap_artifact_admin
 from armi_kernel.application import CredentialPurpose
 from armi_postgresql_contract.catalog_fingerprint import (
     database_catalog_digest,
 )
-from psycopg import sql
+from armi_runtime_foundation import (
+    PostgreSQLAdminParameter,
+    PostgreSQLAdminResult,
+)
 from psycopg.conninfo import conninfo_to_dict
 
 from .environment import PreparedEnvironment
@@ -131,40 +136,9 @@ def _run_client(arguments: list[str], *, conninfo: str, code: str) -> None:
         )
 
 
-def _table_counts(
-    connection: psycopg.Connection[tuple[Any, ...]],
-) -> list[dict[str, object]]:
-    names = [
-        str(row[0])
-        for row in connection.execute(
-            """
-            SELECT relation.relname
-            FROM pg_catalog.pg_class AS relation
-            JOIN pg_catalog.pg_namespace AS namespace
-              ON namespace.oid = relation.relnamespace
-            WHERE namespace.nspname = 'armi' AND relation.relkind IN ('r', 'p')
-            ORDER BY relation.relname
-            """
-        ).fetchall()
-    ]
-    result: list[dict[str, object]] = []
-    for name in names:
-        row = connection.execute(
-            sql.SQL("SELECT count(*) FROM {}.{}").format(
-                sql.Identifier("armi"), sql.Identifier(name)
-            )
-        ).fetchone()
-        if row is None:
-            raise RuntimeViolation(
-                "RECOVERY-DATABASE-EVIDENCE",
-                "database recovery evidence is incomplete",
-            )
-        result.append({"name": name, "rows": int(row[0])})
-    return result
-
-
 def _database_evidence(
     connection: psycopg.Connection[tuple[Any, ...]],
+    artifacts: ArtifactAdminPort,
 ) -> dict[str, object]:
     connection.execute("SET ROLE armi_owner")
     active = connection.execute(
@@ -175,7 +149,6 @@ def _database_evidence(
             "RECOVERY-RUNTIME-ACTIVE",
             "the Runtime must be stopped before a recovery backup",
         )
-    tables = _table_counts(connection)
     history = [
         [str(value) for value in row]
         for row in connection.execute(
@@ -192,29 +165,41 @@ def _database_evidence(
             """
         ).fetchall()
     ]
-    artifacts = [
+    artifact_rows = [
         {
-            "artifact_id": str(row[0]),
-            "content_digest": str(row[1]),
-            "byte_size": int(row[2]),
-            "storage_locator": str(row[3]),
+            "artifact_id": str(item.artifact_id),
+            "content_digest": item.content_digest,
+            "byte_size": item.byte_size,
+            "storage_locator": item.storage_locator,
         }
-        for row in connection.execute(
-            """
-            SELECT artifact_id, content_digest, byte_size, storage_locator
-            FROM armi.artifacts
-            WHERE retention_status = 'retained' AND integrity_status = 'verified'
-            ORDER BY content_digest, artifact_id
-            """
-        ).fetchall()
+        for item in artifacts.retained_verified(_RecoveryAdminTransaction(connection))
     ]
     return {
         "catalog_digest": database_catalog_digest(connection),
-        "tables": tables,
         "history": history,
         "subjects": subjects,
-        "artifacts": artifacts,
+        "artifacts": artifact_rows,
     }
+
+
+class _RecoveryAdminTransaction:
+    __slots__ = ("_connection",)
+
+    def __init__(self, connection: psycopg.Connection[tuple[Any, ...]]) -> None:
+        self._connection = connection
+
+    def execute(
+        self,
+        statement: str,
+        parameters: tuple[PostgreSQLAdminParameter, ...] = (),
+    ) -> PostgreSQLAdminResult[tuple[object, ...]]:
+        return cast(
+            PostgreSQLAdminResult[tuple[object, ...]],
+            self._connection.execute(  # pyright: ignore[reportArgumentType]
+                statement,  # pyright: ignore[reportArgumentType]
+                parameters,
+            ),
+        )
 
 
 def _copy_artifacts(
@@ -269,7 +254,7 @@ def _result(
     manifest: dict[str, object], bundle: Path, *, status: str
 ) -> RecoveryResult:
     database = cast(dict[str, object], manifest["database"])
-    tables = cast(list[dict[str, object]], database["tables"])
+    tables = cast(list[dict[str, object]], database.get("tables", []))
     artifacts = cast(list[dict[str, object]], manifest["artifacts"])
     return RecoveryResult(
         status=status,
@@ -335,6 +320,9 @@ def create_recovery_backup(
             "RECOVERY-CREDENTIAL", "the migrator credential is unavailable"
         )
     dump = _client(postgresql_client_root, "pg_dump")
+    artifact_admin = bootstrap_artifact_admin(
+        artifact_root=prepared.data_root / "artifacts"
+    )
     staging.mkdir()
     try:
         with prepared.credential_port.resolve(
@@ -344,7 +332,7 @@ def create_recovery_backup(
             def create(value: memoryview) -> dict[str, object]:
                 conninfo = bytes(value).decode("utf-8", "strict")
                 with psycopg.connect(conninfo) as connection:
-                    evidence = _database_evidence(connection)
+                    evidence = _database_evidence(connection, artifact_admin)
                 dump_path = staging / "database.dump"
                 _run_client(
                     [
@@ -385,7 +373,6 @@ def create_recovery_backup(
                         "dump_digest": _digest_file(dump_path),
                         "catalog_digest": evidence["catalog_digest"],
                         "history": evidence["history"],
-                        "tables": evidence["tables"],
                         "subjects": evidence["subjects"],
                     },
                     "artifacts": artifacts,
@@ -544,12 +531,12 @@ def drill_recovery_backup(
     )
     artifact_target = quarantine / "artifacts"
     shutil.copytree(root / "artifacts", artifact_target, symlinks=False)
+    artifact_admin = bootstrap_artifact_admin(artifact_root=artifact_target)
     with psycopg.connect(conninfo) as connection:
-        restored = _database_evidence(connection)
+        restored = _database_evidence(connection, artifact_admin)
     if (
         restored["catalog_digest"] != database["catalog_digest"]
         or restored["history"] != database["history"]
-        or restored["tables"] != database["tables"]
         or restored["subjects"] != database["subjects"]
     ):
         raise RuntimeViolation(

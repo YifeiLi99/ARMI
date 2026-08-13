@@ -124,6 +124,13 @@ class CodexTaskSourceReadPort(Protocol):
         task_source_id: UUID,
     ) -> CodexTaskSourceSnapshot: ...
 
+    async def find_by_manifest_digest(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        manifest_digest: Digest,
+    ) -> CodexTaskSourceSnapshot | None: ...
+
 
 @runtime_checkable
 class CodexContextReadPort(Protocol):

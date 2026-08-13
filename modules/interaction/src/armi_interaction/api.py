@@ -7,14 +7,18 @@ from datetime import datetime
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-from armi_kernel.application import ArtifactId, ArtifactRegistration, PublishedArtifact
+from armi_kernel.application import (
+    ArtifactId,
+    ArtifactRef,
+    ArtifactRegistration,
+    PublishedArtifact,
+)
 from armi_kernel.contracts import Digest, Instant, TraceId
 from armi_runtime_foundation import (
     PostgreSQLAdminTransaction,
     PostgreSQLRuntimeUnitOfWork,
     PostgreSQLTransaction,
 )
-from armi_subject_state.api import SubjectSummary
 
 from ._creator_contract import (
     CreatorCodexExecutionSummary,
@@ -141,7 +145,18 @@ class CreatorIdentityContext:
 
 
 @dataclass(frozen=True, slots=True)
+class InteractionOutreachScene:
+    scene_id: UUID
+    creator_party_id: UUID
+    scene_key: str
+    latest_input_id: UUID | None
+    latest_input_at: datetime | None
+    latest_timeline_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
 class InteractionSubjectCommitSnapshot:
+    subject_party_id: UUID
     scene_id: UUID | None
     scene_key: str | None
     creator_party_id: UUID | None
@@ -198,6 +213,104 @@ class InteractionContextReadPort(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class InteractionOtherHumanPartySnapshot:
+    party_id: UUID
+    identity_key: str
+    display_label: str
+    scene_count: int
+    timeline_count: int
+    latest_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class InteractionOtherHumanSceneSnapshot:
+    scene_id: UUID
+    scene_key: str
+    status: str
+    timeline_count: int
+    latest_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class InteractionOtherHumanTimelineSource:
+    timeline_item_id: UUID
+    source_kind: str
+    source_ref: UUID
+    result_status: str
+    occurred_at: datetime
+
+
+@runtime_checkable
+class InteractionOtherHumanReadPort(Protocol):
+    async def list_other_human_parties(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        before_id: UUID | None,
+        limit: int,
+    ) -> tuple[InteractionOtherHumanPartySnapshot, ...]: ...
+
+    async def other_human_party(
+        self, transaction: PostgreSQLTransaction, *, party_id: UUID
+    ) -> InteractionOtherHumanPartySnapshot | None: ...
+
+    async def list_other_human_scenes(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        party_id: UUID,
+        before_id: UUID | None,
+        limit: int,
+    ) -> tuple[InteractionOtherHumanSceneSnapshot, ...]: ...
+
+    async def other_human_scene_exists(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        party_id: UUID,
+        scene_id: UUID,
+    ) -> bool: ...
+
+    async def other_human_timeline(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        party_id: UUID,
+        scene_id: UUID,
+        before_at: datetime | None,
+        before_id: UUID | None,
+        limit: int,
+    ) -> tuple[InteractionOtherHumanTimelineSource, ...]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class InteractionCreatorTimelineProjection:
+    operation_ref: UUID
+    artifact: ArtifactRef
+    purpose: str
+
+
+@runtime_checkable
+class InteractionCreatorTimelineProjectionPort(Protocol):
+    async def creator_input(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        interaction_id: UUID,
+        purpose: str,
+        content_digest: Digest,
+    ) -> InteractionCreatorTimelineProjection: ...
+
+    async def subject_commit(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_commit_id: UUID,
+        context_party_id: UUID,
+    ) -> UUID: ...
+
+
+@dataclass(frozen=True, slots=True)
 class InteractionCognitionSnapshot:
     scene_kind: str | None
     context_party_kind: str | None
@@ -245,6 +358,18 @@ class InteractionSubjectCommitPort(Protocol):
 
 @runtime_checkable
 class InteractionIdentityPort(Protocol):
+    async def outreach_scenes(
+        self, transaction: PostgreSQLTransaction, *, subject_id: UUID
+    ) -> tuple[InteractionOutreachScene, ...]: ...
+
+    async def input_after(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        scene_id: UUID,
+        party_id: UUID,
+        after: datetime,
+    ) -> bool: ...
     async def creator_context(
         self,
         transaction: PostgreSQLTransaction,
@@ -269,6 +394,13 @@ class InteractionIdentityPort(Protocol):
 
 @runtime_checkable
 class InteractionBirthPort(Protocol):
+    def continuity(
+        self,
+        transaction: PostgreSQLAdminTransaction,
+        *,
+        subject_id: UUID | None,
+    ) -> InteractionBirthContinuity: ...
+
     async def initialize(
         self,
         transaction: PostgreSQLTransaction,
@@ -278,16 +410,29 @@ class InteractionBirthPort(Protocol):
     ) -> None: ...
 
 
+@dataclass(frozen=True, slots=True)
+class InteractionBirthContinuity:
+    party_count: int
+    default_scene_count: int
+    timeline_count: int
+
+
 @runtime_checkable
 class CreatorInteractionPort(
     CreatorInputAcceptancePort,
     Protocol,
-):
-    async def get_subject_summary(self) -> SubjectSummary: ...
+): ...
 
 
 @runtime_checkable
 class CreatorInputTransactionPort(Protocol):
+    async def timeline_input_purpose(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        interaction_id: UUID,
+    ) -> str | None: ...
+
     async def lock_scene(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
@@ -566,17 +711,25 @@ __all__ = (
     "InteractionAdminInputSnapshot",
     "InteractionAdminPort",
     "InteractionArtifactCatalogPort",
+    "InteractionBirthContinuity",
     "InteractionBirthPort",
     "InteractionCognitionReadPort",
     "InteractionCognitionSnapshot",
     "InteractionContextReadPort",
     "InteractionContextSceneSnapshot",
     "InteractionContextTurn",
+    "InteractionCreatorTimelineProjection",
+    "InteractionCreatorTimelineProjectionPort",
     "InteractionDataRightsGate",
     "InteractionEffectDeliveryPort",
     "InteractionEffectRoute",
     "InteractionEffectRoutePort",
     "InteractionIdentityPort",
+    "InteractionOtherHumanPartySnapshot",
+    "InteractionOtherHumanReadPort",
+    "InteractionOtherHumanSceneSnapshot",
+    "InteractionOtherHumanTimelineSource",
+    "InteractionOutreachScene",
     "InteractionPerceptionPort",
     "InteractionSceneTransitionPort",
     "InteractionSubjectCommitPort",

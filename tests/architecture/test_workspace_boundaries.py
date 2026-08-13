@@ -140,7 +140,7 @@ class WorkspaceBoundaryTests(unittest.TestCase):
         self.assertIn("unregistered table: armi.unregistered_fact", errors)
         self.assertIn("stale registry table: armi.subjects", errors)
 
-    def test_data_rights_batch_reaches_owner_sql_budget(self) -> None:
+    def test_final_owner_sql_boundary_is_zero_tolerance(self) -> None:
         accesses = scan_repository_foreign_table_accesses(ROOT)
         production = tuple(
             item
@@ -148,8 +148,8 @@ class WorkspaceBoundaryTests(unittest.TestCase):
             if "/runtime_resources/schema/baseline/" not in item.path
             and "/runtime_resources/schema/alembic/versions/" not in item.path
         )
-        self.assertLessEqual(len(accesses), 151)
-        self.assertLessEqual(len(production), 128)
+        self.assertEqual(len(accesses), 23)
+        self.assertEqual(len(production), 0)
         self.assertFalse(
             tuple(
                 item
@@ -340,6 +340,23 @@ OWN = "UPDATE armi.cognitive_episodes SET status = 'done'"
             distribution="armi-runtime",
         )
         self.assert_rejected(violations, "ARC-SURFACE-INTERNAL")
+
+    def test_public_api_any_is_rejected(self) -> None:
+        violations = self.analyze(
+            "from typing import Any\nclass Port:\n    value: Any\n",
+            module="armi_evidence.api",
+            distribution="armi-evidence",
+        )
+        self.assert_rejected(violations, "ARC-PUBLIC-ANY")
+
+    def test_business_package_root_reexport_is_rejected(self) -> None:
+        violations = self.analyze(
+            "from ._private import Repository\n__all__ = ('Repository',)\n",
+            module="armi_evidence",
+            distribution="armi-evidence",
+            is_package=True,
+        )
+        self.assert_rejected(violations, "ARC-PACKAGE-ROOT")
 
     def test_unexported_cross_distribution_name_is_rejected(self) -> None:
         violations = self.analyze(

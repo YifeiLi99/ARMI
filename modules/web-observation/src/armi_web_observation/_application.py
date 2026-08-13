@@ -28,6 +28,7 @@ from armi_kernel.application import (
     WorkLease,
     WorkOwner,
     WorkPayloadRef,
+    WorkRecord,
     WorkViolation,
 )
 from armi_kernel.contracts import (
@@ -119,9 +120,9 @@ class WebSearchPipeline:
         self._adapter = ArkWebSearchAdapter(credential_port, credential_locator)
         self._policy = load_custody_policy(manifest_bytes)
         self._catalog = catalog
-        self._repository = PostgreSQLWebObservationRepository()
+        self._repository = PostgreSQLWebObservationRepository(catalog)
         self._evidence_repository = PostgreSQLWebEvidenceRepository(
-            evidence, opportunity
+            catalog, evidence, opportunity
         )
         self._work = work
         self._lease_owner = uuid7()
@@ -252,9 +253,10 @@ class WebSearchPipeline:
             raise WebObservationViolation("WEB-DATABASE") from None
         if not records:
             return False
-        lease = cast(WorkLease, records[0].lease)
+        work = records[0]
+        lease = cast(WorkLease, work.lease)
         try:
-            snapshot = await self._snapshot(lease)
+            snapshot = await self._snapshot(work)
             request_bytes = await self._read_request(snapshot)
             request = parse_request_bytes(request_bytes)
             if request["request_id"] != str(snapshot.request_id.value) or request[
@@ -375,10 +377,10 @@ class WebSearchPipeline:
                 request_digest=request_digest,
             )
 
-    async def _snapshot(self, lease: WorkLease) -> WebObservationSnapshot:
+    async def _snapshot(self, work: WorkRecord) -> WebObservationSnapshot:
         try:
             async with self._factory.unit_of_work() as unit:
-                return await self._repository.snapshot(unit, lease)
+                return await self._repository.snapshot(unit, work)
         except RuntimeTransactionFailure:
             raise WebObservationViolation("WEB-DATABASE") from None
 

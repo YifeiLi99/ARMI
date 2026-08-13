@@ -54,12 +54,14 @@ def bootstrap_relationship_recovery() -> RecoveryParticipant:
 def bootstrap_relationship(
     factory: PostgreSQLRuntimeUnitOfWorkFactory,
     *,
+    subject_id: UUID,
     creator_party_id: UUID,
     visibility: DataRightsVisibilityPort,
 ) -> RelationshipModule:
     application = RelationshipApplication()
     owner = PostgreSQLRelationshipOwner(
         factory,
+        subject_id=subject_id,
         creator_party_id=creator_party_id,
         visibility=visibility,
     )

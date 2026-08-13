@@ -206,6 +206,8 @@ class SleepCommitContext:
     source_ref: UUID
     source_version: int
     base_state_epoch: int
+    opportunity_available_after: datetime
+    opportunity_expires_at: datetime | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,6 +219,63 @@ class MaintenanceProgress:
     reason_code: str
     opportunity_id: UUID | None = None
     opportunity_admitted: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class SleepRuntimeSnapshot:
+    generation_created_at: datetime
+    generation_no: int
+    subject_version: int
+    state_epoch: int
+
+
+@runtime_checkable
+class SleepRuntimeFactsPort(Protocol):
+    async def snapshot(
+        self, unit_of_work: PostgreSQLRuntimeUnitOfWork
+    ) -> SleepRuntimeSnapshot: ...
+
+    async def safe_for_maintenance(
+        self, unit_of_work: PostgreSQLRuntimeUnitOfWork
+    ) -> bool: ...
+
+
+@dataclass(frozen=True, slots=True)
+class SleepOpportunityDraft:
+    subject_id: UUID
+    purpose: str
+    source_kind: str
+    source_ref: UUID
+    source_version: int
+    available_after: datetime | None = None
+    expires_at: datetime | None = None
+    predecessor_id: UUID | None = None
+    root_id: UUID | None = None
+    reconsideration_no: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class SleepOpportunityResult:
+    opportunity_id: UUID | None
+    inserted: bool
+
+
+@runtime_checkable
+class SleepOpportunityPort(Protocol):
+    async def admit_sleep(
+        self,
+        transaction: PostgreSQLTransaction,
+        draft: SleepOpportunityDraft,
+    ) -> SleepOpportunityResult: ...
+
+    async def cancel_sleep_source(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        source_kind: str,
+        source_ref: UUID,
+    ) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -513,7 +572,8 @@ class SleepReadPort(CreatorMaintenanceQueryPort, Protocol):
         self,
         transaction: PostgreSQLTransaction,
         *,
-        episode_id: UUID,
+        source_revision_id: UUID | None,
+        expected_head_version: int | None,
     ) -> SleepMaintenanceSnapshot | None: ...
 
 
@@ -545,7 +605,12 @@ __all__ = (
     "SleepDecisionKind",
     "SleepMaintenancePort",
     "SleepMaintenanceSnapshot",
+    "SleepOpportunityDraft",
+    "SleepOpportunityPort",
+    "SleepOpportunityResult",
     "SleepReadPort",
+    "SleepRuntimeFactsPort",
+    "SleepRuntimeSnapshot",
     "SleepViolation",
     "plan_maintenance_checkpoint",
     "validate_maintenance_advance",

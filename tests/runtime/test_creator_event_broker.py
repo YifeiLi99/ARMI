@@ -7,8 +7,8 @@ import unittest
 from datetime import UTC, datetime
 
 from armi_kernel.application import (
-    CreatorEventResourceKind,
     CreatorProjectionInvalidation,
+    CreatorResourceKind,
 )
 from armi_kernel.contracts import Instant
 from armi_runtime.interfaces.creator_events import (
@@ -19,7 +19,7 @@ from armi_runtime.interfaces.creator_events import (
 
 def invalidation(scene_key: str = "default") -> CreatorProjectionInvalidation:
     return CreatorProjectionInvalidation(
-        resource_kind=CreatorEventResourceKind.SCENE_TIMELINE,
+        resource_kind=CreatorResourceKind("scene_timeline"),
         resource_ref=scene_key,
         occurred_at=Instant(datetime(2026, 7, 30, 12, 0, tzinfo=UTC)),
         projection_version="scene-timeline.v5",

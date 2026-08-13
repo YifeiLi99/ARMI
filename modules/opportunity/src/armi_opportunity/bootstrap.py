@@ -11,7 +11,7 @@ from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
     RecoveryParticipant,
 )
-from armi_sleep.api import SleepMaintenancePort, SleepReadPort
+from armi_sleep.api import SleepMaintenancePort, SleepOpportunityPort, SleepReadPort
 from armi_subject_state.api import SubjectStateReadPort
 
 from ._admin import PostgreSQLOpportunityAdmin
@@ -20,11 +20,13 @@ from ._data_rights import PostgreSQLOpportunityDataRightsParticipant
 from ._owner import PostgreSQLOpportunityOwner
 from ._recovery import OpportunityRecoveryParticipant
 from .api import (
+    LifeOpportunityFactsPort,
     OpportunityAdminPort,
     OpportunityAdmissionPort,
     OpportunityCognitionPort,
     OpportunityContextReadPort,
     OpportunityOperationReadPort,
+    OpportunityOwnerPort,
     OpportunityRuntimePort,
     OpportunityTransitionPort,
     OpportunityWakeupPort,
@@ -35,7 +37,15 @@ def bootstrap_opportunity_admin() -> OpportunityAdminPort:
     return PostgreSQLOpportunityAdmin()
 
 
+def bootstrap_opportunity_owner() -> OpportunityOwnerPort:
+    return PostgreSQLOpportunityOwner()
+
+
 def bootstrap_opportunity_admission() -> OpportunityAdmissionPort:
+    return PostgreSQLOpportunityOwner()
+
+
+def bootstrap_opportunity_sleep() -> SleepOpportunityPort:
     return PostgreSQLOpportunityOwner()
 
 
@@ -58,6 +68,7 @@ def bootstrap_opportunity_context() -> OpportunityContextReadPort:
 def bootstrap_opportunity(
     *,
     factory: PostgreSQLRuntimeUnitOfWorkFactory,
+    facts: LifeOpportunityFactsPort,
     activity_read: ActivityReadPort,
     material_read: MaterialReadPort,
     relationship_read: RelationshipReadPort,
@@ -75,6 +86,7 @@ def bootstrap_opportunity(
 ) -> OpportunityRuntimePort:
     return compose_opportunity_pipeline(
         factory=factory,
+        facts=facts,
         activity_read=activity_read,
         material_read=material_read,
         relationship_read=relationship_read,
@@ -110,6 +122,8 @@ __all__ = (
     "bootstrap_opportunity_context",
     "bootstrap_opportunity_data_rights",
     "bootstrap_opportunity_operation",
+    "bootstrap_opportunity_owner",
     "bootstrap_opportunity_recovery",
+    "bootstrap_opportunity_sleep",
     "bootstrap_opportunity_transition",
 )

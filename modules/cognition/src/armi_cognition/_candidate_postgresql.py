@@ -28,10 +28,8 @@ from armi_kernel.application import (
     AuditResultStatus,
     AuditSensitivity,
     CandidateBasis,
-    CandidateExactLifeQueryDraft,
     CandidateExperienceDraft,
     CandidateFactClass,
-    CandidateOwner,
     CandidateOwnerDraft,
     CandidateRejection,
     CandidateViolation,
@@ -78,12 +76,15 @@ from armi_sleep.api import SleepReadPort
 from armi_subject_state.api import SubjectStateReadPort
 from armi_web_observation.api import WebResearchRequestDraft
 
-from ._contracts import (
+from ._owners import CandidateOwner
+from .api import (
+    CandidateExactLifeQueryDraft,
     CandidateValidationResult,
     CandidateValidationStatus,
+    CognitionArtifactCatalogPort,
+    CognitionRuntimeStatePort,
     SubjectChangeSet,
 )
-from .api import CognitionArtifactCatalogPort, CognitionRuntimeStatePort
 
 _WORK_KIND = "cognition.candidate.validate"
 _COMMIT_WORK_KIND = "cognition.subject.commit"
@@ -358,7 +359,17 @@ class PostgreSQLCandidateValidationRepository:
             ),
         )
         maintenance = await self._sleep.candidate_maintenance(
-            connection, episode_id=row[0]
+            connection,
+            source_revision_id=(
+                opportunity.source_ref
+                if opportunity.source_kind == "maintenance_phase_revision"
+                else None
+            ),
+            expected_head_version=(
+                opportunity.source_version
+                if opportunity.source_kind == "maintenance_phase_revision"
+                else None
+            ),
         )
         if self._memories is None:
             raise CandidateViolation("CANDIDATE-MEMORY-CONTEXT")
@@ -863,7 +874,7 @@ def _owner(
         return CandidateOwner.WEB_RESEARCH
     if isinstance(value, CodexDelegationDraft):
         return CandidateOwner.CODEX_DELEGATION
-    return value.owner
+    return CandidateOwner(value.owner.value)
 
 
 def _implicit_fact_class(

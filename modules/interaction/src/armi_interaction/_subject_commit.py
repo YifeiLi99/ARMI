@@ -20,28 +20,38 @@ class PostgreSQLInteractionSubjectCommit:
         scene_id: UUID | None,
         context_party_id: UUID | None,
     ) -> InteractionSubjectCommitSnapshot:
-        if scene_id is None:
-            if context_party_id is not None:
-                raise SceneQueryViolation("SCENE-QUERY-UNAVAILABLE")
-            return InteractionSubjectCommitSnapshot(None, None, None, None)
         row = await (
             await transaction.execute(
                 """
-                SELECT scene.scene_id, scene.scene_key, party.party_id,
-                       party.party_kind
-                FROM armi.interaction_scenes AS scene
+                SELECT subject_party.party_id, scene.scene_id, scene.scene_key,
+                       party.party_id, party.party_kind
+                FROM armi.parties AS subject_party
+                LEFT JOIN armi.interaction_scenes AS scene
+                  ON scene.scene_id = %s AND scene.subject_id = %s
                 LEFT JOIN armi.parties AS party
                   ON party.party_id = %s AND party.status = 'active'
-                WHERE scene.scene_id = %s AND scene.subject_id = %s
+                WHERE subject_party.represented_subject_id = %s
+                  AND subject_party.party_kind = 'subject'
+                  AND subject_party.status = 'active'
                 """,
-                (context_party_id, scene_id, subject_id),
+                (scene_id, subject_id, context_party_id, subject_id),
             )
         ).fetchone()
-        if row is None or (context_party_id is not None and row[2] is None):
+        if (
+            row is None
+            or (scene_id is None) != (row[1] is None)
+            or (context_party_id is not None and row[3] is None)
+        ):
             raise SceneQueryViolation("SCENE-QUERY-UNAVAILABLE")
-        creator = row[2] if str(row[3]) == "creator" else None
-        other = row[2] if row[2] is not None and creator is None else None
-        return InteractionSubjectCommitSnapshot(row[0], str(row[1]), creator, other)
+        creator = row[3] if str(row[4]) == "creator" else None
+        other = row[3] if row[3] is not None and creator is None else None
+        return InteractionSubjectCommitSnapshot(
+            row[0],
+            row[1],
+            str(row[2]) if row[2] is not None else None,
+            creator,
+            other,
+        )
 
     async def append_timeline(
         self,

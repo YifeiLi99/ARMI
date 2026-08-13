@@ -16,15 +16,18 @@ from armi_activity.api import (
     CandidateActivityDecisionDraft,
     CandidateActivityDraft,
 )
-from armi_artifact_store.bootstrap import bootstrap_artifact_catalog
+from armi_artifact_store.api import ArtifactCatalogPort
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_artifact_store.life_material_codec import (
     build_life_material_artifact,
 )
 from armi_capability.api import CapabilityCommitPort, CapabilityReadPort
 from armi_codex.api import CodexCommitPort
-from armi_cognition.api import SubjectChangeSet, SubjectChangeSetCodec
-from armi_cognition.bootstrap import bootstrap_cognition_subject_commit
+from armi_cognition.api import (
+    CognitionSubjectCommitPort,
+    SubjectChangeSet,
+    SubjectChangeSetCodec,
+)
 from armi_context.api import ContextProjectionInvalidationPort
 from armi_data_rights.api import DataRightsSubjectCommitGate
 from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
@@ -34,9 +37,9 @@ from armi_expression.api import (
     OtherHumanReplyDraft,
 )
 from armi_interaction.api import (
+    InteractionSubjectCommitPort,
     SceneKey,
 )
-from armi_interaction.bootstrap import bootstrap_interaction_subject_commit
 from armi_kernel.application import (
     ArtifactId,
     ArtifactPolicy,
@@ -48,10 +51,10 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
-    CreatorEventResourceKind,
     CreatorEventViolation,
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
+    CreatorResourceKind,
     PublishedArtifact,
     SubjectCommitResult,
     SubjectCommitViolation,
@@ -157,16 +160,19 @@ class SubjectCommitPipeline:
         factory: PostgreSQLUnitOfWorkFactory,
         change_set_codec: SubjectChangeSetCodec,
         storage: ContentAddressedArtifactStore,
+        catalog: ArtifactCatalogPort,
         activity_cognition: ActivityCognitionPort,
         activity_commit: ActivityCommitPort,
         capability_commit: CapabilityCommitPort,
         capability_read: CapabilityReadPort,
         codex_commit: CodexCommitPort,
+        cognition_commit: CognitionSubjectCommitPort,
         context_projections: ContextProjectionInvalidationPort,
         data_rights: DataRightsSubjectCommitGate,
         evidence: EvidenceWritePort,
         evidence_read: EvidenceReadPort,
         expression_commit: ExpressionCommitPort,
+        interaction_commit: InteractionSubjectCommitPort,
         memory_commit: MemoryCommitPort,
         memory_cognition: MemoryCognitionPort,
         mood_commit: MoodCommitPort,
@@ -191,7 +197,7 @@ class SubjectCommitPipeline:
         self._factory = factory
         self._change_set_codec = change_set_codec
         self._activity_cognition = activity_cognition
-        self._catalog = bootstrap_artifact_catalog()
+        self._catalog = catalog
         self._storage = storage
         self._notifier = notifier
         self._memory_cognition = memory_cognition
@@ -206,7 +212,7 @@ class SubjectCommitPipeline:
             capability_commit,
             capability_read,
             codex_commit,
-            bootstrap_cognition_subject_commit(),
+            cognition_commit,
             context_projections,
             data_rights,
             evidence,
@@ -215,7 +221,7 @@ class SubjectCommitPipeline:
             memory_commit,
             mood_commit,
             opportunity_transition,
-            bootstrap_interaction_subject_commit(),
+            interaction_commit,
             self._catalog,
             prompt_commit,
             material_commit,
@@ -691,7 +697,7 @@ class SubjectCommitPipeline:
         now = Instant(datetime.now(UTC))
         invalidations = [
             CreatorProjectionInvalidation(
-                CreatorEventResourceKind.OPERATION,
+                CreatorResourceKind("operation"),
                 str(snapshot.root_opportunity_id),
                 now,
                 "creator-operation.v2",
@@ -701,7 +707,7 @@ class SubjectCommitPipeline:
             if snapshot.scene_key is not None:
                 invalidations.append(
                     CreatorProjectionInvalidation(
-                        CreatorEventResourceKind.SCENE_TIMELINE,
+                        CreatorResourceKind("scene_timeline"),
                         SceneKey(snapshot.scene_key).value,
                         now,
                         "scene-timeline.v5",
@@ -709,7 +715,7 @@ class SubjectCommitPipeline:
                 )
             invalidations.append(
                 CreatorProjectionInvalidation(
-                    CreatorEventResourceKind.SUBJECT_SUMMARY,
+                    CreatorResourceKind("subject_summary"),
                     str(snapshot.subject_id),
                     now,
                     "subject-summary.v1",
@@ -722,7 +728,7 @@ class SubjectCommitPipeline:
                     )
                 invalidations.extend(
                     CreatorProjectionInvalidation(
-                        CreatorEventResourceKind.CAPABILITY_REQUEST,
+                        CreatorResourceKind("capability_request"),
                         str(request_id),
                         now,
                         "capability-request.v4",
@@ -738,7 +744,7 @@ class SubjectCommitPipeline:
                 )
             invalidations.extend(
                 CreatorProjectionInvalidation(
-                    CreatorEventResourceKind.ACTIVITY,
+                    CreatorResourceKind("activity"),
                     str(activity_id),
                     now,
                     "creator-activity.v1",
@@ -755,7 +761,7 @@ class SubjectCommitPipeline:
                 )
             invalidations.extend(
                 CreatorProjectionInvalidation(
-                    CreatorEventResourceKind.MEMORY,
+                    CreatorResourceKind("memory"),
                     str(memory_id),
                     now,
                     "creator-memory.v1",
@@ -772,7 +778,7 @@ class SubjectCommitPipeline:
                 )
             invalidations.extend(
                 CreatorProjectionInvalidation(
-                    CreatorEventResourceKind.MATERIAL,
+                    CreatorResourceKind("material"),
                     str(material_id),
                     now,
                     "life-record-query.v2",
@@ -789,7 +795,7 @@ class SubjectCommitPipeline:
                 )
             invalidations.extend(
                 CreatorProjectionInvalidation(
-                    CreatorEventResourceKind.RELATIONSHIP,
+                    CreatorResourceKind("relationship"),
                     str(relationship_id),
                     now,
                     "creator-relationship.v2",
@@ -808,7 +814,7 @@ class SubjectCommitPipeline:
                 )
             invalidations.extend(
                 CreatorProjectionInvalidation(
-                    CreatorEventResourceKind.MAINTENANCE,
+                    CreatorResourceKind("maintenance"),
                     str(session_id),
                     now,
                     "creator-maintenance.v2",
@@ -829,17 +835,20 @@ def build_subject_commit_pipeline(
     *,
     data_root: Path,
     max_object_bytes: int,
+    catalog: ArtifactCatalogPort,
     change_set_codec: SubjectChangeSetCodec,
     activity_cognition: ActivityCognitionPort,
     activity_commit: ActivityCommitPort,
     capability_commit: CapabilityCommitPort,
     capability_read: CapabilityReadPort,
     codex_commit: CodexCommitPort,
+    cognition_commit: CognitionSubjectCommitPort,
     context_projections: ContextProjectionInvalidationPort,
     data_rights: DataRightsSubjectCommitGate,
     evidence: EvidenceWritePort,
     evidence_read: EvidenceReadPort,
     expression_commit: ExpressionCommitPort,
+    interaction_commit: InteractionSubjectCommitPort,
     memory_commit: MemoryCommitPort,
     memory_cognition: MemoryCognitionPort,
     mood_commit: MoodCommitPort,
@@ -866,17 +875,20 @@ def build_subject_commit_pipeline(
         storage=ContentAddressedArtifactStore(
             data_root / "artifacts", max_object_bytes=max_object_bytes
         ),
+        catalog=catalog,
         change_set_codec=change_set_codec,
         activity_cognition=activity_cognition,
         activity_commit=activity_commit,
         capability_commit=capability_commit,
         capability_read=capability_read,
         codex_commit=codex_commit,
+        cognition_commit=cognition_commit,
         context_projections=context_projections,
         data_rights=data_rights,
         evidence=evidence,
         evidence_read=evidence_read,
         expression_commit=expression_commit,
+        interaction_commit=interaction_commit,
         memory_commit=memory_commit,
         memory_cognition=memory_cognition,
         mood_commit=mood_commit,

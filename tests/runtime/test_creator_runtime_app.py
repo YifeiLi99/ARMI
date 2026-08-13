@@ -15,6 +15,8 @@ from armi_activity.api import (
     CreatorActivityTimelineItem,
 )
 from armi_capability.api import (
+    CapabilityRequestPage,
+    CapabilityRequestSnapshot,
     CapabilityRequestStatus,
     CreatorGrantCommand,
     CreatorGrantResult,
@@ -123,9 +125,9 @@ from armi_relationship.api import (
 from armi_runtime.composition.lifecycle import LifecycleController
 from armi_runtime.interfaces.browser_sessions import BrowserSessionStore
 from armi_runtime.interfaces.creator_app import (
-    _creator_visible_codex_artifact,
-    _operation_wire,
     create_runtime_app,
+    creator_visible_codex_artifact,
+    operation_wire,
 )
 from armi_runtime.interfaces.creator_contract import (
     Readiness,
@@ -511,7 +513,7 @@ class _LifeRecordQuery:
             (
                 LifeRecordItem(
                     record_ref=self.memory_id,
-                    record_kind=LifeRecordKind.MEMORY,
+                    record_kind=LifeRecordKind("memory"),
                     summary="刚从记录查到的旧理解",
                     source_kind="reported",
                     occurred_at=Instant(self.occurred_at),
@@ -674,37 +676,33 @@ class _CapabilityPolicy:
         creator_party_id: UUID,
         limit: int,
         cursor: str | None,
-    ) -> dict[str, object]:
+    ) -> CapabilityRequestPage:
         del cursor
-        return {
-            "items": [
-                {
-                    "capability_request_id": str(self.request_id),
-                    "capability_kind": "creator.scene.reply",
-                    "operation": "send",
-                    "subject_id": ENVIRONMENT_ID,
-                    "scene_id": ENVIRONMENT_ID,
-                    "audience_scope": "creator",
-                    "data_scope": "creator_visible_response",
-                    "purpose": "respond_to_creator",
-                    "workspace_scope": None,
-                    "artifact_scope": None,
-                    "network_access": None,
-                    "valid_for_seconds": 60,
-                    "max_uses": 1,
-                    "max_payload_bytes": 1024,
-                    "status": "pending",
-                    "capability_availability": "available",
-                    "request_version": 1,
-                    "created_at": datetime.now(UTC),
-                    "status_changed_at": datetime.now(UTC),
-                    "resolution_reason_code": None,
-                    "effective_grant": None,
-                }
-            ][:limit],
-            "next_cursor": None,
-            "creator_party_id": str(creator_party_id),
-        }
+        item = CapabilityRequestSnapshot(
+            self.request_id,
+            "creator.scene.reply",
+            "send",
+            UUID(ENVIRONMENT_ID),
+            UUID(ENVIRONMENT_ID),
+            "creator",
+            "creator_visible_response",
+            "respond_to_creator",
+            None,
+            None,
+            None,
+            60,
+            1,
+            1024,
+            "pending",
+            1,
+            datetime.now(UTC),
+            datetime.now(UTC),
+            "available",
+            None,
+            None,
+        )
+        del creator_party_id
+        return CapabilityRequestPage((item,)[:limit], None)
 
     async def decide(self, command: CreatorGrantCommand) -> CreatorGrantResult:
         self.commands.append(command)
@@ -1107,7 +1105,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                 effect_ref=uuid7() if phase in effect_phases else None,
             )
             with self.subTest(phase=phase.value):
-                wire = _operation_wire(operation)
+                wire = operation_wire(operation)
                 details = cast(dict[str, object], wire["details"])
                 self.assertIsInstance(details, dict)
                 self.assertEqual(wire["status"], expected_status[phase])
@@ -1121,7 +1119,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                 self.assertNotIn("delivery_state", details)
 
     def test_codex_final_result_projects_only_verified_deliverable(self) -> None:
-        content, media_type = _creator_visible_codex_artifact(
+        content, media_type = creator_visible_codex_artifact(
             EffectArtifactKind.FINAL_RESULT,
             b'{"changed_paths":["result.md"],"deliverable":"done\\n","summary":"ok"}',
             "application/json",
@@ -1711,7 +1709,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.assertFalse(records.json()["items"][0]["naturally_recallable"])
         request = self.life_record_query.requests[0]
         self.assertIs(request.actor, LifeRecordActor.CREATOR)
-        self.assertIs(request.record_kind, LifeRecordKind.MEMORY)
+        self.assertEqual(request.record_kind, LifeRecordKind("memory"))
         self.assertEqual(request.query_text, "旧理解")
         self.assertEqual(memories.json()["items"][0]["accessibility"], "forgotten")
         self.assertEqual(timeline.json()["items"][0]["revision_kind"], "forgotten")

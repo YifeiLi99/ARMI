@@ -135,6 +135,12 @@ class WebArtifactCatalogPort(Protocol):
         published: PublishedArtifact,
     ) -> ArtifactRegistration: ...
 
+    async def get(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        artifact_id: ArtifactId,
+    ) -> ArtifactRef: ...
+
 
 @runtime_checkable
 class WebObservationAdminPort(Protocol):

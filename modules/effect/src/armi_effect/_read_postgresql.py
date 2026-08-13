@@ -11,6 +11,7 @@ from .api import (
     EffectLedgerSnapshot,
     EffectObservationKind,
     EffectObservationReliability,
+    EffectObservationSnapshot,
     EffectStatus,
     EffectVerificationStatus,
 )
@@ -18,6 +19,26 @@ from .api import (
 
 class PostgreSQLEffectOperationRead:
     __slots__ = ()
+
+    async def observe(
+        self, transaction: PostgreSQLTransaction
+    ) -> EffectObservationSnapshot:
+        rows = await (
+            await transaction.execute(
+                "SELECT status, count(*) FROM armi.effects GROUP BY status ORDER BY status"
+            )
+        ).fetchall()
+        age = await (
+            await transaction.execute(
+                """SELECT EXTRACT(EPOCH FROM (clock_timestamp() - min(registered_at)))
+                   FROM armi.effects
+                   WHERE status IN ('registered','dispatching','unknown')"""
+            )
+        ).fetchone()
+        return EffectObservationSnapshot(
+            tuple((str(row[0]), int(row[1])) for row in rows),
+            None if age is None or age[0] is None else max(0, int(age[0])),
+        )
 
     async def by_action_intent(
         self,

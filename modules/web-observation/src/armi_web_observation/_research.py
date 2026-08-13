@@ -30,7 +30,7 @@ from ._observation_contract import (
     WebObservationRequestId,
 )
 from ._research_contract import WebResearchIntentPort, WebResearchViolation
-from .api import WebArtifactStorePort
+from .api import WebArtifactCatalogPort, WebArtifactStorePort
 
 _WORK_KIND = "web.observation.admit"
 Diagnostic = Callable[[str], None]
@@ -59,6 +59,7 @@ class WebResearchAdmissionPipeline(WebResearchIntentPort):
         *,
         factory: PostgreSQLRuntimeUnitOfWorkFactory,
         storage: WebArtifactStorePort,
+        catalog: WebArtifactCatalogPort,
         work: DurableWorkPort,
         custody: WebObservationAdmissionPort,
         evidence: EvidenceWritePort,
@@ -68,7 +69,9 @@ class WebResearchAdmissionPipeline(WebResearchIntentPort):
         self._factory = factory
         self._storage = storage
         self._custody = custody
-        self._repository = PostgreSQLWebEvidenceRepository(evidence, opportunity)
+        self._repository = PostgreSQLWebEvidenceRepository(
+            catalog, evidence, opportunity
+        )
         self._work = work
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()

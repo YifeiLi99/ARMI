@@ -9,10 +9,10 @@ from uuid import UUID
 
 from armi_activity.api import ActivityReadPort
 from armi_kernel.application import (
-    CreatorEventResourceKind,
     CreatorEventViolation,
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
+    CreatorResourceKind,
 )
 from armi_kernel.contracts import Instant
 from armi_material.api import MaterialReadPort
@@ -27,6 +27,7 @@ from armi_subject_state.api import SubjectStateReadPort
 from ._postgresql import PostgreSQLLifeOpportunityRepository
 from .api import (
     CreatorOutreachPolicy,
+    LifeOpportunityFactsPort,
     LifeOpportunitySourcePort,
     LifeViolation,
     OpportunityAdmissionOutcome,
@@ -134,7 +135,7 @@ class MaintenanceCoordinator:
         try:
             await self._notifier.notify(
                 CreatorProjectionInvalidation(
-                    CreatorEventResourceKind.MAINTENANCE,
+                    CreatorResourceKind("maintenance"),
                     str(session_id),
                     Instant(datetime.now(UTC)),
                     "creator-maintenance.v2",
@@ -159,6 +160,7 @@ class OpportunityPipeline(LifeOpportunitySourcePort):
         self,
         *,
         factory: PostgreSQLRuntimeUnitOfWorkFactory,
+        facts: LifeOpportunityFactsPort,
         activity_read: ActivityReadPort,
         material_read: MaterialReadPort,
         relationship_read: RelationshipReadPort,
@@ -182,6 +184,7 @@ class OpportunityPipeline(LifeOpportunitySourcePort):
             activity_read,
             material_read,
             subject_state_read,
+            facts,
         )
         self._stop = asyncio.Event()
         self._wakeups = wakeups or _NoopWakeups()
@@ -328,6 +331,7 @@ class OpportunityPipeline(LifeOpportunitySourcePort):
 def compose_opportunity_pipeline(
     *,
     factory: PostgreSQLRuntimeUnitOfWorkFactory,
+    facts: LifeOpportunityFactsPort,
     activity_read: ActivityReadPort,
     material_read: MaterialReadPort,
     relationship_read: RelationshipReadPort,
@@ -345,6 +349,7 @@ def compose_opportunity_pipeline(
 ) -> OpportunityPipeline:
     return OpportunityPipeline(
         factory=factory,
+        facts=facts,
         activity_read=activity_read,
         material_read=material_read,
         relationship_read=relationship_read,

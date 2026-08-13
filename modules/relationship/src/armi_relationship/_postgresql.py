@@ -45,17 +45,19 @@ _PAGE_SIZE = 100
 
 
 class PostgreSQLRelationshipOwner:
-    __slots__ = ("_creator_party_id", "_factory", "_visibility")
+    __slots__ = ("_creator_party_id", "_factory", "_subject_id", "_visibility")
 
     def __init__(
         self,
         factory: PostgreSQLRuntimeUnitOfWorkFactory,
         *,
+        subject_id: UUID,
         creator_party_id: UUID,
         visibility: DataRightsVisibilityPort,
     ) -> None:
         self._creator_party_id = creator_party_id
         self._factory = factory
+        self._subject_id = subject_id
         self._visibility = visibility
 
     async def open(self) -> None:
@@ -66,7 +68,7 @@ class PostgreSQLRelationshipOwner:
 
     async def current(self) -> CreatorRelationshipItem | None:
         async with self._read_connection() as connection:
-            subject_id = await self._subject_id(connection)
+            subject_id = self._subject_id
             rows = await (
                 await connection.execute(
                     """
@@ -108,7 +110,7 @@ class PostgreSQLRelationshipOwner:
 
     async def timeline(self, relationship_id: UUID) -> CreatorRelationshipTimeline:
         async with self._read_connection() as connection:
-            subject_id = await self._subject_id(connection)
+            subject_id = self._subject_id
             visible = await (
                 await connection.execute(
                     """
@@ -406,24 +408,6 @@ class PostgreSQLRelationshipOwner:
                 yield unit_of_work.transaction
         except RuntimeTransactionFailure:
             raise RelationshipViolation("RELATIONSHIP-QUERY-UNAVAILABLE") from None
-
-    async def _subject_id(self, connection: PostgreSQLTransaction) -> UUID:
-        row = await (
-            await connection.execute(
-                """
-                SELECT subject.subject_id FROM armi.subjects AS subject
-                JOIN armi.parties AS creator ON creator.party_id = %s
-                 AND creator.party_kind = 'creator'
-                 AND creator.creator_role = 'unique_primary_creator'
-                 AND creator.status = 'active'
-                WHERE subject.singleton_key = 1
-                """,
-                (self._creator_party_id,),
-            )
-        ).fetchone()
-        if row is None or type(row[0]) is not UUID:
-            raise RelationshipViolation("RELATIONSHIP-QUERY-UNAVAILABLE")
-        return row[0]
 
     async def commit(
         self,

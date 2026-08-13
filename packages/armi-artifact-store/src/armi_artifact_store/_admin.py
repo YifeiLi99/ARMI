@@ -11,7 +11,7 @@ from armi_kernel.application import (
 from armi_kernel.contracts import Digest
 from armi_runtime_foundation import PostgreSQLAdminTransaction
 
-from .api import ArtifactAdminSnapshot
+from .api import ArtifactAdminSnapshot, ArtifactBackupSnapshot
 from .content_store import ContentAddressedArtifactStore
 
 
@@ -43,6 +43,25 @@ class PostgreSQLArtifactAdmin:
                 privacy_scope=ArtifactPrivacyScope(str(row[5])),
                 integrity_status=ArtifactIntegrityStatus(str(row[6])),
             )
+        )
+
+    def retained_verified(
+        self, transaction: PostgreSQLAdminTransaction
+    ) -> tuple[ArtifactBackupSnapshot, ...]:
+        rows = transaction.execute(
+            """SELECT artifact_id,content_digest,byte_size,storage_locator
+               FROM armi.artifacts
+               WHERE retention_status='retained' AND integrity_status='verified'
+               ORDER BY content_digest,artifact_id"""
+        ).fetchall()
+        return tuple(
+            ArtifactBackupSnapshot(
+                artifact_id=cast(UUID, row[0]),
+                content_digest=str(row[1]),
+                byte_size=int(cast(int, row[2])),
+                storage_locator=str(row[3]),
+            )
+            for row in rows
         )
 
     def read_verified_bytes(self, snapshot: ArtifactAdminSnapshot) -> bytes:

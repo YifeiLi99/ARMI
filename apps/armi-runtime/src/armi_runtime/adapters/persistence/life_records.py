@@ -13,6 +13,7 @@ from uuid import UUID
 
 import rfc8785
 from armi_activity.api import ActivityReadPort
+from armi_cognition.api import CognitionLifeRecordPort
 from armi_data_rights.api import DataRightsVisibilityPort
 from armi_kernel.application import (
     LifeRecordActor,
@@ -135,11 +136,13 @@ class PostgreSQLLifeRecordQuery:
     __slots__ = (
         "_activities",
         "_codec",
+        "_cognition",
         "_creator_party_id",
         "_factory",
         "_materials",
         "_memories",
         "_relationships",
+        "_subject_id",
         "_subject_state",
         "_visibility",
     )
@@ -150,6 +153,7 @@ class PostgreSQLLifeRecordQuery:
         *,
         environment_id: UUID,
         creator_party_id: UUID,
+        subject_id: UUID,
         cursor_key: bytes,
         activities: ActivityReadPort,
         materials: MaterialReadPort,
@@ -157,8 +161,11 @@ class PostgreSQLLifeRecordQuery:
         relationships: RelationshipReadPort,
         subject_state: SubjectStateReadPort,
         visibility: DataRightsVisibilityPort,
+        cognition: CognitionLifeRecordPort,
     ) -> None:
         self._creator_party_id = creator_party_id
+        self._subject_id = subject_id
+        self._cognition = cognition
         self._activities = activities
         self._factory = factory
         self._materials = materials
@@ -179,7 +186,7 @@ class PostgreSQLLifeRecordQuery:
         return None
 
     async def query(self, request: LifeRecordQuery) -> LifeRecordPage:
-        if request.record_kind is LifeRecordKind.MEMORY and self._memories is None:
+        if request.record_kind == LifeRecordKind("memory") and self._memories is None:
             raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE")
         memories = self._memories
         scope = {
@@ -188,7 +195,7 @@ class PostgreSQLLifeRecordQuery:
             "actor": request.actor.value,
             "retrieval_kind": request.retrieval_kind.value,
             "record_kind": (
-                None if request.record_kind is None else request.record_kind.value
+                None if request.record_kind is None else str(request.record_kind)
             ),
             "query_text": request.query_text,
             "limit": request.limit,
@@ -209,7 +216,15 @@ class PostgreSQLLifeRecordQuery:
             except KeyError, TypeError, ValueError:
                 raise LifeRecordQueryViolation("LIFE-QUERY-CURSOR-INVALID") from None
             if (
-                boundary[1] not in {item.value for item in LifeRecordKind}
+                boundary[1]
+                not in {
+                    "activity",
+                    "conversation",
+                    "material",
+                    "memory",
+                    "relationship",
+                    "self_change",
+                }
                 or boundary[2].version != 7
             ):
                 raise LifeRecordQueryViolation("LIFE-QUERY-CURSOR-INVALID")
@@ -243,63 +258,33 @@ class PostgreSQLLifeRecordQuery:
                         else (boundary[0].value, boundary[1], boundary[2]),
                         limit=request.limit + 1,
                     )
-                    if request.record_kind in {None, LifeRecordKind.ACTIVITY}
+                    if request.record_kind in {None, LifeRecordKind("activity")}
                     else ()
                 )
-                rows = await (
-                    await connection.execute(
-                        """
-                        WITH query_input AS (
-                            SELECT %s::uuid AS subject_id,
-                                   %s::text AS actor,
-                                   %s::text AS record_kind,
-                                   %s::text AS query_text,
-                                   %s::timestamptz AS before_at,
-                                   %s::text AS before_kind,
-                                   %s::uuid AS before_id,
-                                   %s::integer AS branch_limit
-                        ), records AS (
-                            (
-                            SELECT experience.experience_id AS record_ref,
-                                   'conversation'::text AS record_kind,
-                                   experience.first_person_gist AS summary,
-                                   experience.source_perspective AS source_kind,
-                                   experience.accepted_at AS occurred_at,
-                                   NULL::boolean AS naturally_recallable
-                            FROM armi.accepted_experiences AS experience
-                            CROSS JOIN query_input AS query
-                            WHERE experience.subject_id = query.subject_id
-                              AND (query.record_kind IS NULL OR query.record_kind = 'conversation')
-                              AND (query.query_text IS NULL OR experience.first_person_gist ILIKE '%%' || query.query_text || '%%')
-                              AND (query.before_at IS NULL OR (experience.accepted_at, 'conversation'::text, experience.experience_id) < (query.before_at, query.before_kind, query.before_id))
-                            ORDER BY experience.accepted_at DESC, experience.experience_id DESC
-                            LIMIT (SELECT branch_limit FROM query_input)
-                            )
-                        )
-                        SELECT record_ref, record_kind, summary, source_kind,
-                               occurred_at, naturally_recallable
-                        FROM records
-                        ORDER BY occurred_at DESC, record_kind DESC,
-                                 record_ref DESC
-                        """,
-                        (
-                            subject_id,
-                            request.actor.value,
-                            None
-                            if request.record_kind is None
-                            else request.record_kind.value,
-                            request.query_text,
-                            None if boundary is None else boundary[0].value,
-                            None if boundary is None else boundary[1],
-                            None if boundary is None else boundary[2],
-                            request.limit + 1,
-                        ),
+                cognition_rows = (
+                    await self._cognition.life_record_branch(
+                        connection,
+                        subject_id=subject_id,
+                        query_text=request.query_text,
+                        before=None
+                        if boundary is None
+                        else (boundary[0].value, boundary[1], boundary[2]),
+                        limit=request.limit + 1,
                     )
-                ).fetchall()
-                rows = cast(
-                    list[tuple[UUID, str, str, str, datetime, bool | None]],
-                    rows,
+                    if request.record_kind in {None, LifeRecordKind("conversation")}
+                    else ()
                 )
+                rows = [
+                    (
+                        item.experience_id,
+                        "conversation",
+                        item.summary,
+                        item.source_kind,
+                        item.occurred_at,
+                        None,
+                    )
+                    for item in cognition_rows
+                ]
                 hidden_experiences = await self._visibility.hidden_targets(
                     connection,
                     target_kind="experience",
@@ -316,7 +301,7 @@ class PostgreSQLLifeRecordQuery:
                         else (boundary[0].value, boundary[1], boundary[2]),
                         limit=request.limit + 1,
                     )
-                    if request.record_kind in {None, LifeRecordKind.SELF_CHANGE}
+                    if request.record_kind in {None, LifeRecordKind("self_change")}
                     else ()
                 )
                 memory_rows = (
@@ -330,7 +315,7 @@ class PostgreSQLLifeRecordQuery:
                         limit=request.limit + 1,
                     )
                     if memories is not None
-                    and request.record_kind in {None, LifeRecordKind.MEMORY}
+                    and request.record_kind in {None, LifeRecordKind("memory")}
                     else ()
                 )
                 material_rows = (
@@ -344,7 +329,7 @@ class PostgreSQLLifeRecordQuery:
                         else (boundary[0].value, boundary[1], boundary[2]),
                         limit=request.limit + 1,
                     )
-                    if request.record_kind in {None, LifeRecordKind.MATERIAL}
+                    if request.record_kind in {None, LifeRecordKind("material")}
                     else ()
                 )
         except LifeRecordQueryViolation:
@@ -361,7 +346,7 @@ class PostgreSQLLifeRecordQuery:
                 None,
             )
             for snapshot in relationship_snapshots
-            if request.record_kind in {None, LifeRecordKind.RELATIONSHIP}
+            if request.record_kind in {None, LifeRecordKind("relationship")}
             and (
                 request.query_text is None
                 or request.query_text.casefold()
@@ -487,28 +472,7 @@ class PostgreSQLLifeRecordQuery:
         connection: PostgreSQLTransaction,
         actor: LifeRecordActor,
     ) -> UUID:
-        if actor is LifeRecordActor.CREATOR:
-            creator = await (
-                await connection.execute(
-                    """
-                    SELECT 1 FROM armi.parties
-                    WHERE party_id = %s AND party_kind = 'creator'
-                      AND creator_role = 'unique_primary_creator'
-                      AND status = 'active'
-                    """,
-                    (self._creator_party_id,),
-                )
-            ).fetchone()
-            if creator is None:
-                raise LifeRecordQueryViolation("LIFE-QUERY-NOT-AUTHORIZED")
-        row = await (
-            await connection.execute(
-                "SELECT subject_id FROM armi.subjects WHERE singleton_key = 1"
-            )
-        ).fetchone()
-        if row is None or not isinstance(row[0], UUID):
-            raise LifeRecordQueryViolation("LIFE-QUERY-UNAVAILABLE")
-        return row[0]
+        return self._subject_id
 
 
 __all__ = ("LifeRecordCursorCodec", "PostgreSQLLifeRecordQuery")

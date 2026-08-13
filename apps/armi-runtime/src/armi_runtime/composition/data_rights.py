@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
+from typing import LiteralString
+
 import rfc8785
-from armi_activity.bootstrap import bootstrap_activity_data_rights
 from armi_artifact_store.api import ArtifactCatalogPort
-from armi_capability.bootstrap import bootstrap_capability_data_rights
-from armi_codex.bootstrap import bootstrap_codex_data_rights
-from armi_cognition.bootstrap import bootstrap_cognition_data_rights
-from armi_context.bootstrap import bootstrap_context_data_rights
 from armi_data_rights.api import (
     DataRightsApplyContribution,
     DataRightsApplyRequest,
@@ -23,26 +20,12 @@ from armi_data_rights.api import (
     DataRightsParticipantViolation,
     DataRightsTupleRecordStream,
 )
-from armi_effect.bootstrap import bootstrap_effect_data_rights
-from armi_evidence.bootstrap import bootstrap_evidence_data_rights
-from armi_expression.bootstrap import bootstrap_expression_data_rights
-from armi_interaction.bootstrap import bootstrap_interaction_data_rights
-from armi_material.bootstrap import bootstrap_material_data_rights
-from armi_memory.bootstrap import bootstrap_memory_data_rights
-from armi_mood.bootstrap import bootstrap_mood_data_rights
-from armi_opportunity.bootstrap import bootstrap_opportunity_data_rights
-from armi_perception.bootstrap import bootstrap_perception_data_rights
-from armi_prompt.bootstrap import bootstrap_prompt_data_rights
-from armi_relationship.bootstrap import bootstrap_relationship_data_rights
 from armi_runtime_foundation import PostgreSQLTransaction
-from armi_sleep.bootstrap import bootstrap_sleep_data_rights
-from armi_subject_state.bootstrap import bootstrap_subject_state_data_rights
-from armi_web_observation.bootstrap import bootstrap_web_observation_data_rights
 
 _RUNTIME_OWNER = DataRightsOwnerIdentity("runtime")
 _ARTIFACT_OWNER = DataRightsOwnerIdentity("artifact-store")
 _VERSION = DataRightsContributionVersion(1)
-_RUNTIME_SEGMENTS = (
+_RUNTIME_SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "audit_events",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8') FROM armi.audit_events AS source ORDER BY to_jsonb(source)::text""",
@@ -193,30 +176,11 @@ class ArtifactStoreDataRightsParticipant:
 
 def compose_data_rights_participants(
     *,
-    data_rights: DataRightsParticipant,
+    business: tuple[DataRightsParticipant, ...],
     catalog: ArtifactCatalogPort,
 ) -> tuple[DataRightsParticipant, ...]:
     participants: tuple[DataRightsParticipant, ...] = (
-        bootstrap_interaction_data_rights(),
-        bootstrap_perception_data_rights(),
-        bootstrap_evidence_data_rights(),
-        bootstrap_opportunity_data_rights(),
-        bootstrap_cognition_data_rights(),
-        bootstrap_memory_data_rights(),
-        bootstrap_relationship_data_rights(),
-        bootstrap_activity_data_rights(),
-        bootstrap_material_data_rights(),
-        bootstrap_subject_state_data_rights(),
-        bootstrap_mood_data_rights(),
-        bootstrap_prompt_data_rights(),
-        bootstrap_sleep_data_rights(),
-        bootstrap_expression_data_rights(),
-        bootstrap_capability_data_rights(),
-        bootstrap_effect_data_rights(),
-        bootstrap_web_observation_data_rights(),
-        bootstrap_codex_data_rights(),
-        bootstrap_context_data_rights(),
-        data_rights,
+        *business,
         RuntimeDataRightsParticipant(),
         ArtifactStoreDataRightsParticipant(catalog),
     )

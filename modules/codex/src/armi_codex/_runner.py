@@ -707,4 +707,19 @@ def _make_writable_and_retry(
     function(path)
 
 
-__all__ = ("CodexRunArtifactSet", "IsolatedCodexRunner")
+runner_config = _config
+owner_only = _owner_only
+sanitize_platform_home = _sanitize_platform_home
+validate_platform_home = _validate_platform_home
+write_platform_state = _write_platform_state
+
+
+__all__ = (
+    "CodexRunArtifactSet",
+    "IsolatedCodexRunner",
+    "owner_only",
+    "runner_config",
+    "sanitize_platform_home",
+    "validate_platform_home",
+    "write_platform_state",
+)

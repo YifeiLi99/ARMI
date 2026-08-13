@@ -6,18 +6,23 @@ import base64
 import hashlib
 import hmac
 import json
-from datetime import datetime
 from pathlib import Path
-from typing import Any, LiteralString, cast
+from typing import Any, cast
 from uuid import UUID
 
 import rfc8785
+from armi_artifact_store.api import ArtifactCatalogPort
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_data_rights.api import DataRightsVisibilityPort
+from armi_effect.api import EffectOperationReadPort
+from armi_evidence.api import EvidenceReadPort
+from armi_interaction.api import (
+    InteractionOtherHumanPartySnapshot,
+    InteractionOtherHumanReadPort,
+    InteractionOtherHumanTimelineSource,
+)
 from armi_kernel.application import (
     ArtifactId,
-    ArtifactIntegrityStatus,
-    ArtifactPrivacyScope,
     ArtifactRef,
     ArtifactViolation,
     OtherHumanPartyRecord,
@@ -29,12 +34,12 @@ from armi_kernel.application import (
     OtherHumanTimelineRecord,
     OtherHumanTimelineRecordPage,
 )
-from armi_kernel.contracts import Digest, Instant, OpaqueCursor
+from armi_kernel.contracts import Instant, OpaqueCursor
 from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWork,
     PostgreSQLRuntimeUnitOfWorkFactory,
     RuntimeTransactionFailure,
 )
-from psycopg import sql
 
 
 def _b64encode(value: bytes) -> str:
@@ -113,7 +118,16 @@ class OtherHumanRecordCursorCodec:
 
 
 class PostgreSQLOtherHumanRecordQuery:
-    __slots__ = ("_codec", "_factory", "_storage", "_visibility")
+    __slots__ = (
+        "_catalog",
+        "_codec",
+        "_effect",
+        "_evidence",
+        "_factory",
+        "_interaction",
+        "_storage",
+        "_visibility",
+    )
 
     def __init__(
         self,
@@ -124,6 +138,10 @@ class PostgreSQLOtherHumanRecordQuery:
         data_root: Path,
         max_object_bytes: int,
         visibility: DataRightsVisibilityPort,
+        interaction: InteractionOtherHumanReadPort,
+        evidence: EvidenceReadPort,
+        effect: EffectOperationReadPort,
+        catalog: ArtifactCatalogPort,
     ) -> None:
         self._codec = OtherHumanRecordCursorCodec(
             key=cursor_key, environment_id=environment_id
@@ -133,6 +151,10 @@ class PostgreSQLOtherHumanRecordQuery:
             data_root / "artifacts", max_object_bytes=max_object_bytes
         )
         self._visibility = visibility
+        self._interaction = interaction
+        self._evidence = evidence
+        self._effect = effect
+        self._catalog = catalog
 
     async def open(self) -> None:
         return None
@@ -148,47 +170,22 @@ class PostgreSQLOtherHumanRecordQuery:
             boundary = self._uuid(
                 self._codec.decode(cursor, "parties", "all", {"before_id"})["before_id"]
             )
-        clause = "" if boundary is None else "AND party.party_id < %s"
-        parameters: tuple[object, ...] = (
-            (limit + 1,) if boundary is None else (boundary, limit + 1)
-        )
-        rows = await self._fetchall(
-            f"""
-            SELECT party.party_id, party.declared_identity_key, party.display_label,
-                   count(DISTINCT scene.scene_id), count(item.timeline_item_id),
-                   max(item.occurred_at)
-            FROM armi.parties AS party
-            JOIN armi.interaction_scenes AS scene
-              ON scene.primary_party_id = party.party_id
-             AND scene.scene_kind = 'other_human_dialogue'
-            JOIN armi.scene_timeline_items AS item
-              ON item.scene_id = scene.scene_id
-             AND item.source_kind IN ('other_human_input', 'other_human_response')
-            LEFT JOIN armi.external_evidence AS evidence
-              ON item.source_kind = 'other_human_input'
-             AND evidence.interaction_id = item.source_ref
-            LEFT JOIN armi.effects AS effect
-              ON item.source_kind = 'other_human_response'
-             AND effect.effect_id = item.source_ref
-            JOIN armi.artifacts AS artifact
-              ON artifact.artifact_id = COALESCE(evidence.artifact_id, effect.payload_artifact_id)
-             AND artifact.integrity_status = 'verified'
-             AND artifact.privacy_scope = 'private'
-             AND artifact.retention_status = 'retained'
-            WHERE party.party_kind = 'other_human'
-              {clause}
-            GROUP BY party.party_id, party.declared_identity_key, party.display_label
-            ORDER BY party.party_id DESC LIMIT %s
-            """,
-            parameters,
-        )
+        try:
+            async with self._factory.unit_of_work(read_only=True) as unit_of_work:
+                rows = await self._interaction.list_other_human_parties(
+                    unit_of_work.transaction, before_id=boundary, limit=limit + 1
+                )
+        except RuntimeTransactionFailure:
+            raise OtherHumanRecordViolation("OTHER-HUMAN-RECORD-UNAVAILABLE") from None
         more = len(rows) > limit
-        visible_ids = await self._visible_party_ids(tuple(row[0] for row in rows))
-        visible = tuple(row for row in rows if row[0] in visible_ids)[:limit]
+        visible_ids = await self._visible_party_ids(tuple(row.party_id for row in rows))
+        visible = tuple(row for row in rows if row.party_id in visible_ids)[:limit]
         items = tuple(self._party(row) for row in visible)
         next_cursor = (
-            self._codec.encode("parties", "all", {"before_id": str(visible[-1][0])})
-            if more
+            self._codec.encode(
+                "parties", "all", {"before_id": str(visible[-1].party_id)}
+            )
+            if more and visible
             else None
         )
         return OtherHumanPartyRecordPage(items, next_cursor)
@@ -196,83 +193,44 @@ class PostgreSQLOtherHumanRecordQuery:
     async def list_scenes(
         self, party_id: UUID, *, limit: int, cursor: OpaqueCursor | None = None
     ) -> OtherHumanSceneRecordPage:
-        party_row = await self._fetchone(
-            """
-            SELECT party.party_id, party.declared_identity_key, party.display_label,
-                   count(DISTINCT scene.scene_id), count(item.timeline_item_id),
-                   max(item.occurred_at)
-            FROM armi.parties AS party
-            JOIN armi.interaction_scenes AS scene
-              ON scene.primary_party_id = party.party_id
-             AND scene.scene_kind = 'other_human_dialogue'
-            JOIN armi.scene_timeline_items AS item ON item.scene_id = scene.scene_id
-             AND item.source_kind IN ('other_human_input', 'other_human_response')
-            LEFT JOIN armi.external_evidence AS evidence
-              ON item.source_kind = 'other_human_input'
-             AND evidence.interaction_id = item.source_ref
-            LEFT JOIN armi.effects AS effect
-              ON item.source_kind = 'other_human_response'
-             AND effect.effect_id = item.source_ref
-            JOIN armi.artifacts AS artifact
-              ON artifact.artifact_id = COALESCE(evidence.artifact_id, effect.payload_artifact_id)
-             AND artifact.integrity_status = 'verified'
-             AND artifact.privacy_scope = 'private'
-             AND artifact.retention_status = 'retained'
-            WHERE party.party_id = %s AND party.party_kind = 'other_human'
-            GROUP BY party.party_id, party.declared_identity_key, party.display_label
-            """,
-            (party_id,),
-        )
-        if party_row is None or not await self._party_visible(party_id):
-            raise OtherHumanRecordViolation("OTHER-HUMAN-RECORD-NOT-VISIBLE")
         boundary: UUID | None = None
         scope = str(party_id)
         if cursor is not None:
             boundary = self._uuid(
                 self._codec.decode(cursor, "scenes", scope, {"before_id"})["before_id"]
             )
-        clause = "" if boundary is None else "AND scene.scene_id < %s"
-        parameters: tuple[object, ...] = (
-            (party_id, limit + 1)
-            if boundary is None
-            else (party_id, boundary, limit + 1)
-        )
-        rows = await self._fetchall(
-            f"""
-            SELECT scene.scene_id, scene.scene_key, scene.current_status,
-                   count(item.timeline_item_id), max(item.occurred_at)
-            FROM armi.interaction_scenes AS scene
-            JOIN armi.scene_timeline_items AS item ON item.scene_id = scene.scene_id
-             AND item.source_kind IN ('other_human_input', 'other_human_response')
-            LEFT JOIN armi.external_evidence AS evidence
-              ON item.source_kind = 'other_human_input'
-             AND evidence.interaction_id = item.source_ref
-            LEFT JOIN armi.effects AS effect
-              ON item.source_kind = 'other_human_response'
-             AND effect.effect_id = item.source_ref
-            JOIN armi.artifacts AS artifact
-              ON artifact.artifact_id = COALESCE(evidence.artifact_id, effect.payload_artifact_id)
-             AND artifact.integrity_status = 'verified'
-             AND artifact.privacy_scope = 'private'
-             AND artifact.retention_status = 'retained'
-            WHERE scene.primary_party_id = %s
-              AND scene.scene_kind = 'other_human_dialogue' {clause}
-            GROUP BY scene.scene_id, scene.scene_key, scene.current_status
-            ORDER BY scene.scene_id DESC LIMIT %s
-            """,
-            parameters,
-        )
+        try:
+            async with self._factory.unit_of_work(read_only=True) as unit_of_work:
+                party_row = await self._interaction.other_human_party(
+                    unit_of_work.transaction, party_id=party_id
+                )
+                rows = await self._interaction.list_other_human_scenes(
+                    unit_of_work.transaction,
+                    party_id=party_id,
+                    before_id=boundary,
+                    limit=limit + 1,
+                )
+        except RuntimeTransactionFailure:
+            raise OtherHumanRecordViolation("OTHER-HUMAN-RECORD-UNAVAILABLE") from None
+        if party_row is None or not await self._party_visible(party_id):
+            raise OtherHumanRecordViolation("OTHER-HUMAN-RECORD-NOT-VISIBLE")
         more = len(rows) > limit
         visible = rows[:limit]
         items = tuple(
             OtherHumanSceneRecord(
-                cast(UUID, row[0]), str(row[1]), str(row[2]), int(row[3]), row[4]
+                row.scene_id,
+                row.scene_key,
+                row.status,
+                row.timeline_count,
+                row.latest_at,
             )
             for row in visible
         )
         next_cursor = (
-            self._codec.encode("scenes", scope, {"before_id": str(visible[-1][0])})
-            if more
+            self._codec.encode(
+                "scenes", scope, {"before_id": str(visible[-1].scene_id)}
+            )
+            if more and visible
             else None
         )
         return OtherHumanSceneRecordPage(self._party(party_row), items, next_cursor)
@@ -285,20 +243,6 @@ class PostgreSQLOtherHumanRecordQuery:
         limit: int,
         cursor: OpaqueCursor | None = None,
     ) -> OtherHumanTimelineRecordPage:
-        visible = await self._fetchone(
-            """
-            SELECT 1
-            FROM armi.interaction_scenes AS scene
-            JOIN armi.parties AS party
-              ON party.party_id = scene.primary_party_id
-             AND party.party_kind = 'other_human'
-            WHERE scene.scene_id = %s AND scene.primary_party_id = %s
-              AND scene.scene_kind = 'other_human_dialogue'
-            """,
-            (scene_id, party_id),
-        )
-        if visible is None or not await self._party_visible(party_id):
-            raise OtherHumanRecordViolation("OTHER-HUMAN-RECORD-NOT-VISIBLE")
         scope = f"{party_id}:{scene_id}"
         boundary: tuple[Instant, UUID] | None = None
         if cursor is not None:
@@ -312,102 +256,91 @@ class PostgreSQLOtherHumanRecordQuery:
                 )
             except ValueError:
                 raise OtherHumanRecordViolation("OTHER-HUMAN-RECORD-CURSOR") from None
-        clause = (
-            ""
-            if boundary is None
-            else "AND (item.occurred_at, item.timeline_item_id) < (%s, %s)"
-        )
-        parameters: tuple[object, ...] = (
-            (party_id, scene_id, limit + 1)
-            if boundary is None
-            else (party_id, scene_id, boundary[0].value, boundary[1], limit + 1)
-        )
-        rows = await self._fetchall(
-            f"""
-            SELECT item.timeline_item_id, item.source_kind, item.source_ref,
-                   item.result_status, item.occurred_at,
-                   artifact.artifact_id, artifact.content_digest,
-                   artifact.byte_size, artifact.media_type, artifact.logical_kind,
-                   artifact.privacy_scope, artifact.integrity_status
-            FROM armi.scene_timeline_items AS item
-            JOIN armi.interaction_scenes AS scene ON scene.scene_id = item.scene_id
-            LEFT JOIN armi.external_evidence AS evidence
-              ON item.source_kind = 'other_human_input'
-             AND evidence.interaction_id = item.source_ref
-            LEFT JOIN armi.effects AS effect
-              ON item.source_kind = 'other_human_response'
-             AND effect.effect_id = item.source_ref
-            JOIN armi.artifacts AS artifact
-              ON artifact.artifact_id = COALESCE(evidence.artifact_id, effect.payload_artifact_id)
-             AND artifact.integrity_status = 'verified'
-             AND artifact.privacy_scope = 'private'
-             AND artifact.retention_status = 'retained'
-            WHERE scene.primary_party_id = %s AND scene.scene_id = %s
-              AND scene.scene_kind = 'other_human_dialogue'
-              AND item.source_kind IN ('other_human_input', 'other_human_response')
-              {clause}
-            ORDER BY item.occurred_at DESC, item.timeline_item_id DESC LIMIT %s
-            """,
-            parameters,
-        )
+        try:
+            async with self._factory.unit_of_work(read_only=True) as unit_of_work:
+                connection = unit_of_work.transaction
+                exists = await self._interaction.other_human_scene_exists(
+                    connection, party_id=party_id, scene_id=scene_id
+                )
+                rows = await self._interaction.other_human_timeline(
+                    connection,
+                    party_id=party_id,
+                    scene_id=scene_id,
+                    before_at=None if boundary is None else boundary[0].value,
+                    before_id=None if boundary is None else boundary[1],
+                    limit=limit + 1,
+                )
+                resolved: list[
+                    tuple[InteractionOtherHumanTimelineSource, ArtifactRef]
+                ] = []
+                for row in rows[:limit]:
+                    resolved.append((row, await self._artifact_ref(unit_of_work, row)))
+        except RuntimeTransactionFailure:
+            raise OtherHumanRecordViolation("OTHER-HUMAN-RECORD-UNAVAILABLE") from None
+        if not exists or not await self._party_visible(party_id):
+            raise OtherHumanRecordViolation("OTHER-HUMAN-RECORD-NOT-VISIBLE")
         more = len(rows) > limit
         visible = rows[:limit]
-        items = tuple([await self._timeline_item(row) for row in visible])
+        items = tuple([await self._timeline_item(row, ref) for row, ref in resolved])
         next_cursor = (
             self._codec.encode(
                 "timeline",
                 scope,
                 {
-                    "before_at": Instant(cast(datetime, visible[-1][4])).to_wire(),
-                    "before_id": str(visible[-1][0]),
+                    "before_at": Instant(visible[-1].occurred_at).to_wire(),
+                    "before_id": str(visible[-1].timeline_item_id),
                 },
             )
-            if more
+            if more and visible
             else None
         )
         return OtherHumanTimelineRecordPage(party_id, scene_id, items, next_cursor)
 
-    async def _timeline_item(self, row: tuple[Any, ...]) -> OtherHumanTimelineRecord:
-        try:
-            ref = ArtifactRef(
-                ArtifactId(cast(UUID, row[5])),
-                Digest(str(row[6])),
-                int(row[7]),
-                str(row[8]),
-                str(row[9]),
-                ArtifactPrivacyScope(str(row[10])),
-                ArtifactIntegrityStatus(str(row[11])),
+    async def _artifact_ref(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        row: InteractionOtherHumanTimelineSource,
+    ) -> ArtifactRef:
+        if row.source_kind == "other_human_input":
+            evidence_id = await self._evidence.find_by_interaction(
+                unit_of_work.transaction, interaction_id=row.source_ref
             )
+            if evidence_id is None:
+                raise OtherHumanRecordViolation("OTHER-HUMAN-RECORD-UNAVAILABLE")
+            artifact_id = (
+                await self._evidence.snapshot(
+                    unit_of_work.transaction, evidence_id=evidence_id
+                )
+            ).artifact_id
+        else:
+            effect = await self._effect.by_effect_id(
+                unit_of_work.transaction, effect_id=row.source_ref
+            )
+            if effect is None:
+                raise OtherHumanRecordViolation("OTHER-HUMAN-RECORD-UNAVAILABLE")
+            artifact_id = effect.payload_artifact_id
+        return await self._catalog.get(unit_of_work, ArtifactId(artifact_id))
+
+    async def _timeline_item(
+        self, row: InteractionOtherHumanTimelineSource, ref: ArtifactRef
+    ) -> OtherHumanTimelineRecord:
+        try:
             if ref.media_type != "text/plain":
                 raise ValueError
             text = ""
             async with await self._storage.open_verified(ref) as stream:
                 text = (await stream.read()).decode("utf-8", errors="strict")
             return OtherHumanTimelineRecord(
-                cast(UUID, row[0]),
-                cast(UUID, row[2]),
+                row.timeline_item_id,
+                row.source_ref,
                 OtherHumanRecordDirection(
-                    "received" if row[1] == "other_human_input" else "sent"
+                    "received" if row.source_kind == "other_human_input" else "sent"
                 ),
-                str(row[3]),
+                row.result_status,
                 text,
-                cast(datetime, row[4]),
+                row.occurred_at,
             )
         except ArtifactViolation, ValueError, UnicodeError, OSError:
-            raise OtherHumanRecordViolation("OTHER-HUMAN-RECORD-UNAVAILABLE") from None
-
-    async def _fetchall(
-        self, statement: str, parameters: tuple[object, ...]
-    ) -> list[tuple[Any, ...]]:
-        try:
-            async with self._factory.unit_of_work(read_only=True) as unit_of_work:
-                connection = unit_of_work.transaction
-                return await (
-                    await connection.execute(
-                        sql.SQL(cast(LiteralString, statement)), parameters
-                    )
-                ).fetchall()
-        except RuntimeTransactionFailure:
             raise OtherHumanRecordViolation("OTHER-HUMAN-RECORD-UNAVAILABLE") from None
 
     async def _party_visible(self, party_id: UUID) -> bool:
@@ -427,21 +360,15 @@ class PostgreSQLOtherHumanRecordQuery:
         except RuntimeTransactionFailure:
             raise OtherHumanRecordViolation("OTHER-HUMAN-RECORD-UNAVAILABLE") from None
 
-    async def _fetchone(
-        self, statement: str, parameters: tuple[object, ...]
-    ) -> tuple[Any, ...] | None:
-        rows = await self._fetchall(statement, parameters)
-        return rows[0] if rows else None
-
     @staticmethod
-    def _party(row: tuple[Any, ...]) -> OtherHumanPartyRecord:
+    def _party(row: InteractionOtherHumanPartySnapshot) -> OtherHumanPartyRecord:
         return OtherHumanPartyRecord(
-            cast(UUID, row[0]),
-            str(row[1]),
-            str(row[2]),
-            int(row[3]),
-            int(row[4]),
-            row[5],
+            row.party_id,
+            row.identity_key,
+            row.display_label,
+            row.scene_count,
+            row.timeline_count,
+            row.latest_at,
         )
 
     @staticmethod

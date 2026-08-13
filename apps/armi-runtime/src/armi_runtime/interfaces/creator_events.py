@@ -165,12 +165,12 @@ class CreatorEventBroker:
         async with self._lock:
             sequence = self._sequence + 1
             event_id = f"sse-v1.{self._epoch}.{sequence}"
-            event_kind = EVENT_KINDS[invalidation.resource_kind.value]
+            event_kind = EVENT_KINDS[str(invalidation.resource_kind)]
             wire = {
                 "contract_version": "1.0",
                 "event_id": event_id,
                 "event_kind": event_kind,
-                "resource_kind": invalidation.resource_kind.value,
+                "resource_kind": str(invalidation.resource_kind),
                 "resource_ref": invalidation.resource_ref,
                 "projection_version": invalidation.projection_version,
                 "occurred_at": invalidation.occurred_at.to_wire(),

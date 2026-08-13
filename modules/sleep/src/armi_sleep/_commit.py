@@ -149,23 +149,21 @@ class PostgreSQLSleepCommit:
             or context.source_ref != decision.cycle_anchor_ref
         ):
             return False
-        row = await (
+        existing = await (
             await transaction.execute(
                 """
-                SELECT opportunity.expires_at > statement_timestamp()
-                       AND NOT EXISTS (
-                           SELECT 1 FROM armi.maintenance_sessions AS session
-                           WHERE session.subject_id = opportunity.subject_id
-                             AND session.life_generation_id = %s
-                             AND session.cycle_anchor_ref = opportunity.source_ref
-                       )
-                FROM armi.opportunities AS opportunity
-                WHERE opportunity.opportunity_id = %s
+                SELECT 1 FROM armi.maintenance_sessions
+                WHERE subject_id=%s AND life_generation_id=%s
+                  AND cycle_anchor_ref=%s
                 """,
-                (context.generation_id, context.opportunity_id),
+                (context.subject_id, context.generation_id, context.source_ref),
             )
         ).fetchone()
-        return row is not None and bool(row[0])
+        return (
+            context.opportunity_expires_at is not None
+            and context.opportunity_expires_at > datetime.now(UTC)
+            and existing is None
+        )
 
     @staticmethod
     async def _maintenance_current(
@@ -253,18 +251,7 @@ class PostgreSQLSleepCommit:
         )
         if decision.decision_kind is not SleepDecisionKind.SLEEP:
             return
-        window = await (
-            await transaction.execute(
-                """
-                SELECT available_after, expires_at,
-                       CASE WHEN source_ref = %s THEN 'life_generation'
-                            ELSE 'maintenance_session' END
-                FROM armi.opportunities WHERE opportunity_id = %s
-                """,
-                (context.generation_id, context.opportunity_id),
-            )
-        ).fetchone()
-        if window is None or window[1] is None:
+        if context.opportunity_expires_at is None:
             raise SleepViolation("SLEEP-WINDOW")
         session_id, revision_id = uuid7(), uuid7()
         await transaction.execute(
@@ -282,10 +269,12 @@ class PostgreSQLSleepCommit:
                 context.subject_id,
                 context.generation_id,
                 context.opportunity_id,
-                str(window[2]),
+                "life_generation"
+                if context.source_ref == context.generation_id
+                else "maintenance_session",
                 decision.cycle_anchor_ref,
-                window[0],
-                window[1],
+                context.opportunity_available_after,
+                context.opportunity_expires_at,
                 decision_id,
                 resulting_subject_version,
                 context.base_state_epoch,

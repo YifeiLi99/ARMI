@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 from uuid import UUID, uuid7
 
 from armi_evidence.api import (
@@ -15,8 +14,6 @@ from armi_evidence.api import (
 )
 from armi_kernel.application import (
     ArtifactId,
-    ArtifactIntegrityStatus,
-    ArtifactPrivacyScope,
     ArtifactRef,
     AuditDraft,
     AuditEventId,
@@ -43,6 +40,7 @@ from ._research_contract import (
     WebResearchIntentId,
     WebResearchViolation,
 )
+from .api import WebArtifactCatalogPort
 
 _ADMISSION_WORK = "web.observation.admit"
 
@@ -64,13 +62,15 @@ class WebResearchIntentSnapshot:
 class PostgreSQLWebEvidenceRepository:
     """Own fixed SQL for the inactive S034 admission and evidence path."""
 
-    __slots__ = ("_evidence", "_opportunity")
+    __slots__ = ("_catalog", "_evidence", "_opportunity")
 
     def __init__(
         self,
+        catalog: WebArtifactCatalogPort,
         evidence: EvidenceWritePort,
         opportunity: OpportunityAdmissionPort,
     ) -> None:
+        self._catalog = catalog
         self._evidence = evidence
         self._opportunity = opportunity
 
@@ -87,23 +87,11 @@ class PostgreSQLWebEvidenceRepository:
                 """
                 UPDATE armi.web_research_intents AS intent
                 SET status = 'failed', completed_at = statement_timestamp()
-                FROM armi.durable_work AS work
-                WHERE work.work_id = %s
-                  AND intent.admission_work_id = work.work_id
-                  AND work.status = 'leased'
-                  AND work.current_attempt_id = %s
-                  AND work.lease_owner = %s
-                  AND work.lease_token = %s
-                  AND work.lease_expires_at > statement_timestamp()
+                WHERE intent.admission_work_id = %s
                   AND intent.status = 'pending'
                 RETURNING intent.web_research_intent_id
                 """,
-                (
-                    lease.work_id.value,
-                    lease.attempt_id.value,
-                    lease.owner,
-                    lease.token,
-                ),
+                (lease.work_id.value,),
             )
         ).fetchone()
         if updated is None:
@@ -127,26 +115,12 @@ class PostgreSQLWebEvidenceRepository:
                        intent.context_party_id, intent.query_artifact_id,
                        intent.query_digest, intent.idempotency_key,
                        intent.trace_id
-                FROM armi.durable_work AS work
-                JOIN armi.web_research_intents AS intent
-                  ON intent.admission_work_id = work.work_id
-                WHERE work.work_id = %s
-                  AND work.work_kind = 'web.observation.admit'
-                  AND work.owner_kind = 'web_research_intent'
-                  AND work.status = 'leased'
-                  AND work.current_attempt_id = %s
-                  AND work.lease_owner = %s
-                  AND work.lease_token = %s
-                  AND work.lease_expires_at > statement_timestamp()
+                FROM armi.web_research_intents AS intent
+                WHERE intent.admission_work_id = %s
                   AND intent.status = 'pending'
-                FOR UPDATE OF work, intent
+                FOR UPDATE OF intent
                 """,
-                (
-                    lease.work_id.value,
-                    lease.attempt_id.value,
-                    lease.owner,
-                    lease.token,
-                ),
+                (lease.work_id.value,),
             )
         ).fetchone()
         if row is None:
@@ -159,7 +133,7 @@ class PostgreSQLWebEvidenceRepository:
             row[2],
             row[3],
             row[4],
-            await _artifact_ref(connection, row[5]),
+            await self._catalog.get(unit_of_work, ArtifactId(row[5])),
             Digest(str(row[6])),
             IdempotencyKey(str(row[7])),
             TraceId(str(row[8])),
@@ -326,31 +300,6 @@ class PostgreSQLWebEvidenceRepository:
             evidence_id,
             opportunity_id,
         )
-
-
-async def _artifact_ref(connection: Any, artifact_id: UUID) -> ArtifactRef:
-    row = await (
-        await connection.execute(
-            """
-            SELECT artifact_id, content_digest, media_type, byte_size,
-                   logical_kind, privacy_scope, integrity_status
-            FROM armi.artifacts
-            WHERE artifact_id = %s AND retention_status = 'retained'
-            """,
-            (artifact_id,),
-        )
-    ).fetchone()
-    if row is None:
-        raise WebResearchViolation("WEB-RESEARCH-ARTIFACT")
-    return ArtifactRef(
-        ArtifactId(row[0]),
-        Digest(str(row[1])),
-        int(row[3]),
-        str(row[2]),
-        str(row[4]),
-        ArtifactPrivacyScope(str(row[5])),
-        ArtifactIntegrityStatus(str(row[6])),
-    )
 
 
 __all__ = ("PostgreSQLWebEvidenceRepository", "WebResearchIntentSnapshot")

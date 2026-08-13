@@ -23,6 +23,7 @@ class CreatorSceneRepository:
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
+        subject_id: UUID,
         creator_party_id: UUID,
     ) -> CreatorSceneCollection:
         connection = unit_of_work.transaction
@@ -33,59 +34,23 @@ class CreatorSceneRepository:
                        scene.opened_at, scene.closed_at,
                        scene.recent_context_boundary
                 FROM armi.interaction_scenes AS scene
-                JOIN armi.subjects AS subject
-                  ON subject.subject_id = scene.subject_id
-                 AND subject.singleton_key = 1
-                 AND subject.status = 'active'
                 JOIN armi.parties AS creator
                   ON creator.party_id = scene.primary_party_id
                  AND creator.party_kind = 'creator'
                  AND creator.creator_role = 'unique_primary_creator'
                  AND creator.status = 'active'
                 WHERE scene.primary_party_id = %s
+                  AND scene.subject_id = %s
                   AND scene.scene_kind = 'creator_dialogue'
                   AND scene.audience_scope = 'creator'
                 ORDER BY (scene.scene_key <> 'default'), scene.scene_key
                 """,
-                (creator_party_id,),
+                (creator_party_id, subject_id),
             )
         ).fetchall()
         if not rows:
             raise SceneQueryViolation("SCENE-QUERY-UNAVAILABLE")
         return CreatorSceneCollection(tuple(_view(row) for row in rows))
-
-    async def subject_id(
-        self,
-        unit_of_work: PostgreSQLRuntimeUnitOfWork,
-        *,
-        creator_party_id: UUID,
-    ) -> UUID:
-        connection = unit_of_work.transaction
-        row = await (
-            await connection.execute(
-                """
-                SELECT subject.subject_id
-                FROM armi.subjects AS subject
-                JOIN armi.interaction_scenes AS default_scene
-                  ON default_scene.subject_id = subject.subject_id
-                 AND default_scene.scene_key = 'default'
-                 AND default_scene.current_status = 'open'
-                 AND default_scene.closed_at IS NULL
-                JOIN armi.parties AS creator
-                  ON creator.party_id = default_scene.primary_party_id
-                 AND creator.party_id = %s
-                 AND creator.party_kind = 'creator'
-                 AND creator.creator_role = 'unique_primary_creator'
-                 AND creator.status = 'active'
-                WHERE subject.singleton_key = 1
-                  AND subject.status = 'active'
-                """,
-                (creator_party_id,),
-            )
-        ).fetchone()
-        if row is None or type(row[0]) is not UUID:
-            raise SceneQueryViolation("SCENE-QUERY-UNAVAILABLE")
-        return row[0]
 
     async def create(
         self,
@@ -126,6 +91,7 @@ class CreatorSceneRepository:
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
+        subject_id: UUID,
         creator_party_id: UUID,
         scene_key: SceneKey,
         target_status: SceneStatus,
@@ -138,18 +104,15 @@ class CreatorSceneRepository:
                        scene.current_status, scene.opened_at, scene.closed_at,
                        scene.recent_context_boundary
                 FROM armi.interaction_scenes AS scene
-                JOIN armi.subjects AS subject
-                  ON subject.subject_id = scene.subject_id
-                 AND subject.singleton_key = 1
-                 AND subject.status = 'active'
                 WHERE scene.primary_party_id = %s
+                  AND scene.subject_id = %s
                   AND scene.scene_key = %s
                   AND scene.scene_key <> 'default'
                   AND scene.scene_kind = 'creator_dialogue'
                   AND scene.audience_scope = 'creator'
                 FOR UPDATE OF scene
                 """,
-                (creator_party_id, scene_key.value),
+                (creator_party_id, subject_id, scene_key.value),
             )
         ).fetchone()
         if row is None:

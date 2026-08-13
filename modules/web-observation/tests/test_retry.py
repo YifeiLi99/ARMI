@@ -60,7 +60,7 @@ def test_web_attempt_recovery_only_replays_pre_dispatch(
     )
 
     result = asyncio.run(
-        PostgreSQLWebObservationRepository().prepare_attempt(
+        PostgreSQLWebObservationRepository(cast(Any, object())).prepare_attempt(
             cast(Any, unit_of_work),
             lease=cast(Any, lease),
             snapshot=cast(Any, snapshot),

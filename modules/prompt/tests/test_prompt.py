@@ -22,6 +22,7 @@ from armi_prompt.api import (
     PromptViolation,
 )
 from armi_prompt.bootstrap import bootstrap_prompt, bootstrap_prompt_cognition
+from armi_runtime_foundation import PostgreSQLTransaction
 
 
 def _draft(
@@ -107,16 +108,18 @@ def test_prompt_owner_draft_round_trip_is_canonical() -> None:
 async def test_subject_prompt_commit_uses_owner_draft_and_cas() -> None:
     subject_id, document_id = uuid7(), uuid7()
     transaction = _PromptTransaction(subject_id=subject_id, document_id=document_id)
+    owner_transaction = cast(PostgreSQLTransaction, transaction)
     module = bootstrap_prompt()
     draft = _draft(document_id)
     owners = (draft,)
     assert await module.commit.heads_match(
-        transaction, subject_id=subject_id, drafts=owners
+        owner_transaction, subject_id=subject_id, drafts=owners
     )
     changed = await module.commit.commit(
-        transaction,
+        owner_transaction,
         validation_id=uuid7(),
         subject_id=subject_id,
+        author_party_id=transaction.subject_party_id,
         commit_id=uuid7(),
         drafts=owners,
         artifacts={draft.proposal_ref: _artifact(draft.content_bytes)},
@@ -124,7 +127,7 @@ async def test_subject_prompt_commit_uses_owner_draft_and_cas() -> None:
     assert changed == (document_id,)
     assert transaction.revision_no == 1
     assert not await module.commit.heads_match(
-        transaction, subject_id=subject_id, drafts=owners
+        owner_transaction, subject_id=subject_id, drafts=owners
     )
 
 
@@ -132,13 +135,15 @@ async def test_subject_prompt_commit_uses_owner_draft_and_cas() -> None:
 async def test_subject_prompt_requires_published_artifact() -> None:
     subject_id, document_id = uuid7(), uuid7()
     transaction = _PromptTransaction(subject_id=subject_id, document_id=document_id)
+    owner_transaction = cast(PostgreSQLTransaction, transaction)
     module = bootstrap_prompt()
     draft = _draft(document_id)
     with pytest.raises(PromptViolation, match="PROMPT-ARTIFACT"):
         await module.commit.commit(
-            transaction,
+            owner_transaction,
             validation_id=uuid7(),
             subject_id=subject_id,
+            author_party_id=transaction.subject_party_id,
             commit_id=uuid7(),
             drafts=(draft,),
             artifacts={},
@@ -154,6 +159,7 @@ async def test_creator_prompt_rejects_cross_authority_before_io(
 ) -> None:
     unavailable = cast(Any, object())
     module = bootstrap_prompt(
+        subject_id=uuid7(),
         creator_party_id=uuid7(),
         storage=unavailable,
         catalog=unavailable,

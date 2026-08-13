@@ -41,11 +41,13 @@ class ActivityModule:
 def bootstrap_activity(
     factory: PostgreSQLRuntimeUnitOfWorkFactory,
     *,
+    subject_id: UUID,
     creator_party_id: UUID,
     focus: ActivityFocusReadPort,
 ) -> ActivityModule:
     query = PostgreSQLActivityRead(
         factory,
+        subject_id=subject_id,
         creator_party_id=creator_party_id,
         focus=focus,
     )

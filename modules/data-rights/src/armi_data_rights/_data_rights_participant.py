@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import LiteralString
+
 from armi_runtime_foundation import PostgreSQLTransaction
 
 from .api import (
@@ -19,7 +21,7 @@ from .api import (
 
 _OWNER = DataRightsOwnerIdentity("data-rights")
 _VERSION = DataRightsContributionVersion(1)
-_SEGMENTS = (
+_SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "creator_exports",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')

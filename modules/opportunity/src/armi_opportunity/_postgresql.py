@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from uuid import uuid7
+from uuid import UUID, uuid7
 
 from armi_activity.api import (
     ActivityId,
@@ -27,12 +28,16 @@ from armi_kernel.contracts import (
 )
 from armi_material.api import MaterialReadPort
 from armi_relationship.api import RelationshipPolicyPort, RelationshipReadPort
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWork,
+    PostgreSQLTransaction,
+)
 from armi_sleep.api import SleepReadPort
 from armi_subject_state.api import SubjectStateReadPort, SubjectStateViolation
 
 from .api import (
     CreatorOutreachPolicy,
+    LifeOpportunityFactsPort,
     LifeOpportunitySourceKind,
     LifeViolation,
     OpportunityAdmissionOutcome,
@@ -40,11 +45,20 @@ from .api import (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class _AttentionRootState:
+    opportunity_id: UUID
+    disposition: str
+    retry_ready: bool
+    successor_id: UUID | None
+
+
 class PostgreSQLLifeOpportunityRepository:
     """Admit one source-backed root opportunity under the active Runtime fence."""
 
     __slots__ = (
         "_activities",
+        "_facts",
         "_materials",
         "_relationship_policy",
         "_relationships",
@@ -60,6 +74,7 @@ class PostgreSQLLifeOpportunityRepository:
         activities: ActivityReadPort,
         materials: MaterialReadPort,
         subject_state: SubjectStateReadPort,
+        facts: LifeOpportunityFactsPort,
     ) -> None:
         self._activities = activities
         self._materials = materials
@@ -67,6 +82,7 @@ class PostgreSQLLifeOpportunityRepository:
         self._relationship_policy = relationship_policy
         self._sleep = sleep
         self._subject_state = subject_state
+        self._facts = facts
 
     async def admit_generation_available(
         self,
@@ -76,20 +92,7 @@ class PostgreSQLLifeOpportunityRepository:
         if fence is None:
             raise LifeViolation("LIFE-FENCE-REQUIRED")
         connection = unit_of_work.transaction
-        row = await (
-            await connection.execute(
-                """
-                SELECT generation_no, activation_reason
-                FROM armi.life_generations
-                WHERE life_generation_id = %s
-                  AND subject_id = %s
-                  AND status = 'active'
-                """,
-                (fence.life_generation_id, fence.subject_id),
-            )
-        ).fetchone()
-        if row is None:
-            raise LifeViolation("LIFE-SOURCE-STALE")
+        generation = await self._facts.generation(unit_of_work)
         opportunity_id = uuid7()
         inserted = await (
             await connection.execute(
@@ -115,7 +118,7 @@ class PostgreSQLLifeOpportunityRepository:
                     fence.subject_id,
                     opportunity_id,
                     fence.life_generation_id,
-                    int(row[0]),
+                    generation.generation_no,
                 ),
             )
         ).fetchone()
@@ -132,7 +135,11 @@ class PostgreSQLLifeOpportunityRepository:
                       AND purpose = 'consider_autonomous_life'
                       AND reconsideration_no = 0
                     """,
-                    (fence.subject_id, fence.life_generation_id, int(row[0])),
+                    (
+                        fence.subject_id,
+                        fence.life_generation_id,
+                        generation.generation_no,
+                    ),
                 )
             ).fetchone()
             if existing is None:
@@ -271,18 +278,16 @@ class PostgreSQLLifeOpportunityRepository:
                            WHERE subject_id = %s
                              AND purpose = 'consider_activity_attention'
                              AND current_disposition IN ('open', 'selected')
-                       ),
-                       (SELECT count(*) FROM armi.cognitive_episodes
-                        WHERE status NOT IN (
-                            'completed', 'stale', 'failed', 'cancelled',
-                            'candidate_rejected'
-                        ))
+                       )
                 """,
                 (fence.subject_id,),
             )
         ).fetchone()
         if state is None:
             raise LifeViolation("LIFE-SCHEDULER-STATE")
+        active_cognition = await self._facts.active_cognition_count(
+            connection, subject_id=fence.subject_id
+        )
         if maintenance is not None:
             return OpportunityAdmissionOutcome(
                 OpportunityAdmissionStatus.REJECTED,
@@ -308,7 +313,7 @@ class PostgreSQLLifeOpportunityRepository:
                 active_ids,
                 bool(state[0]),
                 model_concurrency,
-                int(state[1]),
+                active_cognition,
             )
         )
         if decision.disposition is not ActivitySchedulingDisposition.ADMIT:
@@ -349,7 +354,7 @@ class PostgreSQLLifeOpportunityRepository:
             )
         ).fetchone()
         if inserted is None:
-            existing = await self._activities.attention_root_state(
+            existing = await self._attention_root_state(
                 unit_of_work.transaction,
                 subject_id=fence.subject_id,
                 revision_id=selected.revision_id,
@@ -460,18 +465,16 @@ class PostgreSQLLifeOpportunityRepository:
                            WHERE subject_id = %s
                              AND purpose = 'consider_activity_internal_work'
                              AND current_disposition IN ('open', 'selected')
-                       ),
-                       (SELECT count(*) FROM armi.cognitive_episodes
-                        WHERE status NOT IN (
-                            'completed', 'stale', 'failed', 'cancelled',
-                            'candidate_rejected'
-                        ))
+                       )
                 """,
                 (fence.subject_id,),
             )
         ).fetchone()
         if state is None:
             raise LifeViolation("LIFE-SCHEDULER-STATE")
+        active_cognition = await self._facts.active_cognition_count(
+            connection, subject_id=fence.subject_id
+        )
         if maintenance is not None:
             return OpportunityAdmissionOutcome(
                 OpportunityAdmissionStatus.REJECTED,
@@ -484,7 +487,7 @@ class PostgreSQLLifeOpportunityRepository:
                 None,
                 "LIFE-BACKPRESSURE-INTERNAL-WORK-OUTSTANDING",
             )
-        if int(state[1]) >= model_concurrency - 1:
+        if active_cognition >= model_concurrency - 1:
             return OpportunityAdmissionOutcome(
                 OpportunityAdmissionStatus.REJECTED,
                 None,
@@ -582,6 +585,49 @@ class PostgreSQLLifeOpportunityRepository:
             OpportunityAdmissionStatus.ADMITTED, opportunity_id
         )
 
+    async def _attention_root_state(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        revision_id: UUID,
+        revision_no: int,
+    ) -> _AttentionRootState | None:
+        row = await (
+            await transaction.execute(
+                """
+                SELECT root.opportunity_id, root.current_disposition,
+                       root.resolved_at, successor.opportunity_id
+                FROM armi.opportunities AS root
+                LEFT JOIN armi.opportunities AS successor
+                  ON successor.predecessor_opportunity_id = root.opportunity_id
+                WHERE root.subject_id = %s
+                  AND root.source_kind = 'activity_revision'
+                  AND root.source_ref = %s AND root.source_version = %s
+                  AND root.purpose = 'consider_activity_attention'
+                  AND root.reconsideration_no = 0
+                """,
+                (subject_id, revision_id, revision_no),
+            )
+        ).fetchone()
+        if row is None:
+            return None
+        facts = await self._facts.attention_retry(
+            transaction,
+            subject_id=subject_id,
+            root_opportunity_id=row[0],
+            resolved_at=row[2],
+        )
+        return _AttentionRootState(
+            row[0],
+            str(row[1]),
+            facts.failed_ready
+            or (
+                facts.need_information_at is not None and facts.creator_input_after_need
+            ),
+            row[3],
+        )
+
     async def admit_creator_outreach(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
@@ -596,66 +642,17 @@ class PostgreSQLLifeOpportunityRepository:
         if type(policy) is not CreatorOutreachPolicy:
             raise LifeViolation("LIFE-OUTREACH-POLICY")
         connection = unit_of_work.transaction
-        scene = await (
-            await connection.execute(
-                """
-                SELECT scene.scene_id, scene.primary_party_id,
-                       latest.interaction_id, latest.received_at,
-                       generation.life_generation_id, generation.generation_no,
-                       generation.created_at, statement_timestamp()
-                FROM armi.interaction_scenes AS scene
-                JOIN armi.life_generations AS generation
-                  ON generation.subject_id = scene.subject_id
-                 AND generation.life_generation_id = %s
-                 AND generation.status = 'active'
-                LEFT JOIN LATERAL (
-                    SELECT interaction.interaction_id,
-                           interaction.received_at
-                    FROM armi.party_input_interactions AS interaction
-                    WHERE interaction.subject_id = scene.subject_id
-                      AND interaction.scene_id = scene.scene_id
-                      AND interaction.source_party_id = scene.primary_party_id
-                    ORDER BY interaction.received_at DESC,
-                             interaction.interaction_id DESC
-                    LIMIT 1
-                ) AS latest ON true
-                WHERE scene.subject_id = %s
-                  AND scene.current_status = 'open'
-                ORDER BY
-                    EXISTS (
-                        SELECT 1
-                        FROM armi.permission_grants AS permission
-                        JOIN armi.capabilities AS capability
-                          ON capability.capability_id = permission.capability_id
-                        WHERE permission.subject_id = scene.subject_id
-                          AND permission.interaction_scene_id = scene.scene_id
-                          AND permission.creator_party_id = scene.primary_party_id
-                          AND permission.status = 'active'
-                          AND permission.valid_from <= statement_timestamp()
-                          AND statement_timestamp() < permission.valid_until
-                          AND permission.consumed_uses < permission.max_uses
-                          AND capability.capability_kind = 'creator.scene.reply'
-                          AND capability.operation_class = 'send'
-                          AND capability.availability_status = 'available'
-                    ) DESC,
-                    latest.received_at DESC NULLS LAST,
-                    (scene.scene_key = 'default') DESC,
-                    scene.scene_id
-                LIMIT 1
-                """,
-                (fence.life_generation_id, fence.subject_id),
-            )
-        ).fetchone()
-        if scene is None:
+        outreach = await self._facts.outreach(unit_of_work)
+        if outreach is None:
             return OpportunityAdmissionOutcome(
                 OpportunityAdmissionStatus.REJECTED,
                 None,
                 "LIFE-OUTREACH-SCENE-UNAVAILABLE",
             )
-        scene_id = scene[0]
-        creator_party_id = scene[1]
-        latest_input_at = scene[3]
-        now = scene[7]
+        scene_id = outreach.scene_id
+        creator_party_id = outreach.creator_party_id
+        latest_input_at = outreach.latest_input_at
+        now = outreach.now
         relationship = await self._relationships.current_for_party(
             unit_of_work.transaction,
             subject_id=fence.subject_id,
@@ -672,90 +669,24 @@ class PostgreSQLLifeOpportunityRepository:
                 None,
                 "LIFE-OUTREACH-RELATIONSHIP-BOUNDARY",
             )
-        gate = await (
-            await connection.execute(
-                """
-                SELECT
-                    EXISTS (
-                        SELECT 1
-                        FROM armi.opportunities AS opportunity
-                        JOIN armi.action_intents AS intent
-                          ON intent.root_opportunity_id = opportunity.opportunity_id
-                        LEFT JOIN armi.action_intent_revisions AS revision
-                          ON revision.action_intent_revision_id =
-                             intent.current_revision_id
-                        LEFT JOIN armi.policy_decisions AS policy
-                          ON policy.action_intent_revision_id =
-                             revision.action_intent_revision_id
-                         AND policy.is_current
-                        LEFT JOIN armi.effects AS effect
-                          ON effect.action_intent_id = intent.action_intent_id
-                        WHERE opportunity.subject_id = %s
-                          AND opportunity.scene_id = %s
-                          AND opportunity.context_party_id = %s
-                          AND opportunity.purpose = 'consider_creator_outreach'
-                          AND (
-                              policy.policy_decision_id IS NULL
-                              OR (
-                                  policy.decision_outcome = 'allowed'
-                                  AND (
-                                      effect.effect_id IS NULL
-                                      OR effect.status IN (
-                                          'registered', 'dispatching', 'unknown'
-                                      )
-                                  )
-                              )
-                          )
-                          AND NOT EXISTS (
-                              SELECT 1
-                              FROM armi.party_input_interactions AS reply
-                              WHERE reply.scene_id = intent.scene_id
-                                AND reply.source_party_id = intent.context_party_id
-                                AND reply.received_at > intent.created_at
-                          )
-                    ),
-                    (
-                        SELECT max(episode.created_at)
-                        FROM armi.cognitive_episodes AS episode
-                        WHERE episode.subject_id = %s
-                          AND episode.purpose = 'consider_creator_outreach'
-                    ),
-                    (
-                        SELECT max(item.occurred_at)
-                        FROM armi.scene_timeline_items AS item
-                        WHERE item.scene_id = %s
-                          AND item.source_kind IN (
-                              'creator_input', 'party_response'
-                          )
-                    )
-                """,
-                (
-                    fence.subject_id,
-                    scene_id,
-                    creator_party_id,
-                    fence.subject_id,
-                    scene_id,
-                ),
-            )
-        ).fetchone()
-        if gate is None:
-            raise LifeViolation("LIFE-OUTREACH-GATE")
-        if bool(gate[0]):
+        if outreach.awaiting_creator:
             return OpportunityAdmissionOutcome(
                 OpportunityAdmissionStatus.REJECTED,
                 None,
                 "LIFE-OUTREACH-AWAITING-CREATOR",
             )
-        if gate[1] is not None and now < gate[1] + timedelta(
-            seconds=policy.minimum_interval_seconds
+        if outreach.last_cognition_at is not None and now < (
+            outreach.last_cognition_at
+            + timedelta(seconds=policy.minimum_interval_seconds)
         ):
             return OpportunityAdmissionOutcome(
                 OpportunityAdmissionStatus.REJECTED,
                 None,
                 "LIFE-OUTREACH-COOLDOWN",
             )
-        if gate[2] is not None and now < gate[2] + timedelta(
-            seconds=policy.minimum_interval_seconds
+        if outreach.last_timeline_at is not None and now < (
+            outreach.last_timeline_at
+            + timedelta(seconds=policy.minimum_interval_seconds)
         ):
             return OpportunityAdmissionOutcome(
                 OpportunityAdmissionStatus.REJECTED,
@@ -766,7 +697,8 @@ class PostgreSQLLifeOpportunityRepository:
         if (
             relationship is not None
             and relationship.revision.status.value == "active"
-            and relationship.revision.occurred_at > (latest_input_at or scene[6])
+            and relationship.revision.occurred_at
+            > (latest_input_at or outreach.generation_created_at)
             and any(
                 item.party_role.value == "subject" and item.status.value == "active"
                 for item in relationship.revision.commitments
@@ -800,7 +732,7 @@ class PostgreSQLLifeOpportunityRepository:
             activity_source = await self._activities.completed_outreach_source(
                 unit_of_work.transaction,
                 subject_id=fence.subject_id,
-                after=latest_input_at or scene[6],
+                after=latest_input_at or outreach.generation_created_at,
             )
             if activity_source is not None:
                 source = (
@@ -811,7 +743,7 @@ class PostgreSQLLifeOpportunityRepository:
                     activity_source.occurred_at,
                 )
         if source is None:
-            anchor_at = latest_input_at or scene[6]
+            anchor_at = latest_input_at or outreach.generation_created_at
             available_after = anchor_at + timedelta(
                 seconds=policy.absence_after_seconds
             )
@@ -823,8 +755,8 @@ class PostgreSQLLifeOpportunityRepository:
                 )
             source = (
                 LifeOpportunitySourceKind.CREATOR_OUTREACH_ABSENCE.value,
-                scene[2] or scene[4],
-                1 if scene[2] is not None else int(scene[5]),
+                outreach.latest_input_id or outreach.generation_id,
+                1 if outreach.latest_input_id is not None else outreach.generation_no,
                 None,
                 available_after,
             )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
 from armi_kernel.application import (
@@ -22,11 +23,102 @@ from .api import (
     CognitionEpisodeStatus,
     CognitionExactLifeQueryIntentDraft,
     CognitionExperienceDraft,
+    CognitionLifeRecordItem,
     CognitionOperationSnapshot,
 )
 
 
 class PostgreSQLCognitionSubjectCommit:
+    async def opportunity_episode_states(
+        self, transaction: PostgreSQLTransaction, *, opportunity_id: UUID
+    ) -> tuple[tuple[UUID, str], ...]:
+        rows = await (
+            await transaction.execute(
+                """SELECT cognitive_episode_id,status FROM armi.cognitive_episodes
+                   WHERE opportunity_id=%s ORDER BY created_at""",
+                (opportunity_id,),
+            )
+        ).fetchall()
+        return tuple((row[0], str(row[1])) for row in rows)
+
+    async def last_purpose_created_at(
+        self, transaction: PostgreSQLTransaction, *, subject_id: UUID, purpose: str
+    ) -> datetime | None:
+        row = await (
+            await transaction.execute(
+                """SELECT max(created_at) FROM armi.cognitive_episodes
+                   WHERE subject_id=%s AND purpose=%s""",
+                (subject_id, purpose),
+            )
+        ).fetchone()
+        return None if row is None else row[0]
+
+    async def active_count(
+        self, transaction: PostgreSQLTransaction, *, subject_id: UUID
+    ) -> int:
+        row = await (
+            await transaction.execute(
+                """SELECT count(*) FROM armi.cognitive_episodes
+                   WHERE subject_id=%s AND status NOT IN
+                   ('completed','stale','failed','cancelled','candidate_rejected')""",
+                (subject_id,),
+            )
+        ).fetchone()
+        return 0 if row is None else int(row[0])
+
+    async def life_record_branch(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        query_text: str | None,
+        before: tuple[datetime, str, UUID] | None,
+        limit: int,
+    ) -> tuple[CognitionLifeRecordItem, ...]:
+        rows = await (
+            await transaction.execute(
+                """
+                SELECT experience_id, first_person_gist, source_perspective, accepted_at
+                FROM armi.accepted_experiences
+                WHERE subject_id = %s
+                  AND (%s::text IS NULL OR first_person_gist ILIKE '%%' || %s::text || '%%')
+                  AND (%s::timestamptz IS NULL OR
+                       (accepted_at, 'conversation'::text, experience_id)
+                           < (%s::timestamptz,%s::text,%s::uuid))
+                ORDER BY accepted_at DESC, experience_id DESC LIMIT %s
+                """,
+                (
+                    subject_id,
+                    query_text,
+                    query_text,
+                    None if before is None else before[0],
+                    None if before is None else before[0],
+                    None if before is None else before[1],
+                    None if before is None else before[2],
+                    limit,
+                ),
+            )
+        ).fetchall()
+        return tuple(
+            CognitionLifeRecordItem(row[0], str(row[1]), str(row[2]), row[3])
+            for row in rows
+        )
+
+    async def opportunity_for_episode(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        episode_id: UUID,
+    ) -> UUID | None:
+        row = await (
+            await transaction.execute(
+                """SELECT opportunity_id FROM armi.cognitive_episodes
+                   WHERE cognitive_episode_id = %s""",
+                (episode_id,),
+            )
+        ).fetchone()
+        return None if row is None else row[0]
+
     async def operation_snapshot(
         self,
         transaction: PostgreSQLTransaction,

@@ -19,7 +19,7 @@ from armi_kernel.application import (
 from armi_kernel.contracts import Digest, Instant, TraceId
 from armi_runtime.composition.exact_life_query_pipeline import (
     ExactLifeQueryPipeline,
-    _result_bytes,
+    encode_exact_life_query_result,
 )
 
 
@@ -41,15 +41,16 @@ class _QueryPort:
 
 
 def _snapshot(
-    kind: LifeRecordKind = LifeRecordKind.MEMORY,
+    kind: LifeRecordKind | None = None,
 ) -> CognitionExactLifeQuerySnapshot:
+    kind = kind or LifeRecordKind("memory")
     return CognitionExactLifeQuerySnapshot(
         intent_id=uuid7(),
         subject_id=uuid7(),
         source_opportunity_id=uuid7(),
         scene_id=uuid7(),
         creator_party_id=uuid7(),
-        record_kind=kind.value,
+        record_kind=str(kind),
         query_text="曾经约定过的事情",
         limit=20,
         query_digest=Digest.from_bytes(b"query"),
@@ -67,7 +68,7 @@ def _pipeline(port: _QueryPort) -> ExactLifeQueryPipeline:
 async def test_forgotten_record_is_returned_as_just_queried_evidence() -> None:
     item = LifeRecordItem(
         record_ref=uuid7(),
-        record_kind=LifeRecordKind.MEMORY,
+        record_kind=LifeRecordKind("memory"),
         summary="曾经形成、现在已经忘记的一项记忆。",
         source_kind="subjective_memory",
         occurred_at=Instant(datetime(2026, 8, 1, tzinfo=UTC)),
@@ -85,8 +86,8 @@ async def test_forgotten_record_is_returned_as_just_queried_evidence() -> None:
     request = port.requests[0]
     assert request.actor is LifeRecordActor.SUBJECT
     assert request.retrieval_kind is LifeRecordRetrievalKind.EXACT_QUERY
-    assert request.record_kind is LifeRecordKind.MEMORY
-    result = _result_bytes(
+    assert request.record_kind == LifeRecordKind("memory")
+    result = encode_exact_life_query_result(
         snapshot,
         status=status,
         page=page,
@@ -102,7 +103,7 @@ async def test_private_subject_material_and_empty_result_keep_distinct_outcomes(
 ):
     private_item = LifeRecordItem(
         record_ref=uuid7(),
-        record_kind=LifeRecordKind.MATERIAL,
+        record_kind=LifeRecordKind("material"),
         summary="只对主体可见的私人草稿。",
         source_kind="life_material.private",
         occurred_at=Instant(datetime(2026, 8, 2, tzinfo=UTC)),
@@ -112,7 +113,7 @@ async def test_private_subject_material_and_empty_result_keep_distinct_outcomes(
     private_port = _QueryPort(LifeRecordPage((private_item,)))
     private_status, private_page, private_failure = await _pipeline(
         private_port
-    )._execute_query(_snapshot(LifeRecordKind.MATERIAL))
+    )._execute_query(_snapshot(LifeRecordKind("material")))
     assert private_status == "succeeded"
     assert private_page is not None and private_page.items == (private_item,)
     assert private_failure is None
@@ -120,7 +121,7 @@ async def test_private_subject_material_and_empty_result_keep_distinct_outcomes(
     empty_port = _QueryPort(LifeRecordPage(()))
     empty_status, empty_page, empty_failure = await _pipeline(
         empty_port
-    )._execute_query(_snapshot(LifeRecordKind.CONVERSATION))
+    )._execute_query(_snapshot(LifeRecordKind("conversation")))
     assert empty_status == "empty"
     assert empty_page is not None and empty_page.items == ()
     assert empty_failure is None
@@ -151,7 +152,7 @@ async def test_read_failure_and_permission_denial_settle_differently(
 async def test_creator_view_result_cannot_cross_the_subject_query_harness() -> None:
     item = LifeRecordItem(
         record_ref=uuid7(),
-        record_kind=LifeRecordKind.MATERIAL,
+        record_kind=LifeRecordKind("material"),
         summary="错误来源的投影。",
         source_kind="life_material",
         occurred_at=Instant(datetime(2026, 8, 2, tzinfo=UTC)),
@@ -161,7 +162,7 @@ async def test_creator_view_result_cannot_cross_the_subject_query_harness() -> N
 
     status, page, failure = await _pipeline(
         _QueryPort(LifeRecordPage((item,)))
-    )._execute_query(_snapshot(LifeRecordKind.MATERIAL))
+    )._execute_query(_snapshot(LifeRecordKind("material")))
 
     assert status == "failed"
     assert page is None
@@ -169,7 +170,7 @@ async def test_creator_view_result_cannot_cross_the_subject_query_harness() -> N
 
     wrong_kind = LifeRecordItem(
         record_ref=uuid7(),
-        record_kind=LifeRecordKind.RELATIONSHIP,
+        record_kind=LifeRecordKind("relationship"),
         summary="错误类型的记录。",
         source_kind="relationship_current",
         occurred_at=Instant(datetime(2026, 8, 2, tzinfo=UTC)),
@@ -178,7 +179,7 @@ async def test_creator_view_result_cannot_cross_the_subject_query_harness() -> N
     )
     status, page, failure = await _pipeline(
         _QueryPort(LifeRecordPage((wrong_kind,)))
-    )._execute_query(_snapshot(LifeRecordKind.MATERIAL))
+    )._execute_query(_snapshot(LifeRecordKind("material")))
 
     assert status == "failed"
     assert page is None

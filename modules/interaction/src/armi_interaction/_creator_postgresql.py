@@ -46,6 +46,18 @@ class CreatorInputRepository:
         self._evidence_read = evidence_read
         self._opportunity = opportunity
 
+    async def timeline_input_purpose(
+        self, transaction: PostgreSQLTransaction, *, interaction_id: UUID
+    ) -> str | None:
+        row = await (
+            await transaction.execute(
+                """SELECT purpose FROM armi.party_input_interactions
+                   WHERE interaction_id = %s""",
+                (interaction_id,),
+            )
+        ).fetchone()
+        return None if row is None else str(row[0])
+
     async def lock_scene(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,

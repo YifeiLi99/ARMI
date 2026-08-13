@@ -1,7 +1,7 @@
 from uuid import uuid7
 
 import pytest
-from armi_kernel.application import CandidateFactClass, CandidateOwner
+from armi_kernel.application import CandidateFactClass
 from armi_memory._application import MemoryApplication
 from armi_memory.api import (
     CandidateMemoryRevisionDraft,
@@ -29,7 +29,7 @@ def test_formation_round_trip_uses_canonical_memory_owner_payload() -> None:
         )
     )
 
-    assert draft.owner == CandidateOwner.MEMORY.value
+    assert draft.owner == "memory"
     decoded = cognition.decode(draft.canonical_payload)
     assert decoded.summary == "创造者说今天会下雨。"
     assert decoded.source_kind is MemorySourceKind.REPORTED

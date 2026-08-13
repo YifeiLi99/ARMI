@@ -9,6 +9,7 @@ from typing import Any, Protocol, cast
 
 import httpx
 import rfc8785
+from armi_cognition.api import CognitionSchemaDocument
 from armi_kernel.application import (
     CredentialLocator,
     CredentialPort,
@@ -95,12 +96,11 @@ class CandidateValue(Protocol):
     @property
     def schema_version(self) -> str: ...
 
-    def model_dump(
+    def model_dump_json(
         self,
         *,
-        mode: str,
         exclude_none: bool = False,
-    ) -> dict[str, Any]: ...
+    ) -> str: ...
 
 
 class CandidateParser(Protocol):
@@ -302,7 +302,7 @@ class VolcengineArkModelAdapter(ModelPort):
         binding: ModelBinding,
         credential_port: CredentialPort,
         locator: CredentialLocator,
-        candidate_schema: dict[str, Any],
+        candidate_schema: CognitionSchemaDocument,
         candidate_parser: CandidateParser,
         instructions: str = _INSTRUCTIONS,
         schema_name: str = "armi_cognition_candidate_v7",
@@ -319,8 +319,11 @@ class VolcengineArkModelAdapter(ModelPort):
         self._credential_port = credential_port
         self._locator = locator
         self._parse_candidate = candidate_parser
+        provider_schema = cast(
+            dict[str, Any], json.loads(candidate_schema.canonical_bytes)
+        )
         self._transport = transport or OpenAIArkTransport(
-            candidate_schema,
+            provider_schema,
             instructions=instructions,
             schema_name=schema_name,
         )
@@ -487,7 +490,7 @@ class VolcengineArkModelAdapter(ModelPort):
             "schema_version": "armi.model-response-artifact.v1",
             "provider_request_id": provider_request_id,
             "provider_model_id": model_id,
-            "candidate": candidate.model_dump(mode="json", exclude_none=True),
+            "candidate": json.loads(candidate.model_dump_json(exclude_none=True)),
             "usage": usage_value,
         }
         response_bytes = rfc8785.dumps(cast(Any, safe_response)) + b"\n"

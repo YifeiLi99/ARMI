@@ -37,13 +37,16 @@ class LifeRecordRetrievalKind(StrEnum):
     CREATOR_VIEW = "creator_view"
 
 
-class LifeRecordKind(StrEnum):
-    ACTIVITY = "activity"
-    CONVERSATION = "conversation"
-    MATERIAL = "material"
-    MEMORY = "memory"
-    RELATIONSHIP = "relationship"
-    SELF_CHANGE = "self_change"
+class LifeRecordKind(str):
+    """Opaque record kind interpreted by the outer Runtime assembler."""
+
+    def __new__(cls, value: str) -> LifeRecordKind:
+        if (
+            type(value) is not str
+            or re.fullmatch(r"^[a-z][a-z0-9._-]{0,63}$", value, re.ASCII) is None
+        ):
+            raise LifeRecordQueryViolation("CON-LIFE-QUERY-REQUEST")
+        return str.__new__(cls, value)
 
 
 def _uuid7(value: object) -> bool:
@@ -111,7 +114,7 @@ class LifeRecordItem:
                 and type(self.naturally_recallable) is not bool
             )
             or type(self.retrieval_kind) is not LifeRecordRetrievalKind
-            or (self.record_kind is LifeRecordKind.MEMORY)
+            or (str(self.record_kind) == "memory")
             != (self.naturally_recallable is not None)
         ):
             raise LifeRecordQueryViolation("CON-LIFE-QUERY-ITEM")

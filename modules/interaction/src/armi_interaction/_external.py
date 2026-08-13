@@ -18,9 +18,9 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
-    CreatorEventResourceKind,
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
+    CreatorResourceKind,
     PublishedArtifact,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, Purpose, SubjectId
@@ -73,6 +73,7 @@ class ExternalMessageInputService(ExternalMessageInputPort):
         "_notifier",
         "_other_inputs",
         "_storage",
+        "_subject_id",
         "_wakeups",
     )
 
@@ -86,6 +87,7 @@ class ExternalMessageInputService(ExternalMessageInputPort):
         other_inputs: OtherHumanInputRepository,
         unit_of_work_factory: PostgreSQLRuntimeUnitOfWorkFactory,
         data_rights: InteractionDataRightsGate,
+        subject_id: UUID,
         wakeups: InteractionWakeupPort | None = None,
         notifier: CreatorProjectionNotifier | None = None,
     ) -> None:
@@ -95,6 +97,7 @@ class ExternalMessageInputService(ExternalMessageInputPort):
         self._creator_inputs = creator_inputs
         self._other_inputs = other_inputs
         self._data_rights = data_rights
+        self._subject_id = subject_id
         self._factory = unit_of_work_factory
         self._wakeups = wakeups or NullInteractionWakeup()
         self._notifier = notifier
@@ -117,7 +120,10 @@ class ExternalMessageInputService(ExternalMessageInputPort):
         try:
             async with self._factory.unit_of_work() as unit_of_work:
                 binding = await self._messages.configure_creator(
-                    unit_of_work, command=command, scene_key=scene_key
+                    unit_of_work,
+                    subject_id=self._subject_id,
+                    command=command,
+                    scene_key=scene_key,
                 )
                 await unit_of_work.audit.append(
                     AuditDraft(
@@ -218,7 +224,7 @@ class ExternalMessageInputService(ExternalMessageInputPort):
         if self._notifier is None:
             return
         if context.sender_party_kind == "creator":
-            kind = CreatorEventResourceKind.SCENE_TIMELINE
+            kind = CreatorResourceKind("scene_timeline")
             resource_ref = _scene_key(
                 command.channel.value,
                 command.account_key.value,
@@ -227,7 +233,7 @@ class ExternalMessageInputService(ExternalMessageInputPort):
             )
             projection = "scene-timeline.v5"
         else:
-            kind = CreatorEventResourceKind.OTHER_HUMAN_RECORD
+            kind = CreatorResourceKind("other_human_record")
             resource_ref = str(context.sender_party_id)
             projection = "other-human-record.v1"
         try:
@@ -261,6 +267,7 @@ class ExternalMessageInputService(ExternalMessageInputPort):
             async with self._factory.unit_of_work() as unit_of_work:
                 return await self._messages.bind_message(
                     unit_of_work,
+                    subject_id=self._subject_id,
                     command=command,
                     person_identity_key=person_identity,
                     conversation_identity_key=conversation_identity,
@@ -303,6 +310,7 @@ class ExternalMessageInputService(ExternalMessageInputPort):
         async with self._factory.unit_of_work() as unit_of_work:
             current = await self._messages.bind_message(
                 unit_of_work,
+                subject_id=self._subject_id,
                 command=command,
                 person_identity_key=_identity(
                     command.channel.value,

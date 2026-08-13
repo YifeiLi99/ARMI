@@ -10,14 +10,24 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
+from armi_capability.api import CapabilityRequestDraft
+from armi_codex.api import CodexDelegationDraft
+from armi_expression.api import ResponseChoiceDraft
 from armi_kernel.application import (
     ArtifactId,
     ArtifactRef,
     ArtifactRegistration,
     CandidateApplicationId,
     CandidateApplicationStatus,
+    CandidateBasis,
+    CandidateDisposition,
+    CandidateExperienceDraft,
     CandidateFactClass,
+    CandidateOwnerDraft,
+    CandidateRejection,
+    CandidateValidationId,
     CandidateViolation,
+    LifeRecordKind,
     ModelBinding,
     ModelInvocationResult,
     ModelRequest,
@@ -29,17 +39,131 @@ from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWork,
     PostgreSQLTransaction,
 )
-
-from ._contracts import (
-    CandidateValidationResult,
-    CandidateValidationStatus,
-    CandidateValidator,
-    SubjectChangeSet,
-)
+from armi_web_observation.api import WebResearchRequestDraft
 
 _TOKEN = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 _PROPOSAL = re.compile(r"^proposal:[1-9][0-9]{0,2}$", re.ASCII)
 _GROUP = re.compile(r"^group:[1-9][0-9]{0,2}$", re.ASCII)
+_RESULT_CODE = re.compile(r"^(?:CON|CANDIDATE)-[A-Z0-9-]+$", re.ASCII)
+
+
+class CandidateValidationStatus(StrEnum):
+    ACCEPTED = "accepted"
+    PARTIALLY_ACCEPTED = "partially_accepted"
+    REJECTED = "rejected"
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateExactLifeQueryDraft:
+    proposal_ref: str
+    atomic_group_ref: str
+    basis_ordinals: tuple[int, ...]
+    fact_class: CandidateFactClass
+    record_kind: LifeRecordKind
+    query_text: str | None
+    limit: int = 20
+
+    def __post_init__(self) -> None:
+        if (
+            _PROPOSAL.fullmatch(self.proposal_ref) is None
+            or _GROUP.fullmatch(self.atomic_group_ref) is None
+            or type(self.basis_ordinals) is not tuple
+            or not self.basis_ordinals
+            or any(type(item) is not int or item < 0 for item in self.basis_ordinals)
+            or tuple(sorted(set(self.basis_ordinals))) != self.basis_ordinals
+            or self.fact_class is not CandidateFactClass.SUBJECTIVE_UNDERSTANDING
+            or type(self.record_kind) is not LifeRecordKind
+            or (
+                self.query_text is not None
+                and (type(self.query_text) is not str or not self.query_text.strip())
+            )
+            or type(self.limit) is not int
+            or not 1 <= self.limit <= 20
+        ):
+            raise CandidateViolation("CON-CANDIDATE-EXACT-LIFE-QUERY")
+
+
+@dataclass(frozen=True, slots=True)
+class SubjectChangeSet:
+    canonical_bytes: bytes
+    subject_id: UUID
+    generation_id: UUID
+    episode_id: UUID
+    model_attempt_id: UUID
+    base_subject_version: int
+    base_state_epoch: int
+    bundle_activation_id: UUID
+    context_digest: Digest
+    disposition: CandidateDisposition
+    experiences: tuple[CandidateExperienceDraft, ...]
+    capability_requests: tuple[CapabilityRequestDraft, ...]
+    action_choices: tuple[ResponseChoiceDraft, ...]
+    web_research_requests: tuple[WebResearchRequestDraft, ...]
+    rejections: tuple[CandidateRejection, ...]
+    codex_delegations: tuple[CodexDelegationDraft, ...] = ()
+    owner_drafts: tuple[CandidateOwnerDraft, ...] = ()
+    exact_life_queries: tuple[CandidateExactLifeQueryDraft, ...] = ()
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.canonical_bytes) is not bytes
+            or not self.canonical_bytes
+            or any(
+                type(value) is not UUID or value.version != 7
+                for value in (
+                    self.subject_id,
+                    self.generation_id,
+                    self.episode_id,
+                    self.model_attempt_id,
+                    self.bundle_activation_id,
+                )
+            )
+            or type(self.base_subject_version) is not int
+            or self.base_subject_version < 0
+            or type(self.base_state_epoch) is not int
+            or self.base_state_epoch < 0
+            or type(self.context_digest) is not Digest
+            or type(self.disposition) is not CandidateDisposition
+        ):
+            raise CandidateViolation("CON-CANDIDATE-CHANGE-SET")
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateValidationResult:
+    validation_id: CandidateValidationId
+    status: CandidateValidationStatus
+    change_set: SubjectChangeSet | None
+    accepted_count: int
+    rejected_count: int
+    error_code: str | None
+
+    def __post_init__(self) -> None:
+        rejected = self.status is CandidateValidationStatus.REJECTED
+        if (
+            type(self.validation_id) is not CandidateValidationId
+            or type(self.status) is not CandidateValidationStatus
+            or type(self.accepted_count) is not int
+            or self.accepted_count < 0
+            or type(self.rejected_count) is not int
+            or self.rejected_count < 0
+            or rejected != (self.change_set is None)
+            or (
+                rejected
+                and (
+                    type(self.error_code) is not str
+                    or _RESULT_CODE.fullmatch(self.error_code) is None
+                )
+            )
+            or (not rejected and self.error_code is not None)
+        ):
+            raise CandidateViolation("CON-CANDIDATE-RESULT")
+
+
+@runtime_checkable
+class CandidateValidator(Protocol):
+    def validate(
+        self, candidate_bytes: bytes, *, bases: tuple[CandidateBasis, ...]
+    ) -> CandidateValidationResult: ...
 
 
 def _require_uuid7(value: object) -> None:
@@ -152,12 +276,20 @@ class CognitionCandidateValue(Protocol):
     @property
     def schema_version(self) -> str: ...
 
-    def model_dump(
+    def model_dump_json(
         self,
         *,
-        mode: str,
         exclude_none: bool = False,
-    ) -> dict[str, object]: ...
+    ) -> str: ...
+
+
+@dataclass(frozen=True, slots=True)
+class CognitionSchemaDocument:
+    canonical_bytes: bytes
+
+    def __post_init__(self) -> None:
+        if not self.canonical_bytes or len(self.canonical_bytes) > 1_048_576:
+            raise ValueError("cognition schema document is invalid")
 
 
 class CognitionCandidateParser(Protocol):
@@ -184,7 +316,7 @@ class CognitionModelAdapterFactory(Protocol):
         self,
         *,
         binding: ModelBinding,
-        candidate_schema: dict[str, object],
+        candidate_schema: CognitionSchemaDocument,
         candidate_parser: CognitionCandidateParser,
         instructions: str | None = None,
         schema_name: str | None = None,
@@ -349,12 +481,52 @@ class CognitionOperationSnapshot:
 
 @runtime_checkable
 class CognitionOperationReadPort(Protocol):
+    async def opportunity_episode_states(
+        self, transaction: PostgreSQLTransaction, *, opportunity_id: UUID
+    ) -> tuple[tuple[UUID, str], ...]: ...
+
+    async def last_purpose_created_at(
+        self, transaction: PostgreSQLTransaction, *, subject_id: UUID, purpose: str
+    ) -> datetime | None: ...
+
+    async def active_count(
+        self, transaction: PostgreSQLTransaction, *, subject_id: UUID
+    ) -> int: ...
+
     async def operation_snapshot(
         self,
         transaction: PostgreSQLTransaction,
         *,
         opportunity_id: UUID,
     ) -> CognitionOperationSnapshot: ...
+
+    async def opportunity_for_episode(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        episode_id: UUID,
+    ) -> UUID | None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class CognitionLifeRecordItem:
+    experience_id: UUID
+    summary: str
+    source_kind: str
+    occurred_at: datetime
+
+
+@runtime_checkable
+class CognitionLifeRecordPort(Protocol):
+    async def life_record_branch(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        query_text: str | None,
+        before: tuple[datetime, str, UUID] | None,
+        limit: int,
+    ) -> tuple[CognitionLifeRecordItem, ...]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -441,6 +613,16 @@ class CognitionSubjectCommitPort(Protocol):
 
 
 @runtime_checkable
+class CognitionOwnerPort(
+    CognitionSubjectCommitPort,
+    CognitionOperationReadPort,
+    CognitionLifeRecordPort,
+    Protocol,
+):
+    """Complete shared read/commit surface of the active Cognition repository."""
+
+
+@runtime_checkable
 class CognitionExactLifeQueryPort(Protocol):
     async def snapshot(
         self,
@@ -507,6 +689,7 @@ class CognitionAdminPort(Protocol):
 
 
 __all__ = (
+    "CandidateExactLifeQueryDraft",
     "CandidateValidationResult",
     "CandidateValidationStatus",
     "CandidateValidator",
@@ -527,12 +710,16 @@ __all__ = (
     "CognitionExactLifeQueryPort",
     "CognitionExactLifeQuerySnapshot",
     "CognitionExperienceDraft",
+    "CognitionLifeRecordItem",
+    "CognitionLifeRecordPort",
     "CognitionModelAdapterFactory",
     "CognitionModelPort",
     "CognitionOperationReadPort",
     "CognitionOperationSnapshot",
+    "CognitionOwnerPort",
     "CognitionRuntimeStatePort",
     "CognitionRuntimeStateSnapshot",
+    "CognitionSchemaDocument",
     "CognitionSubjectCommitPort",
     "CognitionWakeupPort",
     "CognitionWorkerPort",

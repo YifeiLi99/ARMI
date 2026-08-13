@@ -283,14 +283,6 @@ class ActivityLifeRecordItem:
 
 
 @dataclass(frozen=True, slots=True)
-class ActivityAttentionRootState:
-    opportunity_id: UUID
-    disposition: str
-    retry_ready: bool
-    successor_id: UUID | None
-
-
-@dataclass(frozen=True, slots=True)
 class ActivityCommitContext:
     validation_id: UUID
     episode_id: UUID
@@ -538,6 +530,13 @@ class ActivityFocusReadPort(Protocol):
 
 @runtime_checkable
 class ActivityReadPort(Protocol):
+    async def need_information_after(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        episode_ids: tuple[UUID, ...],
+    ) -> datetime | None: ...
+
     async def list_current(self) -> CreatorActivityPage: ...
     async def timeline(self, activity_id: UUID) -> CreatorActivityTimeline: ...
     async def candidate_head(
@@ -569,14 +568,6 @@ class ActivityReadPort(Protocol):
         before: tuple[datetime, str, UUID] | None,
         limit: int,
     ) -> tuple[ActivityLifeRecordItem, ...]: ...
-    async def attention_root_state(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        subject_id: UUID,
-        revision_id: UUID,
-        revision_no: int,
-    ) -> ActivityAttentionRootState | None: ...
 
 
 @runtime_checkable
@@ -636,7 +627,6 @@ class ActivityCommitPort(Protocol):
 __all__ = (
     "ACTIVITY_PROJECTION_VERSION",
     "ActivityAttentionDecisionKind",
-    "ActivityAttentionRootState",
     "ActivityCandidateSnapshot",
     "ActivityCognitionPort",
     "ActivityCommitContext",

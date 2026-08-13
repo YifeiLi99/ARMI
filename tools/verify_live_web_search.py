@@ -12,7 +12,7 @@ from typing import Any, cast
 
 import httpx
 from armi_kernel import load_yaml_file
-from armi_web_observation._provider_contract import (
+from armi_runtime.composition.web_search_verification import (
     API_BASE,
     BINDING_ID,
     MODEL,

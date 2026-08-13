@@ -54,6 +54,7 @@ class PostgreSQLExpressionActionOwner:
                        revision.response_artifact_id, revision.response_digest,
                        revision.response_bytes, revision.codex_task_source_id,
                        revision.task_manifest_digest, revision.validator_id
+                       , intent.created_at
                 FROM armi.action_intents AS intent
                 JOIN armi.action_intent_revisions AS revision
                   ON revision.action_intent_revision_id=intent.current_revision_id
@@ -86,6 +87,7 @@ class PostgreSQLExpressionActionOwner:
                 Digest(str(row[15])) if row[15] is not None else None
             ),
             validator_id=str(row[16]) if row[16] is not None else None,
+            created_at=row[17],
         )
 
     async def operation_snapshot(
@@ -183,6 +185,30 @@ class PostgreSQLExpressionActionOwner:
               AND (effect_id IS NULL OR effect_id=%s)
             """,
             (effect_id, action_intent_id, effect_id),
+        )
+
+    async def outreach_intents(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        scene_id: UUID,
+        context_party_id: UUID,
+    ) -> tuple[ExpressionIntentSnapshot, ...]:
+        rows = await (
+            await transaction.execute(
+                """SELECT action_intent_id FROM armi.action_intents
+                   WHERE subject_id=%s AND scene_id=%s AND context_party_id=%s
+                     AND action_kind='creator_response'
+                   ORDER BY created_at DESC""",
+                (subject_id, scene_id, context_party_id),
+            )
+        ).fetchall()
+        return tuple(
+            [
+                await self.intent_snapshot(transaction, action_intent_id=row[0])
+                for row in rows
+            ]
         )
 
 

@@ -7,6 +7,7 @@ from typing import cast
 from uuid import UUID, uuid7
 
 from armi_runtime_foundation import PostgreSQLTransaction
+from armi_sleep.api import SleepOpportunityDraft, SleepOpportunityResult
 
 from .api import (
     ExternalEvidenceOpportunityDraft,
@@ -25,6 +26,74 @@ from .api import (
 
 
 class PostgreSQLOpportunityOwner:
+    async def admit_sleep(
+        self,
+        transaction: PostgreSQLTransaction,
+        draft: SleepOpportunityDraft,
+    ) -> SleepOpportunityResult:
+        opportunity_id = uuid7()
+        row = await (
+            await transaction.execute(
+                """
+                INSERT INTO armi.opportunities (
+                    opportunity_id,evidence_id,subject_id,scene_id,context_party_id,
+                    purpose,eligibility_status,current_disposition,root_opportunity_id,
+                    predecessor_opportunity_id,reconsideration_no,available_after,
+                    expires_at,source_kind,source_ref,source_version,activity_id)
+                VALUES (%s,NULL,%s,NULL,NULL,%s,'eligible','open',%s,%s,%s,%s,%s,%s,%s,%s,NULL)
+                ON CONFLICT (subject_id,source_kind,source_ref,source_version,purpose,reconsideration_no)
+                DO NOTHING RETURNING opportunity_id
+                """,
+                (
+                    opportunity_id,
+                    draft.subject_id,
+                    draft.purpose,
+                    draft.root_id or opportunity_id,
+                    draft.predecessor_id,
+                    draft.reconsideration_no,
+                    draft.available_after,
+                    draft.expires_at,
+                    draft.source_kind,
+                    draft.source_ref,
+                    draft.source_version,
+                ),
+            )
+        ).fetchone()
+        if row is not None:
+            return SleepOpportunityResult(row[0], True)
+        existing = await (
+            await transaction.execute(
+                """SELECT opportunity_id FROM armi.opportunities
+                   WHERE subject_id=%s AND source_kind=%s AND source_ref=%s
+                     AND source_version=%s AND purpose=%s AND reconsideration_no=%s""",
+                (
+                    draft.subject_id,
+                    draft.source_kind,
+                    draft.source_ref,
+                    draft.source_version,
+                    draft.purpose,
+                    draft.reconsideration_no,
+                ),
+            )
+        ).fetchone()
+        return SleepOpportunityResult(None if existing is None else existing[0], False)
+
+    async def cancel_sleep_source(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        source_kind: str,
+        source_ref: UUID,
+    ) -> None:
+        await transaction.execute(
+            """UPDATE armi.opportunities SET current_disposition='cancelled',
+                      resolved_at=statement_timestamp()
+               WHERE subject_id=%s AND source_kind=%s AND source_ref=%s
+                 AND current_disposition IN ('open','selected')""",
+            (subject_id, source_kind, source_ref),
+        )
+
     async def next_candidate(
         self,
         transaction: PostgreSQLTransaction,
@@ -165,7 +234,8 @@ class PostgreSQLOpportunityOwner:
                 """
                 SELECT opportunity_id, root_opportunity_id, reconsideration_no,
                        evidence_id, subject_id, scene_id, context_party_id,
-                       purpose, source_kind, source_ref, source_version, activity_id
+                       purpose, source_kind, source_ref, source_version, activity_id,
+                       available_after, expires_at
                 FROM armi.opportunities
                 WHERE opportunity_id = %s
                   AND current_disposition = 'selected'
@@ -188,6 +258,8 @@ class PostgreSQLOpportunityOwner:
             source_ref=row[9],
             source_version=int(row[10]),
             activity_id=row[11],
+            available_after=row[12],
+            expires_at=row[13],
         )
 
     async def resolve_subject_commit(

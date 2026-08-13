@@ -101,7 +101,7 @@ DISTRIBUTIONS = (
         module="armi_runtime_foundation",
         project_dir=Path("packages/armi-runtime-foundation"),
         layers=(),
-        dependencies=(),
+        dependencies=("armi-kernel==0.0.0",),
     ),
     Distribution(
         name="armi-capability",
@@ -992,7 +992,8 @@ def _check_import(
         )
         or (
             source_distribution == "armi-runtime-foundation"
-            and target_distribution not in {None, "armi-runtime-foundation"}
+            and target_distribution
+            not in {None, "armi-kernel", "armi-runtime-foundation"}
         )
         or (
             source_distribution == "armi-capability"
@@ -1237,6 +1238,11 @@ def _check_import(
         target_distribution == "armi-data-rights"
         and source_distribution in DATA_RIGHTS_PARTICIPANT_DISTRIBUTIONS
     ):
+        reverse_dependency = False
+    if ".tests." in source_module and imported_module in {
+        "armi_runtime.composition.candidate_validation_tool",
+        "armi_runtime.composition.postgresql_test",
+    }:
         reverse_dependency = False
     if source_distribution == "armi-evidence" and target_distribution == "armi-kernel":
         reverse_dependency = False
@@ -1685,6 +1691,30 @@ def analyze_source(
 
     exports = public_exports or {}
     violations: list[Violation] = []
+    if module.endswith(".api") or distribution == "armi-runtime-foundation":
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and node.id == "Any":
+                violations.append(
+                    Violation(
+                        "ARC-PUBLIC-ANY",
+                        path,
+                        node.lineno,
+                        "public contracts and Runtime Foundation cannot expose Any",
+                    )
+                )
+    if is_package and distribution in DATA_RIGHTS_PARTICIPANT_DISTRIBUTIONS:
+        for node in tree.body:
+            if isinstance(node, ast.Import) or (
+                isinstance(node, ast.ImportFrom) and node.module != "__future__"
+            ):
+                violations.append(
+                    Violation(
+                        "ARC-PACKAGE-ROOT",
+                        path,
+                        node.lineno,
+                        "business package roots cannot re-export implementation symbols",
+                    )
+                )
     if is_package:
         _, export_errors = _literal_exports(tree, path=path)
         violations.extend(export_errors)
@@ -1884,6 +1914,7 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
                     public_exports=public_exports,
                 )
             )
+
             if (
                 distribution.name != "armi-codex"
                 and ".runtime_resources.schema.alembic." not in module
@@ -2248,6 +2279,111 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
                         "effect ledger writes are owned by armi-effect",
                     )
                 )
+    test_roots: list[tuple[Path, str]] = [
+        (root / "tests", "workspace-tests"),
+        (root / "tools", "workspace-tools"),
+    ]
+    test_roots.extend(
+        (root / distribution.project_dir / "tests", distribution.name)
+        for distribution in DISTRIBUTIONS
+    )
+    for source_root, source_distribution in test_roots:
+        if not source_root.is_dir():
+            continue
+        for path in sorted(source_root.rglob("*.py")):
+            tree, errors = _parse_python(path, root)
+            violations.extend(errors)
+            if tree is None:
+                continue
+            relative_path = path.relative_to(root).with_suffix("")
+            module = ".".join(relative_path.parts)
+            violations.extend(
+                analyze_source(
+                    path.read_text(encoding="utf-8"),
+                    module=module,
+                    distribution=source_distribution,
+                    path=_relative(path, root),
+                    public_exports=public_exports,
+                )
+            )
+
+    business_distributions = tuple(
+        distribution
+        for distribution in DISTRIBUTIONS
+        if distribution.project_dir.parts[0] == "modules"
+    )
+    public_contract_paths = [
+        root / distribution.module_dir / "api.py"
+        for distribution in business_distributions
+    ]
+    public_contract_paths.extend(
+        (root / "packages/armi-runtime-foundation/src/armi_runtime_foundation").rglob(
+            "*.py"
+        )
+    )
+    for path in sorted(public_contract_paths):
+        tree, errors = _parse_python(path, root)
+        violations.extend(errors)
+        if tree is None:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and node.id == "Any":
+                violations.append(
+                    Violation(
+                        "ARC-PUBLIC-ANY",
+                        _relative(path, root),
+                        node.lineno,
+                        "public contracts and Runtime Foundation cannot expose Any",
+                    )
+                )
+    for distribution in business_distributions:
+        path = root / distribution.module_dir / "__init__.py"
+        tree, errors = _parse_python(path, root)
+        violations.extend(errors)
+        if tree is None:
+            continue
+        for node in tree.body:
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                violations.append(
+                    Violation(
+                        "ARC-PACKAGE-ROOT",
+                        _relative(path, root),
+                        node.lineno,
+                        "business package roots cannot re-export implementation symbols",
+                    )
+                )
+    kernel_foundation_paths = tuple(
+        (root / source_root).rglob("*.py")
+        for source_root in (
+            Path("packages/armi-kernel/src"),
+            Path("packages/armi-runtime-foundation/src"),
+        )
+    )
+    forbidden_kernel_tokens = (
+        "armi_activity",
+        "armi_cognition",
+        "armi_context",
+        "armi_effect",
+        "armi_interaction",
+        "armi_opportunity",
+        "creator-activity.v1",
+        "creator-effect.v3",
+        "creator-operation.v2",
+    )
+    for paths in kernel_foundation_paths:
+        for path in paths:
+            source = path.read_text(encoding="utf-8")
+            for token in forbidden_kernel_tokens:
+                if token in source:
+                    violations.append(
+                        Violation(
+                            "ARC-FOUNDATION-BUSINESS",
+                            _relative(path, root),
+                            1,
+                            f"Kernel/Foundation cannot enumerate {token!r}",
+                        )
+                    )
+
     runtime_path = root / "apps/armi-runtime/src/armi_runtime/composition/runtime.py"
     runtime_source = runtime_path.read_text(encoding="utf-8")
     for module_name, required in {
@@ -2388,6 +2524,44 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
                 "default Runtime composition must bind the effect module",
             )
         )
+    singleton_calls = {
+        "Artifact Catalog": "artifact_catalog = bootstrap_artifact_catalog()",
+        "Cognition owner": "cognition_owner = bootstrap_cognition_owner()",
+        "Effect owner": "effect_owner = bootstrap_effect_operation_read()",
+        "Opportunity owner": "opportunity_owner = bootstrap_opportunity_owner()",
+        "owner participant roster": "owner_roster = compose_runtime_owner_roster(",
+        "Runtime UoW pool": (
+            "runtime_unit_of_work_factory = compose_runtime_unit_of_work_factory("
+        ),
+    }
+    for resource_name, construction in singleton_calls.items():
+        count = runtime_source.count(construction)
+        if count != 1:
+            violations.append(
+                Violation(
+                    "ARC-ACTIVE-SINGLETON",
+                    _relative(runtime_path, root),
+                    1,
+                    f"{resource_name} must be constructed exactly once; found {count}",
+                )
+            )
+    for legacy_call in (
+        "bootstrap_cognition_operation(",
+        "bootstrap_cognition_life_records(",
+        "bootstrap_interaction_cognition(",
+        "bootstrap_interaction_subject_commit(",
+        "bootstrap_opportunity_cognition(",
+        "bootstrap_opportunity_operation(",
+    ):
+        if legacy_call in runtime_source:
+            violations.append(
+                Violation(
+                    "ARC-ACTIVE-DUPLICATE",
+                    _relative(runtime_path, root),
+                    1,
+                    f"Active Runtime must consume the shared owner aggregate, not {legacy_call}",
+                )
+            )
     return violations
 
 
@@ -2471,23 +2645,44 @@ def check_repository(root: Path) -> list[Violation]:
     production_accesses = tuple(
         access for access in foreign_accesses if "/schema/" not in access.path
     )
-    if len(foreign_accesses) > 151:
+    frozen_revision_paths = (
+        "/schema/alembic/versions/0004_context_embedding_projections.py",
+        "/schema/alembic/versions/0006_relationship_lifecycle.py",
+        "/schema/alembic/versions/0007_mood_owner.py",
+        "/schema/alembic/versions/0009_remove_shared_action_operations.py",
+    )
+    unexpected_frozen_accesses = tuple(
+        access
+        for access in foreign_accesses
+        if not any(access.path.endswith(path) for path in frozen_revision_paths)
+    )
+    if len(foreign_accesses) != 23:
         violations.append(
             Violation(
                 "ARC-SQL-OWNER-BUDGET",
                 _relative(registry_path, root),
                 1,
-                f"foreign SQL budget exceeded: raw={len(foreign_accesses)} > 151",
+                "foreign SQL must be limited to the 23 frozen revision accesses: "
+                f"raw={len(foreign_accesses)}",
             )
         )
-    if len(production_accesses) > 128:
+    if production_accesses:
         violations.append(
             Violation(
                 "ARC-SQL-OWNER-BUDGET",
                 _relative(registry_path, root),
                 1,
-                "foreign SQL budget exceeded: "
-                f"production={len(production_accesses)} > 128",
+                "production foreign SQL must be zero: "
+                f"production={len(production_accesses)}",
+            )
+        )
+    for access in unexpected_frozen_accesses:
+        violations.append(
+            Violation(
+                "ARC-SQL-OWNER-FROZEN",
+                access.path,
+                access.line,
+                f"armi.{access.table} is not an approved frozen revision access",
             )
         )
     for access in production_accesses:

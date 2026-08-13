@@ -71,7 +71,7 @@ class PostgreSQLExternalContentRepository:
                        settled_at=statement_timestamp()
                    WHERE external_message_part_id=ANY(%s)
                      AND dispatch_status='dispatched'""",
-                (list(recovered.part_ids),),
+                (recovered.part_ids,),
             )
             now = Instant(datetime.now(UTC))
             await unit.work.enqueue(

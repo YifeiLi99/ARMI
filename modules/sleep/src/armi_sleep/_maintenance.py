@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Any
 from uuid import UUID, uuid7
 
 from armi_kernel.application import (
@@ -26,12 +25,25 @@ from .api import (
     MaintenanceOpportunityOutcome,
     MaintenanceOpportunityStatus,
     MaintenanceProgress,
+    SleepOpportunityDraft,
+    SleepOpportunityPort,
+    SleepRuntimeFactsPort,
     SleepViolation,
 )
 
 
 class PostgreSQLMaintenanceRepository:
     """Advance the single active maintenance session through durable checkpoints."""
+
+    __slots__ = ("_opportunities", "_runtime")
+
+    def __init__(
+        self,
+        runtime: SleepRuntimeFactsPort,
+        opportunities: SleepOpportunityPort,
+    ) -> None:
+        self._runtime = runtime
+        self._opportunities = opportunities
 
     async def maintain_window(
         self,
@@ -46,44 +58,22 @@ class PostgreSQLMaintenanceRepository:
         if fence is None:
             raise SleepViolation("SLEEP-FENCE-REQUIRED")
         connection = unit_of_work.transaction
-        anchor = await (
+        last = await (
             await connection.execute(
                 """
-                SELECT anchor_kind, anchor_ref, anchor_at, subject_version, state_epoch
-                FROM (
-                    SELECT 'maintenance_session'::text AS anchor_kind,
-                           maintenance_session_id AS anchor_ref,
-                           finished_at AS anchor_at,
-                           subject.subject_version, subject.state_epoch, 0 AS priority
-                    FROM armi.maintenance_sessions AS session
-                    JOIN armi.subjects AS subject ON subject.subject_id = session.subject_id
-                    WHERE session.subject_id = %s
-                      AND session.life_generation_id = %s
-                      AND session.finished_at IS NOT NULL
-                    UNION ALL
-                    SELECT 'life_generation', generation.life_generation_id,
-                           generation.created_at, subject.subject_version,
-                           subject.state_epoch, 1
-                    FROM armi.life_generations AS generation
-                    JOIN armi.subjects AS subject ON subject.subject_id = generation.subject_id
-                    WHERE generation.subject_id = %s
-                      AND generation.life_generation_id = %s
-                      AND generation.status = 'active'
-                ) AS anchors
-                ORDER BY priority, anchor_at DESC
-                LIMIT 1
+                SELECT maintenance_session_id, finished_at
+                FROM armi.maintenance_sessions
+                WHERE subject_id=%s AND life_generation_id=%s
+                  AND finished_at IS NOT NULL
+                ORDER BY finished_at DESC LIMIT 1
                 """,
-                (
-                    fence.subject_id,
-                    fence.life_generation_id,
-                    fence.subject_id,
-                    fence.life_generation_id,
-                ),
+                (fence.subject_id, fence.life_generation_id),
             )
         ).fetchone()
-        if anchor is None:
-            raise SleepViolation("SLEEP-SOURCE-STALE")
-        anchor_at = anchor[2]
+        runtime = await self._runtime.snapshot(unit_of_work)
+        anchor_kind = "maintenance_session" if last is not None else "life_generation"
+        anchor_ref = last[0] if last is not None else fence.life_generation_id
+        anchor_at = last[1] if last is not None else runtime.generation_created_at
         consideration_at = anchor_at + timedelta(seconds=consideration_after_seconds)
         deadline_at = anchor_at + timedelta(seconds=deadline_after_seconds)
         now = datetime.now(UTC)
@@ -108,12 +98,12 @@ class PostgreSQLMaintenanceRepository:
                         session_id,
                         fence.subject_id,
                         fence.life_generation_id,
-                        str(anchor[0]),
-                        anchor[1],
+                        anchor_kind,
+                        anchor_ref,
                         consideration_at,
                         deadline_at,
-                        int(anchor[3]),
-                        int(anchor[4]),
+                        runtime.subject_version,
+                        runtime.state_epoch,
                         revision_id,
                     ),
                 )
@@ -129,16 +119,11 @@ class PostgreSQLMaintenanceRepository:
                     """,
                     (revision_id, session_id),
                 )
-            await connection.execute(
-                """
-                UPDATE armi.opportunities
-                SET current_disposition = 'cancelled',
-                    resolved_at = statement_timestamp()
-                WHERE subject_id = %s AND source_kind = 'maintenance_window'
-                  AND source_ref = %s AND purpose = 'consider_sleep'
-                  AND current_disposition IN ('open', 'selected')
-                """,
-                (fence.subject_id, anchor[1]),
+            await self._opportunities.cancel_sleep_source(
+                connection,
+                subject_id=fence.subject_id,
+                source_kind="maintenance_window",
+                source_ref=anchor_ref,
             )
             return MaintenanceOpportunityOutcome(
                 MaintenanceOpportunityStatus.REJECTED,
@@ -151,52 +136,26 @@ class PostgreSQLMaintenanceRepository:
                 None,
                 "LIFE-MAINTENANCE-NOT-DUE",
             )
-        opportunity_id = uuid7()
-        inserted = await (
-            await connection.execute(
-                """
-                INSERT INTO armi.opportunities (
-                    opportunity_id, evidence_id, subject_id, scene_id,
-                    context_party_id, purpose, eligibility_status,
-                    current_disposition, root_opportunity_id, reconsideration_no,
-                    available_after, expires_at, source_kind, source_ref,
-                    source_version, activity_id) VALUES (
-                    %s, NULL, %s, NULL, NULL, 'consider_sleep', 'eligible',
-                    'open', %s, 0, %s, %s, 'maintenance_window', %s, 1, NULL)
-                ON CONFLICT (
-                    subject_id, source_kind, source_ref, source_version,
-                    purpose, reconsideration_no
-                ) DO NOTHING RETURNING opportunity_id
-                """,
-                (
-                    opportunity_id,
-                    fence.subject_id,
-                    opportunity_id,
-                    consideration_at,
-                    deadline_at,
-                    anchor[1],
-                ),
-            )
-        ).fetchone()
-        if inserted is None:
-            existing = await (
-                await connection.execute(
-                    """
-                    SELECT opportunity_id FROM armi.opportunities
-                    WHERE subject_id = %s AND source_kind = 'maintenance_window'
-                      AND source_ref = %s AND source_version = 1
-                      AND purpose = 'consider_sleep' AND reconsideration_no = 0
-                    """,
-                    (fence.subject_id, anchor[1]),
-                )
-            ).fetchone()
-            if existing is None:
+        admitted = await self._opportunities.admit_sleep(
+            connection,
+            SleepOpportunityDraft(
+                fence.subject_id,
+                "consider_sleep",
+                "maintenance_window",
+                anchor_ref,
+                1,
+                consideration_at,
+                deadline_at,
+            ),
+        )
+        if not admitted.inserted:
+            if admitted.opportunity_id is None:
                 raise SleepViolation("SLEEP-SOURCE-STALE")
             return MaintenanceOpportunityOutcome(
-                MaintenanceOpportunityStatus.DUPLICATE, existing[0]
+                MaintenanceOpportunityStatus.DUPLICATE, admitted.opportunity_id
             )
         return MaintenanceOpportunityOutcome(
-            MaintenanceOpportunityStatus.ADMITTED, opportunity_id
+            MaintenanceOpportunityStatus.ADMITTED, admitted.opportunity_id
         )
 
     async def maintain_active_session(
@@ -221,13 +180,6 @@ class PostgreSQLMaintenanceRepository:
                 FROM armi.maintenance_sessions AS session
                 JOIN armi.maintenance_session_revisions AS revision
                   ON revision.maintenance_revision_id = session.current_revision_id
-                JOIN armi.subjects AS subject
-                  ON subject.subject_id = session.subject_id
-                 AND subject.status = 'active'
-                JOIN armi.life_generations AS generation
-                  ON generation.life_generation_id = session.life_generation_id
-                 AND generation.subject_id = session.subject_id
-                 AND generation.status = 'active'
                 WHERE session.subject_id = %s
                   AND session.life_generation_id = %s
                   AND session.finished_at IS NULL
@@ -249,29 +201,7 @@ class PostgreSQLMaintenanceRepository:
         if result is not MaintenanceResultStatus.RUNNING or head_version != revision_no:
             raise SleepViolation("SLEEP-MAINTENANCE-STATE")
 
-        safe_row = await (
-            await connection.execute(
-                """
-                SELECT NOT EXISTS (
-                    SELECT 1 FROM armi.cognitive_episodes
-                    WHERE subject_id = %s
-                      AND status NOT IN (
-                          'completed', 'stale', 'failed', 'cancelled',
-                          'candidate_rejected'
-                      )
-                ) AND NOT EXISTS (
-                    SELECT 1 FROM armi.durable_work
-                    WHERE subject_id = %s AND status = 'leased'
-                ) AND NOT EXISTS (
-                    SELECT 1 FROM armi.effects
-                    WHERE subject_id = %s
-                      AND status IN ('registered', 'dispatching')
-                )
-                """,
-                (fence.subject_id, fence.subject_id, fence.subject_id),
-            )
-        ).fetchone()
-        safe = bool(safe_row is not None and safe_row[0])
+        safe = await self._runtime.safe_for_maintenance(unit_of_work)
         if not safe:
             return MaintenanceProgress(
                 session_id,
@@ -286,17 +216,11 @@ class PostgreSQLMaintenanceRepository:
             raise SleepViolation("SLEEP-MAINTENANCE-STATE")
         next_quiet_until = quiet_until
         if wake_requested:
-            await connection.execute(
-                """
-                UPDATE armi.opportunities
-                SET current_disposition = 'cancelled',
-                    resolved_at = statement_timestamp()
-                WHERE subject_id = %s
-                  AND source_kind = 'maintenance_phase_revision'
-                  AND source_ref = %s
-                  AND current_disposition = 'open'
-                """,
-                (fence.subject_id, revision_id),
+            await self._opportunities.cancel_sleep_source(
+                connection,
+                subject_id=fence.subject_id,
+                source_kind="maintenance_phase_revision",
+                source_ref=revision_id,
             )
         elif phase in {
             MaintenancePhase.MEMORY_MAINTENANCE,
@@ -315,8 +239,8 @@ class PostgreSQLMaintenanceRepository:
                 )
             ).fetchone()
             if completed is None:
-                opportunity_id, admitted = await _admit_phase_work(
-                    connection,
+                opportunity_id, admitted = await self._admit_phase_work(
+                    unit_of_work,
                     subject_id=fence.subject_id,
                     session_id=session_id,
                     revision_id=revision_id,
@@ -583,106 +507,31 @@ class PostgreSQLMaintenanceRepository:
         ).fetchone()
         return None if row is None else row[0]
 
-
-async def _admit_phase_work(
-    connection: Any,
-    *,
-    subject_id: UUID,
-    session_id: UUID,
-    revision_id: UUID,
-    head_version: int,
-    phase: MaintenancePhase,
-) -> tuple[UUID | None, bool]:
-    purpose = {
-        MaintenancePhase.MEMORY_MAINTENANCE: "maintain_subjective_memory",
-        MaintenancePhase.SELF_CHECK: "perform_subject_self_check",
-    }[phase]
-    opportunity_id = uuid7()
-    row = await (
-        await connection.execute(
-            """
-            INSERT INTO armi.opportunities (
-                opportunity_id, evidence_id, subject_id, scene_id,
-                context_party_id, purpose, eligibility_status,
-                current_disposition, root_opportunity_id, reconsideration_no,
-                source_kind, source_ref, source_version,
-                activity_id) VALUES (
-                %s, NULL, %s, NULL, NULL, %s, 'eligible', 'open', %s, 0,
-                'maintenance_phase_revision', %s, %s, NULL)
-            ON CONFLICT (
-                subject_id, source_kind, source_ref, source_version,
-                purpose, reconsideration_no
-            ) DO NOTHING
-            RETURNING opportunity_id
-            """,
-            (
-                opportunity_id,
+    async def _admit_phase_work(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        subject_id: UUID,
+        session_id: UUID,
+        revision_id: UUID,
+        head_version: int,
+        phase: MaintenancePhase,
+    ) -> tuple[UUID | None, bool]:
+        purpose = {
+            MaintenancePhase.MEMORY_MAINTENANCE: "maintain_subjective_memory",
+            MaintenancePhase.SELF_CHECK: "perform_subject_self_check",
+        }[phase]
+        first = await self._opportunities.admit_sleep(
+            unit_of_work.transaction,
+            SleepOpportunityDraft(
                 subject_id,
                 purpose,
-                opportunity_id,
+                "maintenance_phase_revision",
                 revision_id,
                 head_version,
             ),
         )
-    ).fetchone()
-    if row is not None:
-        return row[0], True
-    existing = await (
-        await connection.execute(
-            """
-            SELECT opportunity_id, current_disposition,
-                   root_opportunity_id, reconsideration_no
-            FROM armi.opportunities
-            WHERE subject_id = %s
-              AND source_kind = 'maintenance_phase_revision'
-              AND source_ref = %s AND source_version = %s
-              AND purpose = %s
-            ORDER BY reconsideration_no DESC
-            LIMIT 1
-            """,
-            (subject_id, revision_id, head_version, purpose),
-        )
-    ).fetchone()
-    if existing is None:
-        raise SleepViolation("SLEEP-MAINTENANCE-SOURCE-STALE")
-    if str(existing[1]) in {"open", "selected"}:
-        return existing[0], False
-    if int(existing[3]) == 1:
-        return None, False
-    successor_id = uuid7()
-    successor = await (
-        await connection.execute(
-            """
-            INSERT INTO armi.opportunities (
-                opportunity_id, evidence_id, subject_id, scene_id,
-                context_party_id, purpose, eligibility_status,
-                current_disposition, root_opportunity_id,
-                predecessor_opportunity_id, reconsideration_no,
-                source_kind, source_ref, source_version,
-                activity_id) VALUES (
-                %s, NULL, %s, NULL, NULL, %s, 'eligible', 'open',
-                %s, %s, 1, 'maintenance_phase_revision', %s, %s,
-                NULL)
-            ON CONFLICT (
-                subject_id, source_kind, source_ref, source_version,
-                purpose, reconsideration_no
-            ) DO NOTHING
-            RETURNING opportunity_id
-            """,
-            (
-                successor_id,
-                subject_id,
-                purpose,
-                existing[2],
-                existing[0],
-                revision_id,
-                head_version,
-            ),
-        )
-    ).fetchone()
-    if successor is not None:
-        return successor[0], True
-    return None, False
+        return first.opportunity_id, first.inserted
 
 
 __all__ = ("MaintenanceProgress", "PostgreSQLMaintenanceRepository")

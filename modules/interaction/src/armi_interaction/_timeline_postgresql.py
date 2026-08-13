@@ -14,7 +14,6 @@ import rfc8785
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_data_rights.api import DataRightsVisibilityPort
 from armi_kernel.application import (
-    ArtifactId,
     ArtifactIntegrityStatus,
     ArtifactPrivacyScope,
     ArtifactRef,
@@ -36,6 +35,7 @@ from ._scene_contract import (
     SceneTimelineQuery,
     TimelineItemId,
 )
+from .api import InteractionCreatorTimelineProjectionPort
 
 
 def _b64encode(value: bytes) -> str:
@@ -172,6 +172,7 @@ class PostgreSQLSceneTimelineQuery:
         "_codex_tasks",
         "_creator_party_id",
         "_factory",
+        "_projections",
         "_storage",
         "_visibility",
     )
@@ -186,12 +187,14 @@ class PostgreSQLSceneTimelineQuery:
         storage: ContentAddressedArtifactStore,
         codex_tasks: SceneTimelineCodexTaskProjectionPort,
         visibility: DataRightsVisibilityPort,
+        projections: InteractionCreatorTimelineProjectionPort,
     ) -> None:
         self._creator_party_id = creator_party_id
         self._factory = factory
         self._storage = storage
         self._codex_tasks = codex_tasks
         self._visibility = visibility
+        self._projections = projections
         self._codec = SceneTimelineCursorCodec(
             key=cursor_key,
             environment_id=environment_id,
@@ -218,9 +221,6 @@ class PostgreSQLSceneTimelineQuery:
                         """
                         SELECT scene.scene_id
                         FROM armi.interaction_scenes AS scene
-                        JOIN armi.subjects AS subject
-                          ON subject.subject_id = scene.subject_id
-                         AND subject.singleton_key = 1
                         JOIN armi.parties AS creator
                           ON creator.party_id = scene.primary_party_id
                          AND creator.party_kind = 'creator'
@@ -234,7 +234,9 @@ class PostgreSQLSceneTimelineQuery:
                         (request.scene_key.value, self._creator_party_id),
                     )
                 ).fetchall()
-                if len(scene_rows) != 1 or not isinstance(scene_rows[0][0], UUID):
+                if len(scene_rows) != 1 or not isinstance(
+                    cast(object, scene_rows[0][0]), UUID
+                ):
                     raise SceneQueryViolation("SCENE-NOT-VISIBLE")
                 scene_id = scene_rows[0][0]
                 boundary: tuple[Instant, UUID] | None = None
@@ -245,246 +247,66 @@ class PostgreSQLSceneTimelineQuery:
                         scene_key=request.scene_key.value,
                         limit=request.limit,
                     )
-                if boundary is None:
-                    rows = await (
-                        await connection.execute(
-                            """
-                            SELECT
-                                item.timeline_item_id,
-                                CASE
-                                  WHEN item.source_kind = 'party_response'
-                                  THEN 'creator_response'
-                                  ELSE item.source_kind
-                                END,
-                                item.source_ref,
-                                item.result_status,
-                                item.occurred_at,
-                                COALESCE(
-                                    opportunity.root_opportunity_id,
-                                    commit_opportunity.root_opportunity_id
-                                ),
-                                CASE
-                                  WHEN item.source_kind = 'party_response'
-                                  THEN item.source_ref
-                                END,
-                                artifact.artifact_id,
-                                artifact.content_digest,
-                                artifact.byte_size,
-                                artifact.media_type,
-                                artifact.logical_kind,
-                                artifact.privacy_scope,
-                                artifact.integrity_status,
-                                interaction.purpose
-                            FROM armi.scene_timeline_items AS item
-                            LEFT JOIN armi.party_input_interactions AS interaction
-                              ON item.source_kind = 'creator_input'
-                             AND interaction.interaction_id = item.source_ref
-                             AND interaction.scene_id = item.scene_id
-                             AND interaction.source_party_id = %s
-                            LEFT JOIN armi.artifacts AS artifact
-                              ON artifact.content_digest =
-                                 COALESCE(interaction.cognition_content_digest,
-                                          interaction.content_digest)
-                            LEFT JOIN armi.external_evidence AS evidence
-                              ON evidence.artifact_id = artifact.artifact_id
-                             AND (
-                                  evidence.interaction_id =
-                                    interaction.interaction_id
-                                  OR (
-                                      interaction.purpose =
-                                        'codex_task_request'
-                                      AND evidence.source_kind =
-                                        'codex_task_source'
-                                  )
-                              )
-                             AND evidence.subject_id = interaction.subject_id
-                             AND evidence.scene_id = interaction.scene_id
-                             AND evidence.context_party_id =
-                                 interaction.source_party_id
-                            LEFT JOIN armi.opportunities AS opportunity
-                              ON opportunity.evidence_id = evidence.evidence_id
-                             AND opportunity.subject_id = evidence.subject_id
-                             AND opportunity.scene_id = evidence.scene_id
-                             AND opportunity.context_party_id =
-                                 evidence.context_party_id
-                             AND opportunity.reconsideration_no = 0
-                            LEFT JOIN armi.subject_commits AS subject_commit
-                              ON item.source_kind = 'subject_commit'
-                             AND subject_commit.subject_commit_id = item.source_ref
-                            LEFT JOIN armi.cognitive_episodes AS commit_episode
-                              ON commit_episode.cognitive_episode_id =
-                                 subject_commit.cognitive_episode_id
-                            LEFT JOIN armi.opportunities AS commit_opportunity
-                              ON commit_opportunity.opportunity_id =
-                                 commit_episode.opportunity_id
-                             AND commit_opportunity.context_party_id = %s
-                            WHERE item.scene_id = %s
-                            ORDER BY item.occurred_at DESC,
-                                     item.timeline_item_id DESC
-                            LIMIT %s
-                            """,
-                            (
-                                self._creator_party_id,
-                                self._creator_party_id,
-                                scene_id,
-                                request.limit + 1,
-                            ),
+                rows = await (
+                    await connection.execute(
+                        """
+                        SELECT item.timeline_item_id,
+                               CASE WHEN item.source_kind = 'party_response'
+                                    THEN 'creator_response' ELSE item.source_kind END,
+                               item.source_ref, item.result_status, item.occurred_at,
+                               interaction.purpose, interaction.content_digest
+                        FROM armi.scene_timeline_items AS item
+                        LEFT JOIN armi.party_input_interactions AS interaction
+                          ON item.source_kind = 'creator_input'
+                         AND interaction.interaction_id = item.source_ref
+                        WHERE item.scene_id = %s
+                          AND (%s::timestamptz IS NULL OR
+                               (item.occurred_at, item.timeline_item_id)
+                                   < (%s::timestamptz, %s::uuid))
+                        ORDER BY item.occurred_at DESC, item.timeline_item_id DESC
+                        LIMIT %s
+                        """,
+                        (
+                            scene_id,
+                            None if boundary is None else boundary[0].value,
+                            None if boundary is None else boundary[0].value,
+                            None if boundary is None else boundary[1],
+                            request.limit + 1,
+                        ),
+                    )
+                ).fetchall()
+                visible = rows[: request.limit]
+                operations: dict[UUID, UUID] = {}
+                effects: dict[UUID, UUID] = {}
+                messages: dict[UUID, str] = {}
+                for row in visible:
+                    item_id = cast(UUID, row[0])
+                    source_kind = str(row[1])
+                    source_ref = cast(UUID, row[2])
+                    if source_kind == "creator_input":
+                        projection = await self._projections.creator_input(
+                            unit_of_work,
+                            interaction_id=source_ref,
+                            purpose=str(row[5]),
+                            content_digest=Digest(str(row[6])),
                         )
-                    ).fetchall()
-                else:
-                    rows = await (
-                        await connection.execute(
-                            """
-                            SELECT
-                                item.timeline_item_id,
-                                CASE
-                                  WHEN item.source_kind = 'party_response'
-                                  THEN 'creator_response'
-                                  ELSE item.source_kind
-                                END,
-                                item.source_ref,
-                                item.result_status,
-                                item.occurred_at,
-                                COALESCE(
-                                    opportunity.root_opportunity_id,
-                                    commit_opportunity.root_opportunity_id
-                                ),
-                                CASE
-                                  WHEN item.source_kind = 'party_response'
-                                  THEN item.source_ref
-                                END,
-                                artifact.artifact_id,
-                                artifact.content_digest,
-                                artifact.byte_size,
-                                artifact.media_type,
-                                artifact.logical_kind,
-                                artifact.privacy_scope,
-                                artifact.integrity_status,
-                                interaction.purpose
-                            FROM armi.scene_timeline_items AS item
-                            LEFT JOIN armi.party_input_interactions AS interaction
-                              ON item.source_kind = 'creator_input'
-                             AND interaction.interaction_id = item.source_ref
-                             AND interaction.scene_id = item.scene_id
-                             AND interaction.source_party_id = %s
-                            LEFT JOIN armi.artifacts AS artifact
-                              ON artifact.content_digest =
-                                 COALESCE(interaction.cognition_content_digest,
-                                          interaction.content_digest)
-                            LEFT JOIN armi.external_evidence AS evidence
-                              ON evidence.artifact_id = artifact.artifact_id
-                             AND (
-                                  evidence.interaction_id =
-                                    interaction.interaction_id
-                                  OR (
-                                      interaction.purpose =
-                                        'codex_task_request'
-                                      AND evidence.source_kind =
-                                        'codex_task_source'
-                                  )
-                              )
-                             AND evidence.subject_id = interaction.subject_id
-                             AND evidence.scene_id = interaction.scene_id
-                             AND evidence.context_party_id =
-                                 interaction.source_party_id
-                            LEFT JOIN armi.opportunities AS opportunity
-                              ON opportunity.evidence_id = evidence.evidence_id
-                             AND opportunity.subject_id = evidence.subject_id
-                             AND opportunity.scene_id = evidence.scene_id
-                             AND opportunity.context_party_id =
-                                 evidence.context_party_id
-                             AND opportunity.reconsideration_no = 0
-                            LEFT JOIN armi.subject_commits AS subject_commit
-                              ON item.source_kind = 'subject_commit'
-                             AND subject_commit.subject_commit_id = item.source_ref
-                            LEFT JOIN armi.cognitive_episodes AS commit_episode
-                              ON commit_episode.cognitive_episode_id =
-                                 subject_commit.cognitive_episode_id
-                            LEFT JOIN armi.opportunities AS commit_opportunity
-                              ON commit_opportunity.opportunity_id =
-                                 commit_episode.opportunity_id
-                             AND commit_opportunity.context_party_id = %s
-                            WHERE item.scene_id = %s
-                              AND (item.occurred_at, item.timeline_item_id)
-                                  < (%s, %s)
-                            ORDER BY item.occurred_at DESC,
-                                     item.timeline_item_id DESC
-                            LIMIT %s
-                            """,
-                            (
-                                self._creator_party_id,
-                                self._creator_party_id,
-                                scene_id,
-                                boundary[0].value,
-                                boundary[1],
-                                request.limit + 1,
-                            ),
+                        operations[item_id] = projection.operation_ref
+                        messages[item_id] = await self._read_message(
+                            projection.artifact, projection.purpose
                         )
-                    ).fetchall()
+                    elif source_kind == "subject_commit":
+                        operations[item_id] = await self._projections.subject_commit(
+                            connection,
+                            subject_commit_id=source_ref,
+                            context_party_id=self._creator_party_id,
+                        )
+                    elif source_kind == "creator_response":
+                        effects[item_id] = source_ref
         except SceneQueryViolation:
             raise
-        except RuntimeTransactionFailure:
-            raise SceneQueryViolation("SCENE-QUERY-UNAVAILABLE") from None
+        except RuntimeTransactionFailure as error:
+            raise SceneQueryViolation("SCENE-QUERY-UNAVAILABLE") from error
 
-        visible = rows[: request.limit]
-        if any(
-            (
-                (str(row[1]) in {"creator_input", "subject_commit"})
-                != isinstance(row[5], UUID)
-            )
-            or ((str(row[1]) == "creator_response") != isinstance(row[6], UUID))
-            or (
-                (str(row[1]) == "creator_input")
-                != all(value is not None for value in row[7:14])
-            )
-            for row in visible
-        ):
-            raise SceneQueryViolation("SCENE-QUERY-UNAVAILABLE")
-        messages: dict[UUID, str] = {}
-        try:
-            for row in visible:
-                if str(row[1]) != "creator_input":
-                    continue
-                ref = ArtifactRef(
-                    ArtifactId(cast(UUID, row[7])),
-                    Digest(str(row[8])),
-                    int(row[9]),
-                    str(row[10]),
-                    str(row[11]),
-                    ArtifactPrivacyScope(str(row[12])),
-                    ArtifactIntegrityStatus(str(row[13])),
-                )
-                purpose = str(row[14])
-                if ref.integrity_status is not ArtifactIntegrityStatus.VERIFIED:
-                    raise ValueError
-                value = b""
-                async with await self._storage.open_verified(ref) as stream:
-                    value = await stream.read()
-                if purpose == "creator_message":
-                    if (
-                        ref.media_type != "text/plain"
-                        or ref.logical_kind != "creator.input.text"
-                        or ref.privacy_scope is not ArtifactPrivacyScope.CREATOR_VISIBLE
-                    ):
-                        raise ValueError
-                    message = value.decode("utf-8", errors="strict")
-                elif purpose == "codex_task_request":
-                    message = self._codex_tasks.objective(
-                        artifact=ref,
-                        content=value,
-                    )
-                else:
-                    raise ValueError
-                if (
-                    not value
-                    or len(value) > 65536
-                    or "\x00" in message
-                    or not any(not character.isspace() for character in message)
-                ):
-                    raise ValueError
-                messages[cast(UUID, row[0])] = message
-        except ArtifactViolation, OSError, TypeError, UnicodeError, ValueError:
-            raise SceneQueryViolation("SCENE-QUERY-UNAVAILABLE") from None
         items = tuple(
             SceneTimelineItem(
                 timeline_item_id=TimelineItemId(row[0]),
@@ -492,8 +314,8 @@ class PostgreSQLSceneTimelineQuery:
                 source_ref=row[2],
                 status=AuditResultStatus(str(row[3])),
                 occurred_at=Instant(cast(datetime, row[4])),
-                operation_ref=cast(UUID | None, row[5]),
-                effect_ref=cast(UUID | None, row[6]),
+                operation_ref=operations.get(cast(UUID, row[0])),
+                effect_ref=effects.get(cast(UUID, row[0])),
                 message=messages.get(cast(UUID, row[0])),
             )
             for row in reversed(visible)
@@ -513,6 +335,36 @@ class PostgreSQLSceneTimelineQuery:
             items=items,
             next_cursor=next_cursor,
         )
+
+    async def _read_message(self, ref: ArtifactRef, purpose: str) -> str:
+        if ref.integrity_status is not ArtifactIntegrityStatus.VERIFIED:
+            raise SceneQueryViolation("SCENE-QUERY-UNAVAILABLE")
+        try:
+            value = b""
+            async with await self._storage.open_verified(ref) as stream:
+                value = await stream.read()
+            if purpose == "creator_message":
+                if (
+                    ref.media_type != "text/plain"
+                    or ref.logical_kind != "creator.input.text"
+                    or ref.privacy_scope is not ArtifactPrivacyScope.CREATOR_VISIBLE
+                ):
+                    raise ValueError
+                message = value.decode("utf-8", errors="strict")
+            elif purpose == "codex_task_request":
+                message = self._codex_tasks.objective(artifact=ref, content=value)
+            else:
+                raise ValueError
+            if (
+                not value
+                or len(value) > 65536
+                or "\x00" in message
+                or not any(not character.isspace() for character in message)
+            ):
+                raise ValueError
+            return message
+        except ArtifactViolation, OSError, TypeError, UnicodeError, ValueError:
+            raise SceneQueryViolation("SCENE-QUERY-UNAVAILABLE") from None
 
 
 __all__ = ("PostgreSQLSceneTimelineQuery", "SceneTimelineCursorCodec")

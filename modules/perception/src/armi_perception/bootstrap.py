@@ -35,6 +35,9 @@ def bootstrap_perception_admin() -> PerceptionAdminPort:
     return PostgreSQLPerceptionAdmin()
 
 
+compose_external_content_pipeline = ExternalContentPipeline
+
+
 @dataclass(frozen=True, slots=True)
 class PerceptionModule:
     worker: PerceptionWorkerPort
@@ -102,4 +105,5 @@ __all__ = (
     "bootstrap_perception_admin",
     "bootstrap_perception_data_rights",
     "bootstrap_perception_recovery",
+    "compose_external_content_pipeline",
 )

@@ -32,10 +32,11 @@ from .api import (
 
 
 class DataRightsCore:
-    __slots__ = ("_gate", "_sealed")
+    __slots__ = ("_gate", "_participant", "_sealed")
 
     def __init__(self) -> None:
         self._gate = DataRightsOrderRepository()
+        self._participant = PostgreSQLDataRightsParticipant()
         self._sealed = False
 
     @property
@@ -56,7 +57,7 @@ class DataRightsCore:
 
     @property
     def participant(self) -> DataRightsParticipant:
-        return PostgreSQLDataRightsParticipant()
+        return self._participant
 
     def seal(self) -> DataRightsOrderRepository:
         if self._sealed:
@@ -139,7 +140,7 @@ def bootstrap_data_rights(
         gate,
         gate,
         gate,
-        PostgreSQLDataRightsParticipant(),
+        core.participant,
         orders,
         exports,
     )

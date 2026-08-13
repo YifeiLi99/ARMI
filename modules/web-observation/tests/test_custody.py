@@ -6,11 +6,11 @@ from pathlib import Path
 from typing import Any, cast
 from uuid import uuid7
 
+from armi_kernel import load_yaml_mapping
 from armi_kernel.application import (
     RuntimeFence,
     RuntimeInstanceId,
 )
-from armi_kernel.config_yaml import load_yaml_mapping
 from armi_kernel.contracts import IdempotencyKey, SubjectId, TraceId
 from armi_web_observation._custody import (
     build_request_bytes,

@@ -163,13 +163,6 @@ class SubjectStateReadPort(Protocol):
         limit: int,
     ) -> tuple[SubjectStateLifeRecordItem, ...]: ...
 
-    async def creator_summary(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        creator_party_id: UUID,
-    ) -> SubjectSummary: ...
-
     async def current_head_count(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID
     ) -> int: ...

@@ -24,6 +24,8 @@ ARMI 以真实人类的心理、生活和社会行为作为参照，但承认自
 
 ARMI 目前是运行在单机上的模块化单体。Python workspace 包含稳定内核、Runtime/Admin 共用的 PostgreSQL catalog 合同、普通 Runtime、隔离的管理 MCP，以及独立 QQ 适配器和 NapCat 渠道驱动；Creator 工作台是由 Runtime 同源托管的 React 静态应用。PostgreSQL 是唯一权威关系数据库，文件制品只保存不适合直接进入关系表的大正文或执行产物。
 
+二十个业务领域均为独立 workspace distribution。生产与跨模块测试只通过各模块 `api.py` 的冻结 DTO/Protocol 协作；业务 SQL 由表 owner 独占，Runtime 只在共享 PostgreSQL UoW 中协调顺序、CAS、durable work 与审计。Kernel 和 Runtime Foundation 保持业务中性，不维护业务 owner、表名或 Creator 投影版本枚举。
+
 当前代码已经覆盖 Creator 对话与多场合、Self/Mind/Prompt、主观记忆、关系与生活资料、自主机会与 Activity、睡眠维护、主动联系、内置其他人交流、本地导出与数据权利，以及经授权的 Creator→Codex 委托。QQ/NapCat 统一适配器支持好友私聊和白名单群的文字收发，并保留 QQ 已明确给出的内置表情、商城表情与图片子类。内置表情和有效商城摘要在本地解释；其他图片经过真实格式、尺寸和动画帧检查后，按表情、平台特殊图或普通图片选择一次视觉理解。语音走豆包语音大模型录音文件识别标准版的 `400` 模型，视频仍作为完整文件交给方舟视频模型，PDF、文本及常见 Office 文件沿用各自通路。正式回复仍只发送文字。渠道默认关闭；群临时私聊不接纳。代码存在不等于某个环境已经配置并启用；模型、网页、Codex 和其他外部能力仍取决于该环境的绑定、凭据与授权。
 
 Creator 与其他人的入站对话共用版本化的紧凑 Prompt 计划。Runtime 保留 13 类事实来源，但按变化频率把模型输入装成四层：稳定规则与主体骨架、当前场合边界、最多八项近期完整轮次、以及关系、活动、能力、语义召回和当前输入组成的动态尾部；当前输入始终最后。可选召回不足时先退出，不挤掉稳定必需项。普通对话仍只调用一次主模型；同一次严格结构化输出同时承载自然表达、必要 Experience 和最多八项真实变化。输出 Schema 使用稳定的紧凑 `changes` 合同，实际引用、权限、版本和领域组合继续由 Runtime 确定性校验。
@@ -99,7 +101,7 @@ uv run armi stop --environment-root C:\path\to\environment
 
 数据库结构由 Alembic 的单线 revision 管理。`db install` 拒绝已有用户对象，并在一个事务中执行 `0000` 的有序模块化基线，成功后直接处于唯一 head；模块化 SQL 只是同一 revision 的职责拆分。此后结构变化新增普通 Alembic Python revision，停止 Runtime并完成可验证备份后使用 `armi db migrate --environment-root C:\path\to\environment --apply` 显式升级。Runtime 只核对 PostgreSQL/扩展身份、角色安全策略和当前 revision，不自动迁移，也不以完整 catalog 指纹阻止启动。
 
-离线全量灾备与隔离恢复演练使用 `armi recovery create`、`armi recovery verify` 和 `armi recovery drill --apply`。备份同时保存 custom-format 数据库 dump、全部 retained+verified artifact、schema 历史、catalog 指纹和逐表行数；它与 Creator JSONL 数据导出是不同协议。
+离线全量灾备与隔离恢复演练使用 `armi recovery create`、`armi recovery verify` 和 `armi recovery drill --apply`。备份保存 custom-format 数据库 dump、全部 retained+verified artifact、schema head 与 Runtime 权威身份；恢复到隔离数据库后通过正式 owner recovery roster 检查业务一致性。它与 Creator JSONL 数据导出是不同协议。
 
 日常开发从改动相关的最小检查开始；仓库快速质量入口为：
 

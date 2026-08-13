@@ -196,6 +196,7 @@ class PostgreSQLPromptOwner:
         *,
         validation_id: UUID,
         subject_id: UUID,
+        author_party_id: UUID,
         commit_id: UUID,
         drafts: tuple[CandidatePromptDraft, ...],
         artifacts: dict[str, ArtifactRef],
@@ -214,15 +215,6 @@ class PostgreSQLPromptOwner:
             or artifact.privacy_scope.value != "private"
         ):
             raise PromptViolation("PROMPT-ARTIFACT")
-        author = await (
-            await transaction.execute(
-                """SELECT party_id FROM armi.parties
-                   WHERE party_kind = 'subject' AND represented_subject_id = %s""",
-                (subject_id,),
-            )
-        ).fetchone()
-        if author is None:
-            raise PromptViolation("PROMPT-AUTHOR")
         revision_id = uuid7()
         await transaction.execute(
             """
@@ -239,7 +231,7 @@ class PostgreSQLPromptOwner:
                 draft.current_revision_id,
                 artifact.artifact_id.value,
                 artifact.content_digest.value,
-                author[0],
+                author_party_id,
                 commit_id,
                 "subject_created"
                 if draft.current_revision_id is None

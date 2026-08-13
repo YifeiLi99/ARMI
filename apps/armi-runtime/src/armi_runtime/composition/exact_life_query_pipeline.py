@@ -9,7 +9,7 @@ from typing import Any, cast
 from uuid import UUID, uuid7
 
 import rfc8785
-from armi_artifact_store.bootstrap import bootstrap_artifact_catalog
+from armi_artifact_store.api import ArtifactCatalogPort
 from armi_artifact_store.content_store import (
     ContentAddressedArtifactStore,
 )
@@ -89,6 +89,7 @@ class ExactLifeQueryPipeline:
         *,
         factory: PostgreSQLUnitOfWorkFactory,
         storage: ContentAddressedArtifactStore,
+        catalog: ArtifactCatalogPort,
         query: LifeRecordQueryPort,
         cognition: CognitionExactLifeQueryPort,
         opportunity: OpportunityAdmissionPort,
@@ -100,7 +101,7 @@ class ExactLifeQueryPipeline:
         self._query = query
         self._cognition = cognition
         self._opportunity = opportunity
-        self._catalog = bootstrap_artifact_catalog()
+        self._catalog = catalog
         self._work = PostgreSQLDurableWorkGateway(factory)
         self._wakeups = wakeups or WorkWakeupBus()
         self._lease_owner = uuid7()
@@ -153,7 +154,7 @@ class ExactLifeQueryPipeline:
                     subject_id=record.draft.subject_id.value,
                 )
             status, page, failure_code = await self._execute_query(snapshot)
-            result_bytes = _result_bytes(
+            result_bytes = encode_exact_life_query_result(
                 snapshot,
                 status=status,
                 page=page,
@@ -312,7 +313,7 @@ class ExactLifeQueryPipeline:
             )
         if any(
             item.retrieval_kind is not LifeRecordRetrievalKind.EXACT_QUERY
-            or item.record_kind is not record_kind
+            or item.record_kind != record_kind
             for item in page.items
         ):
             return "failed", None, "LIFE-QUERY-SCOPE"
@@ -336,7 +337,7 @@ class ExactLifeQueryPipeline:
         return await self._storage.publish(staged)
 
 
-def _result_bytes(
+def encode_exact_life_query_result(
     snapshot: CognitionExactLifeQuerySnapshot,
     *,
     status: str,
@@ -356,7 +357,7 @@ def _result_bytes(
         "items": [
             {
                 "record_ref": str(item.record_ref),
-                "record_kind": item.record_kind.value,
+                "record_kind": str(item.record_kind),
                 "summary": item.summary,
                 "source_kind": item.source_kind,
                 "occurred_at": item.occurred_at.to_wire(),
@@ -378,6 +379,7 @@ def build_exact_life_query_pipeline(
     *,
     data_root: Path,
     max_object_bytes: int,
+    catalog: ArtifactCatalogPort,
     query: LifeRecordQueryPort,
     cognition: CognitionExactLifeQueryPort,
     opportunity: OpportunityAdmissionPort,
@@ -390,6 +392,7 @@ def build_exact_life_query_pipeline(
             data_root / "artifacts",
             max_object_bytes=max_object_bytes,
         ),
+        catalog=catalog,
         query=query,
         cognition=cognition,
         opportunity=opportunity,

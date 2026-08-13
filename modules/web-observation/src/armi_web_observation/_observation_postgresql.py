@@ -8,11 +8,10 @@ from uuid import UUID, uuid7
 
 from armi_kernel.application import (
     ArtifactId,
-    ArtifactIntegrityStatus,
-    ArtifactPrivacyScope,
     ArtifactRef,
     WorkId,
     WorkLease,
+    WorkRecord,
     WorkResultRef,
 )
 from armi_kernel.contracts import Digest, SubjectId, TraceId
@@ -29,6 +28,7 @@ from ._observation_contract import (
     WebObservationUsage,
     WebObservationViolation,
 )
+from .api import WebArtifactCatalogPort
 
 _WORK_KIND = "web.search.invoke"
 _BINDING = "armi.model-tool.volcengine-ark-web-search-v1"
@@ -48,7 +48,10 @@ class WebObservationSnapshot:
 class PostgreSQLWebObservationRepository:
     """Own fixed SQL for request, attempt, tool-call, and result custody."""
 
-    __slots__ = ()
+    __slots__ = ("_catalog",)
+
+    def __init__(self, catalog: WebArtifactCatalogPort) -> None:
+        self._catalog = catalog
 
     async def existing(
         self,
@@ -132,38 +135,33 @@ class PostgreSQLWebObservationRepository:
     async def snapshot(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
-        lease: WorkLease,
+        work: WorkRecord,
     ) -> WebObservationSnapshot:
+        lease = cast(WorkLease, work.lease)
+        if (
+            work.draft.work_kind != _WORK_KIND
+            or work.draft.owner.kind != "web_observation"
+        ):
+            raise WebObservationViolation("WEB-WORK-STALE")
         connection = unit_of_work.transaction
         row = await (
             await connection.execute(
                 """
                 SELECT request.web_observation_request_id, request.subject_id,
                        request.request_artifact_id, request.request_digest,
-                       work.trace_id,
                        (SELECT count(*) FROM armi.observation_attempts AS attempt
                         WHERE attempt.web_observation_request_id = request.web_observation_request_id),
                        request.web_research_intent_id
-                FROM armi.durable_work AS work
-                JOIN armi.web_observation_requests AS request
-                  ON request.work_id = work.work_id
-                WHERE work.work_id = %s
-                  AND work.work_kind = 'web.search.invoke'
-                  AND work.owner_kind = 'web_observation'
-                  AND work.status = 'leased'
-                  AND work.current_attempt_id = %s
-                  AND work.lease_owner = %s
-                  AND work.lease_token = %s
-                  AND work.lease_expires_at > statement_timestamp()
+                FROM armi.web_observation_requests AS request
+                WHERE request.web_observation_request_id = %s
+                  AND request.work_id = %s
                   AND request.status IN ('pending', 'running')
                   AND request.deadline_at > statement_timestamp()
-                FOR UPDATE OF work, request
+                FOR UPDATE OF request
                 """,
                 (
+                    work.draft.owner.reference,
                     lease.work_id.value,
-                    lease.attempt_id.value,
-                    lease.owner,
-                    lease.token,
                 ),
             )
         ).fetchone()
@@ -172,11 +170,11 @@ class PostgreSQLWebObservationRepository:
         return WebObservationSnapshot(
             WebObservationRequestId(row[0]),
             SubjectId(row[1]),
-            await _artifact_ref(connection, row[2]),
+            await self._catalog.get(unit_of_work, ArtifactId(row[2])),
             Digest(str(row[3])),
-            TraceId(str(row[4])),
-            int(row[5]),
-            row[6],
+            work.draft.trace_id,
+            int(row[4]),
+            row[5],
         )
 
     async def prepare_attempt(
@@ -188,7 +186,7 @@ class PostgreSQLWebObservationRepository:
         credential_identity: Digest,
     ) -> WebObservationAttemptId | None:
         connection = unit_of_work.transaction
-        await self._assert_lease(connection, lease, snapshot.request_id)
+        self._assert_work(lease, snapshot.request_id)
         previous = await (
             await connection.execute(
                 """
@@ -274,7 +272,7 @@ class PostgreSQLWebObservationRepository:
         code: str,
     ) -> None:
         connection = unit_of_work.transaction
-        await self._assert_lease(connection, lease, snapshot.request_id)
+        self._assert_work(lease, snapshot.request_id)
         updated = await (
             await connection.execute(
                 """
@@ -301,7 +299,7 @@ class PostgreSQLWebObservationRepository:
         attempt_id: WebObservationAttemptId,
     ) -> None:
         connection = unit_of_work.transaction
-        await self._assert_lease(connection, lease, snapshot.request_id)
+        self._assert_work(lease, snapshot.request_id)
         row = await (
             await connection.execute(
                 """
@@ -340,7 +338,7 @@ class PostgreSQLWebObservationRepository:
         if result.status is not WebObservationResultStatus.SUCCEEDED:
             raise WebObservationViolation("WEB-RESULT")
         connection = unit_of_work.transaction
-        await self._assert_lease(connection, lease, snapshot.request_id)
+        self._assert_work(lease, snapshot.request_id)
         for ordinal, action in enumerate(result.tool_actions, start=1):
             await connection.execute(
                 """
@@ -417,7 +415,7 @@ class PostgreSQLWebObservationRepository:
             else WebObservationRequestStatus.FAILED
         )
         connection = unit_of_work.transaction
-        await self._assert_lease(connection, lease, snapshot.request_id)
+        self._assert_work(lease, snapshot.request_id)
         await connection.execute(
             """
             UPDATE armi.observation_attempts
@@ -438,64 +436,11 @@ class PostgreSQLWebObservationRepository:
         )
         await unit_of_work.work.fail(lease, error_code=code)
 
-    async def _assert_lease(
-        self,
-        connection: Any,
-        lease: WorkLease,
-        request_id: WebObservationRequestId,
+    def _assert_work(
+        self, lease: WorkLease, request_id: WebObservationRequestId
     ) -> None:
-        row = await (
-            await connection.execute(
-                """
-                SELECT work.work_id
-                FROM armi.durable_work AS work
-                JOIN armi.web_observation_requests AS request
-                  ON request.work_id = work.work_id
-                WHERE work.work_id = %s
-                  AND request.web_observation_request_id = %s
-                  AND work.status = 'leased'
-                  AND work.current_attempt_id = %s
-                  AND work.lease_owner = %s
-                  AND work.lease_token = %s
-                  AND work.lease_expires_at > statement_timestamp()
-                FOR UPDATE OF work, request
-                """,
-                (
-                    lease.work_id.value,
-                    request_id.value,
-                    lease.attempt_id.value,
-                    lease.owner,
-                    lease.token,
-                ),
-            )
-        ).fetchone()
-        if row is None:
+        if lease.work_id.value.version != 7 or request_id.value.version != 7:
             raise WebObservationViolation("WEB-WORK-STALE")
-
-
-async def _artifact_ref(connection: Any, artifact_id: UUID) -> ArtifactRef:
-    row = await (
-        await connection.execute(
-            """
-            SELECT artifact_id, content_digest, media_type, byte_size,
-                   logical_kind, privacy_scope, integrity_status
-            FROM armi.artifacts
-            WHERE artifact_id = %s AND retention_status = 'retained'
-            """,
-            (artifact_id,),
-        )
-    ).fetchone()
-    if row is None:
-        raise WebObservationViolation("WEB-REQUEST-ARTIFACT")
-    return ArtifactRef(
-        ArtifactId(row[0]),
-        Digest(str(row[1])),
-        int(row[3]),
-        str(row[2]),
-        str(row[4]),
-        ArtifactPrivacyScope(str(row[5])),
-        ArtifactIntegrityStatus(str(row[6])),
-    )
 
 
 def _record(row: tuple[Any, ...]) -> WebObservationRecord:

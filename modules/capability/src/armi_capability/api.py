@@ -478,6 +478,54 @@ class CreatorGrantPolicyPort(Protocol):
     async def decide(self, command: CreatorGrantCommand) -> CreatorGrantResult: ...
 
 
+@dataclass(frozen=True, slots=True)
+class CapabilityEffectiveGrantSnapshot:
+    scope_kind: str
+    grant_ref: UUID
+    status: str
+    ended_at: datetime | None
+    valid_from: datetime
+    valid_until: datetime
+    max_uses: int
+    consumed_uses: int
+    remaining_uses: int
+    max_payload_bytes: int | None = None
+    workspace_scope: str | None = None
+    artifact_scope: str | None = None
+    network_access: bool | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilityRequestSnapshot:
+    capability_request_id: UUID
+    capability_kind: str
+    operation: str
+    subject_id: UUID
+    scene_id: UUID
+    audience_scope: str | None
+    data_scope: str | None
+    purpose: str
+    workspace_scope: str | None
+    artifact_scope: str | None
+    network_access: bool | None
+    valid_for_seconds: int
+    max_uses: int
+    max_payload_bytes: int | None
+    status: str
+    request_version: int
+    created_at: datetime
+    status_changed_at: datetime
+    capability_availability: str
+    resolution_reason_code: str | None
+    effective_grant: CapabilityEffectiveGrantSnapshot | None
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilityRequestPage:
+    items: tuple[CapabilityRequestSnapshot, ...]
+    next_cursor: str | None
+
+
 @runtime_checkable
 class CapabilityPolicyPort(CreatorGrantPolicyPort, Protocol):
     async def open(self) -> None: ...
@@ -491,7 +539,7 @@ class CapabilityPolicyPort(CreatorGrantPolicyPort, Protocol):
         creator_party_id: UUID,
         limit: int,
         cursor: str | None,
-    ) -> dict[str, object]: ...
+    ) -> CapabilityRequestPage: ...
 
     async def expire_once(self, *, limit: int = 100) -> int: ...
 
@@ -602,6 +650,15 @@ class CapabilityEffectAuthorizationPort(Protocol):
 
 @runtime_checkable
 class CapabilityOperationReadPort(Protocol):
+    async def has_scene_reply_grant(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        scene_id: UUID,
+        creator_party_id: UUID,
+    ) -> bool: ...
+
     async def policy_for_revision(
         self,
         transaction: PostgreSQLTransaction,
@@ -678,6 +735,7 @@ __all__ = (
     "CapabilityDispatchAuthorizationPort",
     "CapabilityEffectAuthorizationPort",
     "CapabilityEffectCancellationPort",
+    "CapabilityEffectiveGrantSnapshot",
     "CapabilityGrantConsumptionPort",
     "CapabilityId",
     "CapabilityKind",
@@ -688,6 +746,8 @@ __all__ = (
     "CapabilityReadPort",
     "CapabilityRequestDraft",
     "CapabilityRequestId",
+    "CapabilityRequestPage",
+    "CapabilityRequestSnapshot",
     "CapabilityRequestStatus",
     "CapabilityScope",
     "CapabilityViolation",

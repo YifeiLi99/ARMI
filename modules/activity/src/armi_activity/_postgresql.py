@@ -14,7 +14,6 @@ from armi_runtime_foundation import (
 )
 
 from .api import (
-    ActivityAttentionRootState,
     ActivityCandidateSnapshot,
     ActivityFocusReadPort,
     ActivityHeadSnapshot,
@@ -37,24 +36,45 @@ _PAGE_SIZE = 100
 
 
 class PostgreSQLActivityRead:
+    async def need_information_after(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        episode_ids: tuple[UUID, ...],
+    ) -> datetime | None:
+        if not episode_ids:
+            return None
+        row = await (
+            await transaction.execute(
+                """SELECT max(decided_at) FROM armi.activity_decisions
+                   WHERE cognitive_episode_id = ANY(%s)
+                     AND decision_kind='need_information'""",
+                (episode_ids,),
+            )
+        ).fetchone()
+        return None if row is None else row[0]
+
     """Read the current subject's bounded Creator-visible Activity projection."""
 
     __slots__ = (
         "_creator_party_id",
         "_factory",
         "_focus",
+        "_subject_id",
     )
 
     def __init__(
         self,
         factory: PostgreSQLRuntimeUnitOfWorkFactory,
         *,
+        subject_id: UUID,
         creator_party_id: UUID,
         focus: ActivityFocusReadPort,
     ) -> None:
         self._creator_party_id = creator_party_id
         self._factory = factory
         self._focus = focus
+        self._subject_id = subject_id
 
     async def open(self) -> None:
         return None
@@ -66,7 +86,13 @@ class PostgreSQLActivityRead:
         try:
             async with self._factory.unit_of_work(read_only=True) as unit_of_work:
                 connection = unit_of_work.transaction
-                subject_id, focused = await self._scope(connection)
+                subject_id = self._subject_id
+                focused = frozenset(
+                    str(item)
+                    for item in await self._focus.active_activity_ids(
+                        connection, subject_id=subject_id
+                    )
+                )
                 rows = await (
                     await connection.execute(
                         """
@@ -104,7 +130,7 @@ class PostgreSQLActivityRead:
         try:
             async with self._factory.unit_of_work(read_only=True) as unit_of_work:
                 connection = unit_of_work.transaction
-                subject_id, _ = await self._scope(connection)
+                subject_id = self._subject_id
                 visible = await (
                     await connection.execute(
                         """
@@ -114,11 +140,12 @@ class PostgreSQLActivityRead:
                         (activity_id, subject_id),
                     )
                 ).fetchone()
-                if visible is None:
-                    raise ActivityViolation("ACTIVITY-QUERY-NOT-FOUND")
-                rows = await (
-                    await connection.execute(
-                        """
+                rows = (
+                    ()
+                    if visible is None
+                    else await (
+                        await connection.execute(
+                            """
                         SELECT revision.activity_revision_id,
                                revision.transition_kind,
                                revision.status,
@@ -144,13 +171,16 @@ class PostgreSQLActivityRead:
                         ORDER BY 6 DESC, 1 DESC
                         LIMIT %s
                         """,
-                        (activity_id, activity_id, _PAGE_SIZE + 1),
-                    )
-                ).fetchall()
+                            (activity_id, activity_id, _PAGE_SIZE + 1),
+                        )
+                    ).fetchall()
+                )
         except ActivityViolation:
             raise
         except RuntimeTransactionFailure:
             raise ActivityViolation("ACTIVITY-QUERY-UNAVAILABLE") from None
+        if visible is None:
+            raise ActivityViolation("ACTIVITY-QUERY-NOT-FOUND")
         return CreatorActivityTimeline(
             activity_id,
             tuple(self._timeline_item(row) for row in rows[:_PAGE_SIZE]),
@@ -245,74 +275,13 @@ class PostgreSQLActivityRead:
                 """
                 SELECT activity.activity_id, revision.activity_revision_id,
                        revision.revision_no, revision.status, revision.created_at,
-                       max(previous.available_after) AS last_considered_at,
                        revision.waiting_condition_kind,
-                       revision.resume_not_before,
-                       CASE
-                         WHEN revision.waiting_condition_kind = 'creator_input' THEN EXISTS (
-                           SELECT 1 FROM armi.party_input_interactions AS input
-                           WHERE input.received_at > revision.created_at
-                         )
-                         WHEN revision.waiting_condition_kind = 'external_evidence' THEN EXISTS (
-                           SELECT 1 FROM armi.external_evidence AS evidence
-                           WHERE evidence.subject_id = activity.subject_id
-                             AND evidence.received_at > revision.created_at
-                         )
-                         ELSE false
-                       END AS waiting_signal_available
+                       revision.resume_not_before
                 FROM armi.activities AS activity
                 JOIN armi.activity_revisions AS revision
                   ON revision.activity_revision_id = activity.current_revision_id
-                LEFT JOIN armi.opportunities AS previous
-                  ON previous.source_kind = 'activity_revision'
-                 AND previous.source_ref = revision.activity_revision_id
-                 AND previous.purpose = 'consider_activity_attention'
                 WHERE activity.subject_id = %s
-                  AND (
-                    NOT EXISTS (
-                        SELECT 1 FROM armi.opportunities AS candidate_root
-                        WHERE candidate_root.subject_id = activity.subject_id
-                          AND candidate_root.source_kind = 'activity_revision'
-                          AND candidate_root.source_ref = revision.activity_revision_id
-                          AND candidate_root.source_version = revision.revision_no
-                          AND candidate_root.purpose = 'consider_activity_attention'
-                          AND candidate_root.reconsideration_no = 0
-                    )
-                    OR EXISTS (
-                        SELECT 1 FROM armi.opportunities AS candidate_root
-                        WHERE candidate_root.subject_id = activity.subject_id
-                          AND candidate_root.source_kind = 'activity_revision'
-                          AND candidate_root.source_ref = revision.activity_revision_id
-                          AND candidate_root.source_version = revision.revision_no
-                          AND candidate_root.purpose = 'consider_activity_attention'
-                          AND candidate_root.reconsideration_no = 0
-                          AND candidate_root.current_disposition = 'resolved'
-                          AND (
-                            EXISTS (
-                              SELECT 1 FROM armi.cognitive_episodes AS failed_episode
-                              WHERE failed_episode.opportunity_id = candidate_root.opportunity_id
-                                AND failed_episode.status IN ('failed', 'candidate_rejected')
-                                AND candidate_root.resolved_at + interval '60 seconds' <= statement_timestamp()
-                            )
-                            OR EXISTS (
-                              SELECT 1 FROM armi.cognitive_episodes AS waiting_episode
-                              JOIN armi.activity_decisions AS decision USING (cognitive_episode_id)
-                              WHERE waiting_episode.opportunity_id = candidate_root.opportunity_id
-                                AND waiting_episode.status = 'completed'
-                                AND decision.decision_kind = 'need_information'
-                                AND EXISTS (
-                                  SELECT 1 FROM armi.party_input_interactions AS input
-                                  WHERE input.received_at > decision.decided_at
-                                )
-                            )
-                          )
-                          AND NOT EXISTS (
-                              SELECT 1 FROM armi.opportunities AS candidate_successor
-                              WHERE candidate_successor.predecessor_opportunity_id = candidate_root.opportunity_id
-                          )
-                    )
-                  )
-                GROUP BY activity.activity_id, revision.activity_revision_id
+                ORDER BY revision.created_at, activity.activity_id
                 """,
                 (subject_id,),
             )
@@ -324,10 +293,10 @@ class PostgreSQLActivityRead:
                 int(row[2]),
                 ActivityStatus(str(row[3])),
                 row[4],
-                row[5],
-                None if row[6] is None else ActivityWaitingKind(str(row[6])),
-                row[7],
-                bool(row[8]),
+                None,
+                None if row[5] is None else ActivityWaitingKind(str(row[5])),
+                row[6],
+                False,
             )
             for row in rows
         )
@@ -373,14 +342,6 @@ class PostgreSQLActivityRead:
                 WHERE activity.subject_id = %s
                   AND revision.status = 'completed'
                   AND revision.created_at > %s
-                  AND NOT EXISTS (
-                      SELECT 1 FROM armi.opportunities AS existing
-                      WHERE existing.subject_id = activity.subject_id
-                        AND existing.source_kind = 'creator_outreach_activity'
-                        AND existing.source_ref = revision.activity_revision_id
-                        AND existing.source_version = activity.head_version
-                        AND existing.purpose = 'consider_creator_outreach'
-                  )
                 ORDER BY revision.created_at DESC, revision.activity_revision_id DESC
                 LIMIT 1
                 """,
@@ -432,80 +393,6 @@ class PostgreSQLActivityRead:
         return tuple(
             ActivityLifeRecordItem(row[0], str(row[1]), row[2]) for row in rows
         )
-
-    async def attention_root_state(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        subject_id: UUID,
-        revision_id: UUID,
-        revision_no: int,
-    ) -> ActivityAttentionRootState | None:
-        row = await (
-            await transaction.execute(
-                """
-                SELECT root.opportunity_id, root.current_disposition,
-                       (
-                         EXISTS (
-                           SELECT 1 FROM armi.cognitive_episodes AS failed_episode
-                           WHERE failed_episode.opportunity_id = root.opportunity_id
-                             AND failed_episode.status IN ('failed', 'candidate_rejected')
-                             AND root.resolved_at + interval '60 seconds' <= statement_timestamp()
-                         )
-                         OR EXISTS (
-                           SELECT 1 FROM armi.cognitive_episodes AS waiting_episode
-                           JOIN armi.activity_decisions AS decision USING (cognitive_episode_id)
-                           WHERE waiting_episode.opportunity_id = root.opportunity_id
-                             AND waiting_episode.status = 'completed'
-                             AND decision.decision_kind = 'need_information'
-                             AND EXISTS (
-                               SELECT 1 FROM armi.party_input_interactions AS input
-                               WHERE input.received_at > decision.decided_at
-                             )
-                         )
-                       ), successor.opportunity_id
-                FROM armi.opportunities AS root
-                LEFT JOIN armi.opportunities AS successor
-                  ON successor.predecessor_opportunity_id = root.opportunity_id
-                WHERE root.subject_id = %s
-                  AND root.source_kind = 'activity_revision'
-                  AND root.source_ref = %s AND root.source_version = %s
-                  AND root.purpose = 'consider_activity_attention'
-                  AND root.reconsideration_no = 0
-                """,
-                (subject_id, revision_id, revision_no),
-            )
-        ).fetchone()
-        return (
-            None
-            if row is None
-            else ActivityAttentionRootState(row[0], str(row[1]), bool(row[2]), row[3])
-        )
-
-    async def _scope(
-        self, connection: PostgreSQLTransaction
-    ) -> tuple[UUID, frozenset[str]]:
-        row = await (
-            await connection.execute(
-                """
-                SELECT subject.subject_id
-                FROM armi.subjects AS subject
-                JOIN armi.parties AS creator
-                  ON creator.party_id = %s
-                 AND creator.party_kind = 'creator'
-                 AND creator.creator_role = 'unique_primary_creator'
-                 AND creator.status = 'active'
-                WHERE subject.singleton_key = 1
-                """,
-                (self._creator_party_id,),
-            )
-        ).fetchone()
-        if row is None or not isinstance(row[0], UUID):
-            raise ActivityViolation("ACTIVITY-QUERY-UNAVAILABLE")
-        active_activity_ids = await self._focus.active_activity_ids(
-            connection, subject_id=row[0]
-        )
-        return row[0], frozenset(str(item) for item in active_activity_ids)
 
     @staticmethod
     def _activity(row: tuple[Any, ...], focused: frozenset[str]) -> CreatorActivityItem:
