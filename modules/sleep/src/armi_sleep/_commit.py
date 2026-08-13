@@ -309,21 +309,6 @@ class PostgreSQLSleepCommit:
     ) -> None:
         if len(committed_memory_ids) > 1:
             raise SleepViolation("SLEEP-MAINTENANCE-MEMORY")
-        validation = await (
-            await transaction.execute(
-                """
-                SELECT 1
-                FROM armi.cognitive_candidate_validation_items
-                WHERE candidate_validation_id = %s
-                  AND proposal_ref = %s
-                  AND owner_kind IN ('sleep', 'maintenance')
-                  AND validation_status = 'accepted'
-                """,
-                (context.validation_id, decision.proposal_ref),
-            )
-        ).fetchone()
-        if validation is None:
-            raise SleepViolation("SLEEP-MAINTENANCE-VALIDATION")
         memory_id = None
         if decision.memory_proposal_ref is not None:
             if len(committed_memory_ids) != 1:
