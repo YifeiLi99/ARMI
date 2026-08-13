@@ -858,12 +858,19 @@ def compose_relationship_module(
                     ) from None
                 config = prepared.effective.config
                 return bootstrap_relationship(
-                    conninfo,
-                    expected_role=physical_role_name(
-                        config.environment.environment_id, "runtime"
+                    PostgreSQLUnitOfWorkFactory(
+                        conninfo,
+                        environment_id=config.environment.environment_id,
+                        pool_min=config.database.pool_min,
+                        pool_max=config.database.pool_max,
+                        acquire_timeout_seconds=(
+                            config.database.pool_acquire_timeout_seconds
+                        ),
+                        statement_timeout_seconds=(
+                            config.database.statement_timeout_seconds
+                        ),
                     ),
                     creator_party_id=creator_party_id,
-                    pool_timeout_seconds=config.database.pool_acquire_timeout_seconds,
                 )
 
             return handle.consume(create)

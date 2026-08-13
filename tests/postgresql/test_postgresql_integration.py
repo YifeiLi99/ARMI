@@ -2031,10 +2031,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 for _ in range(2)
             )
             relationship_module = bootstrap_relationship(
-                fixture.runtime_dsn,
-                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                factories[0],
                 creator_party_id=manifest.creator_party_id,
-                pool_timeout_seconds=2,
             )
             await relationship_module.open()
             activity_module = bootstrap_activity(
@@ -2179,10 +2177,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 await factory.close()
 
             relationship_module = bootstrap_relationship(
-                fixture.runtime_dsn,
-                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                factory,
                 creator_party_id=creator_party_id,
-                pool_timeout_seconds=2,
             )
             memory_module = bootstrap_memory(
                 fixture.runtime_dsn,
@@ -2332,10 +2328,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 require_runtime_fence=True,
             )
             relationship_module = bootstrap_relationship(
-                fixture.runtime_dsn,
-                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                maintenance_factory,
                 creator_party_id=creator_party_id,
-                pool_timeout_seconds=2,
             )
             await relationship_module.open()
             activity_module = bootstrap_activity(
@@ -5762,10 +5756,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 authority_admission=lambda: fence,
             )
             relationship_module = bootstrap_relationship(
-                fixture.runtime_dsn,
-                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                factory,
                 creator_party_id=creator_party_id,
-                pool_timeout_seconds=2,
             )
             memory_module = bootstrap_memory(
                 fixture.runtime_dsn,

@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWorkFactory
+
 from ._application import RelationshipApplication
 from ._postgresql import PostgreSQLRelationshipOwner
 from .api import (
@@ -37,18 +39,14 @@ def bootstrap_relationship_cognition() -> RelationshipCognitionPort:
 
 
 def bootstrap_relationship(
-    conninfo: str,
+    factory: PostgreSQLRuntimeUnitOfWorkFactory,
     *,
-    expected_role: str,
     creator_party_id: UUID,
-    pool_timeout_seconds: int,
 ) -> RelationshipModule:
     application = RelationshipApplication()
     owner = PostgreSQLRelationshipOwner(
-        conninfo,
-        expected_role=expected_role,
+        factory,
         creator_party_id=creator_party_id,
-        pool_timeout_seconds=pool_timeout_seconds,
     )
     return RelationshipModule(
         read=owner,

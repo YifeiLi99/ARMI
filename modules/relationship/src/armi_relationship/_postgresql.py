@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, cast
 from uuid import UUID, uuid7
 
-import psycopg
 import rfc8785
 from armi_kernel.application import CandidateOwnerDraft
-from armi_runtime_foundation import PostgreSQLTransaction
-from psycopg.pq import TransactionStatus
-from psycopg_pool import AsyncConnectionPool, PoolTimeout
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    PostgreSQLTransaction,
+    RuntimeTransactionFailure,
+)
 
 from ._codec import (
     boundary_to_dict,
@@ -40,67 +43,26 @@ from .api import (
     RelationshipViolation,
 )
 
-_SEARCH_PATH = "pg_catalog, armi"
 _PAGE_SIZE = 100
 
 
-async def _configure(connection: psycopg.AsyncConnection[tuple[Any, ...]]) -> None:
-    await connection.set_autocommit(True)
-    await connection.execute("SET search_path TO pg_catalog, armi")
-
-
-async def _reset(connection: psycopg.AsyncConnection[tuple[Any, ...]]) -> None:
-    if connection.info.transaction_status != TransactionStatus.IDLE:
-        await connection.rollback()
-    await connection.execute("RESET ROLE")
-    await connection.execute("RESET ALL")
-    await connection.execute("SET search_path TO pg_catalog, armi")
-
-
 class PostgreSQLRelationshipOwner:
-    __slots__ = ("_creator_party_id", "_expected_role", "_pool", "_timeout")
+    __slots__ = ("_creator_party_id", "_factory")
 
     def __init__(
         self,
-        conninfo: str,
+        factory: PostgreSQLRuntimeUnitOfWorkFactory,
         *,
-        expected_role: str,
         creator_party_id: UUID,
-        pool_timeout_seconds: int,
     ) -> None:
         self._creator_party_id = creator_party_id
-        self._expected_role = expected_role
-        self._timeout = float(pool_timeout_seconds)
-
-        async def check(connection: psycopg.AsyncConnection[tuple[Any, ...]]) -> None:
-            row = await (
-                await connection.execute(
-                    "SELECT session_user, current_user, current_setting('search_path')"
-                )
-            ).fetchone()
-            if row != (expected_role, expected_role, _SEARCH_PATH):
-                raise RelationshipViolation("RELATIONSHIP-QUERY-UNAVAILABLE")
-
-        self._pool = AsyncConnectionPool[psycopg.AsyncConnection[tuple[Any, ...]]](
-            conninfo,
-            min_size=1,
-            max_size=1,
-            open=False,
-            configure=_configure,
-            check=check,
-            reset=_reset,
-            timeout=self._timeout,
-            name="armi-relationship-query",
-        )
+        self._factory = factory
 
     async def open(self) -> None:
-        try:
-            await self._pool.open(wait=True)
-        except psycopg.Error, PoolTimeout:
-            raise RelationshipViolation("RELATIONSHIP-QUERY-UNAVAILABLE") from None
+        return None
 
     async def close(self) -> None:
-        await self._pool.close()
+        return None
 
     async def current(self) -> CreatorRelationshipItem | None:
         async with self._read_connection() as connection:
@@ -437,38 +399,15 @@ class PostgreSQLRelationshipOwner:
             raise RelationshipViolation("RELATIONSHIP-QUERY-SHAPE")
         return _revision(row[0])
 
-    def _read_connection(self) -> Any:
-        owner = self
+    @asynccontextmanager
+    async def _read_connection(self) -> AsyncGenerator[PostgreSQLTransaction]:
+        try:
+            async with self._factory.unit_of_work(read_only=True) as unit_of_work:
+                yield unit_of_work.transaction
+        except RuntimeTransactionFailure:
+            raise RelationshipViolation("RELATIONSHIP-QUERY-UNAVAILABLE") from None
 
-        class _ReadContext:
-            def __init__(self) -> None:
-                self._pool_context: Any = None
-                self._transaction: Any = None
-
-            async def __aenter__(self) -> Any:
-                try:
-                    self._pool_context = owner._pool.connection(timeout=owner._timeout)
-                    connection = await self._pool_context.__aenter__()
-                    self._transaction = connection.transaction()
-                    await self._transaction.__aenter__()
-                    await connection.execute("SET TRANSACTION READ ONLY")
-                    return connection
-                except psycopg.Error, PoolTimeout:
-                    raise RelationshipViolation(
-                        "RELATIONSHIP-QUERY-UNAVAILABLE"
-                    ) from None
-
-            async def __aexit__(
-                self, exc_type: object, exc: object, tb: object
-            ) -> None:
-                if self._transaction is not None:
-                    await self._transaction.__aexit__(exc_type, exc, tb)
-                if self._pool_context is not None:
-                    await self._pool_context.__aexit__(exc_type, exc, tb)
-
-        return _ReadContext()
-
-    async def _subject_id(self, connection: Any) -> UUID:
+    async def _subject_id(self, connection: PostgreSQLTransaction) -> UUID:
         row = await (
             await connection.execute(
                 """
