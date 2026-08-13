@@ -101,7 +101,6 @@ from armi_memory.bootstrap import MemoryModule, bootstrap_memory
 from armi_mood.api import MoodCognitionPort, MoodCommitPort, MoodReadPort
 from armi_mood.bootstrap import MoodModule, bootstrap_mood
 from armi_opportunity.api import (
-    LifeViolation,
     OpportunityAdmissionPort,
     OpportunityRuntimePort,
 )
@@ -1054,7 +1053,7 @@ def compose_data_rights_module(
 def compose_life_opportunity_pipeline(
     prepared: PreparedEnvironment,
     *,
-    authority_admission: Callable[[], RuntimeFence],
+    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     activity_read: ActivityReadPort,
     relationship_read: RelationshipReadPort,
     relationship_policy: RelationshipPolicyPort,
@@ -1067,63 +1066,30 @@ def compose_life_opportunity_pipeline(
 ) -> OpportunityRuntimePort:
     """Resolve the Runtime credential for the P0-S001 source owner."""
 
-    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
-    if locator is None:
-        raise LifeViolation("LIFE-DATABASE")
-    try:
-        with prepared.credential_port.resolve(
-            locator,
-            CredentialPurpose("database.runtime"),
-        ) as handle:
-
-            def create(value: memoryview) -> OpportunityRuntimePort:
-                try:
-                    conninfo = bytes(value).decode("utf-8")
-                except UnicodeDecodeError:
-                    raise LifeViolation("LIFE-DATABASE") from None
-                config = prepared.effective.config
-                factory = PostgreSQLUnitOfWorkFactory(
-                    conninfo,
-                    environment_id=config.environment.environment_id,
-                    pool_min=config.database.pool_min,
-                    pool_max=config.database.pool_max,
-                    acquire_timeout_seconds=(
-                        config.database.pool_acquire_timeout_seconds
-                    ),
-                    statement_timeout_seconds=(
-                        config.database.statement_timeout_seconds
-                    ),
-                    authority_admission=authority_admission,
-                )
-                return bootstrap_opportunity(
-                    factory=factory,
-                    activity_read=activity_read,
-                    relationship_read=relationship_read,
-                    relationship_policy=relationship_policy,
-                    sleep_maintenance=sleep_maintenance,
-                    sleep_read=sleep_read,
-                    material_read=material_read,
-                    subject_state_read=subject_state_read,
-                    wakeups=wakeups,
-                    notifier=notifier,
-                    model_concurrency=config.model.concurrency,
-                    maintenance_consideration_seconds=(
-                        config.maintenance.consideration_after_seconds
-                    ),
-                    maintenance_deadline_seconds=(
-                        config.maintenance.deadline_after_seconds
-                    ),
-                )
-
-            return handle.consume(create)
-    except ConfigurationViolation:
-        raise LifeViolation("LIFE-DATABASE") from None
+    config = prepared.effective.config
+    return bootstrap_opportunity(
+        factory=unit_of_work_factory,
+        activity_read=activity_read,
+        relationship_read=relationship_read,
+        relationship_policy=relationship_policy,
+        sleep_maintenance=sleep_maintenance,
+        sleep_read=sleep_read,
+        material_read=material_read,
+        subject_state_read=subject_state_read,
+        wakeups=wakeups,
+        notifier=notifier,
+        model_concurrency=config.model.concurrency,
+        maintenance_consideration_seconds=(
+            config.maintenance.consideration_after_seconds
+        ),
+        maintenance_deadline_seconds=config.maintenance.deadline_after_seconds,
+    )
 
 
 def compose_context_pipeline(
     prepared: PreparedEnvironment,
     *,
-    authority_admission: Callable[[], RuntimeFence],
+    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     activity_read: ActivityReadPort,
     memory_read: MemoryReadPort,
     memory_projection: MemoryProjectionPort,
@@ -1138,144 +1104,72 @@ def compose_context_pipeline(
 ) -> ContextRuntimePort:
     """Resolve the Runtime credential for the active S023 selector and worker."""
 
-    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
     embedding_locator = (
         prepared.effective.config.secret_locators.get(MODEL_LOCATOR_NAME)
         if prepared.effective.config.model.semantic_recall_enabled
         else None
     )
-    if locator is None:
-        raise DatabaseViolation(
-            "DB-CONNECTION-UNAVAILABLE",
-            "the required database credential locator is unavailable",
-            status="unavailable",
-            exit_code=3,
-        )
-    try:
-        with prepared.credential_port.resolve(
-            locator,
-            CredentialPurpose("database.runtime"),
-        ) as handle:
-
-            def create(value: memoryview) -> ContextRuntimePort:
-                try:
-                    conninfo = bytes(value).decode("utf-8")
-                except UnicodeDecodeError:
-                    raise DatabaseViolation(
-                        "DB-CONNECTION-UNAVAILABLE",
-                        "the configured PostgreSQL connection is unavailable",
-                        status="unavailable",
-                        exit_code=3,
-                    ) from None
-                config = prepared.effective.config
-                factory = PostgreSQLUnitOfWorkFactory(
-                    conninfo,
-                    environment_id=config.environment.environment_id,
-                    pool_min=config.database.pool_min,
-                    pool_max=config.database.pool_max,
-                    acquire_timeout_seconds=(
-                        config.database.pool_acquire_timeout_seconds
-                    ),
-                    statement_timeout_seconds=(
-                        config.database.statement_timeout_seconds
-                    ),
-                    authority_admission=authority_admission,
-                )
-                return bootstrap_context(
-                    factory=factory,
-                    storage=ContentAddressedArtifactStore(
-                        prepared.data_root / "artifacts",
-                        max_object_bytes=config.artifacts.max_object_bytes,
-                    ),
-                    catalog=ArtifactCatalogRepository(),
-                    work=PostgreSQLDurableWorkGateway(factory),
-                    activity_read=activity_read,
-                    memory_read=memory_read,
-                    memory_projection=memory_projection,
-                    mood_read=mood_read,
-                    prompt_read=prompt_read,
-                    material_projection=material_projection,
-                    relationship_read=relationship_read,
-                    sleep_read=sleep_read,
-                    subject_state_read=subject_state_read,
-                    web_search_active=prepared.effective.config.web.enabled,
-                    wakeups=wakeups,
-                    diagnostic=diagnostic,
-                    embedding=(
-                        VolcengineArkEmbeddingAdapter(
-                            binding=_load_embedding_binding(),
-                            credential_port=prepared.credential_port,
-                            locator=embedding_locator,
-                        )
-                        if embedding_locator is not None
-                        else None
-                    ),
-                )
-
-            return handle.consume(create)
-    except ConfigurationViolation:
-        raise DatabaseViolation(
-            "DB-ROLE-CREDENTIAL-SCOPE",
-            "the configured PostgreSQL connection is unavailable",
-            status="unavailable",
-            exit_code=3,
-        ) from None
+    config = prepared.effective.config
+    return bootstrap_context(
+        factory=unit_of_work_factory,
+        storage=ContentAddressedArtifactStore(
+            prepared.data_root / "artifacts",
+            max_object_bytes=config.artifacts.max_object_bytes,
+        ),
+        catalog=ArtifactCatalogRepository(),
+        work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
+        activity_read=activity_read,
+        memory_read=memory_read,
+        memory_projection=memory_projection,
+        mood_read=mood_read,
+        prompt_read=prompt_read,
+        material_projection=material_projection,
+        relationship_read=relationship_read,
+        sleep_read=sleep_read,
+        subject_state_read=subject_state_read,
+        web_search_active=config.web.enabled,
+        wakeups=wakeups,
+        diagnostic=diagnostic,
+        embedding=(
+            VolcengineArkEmbeddingAdapter(
+                binding=_load_embedding_binding(),
+                credential_port=prepared.credential_port,
+                locator=embedding_locator,
+            )
+            if embedding_locator is not None
+            else None
+        ),
+    )
 
 
 def compose_context_embedding_pipeline(
     prepared: PreparedEnvironment,
     *,
-    authority_admission: Callable[[], RuntimeFence],
+    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     memory_projection: MemoryProjectionPort,
     material_projection: MaterialProjectionPort,
 ) -> ContextEmbeddingRuntimePort:
-    database_locator = prepared.effective.config.secret_locators.get(
-        RUNTIME_LOCATOR_NAME
-    )
     embedding_locator = prepared.effective.config.secret_locators.get(
         MODEL_LOCATOR_NAME
     )
-    if database_locator is None or embedding_locator is None:
+    if embedding_locator is None:
         raise ModelViolation("MODEL-CREDENTIAL")
-    try:
-        with prepared.credential_port.resolve(
-            database_locator, CredentialPurpose("database.runtime")
-        ) as handle:
-
-            def create(value: memoryview) -> ContextEmbeddingRuntimePort:
-                try:
-                    conninfo = bytes(value).decode("utf-8")
-                except UnicodeDecodeError:
-                    raise ModelViolation("MODEL-DATABASE") from None
-                config = prepared.effective.config
-                factory = PostgreSQLUnitOfWorkFactory(
-                    conninfo,
-                    environment_id=config.environment.environment_id,
-                    pool_min=config.database.pool_min,
-                    pool_max=config.database.pool_max,
-                    acquire_timeout_seconds=config.database.pool_acquire_timeout_seconds,
-                    statement_timeout_seconds=config.database.statement_timeout_seconds,
-                    authority_admission=authority_admission,
-                )
-                return bootstrap_context_embedding(
-                    factory=factory,
-                    storage=ContentAddressedArtifactStore(
-                        prepared.data_root / "artifacts",
-                        max_object_bytes=config.artifacts.max_object_bytes,
-                    ),
-                    adapter=VolcengineArkEmbeddingAdapter(
-                        binding=_load_embedding_binding(),
-                        credential_port=prepared.credential_port,
-                        locator=embedding_locator,
-                    ),
-                    work=PostgreSQLDurableWorkGateway(factory),
-                    memories=memory_projection,
-                    materials=material_projection,
-                )
-
-            return handle.consume(create)
-    except ConfigurationViolation:
-        raise ModelViolation("MODEL-CREDENTIAL") from None
+    config = prepared.effective.config
+    return bootstrap_context_embedding(
+        factory=unit_of_work_factory,
+        storage=ContentAddressedArtifactStore(
+            prepared.data_root / "artifacts",
+            max_object_bytes=config.artifacts.max_object_bytes,
+        ),
+        adapter=VolcengineArkEmbeddingAdapter(
+            binding=_load_embedding_binding(),
+            credential_port=prepared.credential_port,
+            locator=embedding_locator,
+        ),
+        work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
+        memories=memory_projection,
+        materials=material_projection,
+    )
 
 
 def compose_model_pipeline(

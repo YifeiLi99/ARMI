@@ -70,12 +70,10 @@ class ContextEmbeddingPipeline:
         self._stop = asyncio.Event()
 
     async def open(self) -> None:
-        await self._factory.open()
         await self._storage.prepare()
 
     async def close(self) -> None:
         self._stop.set()
-        await self._factory.close()
 
     def stop(self) -> None:
         self._stop.set()

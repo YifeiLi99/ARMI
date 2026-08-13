@@ -469,7 +469,7 @@ async def _serve(
                     ) from None
             life_opportunity_pipeline = compose_life_opportunity_pipeline(
                 prepared,
-                authority_admission=authority.require_writable,
+                unit_of_work_factory=runtime_unit_of_work_factory,
                 activity_read=activity_module.read,
                 material_read=material_module.read,
                 relationship_read=relationship_module.read,
@@ -483,7 +483,7 @@ async def _serve(
             await life_opportunity_pipeline.open()
             context_pipeline = compose_context_pipeline(
                 prepared,
-                authority_admission=authority.require_writable,
+                unit_of_work_factory=runtime_unit_of_work_factory,
                 activity_read=activity_module.read,
                 memory_read=memory_module.read,
                 memory_projection=memory_module.projection,
@@ -614,7 +614,7 @@ async def _serve(
                 try:
                     context_embedding_pipeline = compose_context_embedding_pipeline(
                         prepared,
-                        authority_admission=authority.require_writable,
+                        unit_of_work_factory=runtime_unit_of_work_factory,
                         memory_projection=memory_module.projection,
                         material_projection=material_module.projection,
                     )
