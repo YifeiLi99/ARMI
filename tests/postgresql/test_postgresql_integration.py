@@ -259,6 +259,16 @@ from psycopg.conninfo import conninfo_to_dict, make_conninfo
 from tools.live_ark_credential import load_live_ark_credential
 
 _ADMIN_DSN = os.environ.get("S009_ADMIN_DSN")
+
+
+def _birth_repository() -> BirthRepository:
+    return BirthRepository(
+        bootstrap_subject_state().birth,
+        bootstrap_mood().birth,
+        bootstrap_prompt().birth,
+    )
+
+
 _SUMMARY_ENVIRONMENT_ID = UUID("01980f7d-7b8f-7e2a-8a11-2ab8e1234567")
 _ADMIN_PACKAGE_DIGEST = "sha256:" + "1" * 64
 _REMOVED_REDUNDANT_DIGEST_COLUMNS = {
@@ -641,7 +651,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 await BirthTransaction(
                     storage,
                     ArtifactCatalogRepository(),
-                    BirthRepository(),
+                    _birth_repository(),
                     factory,
                 ).birth(manifest)
             finally:
@@ -1981,7 +1991,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 await BirthTransaction(
                     ContentAddressedArtifactStore(root, max_object_bytes=1024 * 1024),
                     ArtifactCatalogRepository(),
-                    BirthRepository(),
+                    _birth_repository(),
                     birth_factory,
                 ).birth(manifest)
             finally:
@@ -2154,7 +2164,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 await BirthTransaction(
                     ContentAddressedArtifactStore(root, max_object_bytes=1024 * 1024),
                     ArtifactCatalogRepository(),
-                    BirthRepository(),
+                    _birth_repository(),
                     factory,
                 ).birth(manifest)
             finally:
@@ -2439,7 +2449,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 await BirthTransaction(
                     storage,
                     ArtifactCatalogRepository(),
-                    BirthRepository(),
+                    _birth_repository(),
                     factory,
                 ).birth(manifest)
                 gateway = CodexTaskSourceGateway(
@@ -2850,7 +2860,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     artifact_root, max_object_bytes=1024 * 1024
                 ),
                 ArtifactCatalogRepository(),
-                BirthRepository(),
+                _birth_repository(),
                 factory,
             )
             await factory.open()
@@ -3441,7 +3451,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     data_root / "artifacts", max_object_bytes=2 * 1024 * 1024
                 ),
                 ArtifactCatalogRepository(),
-                BirthRepository(),
+                _birth_repository(),
                 birth_factory,
             )
             await birth_factory.open()
@@ -4520,7 +4530,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             transaction = BirthTransaction(
                 ContentAddressedArtifactStore(root, max_object_bytes=1024 * 1024),
                 ArtifactCatalogRepository(),
-                BirthRepository(),
+                _birth_repository(),
                 factory,
             )
             await factory.open()
@@ -4830,7 +4840,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             transaction = BirthTransaction(
                 ContentAddressedArtifactStore(root, max_object_bytes=1024 * 1024),
                 ArtifactCatalogRepository(),
-                BirthRepository(),
+                _birth_repository(),
                 factory,
             )
             await factory.open()
@@ -6393,7 +6403,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             birth = BirthTransaction(
                 ContentAddressedArtifactStore(root, max_object_bytes=1024 * 1024),
                 ArtifactCatalogRepository(),
-                BirthRepository(),
+                _birth_repository(),
                 birth_factory,
             )
             await birth_factory.open()
@@ -6763,7 +6773,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             birth = BirthTransaction(
                 ContentAddressedArtifactStore(root, max_object_bytes=1024 * 1024),
                 ArtifactCatalogRepository(),
-                BirthRepository(),
+                _birth_repository(),
                 birth_factory,
             )
             await birth_factory.open()
@@ -6834,6 +6844,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     max_object_bytes=1024 * 1024,
                     pool_timeout_seconds=2,
                     authority_admission=lambda: record.fence,
+                    mood=bootstrap_mood().read,
+                    prompts=bootstrap_prompt().read,
+                    subject_state=bootstrap_subject_state().read,
                 )
                 await recovery.open()
                 try:

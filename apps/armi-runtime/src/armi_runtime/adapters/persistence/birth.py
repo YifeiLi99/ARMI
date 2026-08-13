@@ -9,14 +9,13 @@ from uuid import UUID, uuid7
 import psycopg
 from armi_kernel.application import BirthManifest, BirthResult, BirthViolation
 from armi_kernel.contracts import Digest
-from armi_mood.api import MoodBirthPort, default_mood_birth
+from armi_mood.api import MoodBirthPort
 from armi_prompt.api import (
     PromptBirthPort,
     PromptViolation,
-    default_prompt_birth,
     probe_prompt_continuity,
 )
-from armi_subject_state.api import SubjectStateBirthPort, default_subject_state_birth
+from armi_subject_state.api import SubjectStateBirthPort
 
 from .unit_of_work import PostgreSQLUnitOfWork
 
@@ -124,13 +123,13 @@ class BirthRepository:
 
     def __init__(
         self,
-        subject_state: SubjectStateBirthPort | None = None,
-        mood: MoodBirthPort | None = None,
-        prompts: PromptBirthPort | None = None,
+        subject_state: SubjectStateBirthPort,
+        mood: MoodBirthPort,
+        prompts: PromptBirthPort,
     ) -> None:
-        self._subject_state = subject_state or default_subject_state_birth()
-        self._prompts = prompts or default_prompt_birth()
-        self._mood = mood or default_mood_birth()
+        self._subject_state = subject_state
+        self._prompts = prompts
+        self._mood = mood
 
     async def lock_environment(
         self,

@@ -33,9 +33,9 @@ from armi_kernel.application import (
     RuntimeFence,
 )
 from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
-from armi_mood.api import MoodReadPort, default_mood_read
-from armi_prompt.api import PromptReadPort, PromptViolation, default_prompt_read
-from armi_subject_state.api import SubjectStateReadPort, default_subject_state_read
+from armi_mood.api import MoodReadPort
+from armi_prompt.api import PromptReadPort, PromptViolation
+from armi_subject_state.api import SubjectStateReadPort
 from psycopg.pq import TransactionStatus
 from psycopg_pool import AsyncConnectionPool, PoolTimeout
 
@@ -128,17 +128,17 @@ class PostgreSQLRuntimeRecovery:
         max_object_bytes: int,
         pool_timeout_seconds: int,
         authority_admission: Callable[[], RuntimeFence],
-        mood: MoodReadPort | None = None,
-        prompts: PromptReadPort | None = None,
-        subject_state: SubjectStateReadPort | None = None,
+        mood: MoodReadPort,
+        prompts: PromptReadPort,
+        subject_state: SubjectStateReadPort,
     ) -> None:
         self._environment_id = environment_id
         self._expected_role = physical_role_name(environment_id, "runtime")
         self._pool_timeout_seconds = pool_timeout_seconds
         self._admission = authority_admission
-        self._subject_state = subject_state or default_subject_state_read()
-        self._mood = mood or default_mood_read()
-        self._prompts = prompts or default_prompt_read()
+        self._subject_state = subject_state
+        self._mood = mood
+        self._prompts = prompts
         self._storage = ContentAddressedArtifactStore(
             data_root / "artifacts",
             max_object_bytes=max_object_bytes,
