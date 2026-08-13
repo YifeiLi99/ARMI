@@ -405,13 +405,28 @@ class CodexDelegatedWorkRequestPayload(_StrictModel):
     valid_for_seconds: Annotated[int, Field(ge=60, le=3600)]
 
 
+class RuntimeBoundCodexDelegatedWorkRequestPayload(_StrictModel):
+    """Active Codex request whose fact class matches domain validation."""
+
+    proposal_kind: Literal["capability_requests"]
+    fact_class: Literal["subjective_understanding", "inference"]
+    capability_kind: Literal["codex.delegated-work"]
+    operation: Literal["execute"]
+    workspace_scope: Literal["isolated_ephemeral"]
+    artifact_scope: Literal["explicit_only"]
+    network_access: Literal[False]
+    max_uses: Literal[1]
+    valid_for_seconds: Annotated[int, Field(ge=60, le=3600)]
+
+
 type CapabilityRequestPayload = Annotated[
     CreatorSceneReplyRequestPayload | CodexDelegatedWorkRequestPayload,
     Field(discriminator="capability_kind"),
 ]
 
 type CapabilityRequestPayloadV7 = Annotated[
-    RuntimeBoundCreatorSceneReplyRequestPayload | CodexDelegatedWorkRequestPayload,
+    RuntimeBoundCreatorSceneReplyRequestPayload
+    | RuntimeBoundCodexDelegatedWorkRequestPayload,
     Field(discriminator="capability_kind"),
 ]
 

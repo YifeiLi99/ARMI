@@ -511,6 +511,49 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     }
 
 
+def test_active_codex_capability_schema_matches_domain_fact_classes() -> None:
+    schema = candidate_schema()
+    payload = schema["$defs"]["RuntimeBoundCodexDelegatedWorkRequestPayload"]
+    assert payload["properties"]["fact_class"]["enum"] == [
+        "subjective_understanding",
+        "inference",
+    ]
+
+    historical = _candidate()
+    historical["schema_version"] = "armi.cognition-candidate.v6"
+    historical["capability_requests"] = [
+        {
+            "proposal_ref": "proposal:1",
+            "atomic_group_ref": "group:1",
+            "basis_refs": ["ctx:1"],
+            "payload": {
+                "proposal_kind": "capability_requests",
+                "fact_class": "external_claim",
+                "capability_kind": "codex.delegated-work",
+                "operation": "execute",
+                "workspace_scope": "isolated_ephemeral",
+                "artifact_scope": "explicit_only",
+                "network_access": False,
+                "max_uses": 1,
+                "valid_for_seconds": 900,
+            },
+        }
+    ]
+    historical["action_choices"] = []
+    parse_candidate(
+        json.dumps(historical).encode(),
+        allowed_context_refs=frozenset({"ctx:1"}),
+        expected_version="armi.cognition-candidate.v6",
+    )
+
+    active = {**historical, "schema_version": "armi.cognition-candidate.v7"}
+    with pytest.raises(ModelViolation):
+        parse_candidate(
+            json.dumps(active).encode(),
+            allowed_context_refs=frozenset({"ctx:1"}),
+        )
+
+
 def test_creator_dialogue_request_prioritizes_exact_recent_turns_and_local_refs() -> (
     None
 ):
