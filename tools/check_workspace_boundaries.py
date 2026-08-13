@@ -303,6 +303,21 @@ DISTRIBUTIONS = (
         ),
     ),
     Distribution(
+        name="armi-codex",
+        module="armi_codex",
+        project_dir=Path("modules/codex"),
+        layers=(),
+        dependencies=(
+            "armi-effect==0.0.0",
+            "armi-evidence==0.0.0",
+            "armi-interaction==0.0.0",
+            "armi-kernel==0.0.0",
+            "armi-runtime-foundation==0.0.0",
+            "openai-codex==0.144.4",
+            "rfc8785==0.1.4",
+        ),
+    ),
+    Distribution(
         name="armi-cognition",
         module="armi_cognition",
         project_dir=Path("modules/cognition"),
@@ -311,6 +326,7 @@ DISTRIBUTIONS = (
             "armi-activity==0.0.0",
             "armi-artifact-store==0.0.0",
             "armi-capability==0.0.0",
+            "armi-codex==0.0.0",
             "armi-expression==0.0.0",
             "armi-kernel==0.0.0",
             "armi-material==0.0.0",
@@ -354,6 +370,7 @@ DISTRIBUTIONS = (
             "armi-artifact-store==0.0.0",
             "armi-capability==0.0.0",
             "armi-cognition==0.0.0",
+            "armi-codex==0.0.0",
             "armi-context==0.0.0",
             "armi-evidence==0.0.0",
             "armi-effect==0.0.0",
@@ -1043,6 +1060,19 @@ def _check_import(
             }
         )
         or (
+            source_distribution == "armi-codex"
+            and target_distribution
+            not in {
+                None,
+                "armi-codex",
+                "armi-effect",
+                "armi-evidence",
+                "armi-interaction",
+                "armi-kernel",
+                "armi-runtime-foundation",
+            }
+        )
+        or (
             source_distribution == "armi-cognition"
             and target_distribution
             not in {
@@ -1050,6 +1080,7 @@ def _check_import(
                 "armi-activity",
                 "armi-artifact-store",
                 "armi-capability",
+                "armi-codex",
                 "armi-cognition",
                 "armi-expression",
                 "armi-kernel",
@@ -1206,6 +1237,9 @@ def _check_import(
                 "armi_web_observation.api",
                 "armi_web_observation.bootstrap",
             }
+        ),
+        "armi-codex": frozenset(
+            {"armi_codex", "armi_codex.api", "armi_codex.bootstrap"}
         ),
         "armi-interaction": frozenset(
             {"armi_interaction", "armi_interaction.api", "armi_interaction.bootstrap"}
@@ -1432,6 +1466,19 @@ def _check_import(
                     "web-observation bootstrap is reserved for Runtime composition",
                 )
             )
+        if (
+            imported_module == "armi_codex.bootstrap"
+            and not source_module.startswith("armi_runtime.composition")
+            and source_module != "armi_runtime.codex_runner_cli"
+        ):
+            violations.append(
+                Violation(
+                    "ARC-SURFACE-BOOTSTRAP",
+                    path,
+                    line,
+                    "Codex bootstrap is reserved for Runtime composition",
+                )
+            )
         if imported_module not in public_modules[target_distribution]:
             violations.append(
                 Violation(
@@ -1644,6 +1691,9 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         / "modules/web-observation/src/armi_web_observation/api.py",
         "armi_web_observation.bootstrap": root
         / "modules/web-observation/src/armi_web_observation/bootstrap.py",
+        "armi_codex": root / "modules/codex/src/armi_codex/__init__.py",
+        "armi_codex.api": root / "modules/codex/src/armi_codex/api.py",
+        "armi_codex.bootstrap": root / "modules/codex/src/armi_codex/bootstrap.py",
     }
     for module, path in public_paths.items():
         tree, errors = _parse_python(path, root)
@@ -1674,6 +1724,27 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
                     public_exports=public_exports,
                 )
             )
+            if (
+                distribution.name != "armi-codex"
+                and ".runtime_resources.schema.alembic." not in module
+                and "armi_runtime.adapters.persistence.recovery" not in module
+                and not module.startswith("armi_admin.persistence.")
+                and re.search(
+                    r"\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+armi\."
+                    r"(?:codex_task_sources|codex_verification_results|"
+                    r"codex_result_sources)\b",
+                    source,
+                    re.IGNORECASE,
+                )
+            ):
+                violations.append(
+                    Violation(
+                        "ARC-CODEX-SQL",
+                        relative,
+                        1,
+                        "Codex task and verification writes are owned by armi-codex",
+                    )
+                )
             if (
                 distribution.name != "armi-web-observation"
                 and ".runtime_resources.schema.alembic." not in module
@@ -1939,6 +2010,7 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
                 distribution.name != "armi-expression"
                 and ".runtime_resources.schema.alembic." not in module
                 and "armi_runtime.adapters.persistence.subject_commit" not in module
+                and not module.startswith("armi_codex.")
                 and re.search(
                     r"\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+armi\."
                     r"(?:action_intents|action_intent_revisions)\b"
@@ -1977,7 +2049,7 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
             if (
                 distribution.name != "armi-effect"
                 and ".runtime_resources.schema.alembic." not in module
-                and "armi_runtime.adapters.persistence.codex_delegation" not in module
+                and "armi_codex._postgresql" not in module
                 and "armi_runtime.adapters.persistence.data_deletion" not in module
                 and not module.startswith("armi_admin.persistence.")
                 and re.search(
@@ -2084,6 +2156,10 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         "web observation": (
             "web_search_pipeline = compose_web_search_pipeline(",
             "web_research_pipeline = compose_web_research_admission_pipeline(",
+        ),
+        "Codex delegation": (
+            "codex_pipeline = compose_codex_pipeline(",
+            "codex_pipeline.task_sources",
         ),
     }.items():
         if any(item not in runtime_source for item in required):

@@ -19,6 +19,11 @@ from armi_capability.api import (
     CapabilityReadPort,
     CapabilityViolation,
 )
+from armi_codex.api import (
+    CodexCommitContext,
+    CodexCommitPort,
+    CodexDelegationViolation,
+)
 from armi_cognition import SubjectChangeSet
 from armi_evidence.api import EvidenceId, EvidenceWritePort, ExperienceEvidenceLink
 from armi_expression.api import (
@@ -40,7 +45,6 @@ from armi_kernel.application import (
     CandidateApplicationStatus,
     CandidateDisposition,
     CandidateExactLifeQueryDraft,
-    CodexDelegationDraft,
     ExperienceId,
     RuntimeFence,
     SubjectCommitId,
@@ -191,6 +195,18 @@ def _web_research_commit_context(
     )
 
 
+def _codex_commit_context(snapshot: SubjectCommitSnapshot) -> CodexCommitContext:
+    return CodexCommitContext(
+        snapshot.validation_id,
+        snapshot.episode_id,
+        snapshot.root_opportunity_id,
+        snapshot.subject_id,
+        snapshot.scene_id,
+        snapshot.creator_party_id,
+        snapshot.trace_id,
+    )
+
+
 class PostgreSQLSubjectCommitRepository:
     """Read one validated ChangeSet and atomically apply or settle it."""
 
@@ -198,6 +214,7 @@ class PostgreSQLSubjectCommitRepository:
         "_activity_commit",
         "_capability_commit",
         "_capability_read",
+        "_codex_commit",
         "_evidence",
         "_expression_commit",
         "_material_commit",
@@ -215,6 +232,7 @@ class PostgreSQLSubjectCommitRepository:
         activity_commit: ActivityCommitPort,
         capability_commit: CapabilityCommitPort,
         capability_read: CapabilityReadPort,
+        codex_commit: CodexCommitPort,
         evidence: EvidenceWritePort,
         expression_commit: ExpressionCommitPort,
         memory_commit: MemoryCommitPort,
@@ -229,6 +247,7 @@ class PostgreSQLSubjectCommitRepository:
         self._activity_commit = activity_commit
         self._capability_commit = capability_commit
         self._capability_read = capability_read
+        self._codex_commit = codex_commit
         self._evidence = evidence
         self._expression_commit = expression_commit
         self._memory_commit = memory_commit
@@ -970,12 +989,15 @@ class PostgreSQLSubjectCommitRepository:
             commit_id=commit_id,
             queries=change_set.exact_life_queries,
         )
-        await _insert_codex_delegation_intent(
-            unit_of_work,
-            snapshot=snapshot,
-            commit_id=commit_id,
-            delegations=change_set.codex_delegations,
-        )
+        try:
+            await self._codex_commit.commit_delegations(
+                unit_of_work,
+                context=_codex_commit_context(snapshot),
+                commit_id=commit_id.value,
+                delegations=change_set.codex_delegations,
+            )
+        except CodexDelegationViolation as error:
+            raise SubjectCommitViolation(f"SUBJECT-{error.code}") from None
 
         updated_subject = await (
             await connection.execute(
@@ -1588,122 +1610,6 @@ async def _insert_exact_life_query_intent(
             "life.query.intent.recorded",
             "exact_life_query_intent",
             intent_id,
-            AuditResultStatus.ACCEPTED,
-        )
-    )
-
-
-async def _insert_codex_delegation_intent(
-    unit_of_work: PostgreSQLUnitOfWork,
-    *,
-    snapshot: SubjectCommitSnapshot,
-    commit_id: SubjectCommitId,
-    delegations: tuple[CodexDelegationDraft, ...],
-) -> None:
-    if not delegations:
-        return
-    if len(delegations) != 1:
-        raise SubjectCommitViolation("SUBJECT-CODEX-DELEGATION-COUNT")
-    draft = delegations[0]
-    connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
-    validation = await (
-        await connection.execute(
-            """
-            SELECT validation_status
-            FROM armi.cognitive_candidate_validation_items
-            WHERE candidate_validation_id = %s AND proposal_ref = %s
-              AND owner_kind = 'codex_delegation'
-            """,
-            (snapshot.validation_id, draft.proposal_ref),
-        )
-    ).fetchone()
-    source = await (
-        await connection.execute(
-            """
-            SELECT task_manifest_digest, validator_id
-            FROM armi.codex_task_sources
-            WHERE codex_task_source_id = %s AND subject_id = %s
-            """,
-            (draft.task_source_id.value, snapshot.subject_id),
-        )
-    ).fetchone()
-    if (
-        validation is None
-        or str(validation[0]) != "accepted"
-        or source is None
-        or str(source[0]) != draft.task_manifest_digest.value
-        or str(source[1]) != draft.validator_id
-    ):
-        raise SubjectCommitViolation("SUBJECT-CODEX-DELEGATION-VALIDATION")
-    action_id = uuid7()
-    revision_id = uuid7()
-    await connection.execute(
-        """
-        INSERT INTO armi.action_intents (
-            action_intent_id, subject_id, scene_id,
-            context_party_id, root_opportunity_id, purpose,
-            action_kind, current_revision_id) VALUES (
-            %s, %s, %s, %s, %s, 'delegate_codex_work',
-            'codex_delegation', NULL)
-        """,
-        (
-            action_id,
-            snapshot.subject_id,
-            snapshot.scene_id,
-            snapshot.creator_party_id,
-            snapshot.root_opportunity_id,
-        ),
-    )
-    await connection.execute(
-        """
-        INSERT INTO armi.action_intent_revisions (
-            action_intent_revision_id, action_intent_id, revision_no,
-            capability_kind, operation_class, purpose,
-            candidate_validation_id, proposal_ref, subject_commit_id,
-            codex_task_source_id, task_manifest_digest, validator_id) VALUES (
-            %s, %s, 1, 'codex.delegated-work', 'execute',
-            'delegate_codex_work', %s, %s, %s, %s, %s, %s)
-        """,
-        (
-            revision_id,
-            action_id,
-            snapshot.validation_id,
-            draft.proposal_ref,
-            commit_id.value,
-            draft.task_source_id.value,
-            draft.task_manifest_digest.value,
-            draft.validator_id,
-        ),
-    )
-    await connection.execute(
-        "UPDATE armi.action_intents SET current_revision_id = %s WHERE action_intent_id = %s",
-        (revision_id, action_id),
-    )
-    await connection.execute(
-        """
-        INSERT INTO armi.action_operations (
-            operation_id, root_opportunity_id, subject_id,
-            scene_id, context_party_id, action_intent_id,
-            phase, outcome, operation_kind) VALUES (
-            %s, %s, %s, %s, %s, %s,
-            'admission_pending', NULL, 'codex_delegation')
-        """,
-        (
-            snapshot.root_opportunity_id,
-            snapshot.root_opportunity_id,
-            snapshot.subject_id,
-            snapshot.scene_id,
-            snapshot.creator_party_id,
-            action_id,
-        ),
-    )
-    await unit_of_work.audit.append(
-        _audit(
-            unit_of_work,
-            snapshot,
-            "codex.delegation.intent.recorded",
-            "action_intent",
-            action_id,
             AuditResultStatus.ACCEPTED,
         )
     )

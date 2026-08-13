@@ -10,8 +10,9 @@ from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
 import rfc8785
-from armi_kernel.application import CodexRunnerViolation, CodexTaskManifest
 from armi_kernel.contracts import Digest
+
+from ._runner_contract import CodexRunnerViolation, CodexTaskManifest
 
 _REPARSE = 0x400
 _RESERVED = frozenset(

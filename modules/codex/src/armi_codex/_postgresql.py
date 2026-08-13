@@ -31,6 +31,11 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
+)
+from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
+
+from ._delegation_contract import (
     CodexCleanupStatus,
     CodexDelegationViolation,
     CodexResultEvidenceKind,
@@ -38,9 +43,6 @@ from armi_kernel.application import (
     CodexTaskSourceId,
     CodexVerificationStatus,
 )
-from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
-
-from .unit_of_work import PostgreSQLUnitOfWork
 
 _BINDING = "armi.codex-runner.openai-python-sdk-v1"
 
@@ -81,10 +83,10 @@ class PostgreSQLCodexDelegationRepository:
 
     async def admit_task_source(
         self,
-        uow: PostgreSQLUnitOfWork,
+        uow: PostgreSQLRuntimeUnitOfWork,
         draft: CodexTaskSourceDraft,
     ) -> CodexTaskSourceId:
-        connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = uow.transaction
         existing = await (
             await connection.execute(
                 """
@@ -203,13 +205,13 @@ class PostgreSQLCodexDelegationRepository:
 
     async def existing_creator_task(
         self,
-        uow: PostgreSQLUnitOfWork,
+        uow: PostgreSQLRuntimeUnitOfWork,
         *,
         context: CreatorInputContext,
         idempotency_key: str,
         request_digest: Digest,
     ) -> CreatorInputAcceptance | None:
-        connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = uow.transaction
         row = await (
             await connection.execute(
                 """
@@ -256,7 +258,7 @@ class PostgreSQLCodexDelegationRepository:
 
     async def admit_creator_task_source(
         self,
-        uow: PostgreSQLUnitOfWork,
+        uow: PostgreSQLRuntimeUnitOfWork,
         *,
         context: CreatorInputContext,
         idempotency_key: str,
@@ -271,7 +273,7 @@ class PostgreSQLCodexDelegationRepository:
         )
         if existing is not None:
             return existing
-        connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = uow.transaction
         if draft.subject_id.value != context.subject_id:
             raise CodexDelegationViolation("CODEX-TASK-SUBJECT")
         await _require_artifact(
@@ -389,11 +391,11 @@ class PostgreSQLCodexDelegationRepository:
 
     async def claim(
         self,
-        uow: PostgreSQLUnitOfWork,
+        uow: PostgreSQLRuntimeUnitOfWork,
         *,
         claim_owner: UUID,
     ) -> CodexDispatchSnapshot | None:
-        connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = uow.transaction
         row = await (
             await connection.execute(
                 """
@@ -494,9 +496,9 @@ class PostgreSQLCodexDelegationRepository:
         )
 
     async def mark_dispatching(
-        self, uow: PostgreSQLUnitOfWork, snapshot: CodexDispatchSnapshot
+        self, uow: PostgreSQLRuntimeUnitOfWork, snapshot: CodexDispatchSnapshot
     ) -> bool:
-        connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = uow.transaction
         boundary = await self._dispatch_boundary.coordinate(
             uow,
             effect_id=snapshot.effect_id,
@@ -527,9 +529,9 @@ class PostgreSQLCodexDelegationRepository:
         return True
 
     async def heartbeat(
-        self, uow: PostgreSQLUnitOfWork, snapshot: CodexDispatchSnapshot
+        self, uow: PostgreSQLRuntimeUnitOfWork, snapshot: CodexDispatchSnapshot
     ) -> bool:
-        connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = uow.transaction
         row = await (
             await connection.execute(
                 """
@@ -546,7 +548,7 @@ class PostgreSQLCodexDelegationRepository:
 
     async def settle(
         self,
-        uow: PostgreSQLUnitOfWork,
+        uow: PostgreSQLRuntimeUnitOfWork,
         *,
         snapshot: CodexDispatchSnapshot,
         status: CodexVerificationStatus,
@@ -559,7 +561,7 @@ class PostgreSQLCodexDelegationRepository:
         execution_error_code: str | None,
         cleanup_error_code: str | None,
     ) -> UUID:
-        connection = uow._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
+        connection = uow.transaction
         current = await (
             await connection.execute(
                 """

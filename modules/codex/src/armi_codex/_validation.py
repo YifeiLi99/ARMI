@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import cast
 
-from armi_kernel.application import CodexRunnerViolation, CodexTaskManifest
+from ._runner_contract import CodexRunnerViolation, CodexTaskManifest
 
 _CONFORMANCE_VALIDATOR = "codex.conformance.minimal-edit.v1"
 _OUTPUT_VALIDATOR = "codex.output-artifact.v1"

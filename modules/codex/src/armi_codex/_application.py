@@ -17,7 +17,6 @@ from typing import Any, cast
 from uuid import UUID, uuid7
 
 import rfc8785
-from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_effect.api import EffectDispatchBoundaryPort
 from armi_evidence.api import EvidenceWritePort
 from armi_interaction.api import (
@@ -36,38 +35,42 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
+    CreatorEventResourceKind,
+    CreatorProjectionInvalidation,
+    CreatorProjectionNotifier,
+)
+from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId, TraceId
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWork,
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    RuntimeTransactionFailure,
+)
+
+from ._delegation_contract import (
     CodexCleanupStatus,
     CodexDelegationViolation,
-    CodexExecutionId,
-    CodexModel,
-    CodexReasoningEffort,
-    CodexRunnerViolation,
-    CodexRunStatus,
-    CodexTaskManifest,
     CodexTaskSourceAdmissionPort,
     CodexTaskSourceDraft,
     CodexTaskSourceId,
     CodexVerificationStatus,
     CreatorCodexTaskAdmissionPort,
     CreatorCodexTaskCommand,
-    CreatorEventResourceKind,
-    CreatorProjectionInvalidation,
-    CreatorProjectionNotifier,
 )
-from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId, TraceId
-
-from armi_runtime.adapters.codex.runner import CodexRunArtifactSet
-from armi_runtime.adapters.codex.subprocess_client import run_custodied_subprocess
-from armi_runtime.adapters.persistence.artifact_catalog import ArtifactCatalogRepository
-from armi_runtime.adapters.persistence.codex_delegation import (
+from ._postgresql import (
     CodexDispatchSnapshot,
     PostgreSQLCodexDelegationRepository,
 )
-from armi_runtime.adapters.persistence.unit_of_work import (
-    PostgreSQLUnitOfWork,
-    PostgreSQLUnitOfWorkFactory,
+from ._runner import CodexRunArtifactSet
+from ._runner_contract import (
+    CodexExecutionId,
+    CodexModel,
+    CodexReasoningEffort,
+    CodexRunnerViolation,
+    CodexRunStatus,
+    CodexTaskManifest,
 )
-from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
+from ._subprocess_client import run_custodied_subprocess
+from .api import CodexArtifactCatalogPort, CodexArtifactStorePort
 
 Diagnostic = Callable[[str], None]
 
@@ -93,9 +96,10 @@ class CodexTaskSourceGateway(
 
     def __init__(
         self,
-        factory: PostgreSQLUnitOfWorkFactory,
+        factory: PostgreSQLRuntimeUnitOfWorkFactory,
         *,
-        storage: ContentAddressedArtifactStore,
+        storage: CodexArtifactStorePort,
+        catalog: CodexArtifactCatalogPort,
         creator_party_id: UUID,
         input_repository: CreatorInputTransactionPort,
         evidence: EvidenceWritePort,
@@ -113,7 +117,7 @@ class CodexTaskSourceGateway(
             dispatch_boundary,
         )
         self._input_repository = input_repository
-        self._catalog = ArtifactCatalogRepository()
+        self._catalog = catalog
 
     async def admit(self, draft: CodexTaskSourceDraft) -> CodexTaskSourceId:
         try:
@@ -121,7 +125,7 @@ class CodexTaskSourceGateway(
                 return await self._repository.admit_task_source(uow, draft)
         except CodexDelegationViolation:
             raise
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise CodexDelegationViolation("CODEX-TASK-DATABASE") from None
 
     async def accept(self, command: CreatorCodexTaskCommand) -> CreatorInputAcceptance:
@@ -237,7 +241,7 @@ class CodexTaskSourceGateway(
                         command.trace_id,
                     ),
                 )
-        except DatabaseTransactionError as error:
+        except RuntimeTransactionFailure as error:
             if error.code in {"DB-TX-UNIQUE", "DB-TX-COMMIT-UNKNOWN"}:
                 recovered = await self._existing(command, context, request_digest)
                 if recovered is not None:
@@ -256,7 +260,7 @@ class CodexTaskSourceGateway(
                     scene_key=scene_key,
                     creator_party_id=self._creator_party_id,
                 )
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise CodexDelegationViolation("CODEX-TASK-DATABASE") from None
 
     async def _existing(
@@ -273,7 +277,7 @@ class CodexTaskSourceGateway(
                     idempotency_key=command.idempotency_key.value,
                     request_digest=request_digest,
                 )
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise CodexDelegationViolation("CODEX-TASK-DATABASE") from None
 
     async def _notify(self, scene_key: str, acceptance: CreatorInputAcceptance) -> None:
@@ -311,6 +315,7 @@ class CodexEffectPipeline:
         "_lease_owner",
         "_repository",
         "_run_root",
+        "_runner_entry_module",
         "_stop",
         "_storage",
         "task_sources",
@@ -319,14 +324,16 @@ class CodexEffectPipeline:
     def __init__(
         self,
         *,
-        factory: PostgreSQLUnitOfWorkFactory,
-        storage: ContentAddressedArtifactStore,
+        factory: PostgreSQLRuntimeUnitOfWorkFactory,
+        storage: CodexArtifactStorePort,
+        catalog: CodexArtifactCatalogPort,
         environment_root: Path,
         run_root: Path,
         creator_party_id: UUID,
         creator_input: CreatorInputTransactionPort,
         evidence: EvidenceWritePort,
         dispatch_boundary: EffectDispatchBoundaryPort,
+        runner_entry_module: str,
         notifier: CreatorProjectionNotifier | None,
         diagnostic: Diagnostic | None = None,
     ) -> None:
@@ -334,17 +341,19 @@ class CodexEffectPipeline:
         self._storage = storage
         self._environment_root = environment_root
         self._run_root = run_root
+        self._runner_entry_module = runner_entry_module
         self._repository = PostgreSQLCodexDelegationRepository(
             evidence,
             dispatch_boundary,
         )
-        self._catalog = ArtifactCatalogRepository()
+        self._catalog = catalog
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
         self._diagnostic = diagnostic or _ignore_diagnostic
         self.task_sources = CodexTaskSourceGateway(
             factory,
             storage=storage,
+            catalog=catalog,
             creator_party_id=creator_party_id,
             input_repository=creator_input,
             evidence=evidence,
@@ -357,7 +366,7 @@ class CodexEffectPipeline:
         try:
             await self._factory.open()
             await self._storage.prepare()
-        except DatabaseTransactionError:
+        except RuntimeTransactionFailure:
             raise CodexDelegationViolation("CODEX-TASK-DATABASE") from None
         except ArtifactViolation:
             raise CodexDelegationViolation("CODEX-TASK-ARTIFACT") from None
@@ -392,6 +401,7 @@ class CodexEffectPipeline:
             runner_task = asyncio.create_task(
                 asyncio.to_thread(
                     run_custodied_subprocess,
+                    runner_entry_module=self._runner_entry_module,
                     environment_root=self._environment_root,
                     process_temp=self._run_root
                     / "process-temp"
@@ -475,7 +485,7 @@ class CodexEffectPipeline:
                 cleanup_error_code=error.cleanup_error_code,
             )
             return True
-        except ArtifactViolation, CodexDelegationViolation, DatabaseTransactionError:
+        except ArtifactViolation, CodexDelegationViolation, RuntimeTransactionFailure:
             self._diagnostic("codex.dispatch.custody_failed")
             return True
 
@@ -737,7 +747,7 @@ def _creator_task_manifest(
 
 
 def _artifact_audit(
-    uow: PostgreSQLUnitOfWork,
+    uow: PostgreSQLRuntimeUnitOfWork,
     reference: ArtifactRef,
     trace_id: TraceId,
 ) -> AuditDraft:

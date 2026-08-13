@@ -6,6 +6,7 @@ dependencies = [
     "armi-activity==0.0.0",
     "armi-artifact-store==0.0.0",
     "armi-capability==0.0.0",
+    "armi-codex==0.0.0",
     "armi-expression==0.0.0",
     "armi-kernel==0.0.0",
     "armi-material==0.0.0",
@@ -25,6 +26,7 @@ dependencies = [
 armi-activity = { workspace = true }
 armi-artifact-store = { workspace = true }
 armi-capability = { workspace = true }
+armi-codex = { workspace = true }
 armi-expression = { workspace = true }
 armi-kernel = { workspace = true }
 armi-material = { workspace = true }

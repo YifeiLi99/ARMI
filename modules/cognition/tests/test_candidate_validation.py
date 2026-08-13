@@ -15,6 +15,7 @@ import pytest
 import rfc8785
 from armi_activity.api import ActivityStatus, default_activity_cognition
 from armi_capability.api import CodexDelegatedWorkScope, CreatorSceneReplyScope
+from armi_codex.api import CodexDelegationDraft
 from armi_cognition import (
     CandidateValidationStatus,
 )
@@ -50,7 +51,6 @@ from armi_kernel.application import (
     CandidateFactClass,
     CandidateOwner,
     CandidateOwnerDraft,
-    CodexDelegationDraft,
     LifeRecordKind,
     SubjectCommitViolation,
 )

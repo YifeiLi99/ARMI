@@ -3,7 +3,7 @@ from __future__ import annotations
 from uuid import uuid7
 
 import pytest
-from armi_kernel.application import (
+from armi_codex.api import (
     CodexDelegationViolation,
     CreatorCodexTaskCommand,
 )

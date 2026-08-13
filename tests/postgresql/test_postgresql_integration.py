@@ -58,6 +58,9 @@ from armi_capability.api import (
     CreatorSceneReplyScope,
 )
 from armi_capability.bootstrap import bootstrap_capability
+from armi_codex._application import CodexTaskSourceGateway
+from armi_codex.api import CreatorCodexTaskCommand
+from armi_codex.bootstrap import bootstrap_codex_commit
 from armi_cognition import parse_subject_change_set
 from armi_cognition._model_contract import (
     build_request_bytes,
@@ -127,7 +130,6 @@ from armi_kernel.application import (
     CandidateApplicationStatus,
     CandidateBasis,
     CasStatus,
-    CreatorCodexTaskCommand,
     CredentialLocator,
     LifeRecordActor,
     LifeRecordKind,
@@ -215,7 +217,6 @@ from armi_runtime.composition.artifacts import (
 from armi_runtime.composition.audit import AuditQueryGateway
 from armi_runtime.composition.birth import BirthTransaction
 from armi_runtime.composition.birth_manifest import packaged_birth_digests
-from armi_runtime.composition.codex_pipeline import CodexTaskSourceGateway
 from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
 from armi_runtime.composition.runtime_process import RuntimeProcessManager
 from armi_runtime.composition.work_wakeup import WorkWakeupBus
@@ -2414,6 +2415,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 gateway = CodexTaskSourceGateway(
                     factory,
                     storage=storage,
+                    catalog=ArtifactCatalogRepository(),
                     creator_party_id=creator_party_id,
                     input_repository=CreatorInputRepository(bootstrap_evidence().write),
                     evidence=bootstrap_evidence().write,
@@ -5710,6 +5712,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 activity_commit=activity_module.commit,
                 capability_commit=capability_module.commit,
                 capability_read=capability_module.read,
+                codex_commit=bootstrap_codex_commit(),
                 evidence=bootstrap_evidence().write,
                 expression_commit=expression_module.commit,
                 memory_commit=memory_module.commit,

@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import struct
 
-from armi_kernel.application import CodexRunnerViolation, CodexRunResult
-
-from .codec import decode_result, encode_result
-from .runner import CodexRunArtifactSet
+from ._codec import decode_result, encode_result
+from ._runner import CodexRunArtifactSet
+from ._runner_contract import CodexRunnerViolation, CodexRunResult
 
 _MAGIC = b"ARMI-CODEX-CUSTODY-V1\n"
 _ARTIFACT_NAMES = (

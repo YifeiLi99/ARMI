@@ -12,22 +12,22 @@ import time
 from pathlib import Path
 from typing import cast
 
-from armi_kernel.application import (
+from ._codec import encode_task
+from ._custody_codec import decode_custodied_result
+from ._runner import CodexRunArtifactSet
+from ._runner_contract import (
     CodexRunnerViolation,
     CodexRunResult,
     CodexTaskManifest,
 )
-
-from .codec import encode_task
-from .custody_codec import decode_custodied_result
-from .runner import CodexRunArtifactSet
-from .windows_job import WindowsJob
+from ._windows_job import WindowsJob
 
 _MAX_ERROR_BYTES = 4096
 
 
 def run_custodied_subprocess(
     *,
+    runner_entry_module: str,
     environment_root: Path,
     process_temp: Path,
     task: CodexTaskManifest,
@@ -38,6 +38,7 @@ def run_custodied_subprocess(
     execution_error: CodexRunnerViolation | None = None
     try:
         result = _run_process(
+            runner_entry_module=runner_entry_module,
             environment_root=environment_root,
             process_temp=process_temp,
             task=task,
@@ -61,6 +62,7 @@ def run_custodied_subprocess(
 
 def _run_process(
     *,
+    runner_entry_module: str,
     environment_root: Path,
     process_temp: Path,
     task: CodexTaskManifest,
@@ -70,7 +72,7 @@ def _run_process(
         (
             sys.executable,
             "-m",
-            "armi_runtime.codex_runner_cli",
+            runner_entry_module,
             "--environment-root",
             str(environment_root),
             "--custodied",

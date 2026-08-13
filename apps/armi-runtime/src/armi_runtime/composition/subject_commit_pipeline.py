@@ -15,6 +15,7 @@ from armi_artifact_store.life_material_codec import (
     build_life_material_artifact,
 )
 from armi_capability.api import CapabilityCommitPort, CapabilityReadPort
+from armi_codex.api import CodexCommitPort
 from armi_cognition import parse_subject_change_set
 from armi_evidence.api import EvidenceWritePort
 from armi_expression.api import (
@@ -128,6 +129,7 @@ class SubjectCommitPipeline:
         activity_commit: ActivityCommitPort,
         capability_commit: CapabilityCommitPort,
         capability_read: CapabilityReadPort,
+        codex_commit: CodexCommitPort,
         evidence: EvidenceWritePort,
         expression_commit: ExpressionCommitPort,
         memory_commit: MemoryCommitPort,
@@ -166,6 +168,7 @@ class SubjectCommitPipeline:
             activity_commit,
             capability_commit,
             capability_read,
+            codex_commit,
             evidence,
             expression_commit,
             memory_commit,
@@ -729,6 +732,7 @@ def build_subject_commit_pipeline(
     activity_commit: ActivityCommitPort,
     capability_commit: CapabilityCommitPort,
     capability_read: CapabilityReadPort,
+    codex_commit: CodexCommitPort,
     evidence: EvidenceWritePort,
     expression_commit: ExpressionCommitPort,
     memory_commit: MemoryCommitPort,
@@ -769,6 +773,7 @@ def build_subject_commit_pipeline(
         activity_commit=activity_commit,
         capability_commit=capability_commit,
         capability_read=capability_read,
+        codex_commit=codex_commit,
         evidence=evidence,
         expression_commit=expression_commit,
         memory_commit=memory_commit,

@@ -21,6 +21,11 @@ from armi_capability.api import (
     CapabilityViolation,
 )
 from armi_capability.bootstrap import CapabilityModule, bootstrap_capability
+from armi_codex.api import CodexDelegationViolation, CodexRuntimePort
+from armi_codex.bootstrap import (
+    bootstrap_codex,
+    bootstrap_codex_commit,
+)
 from armi_cognition.api import (
     CognitionCandidateParser,
     CognitionModelPort,
@@ -55,7 +60,6 @@ from armi_interaction.api import CreatorInputTransactionPort
 from armi_interaction.bootstrap import InteractionModule, bootstrap_interaction
 from armi_kernel.application import (
     CandidateViolation,
-    CodexDelegationViolation,
     CreatorExportViolation,
     CreatorProjectionNotifier,
     CredentialPort,
@@ -180,7 +184,6 @@ from armi_runtime.adapters.persistence.schema_gateway import (
 from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWorkFactory
 
 from .birth_manifest import packaged_birth_digests
-from .codex_pipeline import CodexEffectPipeline
 from .config_assets import runtime_config_path
 from .configuration import ConfigurationViolation
 from .creator_exports import CreatorExportService, build_creator_export_service
@@ -1726,6 +1729,7 @@ def compose_subject_commit_pipeline(
                     activity_commit=activity_commit,
                     capability_commit=capability_commit,
                     capability_read=capability_read,
+                    codex_commit=bootstrap_codex_commit(),
                     evidence=evidence,
                     expression_commit=expression.commit,
                     memory_commit=memory_commit,
@@ -1974,7 +1978,7 @@ def compose_codex_pipeline(
     authority_admission: Callable[[], RuntimeFence],
     notifier: CreatorProjectionNotifier | None = None,
     diagnostic: Callable[[str], None] | None = None,
-) -> CodexEffectPipeline:
+) -> CodexRuntimePort:
     """Compose the one active S039 Codex dispatcher without exposing auth."""
 
     database_locator = prepared.effective.config.secret_locators.get(
@@ -1988,7 +1992,7 @@ def compose_codex_pipeline(
             database_locator, CredentialPurpose("database.runtime")
         ) as handle:
 
-            def create(value: memoryview) -> CodexEffectPipeline:
+            def create(value: memoryview) -> CodexRuntimePort:
                 try:
                     conninfo = bytes(value).decode("utf-8")
                 except UnicodeDecodeError:
@@ -2007,18 +2011,20 @@ def compose_codex_pipeline(
                     authority_admission=authority_admission,
                 )
                 run_root = prepared.data_root / "codex-runner"
-                return CodexEffectPipeline(
+                return bootstrap_codex(
                     factory=factory,
                     storage=ContentAddressedArtifactStore(
                         prepared.data_root / "artifacts",
                         max_object_bytes=config.artifacts.max_object_bytes,
                     ),
+                    catalog=ArtifactCatalogRepository(),
                     environment_root=prepared.root,
                     run_root=run_root,
                     creator_party_id=creator_party_id,
                     creator_input=creator_input,
                     evidence=evidence,
                     dispatch_boundary=bootstrap_effect_dispatch_boundary(),
+                    runner_entry_module="armi_runtime.codex_runner_cli",
                     notifier=notifier,
                     diagnostic=diagnostic,
                 )

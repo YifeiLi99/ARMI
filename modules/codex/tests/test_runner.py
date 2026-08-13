@@ -9,7 +9,17 @@ from pathlib import Path
 from uuid import uuid7
 
 import pytest
-from armi_kernel.application import (
+from armi_codex import _runner as runner_module
+from armi_codex._codec import decode_task
+from armi_codex._custody_codec import (
+    decode_custodied_result,
+    encode_custodied_result,
+)
+from armi_codex._runner import CodexRunArtifactSet, IsolatedCodexRunner
+from armi_codex._sdk_codec import SdkTurnEvidence
+from armi_codex._subprocess_client import _decode_failure
+from armi_codex._workspace import changed_paths, snapshot_tree
+from armi_codex.api import (
     CodexExecutionId,
     CodexModel,
     CodexReasoningEffort,
@@ -18,22 +28,14 @@ from armi_kernel.application import (
     CodexRunStatus,
     CodexTaskManifest,
     CodexUsage,
+)
+from armi_kernel.application import (
     CredentialLocator,
     CredentialPort,
     CredentialPurpose,
     SecretHandle,
 )
 from armi_kernel.contracts import Digest
-from armi_runtime.adapters.codex import runner as runner_module
-from armi_runtime.adapters.codex.codec import decode_task
-from armi_runtime.adapters.codex.custody_codec import (
-    decode_custodied_result,
-    encode_custodied_result,
-)
-from armi_runtime.adapters.codex.runner import CodexRunArtifactSet, IsolatedCodexRunner
-from armi_runtime.adapters.codex.sdk_codec import SdkTurnEvidence
-from armi_runtime.adapters.codex.subprocess_client import _decode_failure
-from armi_runtime.adapters.codex.workspace import changed_paths, snapshot_tree
 
 
 class _Handle:
@@ -59,7 +61,7 @@ class _Handle:
 
 
 def test_codex_runner_preflight_starts_without_model_invocation() -> None:
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[3]
     completed = subprocess.run(
         (
             sys.executable,

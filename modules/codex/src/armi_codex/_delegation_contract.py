@@ -8,10 +8,10 @@ from enum import StrEnum
 from typing import Protocol, TypeVar, cast, runtime_checkable
 from uuid import UUID
 
+from armi_kernel.application import ArtifactId
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId, TraceId
 
-from .artifacts import ArtifactId
-from .codex_runner import CodexModel, CodexReasoningEffort
+from ._runner_contract import CodexModel, CodexReasoningEffort
 
 _CODE = re.compile(
     r"^(?:CON-)?CODEX-(?:TASK|DELEGATION|VERIFICATION|RESULT)-[A-Z0-9-]+$"

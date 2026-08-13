@@ -16,6 +16,7 @@ from uuid import uuid7
 import uvicorn
 from armi_activity.api import ActivityViolation
 from armi_capability.api import CapabilityViolation
+from armi_codex.api import CodexDelegationViolation, CodexRuntimePort
 from armi_context.api import ContextViolation
 from armi_effect.api import EffectViolation
 from armi_expression.api import ResponseViolation
@@ -27,7 +28,6 @@ from armi_interaction.api import (
 )
 from armi_kernel.application import (
     CandidateViolation,
-    CodexDelegationViolation,
     CreatorExportViolation,
     DataRightsViolation,
     LifeRecordQueryViolation,
@@ -222,7 +222,7 @@ async def _serve(
     effect_pipeline = None
     web_search_pipeline: WebObservationRuntimePort | None = None
     web_research_pipeline: WebResearchRuntimePort | None = None
-    codex_pipeline = None
+    codex_pipeline: CodexRuntimePort | None = None
     admin_control: RuntimeAdminControlServer | None = None
     work_wakeups = WorkWakeupBus()
 

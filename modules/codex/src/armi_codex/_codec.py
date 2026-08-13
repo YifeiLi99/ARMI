@@ -7,7 +7,9 @@ from typing import Any, cast
 from uuid import UUID
 
 import rfc8785
-from armi_kernel.application import (
+from armi_kernel.contracts import Digest
+
+from ._runner_contract import (
     CodexExecutionId,
     CodexModel,
     CodexReasoningEffort,
@@ -17,7 +19,6 @@ from armi_kernel.application import (
     CodexTaskManifest,
     CodexUsage,
 )
-from armi_kernel.contracts import Digest
 
 _MAX_TASK_BYTES = 64 * 1024
 _TASK_KEYS = frozenset(

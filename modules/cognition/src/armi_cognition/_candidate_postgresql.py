@@ -9,6 +9,7 @@ from uuid import UUID, uuid7
 
 from armi_activity.api import ActivityReadPort
 from armi_capability.api import CapabilityRequestDraft
+from armi_codex.api import CodexDelegationDraft
 from armi_expression.api import (
     CreatorReplyDraft,
     FormalNoActionDraft,
@@ -33,7 +34,6 @@ from armi_kernel.application import (
     CandidateOwnerDraft,
     CandidateRejection,
     CandidateViolation,
-    CodexDelegationDraft,
     WorkDraft,
     WorkId,
     WorkLease,

@@ -26,6 +26,7 @@ from armi_capability.api import (
     CodexDelegatedWorkScope,
     CreatorSceneReplyScope,
 )
+from armi_codex.api import CodexDelegationDraft, CodexTaskSourceId
 from armi_expression.api import (
     CreatorReplyDraft,
     FormalNoActionDraft,
@@ -45,8 +46,6 @@ from armi_kernel.application import (
     CandidateRejection,
     CandidateValidationId,
     CandidateViolation,
-    CodexDelegationDraft,
-    CodexTaskSourceId,
     LifeRecordKind,
     ModelViolation,
 )

@@ -8,6 +8,7 @@ dependencies = [
     "armi-artifact-store==0.0.0",
     "armi-capability==0.0.0",
     "armi-cognition==0.0.0",
+    "armi-codex==0.0.0",
     "armi-context==0.0.0",
     "armi-evidence==0.0.0",
     "armi-effect==0.0.0",
@@ -47,6 +48,7 @@ armi-adapter-qq = { workspace = true }
 armi-artifact-store = { workspace = true }
 armi-capability = { workspace = true }
 armi-cognition = { workspace = true }
+armi-codex = { workspace = true }
 armi-context = { workspace = true }
 armi-evidence = { workspace = true }
 armi-effect = { workspace = true }

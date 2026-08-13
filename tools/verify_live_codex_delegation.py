@@ -14,6 +14,7 @@ from uuid import UUID, uuid7
 import rfc8785
 import verify_codex_runner
 from armi_capability.api import CapabilityRequestDraft, CodexDelegatedWorkScope
+from armi_codex.api import CodexDelegationDraft
 from armi_cognition import (
     CandidateValidationContext,
     CandidateValidationStatus,
@@ -26,7 +27,6 @@ from armi_cognition import (
 )
 from armi_kernel.application import (
     CandidateBasis,
-    CodexDelegationDraft,
     ModelResultStatus,
 )
 from armi_kernel.contracts import Digest

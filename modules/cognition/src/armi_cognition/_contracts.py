@@ -9,6 +9,7 @@ from typing import Protocol, runtime_checkable
 from uuid import UUID
 
 from armi_capability.api import CapabilityRequestDraft
+from armi_codex.api import CodexDelegationDraft
 from armi_expression.api import ResponseChoiceDraft
 from armi_kernel.application import (
     CandidateBasis,
@@ -19,7 +20,6 @@ from armi_kernel.application import (
     CandidateRejection,
     CandidateValidationId,
     CandidateViolation,
-    CodexDelegationDraft,
 )
 from armi_kernel.contracts import Digest
 from armi_web_observation.api import WebResearchRequestDraft

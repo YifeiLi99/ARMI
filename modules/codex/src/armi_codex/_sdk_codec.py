@@ -7,8 +7,9 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 import rfc8785
-from armi_kernel.application import CodexRunnerViolation, CodexUsage
 from openai_codex import TurnResult
+
+from ._runner_contract import CodexRunnerViolation, CodexUsage
 
 _FORBIDDEN_ITEM_CODES = {
     "mcpToolCall": "CODEX-TOOL-POLICY-MCP",

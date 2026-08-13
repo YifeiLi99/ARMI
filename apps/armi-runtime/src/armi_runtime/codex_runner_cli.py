@@ -9,11 +9,14 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from armi_kernel.application import CodexRunnerViolation
+from armi_codex.api import CodexRunnerViolation
+from armi_codex.bootstrap import (
+    bootstrap_codex_runner,
+    decode_runner_task,
+    encode_custodied_runner_result,
+    encode_runner_result,
+)
 
-from armi_runtime.adapters.codex.codec import decode_task, encode_result
-from armi_runtime.adapters.codex.custody_codec import encode_custodied_result
-from armi_runtime.adapters.codex.runner import IsolatedCodexRunner
 from armi_runtime.composition.configuration import ConfigurationViolation
 from armi_runtime.composition.environment import prepare_environment
 from armi_runtime.composition.runtime_errors import RuntimeViolation
@@ -29,7 +32,7 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        task = decode_task(sys.stdin.buffer.read(64 * 1024 + 1))
+        task = decode_runner_task(sys.stdin.buffer.read(64 * 1024 + 1))
         prepared = prepare_environment(
             args.environment_root,
             credential_scope={"codex.runner.auth": "codex.auth_json"},
@@ -37,17 +40,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         locator = prepared.effective.config.secret_locators.get("codex.auth_json")
         if locator is None:
             raise CodexRunnerViolation("CODEX-AUTH")
-        runner = IsolatedCodexRunner(
+        runner = bootstrap_codex_runner(
             run_root=prepared.data_root / "codex-runner",
             credential_port=prepared.credential_port,
             auth_locator=locator,
         )
         if args.custodied:
             result, artifacts = asyncio.run(runner.run_custodied(task))
-            sys.stdout.buffer.write(encode_custodied_result(result, artifacts))
+            sys.stdout.buffer.write(encode_custodied_runner_result(result, artifacts))
         else:
             result = asyncio.run(runner.run(task))
-            sys.stdout.buffer.write(encode_result(result))
+            sys.stdout.buffer.write(encode_runner_result(result))
         return 0 if result.validation_passed else 3
     except (CodexRunnerViolation, ConfigurationViolation, RuntimeViolation) as error:
         cleanup_error = (

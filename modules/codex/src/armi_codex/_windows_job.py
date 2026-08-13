@@ -7,7 +7,7 @@ import os
 from types import TracebackType
 from typing import Self
 
-from armi_kernel.application import CodexRunnerViolation
+from ._runner_contract import CodexRunnerViolation
 
 _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
 _LIMIT_ACTIVE_PROCESS = 0x00000008

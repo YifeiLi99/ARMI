@@ -19,6 +19,7 @@ from armi_capability.api import (
     CreatorGrantCommand,
     CreatorGrantResult,
 )
+from armi_codex.api import CodexModel, CreatorCodexTaskCommand
 from armi_effect.api import EffectArtifactKind
 from armi_evidence.api import EvidenceId
 from armi_interaction.api import (
@@ -47,8 +48,6 @@ from armi_interaction.api import (
     SceneTimelineQuery,
 )
 from armi_kernel.application import (
-    CodexModel,
-    CreatorCodexTaskCommand,
     CreatorExportCommand,
     CreatorExportResult,
     CreatorExportStatus,

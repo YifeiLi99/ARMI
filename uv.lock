@@ -206,6 +206,7 @@ dependencies = [
     { name = "armi-activity" },
     { name = "armi-artifact-store" },
     { name = "armi-capability" },
+    { name = "armi-codex" },
     { name = "armi-expression" },
     { name = "armi-kernel" },
     { name = "armi-material" },
@@ -226,6 +227,7 @@ requires-dist = [
     { name = "armi-activity", editable = "modules/activity" },
     { name = "armi-artifact-store", editable = "packages/armi-artifact-store" },
     { name = "armi-capability", editable = "modules/capability" },
+    { name = "armi-codex", editable = "modules/codex" },
     { name = "armi-expression", editable = "modules/expression" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-material", editable = "modules/material" },
@@ -238,6 +240,31 @@ requires-dist = [
     { name = "armi-subject-state", editable = "modules/subject-state" },
     { name = "armi-web-observation", editable = "modules/web-observation" },
     { name = "pydantic", specifier = "==2.13.4" },
+    { name = "rfc8785", specifier = "==0.1.4" },
+]
+
+[[package]]
+name = "armi-codex"
+version = "0.0.0"
+source = { editable = "modules/codex" }
+dependencies = [
+    { name = "armi-effect" },
+    { name = "armi-evidence" },
+    { name = "armi-interaction" },
+    { name = "armi-kernel" },
+    { name = "armi-runtime-foundation" },
+    { name = "openai-codex" },
+    { name = "rfc8785" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "armi-effect", editable = "modules/effect" },
+    { name = "armi-evidence", editable = "modules/evidence" },
+    { name = "armi-interaction", editable = "modules/interaction" },
+    { name = "armi-kernel", editable = "packages/armi-kernel" },
+    { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
+    { name = "openai-codex", specifier = "==0.144.4" },
     { name = "rfc8785", specifier = "==0.1.4" },
 ]
 
@@ -573,6 +600,7 @@ dependencies = [
     { name = "armi-artifact-store" },
     { name = "armi-capability" },
     { name = "armi-cognition" },
+    { name = "armi-codex" },
     { name = "armi-context" },
     { name = "armi-evidence" },
     { name = "armi-effect" },
@@ -610,6 +638,7 @@ requires-dist = [
     { name = "armi-artifact-store", editable = "packages/armi-artifact-store" },
     { name = "armi-capability", editable = "modules/capability" },
     { name = "armi-cognition", editable = "modules/cognition" },
+    { name = "armi-codex", editable = "modules/codex" },
     { name = "armi-context", editable = "modules/context" },
     { name = "armi-evidence", editable = "modules/evidence" },
     { name = "armi-effect", editable = "modules/effect" },

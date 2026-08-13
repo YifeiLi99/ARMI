@@ -18,22 +18,22 @@ from pathlib import Path
 from typing import Any, cast
 from uuid import uuid7
 
-from armi_kernel.application import (
-    CodexExecutionId,
-    CodexRunStatus,
-    CodexTaskManifest,
-)
-from armi_kernel.contracts import Digest
-from armi_runtime.adapters.codex.codec import decode_result, encode_task
-from armi_runtime.adapters.codex.runner import (
+from armi_codex._codec import decode_result, encode_task
+from armi_codex._runner import (
     _config,
     _owner_only,
     _sanitize_platform_home,
     _validate_platform_home,
     _write_platform_state,
 )
-from armi_runtime.adapters.codex.windows_job import WindowsJob
-from armi_runtime.adapters.codex.workspace import snapshot_tree
+from armi_codex._windows_job import WindowsJob
+from armi_codex._workspace import snapshot_tree
+from armi_codex.api import (
+    CodexExecutionId,
+    CodexRunStatus,
+    CodexTaskManifest,
+)
+from armi_kernel.contracts import Digest
 
 _SDK_VERSION = "0.144.4"
 _MODEL = "gpt-5.6-sol"
