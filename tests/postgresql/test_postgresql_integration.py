@@ -2060,6 +2060,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             await activity_module.open()
             material_module = bootstrap_material(
                 factories[0],
+                catalog=ArtifactCatalogRepository(),
                 creator_party_id=manifest.creator_party_id,
                 data_root=root,
                 max_object_bytes=1024 * 1024,
@@ -2221,6 +2222,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             await factory.open()
             material_module = bootstrap_material(
                 factory,
+                catalog=ArtifactCatalogRepository(),
                 creator_party_id=creator_party_id,
                 data_root=root,
                 max_object_bytes=1024 * 1024,
@@ -2362,6 +2364,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             await activity_module.open()
             material_module = bootstrap_material(
                 maintenance_factory,
+                catalog=ArtifactCatalogRepository(),
                 creator_party_id=creator_party_id,
                 data_root=root,
                 max_object_bytes=1024 * 1024,
@@ -5803,6 +5806,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             material_module = bootstrap_material(
                 factory,
+                catalog=ArtifactCatalogRepository(),
                 creator_party_id=creator_party_id,
                 data_root=Path.cwd(),
                 max_object_bytes=1024 * 1024,

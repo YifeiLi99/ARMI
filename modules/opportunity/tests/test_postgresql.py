@@ -8,6 +8,7 @@ from uuid import UUID, uuid7
 
 import pytest
 from armi_activity.bootstrap import bootstrap_activity
+from armi_artifact_store.bootstrap import bootstrap_artifact_catalog
 from armi_kernel.application import RuntimeFence, RuntimeInstanceId
 from armi_material.bootstrap import bootstrap_material
 from armi_opportunity._postgresql import (
@@ -74,6 +75,7 @@ def _repository(*, boundary: bool = False) -> PostgreSQLLifeOpportunityRepositor
     )
     material = bootstrap_material(
         cast(Any, object()),
+        catalog=bootstrap_artifact_catalog(),
         creator_party_id=uuid7(),
         data_root=Path.cwd(),
         max_object_bytes=1_000_000,

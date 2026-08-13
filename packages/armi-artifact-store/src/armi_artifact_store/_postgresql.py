@@ -15,7 +15,7 @@ from armi_kernel.application import (
     PublishedArtifact,
 )
 from armi_kernel.contracts import Digest
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
 
 
 class PostgreSQLArtifactCatalog:
@@ -110,6 +110,22 @@ class PostgreSQLArtifactCatalog:
     ) -> ArtifactRef | None:
         row = await (
             await unit_of_work.transaction.execute(
+                """SELECT artifact_id,content_digest,byte_size,media_type,
+                          logical_kind,privacy_scope,integrity_status
+                   FROM armi.artifacts
+                   WHERE artifact_id=%s AND retention_status='retained'""",
+                (artifact_id.value,),
+            )
+        ).fetchone()
+        return None if row is None else _row_to_ref(row)
+
+    async def retained_ref_in(
+        self,
+        transaction: PostgreSQLTransaction,
+        artifact_id: ArtifactId,
+    ) -> ArtifactRef | None:
+        row = await (
+            await transaction.execute(
                 """SELECT artifact_id,content_digest,byte_size,media_type,
                           logical_kind,privacy_scope,integrity_status
                    FROM armi.artifacts

@@ -11,7 +11,7 @@ from armi_kernel.application import (
     ArtifactRegistration,
     PublishedArtifact,
 )
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
 
 
 @runtime_checkable
@@ -36,6 +36,12 @@ class ArtifactCatalogPort(Protocol):
     async def retained_ref(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        artifact_id: ArtifactId,
+    ) -> ArtifactRef | None: ...
+
+    async def retained_ref_in(
+        self,
+        transaction: PostgreSQLTransaction,
         artifact_id: ArtifactId,
     ) -> ArtifactRef | None: ...
 

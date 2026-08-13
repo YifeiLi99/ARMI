@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
+from armi_artifact_store.api import ArtifactCatalogPort
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWorkFactory
 
 from ._admin import PostgreSQLMaterialAdminRead
@@ -39,6 +40,7 @@ class MaterialModule:
 def bootstrap_material(
     factory: PostgreSQLRuntimeUnitOfWorkFactory,
     *,
+    catalog: ArtifactCatalogPort,
     creator_party_id: UUID,
     data_root: Path,
     max_object_bytes: int,
@@ -46,6 +48,7 @@ def bootstrap_material(
     application = MaterialApplication()
     owner = PostgreSQLMaterialOwner(
         factory,
+        catalog=catalog,
         creator_party_id=creator_party_id,
         data_root=data_root,
         max_object_bytes=max_object_bytes,

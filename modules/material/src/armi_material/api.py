@@ -9,9 +9,12 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-from armi_kernel.application import ArtifactRef, CandidateOwnerDraft
+from armi_kernel.application import ArtifactId, ArtifactRef, CandidateOwnerDraft
 from armi_kernel.contracts import Instant
-from armi_runtime_foundation import PostgreSQLTransaction
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWork,
+    PostgreSQLTransaction,
+)
 
 from ._domain import valid_metadata
 
@@ -58,6 +61,21 @@ class MaterialViolation(RuntimeError):
 
     def __str__(self) -> str:
         return f"{self.code}: life-material operation failed"
+
+
+@runtime_checkable
+class MaterialArtifactCatalogPort(Protocol):
+    async def retained_ref_in(
+        self,
+        transaction: PostgreSQLTransaction,
+        artifact_id: ArtifactId,
+    ) -> ArtifactRef | None: ...
+
+    async def retained_ref(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        artifact_id: ArtifactId,
+    ) -> ArtifactRef | None: ...
 
 
 def _uuid7(value: object) -> bool:
@@ -463,6 +481,7 @@ __all__ = (
     "MaterialAdminItem",
     "MaterialAdminReadPort",
     "MaterialAdminSnapshot",
+    "MaterialArtifactCatalogPort",
     "MaterialCandidateContextPort",
     "MaterialCandidateSource",
     "MaterialCandidateSourceRef",

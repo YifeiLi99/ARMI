@@ -12,10 +12,9 @@ from armi_kernel.application import (
     ArtifactId,
     ArtifactIntegrityStatus,
     ArtifactPrivacyScope,
-    ArtifactRef,
     ArtifactViolation,
 )
-from armi_kernel.contracts import Digest, Instant
+from armi_kernel.contracts import Instant
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
     PostgreSQLTransaction,
@@ -27,6 +26,7 @@ from .api import (
     LifeMaterialKind,
     LifeMaterialPrivacyStatus,
     LifeMaterialStatus,
+    MaterialArtifactCatalogPort,
     MaterialCandidateSource,
     MaterialCandidateSourceRef,
     MaterialLifeRecordItem,
@@ -47,20 +47,9 @@ def _metadata(value: object) -> tuple[tuple[str, str], ...]:
     )
 
 
-def _artifact(row: tuple[Any, ...], offset: int) -> ArtifactRef:
-    return ArtifactRef(
-        ArtifactId(row[offset]),
-        Digest(str(row[offset + 1])),
-        int(row[offset + 2]),
-        str(row[offset + 3]),
-        str(row[offset + 4]),
-        ArtifactPrivacyScope(str(row[offset + 5])),
-        ArtifactIntegrityStatus(str(row[offset + 6])),
-    )
-
-
 class PostgreSQLMaterialOwner:
     __slots__ = (
+        "_catalog",
         "_creator_party_id",
         "_factory",
         "_storage",
@@ -70,10 +59,12 @@ class PostgreSQLMaterialOwner:
         self,
         factory: PostgreSQLRuntimeUnitOfWorkFactory,
         *,
+        catalog: MaterialArtifactCatalogPort,
         creator_party_id: UUID,
         data_root: Path,
         max_object_bytes: int,
     ) -> None:
+        self._catalog = catalog
         self._creator_party_id = creator_party_id
         self._factory = factory
         self._storage = ContentAddressedArtifactStore(
@@ -104,13 +95,10 @@ class PostgreSQLMaterialOwner:
                     """SELECT material.life_material_id,material.current_revision_id,
                           material.head_version,material.owner_party_id,material.material_kind,
                           revision.title,revision.metadata,revision.material_status,
-                          revision.privacy_status,artifact.artifact_id,artifact.content_digest,
-                          artifact.byte_size,artifact.media_type,artifact.logical_kind,
-                          artifact.privacy_scope,artifact.integrity_status
+                          revision.privacy_status,revision.artifact_id
                    FROM armi.life_materials AS material
                    JOIN armi.life_material_revisions AS revision
                      ON revision.life_material_revision_id=material.current_revision_id
-                   JOIN armi.artifacts AS artifact ON artifact.artifact_id=revision.artifact_id
                    WHERE material.life_material_id=%s AND material.subject_id=%s
                      AND material.life_generation_id=%s AND material.head_version=%s
                      AND material.deleted_at IS NULL""",
@@ -124,6 +112,11 @@ class PostgreSQLMaterialOwner:
             ).fetchone()
             if row is None:
                 raise MaterialViolation("MATERIAL-SOURCE-STALE")
+            artifact = await self._catalog.retained_ref_in(
+                transaction, ArtifactId(row[9])
+            )
+            if artifact is None:
+                raise MaterialViolation("MATERIAL-SOURCE-STALE")
             result.append(
                 MaterialCandidateSource(
                     row[0],
@@ -135,7 +128,7 @@ class PostgreSQLMaterialOwner:
                     _metadata(row[6]),
                     LifeMaterialStatus(str(row[7])),
                     LifeMaterialPrivacyStatus(str(row[8])),
-                    _artifact(row, 9),
+                    artifact,
                 )
             )
         return tuple(result)
@@ -237,28 +230,31 @@ class PostgreSQLMaterialOwner:
                                   material.material_kind,material.head_version,material.created_at,
                                   material.updated_at,revision.revision_no,revision.title,
                                   revision.metadata,revision.material_status,revision.privacy_status,
-                                  artifact.artifact_id,artifact.content_digest,artifact.byte_size,
-                                  artifact.media_type,artifact.logical_kind,artifact.privacy_scope,
-                                  artifact.integrity_status
+                                  revision.artifact_id
                            FROM armi.life_materials AS material
                            JOIN armi.life_material_revisions AS revision
                              ON revision.life_material_revision_id=material.current_revision_id
-                           JOIN armi.artifacts AS artifact ON artifact.artifact_id=revision.artifact_id
                            WHERE material.life_material_id=%s AND material.subject_id=%s
                              AND material.deleted_at IS NULL
                              AND revision.privacy_status = 'creator_visible'""",
                         (material_id, subject[0]),
                     )
                 ).fetchone()
+                ref = (
+                    None
+                    if row is None
+                    else await self._catalog.retained_ref(
+                        unit_of_work, ArtifactId(row[11])
+                    )
+                )
         except MaterialViolation:
             raise
         except RuntimeTransactionFailure:
             raise MaterialViolation("MATERIAL-QUERY-UNAVAILABLE") from None
-        if row is None:
+        if row is None or ref is None:
             return None
         body = ""
         try:
-            ref = _artifact(row, 11)
             if (
                 ref.media_type != "application/json"
                 or ref.logical_kind != "life.material.content"
@@ -321,35 +317,33 @@ class PostgreSQLMaterialOwner:
                 """SELECT material.subject_id,material.life_generation_id,material.life_material_id,
                           material.current_revision_id,material.head_version,material.owner_party_id,
                           material.material_kind,revision.title,revision.metadata,revision.material_status,
-                          revision.privacy_status,artifact.artifact_id,artifact.content_digest,
-                          artifact.byte_size,artifact.media_type,artifact.logical_kind,
-                          artifact.privacy_scope,artifact.integrity_status
+                          revision.privacy_status,revision.artifact_id
                    FROM armi.life_materials AS material
                    JOIN armi.life_material_revisions AS revision
                      ON revision.life_material_revision_id=material.current_revision_id
-                   JOIN armi.artifacts AS artifact ON artifact.artifact_id=revision.artifact_id
                    WHERE material.life_material_id=%s AND material.deleted_at IS NULL
                      AND revision.revision_kind<>'deleted'""",
                 (material_id,),
             )
         ).fetchone()
-        return (
-            None
-            if row is None
-            else MaterialProjectionSource(
-                row[0],
-                row[1],
-                row[2],
-                row[3],
-                int(row[4]),
-                row[5],
-                LifeMaterialKind(str(row[6])),
-                str(row[7]),
-                _metadata(row[8]),
-                LifeMaterialStatus(str(row[9])),
-                LifeMaterialPrivacyStatus(str(row[10])),
-                _artifact(row, 11),
-            )
+        if row is None:
+            return None
+        artifact = await self._catalog.retained_ref_in(transaction, ArtifactId(row[11]))
+        if artifact is None:
+            raise MaterialViolation("MATERIAL-SOURCE-STALE")
+        return MaterialProjectionSource(
+            row[0],
+            row[1],
+            row[2],
+            row[3],
+            int(row[4]),
+            row[5],
+            LifeMaterialKind(str(row[6])),
+            str(row[7]),
+            _metadata(row[8]),
+            LifeMaterialStatus(str(row[9])),
+            LifeMaterialPrivacyStatus(str(row[10])),
+            artifact,
         )
 
 

@@ -591,6 +591,7 @@ def compose_material_module(
 
     return bootstrap_material(
         unit_of_work_factory,
+        catalog=bootstrap_artifact_catalog(),
         creator_party_id=creator_party_id,
         data_root=data_root,
         max_object_bytes=max_object_bytes,

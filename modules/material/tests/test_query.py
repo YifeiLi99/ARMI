@@ -12,6 +12,13 @@ import pytest
 from armi_artifact_store.life_material_codec import (
     build_life_material_artifact,
 )
+from armi_kernel.application import (
+    ArtifactId,
+    ArtifactIntegrityStatus,
+    ArtifactPrivacyScope,
+    ArtifactRef,
+)
+from armi_kernel.contracts import Digest
 from armi_material._postgresql import PostgreSQLMaterialOwner
 from armi_material.api import MaterialViolation
 
@@ -96,6 +103,23 @@ class _Factory:
         return _UnitOfWorkContext(self.connection_value)
 
 
+class _Catalog:
+    def __init__(self, ref: ArtifactRef) -> None:
+        self._ref = ref
+
+    async def retained_ref(
+        self, _unit_of_work: object, artifact_id: ArtifactId
+    ) -> ArtifactRef:
+        assert artifact_id == self._ref.artifact_id
+        return self._ref
+
+    async def retained_ref_in(
+        self, _transaction: object, artifact_id: ArtifactId
+    ) -> ArtifactRef:
+        assert artifact_id == self._ref.artifact_id
+        return self._ref
+
+
 def _write_artifact(data_root: Path, artifact_bytes: bytes) -> tuple[str, str]:
     content_digest = f"sha256:{hashlib.sha256(artifact_bytes).hexdigest()}"
     digest_hex = content_digest[7:]
@@ -146,6 +170,17 @@ def test_creator_material_query_reads_only_current_visible_verified_body(
     )
     query = PostgreSQLMaterialOwner(
         _Factory(connection),  # type: ignore[arg-type]
+        catalog=_Catalog(
+            ArtifactRef(
+                ArtifactId(artifact_id),
+                Digest(content_digest),
+                len(artifact_bytes),
+                "application/json",
+                "life.material.content",
+                ArtifactPrivacyScope.PRIVATE,
+                ArtifactIntegrityStatus.VERIFIED,
+            )
+        ),  # type: ignore[arg-type]
         creator_party_id=creator_party_id,
         data_root=data_root,
         max_object_bytes=1_000_000,
