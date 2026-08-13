@@ -39,6 +39,7 @@ def bootstrap_memory(
     *,
     environment_id: UUID,
     creator_party_id: UUID,
+    subject_id: UUID,
     cursor_key: bytes,
 ) -> MemoryModule:
     application = MemoryApplication()
@@ -46,6 +47,7 @@ def bootstrap_memory(
         factory,
         environment_id=environment_id,
         creator_party_id=creator_party_id,
+        subject_id=subject_id,
         cursor_key=cursor_key,
     )
     return MemoryModule(owner, application, owner, owner, owner, owner)

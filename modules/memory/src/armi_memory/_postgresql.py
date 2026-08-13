@@ -113,12 +113,14 @@ class PostgreSQLMemoryOwner:
         *,
         environment_id: UUID,
         creator_party_id: UUID,
+        subject_id: UUID,
         cursor_key: bytes,
     ) -> None:
         self._creator_party_id = creator_party_id
         self._factory = factory
         self._codec = _CursorCodec(cursor_key, environment_id, creator_party_id)
         self._application = MemoryApplication()
+        self._subject_id = subject_id
 
     async def open(self) -> None:
         return None
@@ -262,23 +264,8 @@ class PostgreSQLMemoryOwner:
             for row in rows
         )
 
-    async def _creator_subject(self, connection: Any) -> UUID:
-        creator = await (
-            await connection.execute(
-                """SELECT 1 FROM armi.parties WHERE party_id=%s
-                   AND party_kind='creator' AND creator_role='unique_primary_creator'
-                   AND status='active'""",
-                (self._creator_party_id,),
-            )
-        ).fetchone()
-        row = await (
-            await connection.execute(
-                "SELECT subject_id FROM armi.subjects WHERE singleton_key=1"
-            )
-        ).fetchone()
-        if creator is None or row is None:
-            raise MemoryViolation("MEMORY-QUERY-NOT-AUTHORIZED")
-        return row[0]
+    def _creator_subject(self) -> UUID:
+        return self._subject_id
 
     async def list_current(
         self,
@@ -298,7 +285,7 @@ class PostgreSQLMemoryOwner:
             except KeyError, TypeError, ValueError:
                 raise MemoryViolation("MEMORY-CURSOR") from None
         async with self._read_connection() as connection:
-            subject_id = await self._creator_subject(connection)
+            subject_id = self._creator_subject()
             rows = await (
                 await connection.execute(
                     """
@@ -374,7 +361,7 @@ class PostgreSQLMemoryOwner:
             if type(before_no) is not int or before_no < 1:
                 raise MemoryViolation("MEMORY-CURSOR")
         async with self._read_connection() as connection:
-            subject_id = await self._creator_subject(connection)
+            subject_id = self._creator_subject()
             exists = await (
                 await connection.execute(
                     """SELECT 1 FROM armi.subjective_memories AS memory

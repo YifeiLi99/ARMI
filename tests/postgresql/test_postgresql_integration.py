@@ -2212,6 +2212,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 factory,
                 environment_id=fixture.environment_id,
                 creator_party_id=creator_party_id,
+                subject_id=born.subject_id,
                 cursor_key=hashlib.sha256(b"p0-s022-life-record-cursor-key").digest(),
             )
             activity_module = bootstrap_activity(
@@ -5793,6 +5794,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 factory,
                 environment_id=fixture.environment_id,
                 creator_party_id=creator_party_id,
+                subject_id=born.subject_id,
                 cursor_key=hashlib.sha256(b"t03-memory-cursor-key").digest(),
             )
             sleep_module = bootstrap_sleep(

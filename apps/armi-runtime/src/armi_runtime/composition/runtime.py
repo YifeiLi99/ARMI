@@ -372,6 +372,7 @@ async def _serve(
                 runtime_unit_of_work_factory,
                 environment_id=config.environment.environment_id,
                 creator_party_id=creator_context.party_id,
+                subject_id=authority.require_writable().subject_id,
                 cursor_key=derive_timeline_cursor_key(prepared),
             )
             await memory_module.open()

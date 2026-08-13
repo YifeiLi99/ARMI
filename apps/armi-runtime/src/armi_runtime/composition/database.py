@@ -714,6 +714,7 @@ def compose_memory_module(
     *,
     environment_id: UUID,
     creator_party_id: UUID,
+    subject_id: UUID,
     cursor_key: bytes,
 ) -> MemoryModule:
     """Resolve and bind the one active subjective-memory owner implementation."""
@@ -722,6 +723,7 @@ def compose_memory_module(
         unit_of_work_factory,
         environment_id=environment_id,
         creator_party_id=creator_party_id,
+        subject_id=subject_id,
         cursor_key=cursor_key,
     )
 
