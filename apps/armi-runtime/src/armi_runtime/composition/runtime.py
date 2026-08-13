@@ -528,12 +528,14 @@ async def _serve(
                 ),
             )
             await context_pipeline.open()
+            candidate_context = compose_context_candidate_read()
             candidate_pipeline = compose_candidate_validation_pipeline(
                 prepared,
                 unit_of_work_factory=runtime_unit_of_work_factory,
                 activity_cognition=activity_module.cognition,
                 activity_read=activity_module.read,
-                context_read=compose_context_candidate_read(),
+                material_context=candidate_context.material,
+                memory_context=candidate_context.memory,
                 memory_cognition=memory_module.cognition,
                 memory_read=memory_module.read,
                 mood_cognition=mood_module.cognition,

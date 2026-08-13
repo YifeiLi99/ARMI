@@ -57,6 +57,7 @@ from armi_material.api import (
 from armi_memory.api import (
     CandidateMemoryDraft,
     CandidateMemoryRevisionDraft,
+    MemoryCandidateContextPort,
     MemoryReadPort,
 )
 from armi_mood.api import MoodReadPort
@@ -147,9 +148,10 @@ class PostgreSQLCandidateValidationRepository:
 
     __slots__ = (
         "_activities",
-        "_context",
+        "_material_context",
         "_materials",
         "_memories",
+        "_memory_context",
         "_mood",
         "_prompts",
         "_relationships",
@@ -162,7 +164,8 @@ class PostgreSQLCandidateValidationRepository:
         relationships: RelationshipReadPort,
         sleep: SleepReadPort,
         activities: ActivityReadPort,
-        context: MaterialCandidateContextPort,
+        material_context: MaterialCandidateContextPort,
+        memory_context: MemoryCandidateContextPort,
         memories: MemoryReadPort | None = None,
         mood: MoodReadPort | None = None,
         prompts: PromptReadPort | None = None,
@@ -170,8 +173,9 @@ class PostgreSQLCandidateValidationRepository:
         subject_state: SubjectStateReadPort | None = None,
     ) -> None:
         self._activities = activities
-        self._context = context
+        self._material_context = material_context
         self._memories = memories
+        self._memory_context = memory_context
         self._mood = mood
         self._prompts = prompts
         self._materials = materials
@@ -333,8 +337,11 @@ class PostgreSQLCandidateValidationRepository:
         )
         if self._memories is None:
             raise CandidateViolation("CANDIDATE-MEMORY-CONTEXT")
+        memory_context_sources = await self._memory_context.memory_sources(
+            connection, episode_id=row[0]
+        )
         memory_rows = await self._memories.candidate_context(
-            connection, subject_id=row[2], episode_id=row[0]
+            connection, subject_id=row[2], sources=memory_context_sources
         )
         subject_party_row = await (
             await connection.execute(
@@ -386,7 +393,7 @@ class PostgreSQLCandidateValidationRepository:
             raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
         if self._materials is None:
             raise CandidateViolation("CANDIDATE-MATERIAL-OWNER")
-        material_context_sources = await self._context.material_sources(
+        material_context_sources = await self._material_context.material_sources(
             unit_of_work.transaction,
             episode_id=row[0],
         )

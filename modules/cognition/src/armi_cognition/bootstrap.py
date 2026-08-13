@@ -13,7 +13,11 @@ from armi_material.api import (
     MaterialCognitionPort,
     MaterialReadPort,
 )
-from armi_memory.api import MemoryCognitionPort, MemoryReadPort
+from armi_memory.api import (
+    MemoryCandidateContextPort,
+    MemoryCognitionPort,
+    MemoryReadPort,
+)
 from armi_mood.api import MoodCognitionPort, MoodReadPort
 from armi_prompt.api import PromptCognitionPort, PromptReadPort
 from armi_relationship.api import RelationshipCognitionPort, RelationshipReadPort
@@ -143,7 +147,8 @@ def bootstrap_cognition_candidate(
     work: DurableWorkPort,
     activity_cognition: ActivityCognitionPort,
     activity_read: ActivityReadPort,
-    context_read: MaterialCandidateContextPort,
+    material_context: MaterialCandidateContextPort,
+    memory_context: MemoryCandidateContextPort,
     memory_cognition: MemoryCognitionPort,
     memory_read: MemoryReadPort,
     mood_cognition: MoodCognitionPort,
@@ -169,7 +174,8 @@ def bootstrap_cognition_candidate(
         work=work,
         activity_cognition=activity_cognition,
         activity_read=activity_read,
-        context_read=context_read,
+        material_context=material_context,
+        memory_context=memory_context,
         memory_cognition=memory_cognition,
         memory_read=memory_read,
         mood_cognition=mood_cognition,

@@ -310,6 +310,20 @@ class MemoryProjectionSource:
     text: str
 
 
+@dataclass(frozen=True, slots=True)
+class MemoryCandidateSourceRef:
+    memory_id: UUID
+    head_version: int
+
+    def __post_init__(self) -> None:
+        if (
+            not _uuid7(self.memory_id)
+            or type(self.head_version) is not int
+            or self.head_version <= 0
+        ):
+            raise MemoryViolation("MEMORY-SOURCE-REF")
+
+
 @runtime_checkable
 class MemoryReadPort(Protocol):
     async def maintenance_context(
@@ -327,7 +341,7 @@ class MemoryReadPort(Protocol):
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        episode_id: UUID,
+        sources: tuple[MemoryCandidateSourceRef, ...],
     ) -> tuple[MemoryContextItem, ...]: ...
 
     async def life_record_branch(
@@ -355,6 +369,16 @@ class MemoryReadPort(Protocol):
         limit: int,
         cursor: OpaqueCursor | None = None,
     ) -> CreatorMemoryTimeline: ...
+
+
+@runtime_checkable
+class MemoryCandidateContextPort(Protocol):
+    async def memory_sources(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        episode_id: UUID,
+    ) -> tuple[MemoryCandidateSourceRef, ...]: ...
 
 
 @runtime_checkable
@@ -451,6 +475,8 @@ __all__ = (
     "CreatorMemoryTimeline",
     "CreatorMemoryTimelineItem",
     "MemoryAccessibility",
+    "MemoryCandidateContextPort",
+    "MemoryCandidateSourceRef",
     "MemoryCognitionPort",
     "MemoryCommitPort",
     "MemoryContextItem",

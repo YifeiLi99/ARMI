@@ -32,6 +32,7 @@ from .api import (
     CreatorMemoryTimeline,
     CreatorMemoryTimelineItem,
     MemoryAccessibility,
+    MemoryCandidateSourceRef,
     MemoryContextItem,
     MemoryLifeRecordItem,
     MemoryProjectionSource,
@@ -179,31 +180,30 @@ class PostgreSQLMemoryOwner:
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        episode_id: UUID,
+        sources: tuple[MemoryCandidateSourceRef, ...],
     ) -> tuple[MemoryContextItem, ...]:
-        rows = await (
-            await transaction.execute(
-                """
+        result: list[MemoryContextItem] = []
+        for source in sources:
+            row = await (
+                await transaction.execute(
+                    """
                 SELECT memory.memory_id, memory.current_revision_id,
                        memory.head_version, revision.source_fact_class,
                        revision.source_kind, revision.summary,
                        revision.uncertainty, revision.accessibility
-                FROM armi.cognitive_context_items AS item
-                JOIN armi.subjective_memories AS memory
-                  ON memory.memory_id=item.source_ref
-                 AND memory.subject_id=%s AND memory.head_version=item.source_version
+                FROM armi.subjective_memories AS memory
                 JOIN armi.subjective_memory_revisions AS revision
                   ON revision.memory_revision_id=memory.current_revision_id
-                WHERE item.cognitive_episode_id=%s
-                  AND item.disposition='included' AND item.section='memory'
-                  AND item.item_kind='current_memory'
-                  AND item.source_kind='subjective_memory'
-                ORDER BY item.ordinal
+                WHERE memory.memory_id=%s AND memory.subject_id=%s
+                  AND memory.head_version=%s
                 """,
-                (subject_id, episode_id),
-            )
-        ).fetchall()
-        return tuple(self._context_item(row) for row in rows)
+                    (source.memory_id, subject_id, source.head_version),
+                )
+            ).fetchone()
+            if row is None:
+                raise MemoryViolation("MEMORY-SOURCE-STALE")
+            result.append(self._context_item(row))
+        return tuple(result)
 
     @staticmethod
     def _context_item(row: tuple[Any, ...]) -> MemoryContextItem:

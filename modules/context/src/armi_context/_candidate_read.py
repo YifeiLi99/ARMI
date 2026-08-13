@@ -5,6 +5,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from armi_material.api import MaterialCandidateSourceRef
+from armi_memory.api import MemoryCandidateSourceRef
 from armi_runtime_foundation import PostgreSQLTransaction
 
 
@@ -29,6 +30,25 @@ class PostgreSQLContextCandidateRead:
             )
         ).fetchall()
         return tuple(MaterialCandidateSourceRef(row[0], int(row[1])) for row in rows)
+
+    async def memory_sources(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        episode_id: UUID,
+    ) -> tuple[MemoryCandidateSourceRef, ...]:
+        rows = await (
+            await transaction.execute(
+                """SELECT source_ref,source_version
+                   FROM armi.cognitive_context_items
+                   WHERE cognitive_episode_id=%s AND disposition='included'
+                     AND section='memory' AND item_kind='current_memory'
+                     AND source_kind='subjective_memory'
+                   ORDER BY ordinal""",
+                (episode_id,),
+            )
+        ).fetchall()
+        return tuple(MemoryCandidateSourceRef(row[0], int(row[1])) for row in rows)
 
 
 __all__ = ("PostgreSQLContextCandidateRead",)

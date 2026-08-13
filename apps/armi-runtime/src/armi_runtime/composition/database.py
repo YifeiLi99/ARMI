@@ -48,6 +48,7 @@ from armi_context.api import (
     EmbeddingBinding,
 )
 from armi_context.bootstrap import (
+    ContextCandidateReadPorts,
     bootstrap_context,
     bootstrap_context_candidate_read,
     bootstrap_context_embedding,
@@ -110,6 +111,7 @@ from armi_material.api import (
 )
 from armi_material.bootstrap import MaterialModule, bootstrap_material
 from armi_memory.api import (
+    MemoryCandidateContextPort,
     MemoryCognitionPort,
     MemoryCommitPort,
     MemoryDataRightsParticipant,
@@ -937,7 +939,7 @@ def compose_context_projection_invalidation() -> ContextProjectionInvalidationPo
     return bootstrap_context_projection_invalidation()
 
 
-def compose_context_candidate_read() -> MaterialCandidateContextPort:
+def compose_context_candidate_read() -> ContextCandidateReadPorts:
     return bootstrap_context_candidate_read()
 
 
@@ -1191,7 +1193,8 @@ def compose_candidate_validation_pipeline(
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     activity_cognition: ActivityCognitionPort,
     activity_read: ActivityReadPort,
-    context_read: MaterialCandidateContextPort,
+    material_context: MaterialCandidateContextPort,
+    memory_context: MemoryCandidateContextPort,
     memory_cognition: MemoryCognitionPort,
     memory_read: MemoryReadPort,
     mood_cognition: MoodCognitionPort,
@@ -1222,7 +1225,8 @@ def compose_candidate_validation_pipeline(
         work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
         activity_cognition=activity_cognition,
         activity_read=activity_read,
-        context_read=context_read,
+        material_context=material_context,
+        memory_context=memory_context,
         memory_cognition=memory_cognition,
         memory_read=memory_read,
         mood_cognition=mood_cognition,

@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from armi_activity.api import ActivityReadPort
 from armi_artifact_store import ContentAddressedArtifactStore
 from armi_capability.api import CapabilityReadPort
 from armi_kernel.application import DurableWorkPort
 from armi_material.api import MaterialCandidateContextPort, MaterialProjectionPort
-from armi_memory.api import MemoryProjectionPort, MemoryReadPort
+from armi_memory.api import (
+    MemoryCandidateContextPort,
+    MemoryProjectionPort,
+    MemoryReadPort,
+)
 from armi_mood.api import MoodReadPort
 from armi_prompt.api import PromptReadPort
 from armi_relationship.api import RelationshipReadPort
@@ -99,11 +104,19 @@ def bootstrap_context_projection_invalidation() -> ContextProjectionInvalidation
     return PostgreSQLContextProjectionInvalidation()
 
 
-def bootstrap_context_candidate_read() -> MaterialCandidateContextPort:
-    return PostgreSQLContextCandidateRead()
+@dataclass(frozen=True, slots=True)
+class ContextCandidateReadPorts:
+    material: MaterialCandidateContextPort
+    memory: MemoryCandidateContextPort
+
+
+def bootstrap_context_candidate_read() -> ContextCandidateReadPorts:
+    owner = PostgreSQLContextCandidateRead()
+    return ContextCandidateReadPorts(owner, owner)
 
 
 __all__ = (
+    "ContextCandidateReadPorts",
     "bootstrap_context",
     "bootstrap_context_candidate_read",
     "bootstrap_context_embedding",
