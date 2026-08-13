@@ -6885,8 +6885,16 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
             return (
                 summary.status.value,
-                summary.critical_artifact_count,
-                summary.requeued_work_count,
+                next(
+                    metric.value
+                    for metric in summary.metrics
+                    if metric.kind == "critical_artifact_count"
+                ),
+                next(
+                    metric.value
+                    for metric in summary.metrics
+                    if metric.kind == "requeued_work_count"
+                ),
                 operations,
             )
 

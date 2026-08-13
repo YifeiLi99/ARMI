@@ -80,72 +80,43 @@ class RecoveryFinding:
 
 
 @dataclass(frozen=True, slots=True)
+class RecoveryMetric:
+    kind: str
+    value: int
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.kind) is not str
+            or _KIND.fullmatch(self.kind) is None
+            or type(self.value) is not int
+            or self.value < 0
+        ):
+            raise RecoveryViolation("REC-DECLARATION")
+
+
+@dataclass(frozen=True, slots=True)
 class RecoverySummary:
     recovery_run_id: RecoveryRunId
     status: RecoveryStatus
-    requeued_work_count: int
-    terminal_work_count: int
-    resumable_work_count: int
-    resumable_opportunity_count: int
-    resumable_cognitive_episode_count: int
-    resumable_model_attempt_count: int
-    resumable_candidate_validation_count: int
-    resumable_subject_commit_count: int
-    resumable_capability_request_count: int
-    resumable_response_operation_count: int
-    resumable_effect_count: int
-    resumable_effect_outbox_count: int
-    resumable_effect_attempt_count: int
-    reliable_effect_observation_count: int
-    creator_response_delivery_count: int
-    resumable_web_observation_count: int
-    unknown_web_observation_attempt_count: int
-    critical_artifact_count: int
+    metrics: tuple[RecoveryMetric, ...]
     blocker_count: int
     findings: tuple[RecoveryFinding, ...] = ()
-    resumable_web_research_intent_count: int = 0
-    pending_web_evidence_acceptance_count: int = 0
-    resumable_web_cognition_count: int = 0
-    resumable_admin_correction_work_count: int = 0
-    resumable_codex_task_count: int = 0
-    resumable_codex_effect_count: int = 0
-    pending_codex_result_acceptance_count: int = 0
 
     def __post_init__(self) -> None:
         if type(self.recovery_run_id) is not RecoveryRunId:
             raise RecoveryViolation("REC-DECLARATION")
         if type(self.status) is not RecoveryStatus:
             raise RecoveryViolation("REC-DECLARATION")
-        for value in (
-            self.requeued_work_count,
-            self.terminal_work_count,
-            self.resumable_work_count,
-            self.resumable_opportunity_count,
-            self.resumable_cognitive_episode_count,
-            self.resumable_model_attempt_count,
-            self.resumable_candidate_validation_count,
-            self.resumable_subject_commit_count,
-            self.resumable_capability_request_count,
-            self.resumable_response_operation_count,
-            self.resumable_effect_count,
-            self.resumable_effect_outbox_count,
-            self.resumable_effect_attempt_count,
-            self.reliable_effect_observation_count,
-            self.creator_response_delivery_count,
-            self.resumable_web_observation_count,
-            self.unknown_web_observation_attempt_count,
-            self.critical_artifact_count,
-            self.blocker_count,
-            self.resumable_web_research_intent_count,
-            self.pending_web_evidence_acceptance_count,
-            self.resumable_web_cognition_count,
-            self.resumable_admin_correction_work_count,
-            self.resumable_codex_task_count,
-            self.resumable_codex_effect_count,
-            self.pending_codex_result_acceptance_count,
+        if (
+            type(self.metrics) is not tuple
+            or any(type(metric) is not RecoveryMetric for metric in self.metrics)
+            or tuple(sorted(self.metrics, key=lambda metric: metric.kind))
+            != self.metrics
+            or len({metric.kind for metric in self.metrics}) != len(self.metrics)
+            or type(self.blocker_count) is not int
+            or self.blocker_count < 0
         ):
-            if type(value) is not int or value < 0:
-                raise RecoveryViolation("REC-DECLARATION")
+            raise RecoveryViolation("REC-DECLARATION")
         if self.status is RecoveryStatus.SAFE and self.blocker_count != 0:
             raise RecoveryViolation("REC-STATE")
         if self.status is RecoveryStatus.BLOCKED and self.blocker_count == 0:
@@ -166,6 +137,7 @@ class RecoveryPort(Protocol):
 __all__ = (
     "RecoveryDecision",
     "RecoveryFinding",
+    "RecoveryMetric",
     "RecoveryPort",
     "RecoveryRunId",
     "RecoveryStatus",

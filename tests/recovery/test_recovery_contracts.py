@@ -6,6 +6,7 @@ from uuid import uuid4, uuid7
 from armi_kernel.application import (
     RecoveryDecision,
     RecoveryFinding,
+    RecoveryMetric,
     RecoveryRunId,
     RecoveryStatus,
     RecoverySummary,
@@ -24,24 +25,12 @@ class RecoveryContractTests(unittest.TestCase):
         summary = RecoverySummary(
             recovery_run_id=RecoveryRunId(uuid7()),
             status=RecoveryStatus.SAFE,
-            requeued_work_count=1,
-            terminal_work_count=0,
-            resumable_work_count=2,
-            resumable_opportunity_count=4,
-            resumable_cognitive_episode_count=1,
-            resumable_model_attempt_count=0,
-            resumable_candidate_validation_count=0,
-            resumable_subject_commit_count=0,
-            resumable_capability_request_count=0,
-            resumable_response_operation_count=0,
-            resumable_effect_count=0,
-            resumable_effect_outbox_count=0,
-            resumable_effect_attempt_count=0,
-            reliable_effect_observation_count=0,
-            creator_response_delivery_count=0,
-            resumable_web_observation_count=0,
-            unknown_web_observation_attempt_count=0,
-            critical_artifact_count=2,
+            metrics=(
+                RecoveryMetric("critical_artifact_count", 2),
+                RecoveryMetric("requeued_work_count", 1),
+                RecoveryMetric("resumable_opportunity_count", 4),
+                RecoveryMetric("resumable_work_count", 2),
+            ),
             blocker_count=0,
             findings=(finding,),
         )
@@ -60,25 +49,18 @@ class RecoveryContractTests(unittest.TestCase):
             RecoverySummary(
                 recovery_run_id=RecoveryRunId(uuid7()),
                 status=RecoveryStatus.SAFE,
-                requeued_work_count=0,
-                terminal_work_count=0,
-                resumable_work_count=0,
-                resumable_opportunity_count=0,
-                resumable_cognitive_episode_count=0,
-                resumable_model_attempt_count=0,
-                resumable_candidate_validation_count=0,
-                resumable_subject_commit_count=0,
-                resumable_capability_request_count=0,
-                resumable_response_operation_count=0,
-                resumable_effect_count=0,
-                resumable_effect_outbox_count=0,
-                resumable_effect_attempt_count=0,
-                reliable_effect_observation_count=0,
-                creator_response_delivery_count=0,
-                resumable_web_observation_count=0,
-                unknown_web_observation_attempt_count=0,
-                critical_artifact_count=2,
+                metrics=(RecoveryMetric("critical_artifact_count", 2),),
                 blocker_count=1,
+            )
+        with self.assertRaises(RecoveryViolation):
+            RecoverySummary(
+                recovery_run_id=RecoveryRunId(uuid7()),
+                status=RecoveryStatus.SAFE,
+                metrics=(
+                    RecoveryMetric("z_metric", 0),
+                    RecoveryMetric("a_metric", 0),
+                ),
+                blocker_count=0,
             )
 
     def test_error_output_is_redacted(self) -> None:

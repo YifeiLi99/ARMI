@@ -110,6 +110,7 @@ from .other_human_records import (
 from .recovery import (
     RecoveryDecision,
     RecoveryFinding,
+    RecoveryMetric,
     RecoveryPort,
     RecoveryRunId,
     RecoveryStatus,
@@ -223,6 +224,7 @@ __all__: tuple[str, ...] = (
     "PublishedArtifact",
     "RecoveryDecision",
     "RecoveryFinding",
+    "RecoveryMetric",
     "RecoveryPort",
     "RecoveryRunId",
     "RecoveryStatus",
