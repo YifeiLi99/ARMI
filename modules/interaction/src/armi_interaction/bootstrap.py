@@ -19,6 +19,7 @@ from ._external import ExternalMessageInputService
 from ._external_postgresql import ExternalMessageInputRepository
 from ._other_human import OtherHumanInputService
 from ._other_human_postgresql import OtherHumanInputRepository
+from ._perception_postgresql import PostgreSQLInteractionPerception
 from ._scenes import CreatorSceneService
 from ._scenes_postgresql import CreatorSceneRepository
 from ._timeline_postgresql import PostgreSQLSceneTimelineQuery
@@ -30,6 +31,7 @@ from .api import (
     ExternalMessageInputPort,
     InteractionArtifactCatalogPort,
     InteractionDataRightsGate,
+    InteractionPerceptionPort,
     InteractionWakeupPort,
     OtherHumanInputPort,
     SceneTimelineCodexTaskProjectionPort,
@@ -46,6 +48,7 @@ class InteractionModule:
     scene_timeline: SceneTimelineQueryPort
     other_human_input: OtherHumanInputPort
     external_message_input: ExternalMessageInputPort
+    perception: InteractionPerceptionPort
     _timeline: PostgreSQLSceneTimelineQuery
 
     async def open(self) -> None:
@@ -130,6 +133,7 @@ def bootstrap_interaction(
         scene_timeline=timeline,
         other_human_input=other_human,
         external_message_input=external,
+        perception=PostgreSQLInteractionPerception(),
         _timeline=timeline,
     )
 

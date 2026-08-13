@@ -465,6 +465,8 @@ async def _serve(
                         unit_of_work_factory=runtime_unit_of_work_factory,
                         fetch=qq_channel.media_fetch,
                         evidence=evidence_module.write,
+                        evidence_read=evidence_module.read,
+                        interaction=interaction_module.perception,
                         opportunity=opportunity_admission,
                         wakeups=work_wakeups,
                         diagnostic=lambda event: diagnostic.emit(

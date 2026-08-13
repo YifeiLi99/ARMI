@@ -295,6 +295,21 @@ class PostgreSQLDurableWorkGateway:
     def __init__(self, factory: PostgreSQLUnitOfWorkFactory) -> None:
         self._factory = factory
 
+    async def failed_owner_refs(self, *, work_kind: str) -> tuple[UUID, ...]:
+        try:
+            async with self._factory.unit_of_work(read_only=True) as unit_of_work:
+                rows = await (
+                    await unit_of_work.transaction.execute(
+                        """SELECT owner_ref FROM armi.durable_work
+                           WHERE work_kind=%s AND status='failed'
+                           ORDER BY owner_ref""",
+                        (work_kind,),
+                    )
+                ).fetchall()
+                return tuple(row[0] for row in rows)
+        except psycopg.Error:
+            raise WorkViolation("WORK-DATABASE") from None
+
     async def claim(
         self,
         *,

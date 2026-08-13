@@ -5,17 +5,19 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator, Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 from uuid import UUID, uuid7
 
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
-from armi_evidence.api import EvidenceWritePort
+from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
 from armi_interaction.api import (
     ExternalAccountKey,
     ExternalChannel,
     ExternalMessagePartKind,
     ExternalMessageViolation,
+    InteractionPerceptionPort,
 )
 from armi_kernel.application import (
     ArtifactId,
@@ -24,9 +26,10 @@ from armi_kernel.application import (
     ArtifactViolation,
     PublishedArtifact,
     WorkLease,
+    WorkResultRef,
     WorkViolation,
 )
-from armi_kernel.contracts import Digest, TraceId
+from armi_kernel.contracts import Digest, Instant, TraceId
 from armi_opportunity.api import OpportunityAdmissionPort
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
@@ -94,6 +97,8 @@ class ExternalContentPipeline:
         catalog: PerceptionArtifactCatalogPort,
         work: PerceptionDurableWorkPort,
         evidence: EvidenceWritePort,
+        evidence_read: EvidenceReadPort,
+        interaction: InteractionPerceptionPort,
         opportunity: OpportunityAdmissionPort,
         fetch: ExternalMediaFetchPort,
         recognizer: ExternalContentRecognitionPort,
@@ -109,7 +114,9 @@ class ExternalContentPipeline:
         self._wakeups = wakeups
         self._diagnostic = diagnostic or _ignore_diagnostic
         self._catalog = catalog
-        self._repository = PostgreSQLExternalContentRepository(evidence, opportunity)
+        self._repository = PostgreSQLExternalContentRepository(
+            evidence, evidence_read, opportunity, interaction
+        )
         self._work = work
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
@@ -117,8 +124,11 @@ class ExternalContentPipeline:
     async def open(self) -> None:
         try:
             await self._storage.prepare()
+            failed = await self._work.failed_owner_refs(work_kind=_RECOGNIZE_WORK)
             async with self._factory.unit_of_work() as unit:
-                recovered = await self._repository.recover_terminal_recognition(unit)
+                recovered = await self._repository.recover_terminal_recognition(
+                    unit, failed
+                )
             if recovered:
                 self._wakeups.notify(EXTERNAL_CONTENT)
         except ArtifactViolation, RuntimeTransactionFailure, WorkViolation:
@@ -148,17 +158,20 @@ class ExternalContentPipeline:
             if not records:
                 continue
             lease = cast(WorkLease, records[0].lease)
+            interaction_id = records[0].draft.owner.reference
             if work_kind == _RECOGNIZE_WORK:
-                await self._recognize(lease)
+                await self._recognize(lease, interaction_id)
             else:
-                await self._finalize(lease)
+                await self._finalize(lease, interaction_id)
             return True
         return False
 
-    async def _recognize(self, lease: WorkLease) -> None:
+    async def _recognize(self, lease: WorkLease, interaction_id: UUID) -> None:
         try:
             async with self._factory.unit_of_work(read_only=True) as unit:
-                snapshot = await self._repository.recognition_snapshot(unit, lease)
+                snapshot = await self._repository.recognition_snapshot(
+                    unit, interaction_id
+                )
             for part in snapshot.parts:
                 if part.status != "pending":
                     continue
@@ -401,16 +414,19 @@ class ExternalContentPipeline:
                 result=result,
             )
 
-    async def _finalize(self, lease: WorkLease) -> None:
+    async def _finalize(self, lease: WorkLease, interaction_id: UUID) -> None:
         try:
             async with self._factory.unit_of_work(read_only=True) as unit:
-                snapshot = await self._repository.finalization_snapshot(unit, lease)
-            if snapshot.existing_evidence_id is not None:
+                snapshot = await self._repository.finalization_snapshot(
+                    unit, interaction_id
+                )
+                existing_evidence_id = await self._repository.existing_evidence(
+                    unit, interaction_id
+                )
+            if existing_evidence_id is not None:
                 async with self._factory.unit_of_work() as unit:
-                    await self._repository.finalize(
-                        unit,
-                        lease=lease,
-                        snapshot=snapshot,
+                    await unit.work.complete(
+                        lease, WorkResultRef("external_evidence", existing_evidence_id)
                     )
                 return
             projection = _render_projection(snapshot.parts)
@@ -444,11 +460,14 @@ class ExternalContentPipeline:
         except ArtifactViolation, RuntimeTransactionFailure, OSError:
             self._diagnostic("external.content.finalization.failed")
             try:
-                async with self._factory.unit_of_work() as unit:
-                    requeued = await self._repository.requeue_finalization(unit, lease)
-                if requeued:
+                record = await self._work.release(
+                    lease,
+                    not_before=Instant(datetime.now(UTC)),
+                    error_code="EXTERNAL-CONTENT-FINALIZATION",
+                )
+                if record.status.value == "ready":
                     self._wakeups.notify(EXTERNAL_CONTENT)
-            except RuntimeTransactionFailure:
+            except RuntimeTransactionFailure, WorkViolation:
                 self._diagnostic("external.content.finalization.settlement_deferred")
 
     async def _fail_work(self, lease: WorkLease, code: str) -> None:
@@ -460,8 +479,11 @@ class ExternalContentPipeline:
     async def _terminalize_recognition(self, lease: WorkLease) -> None:
         await self._fail_work(lease, "EXTERNAL-CONTENT-RECOGNITION")
         try:
+            failed = await self._work.failed_owner_refs(work_kind=_RECOGNIZE_WORK)
             async with self._factory.unit_of_work() as unit:
-                recovered = await self._repository.recover_terminal_recognition(unit)
+                recovered = await self._repository.recover_terminal_recognition(
+                    unit, failed
+                )
             if recovered:
                 self._wakeups.notify(EXTERNAL_CONTENT)
         except RuntimeTransactionFailure, WorkViolation:

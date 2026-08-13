@@ -6,8 +6,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
-from armi_evidence.api import EvidenceWritePort
-from armi_interaction.api import ExternalMessagePartKind
+from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
+from armi_interaction.api import ExternalMessagePartKind, InteractionPerceptionPort
 from armi_opportunity.api import OpportunityAdmissionPort
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWorkFactory
 
@@ -44,6 +44,8 @@ def bootstrap_perception(
     catalog: PerceptionArtifactCatalogPort,
     work: PerceptionDurableWorkPort,
     evidence: EvidenceWritePort,
+    evidence_read: EvidenceReadPort,
+    interaction: InteractionPerceptionPort,
     opportunity: OpportunityAdmissionPort,
     fetch: ExternalMediaFetchPort,
     ark_recognizer: ExternalContentRecognitionPort,
@@ -62,6 +64,8 @@ def bootstrap_perception(
         catalog=catalog,
         work=work,
         evidence=evidence,
+        evidence_read=evidence_read,
+        interaction=interaction,
         opportunity=opportunity,
         fetch=fetch,
         recognizer=recognizer,

@@ -22,7 +22,7 @@ from armi_kernel.application import (
     WorkLease,
     WorkRecord,
 )
-from armi_kernel.contracts import TraceId
+from armi_kernel.contracts import Instant, TraceId
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, StopSignal
 
 _SOURCE_KIND = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
@@ -198,6 +198,8 @@ class PerceptionArtifactCatalogPort(Protocol):
 
 @runtime_checkable
 class PerceptionDurableWorkPort(Protocol):
+    async def failed_owner_refs(self, *, work_kind: str) -> tuple[UUID, ...]: ...
+
     async def claim(
         self,
         *,
@@ -208,6 +210,14 @@ class PerceptionDurableWorkPort(Protocol):
     ) -> tuple[WorkRecord, ...]: ...
 
     async def fail(self, lease: WorkLease, *, error_code: str) -> WorkRecord: ...
+
+    async def release(
+        self,
+        lease: WorkLease,
+        *,
+        not_before: Instant,
+        error_code: str | None = None,
+    ) -> WorkRecord: ...
 
 
 @runtime_checkable

@@ -70,7 +70,7 @@ from armi_effect.bootstrap import (
 from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
 from armi_evidence.bootstrap import EvidenceModule, bootstrap_evidence
 from armi_expression.bootstrap import bootstrap_expression
-from armi_interaction.api import CreatorInputTransactionPort
+from armi_interaction.api import CreatorInputTransactionPort, InteractionPerceptionPort
 from armi_interaction.bootstrap import InteractionModule, bootstrap_interaction
 from armi_kernel import load_yaml_file
 from armi_kernel.application import (
@@ -760,6 +760,8 @@ def compose_perception_module(
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     fetch: ExternalMediaFetchPort,
     evidence: EvidenceWritePort,
+    evidence_read: EvidenceReadPort,
+    interaction: InteractionPerceptionPort,
     opportunity: OpportunityAdmissionPort,
     wakeups: WorkWakeupBus,
     diagnostic: Callable[[str], None] | None = None,
@@ -782,6 +784,8 @@ def compose_perception_module(
             catalog=ArtifactCatalogRepository(),
             work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
             evidence=evidence,
+            evidence_read=evidence_read,
+            interaction=interaction,
             opportunity=opportunity,
             fetch=fetch,
             ark_recognizer=VolcengineArkExternalContentRecognizer(

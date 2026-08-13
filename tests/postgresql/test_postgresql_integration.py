@@ -102,6 +102,7 @@ from armi_interaction._creator_postgresql import CreatorInputRepository
 from armi_interaction._external import ExternalMessageInputService
 from armi_interaction._external_postgresql import ExternalMessageInputRepository
 from armi_interaction._other_human_postgresql import OtherHumanInputRepository
+from armi_interaction._perception_postgresql import PostgreSQLInteractionPerception
 from armi_interaction._timeline_postgresql import PostgreSQLSceneTimelineQuery
 from armi_interaction.api import (
     ConfigureExternalCreatorCommand,
@@ -689,6 +690,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 unit_of_work_factory=input_factory,
                 data_rights=bootstrap_data_rights_gate(),
             )
+            await input_factory.open()
             await service.open()
             try:
                 creator = await service.configure_creator(
@@ -817,12 +819,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     catalog=ArtifactCatalogRepository(),
                     work=PostgreSQLDurableWorkGateway(pipeline_factory),
                     evidence=bootstrap_evidence().write,
+                    evidence_read=bootstrap_evidence().read,
+                    interaction=PostgreSQLInteractionPerception(),
                     opportunity=bootstrap_opportunity_admission(),
                     fetch=_ExternalMediaFetch(),
                     recognizer=_ExternalContentRecognizer(),
                     target_for=lambda _kind: ("test_provider", "test_model"),
                     wakeups=WorkWakeupBus(),
                 )
+                await pipeline_factory.open()
                 await pipeline.open()
                 try:
                     self.assertTrue(await pipeline.execute_once())
@@ -830,6 +835,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     self.assertFalse(await pipeline.execute_once())
                 finally:
                     await pipeline.close()
+                    await pipeline_factory.close()
                 media_repeated = await service.accept(
                     replace(media_message, trace_id=TraceId("9" * 32))
                 )
@@ -883,6 +889,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
             finally:
                 await service.close()
+                await input_factory.close()
 
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             (

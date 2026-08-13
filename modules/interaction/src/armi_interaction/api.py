@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
 from armi_kernel.application import ArtifactId, ArtifactRegistration, PublishedArtifact
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
+from armi_kernel.contracts import Digest, TraceId
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWork,
+    PostgreSQLTransaction,
+)
 from armi_subject_state.api import SubjectSummary
 
 from ._creator_contract import (
@@ -127,6 +132,135 @@ class CreatorInputTransactionPort(Protocol):
     ) -> CreatorInputContext: ...
 
 
+@dataclass(frozen=True, slots=True)
+class ExternalContentPartSnapshot:
+    part_id: UUID
+    ordinal: int
+    kind: ExternalMessagePartKind
+    locator: str
+    file_name: str | None
+    media_type: str | None
+    declared_byte_size: int | None
+    visual_role: ExternalVisualRole | None
+    source_kind: str | None
+    source_summary: str | None
+    status: str
+
+
+@dataclass(frozen=True, slots=True)
+class ExternalRecognitionSnapshot:
+    interaction_id: UUID
+    subject_id: UUID
+    scene_id: UUID
+    source_party_id: UUID
+    purpose: str
+    channel: str
+    account_key: str
+    trace_id: TraceId
+    parts: tuple[ExternalContentPartSnapshot, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ExternalFinalizationPart:
+    ordinal: int
+    kind: ExternalMessagePartKind
+    text_value: str | None
+    target_key: str | None
+    file_name: str | None
+    visual_role: ExternalVisualRole | None
+    source_kind: str | None
+    source_summary: str | None
+    detected_media_type: str | None
+    pixel_width: int | None
+    pixel_height: int | None
+    frame_count: int | None
+    status: str
+    interpretation_text: str | None
+    failure_code: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class ExternalFinalizationSnapshot:
+    interaction_id: UUID
+    subject_id: UUID
+    scene_id: UUID
+    source_party_id: UUID
+    purpose: str
+    trace_id: TraceId
+    parts: tuple[ExternalFinalizationPart, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ExternalRecognitionRecovery:
+    interaction_id: UUID
+    subject_id: UUID
+    trace_id: TraceId
+    part_ids: tuple[UUID, ...]
+
+
+@runtime_checkable
+class InteractionPerceptionPort(Protocol):
+    async def recover_terminal(
+        self,
+        transaction: PostgreSQLTransaction,
+        interaction_ids: tuple[UUID, ...],
+    ) -> tuple[ExternalRecognitionRecovery, ...]: ...
+
+    async def recognition_snapshot(
+        self, transaction: PostgreSQLTransaction, interaction_id: UUID
+    ) -> ExternalRecognitionSnapshot: ...
+
+    async def attach_raw(
+        self, transaction: PostgreSQLTransaction, *, part_id: UUID, artifact_id: UUID
+    ) -> None: ...
+
+    async def attach_visual_detection(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        part_id: UUID,
+        media_type: str,
+        pixel_width: int,
+        pixel_height: int,
+        frame_count: int,
+    ) -> None: ...
+
+    async def settle_part_success(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        part_id: UUID,
+        raw_artifact_id: UUID,
+        interpretation_artifact_id: UUID,
+        interpretation_text: str,
+    ) -> None: ...
+
+    async def settle_part_failure(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        part_id: UUID,
+        status: str,
+        error_code: str,
+    ) -> None: ...
+
+    async def has_pending_parts(
+        self, transaction: PostgreSQLTransaction, interaction_id: UUID
+    ) -> bool: ...
+
+    async def finalization_snapshot(
+        self, transaction: PostgreSQLTransaction, interaction_id: UUID
+    ) -> ExternalFinalizationSnapshot: ...
+
+    async def complete_finalization(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        snapshot: ExternalFinalizationSnapshot,
+        content_digest: Digest,
+    ) -> None: ...
+
+
 __all__ = (
     "PROJECTION_VERSION",
     "SCENE_COLLECTION_PROJECTION_VERSION",
@@ -149,9 +283,12 @@ __all__ = (
     "CreatorSceneView",
     "ExternalAccountKey",
     "ExternalChannel",
+    "ExternalContentPartSnapshot",
     "ExternalConversationKey",
     "ExternalConversationKind",
     "ExternalCreatorBinding",
+    "ExternalFinalizationPart",
+    "ExternalFinalizationSnapshot",
     "ExternalMessageInputAcceptance",
     "ExternalMessageInputPort",
     "ExternalMessageInteractionId",
@@ -165,9 +302,12 @@ __all__ = (
     "ExternalMessageSendRequest",
     "ExternalMessageViolation",
     "ExternalPartyKey",
+    "ExternalRecognitionRecovery",
+    "ExternalRecognitionSnapshot",
     "ExternalVisualRole",
     "InteractionArtifactCatalogPort",
     "InteractionDataRightsGate",
+    "InteractionPerceptionPort",
     "InteractionWakeupPort",
     "ObservedExternalMessage",
     "OpportunityId",

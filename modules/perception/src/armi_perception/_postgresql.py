@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid7
 
@@ -10,13 +9,17 @@ from armi_evidence.api import (
     EvidenceDraft,
     EvidenceId,
     EvidencePrivacyScope,
+    EvidenceReadPort,
     EvidenceSourceKind,
     EvidenceWritePort,
 )
 from armi_interaction.api import (
-    ExternalMessagePartKind,
+    ExternalContentPartSnapshot,
+    ExternalFinalizationPart,
+    ExternalFinalizationSnapshot,
     ExternalMessageViolation,
-    ExternalVisualRole,
+    ExternalRecognitionSnapshot,
+    InteractionPerceptionPort,
 )
 from armi_kernel.application import (
     WorkDraft,
@@ -26,7 +29,7 @@ from armi_kernel.application import (
     WorkPayloadRef,
     WorkResultRef,
 )
-from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId, TraceId
+from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId
 from armi_opportunity.api import (
     ExternalEvidenceOpportunityDraft,
     OpportunityAdmissionPort,
@@ -38,212 +41,64 @@ from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 from .api import ExternalContentRecognitionResult
 
 
-@dataclass(frozen=True, slots=True)
-class ExternalContentPartSnapshot:
-    part_id: UUID
-    ordinal: int
-    kind: ExternalMessagePartKind
-    locator: str
-    file_name: str | None
-    media_type: str | None
-    declared_byte_size: int | None
-    visual_role: ExternalVisualRole | None
-    source_kind: str | None
-    source_summary: str | None
-    status: str
-
-
-@dataclass(frozen=True, slots=True)
-class ExternalRecognitionSnapshot:
-    interaction_id: UUID
-    subject_id: UUID
-    scene_id: UUID
-    source_party_id: UUID
-    purpose: str
-    channel: str
-    account_key: str
-    trace_id: TraceId
-    parts: tuple[ExternalContentPartSnapshot, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class ExternalFinalizationPart:
-    ordinal: int
-    kind: ExternalMessagePartKind
-    text_value: str | None
-    target_key: str | None
-    file_name: str | None
-    visual_role: ExternalVisualRole | None
-    source_kind: str | None
-    source_summary: str | None
-    detected_media_type: str | None
-    pixel_width: int | None
-    pixel_height: int | None
-    frame_count: int | None
-    status: str
-    interpretation_text: str | None
-    failure_code: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class ExternalFinalizationSnapshot:
-    interaction_id: UUID
-    subject_id: UUID
-    scene_id: UUID
-    source_party_id: UUID
-    purpose: str
-    trace_id: TraceId
-    existing_evidence_id: UUID | None
-    parts: tuple[ExternalFinalizationPart, ...]
-
-
 class PostgreSQLExternalContentRepository:
-    __slots__ = ("_evidence", "_opportunity")
+    __slots__ = ("_evidence", "_evidence_read", "_interaction", "_opportunity")
 
     def __init__(
         self,
         evidence: EvidenceWritePort,
+        evidence_read: EvidenceReadPort,
         opportunity: OpportunityAdmissionPort,
+        interaction: InteractionPerceptionPort,
     ) -> None:
         self._evidence = evidence
+        self._evidence_read = evidence_read
         self._opportunity = opportunity
+        self._interaction = interaction
 
     async def recover_terminal_recognition(
-        self, unit: PostgreSQLRuntimeUnitOfWork
+        self,
+        unit: PostgreSQLRuntimeUnitOfWork,
+        interaction_ids: tuple[UUID, ...],
     ) -> int:
         connection = unit.transaction
-        rows = await (
+        rows = await self._interaction.recover_terminal(connection, interaction_ids)
+        for recovered in rows:
             await connection.execute(
-                """
-                SELECT input.interaction_id, input.subject_id, input.trace_id
-                FROM armi.party_input_interactions AS input
-                JOIN armi.durable_work AS work
-                  ON work.owner_kind = 'external_message'
-                 AND work.owner_ref = input.interaction_id
-                 AND work.work_kind = 'external.content.recognize'
-                 AND work.status = 'failed'
-                WHERE input.recognition_status = 'pending'
-                  AND EXISTS (
-                    SELECT 1 FROM armi.external_message_parts AS part
-                    WHERE part.interaction_id = input.interaction_id
-                      AND part.processing_status = 'pending'
-                  )
-                FOR UPDATE OF input
-                """
-            )
-        ).fetchall()
-        for interaction_id, subject_id, trace_id in rows:
-            await connection.execute(
-                """
-                UPDATE armi.external_content_recognition_attempts AS attempt
-                SET dispatch_status = 'settled', result_status = 'unknown',
-                    error_code = 'EXTERNAL-MESSAGE-RECOGNITION-INTERRUPTED',
-                    settled_at = statement_timestamp()
-                FROM armi.external_message_parts AS part
-                WHERE attempt.external_message_part_id = part.external_message_part_id
-                  AND part.interaction_id = %s
-                  AND attempt.dispatch_status = 'dispatched'
-                """,
-                (interaction_id,),
-            )
-            await connection.execute(
-                """
-                UPDATE armi.external_message_parts
-                SET processing_status = 'unknown',
-                    failure_code = 'EXTERNAL-MESSAGE-RECOGNITION-INTERRUPTED',
-                    settled_at = statement_timestamp()
-                WHERE interaction_id = %s AND processing_status = 'pending'
-                """,
-                (interaction_id,),
+                """UPDATE armi.external_content_recognition_attempts
+                   SET dispatch_status='settled',result_status='unknown',
+                       error_code='EXTERNAL-MESSAGE-RECOGNITION-INTERRUPTED',
+                       settled_at=statement_timestamp()
+                   WHERE external_message_part_id=ANY(%s)
+                     AND dispatch_status='dispatched'""",
+                (list(recovered.part_ids),),
             )
             now = Instant(datetime.now(UTC))
             await unit.work.enqueue(
                 WorkDraft(
                     WorkId(uuid7()),
                     "external.content.finalize",
-                    WorkOwner("external_message", interaction_id),
-                    IdempotencyKey(f"external-finalize:{interaction_id}"),
-                    Digest.from_bytes(str(interaction_id).encode("ascii")),
+                    WorkOwner("external_message", recovered.interaction_id),
+                    IdempotencyKey(f"external-finalize:{recovered.interaction_id}"),
+                    Digest.from_bytes(str(recovered.interaction_id).encode("ascii")),
                     80,
                     now,
                     Instant(now.value + timedelta(hours=1)),
                     3,
-                    TraceId(str(trace_id)),
-                    subject_id=SubjectId(subject_id),
-                    payload=WorkPayloadRef("external_message", interaction_id),
+                    recovered.trace_id,
+                    subject_id=SubjectId(recovered.subject_id),
+                    payload=WorkPayloadRef(
+                        "external_message", recovered.interaction_id
+                    ),
                 )
             )
         return len(rows)
 
     async def recognition_snapshot(
-        self, unit: PostgreSQLRuntimeUnitOfWork, lease: WorkLease
+        self, unit: PostgreSQLRuntimeUnitOfWork, interaction_id: UUID
     ) -> ExternalRecognitionSnapshot:
-        connection = unit.transaction
-        interaction = await (
-            await connection.execute(
-                """
-                SELECT input.interaction_id, input.subject_id, input.scene_id,
-                       input.source_party_id, input.purpose, binding.channel_kind,
-                       binding.account_key, input.trace_id
-                FROM armi.durable_work AS work
-                JOIN armi.party_input_interactions AS input
-                  ON input.interaction_id = work.owner_ref
-                JOIN armi.external_channel_bindings AS binding
-                  ON binding.external_binding_id = input.external_binding_id
-                WHERE work.work_id = %s
-                  AND work.work_kind = 'external.content.recognize'
-                  AND work.status = 'leased'
-                  AND work.current_attempt_id = %s
-                  AND work.lease_owner = %s
-                  AND work.lease_token = %s
-                  AND input.recognition_status = 'pending'
-                """,
-                (lease.work_id.value, lease.attempt_id.value, lease.owner, lease.token),
-            )
-        ).fetchone()
-        if interaction is None:
-            raise ExternalMessageViolation("EXTERNAL-MESSAGE-WORK-STALE")
-        rows = await (
-            await connection.execute(
-                """
-                SELECT external_message_part_id, ordinal, part_kind,
-                       external_locator, declared_file_name, declared_media_type,
-                       declared_byte_size, visual_role, source_kind, source_summary,
-                       processing_status
-                FROM armi.external_message_parts
-                WHERE interaction_id = %s
-                  AND part_kind IN ('image','audio','video','file')
-                ORDER BY ordinal
-                """,
-                (interaction[0],),
-            )
-        ).fetchall()
-        parts = tuple(
-            ExternalContentPartSnapshot(
-                row[0],
-                int(row[1]),
-                ExternalMessagePartKind(str(row[2])),
-                str(row[3]),
-                None if row[4] is None else str(row[4]),
-                None if row[5] is None else str(row[5]),
-                None if row[6] is None else int(row[6]),
-                None if row[7] is None else ExternalVisualRole(str(row[7])),
-                None if row[8] is None else str(row[8]),
-                None if row[9] is None else str(row[9]),
-                str(row[10]),
-            )
-            for row in rows
-        )
-        return ExternalRecognitionSnapshot(
-            interaction[0],
-            interaction[1],
-            interaction[2],
-            interaction[3],
-            str(interaction[4]),
-            str(interaction[5]),
-            str(interaction[6]),
-            TraceId(str(interaction[7])),
-            parts,
+        return await self._interaction.recognition_snapshot(
+            unit.transaction, interaction_id
         )
 
     async def attach_raw(
@@ -253,17 +108,9 @@ class PostgreSQLExternalContentRepository:
         part_id: UUID,
         raw_artifact_id: UUID,
     ) -> None:
-        connection = unit.transaction
-        updated = await connection.execute(
-            """
-            UPDATE armi.external_message_parts
-            SET raw_artifact_id = %s
-            WHERE external_message_part_id = %s AND processing_status = 'pending'
-            """,
-            (raw_artifact_id, part_id),
+        await self._interaction.attach_raw(
+            unit.transaction, part_id=part_id, artifact_id=raw_artifact_id
         )
-        if updated.rowcount != 1:
-            raise ExternalMessageViolation("EXTERNAL-MESSAGE-WORK-STALE")
 
     async def attach_visual_detection(
         self,
@@ -275,19 +122,14 @@ class PostgreSQLExternalContentRepository:
         pixel_height: int,
         frame_count: int,
     ) -> None:
-        connection = unit.transaction
-        updated = await connection.execute(
-            """
-            UPDATE armi.external_message_parts
-            SET detected_media_type = %s, pixel_width = %s,
-                pixel_height = %s, frame_count = %s
-            WHERE external_message_part_id = %s
-              AND part_kind = 'image' AND processing_status = 'pending'
-            """,
-            (media_type, pixel_width, pixel_height, frame_count, part_id),
+        await self._interaction.attach_visual_detection(
+            unit.transaction,
+            part_id=part_id,
+            media_type=media_type,
+            pixel_width=pixel_width,
+            pixel_height=pixel_height,
+            frame_count=frame_count,
         )
-        if updated.rowcount != 1:
-            raise ExternalMessageViolation("EXTERNAL-MESSAGE-WORK-STALE")
 
     async def begin_attempt(
         self,
@@ -339,18 +181,13 @@ class PostgreSQLExternalContentRepository:
         result: ExternalContentRecognitionResult | None = None,
     ) -> None:
         connection = unit.transaction
-        updated = await connection.execute(
-            """
-            UPDATE armi.external_message_parts
-            SET processing_status = 'succeeded', raw_artifact_id = %s,
-                interpretation_artifact_id = %s, interpretation_text = %s,
-                settled_at = statement_timestamp()
-            WHERE external_message_part_id = %s AND processing_status = 'pending'
-            """,
-            (raw_artifact_id, interpretation_artifact_id, interpretation_text, part_id),
+        await self._interaction.settle_part_success(
+            connection,
+            part_id=part_id,
+            raw_artifact_id=raw_artifact_id,
+            interpretation_artifact_id=interpretation_artifact_id,
+            interpretation_text=interpretation_text,
         )
-        if updated.rowcount != 1:
-            raise ExternalMessageViolation("EXTERNAL-MESSAGE-WORK-STALE")
         if attempt_id is not None:
             assert result is not None and response_artifact_id is not None
             settled = await connection.execute(
@@ -387,17 +224,9 @@ class PostgreSQLExternalContentRepository:
         if status not in {"failed", "unknown"}:
             raise ExternalMessageViolation("EXTERNAL-MESSAGE-RECOGNITION")
         connection = unit.transaction
-        updated = await connection.execute(
-            """
-            UPDATE armi.external_message_parts
-            SET processing_status = %s, failure_code = %s,
-                settled_at = statement_timestamp()
-            WHERE external_message_part_id = %s AND processing_status = 'pending'
-            """,
-            (status, error_code, part_id),
+        await self._interaction.settle_part_failure(
+            connection, part_id=part_id, status=status, error_code=error_code
         )
-        if updated.rowcount != 1:
-            raise ExternalMessageViolation("EXTERNAL-MESSAGE-WORK-STALE")
         if attempt_id is not None:
             settled = await connection.execute(
                 """
@@ -429,17 +258,9 @@ class PostgreSQLExternalContentRepository:
         snapshot: ExternalRecognitionSnapshot,
     ) -> None:
         connection = unit.transaction
-        pending = await (
-            await connection.execute(
-                """
-                SELECT 1 FROM armi.external_message_parts
-                WHERE interaction_id = %s AND processing_status = 'pending'
-                LIMIT 1
-                """,
-                (snapshot.interaction_id,),
-            )
-        ).fetchone()
-        if pending is not None:
+        if await self._interaction.has_pending_parts(
+            connection, snapshot.interaction_id
+        ):
             raise ExternalMessageViolation("EXTERNAL-MESSAGE-PARTS-PENDING")
         now = Instant(datetime.now(UTC))
         await unit.work.enqueue(
@@ -462,104 +283,20 @@ class PostgreSQLExternalContentRepository:
             lease, WorkResultRef("external_message", snapshot.interaction_id)
         )
 
-    async def requeue_finalization(
-        self, unit: PostgreSQLRuntimeUnitOfWork, lease: WorkLease
-    ) -> bool:
-        connection = unit.transaction
-        row = await (
-            await connection.execute(
-                """
-                UPDATE armi.durable_work
-                SET status = CASE
-                      WHEN attempt_count < max_attempts THEN 'ready'
-                      ELSE 'failed'
-                    END,
-                    current_attempt_id = NULL, lease_owner = NULL,
-                    lease_expires_at = NULL,
-                    last_error_code = 'EXTERNAL-CONTENT-FINALIZATION',
-                    updated_at = statement_timestamp()
-                WHERE work_id = %s
-                  AND work_kind = 'external.content.finalize'
-                  AND status = 'leased'
-                  AND current_attempt_id = %s
-                  AND lease_owner = %s
-                  AND lease_token = %s
-                RETURNING status
-                """,
-                (lease.work_id.value, lease.attempt_id.value, lease.owner, lease.token),
-            )
-        ).fetchone()
-        return row is not None and str(row[0]) == "ready"
-
     async def finalization_snapshot(
-        self, unit: PostgreSQLRuntimeUnitOfWork, lease: WorkLease
+        self, unit: PostgreSQLRuntimeUnitOfWork, interaction_id: UUID
     ) -> ExternalFinalizationSnapshot:
-        connection = unit.transaction
-        row = await (
-            await connection.execute(
-                """
-                SELECT input.interaction_id, input.subject_id, input.scene_id,
-                       input.source_party_id, input.purpose, input.trace_id,
-                       evidence.evidence_id
-                FROM armi.durable_work AS work
-                JOIN armi.party_input_interactions AS input
-                  ON input.interaction_id = work.owner_ref
-                LEFT JOIN armi.external_evidence AS evidence
-                  ON evidence.interaction_id = input.interaction_id
-                WHERE work.work_id = %s
-                  AND work.work_kind = 'external.content.finalize'
-                  AND work.status = 'leased'
-                  AND work.current_attempt_id = %s
-                  AND work.lease_owner = %s
-                  AND work.lease_token = %s
-                """,
-                (lease.work_id.value, lease.attempt_id.value, lease.owner, lease.token),
-            )
-        ).fetchone()
-        if row is None:
-            raise ExternalMessageViolation("EXTERNAL-MESSAGE-WORK-STALE")
-        parts = await (
-            await connection.execute(
-                """
-                SELECT ordinal, part_kind, text_value, target_key,
-                       declared_file_name, visual_role, source_kind, source_summary,
-                       detected_media_type, pixel_width, pixel_height, frame_count,
-                       processing_status, interpretation_text, failure_code
-                FROM armi.external_message_parts
-                WHERE interaction_id = %s ORDER BY ordinal
-                """,
-                (row[0],),
-            )
-        ).fetchall()
-        return ExternalFinalizationSnapshot(
-            row[0],
-            row[1],
-            row[2],
-            row[3],
-            str(row[4]),
-            TraceId(str(row[5])),
-            row[6],
-            tuple(
-                ExternalFinalizationPart(
-                    int(part[0]),
-                    ExternalMessagePartKind(str(part[1])),
-                    None if part[2] is None else str(part[2]),
-                    None if part[3] is None else str(part[3]),
-                    None if part[4] is None else str(part[4]),
-                    None if part[5] is None else ExternalVisualRole(str(part[5])),
-                    None if part[6] is None else str(part[6]),
-                    None if part[7] is None else str(part[7]),
-                    None if part[8] is None else str(part[8]),
-                    None if part[9] is None else int(part[9]),
-                    None if part[10] is None else int(part[10]),
-                    None if part[11] is None else int(part[11]),
-                    str(part[12]),
-                    None if part[13] is None else str(part[13]),
-                    None if part[14] is None else str(part[14]),
-                )
-                for part in parts
-            ),
+        return await self._interaction.finalization_snapshot(
+            unit.transaction, interaction_id
         )
+
+    async def existing_evidence(
+        self, unit: PostgreSQLRuntimeUnitOfWork, interaction_id: UUID
+    ) -> UUID | None:
+        result = await self._evidence_read.find_by_interaction(
+            unit, interaction_id=interaction_id
+        )
+        return None if result is None else result.value
 
     async def finalize(
         self,
@@ -570,35 +307,11 @@ class PostgreSQLExternalContentRepository:
         artifact_id: UUID | None = None,
         content_digest: Digest | None = None,
     ) -> UUID:
-        if snapshot.existing_evidence_id is not None:
-            await unit.work.complete(
-                lease, WorkResultRef("external_evidence", snapshot.existing_evidence_id)
-            )
-            return snapshot.existing_evidence_id
         if artifact_id is None or content_digest is None:
             raise ExternalMessageViolation("EXTERNAL-MESSAGE-FINALIZATION")
         connection = unit.transaction
-        statuses = {part.status for part in snapshot.parts}
-        recognition_status = (
-            "unknown"
-            if "unknown" in statuses
-            else "failed"
-            if "failed" in statuses
-            else "succeeded"
-        )
-        updated = await connection.execute(
-            """
-            UPDATE armi.party_input_interactions
-            SET cognition_content_digest = %s, recognition_status = %s
-            WHERE interaction_id = %s AND recognition_status = 'pending'
-            """,
-            (content_digest.value, recognition_status, snapshot.interaction_id),
-        )
-        if updated.rowcount != 1:
-            raise ExternalMessageViolation("EXTERNAL-MESSAGE-WORK-STALE")
-        evidence_id, timeline_id = uuid7(), uuid7()
+        evidence_id = uuid7()
         creator = snapshot.purpose == "creator_message"
-        source_kind = "creator_input" if creator else "other_human_input"
         await self._evidence.accept(
             unit,
             EvidenceDraft(
@@ -636,22 +349,8 @@ class PostgreSQLExternalContentRepository:
         )
         if admitted.status is OpportunityAdmissionStatus.REJECTED:
             raise ExternalMessageViolation("EXTERNAL-MESSAGE-FINALIZATION")
-        await connection.execute(
-            """
-            INSERT INTO armi.scene_timeline_items (
-                timeline_item_id, scene_id, source_kind, source_ref,
-                source_event_no, result_status, occurred_at)
-            VALUES (%s,%s,%s,%s,1,'accepted',statement_timestamp())
-            """,
-            (timeline_id, snapshot.scene_id, source_kind, snapshot.interaction_id),
-        )
-        await connection.execute(
-            """
-            UPDATE armi.interaction_scenes
-            SET recent_context_boundary = %s, scene_version = scene_version + 1
-            WHERE scene_id = %s AND current_status = 'open'
-            """,
-            (timeline_id, snapshot.scene_id),
+        await self._interaction.complete_finalization(
+            connection, snapshot=snapshot, content_digest=content_digest
         )
         await unit.work.complete(lease, WorkResultRef("external_evidence", evidence_id))
         return evidence_id
