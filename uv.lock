@@ -683,12 +683,6 @@ requires-dist = [
 name = "armi-runtime-foundation"
 version = "0.0.0"
 source = { editable = "packages/armi-runtime-foundation" }
-dependencies = [
-    { name = "armi-kernel" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "armi-kernel", editable = "packages/armi-kernel" }]
 
 [[package]]
 name = "armi-sleep"

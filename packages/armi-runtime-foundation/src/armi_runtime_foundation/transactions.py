@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-from contextlib import AbstractAsyncContextManager
 from typing import Any, Protocol, runtime_checkable
 from uuid import UUID
-
-from armi_kernel.application import AuditWriter, DurableWorkWriter, RuntimeFence
 
 
 @runtime_checkable
@@ -32,13 +29,13 @@ class PostgreSQLRuntimeUnitOfWork(PostgreSQLTransactionAccess, Protocol):
     def environment_id(self) -> UUID: ...
 
     @property
-    def runtime_fence(self) -> RuntimeFence | None: ...
+    def runtime_fence(self) -> Any: ...
 
     @property
-    def audit(self) -> AuditWriter: ...
+    def audit(self) -> Any: ...
 
     @property
-    def work(self) -> DurableWorkWriter: ...
+    def work(self) -> Any: ...
 
 
 class PostgreSQLRuntimeUnitOfWorkFactory(Protocol):
@@ -49,9 +46,7 @@ class PostgreSQLRuntimeUnitOfWorkFactory(Protocol):
 
     async def open(self) -> None: ...
     async def close(self) -> None: ...
-    def unit_of_work(
-        self, *, read_only: bool = False
-    ) -> AbstractAsyncContextManager[PostgreSQLRuntimeUnitOfWork]: ...
+    def unit_of_work(self, *, read_only: bool = False) -> Any: ...
 
 
 @runtime_checkable

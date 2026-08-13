@@ -2,10 +2,7 @@
 name = "armi-runtime-foundation"
 version = "0.0.0"
 requires-python = ">=3.14,<3.15"
-dependencies = ["armi-kernel==0.0.0"]
-
-[tool.uv.sources]
-armi-kernel = { workspace = true }
+dependencies = []
 
 [build-system]
 requires = ["uv_build>=0.11.33,<0.12"]
