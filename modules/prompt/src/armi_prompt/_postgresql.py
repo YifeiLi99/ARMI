@@ -211,20 +211,6 @@ class PostgreSQLPromptOwner:
         artifact = artifacts.get(draft.proposal_ref)
         if artifact is None:
             raise PromptViolation("PROMPT-ARTIFACT")
-        accepted = await (
-            await transaction.execute(
-                """
-                SELECT 1 FROM armi.cognitive_candidate_validation_items
-                WHERE candidate_validation_id = %s
-                  AND proposal_ref = %s
-                  AND owner_kind = 'prompt'
-                  AND validation_status = 'accepted'
-                """,
-                (validation_id, draft.proposal_ref),
-            )
-        ).fetchone()
-        if accepted is None:
-            raise PromptViolation("PROMPT-CANDIDATE")
         if (
             artifact.media_type != "application/json"
             or artifact.privacy_scope.value != "private"
