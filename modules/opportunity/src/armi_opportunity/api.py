@@ -80,6 +80,30 @@ class ExternalEvidenceOpportunityDraft:
 
 
 @dataclass(frozen=True, slots=True)
+class LifeQueryResultOpportunityDraft:
+    opportunity_id: UUID
+    intent_id: UUID
+    subject_id: UUID
+    scene_id: UUID
+    creator_party_id: UUID
+    source_opportunity_id: UUID
+
+    def __post_init__(self) -> None:
+        if any(
+            type(value) is not UUID or value.version != 7
+            for value in (
+                self.opportunity_id,
+                self.intent_id,
+                self.subject_id,
+                self.scene_id,
+                self.creator_party_id,
+                self.source_opportunity_id,
+            )
+        ):
+            raise LifeViolation("LIFE-ADMISSION-ID")
+
+
+@dataclass(frozen=True, slots=True)
 class OpportunityId:
     value: UUID
 
@@ -191,6 +215,12 @@ class LifeOpportunitySourcePort(Protocol):
 
 @runtime_checkable
 class OpportunityAdmissionPort(Protocol):
+    async def admit_life_query_result(
+        self,
+        transaction: PostgreSQLTransaction,
+        draft: LifeQueryResultOpportunityDraft,
+    ) -> OpportunityId: ...
+
     async def admit_external_evidence(
         self,
         transaction: PostgreSQLTransaction,
@@ -273,6 +303,7 @@ __all__ = (
     "LifeOpportunitySourceKind",
     "LifeOpportunitySourcePort",
     "LifeOpportunitySourceSnapshot",
+    "LifeQueryResultOpportunityDraft",
     "LifeViolation",
     "OpportunityAdmissionOutcome",
     "OpportunityAdmissionPort",

@@ -29,12 +29,14 @@ from armi_codex.bootstrap import (
 )
 from armi_cognition.api import (
     CognitionCandidateParser,
+    CognitionExactLifeQueryPort,
     CognitionModelPort,
     CognitionWorkerPort,
 )
 from armi_cognition.bootstrap import (
     bootstrap_cognition_candidate,
     bootstrap_cognition_change_set_codec,
+    bootstrap_cognition_exact_life_query,
     bootstrap_cognition_model,
 )
 from armi_context.api import (
@@ -603,6 +605,8 @@ def compose_exact_life_query_pipeline(
     *,
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     query: LifeRecordQueryPort,
+    cognition: CognitionExactLifeQueryPort,
+    opportunity: OpportunityAdmissionPort,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
 ) -> ExactLifeQueryPipeline:
@@ -612,9 +616,15 @@ def compose_exact_life_query_pipeline(
         data_root=prepared.data_root,
         max_object_bytes=config.artifacts.max_object_bytes,
         query=query,
+        cognition=cognition,
+        opportunity=opportunity,
         wakeups=wakeups,
         diagnostic=diagnostic,
     )
+
+
+def compose_cognition_exact_life_query() -> CognitionExactLifeQueryPort:
+    return bootstrap_cognition_exact_life_query()
 
 
 def compose_relationship_module(
@@ -1416,6 +1426,7 @@ __all__ = (
     "compose_candidate_validation_pipeline",
     "compose_capability_policy",
     "compose_codex_pipeline",
+    "compose_cognition_exact_life_query",
     "compose_context_pipeline",
     "compose_data_rights_module",
     "compose_effect_grant_cancellation",

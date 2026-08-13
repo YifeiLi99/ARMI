@@ -82,6 +82,7 @@ from .database import (
     compose_candidate_validation_pipeline,
     compose_capability_policy,
     compose_codex_pipeline,
+    compose_cognition_exact_life_query,
     compose_context_embedding_pipeline,
     compose_context_pipeline,
     compose_context_projection_invalidation,
@@ -393,10 +394,13 @@ async def _serve(
                 max_object_bytes=config.artifacts.max_object_bytes,
             )
             await other_human_record_query.open()
+            opportunity_admission = compose_opportunity_admission()
             exact_life_query_pipeline = compose_exact_life_query_pipeline(
                 prepared,
                 unit_of_work_factory=runtime_unit_of_work_factory,
                 query=life_record_query,
+                cognition=compose_cognition_exact_life_query(),
+                opportunity=opportunity_admission,
                 wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
                     event,
@@ -420,7 +424,6 @@ async def _serve(
                 notifier=creator_events,
             )
             await data_rights_module.open()
-            opportunity_admission = compose_opportunity_admission()
             interaction_module = compose_interaction_module(
                 prepared,
                 unit_of_work_factory=runtime_unit_of_work_factory,

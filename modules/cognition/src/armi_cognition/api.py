@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
+from uuid import UUID
 
 from armi_kernel.application import (
     ArtifactId,
@@ -13,7 +15,8 @@ from armi_kernel.application import (
     ModelRequest,
     PublishedArtifact,
 )
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
+from armi_kernel.contracts import Digest, TraceId
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
 
 from ._contracts import (
     CandidateValidationResult,
@@ -103,6 +106,51 @@ class CognitionWorkerPort(Protocol):
     async def run_worker(self) -> None: ...
 
 
+@dataclass(frozen=True, slots=True)
+class CognitionExactLifeQuerySnapshot:
+    intent_id: UUID
+    subject_id: UUID
+    source_opportunity_id: UUID
+    scene_id: UUID
+    creator_party_id: UUID
+    record_kind: str
+    query_text: str | None
+    limit: int
+    query_digest: Digest
+    trace_id: TraceId
+
+
+@runtime_checkable
+class CognitionExactLifeQueryPort(Protocol):
+    async def snapshot(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        intent_id: UUID,
+        subject_id: UUID,
+    ) -> CognitionExactLifeQuerySnapshot: ...
+
+    async def settle(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        intent_id: UUID,
+        status: str,
+        result_artifact_id: UUID,
+        result_count: int,
+        failure_code: str | None,
+        result_opportunity_id: UUID,
+    ) -> None: ...
+
+    async def fail(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        intent_id: UUID,
+        code: str,
+    ) -> None: ...
+
+
 @runtime_checkable
 class SubjectChangeSetCodec(Protocol):
     """Decode a frozen cognition change set through explicitly bound owner codecs."""
@@ -117,6 +165,8 @@ __all__ = (
     "CognitionArtifactCatalogPort",
     "CognitionCandidateParser",
     "CognitionCandidateValue",
+    "CognitionExactLifeQueryPort",
+    "CognitionExactLifeQuerySnapshot",
     "CognitionModelAdapterFactory",
     "CognitionModelPort",
     "CognitionWakeupPort",

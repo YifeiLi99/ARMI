@@ -6,36 +6,49 @@ import asyncio
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any, cast
-from uuid import uuid7
+from uuid import UUID, uuid7
 
 import rfc8785
 from armi_artifact_store.bootstrap import bootstrap_artifact_catalog
 from armi_artifact_store.content_store import (
     ContentAddressedArtifactStore,
 )
+from armi_cognition.api import (
+    CognitionExactLifeQueryPort,
+    CognitionExactLifeQuerySnapshot,
+)
 from armi_kernel.application import (
     ArtifactId,
     ArtifactPolicy,
     ArtifactPrivacyScope,
     ArtifactViolation,
+    AuditDraft,
+    AuditEventId,
+    AuditReference,
+    AuditResultStatus,
+    AuditSensitivity,
     LifeRecordActor,
+    LifeRecordKind,
     LifeRecordPage,
     LifeRecordQuery,
     LifeRecordQueryPort,
     LifeRecordQueryViolation,
     LifeRecordRetrievalKind,
     WorkLease,
+    WorkResultRef,
     WorkViolation,
+)
+from armi_kernel.contracts import Purpose, SubjectId
+from armi_opportunity.api import (
+    LifeQueryResultOpportunityDraft,
+    OpportunityAdmissionPort,
 )
 
 from armi_runtime.adapters.persistence.durable_work import (
     PostgreSQLDurableWorkGateway,
 )
-from armi_runtime.adapters.persistence.exact_life_query import (
-    ExactLifeQuerySnapshot,
-    PostgreSQLExactLifeQueryRepository,
-)
 from armi_runtime.adapters.persistence.unit_of_work import (
+    PostgreSQLUnitOfWork,
     PostgreSQLUnitOfWorkFactory,
 )
 from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
@@ -59,11 +72,12 @@ class ExactLifeQueryPipeline:
 
     __slots__ = (
         "_catalog",
+        "_cognition",
         "_diagnostic",
         "_factory",
         "_lease_owner",
+        "_opportunity",
         "_query",
-        "_repository",
         "_stop",
         "_storage",
         "_wakeups",
@@ -76,14 +90,17 @@ class ExactLifeQueryPipeline:
         factory: PostgreSQLUnitOfWorkFactory,
         storage: ContentAddressedArtifactStore,
         query: LifeRecordQueryPort,
+        cognition: CognitionExactLifeQueryPort,
+        opportunity: OpportunityAdmissionPort,
         wakeups: WorkWakeupBus | None = None,
         diagnostic: Diagnostic | None = None,
     ) -> None:
         self._factory = factory
         self._storage = storage
         self._query = query
+        self._cognition = cognition
+        self._opportunity = opportunity
         self._catalog = bootstrap_artifact_catalog()
-        self._repository = PostgreSQLExactLifeQueryRepository()
         self._work = PostgreSQLDurableWorkGateway(factory)
         self._wakeups = wakeups or WorkWakeupBus()
         self._lease_owner = uuid7()
@@ -114,10 +131,27 @@ class ExactLifeQueryPipeline:
             raise LifeRecordQueryViolation("LIFE-QUERY-DATABASE") from None
         if not records:
             return False
-        lease = cast(WorkLease, records[0].lease)
+        record = records[0]
+        lease = cast(WorkLease, record.lease)
+        if (
+            record.draft.owner.kind != "exact_life_query_intent"
+            or record.draft.subject_id is None
+        ):
+            await self._fail(
+                lease, record.draft.owner.reference, "LIFE-QUERY-WORK-STALE"
+            )
+            return True
+        intent_id = record.draft.owner.reference
         try:
             async with self._factory.unit_of_work() as unit:
-                snapshot = await self._repository.snapshot(unit, lease)
+                fence = unit.runtime_fence
+                if fence is None or fence.subject_id != record.draft.subject_id.value:
+                    raise LifeRecordQueryViolation("LIFE-QUERY-FENCE")
+                snapshot = await self._cognition.snapshot(
+                    unit.transaction,
+                    intent_id=intent_id,
+                    subject_id=record.draft.subject_id.value,
+                )
             status, page, failure_code = await self._execute_query(snapshot)
             result_bytes = _result_bytes(
                 snapshot,
@@ -132,10 +166,10 @@ class ExactLifeQueryPipeline:
                     ArtifactId(uuid7()),
                     published,
                 )
-                await self._repository.settle(
+                await self._settle(
                     unit,
-                    lease=lease,
-                    snapshot=snapshot,
+                    lease,
+                    snapshot,
                     status=status,
                     result_artifact_id=registration.ref.artifact_id,
                     result_count=0 if page is None else len(page.items),
@@ -147,21 +181,89 @@ class ExactLifeQueryPipeline:
             if error.code == "LIFE-QUERY-WORK-STALE":
                 self._diagnostic("life.query.work.stale")
                 return True
-            await self._fail(lease, error.code)
+            await self._fail(lease, intent_id, error.code)
             return True
         except ArtifactViolation:
-            await self._fail(lease, "LIFE-QUERY-ARTIFACT")
+            await self._fail(lease, intent_id, "LIFE-QUERY-ARTIFACT")
             return True
         except DatabaseTransactionError, WorkViolation:
             self._diagnostic("life.query.worker.transient_failure")
             return True
 
-    async def _fail(self, lease: WorkLease, code: str) -> None:
+    async def _fail(self, lease: WorkLease, intent_id: UUID, code: str) -> None:
         try:
             async with self._factory.unit_of_work() as unit:
-                await self._repository.fail(unit, lease=lease, code=code)
+                await self._cognition.fail(
+                    unit.transaction,
+                    intent_id=intent_id,
+                    code=code,
+                )
+                await unit.work.fail(lease, error_code=code)
         except DatabaseTransactionError, LifeRecordQueryViolation, WorkViolation:
             self._diagnostic("life.query.settlement.deferred")
+
+    async def _settle(
+        self,
+        unit: PostgreSQLUnitOfWork,
+        lease: WorkLease,
+        snapshot: CognitionExactLifeQuerySnapshot,
+        *,
+        status: str,
+        result_artifact_id: ArtifactId,
+        result_count: int,
+        failure_code: str | None,
+    ) -> None:
+        if status not in {"succeeded", "empty", "failed", "denied"}:
+            raise LifeRecordQueryViolation("LIFE-QUERY-RESULT")
+        if (status in {"failed", "denied"}) != (failure_code is not None):
+            raise LifeRecordQueryViolation("LIFE-QUERY-RESULT")
+        if (status == "succeeded") != (result_count > 0):
+            raise LifeRecordQueryViolation("LIFE-QUERY-RESULT")
+        opportunity_id = uuid7()
+        await self._opportunity.admit_life_query_result(
+            unit.transaction,
+            LifeQueryResultOpportunityDraft(
+                opportunity_id=opportunity_id,
+                intent_id=snapshot.intent_id,
+                subject_id=snapshot.subject_id,
+                scene_id=snapshot.scene_id,
+                creator_party_id=snapshot.creator_party_id,
+                source_opportunity_id=snapshot.source_opportunity_id,
+            ),
+        )
+        await self._cognition.settle(
+            unit.transaction,
+            intent_id=snapshot.intent_id,
+            status=status,
+            result_artifact_id=result_artifact_id.value,
+            result_count=result_count,
+            failure_code=failure_code,
+            result_opportunity_id=opportunity_id,
+        )
+        await unit.work.complete(
+            lease,
+            WorkResultRef("exact_life_query_result", snapshot.intent_id),
+        )
+        await unit.audit.append(
+            AuditDraft(
+                AuditEventId(uuid7()),
+                AuditReference("runtime", unit.environment_id),
+                Purpose("exact_life_query"),
+                f"life.query.{status}",
+                AuditReference("exact_life_query_intent", snapshot.intent_id),
+                (
+                    AuditResultStatus.COMPLETED
+                    if status in {"succeeded", "empty"}
+                    else AuditResultStatus.REJECTED
+                    if status == "denied"
+                    else AuditResultStatus.FAILED
+                ),
+                snapshot.trace_id,
+                AuditSensitivity.PRIVATE,
+                subject_id=SubjectId(snapshot.subject_id),
+                request=AuditReference("exact_life_query_intent", snapshot.intent_id),
+            )
+        )
 
     async def run_worker(self) -> None:
         observed = self._wakeups.version(EXACT_LIFE_QUERY)
@@ -184,15 +286,16 @@ class ExactLifeQueryPipeline:
 
     async def _execute_query(
         self,
-        snapshot: ExactLifeQuerySnapshot,
+        snapshot: CognitionExactLifeQuerySnapshot,
     ) -> tuple[str, LifeRecordPage | None, str | None]:
+        record_kind = LifeRecordKind(snapshot.record_kind)
         try:
             page = await self._query.query(
                 LifeRecordQuery(
                     actor=LifeRecordActor.SUBJECT,
                     retrieval_kind=LifeRecordRetrievalKind.EXACT_QUERY,
                     limit=snapshot.limit,
-                    record_kind=snapshot.record_kind,
+                    record_kind=record_kind,
                     query_text=snapshot.query_text,
                 )
             )
@@ -209,7 +312,7 @@ class ExactLifeQueryPipeline:
             )
         if any(
             item.retrieval_kind is not LifeRecordRetrievalKind.EXACT_QUERY
-            or item.record_kind is not snapshot.record_kind
+            or item.record_kind is not record_kind
             for item in page.items
         ):
             return "failed", None, "LIFE-QUERY-SCOPE"
@@ -218,7 +321,7 @@ class ExactLifeQueryPipeline:
     async def _publish(
         self,
         value: bytes,
-        snapshot: ExactLifeQuerySnapshot,
+        snapshot: CognitionExactLifeQuerySnapshot,
     ):
         staged = await self._storage.stage(
             _one_chunk(value),
@@ -234,7 +337,7 @@ class ExactLifeQueryPipeline:
 
 
 def _result_bytes(
-    snapshot: ExactLifeQuerySnapshot,
+    snapshot: CognitionExactLifeQuerySnapshot,
     *,
     status: str,
     page: LifeRecordPage | None,
@@ -245,7 +348,7 @@ def _result_bytes(
         "schema_version": "armi.exact-life-query-result.v1",
         "status": status,
         "retrieval_kind": "exact_query",
-        "record_kind": snapshot.record_kind.value,
+        "record_kind": snapshot.record_kind,
         "query_text": snapshot.query_text,
         "returned_count": len(items),
         "truncated": page is not None and page.next_cursor is not None,
@@ -276,6 +379,8 @@ def build_exact_life_query_pipeline(
     data_root: Path,
     max_object_bytes: int,
     query: LifeRecordQueryPort,
+    cognition: CognitionExactLifeQueryPort,
+    opportunity: OpportunityAdmissionPort,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Diagnostic | None = None,
 ) -> ExactLifeQueryPipeline:
@@ -286,6 +391,8 @@ def build_exact_life_query_pipeline(
             max_object_bytes=max_object_bytes,
         ),
         query=query,
+        cognition=cognition,
+        opportunity=opportunity,
         wakeups=wakeups,
         diagnostic=diagnostic,
     )

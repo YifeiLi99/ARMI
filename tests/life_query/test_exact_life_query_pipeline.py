@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from uuid import uuid7
 
 import pytest
+from armi_cognition.api import CognitionExactLifeQuerySnapshot
 from armi_kernel.application import (
     LifeRecordActor,
     LifeRecordItem,
@@ -16,9 +17,6 @@ from armi_kernel.application import (
     LifeRecordRetrievalKind,
 )
 from armi_kernel.contracts import Digest, Instant, TraceId
-from armi_runtime.adapters.persistence.exact_life_query import (
-    ExactLifeQuerySnapshot,
-)
 from armi_runtime.composition.exact_life_query_pipeline import (
     ExactLifeQueryPipeline,
     _result_bytes,
@@ -42,14 +40,16 @@ class _QueryPort:
         return self.page
 
 
-def _snapshot(kind: LifeRecordKind = LifeRecordKind.MEMORY) -> ExactLifeQuerySnapshot:
-    return ExactLifeQuerySnapshot(
+def _snapshot(
+    kind: LifeRecordKind = LifeRecordKind.MEMORY,
+) -> CognitionExactLifeQuerySnapshot:
+    return CognitionExactLifeQuerySnapshot(
         intent_id=uuid7(),
         subject_id=uuid7(),
         source_opportunity_id=uuid7(),
         scene_id=uuid7(),
         creator_party_id=uuid7(),
-        record_kind=kind,
+        record_kind=kind.value,
         query_text="曾经约定过的事情",
         limit=20,
         query_digest=Digest.from_bytes(b"query"),

@@ -19,15 +19,21 @@ from armi_subject_state.api import SubjectStateCognitionPort, SubjectStateReadPo
 
 from ._candidate_application import CandidateValidationPipeline
 from ._change_set_codec import parse_subject_change_set
+from ._exact_life_query import PostgreSQLCognitionExactLifeQuery
 from ._model_application import ModelPipeline
 from .api import (
     CognitionArtifactCatalogPort,
+    CognitionExactLifeQueryPort,
     CognitionModelAdapterFactory,
     CognitionWakeupPort,
     CognitionWorkerPort,
     SubjectChangeSet,
     SubjectChangeSetCodec,
 )
+
+
+def bootstrap_cognition_exact_life_query() -> CognitionExactLifeQueryPort:
+    return PostgreSQLCognitionExactLifeQuery()
 
 
 class _BoundSubjectChangeSetCodec:
@@ -181,5 +187,6 @@ def bootstrap_cognition_candidate(
 __all__ = (
     "bootstrap_cognition_candidate",
     "bootstrap_cognition_change_set_codec",
+    "bootstrap_cognition_exact_life_query",
     "bootstrap_cognition_model",
 )

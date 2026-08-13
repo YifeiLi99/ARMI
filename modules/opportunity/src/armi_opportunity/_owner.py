@@ -8,6 +8,8 @@ from armi_runtime_foundation import PostgreSQLTransaction
 
 from .api import (
     ExternalEvidenceOpportunityDraft,
+    LifeQueryResultOpportunityDraft,
+    LifeViolation,
     OpportunityAdmissionOutcome,
     OpportunityAdmissionStatus,
     OpportunityId,
@@ -16,6 +18,43 @@ from .api import (
 
 
 class PostgreSQLOpportunityOwner:
+    async def admit_life_query_result(
+        self,
+        transaction: PostgreSQLTransaction,
+        draft: LifeQueryResultOpportunityDraft,
+    ) -> OpportunityId:
+        row = await (
+            await transaction.execute(
+                """
+                INSERT INTO armi.opportunities (
+                    opportunity_id, evidence_id, subject_id, scene_id,
+                    creator_party_id, purpose, source_kind, source_ref,
+                    source_version, eligibility_status,
+                    current_disposition, root_opportunity_id,
+                    predecessor_opportunity_id, reconsideration_no)
+                SELECT %s, NULL, %s, %s, %s, 'consider_life_query_result',
+                       'life_query_result', %s, 1, 'eligible', 'open',
+                       source.root_opportunity_id, %s,
+                       source.reconsideration_no + 1
+                FROM armi.opportunities AS source
+                WHERE source.opportunity_id = %s
+                RETURNING opportunity_id
+                """,
+                (
+                    draft.opportunity_id,
+                    draft.subject_id,
+                    draft.scene_id,
+                    draft.creator_party_id,
+                    draft.intent_id,
+                    draft.source_opportunity_id,
+                    draft.source_opportunity_id,
+                ),
+            )
+        ).fetchone()
+        if row is None:
+            raise LifeViolation("LIFE-ADMISSION-CONFLICT")
+        return OpportunityId(row[0])
+
     async def reconsider_activity(
         self,
         transaction: PostgreSQLTransaction,
