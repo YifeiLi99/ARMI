@@ -187,13 +187,6 @@ class PostgreSQLMaterialOwner:
                      ON revision.life_material_revision_id=material.current_revision_id
                    WHERE material.subject_id=%s AND material.life_generation_id=%s
                      AND material.deleted_at IS NULL AND revision.material_status='active'
-                     AND NOT EXISTS (SELECT 1 FROM armi.opportunities AS existing
-                       WHERE existing.subject_id=material.subject_id
-                         AND existing.source_kind='life_material_revision'
-                         AND existing.source_ref=revision.life_material_revision_id
-                         AND existing.source_version=material.head_version
-                         AND existing.purpose='consider_autonomous_life'
-                         AND existing.reconsideration_no=0)
                    ORDER BY material.updated_at,material.life_material_id LIMIT 1""",
                 (subject_id, generation_id),
             )
