@@ -7,10 +7,9 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid7
 
+from armi_artifact_store.api import ArtifactCatalogPort
 from armi_kernel.application import (
     ArtifactId,
-    ArtifactIntegrityStatus,
-    ArtifactPrivacyScope,
     ArtifactRef,
     AuditDraft,
     AuditEventId,
@@ -18,7 +17,7 @@ from armi_kernel.application import (
     AuditResultStatus,
     AuditSensitivity,
 )
-from armi_kernel.contracts import Digest, Purpose, TraceId
+from armi_kernel.contracts import Purpose, TraceId
 from armi_memory.api import MemoryDataRightsParticipant
 from armi_relationship.api import RelationshipDataRightsParticipant
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
@@ -35,17 +34,19 @@ class DeletionArtifactItem:
 
 
 class LocalDataDeletionRepository:
-    __slots__ = ("_context_projections", "_memories", "_relationships")
+    __slots__ = ("_catalog", "_context_projections", "_memories", "_relationships")
 
     def __init__(
         self,
         memories: MemoryDataRightsParticipant,
         relationships: RelationshipDataRightsParticipant,
         context_projections: DataRightsProjectionInvalidationPort,
+        catalog: ArtifactCatalogPort,
     ) -> None:
         self._memories = memories
         self._relationships = relationships
         self._context_projections = context_projections
+        self._catalog = catalog
 
     async def pending_order_ids(
         self, unit_of_work: PostgreSQLRuntimeUnitOfWork
@@ -174,7 +175,10 @@ class LocalDataDeletionRepository:
                 )
             ).fetchone()
             if row is not None and str(row[1]) == "pending" and str(row[2]) == "delete":
-                ref = await self._artifact_ref(connection, artifact_id)
+                ref = await self._catalog.retained_ref(
+                    unit_of_work,
+                    ArtifactId(artifact_id),
+                )
                 if ref is not None:
                     items.append(DeletionArtifactItem(row[0], ref, True))
         return tuple(items)
@@ -191,14 +195,8 @@ class LocalDataDeletionRepository:
         connection = unit_of_work.transaction
         status = "completed" if completed else "partial"
         remaining = None if completed else "local_artifact_store"
-        await connection.execute(
-            """
-            UPDATE armi.artifacts
-            SET retention_status = 'deleted', deleted_at = statement_timestamp()
-            WHERE artifact_id = %s AND retention_status = 'retained' AND %s
-            """,
-            (artifact_id, completed),
-        )
+        if completed:
+            await self._catalog.mark_deleted(unit_of_work, ArtifactId(artifact_id))
         updated = await (
             await connection.execute(
                 """
@@ -451,32 +449,6 @@ class LocalDataDeletionRepository:
             if count > 1:
                 return count
         return count
-
-    async def _artifact_ref(
-        self, connection: Any, artifact_id: UUID
-    ) -> ArtifactRef | None:
-        row = await (
-            await connection.execute(
-                """
-                SELECT artifact_id, content_digest, byte_size, media_type,
-                       logical_kind, privacy_scope, integrity_status
-                FROM armi.artifacts
-                WHERE artifact_id = %s AND retention_status = 'retained'
-                """,
-                (artifact_id,),
-            )
-        ).fetchone()
-        if row is None:
-            return None
-        return ArtifactRef(
-            ArtifactId(row[0]),
-            Digest(str(row[1])),
-            int(row[2]),
-            str(row[3]),
-            str(row[4]),
-            ArtifactPrivacyScope(str(row[5])),
-            ArtifactIntegrityStatus(str(row[6])),
-        )
 
 
 __all__ = ("DeletionArtifactItem", "LocalDataDeletionRepository")

@@ -96,10 +96,43 @@ class PostgreSQLArtifactCatalog:
             await unit_of_work.transaction.execute(
                 """SELECT artifact_id,content_digest,byte_size,media_type,
                           logical_kind,privacy_scope,integrity_status
-                   FROM armi.artifacts ORDER BY content_digest"""
+                   FROM armi.artifacts
+                   WHERE retention_status = 'retained'
+                   ORDER BY content_digest"""
             )
         ).fetchall()
         return tuple(_row_to_ref(row) for row in rows)
+
+    async def retained_ref(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        artifact_id: ArtifactId,
+    ) -> ArtifactRef | None:
+        row = await (
+            await unit_of_work.transaction.execute(
+                """SELECT artifact_id,content_digest,byte_size,media_type,
+                          logical_kind,privacy_scope,integrity_status
+                   FROM armi.artifacts
+                   WHERE artifact_id=%s AND retention_status='retained'""",
+                (artifact_id.value,),
+            )
+        ).fetchone()
+        return None if row is None else _row_to_ref(row)
+
+    async def mark_deleted(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        artifact_id: ArtifactId,
+    ) -> bool:
+        result = await unit_of_work.transaction.execute(
+            """UPDATE armi.artifacts
+               SET retention_status='deleted', deleted_at=statement_timestamp()
+               WHERE artifact_id=%s AND retention_status='retained'""",
+            (artifact_id.value,),
+        )
+        if result.rowcount not in (0, 1):
+            raise ArtifactViolation("ART-DATABASE")
+        return result.rowcount == 1
 
     async def mark_integrity(
         self,

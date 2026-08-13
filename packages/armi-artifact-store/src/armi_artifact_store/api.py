@@ -33,6 +33,18 @@ class ArtifactCatalogPort(Protocol):
         self, unit_of_work: PostgreSQLRuntimeUnitOfWork
     ) -> tuple[ArtifactRef, ...]: ...
 
+    async def retained_ref(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        artifact_id: ArtifactId,
+    ) -> ArtifactRef | None: ...
+
+    async def mark_deleted(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        artifact_id: ArtifactId,
+    ) -> bool: ...
+
     async def mark_integrity(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,

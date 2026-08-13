@@ -922,6 +922,7 @@ def compose_data_rights_module(
         core=core,
         parties=parties,
         subject_epoch=_DataRightsSubjectEpoch(),
+        catalog=bootstrap_artifact_catalog(),
         notifier=notifier,
     )
 

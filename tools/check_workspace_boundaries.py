@@ -334,6 +334,7 @@ DISTRIBUTIONS = (
         project_dir=Path("modules/data-rights"),
         layers=(),
         dependencies=(
+            "armi-artifact-store==0.0.0",
             "armi-kernel==0.0.0",
             "armi-memory==0.0.0",
             "armi-relationship==0.0.0",
@@ -1106,6 +1107,7 @@ def _check_import(
             and target_distribution
             not in {
                 None,
+                "armi-artifact-store",
                 "armi-data-rights",
                 "armi-kernel",
                 "armi-memory",

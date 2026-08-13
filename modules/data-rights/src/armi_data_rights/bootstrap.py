@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
+from armi_artifact_store.api import ArtifactCatalogPort
 from armi_kernel.application import CreatorProjectionNotifier
 from armi_memory.api import MemoryDataRightsParticipant
 from armi_relationship.api import RelationshipDataRightsParticipant
@@ -82,12 +83,13 @@ def bootstrap_data_rights(
     core: DataRightsCore,
     parties: DataRightsPartyIdentityPort,
     subject_epoch: DataRightsSubjectEpochPort,
+    catalog: ArtifactCatalogPort,
     notifier: CreatorProjectionNotifier | None = None,
 ) -> DataRightsModule:
     gate = core.seal()
     deletion = LocalDataDeletionExecutor(
         repository=LocalDataDeletionRepository(
-            memory, relationship, context_projections
+            memory, relationship, context_projections, catalog
         ),
         storage=storage,
         unit_of_work_factory=unit_of_work_factory,
@@ -106,6 +108,7 @@ def bootstrap_data_rights(
         data_root=data_root,
         storage=storage,
         unit_of_work_factory=unit_of_work_factory,
+        catalog=catalog,
     )
     return DataRightsModule(orders, exports, gate, orders, exports)
 

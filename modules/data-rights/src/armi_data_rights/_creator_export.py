@@ -13,10 +13,8 @@ from typing import Any
 from uuid import UUID, uuid7
 
 import rfc8785
+from armi_artifact_store.api import ArtifactCatalogPort
 from armi_kernel.application import (
-    ArtifactId,
-    ArtifactIntegrityStatus,
-    ArtifactPrivacyScope,
     ArtifactRef,
     ArtifactViolation,
     AuditDraft,
@@ -61,6 +59,7 @@ class CreatorExportService(CreatorExportPort):
     """Persist an idempotent export record and materialize one restricted directory."""
 
     __slots__ = (
+        "_catalog",
         "_creator_party_id",
         "_exports_root",
         "_storage",
@@ -74,6 +73,7 @@ class CreatorExportService(CreatorExportPort):
         data_root: Path,
         storage: DataRightsArtifactStorePort,
         unit_of_work_factory: DataRightsUnitOfWorkFactory,
+        catalog: ArtifactCatalogPort,
     ) -> None:
         if creator_party_id.version != 7 or not data_root.is_absolute():
             raise CreatorExportViolation("CREATOR-EXPORT-COMPOSITION")
@@ -81,6 +81,7 @@ class CreatorExportService(CreatorExportPort):
         self._exports_root = data_root / "exports"
         self._storage = storage
         self._uow_factory = unit_of_work_factory
+        self._catalog = catalog
 
     async def open(self) -> None:
         try:
@@ -302,17 +303,10 @@ class CreatorExportService(CreatorExportPort):
                         }
                     )
                     total_rows += len(rows)
-                artifact_rows = await (
-                    await connection.execute(
-                        """
-                        SELECT artifact_id, content_digest, byte_size, media_type,
-                               logical_kind, privacy_scope, integrity_status
-                        FROM armi.artifacts
-                        ORDER BY content_digest
-                        """
-                    )
-                ).fetchall()
-                artifacts = tuple(_artifact_snapshot(row) for row in artifact_rows)
+                artifacts = tuple(
+                    _ArtifactSnapshot(ref, ref.logical_kind)
+                    for ref in await self._catalog.all_refs(unit_of_work)
+                )
         except RuntimeTransactionFailure:
             raise
         return _SnapshotResult(
@@ -521,21 +515,6 @@ class CreatorExportService(CreatorExportPort):
             sensitivity=AuditSensitivity.RESTRICTED,
             error_category=error_category,
         )
-
-
-def _artifact_snapshot(row: tuple[Any, ...]) -> _ArtifactSnapshot:
-    return _ArtifactSnapshot(
-        ref=ArtifactRef(
-            artifact_id=ArtifactId(UUID(str(row[0]))),
-            content_digest=Digest(str(row[1])),
-            byte_size=int(row[2]),
-            media_type=str(row[3]),
-            logical_kind=str(row[4]),
-            privacy_scope=ArtifactPrivacyScope(str(row[5])),
-            integrity_status=ArtifactIntegrityStatus(str(row[6])),
-        ),
-        logical_kind=str(row[4]),
-    )
 
 
 def _table_role(table_name: str) -> str:

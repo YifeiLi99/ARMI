@@ -80,6 +80,7 @@ class CreatorExportContractTests(unittest.TestCase):
                 data_root=Path(directory).resolve(),
                 storage=_Storage({}),  # type: ignore[arg-type]
                 unit_of_work_factory=object(),  # type: ignore[arg-type]
+                catalog=object(),  # type: ignore[arg-type]
             )
             with (
                 patch.object(
@@ -140,6 +141,7 @@ class CreatorExportArtifactTests(unittest.IsolatedAsyncioTestCase):
                 data_root=root,
                 storage=storage,  # type: ignore[arg-type]
                 unit_of_work_factory=object(),  # type: ignore[arg-type]
+                catalog=object(),  # type: ignore[arg-type]
             )
             staging = root / "staging"
             staging.mkdir()
@@ -167,6 +169,7 @@ class CreatorExportArtifactTests(unittest.IsolatedAsyncioTestCase):
                 data_root=root,
                 storage=storage,  # type: ignore[arg-type]
                 unit_of_work_factory=object(),  # type: ignore[arg-type]
+                catalog=object(),  # type: ignore[arg-type]
             )
             staging = root / "staging"
             staging.mkdir()
@@ -196,6 +199,7 @@ class CreatorExportArtifactTests(unittest.IsolatedAsyncioTestCase):
                 data_root=root,
                 storage=storage,  # type: ignore[arg-type]
                 unit_of_work_factory=object(),  # type: ignore[arg-type]
+                catalog=object(),  # type: ignore[arg-type]
             )
             staging = root / "staging"
             staging.mkdir()
