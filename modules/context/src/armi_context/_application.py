@@ -245,9 +245,14 @@ class ContextPipeline(OpportunitySelector):
             raise ContextViolation("CTX-DATABASE") from None
         if not claimed:
             return False
-        lease = cast(WorkLease, claimed[0].lease)
+        record = claimed[0]
+        lease = cast(WorkLease, record.lease)
+        episode_id = record.draft.owner.reference
+        if record.draft.owner.kind != "cognitive_episode":
+            await self._fail_if_current(lease, episode_id, "CTX-WORK-STALE")
+            return True
         try:
-            snapshot = await self._snapshot(lease)
+            snapshot = await self._snapshot(episode_id)
             evidence_bytes = (
                 None
                 if snapshot.evidence is None
@@ -322,6 +327,7 @@ class ContextPipeline(OpportunitySelector):
                 await self._repository.settle_prepared(
                     unit_of_work,
                     lease=lease,
+                    episode_id=episode_id,
                     result=result,
                     manifest_artifact=manifest_registration.ref,
                     compiled_artifact=compiled_registration.ref,
@@ -329,10 +335,10 @@ class ContextPipeline(OpportunitySelector):
             self._wakeups.notify(MODEL_INVOKE)
             return True
         except ContextViolation as error:
-            await self._fail_if_current(lease, error.code)
+            await self._fail_if_current(lease, episode_id, error.code)
             return True
         except ArtifactViolation:
-            await self._fail_if_current(lease, "CTX-SOURCE-READ-FAILED")
+            await self._fail_if_current(lease, episode_id, "CTX-SOURCE-READ-FAILED")
             return True
         except RuntimeTransactionFailure, WorkViolation:
             self._diagnostic("context.prepare.transient_failure")
@@ -376,12 +382,12 @@ class ContextPipeline(OpportunitySelector):
                 timeout_seconds=1,
             )
 
-    async def _snapshot(self, lease: WorkLease) -> ContextEpisodeSnapshot:
+    async def _snapshot(self, episode_id: UUID) -> ContextEpisodeSnapshot:
         try:
             async with self._factory.unit_of_work(
                 read_only=True,
             ) as unit_of_work:
-                return await self._repository.snapshot(unit_of_work, lease)
+                return await self._repository.snapshot(unit_of_work, episode_id)
         except RuntimeTransactionFailure:
             raise ContextViolation("CTX-DATABASE") from None
 
@@ -523,12 +529,15 @@ class ContextPipeline(OpportunitySelector):
         except ArtifactViolation:
             raise ContextViolation("CTX-ARTIFACT") from None
 
-    async def _fail_if_current(self, lease: WorkLease, code: str) -> None:
+    async def _fail_if_current(
+        self, lease: WorkLease, episode_id: UUID, code: str
+    ) -> None:
         try:
             async with self._factory.unit_of_work() as unit_of_work:
                 await self._repository.fail(
                     unit_of_work,
                     lease=lease,
+                    episode_id=episode_id,
                     code=code,
                 )
         except ContextViolation, RuntimeTransactionFailure, WorkViolation:

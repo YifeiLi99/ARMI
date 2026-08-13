@@ -412,7 +412,7 @@ class PostgreSQLContextRepository:
     async def snapshot(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
-        lease: WorkLease,
+        episode_id: UUID,
     ) -> ContextEpisodeSnapshot:
         connection = unit_of_work.transaction
         row = await (
@@ -471,11 +471,7 @@ class PostgreSQLContextRepository:
                     scene.primary_party_id,
                     context_party.party_kind,
                     task_source.task_manifest_digest
-                FROM armi.durable_work AS work
-                JOIN armi.cognitive_episodes AS episode
-                  ON episode.cognitive_episode_id = work.owner_ref
-                 AND work.owner_kind = 'cognitive_episode'
-                 AND work.work_kind = 'cognition.context.prepare'
+                FROM armi.cognitive_episodes AS episode
                 JOIN armi.opportunities AS opportunity
                   ON opportunity.opportunity_id = episode.opportunity_id
                 JOIN armi.subjects AS subject
@@ -494,20 +490,10 @@ class PostgreSQLContextRepository:
                   ON context_party.party_id = episode.context_party_id
                 LEFT JOIN armi.codex_task_sources AS task_source
                   ON task_source.codex_task_source_id = evidence.codex_task_source_id
-                WHERE work.work_id = %s
-                  AND work.status = 'leased'
-                  AND work.current_attempt_id = %s
-                  AND work.lease_owner = %s
-                  AND work.lease_token = %s
-                  AND work.lease_expires_at >= statement_timestamp()
+                WHERE episode.cognitive_episode_id = %s
                   AND episode.status = 'preparing'
                 """,
-                (
-                    lease.work_id.value,
-                    lease.attempt_id.value,
-                    lease.owner,
-                    lease.token,
-                ),
+                (episode_id,),
             )
         ).fetchone()
         if row is None:
@@ -911,12 +897,12 @@ class PostgreSQLContextRepository:
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         lease: WorkLease,
+        episode_id: UUID,
         result: ContextResult,
         manifest_artifact: ArtifactRef,
         compiled_artifact: ArtifactRef,
     ) -> None:
         connection = unit_of_work.transaction
-        episode_id = await self._episode_for_lease(connection, lease)
         for item in result.items:
             source = item.candidate.source
             await connection.execute(
@@ -1031,10 +1017,10 @@ class PostgreSQLContextRepository:
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         lease: WorkLease,
+        episode_id: UUID,
         code: str,
     ) -> None:
         connection = unit_of_work.transaction
-        episode_id = await self._episode_for_lease(connection, lease)
         updated = await (
             await connection.execute(
                 """
@@ -1080,34 +1066,6 @@ class PostgreSQLContextRepository:
                 subject_id=SubjectId(updated[0]),
             )
         )
-
-    async def _episode_for_lease(self, connection: Any, lease: WorkLease) -> UUID:
-        row = await (
-            await connection.execute(
-                """
-                SELECT owner_ref
-                FROM armi.durable_work
-                WHERE work_id = %s
-                  AND work_kind = 'cognition.context.prepare'
-                  AND owner_kind = 'cognitive_episode'
-                  AND status = 'leased'
-                  AND current_attempt_id = %s
-                  AND lease_owner = %s
-                  AND lease_token = %s
-                  AND lease_expires_at >= statement_timestamp()
-                FOR UPDATE
-                """,
-                (
-                    lease.work_id.value,
-                    lease.attempt_id.value,
-                    lease.owner,
-                    lease.token,
-                ),
-            )
-        ).fetchone()
-        if row is None:
-            raise ContextViolation("CTX-WORK-STALE")
-        return row[0]
 
     async def _artifact_ref(self, connection: Any, artifact_id: UUID) -> ArtifactRef:
         row = await (
