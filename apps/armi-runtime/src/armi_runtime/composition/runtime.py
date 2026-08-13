@@ -260,7 +260,10 @@ async def _serve(
                 authority_admission=authority.require_writable,
             )
             await runtime_unit_of_work_factory.open()
-            creator_context = inspect_creator_context(prepared)
+            creator_context = await inspect_creator_context(
+                runtime_unit_of_work_factory,
+                subject_id=authority.require_writable().subject_id,
+            )
             if creator_context is None:
                 raise BrowserSessionViolation(
                     "SEC_CREATOR_IDENTITY_UNAVAILABLE",

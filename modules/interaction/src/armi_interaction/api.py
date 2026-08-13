@@ -105,6 +105,22 @@ class InteractionWakeupPort(Protocol):
     def notify(self, channel: str) -> None: ...
 
 
+@dataclass(frozen=True, slots=True)
+class CreatorIdentityContext:
+    party_id: UUID
+    default_scene_key: str
+
+
+@runtime_checkable
+class InteractionIdentityPort(Protocol):
+    async def creator_context(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+    ) -> CreatorIdentityContext | None: ...
+
+
 @runtime_checkable
 class CreatorInteractionPort(
     CreatorInputAcceptancePort,
@@ -277,6 +293,7 @@ __all__ = (
     "PROJECTION_VERSION",
     "SCENE_COLLECTION_PROJECTION_VERSION",
     "ConfigureExternalCreatorCommand",
+    "CreatorIdentityContext",
     "CreatorInputAcceptance",
     "CreatorInputAcceptancePort",
     "CreatorInputCommand",
@@ -320,6 +337,7 @@ __all__ = (
     "InteractionArtifactCatalogPort",
     "InteractionDataRightsGate",
     "InteractionEffectDeliveryPort",
+    "InteractionIdentityPort",
     "InteractionPerceptionPort",
     "InteractionWakeupPort",
     "ObservedExternalMessage",

@@ -17,6 +17,7 @@ from ._creator import EvidenceAcceptanceTransaction
 from ._creator_postgresql import CreatorInputRepository
 from ._external import ExternalMessageInputService
 from ._external_postgresql import ExternalMessageInputRepository
+from ._identity_postgresql import PostgreSQLInteractionIdentity
 from ._other_human import OtherHumanInputService
 from ._other_human_postgresql import OtherHumanInputRepository
 from ._perception_postgresql import PostgreSQLInteractionPerception
@@ -32,12 +33,17 @@ from .api import (
     InteractionArtifactCatalogPort,
     InteractionDataRightsGate,
     InteractionEffectDeliveryPort,
+    InteractionIdentityPort,
     InteractionPerceptionPort,
     InteractionWakeupPort,
     OtherHumanInputPort,
     SceneTimelineCodexTaskProjectionPort,
     SceneTimelineQueryPort,
 )
+
+
+def bootstrap_interaction_identity() -> InteractionIdentityPort:
+    return PostgreSQLInteractionIdentity()
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,4 +148,8 @@ def bootstrap_interaction(
     )
 
 
-__all__ = ("InteractionModule", "bootstrap_interaction")
+__all__ = (
+    "InteractionModule",
+    "bootstrap_interaction",
+    "bootstrap_interaction_identity",
+)

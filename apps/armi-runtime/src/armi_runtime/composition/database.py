@@ -74,11 +74,16 @@ from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
 from armi_evidence.bootstrap import EvidenceModule, bootstrap_evidence
 from armi_expression.bootstrap import bootstrap_expression
 from armi_interaction.api import (
+    CreatorIdentityContext,
     CreatorInputTransactionPort,
     InteractionEffectDeliveryPort,
     InteractionPerceptionPort,
 )
-from armi_interaction.bootstrap import InteractionModule, bootstrap_interaction
+from armi_interaction.bootstrap import (
+    InteractionModule,
+    bootstrap_interaction,
+    bootstrap_interaction_identity,
+)
 from armi_kernel import load_yaml_file
 from armi_kernel.application import (
     CreatorProjectionNotifier,
@@ -160,7 +165,6 @@ from armi_web_observation.bootstrap import (
     bootstrap_web_research_commit,
 )
 
-from armi_runtime.adapters.creator_identity import CreatorContext, read_creator_context
 from armi_runtime.adapters.model.doubao_speech import DoubaoSpeechRecognizer
 from armi_runtime.adapters.model.external_content import (
     VolcengineArkExternalContentRecognizer,
@@ -427,32 +431,30 @@ def compose_runtime_observation(
     return PostgreSQLRuntimeObservation(unit_of_work_factory)
 
 
-def inspect_creator_context(prepared: PreparedEnvironment) -> CreatorContext | None:
-    """Read the unique born Creator and default scene without session state."""
+async def inspect_creator_context(
+    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
+    *,
+    subject_id: UUID,
+) -> CreatorIdentityContext | None:
+    """Read the unique born Creator through the Interaction owner."""
 
-    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
-    if locator is None:
-        return None
-    try:
-        with prepared.credential_port.resolve(
-            locator,
-            CredentialPurpose("database.runtime"),
-        ) as handle:
-
-            def invoke(value: memoryview) -> CreatorContext | None:
-                try:
-                    conninfo = bytes(value).decode("utf-8")
-                except UnicodeDecodeError:
-                    return None
-                return read_creator_context(conninfo)
-
-            return handle.consume(invoke)
-    except ConfigurationViolation:
-        return None
+    identity = bootstrap_interaction_identity()
+    async with unit_of_work_factory.unit_of_work(read_only=True) as unit:
+        return await identity.creator_context(
+            unit.transaction,
+            subject_id=subject_id,
+        )
 
 
-def inspect_creator_party_id(prepared: PreparedEnvironment) -> UUID | None:
-    context = inspect_creator_context(prepared)
+async def inspect_creator_party_id(
+    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
+    *,
+    subject_id: UUID,
+) -> UUID | None:
+    context = await inspect_creator_context(
+        unit_of_work_factory,
+        subject_id=subject_id,
+    )
     return None if context is None else context.party_id
 
 
