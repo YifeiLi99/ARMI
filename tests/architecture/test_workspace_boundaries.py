@@ -4,11 +4,18 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from tools.check_workspace_boundaries import (
     analyze_source,
     check_repository,
     exit_code_for,
+)
+from tools.schema_ownership import (
+    TABLE_OWNERSHIP,
+    ownership_registry_errors,
+    scan_source_foreign_table_accesses,
+    schema_tables_at_head,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -108,6 +115,53 @@ class WorkspaceBoundaryTests(unittest.TestCase):
 
     def test_current_repository_satisfies_boundaries(self) -> None:
         self.assertEqual(check_repository(ROOT), [])
+
+    def test_schema_owner_registry_matches_effective_head(self) -> None:
+        schema_root = (
+            ROOT
+            / "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
+        )
+        self.assertEqual(ownership_registry_errors(schema_root), ())
+        self.assertEqual(schema_tables_at_head(schema_root), frozenset(TABLE_OWNERSHIP))
+        self.assertTrue(TABLE_OWNERSHIP["action_operations"].pending_removal)
+
+    def test_schema_owner_registry_rejects_unregistered_and_stale_tables(self) -> None:
+        with TemporaryDirectory() as directory:
+            schema_root = Path(directory)
+            baseline = schema_root / "baseline"
+            revisions = schema_root / "alembic" / "versions"
+            baseline.mkdir(parents=True)
+            revisions.mkdir(parents=True)
+            baseline.joinpath("10_test.sql").write_text(
+                "CREATE TABLE armi.unregistered_fact (id uuid);\n",
+                encoding="utf-8",
+            )
+            errors = ownership_registry_errors(schema_root)
+        self.assertIn("unregistered table: armi.unregistered_fact", errors)
+        self.assertIn("stale registry table: armi.subjects", errors)
+
+    def test_sql_owner_scanner_finds_reads_writes_and_ctes(self) -> None:
+        accesses = scan_source_foreign_table_accesses(
+            '''
+READ = "SELECT * FROM armi.opportunities"
+WRITE = "INSERT INTO armi.effects (effect_id) VALUES (%s)"
+CTE = """WITH chosen AS (
+    SELECT opportunity_id FROM armi.opportunities
+) DELETE FROM armi.effects WHERE effect_id IN (SELECT * FROM chosen)"""
+OWN = "UPDATE armi.cognitive_episodes SET status = 'done'"
+''',
+            path="modules/cognition/src/armi_cognition/example.py",
+            source_owner="cognition",
+        )
+        self.assertEqual(
+            [(value.operation, value.table, value.table_owner) for value in accesses],
+            [
+                ("FROM", "opportunities", "opportunity"),
+                ("INSERT INTO", "effects", "effect"),
+                ("FROM", "opportunities", "opportunity"),
+                ("DELETE FROM", "effects", "effect"),
+            ],
+        )
 
     def test_internal_policies_are_code_contracts_not_governance_json(self) -> None:
         resources = (

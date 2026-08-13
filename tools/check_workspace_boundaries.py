@@ -13,6 +13,11 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+try:
+    from tools.schema_ownership import ownership_registry_errors
+except ModuleNotFoundError:  # Direct execution places tools/ first on sys.path.
+    from schema_ownership import ownership_registry_errors
+
 WORKSPACE_VERSION = "0.0.0"
 PYTHON_RANGE = ">=3.14,<3.15"
 BUILD_REQUIREMENTS = ["uv_build>=0.11.33,<0.12"]
@@ -2284,6 +2289,19 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
 def check_repository(root: Path) -> list[Violation]:
     violations = validate_workspace_metadata(root)
     violations.extend(validate_source_boundaries(root))
+    schema_root = (
+        root / "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
+    )
+    registry_path = root / "tools/schema_ownership.py"
+    violations.extend(
+        Violation(
+            "ARC-SQL-OWNER-REGISTRY",
+            _relative(registry_path, root),
+            1,
+            error,
+        )
+        for error in ownership_registry_errors(schema_root)
+    )
     return sorted(set(violations))
 
 
