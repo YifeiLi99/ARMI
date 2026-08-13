@@ -2959,7 +2959,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             "spec": {
                                 "correction_kind": "replace_subject_component",
                                 "component_kind": "mind",
-                                "expected_component_version": 2,
+                                "expected_component_version": 1,
                                 "replacement": replacement,
                             },
                         }
@@ -2987,7 +2987,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             "spec": {
                                 "correction_kind": "replace_subject_component",
                                 "component_kind": "mind",
-                                "expected_component_version": 2,
+                                "expected_component_version": 1,
                                 "replacement": replacement,
                             },
                         }
@@ -3030,7 +3030,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "WHERE head.component_kind = 'mind'"
                 ).fetchone()
                 assert head is not None
-                self.assertEqual(head[0:2], (3, "admin_correction"))
+                self.assertEqual(head[0:2], (2, "admin_correction"))
                 self.assertEqual(head[2], replacement)
                 bootstrap_revision_id = str(head[3])
                 with self.assertRaises(psycopg.errors.InsufficientPrivilege):
@@ -3051,7 +3051,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         "spec": {
                             "correction_kind": "repair_subject_component_head",
                             "component_kind": "mind",
-                            "expected_component_version": 3,
+                            "expected_component_version": 2,
                             "target_revision_id": bootstrap_revision_id,
                         },
                     }
@@ -3071,7 +3071,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         "spec": {
                             "correction_kind": "repair_subject_component_head",
                             "component_kind": "mind",
-                            "expected_component_version": 3,
+                            "expected_component_version": 2,
                             "target_revision_id": bootstrap_revision_id,
                         },
                     }

@@ -308,12 +308,12 @@ class PostgreSQLLifeRecordQuery:
                                    %s::integer AS branch_limit
                         ), records AS (
                             (
-                            SELECT experience.experience_id,
-                                   'conversation'::text,
-                                   experience.first_person_gist,
-                                   experience.source_perspective,
-                                   experience.accepted_at,
-                                   NULL::boolean
+                            SELECT experience.experience_id AS record_ref,
+                                   'conversation'::text AS record_kind,
+                                   experience.first_person_gist AS summary,
+                                   experience.source_perspective AS source_kind,
+                                   experience.accepted_at AS occurred_at,
+                                   NULL::boolean AS naturally_recallable
                             FROM armi.accepted_experiences AS experience
                             CROSS JOIN query_input AS query
                             WHERE experience.subject_id = query.subject_id

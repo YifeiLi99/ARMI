@@ -107,7 +107,8 @@ def upgrade() -> None:
           CONSTRAINT mood_revisions_payload_check CHECK (
             semantic_payload->>'schema_version'='armi.mood.v1'
             AND semantic_payload ?& ARRAY['emotions','mood','schema_version']
-            AND jsonb_object_length(semantic_payload)=3
+            AND semantic_payload
+                - ARRAY['emotions','mood','schema_version']::text[] = '{{}}'::jsonb
             AND jsonb_typeof(semantic_payload->'emotions')='array'
             AND jsonb_typeof(semantic_payload->'mood') IN ('string','null')
           )
@@ -127,7 +128,7 @@ def upgrade() -> None:
             REFERENCES armi.mood_revisions(mood_revision_id,subject_id)
         );
 
-        CREATE TEMP TABLE mood_extract_0007 ON COMMIT DROP AS
+        CREATE TABLE armi.mood_extract_0007 AS
         SELECT head.subject_id,
                head.current_revision_id AS old_mind_revision_id,
                head.component_version AS old_mind_version,
@@ -150,11 +151,11 @@ def upgrade() -> None:
                  'mood',semantic_payload->'mood'
                ),
                'private'
-        FROM mood_extract_0007;
+        FROM armi.mood_extract_0007;
 
         INSERT INTO armi.mood_heads
           (subject_id,current_revision_id,mood_version)
-        SELECT subject_id,mood_revision_id,1 FROM mood_extract_0007;
+        SELECT subject_id,mood_revision_id,1 FROM armi.mood_extract_0007;
 
         ALTER TABLE armi.subject_component_revisions
           DROP CONSTRAINT subject_component_revisions_origin_check,
@@ -190,13 +191,15 @@ def upgrade() -> None:
                (semantic_payload - 'emotions' - 'mood') ||
                  '{{"schema_version":"armi.mind.v2"}}'::jsonb,
                'private'
-        FROM mood_extract_0007;
+        FROM armi.mood_extract_0007;
 
         UPDATE armi.subject_component_heads AS head
         SET current_revision_id=source.new_mind_revision_id,
             component_version=source.old_mind_version+1
-        FROM mood_extract_0007 AS source
+        FROM armi.mood_extract_0007 AS source
         WHERE head.subject_id=source.subject_id AND head.component_kind='mind';
+
+        DROP TABLE armi.mood_extract_0007;
 
         ALTER TABLE armi.cognitive_context_items
           DROP CONSTRAINT cognitive_context_items_section_check,

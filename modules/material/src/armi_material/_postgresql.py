@@ -194,10 +194,10 @@ class PostgreSQLMaterialOwner:
                    JOIN armi.life_material_revisions AS revision
                      ON revision.life_material_revision_id=material.current_revision_id
                    WHERE material.subject_id=%s AND material.deleted_at IS NULL
-                     AND (%s IS NULL OR revision.title ILIKE '%%'||%s||'%%')
+                     AND (%s::text IS NULL OR revision.title ILIKE '%%'||%s::text||'%%')
                      AND (%s::boolean IS FALSE OR revision.privacy_status='creator_visible')
                      AND (%s::timestamptz IS NULL OR
-                          (revision.created_at,'material'::text,material.life_material_id)<(%s,%s,%s))
+                          (revision.created_at,'material'::text,material.life_material_id)<(%s::timestamptz,%s::text,%s::uuid))
                    ORDER BY revision.created_at DESC,material.life_material_id DESC LIMIT %s""",
                 (
                     subject_id,

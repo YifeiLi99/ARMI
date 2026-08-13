@@ -232,7 +232,7 @@ class PostgreSQLRelationshipOwner:
                   AND relationship.other_party_id = %s
                   AND relationship.scope = %s
                   AND relationship.tombstoned_at IS NULL
-                  AND (%s IS NULL OR relationship.head_version = %s)
+                  AND (%s::bigint IS NULL OR relationship.head_version = %s::bigint)
                 LIMIT 2
                 """,
                 (

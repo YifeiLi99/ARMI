@@ -471,8 +471,8 @@ class PostgreSQLActivityRead:
                 JOIN armi.activity_revisions AS revision
                   ON revision.activity_revision_id = activity.current_revision_id
                 WHERE activity.subject_id = %s
-                  AND (%s IS NULL OR left(revision.goal || CASE WHEN revision.progress_summary IS NULL THEN '' ELSE ' — ' || revision.progress_summary END, 4096) ILIKE '%%' || %s || '%%')
-                  AND (%s IS NULL OR (revision.created_at, 'activity'::text, activity.activity_id) < (%s, %s, %s))
+                  AND (%s::text IS NULL OR left(revision.goal || CASE WHEN revision.progress_summary IS NULL THEN '' ELSE ' — ' || revision.progress_summary END, 4096) ILIKE '%%' || %s::text || '%%')
+                  AND (%s::timestamptz IS NULL OR (revision.created_at, 'activity'::text, activity.activity_id) < (%s::timestamptz, %s::text, %s::uuid))
                 ORDER BY revision.created_at DESC, activity.activity_id DESC
                 LIMIT %s
                 """,
