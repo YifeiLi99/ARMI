@@ -181,7 +181,7 @@ def test_creator_material_query_reads_only_current_visible_verified_body(
                 ArtifactIntegrityStatus.VERIFIED,
             )
         ),  # type: ignore[arg-type]
-        creator_party_id=creator_party_id,
+        subject_id=subject_id,
         data_root=data_root,
         max_object_bytes=1_000_000,
     )

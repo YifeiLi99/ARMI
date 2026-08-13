@@ -41,7 +41,7 @@ def bootstrap_material(
     factory: PostgreSQLRuntimeUnitOfWorkFactory,
     *,
     catalog: ArtifactCatalogPort,
-    creator_party_id: UUID,
+    subject_id: UUID,
     data_root: Path,
     max_object_bytes: int,
 ) -> MaterialModule:
@@ -49,7 +49,7 @@ def bootstrap_material(
     owner = PostgreSQLMaterialOwner(
         factory,
         catalog=catalog,
-        creator_party_id=creator_party_id,
+        subject_id=subject_id,
         data_root=data_root,
         max_object_bytes=max_object_bytes,
     )

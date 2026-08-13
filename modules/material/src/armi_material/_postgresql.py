@@ -50,9 +50,9 @@ def _metadata(value: object) -> tuple[tuple[str, str], ...]:
 class PostgreSQLMaterialOwner:
     __slots__ = (
         "_catalog",
-        "_creator_party_id",
         "_factory",
         "_storage",
+        "_subject_id",
     )
 
     def __init__(
@@ -60,13 +60,13 @@ class PostgreSQLMaterialOwner:
         factory: PostgreSQLRuntimeUnitOfWorkFactory,
         *,
         catalog: MaterialArtifactCatalogPort,
-        creator_party_id: UUID,
+        subject_id: UUID,
         data_root: Path,
         max_object_bytes: int,
     ) -> None:
         self._catalog = catalog
-        self._creator_party_id = creator_party_id
         self._factory = factory
+        self._subject_id = subject_id
         self._storage = ContentAddressedArtifactStore(
             data_root / "artifacts", max_object_bytes=max_object_bytes
         )
@@ -203,20 +203,6 @@ class PostgreSQLMaterialOwner:
         try:
             async with self._factory.unit_of_work(read_only=True) as unit_of_work:
                 connection = unit_of_work.transaction
-                creator = await (
-                    await connection.execute(
-                        """SELECT 1 FROM armi.parties WHERE party_id=%s AND party_kind='creator'
-                           AND creator_role='unique_primary_creator' AND status='active'""",
-                        (self._creator_party_id,),
-                    )
-                ).fetchone()
-                subject = await (
-                    await connection.execute(
-                        "SELECT subject_id FROM armi.subjects WHERE singleton_key=1"
-                    )
-                ).fetchone()
-                if creator is None or subject is None:
-                    raise MaterialViolation("MATERIAL-QUERY-NOT-AUTHORIZED")
                 row = await (
                     await connection.execute(
                         """SELECT material.life_material_id,material.current_revision_id,
@@ -230,7 +216,7 @@ class PostgreSQLMaterialOwner:
                            WHERE material.life_material_id=%s AND material.subject_id=%s
                              AND material.deleted_at IS NULL
                              AND revision.privacy_status = 'creator_visible'""",
-                        (material_id, subject[0]),
+                        (material_id, self._subject_id),
                     )
                 ).fetchone()
                 ref = (

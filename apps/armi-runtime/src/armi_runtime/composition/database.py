@@ -583,7 +583,7 @@ def compose_life_record_query(
 def compose_material_module(
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     *,
-    creator_party_id: UUID,
+    subject_id: UUID,
     data_root: Path,
     max_object_bytes: int,
 ) -> MaterialModule:
@@ -592,7 +592,7 @@ def compose_material_module(
     return bootstrap_material(
         unit_of_work_factory,
         catalog=bootstrap_artifact_catalog(),
-        creator_party_id=creator_party_id,
+        subject_id=subject_id,
         data_root=data_root,
         max_object_bytes=max_object_bytes,
     )

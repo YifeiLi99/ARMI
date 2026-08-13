@@ -76,7 +76,7 @@ def _repository(*, boundary: bool = False) -> PostgreSQLLifeOpportunityRepositor
     material = bootstrap_material(
         cast(Any, object()),
         catalog=bootstrap_artifact_catalog(),
-        creator_party_id=uuid7(),
+        subject_id=uuid7(),
         data_root=Path.cwd(),
         max_object_bytes=1_000_000,
     )
