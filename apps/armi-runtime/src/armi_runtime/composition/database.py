@@ -44,10 +44,7 @@ from armi_context.api import (
     EmbeddingBinding,
 )
 from armi_context.bootstrap import bootstrap_context, bootstrap_context_embedding
-from armi_data_rights.api import (
-    DataRightsInteractionGate,
-    DataRightsViolation,
-)
+from armi_data_rights.api import DataRightsInteractionGate
 from armi_data_rights.bootstrap import DataRightsModule, bootstrap_data_rights
 from armi_effect.api import (
     ActionAdapterPort,
@@ -939,60 +936,25 @@ def compose_prompt_module(
 def compose_data_rights_module(
     prepared: PreparedEnvironment,
     *,
+    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     creator_party_id: UUID,
-    authority_admission: Callable[[], RuntimeFence],
     memory_data_rights: MemoryDataRightsParticipant,
     relationship_data_rights: RelationshipDataRightsParticipant,
     notifier: CreatorProjectionNotifier | None = None,
 ) -> DataRightsModule:
-    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
-    if locator is None:
-        raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE")
-    try:
-        with prepared.credential_port.resolve(
-            locator,
-            CredentialPurpose("database.runtime"),
-        ) as handle:
-
-            def create(value: memoryview) -> DataRightsModule:
-                try:
-                    conninfo = bytes(value).decode("utf-8")
-                except UnicodeDecodeError:
-                    raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE") from None
-                config = prepared.effective.config
-
-                def factory() -> PostgreSQLUnitOfWorkFactory:
-                    return PostgreSQLUnitOfWorkFactory(
-                        conninfo,
-                        environment_id=config.environment.environment_id,
-                        pool_min=config.database.pool_min,
-                        pool_max=config.database.pool_max,
-                        acquire_timeout_seconds=(
-                            config.database.pool_acquire_timeout_seconds
-                        ),
-                        statement_timeout_seconds=(
-                            config.database.statement_timeout_seconds
-                        ),
-                        authority_admission=authority_admission,
-                    )
-
-                return bootstrap_data_rights(
-                    creator_party_id=creator_party_id,
-                    data_root=prepared.data_root,
-                    order_factory=factory(),
-                    export_factory=factory(),
-                    storage=ContentAddressedArtifactStore(
-                        prepared.data_root / "artifacts",
-                        max_object_bytes=config.artifacts.max_object_bytes,
-                    ),
-                    memory=memory_data_rights,
-                    relationship=relationship_data_rights,
-                    notifier=notifier,
-                )
-
-            return handle.consume(create)
-    except ConfigurationViolation:
-        raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE") from None
+    config = prepared.effective.config
+    return bootstrap_data_rights(
+        creator_party_id=creator_party_id,
+        data_root=prepared.data_root,
+        unit_of_work_factory=unit_of_work_factory,
+        storage=ContentAddressedArtifactStore(
+            prepared.data_root / "artifacts",
+            max_object_bytes=config.artifacts.max_object_bytes,
+        ),
+        memory=memory_data_rights,
+        relationship=relationship_data_rights,
+        notifier=notifier,
+    )
 
 
 def compose_life_opportunity_pipeline(

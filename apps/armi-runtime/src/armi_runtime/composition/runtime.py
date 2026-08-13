@@ -403,8 +403,8 @@ async def _serve(
             await sleep_module.open()
             data_rights_module = compose_data_rights_module(
                 prepared,
+                unit_of_work_factory=runtime_unit_of_work_factory,
                 creator_party_id=creator_context.party_id,
-                authority_admission=authority.require_writable,
                 memory_data_rights=memory_module.data_rights,
                 relationship_data_rights=relationship_module.data_rights,
                 notifier=creator_events,

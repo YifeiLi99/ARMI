@@ -69,13 +69,12 @@ class DataRightsOrderService(DataRightsOrderPort):
 
     async def open(self) -> None:
         try:
-            await self._uow_factory.open()
             await self._deletion.resume_pending()
         except RuntimeTransactionFailure:
             raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE") from None
 
     async def close(self) -> None:
-        await self._uow_factory.close()
+        return None
 
     async def request_creator(
         self, command: DataRightsOrderCommand

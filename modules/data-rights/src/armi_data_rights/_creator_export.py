@@ -84,13 +84,12 @@ class CreatorExportService(CreatorExportPort):
 
     async def open(self) -> None:
         try:
-            await self._uow_factory.open()
             await asyncio.to_thread(self._prepare_root)
         except RuntimeTransactionFailure, OSError:
             raise CreatorExportViolation("CREATOR-EXPORT-UNAVAILABLE") from None
 
     async def close(self) -> None:
-        await self._uow_factory.close()
+        return None
 
     async def export(self, command: CreatorExportCommand) -> CreatorExportResult:
         request_digest = Digest.from_bytes(

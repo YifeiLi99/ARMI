@@ -53,8 +53,7 @@ def bootstrap_data_rights(
     *,
     creator_party_id: UUID,
     data_root: Path,
-    order_factory: DataRightsUnitOfWorkFactory,
-    export_factory: DataRightsUnitOfWorkFactory,
+    unit_of_work_factory: DataRightsUnitOfWorkFactory,
     storage: DataRightsArtifactStorePort,
     memory: MemoryDataRightsParticipant,
     relationship: RelationshipDataRightsParticipant,
@@ -64,20 +63,20 @@ def bootstrap_data_rights(
     deletion = LocalDataDeletionExecutor(
         repository=LocalDataDeletionRepository(memory, relationship),
         storage=storage,
-        unit_of_work_factory=order_factory,
+        unit_of_work_factory=unit_of_work_factory,
     )
     orders = DataRightsOrderService(
         creator_party_id=creator_party_id,
         deletion=deletion,
         repository=gate,
-        unit_of_work_factory=order_factory,
+        unit_of_work_factory=unit_of_work_factory,
         notifier=notifier,
     )
     exports = CreatorExportService(
         creator_party_id=creator_party_id,
         data_root=data_root,
         storage=storage,
-        unit_of_work_factory=export_factory,
+        unit_of_work_factory=unit_of_work_factory,
     )
     return DataRightsModule(orders, exports, gate, orders, exports)
 
