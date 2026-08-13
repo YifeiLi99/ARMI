@@ -1,26 +1,28 @@
-"""Fixed Admin observation queries for one role-bound environment."""
+"""Admin observation assembled from owner-authored typed ports."""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, cast
+from typing import cast
 from uuid import UUID
 
+from armi_artifact_store.api import ArtifactAdminPort
+from armi_cognition.api import CognitionAdminPort
+from armi_effect.api import EffectAdminPort
+from armi_expression.api import ExpressionAdminPort
+from armi_interaction.api import InteractionAdminPort
 from armi_material.api import MaterialAdminItem, MaterialAdminReadPort
 from armi_mood.api import MoodAdminReadPort
-from armi_postgresql_contract.catalog_fingerprint import (
-    database_catalog_digest,
-)
+from armi_runtime_foundation import PostgreSQLAdminUnitOfWorkFactory
 from armi_subject_state.api import SubjectStateAdminReadPort
-from psycopg import sql
-from psycopg.abc import QueryNoTemplate
 
 from .role_session import AdminRoleBoundPool
+from .runtime_foundation import RuntimeFoundationAdminAdapter
 
 
-def _safe(value: Any) -> Any:
+def _safe(value: object) -> object:
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
     if isinstance(value, (UUID, datetime, date, Decimal)):
@@ -31,74 +33,88 @@ def _safe(value: Any) -> Any:
 
 
 class AdminObservationGateway:
-    """Execute only static, bounded SELECT and environment registration statements."""
-
-    __slots__ = ("_conninfo", "_expected_role", "_materials", "_mood", "_subject_state")
+    __slots__ = (
+        "_artifacts",
+        "_cognition",
+        "_effects",
+        "_expression",
+        "_factory",
+        "_interaction",
+        "_materials",
+        "_mood",
+        "_runtime",
+        "_subject_state",
+    )
 
     def __init__(
         self,
-        conninfo: str,
         *,
-        expected_role: str,
+        factory: PostgreSQLAdminUnitOfWorkFactory,
+        runtime: RuntimeFoundationAdminAdapter,
+        artifacts: ArtifactAdminPort,
+        cognition: CognitionAdminPort,
+        effects: EffectAdminPort,
+        expression: ExpressionAdminPort,
+        interaction: InteractionAdminPort,
         materials: MaterialAdminReadPort,
         mood: MoodAdminReadPort,
         subject_state: SubjectStateAdminReadPort,
     ) -> None:
-        self._conninfo = conninfo
-        self._expected_role = expected_role
+        self._factory = factory
+        self._runtime = runtime
+        self._artifacts = artifacts
+        self._cognition = cognition
+        self._effects = effects
+        self._expression = expression
+        self._interaction = interaction
         self._materials = materials
         self._mood = mood
         self._subject_state = subject_state
 
-    def environment(self) -> dict[str, Any] | None:
-        row = self._one(
-            "SELECT environment_id, environment_kind, incarnation, resettable, "
-            "test_controls_enabled, registered_at "
-            "FROM armi.deployment_environments WHERE singleton_key"
-        )
+    def environment(self) -> dict[str, object] | None:
+        with self._factory.repeatable_read() as uow:
+            row = self._runtime.environment(uow.transaction)
         if row is None:
             return None
-        names = (
-            "environment_id",
-            "environment_kind",
-            "incarnation",
-            "resettable",
-            "test_controls_enabled",
-            "registered_at",
-        )
-        return dict(zip(names, (_safe(value) for value in row), strict=True))
+        return {
+            "environment_id": row.environment_id,
+            "environment_kind": row.environment_kind,
+            "incarnation": row.incarnation,
+            "resettable": row.resettable,
+            "test_controls_enabled": row.test_controls_enabled,
+            "registered_at": _safe(row.registered_at),
+        }
 
-    def register_environment(self, values: dict[str, Any]) -> None:
-        pool = self._pool()
-        try:
-            pool.open()
-            with pool.connection() as connection:
-                connection.execute(
-                    "INSERT INTO armi.deployment_environments ("
-                    "singleton_key, environment_id, environment_kind, incarnation, "
-                    "resettable, test_controls_enabled"
-                    ") VALUES (true, %s, %s, %s, %s, %s)",
-                    (
-                        values["environment_id"],
-                        values["environment_kind"],
-                        values["incarnation"],
-                        values["resettable"],
-                        values["test_controls_enabled"],
-                    ),
-                )
-                connection.commit()
-        finally:
-            pool.close()
+    def register_environment(self, values: Mapping[str, object]) -> None:
+        with self._factory.serializable() as uow:
+            self._runtime.register_environment(
+                uow.transaction,
+                environment_id=str(values["environment_id"]),
+                environment_kind=str(values["environment_kind"]),
+                incarnation=int(cast(int, values["incarnation"])),
+                resettable=bool(values["resettable"]),
+                test_controls_enabled=bool(values["test_controls_enabled"]),
+            )
+            uow.commit()
 
-    def runtime_status(self) -> dict[str, Any]:
-        environment = self.environment()
-        runtime = self._one(
-            "SELECT runtime_instance_id, life_generation_id, fence_token, status, "
-            "last_heartbeat_at, lease_expires_at FROM armi.runtime_instances "
-            "ORDER BY started_at DESC, runtime_instance_id DESC LIMIT 1"
+    def runtime_status(self) -> dict[str, object]:
+        with self._factory.repeatable_read() as uow:
+            environment = self._runtime.environment(uow.transaction)
+            runtime = self._runtime.latest_runtime(uow.transaction)
+        env = (
+            None
+            if environment is None
+            else {
+                "environment_id": environment.environment_id,
+                "environment_kind": environment.environment_kind,
+                "incarnation": environment.incarnation,
+                "resettable": environment.resettable,
+                "test_controls_enabled": environment.test_controls_enabled,
+                "registered_at": _safe(environment.registered_at),
+            }
         )
         return {
-            "environment": environment,
+            "environment": env,
             "runtime": None
             if runtime is None
             else dict(
@@ -118,41 +134,43 @@ class AdminObservationGateway:
         }
 
     def database_catalog_digest(self) -> str:
-        pool = self._pool()
-        try:
-            pool.open()
-            with pool.connection() as connection:
-                connection.execute("SET TRANSACTION READ ONLY")
-                return database_catalog_digest(connection)
-        finally:
-            pool.close()
+        if not isinstance(self._factory, AdminRoleBoundPool):
+            raise RuntimeError("ADMIN-DB-CATALOG")
+        return self._factory.catalog_digest()
 
-    def subject_snapshot(self, *, private: bool) -> dict[str, Any]:
-        subject = self._one(
-            "SELECT subject_id, subject_version, state_epoch, status, "
-            "current_generation_id, current_bundle_activation_id "
-            "FROM armi.subjects WHERE singleton_key"
-        )
-        if subject is None:
-            result: dict[str, Any] = {"subject": None, "components": []}
-            if private:
-                result.update({"materials": [], "materials_truncated": False})
-            return result
-        columns = (
-            "subject_id",
-            "subject_version",
-            "state_epoch",
-            "status",
-            "current_generation_id",
-            "current_bundle_activation_id",
-        )
-        subject_components = self._subject_state.current_components(private=private)
-        mood = self._mood.current_component(private=private)
-        components = subject_components if mood is None else (*subject_components, mood)
-        result = {
-            "subject": dict(
-                zip(columns, (_safe(value) for value in subject), strict=True)
-            ),
+    def subject_snapshot(self, *, private: bool) -> dict[str, object]:
+        with self._factory.repeatable_read() as uow:
+            tx = uow.transaction
+            subject = self._runtime.subject(tx, for_update=False, detailed=True)
+            if subject is None:
+                return {
+                    "subject": None,
+                    "components": [],
+                    **(
+                        {"materials": [], "materials_truncated": False}
+                        if private
+                        else {}
+                    ),
+                }
+            components = self._subject_state.current_components(tx, private=private)
+            mood = self._mood.current_component(tx, private=private)
+            material = (
+                self._materials.private_snapshot(tx, subject.subject_id)
+                if private
+                else None
+            )
+        combined = components if mood is None else (*components, mood)
+        result: dict[str, object] = {
+            "subject": {
+                "subject_id": str(subject.subject_id),
+                "subject_version": subject.subject_version,
+                "state_epoch": subject.state_epoch,
+                "status": subject.status,
+                "current_generation_id": str(subject.generation_id),
+                "current_bundle_activation_id": None
+                if subject.bundle_activation_id is None
+                else str(subject.bundle_activation_id),
+            },
             "components": [
                 {
                     "component_kind": str(item.kind),
@@ -160,18 +178,18 @@ class AdminObservationGateway:
                     "privacy_scope": item.privacy_scope,
                     **({"payload": _safe(item.payload)} if private else {}),
                 }
-                for item in components
+                for item in combined
             ],
         }
-        if private:
-            snapshot = self._materials.private_snapshot(UUID(str(subject[0])))
+        if material is not None:
             result["materials"] = [
-                self._private_material(item) for item in snapshot.items
+                self._private_material(item) for item in material.items
             ]
-            result["materials_truncated"] = snapshot.truncated
+            result["materials_truncated"] = material.truncated
         return result
 
-    def _private_material(self, item: MaterialAdminItem) -> dict[str, Any]:
+    @staticmethod
+    def _private_material(item: MaterialAdminItem) -> dict[str, object]:
         return {
             "material_id": _safe(item.material_id),
             "current_revision_id": _safe(item.current_revision_id),
@@ -189,92 +207,72 @@ class AdminObservationGateway:
             "updated_at": _safe(item.updated_at),
         }
 
-    def trace_flow(self, selector: tuple[str, str]) -> dict[str, Any]:
+    def trace_flow(self, selector: tuple[str, str]) -> dict[str, object]:
         kind, value = selector
-        if kind == "trace_id":
-            rows = self._all(
-                "SELECT target_kind, target_ref, operation, result_status, occurred_at "
-                "FROM armi.audit_events WHERE trace_id = %s "
-                "ORDER BY occurred_at, audit_event_id LIMIT 200",
-                (value,),
-            )
-        elif kind == "episode_id":
-            rows = self._all(
-                "SELECT cognitive_episode_id, opportunity_id, status, trace_id, prepared_at "
-                "FROM armi.cognitive_episodes WHERE cognitive_episode_id = %s",
-                (value,),
-            )
-        elif kind == "effect_id":
-            rows = self._all(
-                "SELECT effect_id, status, verification_status, current_attempt_id, settled_at "
-                "FROM armi.effects WHERE effect_id = %s",
-                (value,),
-            )
-        else:
-            rows = self._all(
-                "SELECT intent.operation_ref, intent.root_opportunity_id, "
-                "effect.status, effect.effect_id, effect.settled_at "
-                "FROM armi.action_intents AS intent "
-                "LEFT JOIN armi.effects AS effect "
-                "ON effect.action_intent_id = intent.action_intent_id "
-                "WHERE intent.operation_ref = %s "
-                "OR intent.root_opportunity_id = %s LIMIT 200",
-                (value, value),
-            )
+        key = UUID(value) if kind != "trace_id" else None
+        with self._factory.repeatable_read() as uow:
+            tx = uow.transaction
+            if kind == "trace_id":
+                rows = self._runtime.audit_trace(tx, trace_id=value)
+            elif kind == "episode_id":
+                item = self._cognition.episode(tx, episode_id=cast(UUID, key))
+                rows = (
+                    ()
+                    if item is None
+                    else (
+                        (
+                            item.episode_id,
+                            item.opportunity_id,
+                            item.status,
+                            item.trace_id,
+                            item.prepared_at,
+                        ),
+                    )
+                )
+            elif kind == "effect_id":
+                item = self._effects.snapshot(tx, effect_id=cast(UUID, key))
+                rows = (
+                    ()
+                    if item is None
+                    else ((item.effect_id, item.status, item.attempt_id),)
+                )
+            else:
+                intent = self._expression.operation(tx, operation_ref=cast(UUID, key))
+                rows = (
+                    ()
+                    if intent is None
+                    else ((intent.operation_ref, intent.root_opportunity_id),)
+                )
         return {
             "selector_kind": kind,
             "items": [[_safe(value) for value in row] for row in rows],
         }
 
-    def inspect_scope(self, kind: str, object_ids: tuple[str, ...]) -> dict[str, Any]:
-        mapping = {
-            "subject": ("subjects", "subject_id"),
-            "operation": (
-                "action_intents",
-                "operation_ref",
-            ),
-            "episode": ("cognitive_episodes", "cognitive_episode_id"),
-            "effect": ("effects", "effect_id"),
-            "work": ("durable_work", "work_id"),
-            "artifact": ("artifacts", "artifact_id"),
-            "scene": ("interaction_scenes", "scene_id"),
-        }
-        table, column = mapping[kind]
-        statement = sql.SQL(
-            "SELECT {column} FROM armi.{table} "
-            "WHERE {column} = ANY(%s::uuid[]) ORDER BY {column}"
-        ).format(column=sql.Identifier(column), table=sql.Identifier(table))
-        rows = self._all(
-            statement,
-            (list(object_ids),),
-        )
-        found = [str(row[0]) for row in rows]
+    def inspect_scope(
+        self, kind: str, object_ids: tuple[str, ...]
+    ) -> dict[str, object]:
+        ids = tuple(UUID(value) for value in object_ids)
+        with self._factory.repeatable_read() as uow:
+            tx = uow.transaction
+            if kind == "subject":
+                found = self._runtime.inspect_subject_ids(tx, object_ids=ids)
+            elif kind == "operation":
+                found = self._expression.inspect_ids(tx, object_ids=ids)
+            elif kind == "episode":
+                found = self._cognition.inspect_ids(tx, object_ids=ids)
+            elif kind == "effect":
+                found = self._effects.inspect_ids(tx, object_ids=ids)
+            elif kind == "work":
+                found = self._runtime.inspect_work_ids(tx, object_ids=ids)
+            elif kind == "artifact":
+                found = self._artifacts.inspect_ids(tx, object_ids=ids)
+            else:
+                found = self._interaction.inspect_ids(tx, object_ids=ids)
         return {
             "kind": kind,
-            "found_ids": found,
-            "missing_count": len(object_ids) - len(found),
+            "found_ids": [str(value) for value in found],
+            "missing_count": len(ids) - len(found),
         }
-
-    def _pool(self) -> AdminRoleBoundPool:
-        return AdminRoleBoundPool(self._conninfo, expected_role=self._expected_role)
-
-    def _one(
-        self, statement: QueryNoTemplate, parameters: tuple[Any, ...] = ()
-    ) -> tuple[Any, ...] | None:
-        rows = self._all(statement, parameters)
-        return rows[0] if rows else None
-
-    def _all(
-        self, statement: QueryNoTemplate, parameters: tuple[Any, ...] = ()
-    ) -> list[tuple[Any, ...]]:
-        pool = self._pool()
-        try:
-            pool.open()
-            with pool.connection() as connection:
-                connection.execute("SET TRANSACTION READ ONLY")
-                return connection.execute(statement, parameters).fetchall()
-        finally:
-            pool.close()
 
 
 __all__ = ("AdminObservationGateway",)

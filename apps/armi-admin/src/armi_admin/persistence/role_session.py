@@ -3,9 +3,17 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Any
+from typing import Any, cast
 
 import psycopg
+from armi_postgresql_contract.catalog_fingerprint import database_catalog_digest
+from armi_runtime_foundation import (
+    PostgreSQLAdminParameter,
+    PostgreSQLAdminResult,
+    PostgreSQLAdminTransaction,
+    PostgreSQLAdminUnitOfWork,
+)
+from psycopg.abc import QueryNoTemplate
 from psycopg.pq import TransactionStatus
 from psycopg_pool import ConnectionPool
 
@@ -14,7 +22,54 @@ _POOL_OPEN_TIMEOUT_SECONDS = 5.0
 
 
 class AdminRoleSessionError(RuntimeError):
-    pass
+    code = "DB-ROLE-SESSION-DIRTY"
+
+
+class AdminCommitUnknownError(RuntimeError):
+    code = "ADMIN-CORRECTION-COMMIT-UNKNOWN"
+
+
+class _AdminTransaction:
+    __slots__ = ("_connection",)
+
+    def __init__(self, connection: psycopg.Connection[Any]) -> None:
+        self._connection = connection
+
+    def execute(
+        self,
+        statement: str,
+        parameters: tuple[PostgreSQLAdminParameter, ...] = (),
+    ) -> PostgreSQLAdminResult[tuple[object, ...]]:
+        driver_parameters = tuple(
+            list(value) if isinstance(value, tuple) else value for value in parameters
+        )
+        return cast(
+            PostgreSQLAdminResult[tuple[object, ...]],
+            self._connection.execute(
+                cast(QueryNoTemplate, statement), driver_parameters
+            ),
+        )
+
+
+class _AdminUnitOfWork:
+    __slots__ = ("_connection", "_transaction")
+
+    def __init__(self, connection: psycopg.Connection[Any]) -> None:
+        self._connection = connection
+        self._transaction = _AdminTransaction(connection)
+
+    @property
+    def transaction(self) -> PostgreSQLAdminTransaction:
+        return self._transaction
+
+    def commit(self) -> None:
+        try:
+            self._connection.commit()
+        except psycopg.OperationalError as exc:
+            raise AdminCommitUnknownError from exc
+
+    def rollback(self) -> None:
+        self._connection.rollback()
 
 
 class AdminRoleBoundPool:
@@ -44,11 +99,45 @@ class AdminRoleBoundPool:
     def close(self) -> None:
         self._pool.close()
 
+    def catalog_digest(self) -> str:
+        with self.connection() as connection:
+            connection.execute("SET TRANSACTION READ ONLY")
+            return database_catalog_digest(connection)
+
     @contextmanager
     def connection(self):
         with self._pool.connection() as connection:
             self._verify(connection)
+            connection.commit()
             yield connection
+
+    @contextmanager
+    def repeatable_read(self):
+        with self.connection() as connection:
+            connection.execute("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            unit_of_work = _AdminUnitOfWork(connection)
+            try:
+                yield cast(PostgreSQLAdminUnitOfWork, unit_of_work)
+            except BaseException:
+                unit_of_work.rollback()
+                raise
+            finally:
+                if connection.info.transaction_status != TransactionStatus.IDLE:
+                    unit_of_work.rollback()
+
+    @contextmanager
+    def serializable(self):
+        with self.connection() as connection:
+            connection.execute("BEGIN ISOLATION LEVEL SERIALIZABLE")
+            unit_of_work = _AdminUnitOfWork(connection)
+            try:
+                yield cast(PostgreSQLAdminUnitOfWork, unit_of_work)
+            except BaseException:
+                unit_of_work.rollback()
+                raise
+            finally:
+                if connection.info.transaction_status != TransactionStatus.IDLE:
+                    unit_of_work.rollback()
 
     def _configure(self, connection: psycopg.Connection[Any]) -> None:
         connection.execute("SET search_path TO pg_catalog, armi")
@@ -68,7 +157,11 @@ class AdminRoleBoundPool:
             "SELECT session_user, current_user, current_setting('search_path')"
         ).fetchone()
         if row != (self._expected_role, self._expected_role, _SEARCH_PATH):
-            raise AdminRoleSessionError("DB-ROLE-SESSION-DIRTY")
+            raise AdminRoleSessionError
 
 
-__all__ = ("AdminRoleBoundPool", "AdminRoleSessionError")
+__all__ = (
+    "AdminCommitUnknownError",
+    "AdminRoleBoundPool",
+    "AdminRoleSessionError",
+)

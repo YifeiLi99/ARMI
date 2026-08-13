@@ -10,7 +10,7 @@ from uuid import UUID
 
 from armi_kernel.application import ArtifactRef, CandidateFactClass, CandidateOwnerDraft
 from armi_kernel.contracts import Digest, Instant, TraceId
-from armi_runtime_foundation import PostgreSQLTransaction
+from armi_runtime_foundation import PostgreSQLAdminTransaction, PostgreSQLTransaction
 
 CREATOR_PROMPT_PROJECTION_VERSION = "creator-prompt.v1"
 MAX_CREATOR_PROMPT_BYTES = 65_536
@@ -257,7 +257,7 @@ class CreatorPromptPort(Protocol):
 @runtime_checkable
 class PromptAdminReferencePort(Protocol):
     def references_artifact(
-        self, transaction: PostgreSQLTransaction, *, artifact_id: str
+        self, transaction: PostgreSQLAdminTransaction, *, artifact_id: str
     ) -> bool: ...
 
 

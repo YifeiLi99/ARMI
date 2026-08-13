@@ -12,6 +12,7 @@ from uuid import UUID
 from armi_kernel.application import ArtifactId, ArtifactRef, CandidateOwnerDraft
 from armi_kernel.contracts import Instant
 from armi_runtime_foundation import (
+    PostgreSQLAdminTransaction,
     PostgreSQLRuntimeUnitOfWork,
     PostgreSQLTransaction,
 )
@@ -416,7 +417,13 @@ class MaterialCandidateContextPort(Protocol):
 
 @runtime_checkable
 class MaterialAdminReadPort(Protocol):
-    def private_snapshot(self, subject_id: UUID) -> MaterialAdminSnapshot: ...
+    def private_snapshot(
+        self, transaction: PostgreSQLAdminTransaction, subject_id: UUID
+    ) -> MaterialAdminSnapshot: ...
+
+    def references_artifact(
+        self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
+    ) -> bool: ...
 
 
 @runtime_checkable

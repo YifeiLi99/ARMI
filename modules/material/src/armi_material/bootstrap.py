@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
-from armi_artifact_store.api import ArtifactCatalogPort
+from armi_artifact_store.api import ArtifactAdminPort, ArtifactCatalogPort
 from armi_runtime_foundation import (
     EmptyRecoveryParticipant,
     PostgreSQLRuntimeUnitOfWorkFactory,
@@ -63,18 +63,10 @@ def bootstrap_material(
 
 
 def bootstrap_material_admin_read(
-    conninfo: str,
     *,
-    expected_role: str,
-    artifact_root: Path,
-    max_object_bytes: int = 104_857_600,
+    artifacts: ArtifactAdminPort,
 ) -> MaterialAdminReadPort:
-    return PostgreSQLMaterialAdminRead(
-        conninfo,
-        expected_role=expected_role,
-        artifact_root=artifact_root,
-        max_object_bytes=max_object_bytes,
-    )
+    return PostgreSQLMaterialAdminRead(artifacts=artifacts)
 
 
 def bootstrap_material_cognition() -> MaterialCognitionPort:

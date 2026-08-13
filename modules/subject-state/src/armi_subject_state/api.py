@@ -9,7 +9,7 @@ from typing import Protocol, runtime_checkable
 from uuid import UUID
 
 from armi_kernel.application import CandidateFactClass, CandidateOwnerDraft
-from armi_runtime_foundation import PostgreSQLTransaction
+from armi_runtime_foundation import PostgreSQLAdminTransaction, PostgreSQLTransaction
 
 
 class SubjectStateKind(StrEnum):
@@ -221,7 +221,7 @@ class SubjectStateBirthPort(Protocol):
 @runtime_checkable
 class SubjectStateAdminReadPort(Protocol):
     def current_components(
-        self, *, private: bool
+        self, transaction: PostgreSQLAdminTransaction, *, private: bool
     ) -> tuple[SubjectStateAdminComponent, ...]: ...
 
 
@@ -229,7 +229,7 @@ class SubjectStateAdminReadPort(Protocol):
 class SubjectStateAdminCorrectionPort(Protocol):
     def current_head(
         self,
-        transaction: PostgreSQLTransaction,
+        transaction: PostgreSQLAdminTransaction,
         *,
         subject_id: str,
         kind: str,
@@ -238,7 +238,7 @@ class SubjectStateAdminCorrectionPort(Protocol):
 
     def revision(
         self,
-        transaction: PostgreSQLTransaction,
+        transaction: PostgreSQLAdminTransaction,
         *,
         revision_id: str,
         subject_id: str,
@@ -247,7 +247,7 @@ class SubjectStateAdminCorrectionPort(Protocol):
 
     def replace(
         self,
-        transaction: PostgreSQLTransaction,
+        transaction: PostgreSQLAdminTransaction,
         *,
         revision_id: str,
         subject_id: str,
@@ -259,7 +259,7 @@ class SubjectStateAdminCorrectionPort(Protocol):
 
     def repair_head(
         self,
-        transaction: PostgreSQLTransaction,
+        transaction: PostgreSQLAdminTransaction,
         *,
         subject_id: str,
         kind: str,
@@ -270,7 +270,7 @@ class SubjectStateAdminCorrectionPort(Protocol):
     ) -> bool: ...
 
     def find_current(
-        self, transaction: PostgreSQLTransaction, *, kind: str
+        self, transaction: PostgreSQLAdminTransaction, *, kind: str
     ) -> tuple[UUID, int] | None: ...
 
 

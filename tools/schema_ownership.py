@@ -169,6 +169,11 @@ def ownership_registry_errors(schema_root: Path) -> tuple[str, ...]:
 
 def source_owner_for_path(path: Path) -> str | None:
     parts = path.as_posix().split("/")
+    if (
+        path.as_posix()
+        == "apps/armi-admin/src/armi_admin/persistence/runtime_foundation.py"
+    ):
+        return "runtime"
     if len(parts) >= 2 and parts[0] == "modules":
         return parts[1]
     if parts[:2] == ["apps", "armi-runtime"]:

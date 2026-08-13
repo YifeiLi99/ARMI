@@ -4,11 +4,21 @@ version = "0.0.0"
 requires-python = ">=3.14,<3.15"
 dependencies = [
     "armi-artifact-store==0.0.0",
+    "armi-cognition==0.0.0",
+    "armi-codex==0.0.0",
+    "armi-effect==0.0.0",
+    "armi-evidence==0.0.0",
+    "armi-expression==0.0.0",
+    "armi-interaction==0.0.0",
     "armi-kernel==0.0.0",
     "armi-material==0.0.0",
     "armi-mood==0.0.0",
+    "armi-opportunity==0.0.0",
+    "armi-perception==0.0.0",
     "armi-prompt==0.0.0",
     "armi-subject-state==0.0.0",
+    "armi-web-observation==0.0.0",
+    "armi-runtime-foundation==0.0.0",
     "armi-postgresql-contract==0.0.0",
     "mcp==2.0.0",
     "psycopg[binary]==3.3.4",
@@ -22,11 +32,21 @@ armi-admin-mcp = "armi_admin.mcp.entrypoint:main"
 
 [tool.uv.sources]
 armi-artifact-store = { workspace = true }
+armi-cognition = { workspace = true }
+armi-codex = { workspace = true }
+armi-effect = { workspace = true }
+armi-evidence = { workspace = true }
+armi-expression = { workspace = true }
+armi-interaction = { workspace = true }
 armi-kernel = { workspace = true }
 armi-material = { workspace = true }
 armi-mood = { workspace = true }
+armi-opportunity = { workspace = true }
+armi-perception = { workspace = true }
 armi-prompt = { workspace = true }
 armi-subject-state = { workspace = true }
+armi-web-observation = { workspace = true }
+armi-runtime-foundation = { workspace = true }
 armi-postgresql-contract = { workspace = true }
 
 [build-system]

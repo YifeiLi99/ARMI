@@ -13,10 +13,12 @@ from armi_runtime_foundation import (
 from armi_sleep.api import SleepMaintenancePort, SleepReadPort
 from armi_subject_state.api import SubjectStateReadPort
 
+from ._admin import PostgreSQLOpportunityAdmin
 from ._application import compose_opportunity_pipeline
 from ._owner import PostgreSQLOpportunityOwner
 from ._recovery import OpportunityRecoveryParticipant
 from .api import (
+    OpportunityAdminPort,
     OpportunityAdmissionPort,
     OpportunityCognitionPort,
     OpportunityContextReadPort,
@@ -25,6 +27,10 @@ from .api import (
     OpportunityTransitionPort,
     OpportunityWakeupPort,
 )
+
+
+def bootstrap_opportunity_admin() -> OpportunityAdminPort:
+    return PostgreSQLOpportunityAdmin()
 
 
 def bootstrap_opportunity_admission() -> OpportunityAdmissionPort:
@@ -92,6 +98,7 @@ def bootstrap_opportunity_recovery() -> RecoveryParticipant:
 
 __all__ = (
     "bootstrap_opportunity",
+    "bootstrap_opportunity_admin",
     "bootstrap_opportunity_admission",
     "bootstrap_opportunity_cognition",
     "bootstrap_opportunity_context",

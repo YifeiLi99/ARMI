@@ -10,6 +10,7 @@ from uuid import UUID
 from armi_kernel.application import ArtifactId, ArtifactRegistration, PublishedArtifact
 from armi_kernel.contracts import Digest, Instant, TraceId
 from armi_runtime_foundation import (
+    PostgreSQLAdminTransaction,
     PostgreSQLRuntimeUnitOfWork,
     PostgreSQLTransaction,
 )
@@ -81,6 +82,31 @@ from ._scene_contract import (
     SceneTimelineQueryPort,
     TimelineItemId,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class InteractionAdminInputSnapshot:
+    interaction_id: UUID
+    subject_id: UUID
+
+
+@runtime_checkable
+class InteractionAdminPort(Protocol):
+    def input_snapshot(
+        self, transaction: PostgreSQLAdminTransaction, *, interaction_id: UUID
+    ) -> InteractionAdminInputSnapshot | None: ...
+
+    def delete_input_chain(
+        self, transaction: PostgreSQLAdminTransaction, *, interaction_id: UUID
+    ) -> None: ...
+
+    def inspect_ids(
+        self, transaction: PostgreSQLAdminTransaction, *, object_ids: tuple[UUID, ...]
+    ) -> tuple[UUID, ...]: ...
+
+    def artifact_reference_count(
+        self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
+    ) -> int: ...
 
 
 @runtime_checkable
@@ -537,6 +563,8 @@ __all__ = (
     "ExternalRecognitionRecovery",
     "ExternalRecognitionSnapshot",
     "ExternalVisualRole",
+    "InteractionAdminInputSnapshot",
+    "InteractionAdminPort",
     "InteractionArtifactCatalogPort",
     "InteractionBirthPort",
     "InteractionCognitionReadPort",

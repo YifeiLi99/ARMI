@@ -17,6 +17,7 @@ from armi_runtime_foundation import (
 from armi_subject_state.api import SubjectStateReadPort
 
 from ._action_postgresql import PostgreSQLInteractionActionOwner
+from ._admin import PostgreSQLInteractionAdmin
 from ._birth_postgresql import PostgreSQLInteractionBirth
 from ._context_postgresql import PostgreSQLInteractionContextRead
 from ._creator import EvidenceAcceptanceTransaction
@@ -37,6 +38,7 @@ from .api import (
     CreatorInteractionPort,
     CreatorScenePort,
     ExternalMessageInputPort,
+    InteractionAdminPort,
     InteractionArtifactCatalogPort,
     InteractionBirthPort,
     InteractionCognitionReadPort,
@@ -53,6 +55,10 @@ from .api import (
     SceneTimelineCodexTaskProjectionPort,
     SceneTimelineQueryPort,
 )
+
+
+def bootstrap_interaction_admin() -> InteractionAdminPort:
+    return PostgreSQLInteractionAdmin()
 
 
 def bootstrap_interaction_identity() -> InteractionIdentityPort:
@@ -207,6 +213,7 @@ __all__ = (
     "InteractionModule",
     "bootstrap_interaction",
     "bootstrap_interaction_action_ports",
+    "bootstrap_interaction_admin",
     "bootstrap_interaction_birth",
     "bootstrap_interaction_cognition",
     "bootstrap_interaction_identity",

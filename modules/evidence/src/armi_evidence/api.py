@@ -8,7 +8,11 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-from armi_runtime_foundation import PostgreSQLTransaction, PostgreSQLTransactionAccess
+from armi_runtime_foundation import (
+    PostgreSQLAdminTransaction,
+    PostgreSQLTransaction,
+    PostgreSQLTransactionAccess,
+)
 
 type EvidenceTransaction = PostgreSQLTransaction | PostgreSQLTransactionAccess
 
@@ -166,7 +170,35 @@ class EvidenceReadPort(Protocol):
     ) -> EvidenceId | None: ...
 
 
+@dataclass(frozen=True, slots=True)
+class EvidenceAdminSnapshot:
+    evidence_id: UUID
+    interaction_id: UUID
+    artifact_id: UUID
+
+
+@runtime_checkable
+class EvidenceAdminPort(Protocol):
+    def snapshot_for_interaction(
+        self, transaction: PostgreSQLAdminTransaction, *, interaction_id: UUID
+    ) -> EvidenceAdminSnapshot | None: ...
+
+    def delete(
+        self, transaction: PostgreSQLAdminTransaction, *, evidence_id: UUID
+    ) -> None: ...
+
+    def artifact_reference_count(
+        self,
+        transaction: PostgreSQLAdminTransaction,
+        *,
+        artifact_id: UUID,
+        excluded_evidence_id: UUID | None = None,
+    ) -> int: ...
+
+
 __all__ = (
+    "EvidenceAdminPort",
+    "EvidenceAdminSnapshot",
     "EvidenceDraft",
     "EvidenceId",
     "EvidencePrivacyScope",

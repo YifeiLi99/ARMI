@@ -1,14 +1,12 @@
-"""Synchronous Admin adapters for subject-state observation and correction."""
+"""Synchronous Admin adapters owned by subject-state."""
 
 from __future__ import annotations
 
-from typing import Any
+import json
+from typing import cast
 from uuid import UUID
 
-import psycopg
-from psycopg.pq import TransactionStatus
-from psycopg.types.json import Jsonb
-from psycopg_pool import ConnectionPool
+from armi_runtime_foundation import PostgreSQLAdminTransaction
 
 from .api import (
     SubjectStateAdminComponent,
@@ -16,67 +14,29 @@ from .api import (
     SubjectStateKind,
 )
 
-_SEARCH_PATH = "pg_catalog, armi"
-
 
 class PostgreSQLSubjectStateAdmin:
-    __slots__ = ("_conninfo", "_expected_role")
-
-    def __init__(
-        self, conninfo: str | None = None, *, expected_role: str | None = None
-    ) -> None:
-        self._conninfo = conninfo
-        self._expected_role = expected_role
+    __slots__ = ()
 
     def current_components(
-        self, *, private: bool
+        self, transaction: PostgreSQLAdminTransaction, *, private: bool
     ) -> tuple[SubjectStateAdminComponent, ...]:
-        if self._conninfo is None or self._expected_role is None:
-            raise RuntimeError("subject-state Admin read is not configured")
-        pool = ConnectionPool(
-            self._conninfo,
-            min_size=0,
-            max_size=1,
-            open=False,
-            configure=self._configure,
-            reset=self._reset,
+        statement = (
+            "SELECT head.component_kind,head.component_version,revision.privacy_scope,"
+            "revision.semantic_payload FROM armi.subject_component_heads AS head JOIN "
+            "armi.subject_component_revisions AS revision ON revision.component_revision_id="
+            "head.current_revision_id ORDER BY head.component_kind"
+            if private
+            else "SELECT head.component_kind,head.component_version,revision.privacy_scope "
+            "FROM armi.subject_component_heads AS head JOIN armi.subject_component_revisions "
+            "AS revision ON revision.component_revision_id=head.current_revision_id "
+            "ORDER BY head.component_kind"
         )
-        try:
-            pool.open(wait=True, timeout=5.0)
-            with pool.connection() as connection:
-                row = connection.execute(
-                    "SELECT session_user,current_user,current_setting('search_path')"
-                ).fetchone()
-                if row != (self._expected_role, self._expected_role, _SEARCH_PATH):
-                    raise RuntimeError("subject-state Admin role mismatch")
-                connection.execute("SET TRANSACTION READ ONLY")
-                return self.current_components_on(connection, private=private)
-        finally:
-            pool.close()
-
-    def _configure(self, connection: psycopg.Connection[Any]) -> None:
-        connection.autocommit = True
-        connection.execute("SET search_path TO pg_catalog, armi")
-
-    def _reset(self, connection: psycopg.Connection[Any]) -> None:
-        if connection.info.transaction_status != TransactionStatus.IDLE:
-            connection.rollback()
-        connection.execute("RESET ROLE")
-        connection.execute("RESET ALL")
-        connection.execute("SET search_path TO pg_catalog, armi")
-
-    def current_components_on(
-        self, connection: Any, *, private: bool
-    ) -> tuple[SubjectStateAdminComponent, ...]:
-        rows = connection.execute(
-            "SELECT head.component_kind, head.component_version, revision.privacy_scope"
-            + (", revision.semantic_payload" if private else "")
-            + " FROM armi.subject_component_heads AS head JOIN armi.subject_component_revisions AS revision ON revision.component_revision_id=head.current_revision_id ORDER BY head.component_kind"
-        ).fetchall()
+        rows = transaction.execute(statement).fetchall()
         return tuple(
             SubjectStateAdminComponent(
                 SubjectStateKind(str(row[0])),
-                int(row[1]),
+                int(cast(int, row[1])),
                 str(row[2]),
                 row[3] if private else None,
             )
@@ -84,32 +44,54 @@ class PostgreSQLSubjectStateAdmin:
         )
 
     def current_head(
-        self, transaction: Any, *, subject_id: str, kind: str, for_update: bool
+        self,
+        transaction: PostgreSQLAdminTransaction,
+        *,
+        subject_id: str,
+        kind: str,
+        for_update: bool,
     ) -> SubjectStateCorrectionHead | None:
         suffix = " FOR UPDATE OF head" if for_update else ""
         row = transaction.execute(
-            "SELECT head.current_revision_id,head.component_version,revision.semantic_payload,(SELECT max(candidate.component_version) FROM armi.subject_component_revisions AS candidate WHERE candidate.subject_id=head.subject_id AND candidate.component_kind=head.component_kind) FROM armi.subject_component_heads AS head JOIN armi.subject_component_revisions AS revision ON revision.component_revision_id=head.current_revision_id WHERE head.subject_id=%s AND head.component_kind=%s"
+            "SELECT head.current_revision_id,head.component_version,revision.semantic_payload,"
+            "(SELECT max(candidate.component_version) FROM armi.subject_component_revisions "
+            "AS candidate WHERE candidate.subject_id=head.subject_id AND candidate.component_kind="
+            "head.component_kind) FROM armi.subject_component_heads AS head JOIN "
+            "armi.subject_component_revisions AS revision ON revision.component_revision_id="
+            "head.current_revision_id WHERE head.subject_id=%s AND head.component_kind=%s"
             + suffix,
             (subject_id, kind),
         ).fetchone()
         return (
             None
             if row is None
-            else SubjectStateCorrectionHead(row[0], int(row[1]), row[2], int(row[3]))
+            else SubjectStateCorrectionHead(
+                cast(UUID, row[0]),
+                int(cast(int, row[1])),
+                row[2],
+                int(cast(int, row[3])),
+            )
         )
 
     def revision(
-        self, transaction: Any, *, revision_id: str, subject_id: str, kind: str
+        self,
+        transaction: PostgreSQLAdminTransaction,
+        *,
+        revision_id: str,
+        subject_id: str,
+        kind: str,
     ) -> tuple[UUID, int] | None:
         row = transaction.execute(
-            "SELECT component_revision_id,component_version FROM armi.subject_component_revisions WHERE component_revision_id=%s AND subject_id=%s AND component_kind=%s",
+            "SELECT component_revision_id,component_version FROM "
+            "armi.subject_component_revisions WHERE component_revision_id=%s "
+            "AND subject_id=%s AND component_kind=%s",
             (revision_id, subject_id, kind),
         ).fetchone()
-        return None if row is None else (row[0], int(row[1]))
+        return None if row is None else (cast(UUID, row[0]), int(cast(int, row[1])))
 
     def replace(
         self,
-        transaction: Any,
+        transaction: PostgreSQLAdminTransaction,
         *,
         revision_id: str,
         subject_id: str,
@@ -119,7 +101,10 @@ class PostgreSQLSubjectStateAdmin:
         replacement: object,
     ) -> bool:
         transaction.execute(
-            "INSERT INTO armi.subject_component_revisions (component_revision_id,subject_id,component_kind,component_version,previous_revision_id,origin_kind,origin_ref,subject_commit_id,proposal_ref,semantic_payload,privacy_scope) VALUES (%s,%s,%s,%s,%s,'admin_correction',%s,NULL,NULL,%s,'private')",
+            "INSERT INTO armi.subject_component_revisions (component_revision_id,subject_id,"
+            "component_kind,component_version,previous_revision_id,origin_kind,origin_ref,"
+            "subject_commit_id,proposal_ref,semantic_payload,privacy_scope) VALUES "
+            "(%s,%s,%s,%s,%s,'admin_correction',%s,NULL,NULL,%s::jsonb,'private')",
             (
                 revision_id,
                 subject_id,
@@ -127,12 +112,14 @@ class PostgreSQLSubjectStateAdmin:
                 version,
                 previous_revision_id,
                 revision_id,
-                Jsonb(replacement),
+                json.dumps(replacement, ensure_ascii=False, separators=(",", ":")),
             ),
         )
         return (
             transaction.execute(
-                "UPDATE armi.subject_component_heads SET current_revision_id=%s,component_version=%s WHERE subject_id=%s AND component_kind=%s AND current_revision_id=%s AND component_version=%s",
+                "UPDATE armi.subject_component_heads SET current_revision_id=%s,"
+                "component_version=%s WHERE subject_id=%s AND component_kind=%s "
+                "AND current_revision_id=%s AND component_version=%s",
                 (
                     revision_id,
                     version,
@@ -147,7 +134,7 @@ class PostgreSQLSubjectStateAdmin:
 
     def repair_head(
         self,
-        transaction: Any,
+        transaction: PostgreSQLAdminTransaction,
         *,
         subject_id: str,
         kind: str,
@@ -158,7 +145,9 @@ class PostgreSQLSubjectStateAdmin:
     ) -> bool:
         return (
             transaction.execute(
-                "UPDATE armi.subject_component_heads SET current_revision_id=%s,component_version=%s WHERE subject_id=%s AND component_kind=%s AND current_revision_id=%s AND component_version=%s",
+                "UPDATE armi.subject_component_heads SET current_revision_id=%s,"
+                "component_version=%s WHERE subject_id=%s AND component_kind=%s "
+                "AND current_revision_id=%s AND component_version=%s",
                 (
                     target_revision_id,
                     target_version,
@@ -171,12 +160,17 @@ class PostgreSQLSubjectStateAdmin:
             == 1
         )
 
-    def find_current(self, transaction: Any, *, kind: str) -> tuple[UUID, int] | None:
+    def find_current(
+        self, transaction: PostgreSQLAdminTransaction, *, kind: str
+    ) -> tuple[UUID, int] | None:
         row = transaction.execute(
-            "SELECT head.current_revision_id,head.component_version FROM armi.subject_component_heads AS head JOIN armi.subject_component_revisions AS revision ON revision.component_revision_id=head.current_revision_id WHERE head.component_kind=%s",
+            "SELECT head.current_revision_id,head.component_version FROM "
+            "armi.subject_component_heads AS head JOIN armi.subject_component_revisions "
+            "AS revision ON revision.component_revision_id=head.current_revision_id "
+            "WHERE head.component_kind=%s",
             (kind,),
         ).fetchone()
-        return None if row is None else (row[0], int(row[1]))
+        return None if row is None else (cast(UUID, row[0]), int(cast(int, row[1])))
 
 
 __all__ = ("PostgreSQLSubjectStateAdmin",)

@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any
 from uuid import UUID, uuid7
 
 from armi_kernel.application import ArtifactRef
 from armi_kernel.contracts import Digest
-from armi_runtime_foundation import PostgreSQLTransaction
+from armi_runtime_foundation import PostgreSQLAdminTransaction, PostgreSQLTransaction
 
 from ._application import PromptApplication
 from .api import (
@@ -321,7 +320,9 @@ class PostgreSQLPromptOwner:
 class PostgreSQLPromptAdmin:
     __slots__ = ()
 
-    def references_artifact(self, transaction: Any, *, artifact_id: str) -> bool:
+    def references_artifact(
+        self, transaction: PostgreSQLAdminTransaction, *, artifact_id: str
+    ) -> bool:
         row = transaction.execute(
             "SELECT EXISTS (SELECT 1 FROM armi.prompt_revisions WHERE content_artifact_id = %s)",
             (artifact_id,),

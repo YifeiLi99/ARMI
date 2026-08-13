@@ -36,6 +36,7 @@ from armi_runtime_foundation import (
 from armi_sleep.api import SleepCognitionPort, SleepReadPort
 from armi_subject_state.api import SubjectStateCognitionPort, SubjectStateReadPort
 
+from ._admin import PostgreSQLCognitionAdmin
 from ._candidate_application import CandidateValidationPipeline
 from ._change_set_codec import parse_subject_change_set
 from ._context_postgresql import PostgreSQLCognitionContextLifecycle
@@ -44,6 +45,7 @@ from ._model_application import ModelPipeline
 from ._recovery import CognitionRecoveryParticipant
 from ._subject_commit import PostgreSQLCognitionSubjectCommit
 from .api import (
+    CognitionAdminPort,
     CognitionArtifactCatalogPort,
     CognitionContextLifecyclePort,
     CognitionExactLifeQueryPort,
@@ -56,6 +58,10 @@ from .api import (
     SubjectChangeSet,
     SubjectChangeSetCodec,
 )
+
+
+def bootstrap_cognition_admin() -> CognitionAdminPort:
+    return PostgreSQLCognitionAdmin()
 
 
 def bootstrap_cognition_exact_life_query() -> CognitionExactLifeQueryPort:
@@ -249,6 +255,7 @@ def bootstrap_cognition_recovery() -> RecoveryParticipant:
 
 
 __all__ = (
+    "bootstrap_cognition_admin",
     "bootstrap_cognition_candidate",
     "bootstrap_cognition_change_set_codec",
     "bootstrap_cognition_context",

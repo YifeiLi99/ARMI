@@ -11,7 +11,7 @@ from uuid import UUID
 
 from armi_activity.api import ActivityId
 from armi_kernel.contracts import Digest
-from armi_runtime_foundation import PostgreSQLTransaction
+from armi_runtime_foundation import PostgreSQLAdminTransaction, PostgreSQLTransaction
 
 _TOKEN = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 _CODE = re.compile(r"^(?:LIFE|ACTIVITY)-[A-Z0-9-]+$", re.ASCII)
@@ -420,6 +420,28 @@ def require_life_token(value: str) -> None:
         raise LifeViolation("LIFE-TOKEN")
 
 
+@dataclass(frozen=True, slots=True)
+class OpportunityAdminSnapshot:
+    opportunity_id: UUID
+    evidence_id: UUID
+    disposition: str
+
+
+@runtime_checkable
+class OpportunityAdminPort(Protocol):
+    def snapshot_for_evidence(
+        self, transaction: PostgreSQLAdminTransaction, *, evidence_id: UUID
+    ) -> OpportunityAdminSnapshot | None: ...
+
+    def delete_open(
+        self, transaction: PostgreSQLAdminTransaction, *, opportunity_id: UUID
+    ) -> bool: ...
+
+    def inspect_ids(
+        self, transaction: PostgreSQLAdminTransaction, *, object_ids: tuple[UUID, ...]
+    ) -> tuple[UUID, ...]: ...
+
+
 __all__ = (
     "CreatorOutreachPolicy",
     "ExternalEvidenceOpportunityDraft",
@@ -428,6 +450,8 @@ __all__ = (
     "LifeOpportunitySourceSnapshot",
     "LifeQueryResultOpportunityDraft",
     "LifeViolation",
+    "OpportunityAdminPort",
+    "OpportunityAdminSnapshot",
     "OpportunityAdmissionOutcome",
     "OpportunityAdmissionPort",
     "OpportunityAdmissionStatus",

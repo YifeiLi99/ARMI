@@ -11,9 +11,34 @@ from uuid import UUID
 from armi_kernel.application import ArtifactRef, WorkRecord
 from armi_kernel.contracts import Digest, TraceId
 from armi_runtime_foundation import (
+    PostgreSQLAdminTransaction,
     PostgreSQLRuntimeUnitOfWork,
     PostgreSQLTransaction,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class ExpressionAdminSnapshot:
+    action_intent_id: UUID
+    operation_ref: UUID
+    root_opportunity_id: UUID
+
+
+@runtime_checkable
+class ExpressionAdminPort(Protocol):
+    def operation(
+        self, transaction: PostgreSQLAdminTransaction, *, operation_ref: UUID
+    ) -> ExpressionAdminSnapshot | None: ...
+    def intent(
+        self, transaction: PostgreSQLAdminTransaction, *, action_intent_id: UUID
+    ) -> ExpressionAdminSnapshot | None: ...
+    def inspect_ids(
+        self, transaction: PostgreSQLAdminTransaction, *, object_ids: tuple[UUID, ...]
+    ) -> tuple[UUID, ...]: ...
+    def artifact_reference_count(
+        self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
+    ) -> int: ...
+
 
 _CODE = re.compile(
     r"^(?:CON|RESPONSE|ACTION|POLICY|SCOPE|SUBJECT)-[A-Z0-9-]+$", re.ASCII
@@ -512,6 +537,8 @@ __all__ = (
     "CreatorResponseOperationId",
     "DeclaredResponseEffectDraft",
     "DelegatedActionIntentDraft",
+    "ExpressionAdminPort",
+    "ExpressionAdminSnapshot",
     "ExpressionCommitContext",
     "ExpressionCommitPort",
     "ExpressionEffectLinkPort",

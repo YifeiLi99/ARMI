@@ -7,7 +7,7 @@ from typing import Protocol, runtime_checkable
 from uuid import UUID
 
 from armi_kernel.application import CandidateFactClass, CandidateOwnerDraft
-from armi_runtime_foundation import PostgreSQLTransaction
+from armi_runtime_foundation import PostgreSQLAdminTransaction, PostgreSQLTransaction
 
 
 class MoodViolation(RuntimeError):
@@ -107,14 +107,16 @@ class MoodBirthPort(Protocol):
 
 @runtime_checkable
 class MoodAdminReadPort(Protocol):
-    def current_component(self, *, private: bool) -> MoodAdminComponent | None: ...
+    def current_component(
+        self, transaction: PostgreSQLAdminTransaction, *, private: bool
+    ) -> MoodAdminComponent | None: ...
 
 
 @runtime_checkable
 class MoodAdminCorrectionPort(Protocol):
     def current_head(
         self,
-        transaction: PostgreSQLTransaction,
+        transaction: PostgreSQLAdminTransaction,
         *,
         subject_id: str,
         kind: str,
@@ -123,7 +125,7 @@ class MoodAdminCorrectionPort(Protocol):
 
     def revision(
         self,
-        transaction: PostgreSQLTransaction,
+        transaction: PostgreSQLAdminTransaction,
         *,
         revision_id: str,
         subject_id: str,
@@ -132,7 +134,7 @@ class MoodAdminCorrectionPort(Protocol):
 
     def replace(
         self,
-        transaction: PostgreSQLTransaction,
+        transaction: PostgreSQLAdminTransaction,
         *,
         revision_id: str,
         subject_id: str,
@@ -144,7 +146,7 @@ class MoodAdminCorrectionPort(Protocol):
 
     def repair_head(
         self,
-        transaction: PostgreSQLTransaction,
+        transaction: PostgreSQLAdminTransaction,
         *,
         subject_id: str,
         kind: str,
@@ -155,7 +157,7 @@ class MoodAdminCorrectionPort(Protocol):
     ) -> bool: ...
 
     def find_current(
-        self, transaction: PostgreSQLTransaction, *, kind: str
+        self, transaction: PostgreSQLAdminTransaction, *, kind: str
     ) -> tuple[UUID, int] | None: ...
 
 

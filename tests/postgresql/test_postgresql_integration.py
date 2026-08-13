@@ -30,6 +30,7 @@ import rfc8785
 from armi_activity.api import ActivityViolation
 from armi_activity.bootstrap import bootstrap_activity, bootstrap_activity_cognition
 from armi_admin.application import AdminConfig, AdminCredentialPort
+from armi_admin.composition import bootstrap_admin
 from armi_admin.mcp.contracts import (
     ApplyCorrectionRequest,
     CorrectionStatusRequest,
@@ -42,7 +43,6 @@ from armi_admin.mcp.contracts import (
     SettleCorrectionWorkRequest,
 )
 from armi_admin.mcp.service import AdminToolService
-from armi_admin.persistence.observation_gateway import AdminObservationGateway
 from armi_admin.persistence.role_session import AdminRoleBoundPool
 from armi_artifact_store.bootstrap import (
     bootstrap_artifact_catalog as ArtifactCatalogRepository,
@@ -185,13 +185,11 @@ from armi_kernel.contracts import (
 )
 from armi_material.bootstrap import (
     bootstrap_material,
-    bootstrap_material_admin_read,
     bootstrap_material_cognition,
 )
 from armi_memory.bootstrap import bootstrap_memory, bootstrap_memory_cognition
 from armi_mood.bootstrap import (
     bootstrap_mood,
-    bootstrap_mood_admin_read,
     bootstrap_mood_cognition,
 )
 from armi_opportunity.api import OpportunityAdmissionOutcome, OpportunityAdmissionStatus
@@ -261,7 +259,6 @@ from armi_sleep.api import CreatorMaintenanceViolation
 from armi_sleep.bootstrap import bootstrap_sleep, bootstrap_sleep_cognition
 from armi_subject_state.bootstrap import (
     bootstrap_subject_state,
-    bootstrap_subject_state_admin_read,
     bootstrap_subject_state_cognition,
 )
 from armi_web_observation._custody import normalize_full_response
@@ -2649,14 +2646,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
 
         def service_for(dsn: str) -> AdminToolService:
-            return AdminToolService(
-                config=config,
-                credentials=AdminCredentialPort(
+            return bootstrap_admin(
+                config,
+                AdminCredentialPort(
                     locator=config.locator,
                     config_root=Path.cwd(),
                     environ={"ARMI_SECRET_ADMIN_DATABASE": dsn},
                 ),
-            )
+            ).service
 
         service = service_for(fixture.admin_role_dsn)
         health = service.health(HealthRequest())
@@ -2679,23 +2676,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             self.assertEqual(denied.status, "rejected")
             self.assertEqual(denied.error_code, "ADMIN-DB-ROLE")
 
-        observation = AdminObservationGateway(
-            fixture.admin_role_dsn,
-            expected_role=fixture.admin_role,
-            materials=bootstrap_material_admin_read(
-                fixture.admin_role_dsn,
-                expected_role=fixture.admin_role,
-                artifact_root=Path.cwd() / "data" / "artifacts",
-            ),
-            mood=bootstrap_mood_admin_read(
-                fixture.admin_role_dsn,
-                expected_role=fixture.admin_role,
-            ),
-            subject_state=bootstrap_subject_state_admin_read(
-                fixture.admin_role_dsn,
-                expected_role=fixture.admin_role,
-            ),
-        )
+        observation = service._observation  # pyright: ignore[reportPrivateUsage]
         observation.register_environment(
             {
                 "environment_id": str(fixture.environment_id),
@@ -2812,7 +2793,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "ARMI_SECRET_ADMIN_PREVIEW_KEY": "s036-preview-key",
                 },
             )
-            service = AdminToolService(config=config, credentials=credentials)
+            service = bootstrap_admin(config, credentials).service
             service._register_environment(1)  # pyright: ignore[reportPrivateUsage]
             preview = service.mutate(
                 "environment_reset_preview",
@@ -3070,16 +3051,16 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             }
 
             def new_service() -> AdminToolService:
-                return AdminToolService(
-                    config=config,
-                    credentials=AdminCredentialPort(
+                return bootstrap_admin(
+                    config,
+                    AdminCredentialPort(
                         locator=config.locator,
                         migrator_locator=config.migrator_locator,
                         preview_locator=config.preview_locator,
                         config_root=experiment_root,
                         environ=secret_values,
                     ),
-                )
+                ).service
 
             service = new_service()
             service._register_environment(1)  # pyright: ignore[reportPrivateUsage]
@@ -3424,7 +3405,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     }
                 ),
             )
-            self.assertEqual(delete_preview.status, "succeeded")
+            self.assertEqual(
+                delete_preview.status, "succeeded", delete_preview.model_dump_json()
+            )
             assert delete_preview.result is not None
             self.assertTrue(delete_preview.result["side_work_required"])
             delete_apply = service.mutate(

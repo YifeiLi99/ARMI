@@ -23,7 +23,11 @@ from armi_kernel.application import (
     WorkRecord,
 )
 from armi_kernel.contracts import Instant, TraceId
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, StopSignal
+from armi_runtime_foundation import (
+    PostgreSQLAdminTransaction,
+    PostgreSQLRuntimeUnitOfWork,
+    StopSignal,
+)
 
 _SOURCE_KIND = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 
@@ -243,6 +247,13 @@ class PerceptionWorkerPort(Protocol):
     async def run_worker(self) -> None: ...
 
 
+@runtime_checkable
+class PerceptionAdminPort(Protocol):
+    def artifact_reference_count(
+        self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
+    ) -> int: ...
+
+
 __all__ = (
     "ExternalContentRecognitionPort",
     "ExternalContentRecognitionRequest",
@@ -250,6 +261,7 @@ __all__ = (
     "ExternalContentRecognitionStatus",
     "ExternalMediaContent",
     "ExternalMediaFetchPort",
+    "PerceptionAdminPort",
     "PerceptionArtifactCatalogPort",
     "PerceptionDurableWorkPort",
     "PerceptionWakeupPort",

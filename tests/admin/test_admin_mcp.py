@@ -9,9 +9,15 @@ import tempfile
 import unittest
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
+from typing import cast
 from unittest.mock import patch
 
-from armi_admin.application import AdminConfig, AdminCredentialPort
+from armi_admin.application import (
+    AdminConfig,
+    AdminControlPlane,
+    AdminCorrectionCoordinator,
+    AdminCredentialPort,
+)
 from armi_admin.mcp.contracts import (
     ApplyCorrectionRequest,
     CorrectionStatusRequest,
@@ -25,7 +31,12 @@ from armi_admin.mcp.contracts import (
 )
 from armi_admin.mcp.server import create_admin_server
 from armi_admin.mcp.service import AdminToolService
-from armi_admin.persistence import AdminSchemaSnapshot
+from armi_admin.persistence import (
+    AdminCorrectionGateway,
+    AdminObservationGateway,
+    AdminSchemaSnapshot,
+)
+from armi_admin.persistence.role_session import AdminRoleBoundPool
 from mcp.client import Client
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
@@ -65,7 +76,19 @@ def _service() -> AdminToolService:
         config_root=Path.cwd(),
         environ={"ARMI_SECRET_ADMIN_DATABASE": "postgresql://invalid"},
     )
-    return AdminToolService(config=config, credentials=credentials)
+    observation = cast(AdminObservationGateway, object())
+    control = AdminControlPlane(config, credentials, observation)
+    corrections = AdminCorrectionCoordinator(
+        config, credentials, control, cast(AdminCorrectionGateway, object())
+    )
+    return AdminToolService(
+        config=config,
+        credentials=credentials,
+        control=control,
+        corrections=corrections,
+        observation=observation,
+        pool=cast(AdminRoleBoundPool, object()),
+    )
 
 
 def _current_snapshot() -> AdminSchemaSnapshot:

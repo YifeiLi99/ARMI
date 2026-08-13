@@ -8,11 +8,6 @@ from datetime import UTC, datetime
 from typing import Any, Literal, cast
 from uuid import uuid7
 
-from armi_kernel.application import CredentialPurpose
-from armi_material.bootstrap import bootstrap_material_admin_read
-from armi_mood.bootstrap import bootstrap_mood_admin_read
-from armi_subject_state.bootstrap import bootstrap_subject_state_admin_read
-
 from armi_admin.application import (
     AdminConfig,
     AdminControlError,
@@ -27,6 +22,7 @@ from armi_admin.persistence import (
     AdminSchemaGateway,
     AdminSchemaSnapshot,
 )
+from armi_admin.persistence.role_session import AdminRoleBoundPool
 
 from .contracts import (
     AdminIdentity,
@@ -106,6 +102,8 @@ class AdminToolService:
         "_credentials",
         "_identity",
         "_mutation_cache",
+        "_observation",
+        "_pool",
         "_requires_reload",
     )
 
@@ -114,13 +112,17 @@ class AdminToolService:
         *,
         config: AdminConfig,
         credentials: AdminCredentialPort,
+        control: AdminControlPlane,
+        corrections: AdminCorrectionCoordinator,
+        observation: AdminObservationGateway,
+        pool: AdminRoleBoundPool,
     ) -> None:
         self._config = config
         self._credentials = credentials
-        self._control = AdminControlPlane(config, credentials)
-        self._corrections = AdminCorrectionCoordinator(
-            config, credentials, self._control
-        )
+        self._control = control
+        self._corrections = corrections
+        self._observation = observation
+        self._pool = pool
         self._mutation_cache: dict[
             tuple[str, str], tuple[str, AdminToolResult[dict[str, Any]]]
         ] = {}
@@ -220,7 +222,7 @@ class AdminToolService:
                 typed_tail = cast(TailDiagnosticsRequest, request)
                 result = self._tail_diagnostics(int(typed_tail.limit))
             else:
-                gateway = self._observation_gateway()
+                gateway = self._observation
                 if name == "runtime_status":
                     result = gateway.runtime_status()
                 elif name == "subject_snapshot":
@@ -250,7 +252,7 @@ class AdminToolService:
                     result["relations"] = list(typed_scope.relations)
             return self._tool_success(started, result)
         except AdminCorrectionError as exc:
-            return self._correction_failure(started, str(exc))
+            return self._correction_failure(started, exc.code)
         except Exception:
             return self._tool_failure(started, "failed", "ADMIN-OBSERVATION-FAILED")
 
@@ -363,7 +365,7 @@ class AdminToolService:
                 )
             outcome = self._tool_success(started, result)
         except AdminCorrectionError as exc:
-            outcome = self._correction_failure(started, str(exc))
+            outcome = self._correction_failure(started, exc.code)
         except AdminControlError as exc:
             code = str(exc)
             outcome = self._tool_failure(
@@ -407,43 +409,13 @@ class AdminToolService:
         )
 
     def _read_snapshot(self) -> AdminSchemaSnapshot:
-        with self._credentials.resolve(
-            self._config.locator,
-            CredentialPurpose("database.admin"),
-        ) as handle:
-            conninfo = handle.consume(lambda value: bytes(value).decode("utf-8"))
-        return AdminSchemaGateway(
-            conninfo,
-            expected_role=self._config.expected_role,
-        ).read_snapshot()
-
-    def _observation_gateway(self) -> AdminObservationGateway:
-        with self._credentials.resolve(
-            self._config.locator,
-            CredentialPurpose("database.admin"),
-        ) as handle:
-            conninfo = handle.consume(lambda value: bytes(value).decode("utf-8"))
-        return AdminObservationGateway(
-            conninfo,
-            expected_role=self._config.expected_role,
-            materials=bootstrap_material_admin_read(
-                conninfo,
-                expected_role=self._config.expected_role,
-                artifact_root=self._config.environment_root / "data" / "artifacts",
-            ),
-            mood=bootstrap_mood_admin_read(
-                conninfo, expected_role=self._config.expected_role
-            ),
-            subject_state=bootstrap_subject_state_admin_read(
-                conninfo, expected_role=self._config.expected_role
-            ),
-        )
+        return AdminSchemaGateway(self._pool).read_snapshot()
 
     def _initialize_environment(
         self, birth_mode: Literal["unborn", "manifest"]
     ) -> dict[str, Any]:
         initialization = self._control.initialize_environment(birth_mode)
-        gateway = self._observation_gateway()
+        gateway = self._observation
         existing = gateway.environment()
         if existing is not None:
             if (
@@ -464,7 +436,7 @@ class AdminToolService:
         }
 
     def _register_environment(self, incarnation: int) -> None:
-        gateway = self._observation_gateway()
+        gateway = self._observation
         values = {
             "environment_id": self._config.environment_id,
             "environment_kind": self._config.environment_kind.value,
@@ -504,7 +476,7 @@ class AdminToolService:
         if scenario == "admin.fault-control.v1":
             return self._control.send_control("fault", {"action": "status"})
         if scenario == "admin.observation-isolation.v1":
-            return self._observation_gateway().subject_snapshot(private=False)
+            return self._observation.subject_snapshot(private=False)
         return {"scenario": scenario, "status": "ready_for_formal_input"}
 
     def _tool_success(

@@ -23,6 +23,7 @@ from armi_runtime_foundation import (
     RecoveryParticipant,
 )
 
+from ._admin import PostgreSQLCodexAdmin
 from ._application import CodexEffectPipeline
 from ._codec import decode_task, encode_result
 from ._commit import PostgreSQLCodexCommit
@@ -32,6 +33,7 @@ from ._recovery import CodexRecoveryParticipant
 from ._runner import IsolatedCodexRunner
 from ._timeline_projection import CodexTaskTimelineProjection
 from .api import (
+    CodexAdminPort,
     CodexArtifactReadPort,
     CodexArtifactStorePort,
     CodexCommitPort,
@@ -40,6 +42,11 @@ from .api import (
     CodexRuntimePort,
     CodexTaskSourceReadPort,
 )
+
+
+def bootstrap_codex_admin() -> CodexAdminPort:
+    return PostgreSQLCodexAdmin()
+
 
 Diagnostic = Callable[[str], None]
 
@@ -136,6 +143,7 @@ def bootstrap_codex_recovery() -> RecoveryParticipant:
 __all__ = (
     "CodexReadPorts",
     "bootstrap_codex",
+    "bootstrap_codex_admin",
     "bootstrap_codex_commit",
     "bootstrap_codex_read_ports",
     "bootstrap_codex_recovery",

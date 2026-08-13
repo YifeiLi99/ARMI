@@ -7,9 +7,11 @@ import struct
 import tempfile
 import unittest
 from pathlib import Path
+from typing import cast
 from unittest.mock import patch
 
 from armi_admin.application import AdminConfig, AdminControlPlane, AdminCredentialPort
+from armi_admin.persistence import AdminObservationGateway
 from armi_runtime.composition.admin_control import (
     RuntimeAdminControlServer,
     RuntimeAdminInjectedFault,
@@ -71,7 +73,9 @@ class AdminResetPreviewTests(unittest.TestCase):
                     "ARMI_SECRET_ADMIN_PREVIEW_KEY": "preview-key-for-tests",
                 },
             )
-            control = AdminControlPlane(config, credentials)
+            control = AdminControlPlane(
+                config, credentials, cast(AdminObservationGateway, object())
+            )
             with patch.object(
                 AdminControlPlane,
                 "_database_catalog_digest",

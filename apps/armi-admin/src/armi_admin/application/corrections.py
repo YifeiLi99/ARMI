@@ -15,9 +15,6 @@ import rfc8785
 from armi_artifact_store import ContentAddressedArtifactStore
 from armi_kernel.application import ArtifactViolation, CredentialPurpose
 from armi_kernel.contracts import Digest
-from armi_mood.bootstrap import bootstrap_mood_admin_correction
-from armi_prompt.bootstrap import bootstrap_prompt_admin_reference
-from armi_subject_state.bootstrap import bootstrap_subject_state_admin_correction
 
 from armi_admin.persistence import (
     AdminCorrectionGateway,
@@ -54,6 +51,10 @@ _TOKEN_FIELDS = {
 class AdminCorrectionError(RuntimeError):
     """A stable correction error without payloads, paths, or driver text."""
 
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(code)
+
 
 def _canonical(value: object) -> bytes:
     return rfc8785.dumps(cast(Any, value))
@@ -85,26 +86,31 @@ def _decode_object(raw: bytes) -> dict[str, Any]:
 class AdminCorrectionCoordinator:
     """Coordinate the fixed S037 handlers without a general correction ledger."""
 
-    __slots__ = ("_config", "_control", "_credentials")
+    __slots__ = ("_config", "_control", "_credentials", "_gateway")
 
     def __init__(
         self,
         config: AdminConfig,
         credentials: AdminCredentialPort,
         control: AdminControlPlane,
+        gateway: AdminCorrectionGateway,
     ) -> None:
         self._config = config
         self._credentials = credentials
         self._control = control
+        self._gateway = gateway
 
     def preview(self, spec: dict[str, Any]) -> dict[str, Any]:
         result_id = str(uuid7())
         side_work_id = str(uuid7())
-        snapshot = self._gateway().preview(
-            spec,
-            result_id=result_id,
-            side_work_id=side_work_id,
-        )
+        try:
+            snapshot = self._gateway.preview(
+                spec,
+                result_id=result_id,
+                side_work_id=side_work_id,
+            )
+        except AdminCorrectionGatewayError as exc:
+            raise AdminCorrectionError(exc.code) from None
         now = datetime.now(UTC)
         payload = {
             "schema_version": "armi.admin-correction-preview.v1",
@@ -151,22 +157,22 @@ class AdminCorrectionCoordinator:
             raise AdminCorrectionError("ADMIN-CORRECTION-COMMAND-MISMATCH")
         self._control.ensure_runtime_stopped()
         try:
-            return self._gateway().apply(spec, payload)
+            return self._gateway.apply(spec, payload)
         except AdminCorrectionGatewayError as exc:
-            raise AdminCorrectionError(str(exc)) from None
+            raise AdminCorrectionError(exc.code) from None
 
     def status(self, token: str) -> dict[str, Any]:
         payload = self._decode(token)
         self._validate_scope(payload)
         try:
-            return self._gateway().status(
+            return self._gateway.status(
                 cast(dict[str, Any], payload["status_spec"]), payload
             )
         except AdminCorrectionGatewayError as exc:
-            raise AdminCorrectionError(str(exc)) from None
+            raise AdminCorrectionError(exc.code) from None
 
     def settle_side_work(self, side_work_id: str) -> dict[str, Any]:
-        gateway = self._gateway()
+        gateway = self._gateway
         try:
             work = gateway.side_work(side_work_id)
             state = self._settle_artifact_file(work)
@@ -175,22 +181,7 @@ class AdminCorrectionCoordinator:
             )
             return {**settled, "file_result": state}
         except AdminCorrectionGatewayError as exc:
-            raise AdminCorrectionError(str(exc)) from None
-
-    def _gateway(self) -> AdminCorrectionGateway:
-        with self._credentials.resolve(
-            self._config.locator, CredentialPurpose("database.admin")
-        ) as handle:
-            conninfo = handle.consume(lambda value: bytes(value).decode("utf-8"))
-        return AdminCorrectionGateway(
-            conninfo,
-            expected_role=self._config.expected_role,
-            environment_id=self._config.environment_id,
-            incarnation=self._config.environment_incarnation,
-            mood=bootstrap_mood_admin_correction(),
-            prompts=bootstrap_prompt_admin_reference(),
-            subject_state=bootstrap_subject_state_admin_correction(),
-        )
+            raise AdminCorrectionError(exc.code) from None
 
     def _encode(self, payload: dict[str, Any]) -> str:
         encoded = base64.urlsafe_b64encode(_canonical(payload)).rstrip(b"=")

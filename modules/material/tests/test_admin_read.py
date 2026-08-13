@@ -3,27 +3,72 @@ from __future__ import annotations
 import hashlib
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid7
 
 import pytest
 from armi_artifact_store import build_life_material_artifact
+from armi_artifact_store.api import ArtifactAdminPort, ArtifactAdminSnapshot
+from armi_kernel.application import ArtifactIntegrityStatus, ArtifactPrivacyScope
 from armi_material._admin import PostgreSQLMaterialAdminRead
 from armi_material.api import MaterialViolation
+from armi_runtime_foundation import PostgreSQLAdminTransaction
+
+
+class _Artifacts:
+    def __init__(self, artifact_root: Path, rows: list[tuple[Any, ...]]) -> None:
+        self._root = artifact_root
+        self._by_id = {UUID(str(row[12])): row for row in rows}
+
+    def snapshot(
+        self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
+    ) -> ArtifactAdminSnapshot | None:
+        del transaction
+        row = self._by_id.get(artifact_id)
+        if row is None:
+            return None
+        return ArtifactAdminSnapshot(
+            artifact_id=artifact_id,
+            content_digest=str(row[13]),
+            byte_size=cast(int, row[15]),
+            media_type=str(row[14]),
+            logical_kind=str(row[16]),
+            privacy_scope=ArtifactPrivacyScope(str(row[17])),
+            integrity_status=ArtifactIntegrityStatus(str(row[18])),
+        )
+
+    def read_verified_bytes(self, snapshot: ArtifactAdminSnapshot) -> bytes:
+        digest_hex = snapshot.content_digest[7:]
+        locator = f"objects/sha256/{digest_hex[:2]}/{digest_hex[2:4]}/{digest_hex}"
+        data = (self._root / Path(locator)).read_bytes()
+        if f"sha256:{hashlib.sha256(data).hexdigest()}" != snapshot.content_digest:
+            raise MaterialViolation("MATERIAL-OBSERVATION-ARTIFACT")
+        return data
+
+    def delete(
+        self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
+    ) -> bool:
+        del transaction, artifact_id
+        return False
+
+    def inspect_ids(
+        self, transaction: PostgreSQLAdminTransaction, *, object_ids: tuple[UUID, ...]
+    ) -> tuple[UUID, ...]:
+        del transaction
+        return tuple(value for value in object_ids if value in self._by_id)
 
 
 class _Reader(PostgreSQLMaterialAdminRead):
     def __init__(self, artifact_root: Path, rows: list[tuple[Any, ...]]) -> None:
         super().__init__(
-            "postgresql://unused",
-            expected_role="armi_test_admin",
-            artifact_root=artifact_root,
-            max_object_bytes=1_000_000,
+            artifacts=cast(ArtifactAdminPort, _Artifacts(artifact_root, rows))
         )
         self._test_rows = rows
 
-    def _rows(self, subject_id: UUID) -> list[tuple[Any, ...]]:
-        del subject_id
+    def _rows(
+        self, transaction: PostgreSQLAdminTransaction, subject_id: UUID
+    ) -> list[tuple[Any, ...]]:
+        del transaction, subject_id
         return self._test_rows
 
 
@@ -85,7 +130,9 @@ def test_private_snapshot_reads_hidden_and_deleted_materials(tmp_path: Path) -> 
         ],
     )
 
-    snapshot = reader.private_snapshot(uuid7())
+    snapshot = reader.private_snapshot(
+        cast(PostgreSQLAdminTransaction, object()), uuid7()
+    )
 
     assert snapshot.truncated is False
     assert {item.body for item in snapshot.items} == {private_body, deleted_body}
@@ -99,4 +146,4 @@ def test_private_snapshot_fails_closed_on_corrupt_artifact(tmp_path: Path) -> No
     reader = _Reader(artifact_root, [_row(artifact)])
 
     with pytest.raises(MaterialViolation, match="MATERIAL-OBSERVATION-ARTIFACT"):
-        reader.private_snapshot(uuid7())
+        reader.private_snapshot(cast(PostgreSQLAdminTransaction, object()), uuid7())

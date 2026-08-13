@@ -14,9 +14,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 try:
-    from tools.schema_ownership import ownership_registry_errors
+    from tools.schema_ownership import (
+        ownership_registry_errors,
+        scan_repository_foreign_table_accesses,
+    )
 except ModuleNotFoundError:  # Direct execution places tools/ first on sys.path.
-    from schema_ownership import ownership_registry_errors
+    from schema_ownership import (
+        ownership_registry_errors,
+        scan_repository_foreign_table_accesses,
+    )
 
 WORKSPACE_VERSION = "0.0.0"
 PYTHON_RANGE = ">=3.14,<3.15"
@@ -450,11 +456,21 @@ DISTRIBUTIONS = (
         layers=("application", "mcp", "persistence", "process_control"),
         dependencies=(
             "armi-artifact-store==0.0.0",
+            "armi-cognition==0.0.0",
+            "armi-codex==0.0.0",
+            "armi-effect==0.0.0",
+            "armi-evidence==0.0.0",
+            "armi-expression==0.0.0",
+            "armi-interaction==0.0.0",
             "armi-kernel==0.0.0",
             "armi-material==0.0.0",
             "armi-mood==0.0.0",
+            "armi-opportunity==0.0.0",
+            "armi-perception==0.0.0",
             "armi-prompt==0.0.0",
             "armi-subject-state==0.0.0",
+            "armi-web-observation==0.0.0",
+            "armi-runtime-foundation==0.0.0",
             "armi-postgresql-contract==0.0.0",
             "mcp==2.0.0",
             "psycopg[binary]==3.3.4",
@@ -1388,8 +1404,7 @@ def _check_import(
             )
         if imported_module == "armi_material.bootstrap" and not (
             source_module.startswith("armi_runtime.composition")
-            or source_module == "armi_admin.mcp.service"
-            or source_module == "armi_admin.application.control_plane"
+            or source_module == "armi_admin.composition"
         ):
             violations.append(
                 Violation(
@@ -1401,9 +1416,7 @@ def _check_import(
             )
         if imported_module == "armi_subject_state.bootstrap" and not (
             source_module.startswith("armi_runtime.composition")
-            or source_module == "armi_admin.application.control_plane"
-            or source_module == "armi_admin.application.corrections"
-            or source_module == "armi_admin.mcp.service"
+            or source_module == "armi_admin.composition"
         ):
             violations.append(
                 Violation(
@@ -1415,9 +1428,7 @@ def _check_import(
             )
         if imported_module == "armi_mood.bootstrap" and not (
             source_module.startswith("armi_runtime.composition")
-            or source_module == "armi_admin.application.control_plane"
-            or source_module == "armi_admin.application.corrections"
-            or source_module == "armi_admin.mcp.service"
+            or source_module == "armi_admin.composition"
         ):
             violations.append(
                 Violation(
@@ -1429,7 +1440,7 @@ def _check_import(
             )
         if imported_module == "armi_prompt.bootstrap" and not (
             source_module.startswith("armi_runtime.composition")
-            or source_module == "armi_admin.application.corrections"
+            or source_module == "armi_admin.composition"
         ):
             violations.append(
                 Violation(
@@ -1442,6 +1453,7 @@ def _check_import(
         if (
             imported_module == "armi_interaction.bootstrap"
             and not source_module.startswith("armi_runtime.composition")
+            and source_module != "armi_admin.composition"
         ):
             violations.append(
                 Violation(
@@ -1454,6 +1466,7 @@ def _check_import(
         if (
             imported_module == "armi_perception.bootstrap"
             and not source_module.startswith("armi_runtime.composition")
+            and source_module != "armi_admin.composition"
         ):
             violations.append(
                 Violation(
@@ -1466,6 +1479,7 @@ def _check_import(
         if (
             imported_module == "armi_evidence.bootstrap"
             and not source_module.startswith("armi_runtime.composition")
+            and source_module != "armi_admin.composition"
         ):
             violations.append(
                 Violation(
@@ -1478,6 +1492,7 @@ def _check_import(
         if (
             imported_module == "armi_opportunity.bootstrap"
             and not source_module.startswith("armi_runtime.composition")
+            and source_module != "armi_admin.composition"
         ):
             violations.append(
                 Violation(
@@ -1501,6 +1516,7 @@ def _check_import(
         if (
             imported_module == "armi_cognition.bootstrap"
             and not source_module.startswith("armi_runtime.composition")
+            and source_module != "armi_admin.composition"
         ):
             violations.append(
                 Violation(
@@ -1513,6 +1529,7 @@ def _check_import(
         if (
             imported_module == "armi_expression.bootstrap"
             and not source_module.startswith("armi_runtime.composition")
+            and source_module != "armi_admin.composition"
         ):
             violations.append(
                 Violation(
@@ -1522,8 +1539,9 @@ def _check_import(
                     "expression bootstrap is reserved for Runtime composition",
                 )
             )
-        if imported_module == "armi_effect.bootstrap" and not source_module.startswith(
-            "armi_runtime.composition"
+        if imported_module == "armi_effect.bootstrap" and not (
+            source_module.startswith("armi_runtime.composition")
+            or source_module == "armi_admin.composition"
         ):
             violations.append(
                 Violation(
@@ -1536,6 +1554,7 @@ def _check_import(
         if (
             imported_module == "armi_web_observation.bootstrap"
             and not source_module.startswith("armi_runtime.composition")
+            and source_module != "armi_admin.composition"
         ):
             violations.append(
                 Violation(
@@ -1549,6 +1568,7 @@ def _check_import(
             imported_module == "armi_codex.bootstrap"
             and not source_module.startswith("armi_runtime.composition")
             and source_module != "armi_runtime.codex_runner_cli"
+            and source_module != "armi_admin.composition"
         ):
             violations.append(
                 Violation(
@@ -2344,6 +2364,57 @@ def check_repository(root: Path) -> list[Violation]:
         )
         for error in ownership_registry_errors(schema_root)
     )
+    foreign_accesses = scan_repository_foreign_table_accesses(root)
+    production_accesses = tuple(
+        access for access in foreign_accesses if "/schema/" not in access.path
+    )
+    if len(foreign_accesses) > 191:
+        violations.append(
+            Violation(
+                "ARC-SQL-OWNER-BUDGET",
+                _relative(registry_path, root),
+                1,
+                f"foreign SQL budget exceeded: raw={len(foreign_accesses)} > 191",
+            )
+        )
+    if len(production_accesses) > 168:
+        violations.append(
+            Violation(
+                "ARC-SQL-OWNER-BUDGET",
+                _relative(registry_path, root),
+                1,
+                "foreign SQL budget exceeded: "
+                f"production={len(production_accesses)} > 168",
+            )
+        )
+    admin_accesses = tuple(
+        access for access in foreign_accesses if access.source_owner == "admin"
+    )
+    for access in admin_accesses:
+        violations.append(
+            Violation(
+                "ARC-ADMIN-SQL-OWNER",
+                access.path,
+                access.line,
+                f"Admin must use owner ports for armi.{access.table}",
+            )
+        )
+    runtime_admin_path = (
+        root / "apps/armi-admin/src/armi_admin/persistence/runtime_foundation.py"
+    )
+    runtime_admin_source = runtime_admin_path.read_text(encoding="utf-8")
+    if (
+        "sql.Identifier" in runtime_admin_source
+        or "psycopg.sql" in runtime_admin_source
+    ):
+        violations.append(
+            Violation(
+                "ARC-ADMIN-DYNAMIC-SQL",
+                _relative(runtime_admin_path, root),
+                1,
+                "Runtime Admin maintenance adapter must use fixed statements",
+            )
+        )
     return sorted(set(violations))
 
 

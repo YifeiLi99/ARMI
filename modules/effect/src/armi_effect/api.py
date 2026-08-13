@@ -13,9 +13,51 @@ from armi_expression.api import ResponseAdmissionPort
 from armi_kernel.application import ArtifactPort, WorkRecord
 from armi_kernel.contracts import Digest, Instant, TraceId
 from armi_runtime_foundation import (
+    PostgreSQLAdminTransaction,
     PostgreSQLRuntimeUnitOfWork,
     PostgreSQLTransaction,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class EffectAdminSnapshot:
+    effect_id: UUID
+    status: str
+    attempt_id: UUID | None
+    payload_digest: str
+    action_intent_id: UUID
+    outbox_id: UUID
+    delivery_id: UUID | None
+    receipt_digest: str | None
+
+
+@runtime_checkable
+class EffectAdminPort(Protocol):
+    def snapshot(
+        self,
+        transaction: PostgreSQLAdminTransaction,
+        *,
+        effect_id: UUID,
+        for_update: bool = False,
+    ) -> EffectAdminSnapshot | None: ...
+    def reconcile(
+        self,
+        transaction: PostgreSQLAdminTransaction,
+        *,
+        snapshot: EffectAdminSnapshot,
+        observation_id: UUID,
+        observation_digest: str,
+        completed: bool,
+    ) -> bool: ...
+    def current_state(
+        self, transaction: PostgreSQLAdminTransaction, *, effect_id: UUID
+    ) -> tuple[str, UUID | None, str | None] | None: ...
+    def inspect_ids(
+        self, transaction: PostgreSQLAdminTransaction, *, object_ids: tuple[UUID, ...]
+    ) -> tuple[UUID, ...]: ...
+    def artifact_reference_count(
+        self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
+    ) -> int: ...
 
 
 class PolicyDecisionOutcome(StrEnum):
@@ -637,6 +679,8 @@ def _uuid7(value: object) -> None:
 __all__ = (
     "ActionAdapterPort",
     "EffectAdapterReceipt",
+    "EffectAdminPort",
+    "EffectAdminSnapshot",
     "EffectArtifactContent",
     "EffectArtifactKind",
     "EffectArtifactStorePort",

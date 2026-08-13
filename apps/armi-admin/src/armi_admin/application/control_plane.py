@@ -20,9 +20,6 @@ from typing import Any, Literal, cast
 from uuid import uuid7
 
 from armi_kernel.application import CredentialPurpose
-from armi_material.bootstrap import bootstrap_material_admin_read
-from armi_mood.bootstrap import bootstrap_mood_admin_read
-from armi_subject_state.bootstrap import bootstrap_subject_state_admin_read
 from psycopg.conninfo import conninfo_to_dict
 
 from armi_admin.persistence import (
@@ -54,12 +51,24 @@ def _canonical(value: object) -> bytes:
 class AdminControlPlane:
     """Control one configured environment without caller-provided paths or commands."""
 
-    __slots__ = ("_config", "_credentials", "_management_session_id", "_used_previews")
+    __slots__ = (
+        "_config",
+        "_credentials",
+        "_management_session_id",
+        "_observation",
+        "_used_previews",
+    )
 
-    def __init__(self, config: AdminConfig, credentials: AdminCredentialPort) -> None:
+    def __init__(
+        self,
+        config: AdminConfig,
+        credentials: AdminCredentialPort,
+        observation: AdminObservationGateway,
+    ) -> None:
         self._config = config
         self._credentials = credentials
         self._management_session_id = str(uuid7())
+        self._observation = observation
         self._used_previews: set[str] = set()
 
     @property
@@ -353,25 +362,7 @@ class AdminControlPlane:
             raise AdminControlError("ADMIN-ENVIRONMENT-NOT-RESETTABLE")
 
     def _database_catalog_digest(self) -> str:
-        with self._credentials.resolve(
-            self._config.locator, CredentialPurpose("database.admin")
-        ) as handle:
-            conninfo = handle.consume(lambda value: bytes(value).decode("utf-8"))
-        return AdminObservationGateway(
-            conninfo,
-            expected_role=self._config.expected_role,
-            materials=bootstrap_material_admin_read(
-                conninfo,
-                expected_role=self._config.expected_role,
-                artifact_root=self._config.environment_root / "data" / "artifacts",
-            ),
-            mood=bootstrap_mood_admin_read(
-                conninfo, expected_role=self._config.expected_role
-            ),
-            subject_state=bootstrap_subject_state_admin_read(
-                conninfo, expected_role=self._config.expected_role
-            ),
-        ).database_catalog_digest()
+        return self._observation.database_catalog_digest()
 
     def _pg_dump(self, output: Path) -> None:
         executable = (

@@ -2,16 +2,48 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
+from uuid import UUID
 
 from armi_kernel.application import (
     ArtifactId,
     ArtifactIntegrityStatus,
+    ArtifactPrivacyScope,
     ArtifactRef,
     ArtifactRegistration,
     PublishedArtifact,
 )
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
+from armi_runtime_foundation import (
+    PostgreSQLAdminTransaction,
+    PostgreSQLRuntimeUnitOfWork,
+    PostgreSQLTransaction,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactAdminSnapshot:
+    artifact_id: UUID
+    content_digest: str
+    byte_size: int
+    media_type: str
+    logical_kind: str
+    privacy_scope: ArtifactPrivacyScope
+    integrity_status: ArtifactIntegrityStatus
+
+
+@runtime_checkable
+class ArtifactAdminPort(Protocol):
+    def snapshot(
+        self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
+    ) -> ArtifactAdminSnapshot | None: ...
+    def read_verified_bytes(self, snapshot: ArtifactAdminSnapshot) -> bytes: ...
+    def delete(
+        self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
+    ) -> bool: ...
+    def inspect_ids(
+        self, transaction: PostgreSQLAdminTransaction, *, object_ids: tuple[UUID, ...]
+    ) -> tuple[UUID, ...]: ...
 
 
 @runtime_checkable
@@ -59,4 +91,4 @@ class ArtifactCatalogPort(Protocol):
     ) -> bool: ...
 
 
-__all__ = ("ArtifactCatalogPort",)
+__all__ = ("ArtifactAdminPort", "ArtifactAdminSnapshot", "ArtifactCatalogPort")

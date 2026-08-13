@@ -47,10 +47,8 @@ def bootstrap_subject_state_admin_correction() -> SubjectStateAdminCorrectionPor
     return PostgreSQLSubjectStateAdmin()
 
 
-def bootstrap_subject_state_admin_read(
-    conninfo: str, *, expected_role: str
-) -> SubjectStateAdminReadPort:
-    return PostgreSQLSubjectStateAdmin(conninfo, expected_role=expected_role)
+def bootstrap_subject_state_admin_read() -> SubjectStateAdminReadPort:
+    return PostgreSQLSubjectStateAdmin()
 
 
 def bootstrap_subject_state_recovery(read: SubjectStateReadPort) -> RecoveryParticipant:

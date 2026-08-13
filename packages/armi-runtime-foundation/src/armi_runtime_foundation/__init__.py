@@ -1,5 +1,14 @@
 """Stable, business-neutral Runtime integration contracts."""
 
+from .admin_transactions import (
+    PostgreSQLAdminAuthorityLease,
+    PostgreSQLAdminParameter,
+    PostgreSQLAdminResult,
+    PostgreSQLAdminScalar,
+    PostgreSQLAdminTransaction,
+    PostgreSQLAdminUnitOfWork,
+    PostgreSQLAdminUnitOfWorkFactory,
+)
 from .recovery import (
     EmptyRecoveryParticipant,
     RecoveryAuditContribution,
@@ -26,6 +35,13 @@ from .transactions import (
 
 __all__ = (
     "EmptyRecoveryParticipant",
+    "PostgreSQLAdminAuthorityLease",
+    "PostgreSQLAdminParameter",
+    "PostgreSQLAdminResult",
+    "PostgreSQLAdminScalar",
+    "PostgreSQLAdminTransaction",
+    "PostgreSQLAdminUnitOfWork",
+    "PostgreSQLAdminUnitOfWorkFactory",
     "PostgreSQLRuntimeUnitOfWork",
     "PostgreSQLRuntimeUnitOfWorkFactory",
     "PostgreSQLTransaction",

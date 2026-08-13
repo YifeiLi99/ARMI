@@ -47,10 +47,8 @@ def bootstrap_mood_admin_correction() -> MoodAdminCorrectionPort:
     return PostgreSQLMoodAdmin()
 
 
-def bootstrap_mood_admin_read(
-    conninfo: str, *, expected_role: str
-) -> MoodAdminReadPort:
-    return PostgreSQLMoodAdmin(conninfo, expected_role=expected_role)
+def bootstrap_mood_admin_read() -> MoodAdminReadPort:
+    return PostgreSQLMoodAdmin()
 
 
 def bootstrap_mood_recovery(read: MoodReadPort) -> RecoveryParticipant:

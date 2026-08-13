@@ -24,6 +24,7 @@ from armi_runtime_foundation import (
     RecoveryParticipant,
 )
 
+from ._admin import PostgreSQLEffectAdmin
 from ._application import EffectRegistrationPipeline
 from ._codex_postgresql import PostgreSQLEffectCodexLifecycle
 from ._grant import (
@@ -36,6 +37,7 @@ from ._recovery import EffectRecoveryParticipant
 from ._response import ResponseAdmissionPipeline
 from .api import (
     ActionAdapterPort,
+    EffectAdminPort,
     EffectArtifactStorePort,
     EffectCodexArtifactPort,
     EffectCodexLifecyclePort,
@@ -48,6 +50,11 @@ from .api import (
     EffectWakeupPort,
     ResponseAdmissionRuntimePort,
 )
+
+
+def bootstrap_effect_admin() -> EffectAdminPort:
+    return PostgreSQLEffectAdmin()
+
 
 Diagnostic = Callable[[str], None]
 FaultInjector = Callable[[str], None]
@@ -146,6 +153,7 @@ def bootstrap_effect_operation_read() -> EffectOperationReadPort:
 
 
 __all__ = (
+    "bootstrap_effect_admin",
     "bootstrap_effect_codex_lifecycle",
     "bootstrap_effect_dispatch_boundary",
     "bootstrap_effect_grant_cancellation",

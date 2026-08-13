@@ -14,7 +14,11 @@ from armi_kernel.application import (
     PublishedArtifact,
 )
 from armi_kernel.contracts import TraceId
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
+from armi_runtime_foundation import (
+    PostgreSQLAdminTransaction,
+    PostgreSQLRuntimeUnitOfWork,
+    PostgreSQLTransaction,
+)
 
 from ._observation_contract import (
     WebObservationAdmissionPort,
@@ -132,6 +136,16 @@ class WebArtifactCatalogPort(Protocol):
     ) -> ArtifactRegistration: ...
 
 
+@runtime_checkable
+class WebObservationAdminPort(Protocol):
+    def opportunity_consumed(
+        self, transaction: PostgreSQLAdminTransaction, *, opportunity_id: UUID
+    ) -> bool: ...
+    def artifact_reference_count(
+        self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
+    ) -> int: ...
+
+
 __all__ = (
     "WebArtifactCatalogPort",
     "WebArtifactStorePort",
@@ -141,6 +155,7 @@ __all__ = (
     "WebEvidenceBundle",
     "WebEvidenceKind",
     "WebEvidenceSourceId",
+    "WebObservationAdminPort",
     "WebObservationAdmissionPort",
     "WebObservationAttemptId",
     "WebObservationAttemptState",

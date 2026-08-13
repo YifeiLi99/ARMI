@@ -14,17 +14,23 @@ from armi_runtime_foundation import (
     RecoveryParticipant,
 )
 
+from ._admin import PostgreSQLPerceptionAdmin
 from ._application import Diagnostic, ExternalContentPipeline
 from ._recognizer import ExternalContentRecognizer
 from ._recovery import PerceptionRecoveryParticipant
 from .api import (
     ExternalContentRecognitionPort,
     ExternalMediaFetchPort,
+    PerceptionAdminPort,
     PerceptionArtifactCatalogPort,
     PerceptionDurableWorkPort,
     PerceptionWakeupPort,
     PerceptionWorkerPort,
 )
+
+
+def bootstrap_perception_admin() -> PerceptionAdminPort:
+    return PostgreSQLPerceptionAdmin()
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,5 +93,6 @@ def bootstrap_perception_recovery() -> RecoveryParticipant:
 __all__ = (
     "PerceptionModule",
     "bootstrap_perception",
+    "bootstrap_perception_admin",
     "bootstrap_perception_recovery",
 )

@@ -14,7 +14,11 @@ from armi_kernel.application import (
     PublishedArtifact,
 )
 from armi_kernel.contracts import Digest, TraceId
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
+from armi_runtime_foundation import (
+    PostgreSQLAdminTransaction,
+    PostgreSQLRuntimeUnitOfWork,
+    PostgreSQLTransaction,
+)
 
 from ._delegation_contract import (
     CodexCleanupStatus,
@@ -187,7 +191,15 @@ class CodexRuntimePort(CodexDelegationPort, Protocol):
     async def run_worker(self) -> None: ...
 
 
+@runtime_checkable
+class CodexAdminPort(Protocol):
+    def artifact_reference_count(
+        self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
+    ) -> int: ...
+
+
 __all__ = (
+    "CodexAdminPort",
     "CodexArtifactCatalogPort",
     "CodexArtifactReadPort",
     "CodexArtifactStorePort",

@@ -12,6 +12,7 @@ from armi_runtime_foundation import (
     RecoveryParticipant,
 )
 
+from ._admin import PostgreSQLWebObservationAdmin
 from ._application import WebSearchPipeline
 from ._commit import PostgreSQLWebResearchCommit
 from ._context_postgresql import PostgreSQLWebContextRead
@@ -21,10 +22,16 @@ from .api import (
     WebArtifactCatalogPort,
     WebArtifactStorePort,
     WebContextReadPort,
+    WebObservationAdminPort,
     WebObservationRuntimePort,
     WebResearchCommitPort,
     WebResearchRuntimePort,
 )
+
+
+def bootstrap_web_observation_admin() -> WebObservationAdminPort:
+    return PostgreSQLWebObservationAdmin()
+
 
 Diagnostic = Callable[[str], None]
 
@@ -92,6 +99,7 @@ def bootstrap_web_observation_recovery() -> RecoveryParticipant:
 __all__ = (
     "bootstrap_web_context_read",
     "bootstrap_web_observation",
+    "bootstrap_web_observation_admin",
     "bootstrap_web_observation_recovery",
     "bootstrap_web_research",
     "bootstrap_web_research_commit",

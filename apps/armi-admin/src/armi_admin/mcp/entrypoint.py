@@ -10,9 +10,9 @@ from armi_admin.application import (
     AdminSecretError,
     load_admin_config,
 )
+from armi_admin.composition import bootstrap_admin
 
 from .server import create_admin_server
-from .service import AdminToolService
 
 
 def main() -> None:
@@ -26,8 +26,11 @@ def main() -> None:
             preview_locator=config.preview_locator,
             config_root=config_path.parent,
         )
-        service = AdminToolService(config=config, credentials=credentials)
-        create_admin_server(service).run("stdio")
+        composition = bootstrap_admin(config, credentials)
+        try:
+            create_admin_server(composition.service).run("stdio")
+        finally:
+            composition.close()
     except (AdminConfigError, AdminSecretError) as exc:
         print(str(exc), file=sys.stderr, flush=True)
         raise SystemExit(2) from None

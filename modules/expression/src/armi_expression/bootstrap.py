@@ -10,15 +10,21 @@ from armi_relationship.api import RelationshipPolicyPort, RelationshipReadPort
 from armi_runtime_foundation import RecoveryParticipant
 
 from ._action_postgresql import PostgreSQLExpressionActionOwner
+from ._admin import PostgreSQLExpressionAdmin
 from ._postgresql import PostgreSQLExpressionOwner
 from ._recovery import ExpressionRecoveryParticipant
 from .api import (
+    ExpressionAdminPort,
     ExpressionCommitPort,
     ExpressionEffectLinkPort,
     ExpressionEffectRegistrationPort,
     ExpressionIntentReadPort,
     ExpressionResponseAdmissionPort,
 )
+
+
+def bootstrap_expression_admin() -> ExpressionAdminPort:
+    return PostgreSQLExpressionAdmin()
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,5 +78,6 @@ __all__ = (
     "ExpressionModule",
     "bootstrap_expression",
     "bootstrap_expression_action_ports",
+    "bootstrap_expression_admin",
     "bootstrap_expression_recovery",
 )

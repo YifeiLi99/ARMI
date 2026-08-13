@@ -6,9 +6,10 @@ from dataclasses import dataclass
 
 from armi_runtime_foundation import RecoveryParticipant
 
+from ._admin import PostgreSQLEvidenceAdmin
 from ._postgresql import PostgreSQLEvidenceWriter
 from ._recovery import EvidenceRecoveryParticipant
-from .api import EvidenceReadPort, EvidenceWritePort
+from .api import EvidenceAdminPort, EvidenceReadPort, EvidenceWritePort
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,4 +33,13 @@ def bootstrap_evidence_recovery() -> RecoveryParticipant:
     return EvidenceRecoveryParticipant()
 
 
-__all__ = ("EvidenceModule", "bootstrap_evidence", "bootstrap_evidence_recovery")
+def bootstrap_evidence_admin() -> EvidenceAdminPort:
+    return PostgreSQLEvidenceAdmin()
+
+
+__all__ = (
+    "EvidenceModule",
+    "bootstrap_evidence",
+    "bootstrap_evidence_admin",
+    "bootstrap_evidence_recovery",
+)

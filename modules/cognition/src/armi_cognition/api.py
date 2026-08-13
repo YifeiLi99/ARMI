@@ -24,7 +24,11 @@ from armi_kernel.application import (
     PublishedArtifact,
 )
 from armi_kernel.contracts import Digest, TraceId
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
+from armi_runtime_foundation import (
+    PostgreSQLAdminTransaction,
+    PostgreSQLRuntimeUnitOfWork,
+    PostgreSQLTransaction,
+)
 
 from ._contracts import (
     CandidateValidationResult,
@@ -474,11 +478,41 @@ class SubjectChangeSetCodec(Protocol):
     def decode(self, value: bytes) -> SubjectChangeSet: ...
 
 
+@dataclass(frozen=True, slots=True)
+class CognitionAdminEpisodeSnapshot:
+    episode_id: UUID
+    opportunity_id: UUID
+    status: str
+    trace_id: str
+    prepared_at: datetime | None
+
+
+@runtime_checkable
+class CognitionAdminPort(Protocol):
+    def opportunity_consumed(
+        self, transaction: PostgreSQLAdminTransaction, *, opportunity_id: UUID
+    ) -> bool: ...
+
+    def episode(
+        self, transaction: PostgreSQLAdminTransaction, *, episode_id: UUID
+    ) -> CognitionAdminEpisodeSnapshot | None: ...
+
+    def inspect_ids(
+        self, transaction: PostgreSQLAdminTransaction, *, object_ids: tuple[UUID, ...]
+    ) -> tuple[UUID, ...]: ...
+
+    def artifact_reference_count(
+        self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
+    ) -> int: ...
+
+
 __all__ = (
     "CandidateValidationResult",
     "CandidateValidationStatus",
     "CandidateValidator",
     "CognitionAcceptedCandidate",
+    "CognitionAdminEpisodeSnapshot",
+    "CognitionAdminPort",
     "CognitionApplicationDraft",
     "CognitionApplicationSnapshot",
     "CognitionArtifactCatalogPort",
