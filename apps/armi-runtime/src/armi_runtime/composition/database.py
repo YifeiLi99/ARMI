@@ -112,7 +112,6 @@ from armi_opportunity.bootstrap import (
 from armi_perception.api import ExternalMediaFetchPort
 from armi_perception.bootstrap import PerceptionModule, bootstrap_perception
 from armi_prompt.api import (
-    CreatorPromptViolation,
     PromptCognitionPort,
     PromptCommitPort,
     PromptReadPort,
@@ -869,126 +868,72 @@ def compose_runtime_authority(
 def compose_perception_module(
     prepared: PreparedEnvironment,
     *,
-    authority_admission: Callable[[], RuntimeFence],
+    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     fetch: ExternalMediaFetchPort,
     evidence: EvidenceWritePort,
     opportunity: OpportunityAdmissionPort,
     wakeups: WorkWakeupBus,
     diagnostic: Callable[[str], None] | None = None,
 ) -> PerceptionModule:
-    database_locator = prepared.effective.config.secret_locators.get(
-        RUNTIME_LOCATOR_NAME
-    )
     model_locator = prepared.effective.config.secret_locators.get(MODEL_LOCATOR_NAME)
     speech_locator = prepared.effective.config.secret_locators.get(SPEECH_LOCATOR_NAME)
-    if database_locator is None or model_locator is None or speech_locator is None:
+    if model_locator is None or speech_locator is None:
         raise ModelViolation("MODEL-CREDENTIAL")
     try:
-        with prepared.credential_port.resolve(
-            database_locator, CredentialPurpose("database.runtime")
-        ) as handle:
-
-            def create(value: memoryview) -> PerceptionModule:
-                try:
-                    conninfo = bytes(value).decode("utf-8")
-                except UnicodeDecodeError:
-                    raise ModelViolation("MODEL-DATABASE") from None
-                config = prepared.effective.config
-                try:
-                    recognition_binding = load_external_recognition_binding(
-                        runtime_config_path("model-bindings.yaml")
-                    )
-                except ValueError:
-                    raise ModelViolation("MODEL-BINDING-MANIFEST") from None
-                factory = PostgreSQLUnitOfWorkFactory(
-                    conninfo,
-                    environment_id=config.environment.environment_id,
-                    pool_min=config.database.pool_min,
-                    pool_max=config.database.pool_max,
-                    acquire_timeout_seconds=config.database.pool_acquire_timeout_seconds,
-                    statement_timeout_seconds=config.database.statement_timeout_seconds,
-                    authority_admission=authority_admission,
-                )
-                return bootstrap_perception(
-                    unit_of_work_factory=factory,
-                    storage=ContentAddressedArtifactStore(
-                        prepared.data_root / "artifacts",
-                        max_object_bytes=config.artifacts.max_object_bytes,
-                    ),
-                    catalog=ArtifactCatalogRepository(),
-                    work=PostgreSQLDurableWorkGateway(factory),
-                    evidence=evidence,
-                    opportunity=opportunity,
-                    fetch=fetch,
-                    ark_recognizer=VolcengineArkExternalContentRecognizer(
-                        credential_port=prepared.credential_port,
-                        locator=model_locator,
-                        binding=recognition_binding.ark,
-                    ),
-                    speech_recognizer=DoubaoSpeechRecognizer(
-                        credential_port=prepared.credential_port,
-                        locator=speech_locator,
-                        binding=recognition_binding.speech,
-                    ),
-                    target_for=recognition_binding.target_for,
-                    wakeups=wakeups,
-                    diagnostic=diagnostic,
-                )
-
-            return handle.consume(create)
+        recognition_binding = load_external_recognition_binding(
+            runtime_config_path("model-bindings.yaml")
+        )
+        config = prepared.effective.config
+        return bootstrap_perception(
+            unit_of_work_factory=unit_of_work_factory,
+            storage=ContentAddressedArtifactStore(
+                prepared.data_root / "artifacts",
+                max_object_bytes=config.artifacts.max_object_bytes,
+            ),
+            catalog=ArtifactCatalogRepository(),
+            work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
+            evidence=evidence,
+            opportunity=opportunity,
+            fetch=fetch,
+            ark_recognizer=VolcengineArkExternalContentRecognizer(
+                credential_port=prepared.credential_port,
+                locator=model_locator,
+                binding=recognition_binding.ark,
+            ),
+            speech_recognizer=DoubaoSpeechRecognizer(
+                credential_port=prepared.credential_port,
+                locator=speech_locator,
+                binding=recognition_binding.speech,
+            ),
+            target_for=recognition_binding.target_for,
+            wakeups=wakeups,
+            diagnostic=diagnostic,
+        )
     except ConfigurationViolation:
         raise ModelViolation("MODEL-CREDENTIAL") from None
+    except ValueError:
+        raise ModelViolation("MODEL-BINDING-MANIFEST") from None
 
 
 def compose_prompt_module(
     prepared: PreparedEnvironment,
     *,
+    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     creator_party_id: UUID,
-    authority_admission: Callable[[], RuntimeFence],
 ) -> PromptModule:
     """Resolve the Runtime credential for the T-04 Creator Prompt owner."""
 
-    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
-    if locator is None:
-        raise CreatorPromptViolation("DB-PROMPT-UNAVAILABLE")
-    try:
-        with prepared.credential_port.resolve(
-            locator,
-            CredentialPurpose("database.runtime"),
-        ) as handle:
-
-            def create(value: memoryview) -> PromptModule:
-                try:
-                    conninfo = bytes(value).decode("utf-8")
-                except UnicodeDecodeError:
-                    raise CreatorPromptViolation("DB-PROMPT-UNAVAILABLE") from None
-                config = prepared.effective.config
-                catalog = ArtifactCatalogRepository()
-                return bootstrap_prompt(
-                    creator_party_id=creator_party_id,
-                    storage=ContentAddressedArtifactStore(
-                        prepared.data_root / "artifacts",
-                        max_object_bytes=config.artifacts.max_object_bytes,
-                    ),
-                    catalog=catalog,
-                    unit_of_work_factory=PostgreSQLUnitOfWorkFactory(
-                        conninfo,
-                        environment_id=config.environment.environment_id,
-                        pool_min=config.database.pool_min,
-                        pool_max=config.database.pool_max,
-                        acquire_timeout_seconds=(
-                            config.database.pool_acquire_timeout_seconds
-                        ),
-                        statement_timeout_seconds=(
-                            config.database.statement_timeout_seconds
-                        ),
-                        authority_admission=authority_admission,
-                    ),
-                )
-
-            return handle.consume(create)
-    except ConfigurationViolation:
-        raise CreatorPromptViolation("DB-PROMPT-UNAVAILABLE") from None
+    config = prepared.effective.config
+    catalog = ArtifactCatalogRepository()
+    return bootstrap_prompt(
+        creator_party_id=creator_party_id,
+        storage=ContentAddressedArtifactStore(
+            prepared.data_root / "artifacts",
+            max_object_bytes=config.artifacts.max_object_bytes,
+        ),
+        catalog=catalog,
+        unit_of_work_factory=unit_of_work_factory,
+    )
 
 
 def compose_data_rights_module(

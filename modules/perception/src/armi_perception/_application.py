@@ -116,7 +116,6 @@ class ExternalContentPipeline:
 
     async def open(self) -> None:
         try:
-            await self._factory.open()
             await self._storage.prepare()
             async with self._factory.unit_of_work() as unit:
                 recovered = await self._repository.recover_terminal_recognition(unit)
@@ -129,7 +128,6 @@ class ExternalContentPipeline:
 
     async def close(self) -> None:
         self._stop.set()
-        await self._factory.close()
 
     def stop(self) -> None:
         self._stop.set()

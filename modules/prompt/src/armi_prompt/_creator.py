@@ -75,13 +75,10 @@ class CreatorPromptService(CreatorPromptPort):
         self._uow_factory = unit_of_work_factory
 
     async def open(self) -> None:
-        try:
-            await self._uow_factory.open()
-        except RuntimeTransactionFailure:
-            raise CreatorPromptViolation("DB-PROMPT-UNAVAILABLE") from None
+        return None
 
     async def close(self) -> None:
-        await self._uow_factory.close()
+        return None
 
     async def get(self, prompt_kind: PromptKind) -> CreatorPromptView:
         self._require_creator_guidance(prompt_kind)

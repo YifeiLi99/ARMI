@@ -266,8 +266,8 @@ async def _serve(
                 )
             prompt_module = compose_prompt_module(
                 prepared,
+                unit_of_work_factory=runtime_unit_of_work_factory,
                 creator_party_id=creator_context.party_id,
-                authority_admission=authority.require_writable,
             )
             await prompt_module.open()
             lifecycle.begin_recovery()
@@ -452,7 +452,7 @@ async def _serve(
                 try:
                     perception_module = compose_perception_module(
                         prepared,
-                        authority_admission=authority.require_writable,
+                        unit_of_work_factory=runtime_unit_of_work_factory,
                         fetch=qq_channel.media_fetch,
                         evidence=evidence_module.write,
                         opportunity=opportunity_admission,
