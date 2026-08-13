@@ -21,6 +21,7 @@ from ._codec import decode_task, encode_result
 from ._commit import PostgreSQLCodexCommit
 from ._custody_codec import encode_custodied_result
 from ._runner import IsolatedCodexRunner
+from ._timeline_projection import CodexTaskTimelineProjection
 from .api import (
     CodexArtifactCatalogPort,
     CodexArtifactStorePort,
@@ -33,6 +34,10 @@ Diagnostic = Callable[[str], None]
 
 def bootstrap_codex_commit() -> CodexCommitPort:
     return PostgreSQLCodexCommit()
+
+
+def bootstrap_codex_timeline_projection() -> CodexTaskTimelineProjection:
+    return CodexTaskTimelineProjection()
 
 
 def bootstrap_codex(
@@ -89,6 +94,7 @@ __all__ = (
     "bootstrap_codex",
     "bootstrap_codex_commit",
     "bootstrap_codex_runner",
+    "bootstrap_codex_timeline_projection",
     "decode_runner_task",
     "encode_custodied_runner_result",
     "encode_runner_result",

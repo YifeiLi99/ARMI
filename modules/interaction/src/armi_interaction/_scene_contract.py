@@ -8,7 +8,7 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-from armi_kernel.application import AuditResultStatus
+from armi_kernel.application import ArtifactRef, AuditResultStatus
 from armi_kernel.contracts import Instant, OpaqueCursor, TraceId
 
 PROJECTION_VERSION = "scene-timeline.v5"
@@ -261,6 +261,13 @@ class SceneTimelineQueryPort(Protocol):
         ...
 
 
+@runtime_checkable
+class SceneTimelineCodexTaskProjectionPort(Protocol):
+    def objective(self, *, artifact: ArtifactRef, content: bytes) -> str:
+        """Project one verified Codex task manifest into Creator-visible text."""
+        ...
+
+
 __all__ = (
     "PROJECTION_VERSION",
     "SCENE_COLLECTION_PROJECTION_VERSION",
@@ -272,6 +279,7 @@ __all__ = (
     "SceneKey",
     "SceneQueryViolation",
     "SceneStatus",
+    "SceneTimelineCodexTaskProjectionPort",
     "SceneTimelineItem",
     "SceneTimelinePage",
     "SceneTimelineQuery",

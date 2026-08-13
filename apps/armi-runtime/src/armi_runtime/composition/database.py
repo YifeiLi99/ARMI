@@ -25,6 +25,7 @@ from armi_codex.api import CodexDelegationViolation, CodexRuntimePort
 from armi_codex.bootstrap import (
     bootstrap_codex,
     bootstrap_codex_commit,
+    bootstrap_codex_timeline_projection,
 )
 from armi_cognition.api import (
     CognitionCandidateParser,
@@ -522,6 +523,7 @@ def compose_interaction_module(
                         prepared.data_root / "artifacts",
                         max_object_bytes=config.artifacts.max_object_bytes,
                     ),
+                    codex_task_projection=bootstrap_codex_timeline_projection(),
                     catalog=ArtifactCatalogRepository(),
                     data_rights=data_rights,
                     subject_state=subject_state_read,

@@ -28,6 +28,7 @@ from psycopg_pool import AsyncConnectionPool, PoolTimeout
 from ._scene_contract import (
     PROJECTION_VERSION,
     SceneQueryViolation,
+    SceneTimelineCodexTaskProjectionPort,
     SceneTimelineItem,
     SceneTimelinePage,
     SceneTimelineQuery,
@@ -185,6 +186,7 @@ class PostgreSQLSceneTimelineQuery:
 
     __slots__ = (
         "_codec",
+        "_codex_tasks",
         "_creator_party_id",
         "_expected_role",
         "_pool",
@@ -201,12 +203,14 @@ class PostgreSQLSceneTimelineQuery:
         creator_party_id: UUID,
         cursor_key: bytes,
         storage: ContentAddressedArtifactStore,
+        codex_tasks: SceneTimelineCodexTaskProjectionPort,
         pool_timeout_seconds: int,
     ) -> None:
         self._creator_party_id = creator_party_id
         self._expected_role = expected_role
         self._pool_timeout_seconds = pool_timeout_seconds
         self._storage = storage
+        self._codex_tasks = codex_tasks
         self._codec = SceneTimelineCursorCodec(
             key=cursor_key,
             environment_id=environment_id,
@@ -320,25 +324,34 @@ class PostgreSQLSceneTimelineQuery:
                                 artifact.media_type,
                                 artifact.logical_kind,
                                 artifact.privacy_scope,
-                                artifact.integrity_status
+                                artifact.integrity_status,
+                                interaction.purpose
                             FROM armi.scene_timeline_items AS item
                             LEFT JOIN armi.party_input_interactions AS interaction
                               ON item.source_kind = 'creator_input'
                              AND interaction.interaction_id = item.source_ref
                              AND interaction.scene_id = item.scene_id
                              AND interaction.source_party_id = %s
+                            LEFT JOIN armi.artifacts AS artifact
+                              ON artifact.content_digest =
+                                 COALESCE(interaction.cognition_content_digest,
+                                          interaction.content_digest)
                             LEFT JOIN armi.external_evidence AS evidence
-                              ON evidence.interaction_id =
-                                 interaction.interaction_id
+                              ON evidence.artifact_id = artifact.artifact_id
+                             AND (
+                                  evidence.interaction_id =
+                                    interaction.interaction_id
+                                  OR (
+                                      interaction.purpose =
+                                        'codex_task_request'
+                                      AND evidence.source_kind =
+                                        'codex_task_source'
+                                  )
+                              )
                              AND evidence.subject_id = interaction.subject_id
                              AND evidence.scene_id = interaction.scene_id
                              AND evidence.context_party_id =
                                  interaction.source_party_id
-                            LEFT JOIN armi.artifacts AS artifact
-                              ON artifact.artifact_id = evidence.artifact_id
-                             AND artifact.content_digest =
-                                 COALESCE(interaction.cognition_content_digest,
-                                          interaction.content_digest)
                             LEFT JOIN armi.opportunities AS opportunity
                               ON opportunity.evidence_id = evidence.evidence_id
                              AND opportunity.subject_id = evidence.subject_id
@@ -397,25 +410,34 @@ class PostgreSQLSceneTimelineQuery:
                                 artifact.media_type,
                                 artifact.logical_kind,
                                 artifact.privacy_scope,
-                                artifact.integrity_status
+                                artifact.integrity_status,
+                                interaction.purpose
                             FROM armi.scene_timeline_items AS item
                             LEFT JOIN armi.party_input_interactions AS interaction
                               ON item.source_kind = 'creator_input'
                              AND interaction.interaction_id = item.source_ref
                              AND interaction.scene_id = item.scene_id
                              AND interaction.source_party_id = %s
+                            LEFT JOIN armi.artifacts AS artifact
+                              ON artifact.content_digest =
+                                 COALESCE(interaction.cognition_content_digest,
+                                          interaction.content_digest)
                             LEFT JOIN armi.external_evidence AS evidence
-                              ON evidence.interaction_id =
-                                 interaction.interaction_id
+                              ON evidence.artifact_id = artifact.artifact_id
+                             AND (
+                                  evidence.interaction_id =
+                                    interaction.interaction_id
+                                  OR (
+                                      interaction.purpose =
+                                        'codex_task_request'
+                                      AND evidence.source_kind =
+                                        'codex_task_source'
+                                  )
+                              )
                              AND evidence.subject_id = interaction.subject_id
                              AND evidence.scene_id = interaction.scene_id
                              AND evidence.context_party_id =
                                  interaction.source_party_id
-                            LEFT JOIN armi.artifacts AS artifact
-                              ON artifact.artifact_id = evidence.artifact_id
-                             AND artifact.content_digest =
-                                 COALESCE(interaction.cognition_content_digest,
-                                          interaction.content_digest)
                             LEFT JOIN armi.opportunities AS opportunity
                               ON opportunity.evidence_id = evidence.evidence_id
                              AND opportunity.subject_id = evidence.subject_id
@@ -483,17 +505,27 @@ class PostgreSQLSceneTimelineQuery:
                     ArtifactPrivacyScope(str(row[12])),
                     ArtifactIntegrityStatus(str(row[13])),
                 )
-                if (
-                    ref.media_type != "text/plain"
-                    or ref.logical_kind != "creator.input.text"
-                    or ref.privacy_scope is not ArtifactPrivacyScope.CREATOR_VISIBLE
-                    or ref.integrity_status is not ArtifactIntegrityStatus.VERIFIED
-                ):
+                purpose = str(row[14])
+                if ref.integrity_status is not ArtifactIntegrityStatus.VERIFIED:
                     raise ValueError
                 value = b""
                 async with await self._storage.open_verified(ref) as stream:
                     value = await stream.read()
-                message = value.decode("utf-8", errors="strict")
+                if purpose == "creator_message":
+                    if (
+                        ref.media_type != "text/plain"
+                        or ref.logical_kind != "creator.input.text"
+                        or ref.privacy_scope is not ArtifactPrivacyScope.CREATOR_VISIBLE
+                    ):
+                        raise ValueError
+                    message = value.decode("utf-8", errors="strict")
+                elif purpose == "codex_task_request":
+                    message = self._codex_tasks.objective(
+                        artifact=ref,
+                        content=value,
+                    )
+                else:
+                    raise ValueError
                 if (
                     not value
                     or len(value) > 65536

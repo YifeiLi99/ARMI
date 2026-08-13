@@ -31,6 +31,7 @@ from .api import (
     InteractionDataRightsGate,
     InteractionWakeupPort,
     OtherHumanInputPort,
+    SceneTimelineCodexTaskProjectionPort,
     SceneTimelineQueryPort,
 )
 
@@ -70,6 +71,7 @@ def bootstrap_interaction(
     pool_timeout_seconds: int,
     unit_of_work_factory: PostgreSQLRuntimeUnitOfWorkFactory,
     storage: ContentAddressedArtifactStore,
+    codex_task_projection: SceneTimelineCodexTaskProjectionPort,
     catalog: InteractionArtifactCatalogPort,
     data_rights: InteractionDataRightsGate,
     subject_state: SubjectStateReadPort,
@@ -126,6 +128,7 @@ def bootstrap_interaction(
         creator_party_id=creator_party_id,
         cursor_key=cursor_key,
         storage=storage,
+        codex_tasks=codex_task_projection,
         pool_timeout_seconds=pool_timeout_seconds,
     )
     return InteractionModule(

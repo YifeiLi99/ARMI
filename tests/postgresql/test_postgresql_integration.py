@@ -60,7 +60,10 @@ from armi_capability.api import (
 from armi_capability.bootstrap import bootstrap_capability
 from armi_codex._application import CodexTaskSourceGateway
 from armi_codex.api import CreatorCodexTaskCommand
-from armi_codex.bootstrap import bootstrap_codex_commit
+from armi_codex.bootstrap import (
+    bootstrap_codex_commit,
+    bootstrap_codex_timeline_projection,
+)
 from armi_cognition import parse_subject_change_set
 from armi_cognition._model_contract import (
     build_request_bytes,
@@ -2448,6 +2451,30 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     )
                 self.assertEqual(operation.phase, CreatorOperationPhase.ACCEPTED)
                 self.assertEqual(operation.acceptance, repeated)
+                timeline_query = PostgreSQLSceneTimelineQuery(
+                    fixture.runtime_dsn,
+                    environment_id=fixture.environment_id,
+                    expected_role=fixture.runtime_role,
+                    creator_party_id=creator_party_id,
+                    cursor_key=b"c" * 32,
+                    storage=storage,
+                    codex_tasks=bootstrap_codex_timeline_projection(),
+                    pool_timeout_seconds=2,
+                )
+                await timeline_query.open()
+                try:
+                    timeline = await timeline_query.query(
+                        SceneTimelineQuery(SceneKey("default"), 10)
+                    )
+                finally:
+                    await timeline_query.close()
+                self.assertEqual(len(timeline.items), 1)
+                self.assertEqual(timeline.items[0].source_kind, "creator_input")
+                self.assertEqual(
+                    timeline.items[0].operation_ref,
+                    first.opportunity_id.value,
+                )
+                self.assertEqual(timeline.items[0].message, command.objective)
                 with self.assertRaisesRegex(RuntimeError, "CODEX-TASK-IDEMPOTENCY"):
                     await gateway.accept(
                         CreatorCodexTaskCommand(
@@ -4614,6 +4641,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     Path.cwd().resolve() / "artifacts",
                     max_object_bytes=1024 * 1024,
                 ),
+                codex_tasks=bootstrap_codex_timeline_projection(),
                 pool_timeout_seconds=2,
             )
             await gateway.open()

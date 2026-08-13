@@ -339,9 +339,8 @@ class CreatorInputRepository:
                 ) AS opportunity ON true
                 JOIN armi.external_evidence AS evidence
                   ON evidence.evidence_id = requested.evidence_id
-                LEFT JOIN armi.codex_task_sources AS task_source
-                  ON task_source.codex_task_source_id
-                    = evidence.codex_task_source_id
+                JOIN armi.artifacts AS evidence_artifact
+                  ON evidence_artifact.artifact_id = evidence.artifact_id
                 JOIN armi.party_input_interactions AS interaction
                   ON interaction.interaction_id = evidence.interaction_id
                   OR (
@@ -353,7 +352,7 @@ class CreatorInputRepository:
                         = requested.context_party_id
                       AND interaction.purpose = 'codex_task_request'
                       AND interaction.content_digest
-                        = task_source.task_manifest_digest
+                        = evidence_artifact.content_digest
                   )
                 JOIN armi.interaction_scenes AS scene
                   ON scene.scene_id = opportunity.scene_id
