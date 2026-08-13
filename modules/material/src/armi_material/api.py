@@ -434,7 +434,7 @@ class MaterialCommitPort(Protocol):
         *,
         subject_id: UUID,
         generation_id: UUID,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[CandidateLifeMaterialDraft, ...],
     ) -> bool: ...
 
     async def commit(
@@ -445,7 +445,7 @@ class MaterialCommitPort(Protocol):
         subject_id: UUID,
         generation_id: UUID,
         commit_id: UUID,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[CandidateLifeMaterialDraft, ...],
         artifacts: dict[str, ArtifactRef],
     ) -> tuple[UUID, ...]: ...
 

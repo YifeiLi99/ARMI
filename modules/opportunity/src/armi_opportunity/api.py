@@ -201,6 +201,22 @@ class OpportunityAdmissionOutcome:
             raise LifeViolation("LIFE-ADMISSION")
 
 
+@dataclass(frozen=True, slots=True)
+class OpportunityCommitSnapshot:
+    opportunity_id: UUID
+    root_opportunity_id: UUID
+    reconsideration_no: int
+    evidence_id: UUID | None
+    subject_id: UUID
+    scene_id: UUID | None
+    context_party_id: UUID | None
+    purpose: str
+    source_kind: str
+    source_ref: UUID
+    source_version: int
+    activity_id: UUID | None
+
+
 @runtime_checkable
 class OpportunityWakeupPort(Protocol):
     def notify(self, channel: str) -> None: ...
@@ -238,6 +254,22 @@ class OpportunityAdmissionPort(Protocol):
 
 @runtime_checkable
 class OpportunityTransitionPort(Protocol):
+    async def subject_commit_snapshot(
+        self, transaction: PostgreSQLTransaction, *, opportunity_id: UUID
+    ) -> OpportunityCommitSnapshot: ...
+
+    async def resolve_subject_commit(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        opportunity_id: UUID,
+        disposition: str = "resolved",
+    ) -> None: ...
+
+    async def supersede_subject_commit(
+        self, transaction: PostgreSQLTransaction, *, opportunity_id: UUID
+    ) -> OpportunityId | None: ...
+
     async def reconsider_activity(
         self,
         transaction: PostgreSQLTransaction,
@@ -308,6 +340,7 @@ __all__ = (
     "OpportunityAdmissionOutcome",
     "OpportunityAdmissionPort",
     "OpportunityAdmissionStatus",
+    "OpportunityCommitSnapshot",
     "OpportunityId",
     "OpportunityPurpose",
     "OpportunityRuntimePort",

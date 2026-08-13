@@ -37,17 +37,6 @@ class PostgreSQLCodexCommit:
             raise CodexDelegationViolation("CODEX-DELEGATION-COUNT")
         draft = delegations[0]
         connection = unit_of_work.transaction
-        validation = await (
-            await connection.execute(
-                """
-                SELECT validation_status
-                FROM armi.cognitive_candidate_validation_items
-                WHERE candidate_validation_id = %s AND proposal_ref = %s
-                  AND owner_kind = 'codex_delegation'
-                """,
-                (context.validation_id, draft.proposal_ref),
-            )
-        ).fetchone()
         source = await (
             await connection.execute(
                 """
@@ -59,9 +48,7 @@ class PostgreSQLCodexCommit:
             )
         ).fetchone()
         if (
-            validation is None
-            or str(validation[0]) != "accepted"
-            or source is None
+            source is None
             or str(source[0]) != draft.task_manifest_digest.value
             or str(source[1]) != draft.validator_id
         ):

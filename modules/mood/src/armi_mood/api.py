@@ -85,7 +85,7 @@ class MoodCommitPort(Protocol):
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[CandidateMoodDraft, ...],
     ) -> bool: ...
 
     async def commit(
@@ -94,7 +94,7 @@ class MoodCommitPort(Protocol):
         *,
         subject_id: UUID,
         commit_id: UUID,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[CandidateMoodDraft, ...],
     ) -> bool: ...
 
 

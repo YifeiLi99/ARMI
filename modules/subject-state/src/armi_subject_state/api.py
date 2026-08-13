@@ -188,7 +188,7 @@ class SubjectStateCommitPort(Protocol):
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[CandidateSubjectStateDraft, ...],
     ) -> bool: ...
 
     async def commit(
@@ -197,7 +197,7 @@ class SubjectStateCommitPort(Protocol):
         *,
         subject_id: UUID,
         commit_id: UUID,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[CandidateSubjectStateDraft, ...],
     ) -> tuple[SubjectStateKind, ...]: ...
 
     async def update_life_focus(

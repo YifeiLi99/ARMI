@@ -259,14 +259,18 @@ class SleepCommitPort(Protocol):
         transaction: PostgreSQLTransaction,
         *,
         context: SleepCommitContext,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[
+            CandidateSleepDecisionDraft | CandidateMaintenanceDecisionDraft, ...
+        ],
     ) -> bool: ...
 
     def requests_reconsideration(
         self,
         *,
         context: SleepCommitContext,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[
+            CandidateSleepDecisionDraft | CandidateMaintenanceDecisionDraft, ...
+        ],
     ) -> bool: ...
 
     async def commit(
@@ -277,7 +281,9 @@ class SleepCommitPort(Protocol):
         application_id: UUID,
         commit_id: UUID | None,
         resulting_subject_version: int,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[
+            CandidateSleepDecisionDraft | CandidateMaintenanceDecisionDraft, ...
+        ],
         committed_memory_ids: tuple[UUID, ...] = (),
     ) -> None: ...
 

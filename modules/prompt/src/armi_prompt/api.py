@@ -215,7 +215,7 @@ class PromptCommitPort(Protocol):
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[CandidatePromptDraft, ...],
     ) -> bool: ...
 
     async def commit(
@@ -225,7 +225,7 @@ class PromptCommitPort(Protocol):
         validation_id: UUID,
         subject_id: UUID,
         commit_id: UUID,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[CandidatePromptDraft, ...],
         artifacts: dict[str, ArtifactRef],
     ) -> tuple[UUID, ...]: ...
 

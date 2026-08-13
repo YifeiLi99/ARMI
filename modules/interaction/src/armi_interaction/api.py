@@ -111,6 +111,34 @@ class CreatorIdentityContext:
     default_scene_key: str
 
 
+@dataclass(frozen=True, slots=True)
+class InteractionSubjectCommitSnapshot:
+    scene_id: UUID | None
+    scene_key: str | None
+    creator_party_id: UUID | None
+    other_party_id: UUID | None
+
+
+@runtime_checkable
+class InteractionSubjectCommitPort(Protocol):
+    async def snapshot(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        scene_id: UUID | None,
+        context_party_id: UUID | None,
+    ) -> InteractionSubjectCommitSnapshot: ...
+
+    async def append_timeline(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        scene_id: UUID,
+        subject_commit_id: UUID,
+    ) -> None: ...
+
+
 @runtime_checkable
 class InteractionIdentityPort(Protocol):
     async def creator_context(
@@ -365,6 +393,8 @@ __all__ = (
     "InteractionEffectDeliveryPort",
     "InteractionIdentityPort",
     "InteractionPerceptionPort",
+    "InteractionSubjectCommitPort",
+    "InteractionSubjectCommitSnapshot",
     "InteractionWakeupPort",
     "ObservedExternalMessage",
     "OpportunityId",

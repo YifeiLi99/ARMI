@@ -109,7 +109,7 @@ async def test_subject_prompt_commit_uses_owner_draft_and_cas() -> None:
     transaction = _PromptTransaction(subject_id=subject_id, document_id=document_id)
     module = bootstrap_prompt()
     draft = _draft(document_id)
-    owners = (module.cognition.bind(draft),)
+    owners = (draft,)
     assert await module.commit.heads_match(
         transaction, subject_id=subject_id, drafts=owners
     )
@@ -140,7 +140,7 @@ async def test_subject_prompt_requires_published_artifact() -> None:
             validation_id=uuid7(),
             subject_id=subject_id,
             commit_id=uuid7(),
-            drafts=(module.cognition.bind(draft),),
+            drafts=(draft,),
             artifacts={},
         )
 

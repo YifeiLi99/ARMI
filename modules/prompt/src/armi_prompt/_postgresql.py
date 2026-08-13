@@ -5,12 +5,13 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID, uuid7
 
-from armi_kernel.application import ArtifactRef, CandidateOwnerDraft
+from armi_kernel.application import ArtifactRef
 from armi_kernel.contracts import Digest
 from armi_runtime_foundation import PostgreSQLTransaction
 
 from ._application import PromptApplication
 from .api import (
+    CandidatePromptDraft,
     PromptContextSource,
     PromptContextSources,
     PromptRecoveryState,
@@ -31,12 +32,10 @@ class PostgreSQLPromptOwner:
     async def close(self) -> None:
         return None
 
-    def _drafts(self, drafts: tuple[CandidateOwnerDraft, ...]) -> tuple[Any, ...]:
-        return tuple(
-            self._application.decode(item.canonical_payload)
-            for item in drafts
-            if item.owner == "prompt"
-        )
+    def _drafts(
+        self, drafts: tuple[CandidatePromptDraft, ...]
+    ) -> tuple[CandidatePromptDraft, ...]:
+        return drafts
 
     async def context_sources(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID
@@ -160,7 +159,7 @@ class PostgreSQLPromptOwner:
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[CandidatePromptDraft, ...],
     ) -> bool:
         selected = self._drafts(drafts)
         if len(selected) > 1:
@@ -199,7 +198,7 @@ class PostgreSQLPromptOwner:
         validation_id: UUID,
         subject_id: UUID,
         commit_id: UUID,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[CandidatePromptDraft, ...],
         artifacts: dict[str, ArtifactRef],
     ) -> tuple[UUID, ...]:
         selected = self._drafts(drafts)

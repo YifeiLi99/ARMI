@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from uuid import UUID, uuid7
 
-from armi_kernel.application import ArtifactId, ArtifactRef, CandidateOwnerDraft
+from armi_kernel.application import ArtifactId, ArtifactRef
 from armi_runtime_foundation import PostgreSQLTransaction
 
 from ._application import MaterialApplication
@@ -19,13 +19,9 @@ class PostgreSQLMaterialCommit:
         self._application = application
 
     def _drafts(
-        self, drafts: tuple[CandidateOwnerDraft, ...]
+        self, drafts: tuple[CandidateLifeMaterialDraft, ...]
     ) -> tuple[CandidateLifeMaterialDraft, ...]:
-        return tuple(
-            self._application.decode(item.canonical_payload)
-            for item in drafts
-            if item.owner == "material"
-        )
+        return drafts
 
     async def heads_match(
         self,
@@ -33,7 +29,7 @@ class PostgreSQLMaterialCommit:
         *,
         subject_id: UUID,
         generation_id: UUID,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[CandidateLifeMaterialDraft, ...],
     ) -> bool:
         values = self._drafts(drafts)
         for material_id in sorted({item.material_id for item in values}, key=str):
@@ -76,7 +72,7 @@ class PostgreSQLMaterialCommit:
         subject_id: UUID,
         generation_id: UUID,
         commit_id: UUID,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[CandidateLifeMaterialDraft, ...],
         artifacts: dict[str, ArtifactRef],
     ) -> tuple[UUID, ...]:
         materials = self._drafts(drafts)

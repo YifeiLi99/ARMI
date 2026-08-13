@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
@@ -109,6 +110,12 @@ class ExperienceEvidenceLink:
             raise EvidenceViolation("EVIDENCE-LINK-ORDINAL")
 
 
+@dataclass(frozen=True, slots=True)
+class EvidenceSnapshot:
+    evidence_id: EvidenceId
+    received_at: datetime
+
+
 @runtime_checkable
 class EvidenceWritePort(Protocol):
     async def accept(
@@ -126,6 +133,13 @@ class EvidenceWritePort(Protocol):
 
 @runtime_checkable
 class EvidenceReadPort(Protocol):
+    async def snapshot(
+        self,
+        transaction: PostgreSQLTransactionAccess,
+        *,
+        evidence_id: EvidenceId,
+    ) -> EvidenceSnapshot: ...
+
     async def find_by_interaction(
         self,
         transaction: PostgreSQLTransactionAccess,
@@ -139,6 +153,7 @@ __all__ = (
     "EvidenceId",
     "EvidencePrivacyScope",
     "EvidenceReadPort",
+    "EvidenceSnapshot",
     "EvidenceSourceKind",
     "EvidenceViolation",
     "EvidenceWritePort",

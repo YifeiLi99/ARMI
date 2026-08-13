@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Callable
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
-from uuid import uuid7
+from uuid import UUID, uuid7
 
-from armi_activity.api import ActivityCognitionPort, ActivityCommitPort
+from armi_activity.api import (
+    ActivityCognitionPort,
+    ActivityCommitPort,
+    CandidateActivityDecisionDraft,
+    CandidateActivityDraft,
+)
 from armi_artifact_store.bootstrap import bootstrap_artifact_catalog
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_artifact_store.life_material_codec import (
@@ -17,9 +23,11 @@ from armi_artifact_store.life_material_codec import (
 )
 from armi_capability.api import CapabilityCommitPort, CapabilityReadPort
 from armi_codex.api import CodexCommitPort
-from armi_cognition.api import SubjectChangeSetCodec
+from armi_cognition.api import SubjectChangeSet, SubjectChangeSetCodec
+from armi_cognition.bootstrap import bootstrap_cognition_subject_commit
 from armi_context.api import ContextProjectionInvalidationPort
-from armi_evidence.api import EvidenceWritePort
+from armi_data_rights.api import DataRightsSubjectCommitGate
+from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
 from armi_expression.api import (
     CreatorReplyDraft,
     ExpressionCommitPort,
@@ -28,6 +36,7 @@ from armi_expression.api import (
 from armi_interaction.api import (
     SceneKey,
 )
+from armi_interaction.bootstrap import bootstrap_interaction_subject_commit
 from armi_kernel.application import (
     ArtifactId,
     ArtifactPolicy,
@@ -49,23 +58,43 @@ from armi_kernel.application import (
     WorkLease,
     WorkViolation,
 )
-from armi_kernel.contracts import ContractViolation, Instant, Purpose, SubjectId
-from armi_material.api import MaterialCognitionPort, MaterialCommitPort
-from armi_memory.api import MemoryCognitionPort, MemoryCommitPort
-from armi_mood.api import MoodCognitionPort, MoodCommitPort
+from armi_kernel.contracts import ContractViolation, Digest, Instant, Purpose, SubjectId
+from armi_material.api import (
+    CandidateLifeMaterialDraft,
+    MaterialCognitionPort,
+    MaterialCommitPort,
+)
+from armi_memory.api import (
+    CandidateMemoryDraft,
+    CandidateMemoryRevisionDraft,
+    MemoryCognitionPort,
+    MemoryCommitPort,
+)
+from armi_mood.api import CandidateMoodDraft, MoodCognitionPort, MoodCommitPort
 from armi_opportunity.api import OpportunityTransitionPort
-from armi_prompt.api import PromptCognitionPort, PromptCommitPort
+from armi_prompt.api import CandidatePromptDraft, PromptCognitionPort, PromptCommitPort
 from armi_relationship.api import (
+    CandidateRelationshipDraft,
     RelationshipCognitionPort,
     RelationshipCommitPort,
 )
-from armi_sleep.api import SleepCognitionPort, SleepCommitPort
-from armi_subject_state.api import SubjectStateCognitionPort, SubjectStateCommitPort
+from armi_sleep.api import (
+    CandidateMaintenanceDecisionDraft,
+    CandidateSleepDecisionDraft,
+    SleepCognitionPort,
+    SleepCommitPort,
+)
+from armi_subject_state.api import (
+    CandidateSubjectStateDraft,
+    SubjectStateCognitionPort,
+    SubjectStateCommitPort,
+)
 from armi_web_observation.api import WebResearchCommitPort, WebResearchRequestDraft
 
 from armi_runtime.adapters.persistence.durable_work import PostgreSQLDurableWorkGateway
 from armi_runtime.adapters.persistence.subject_commit import (
     PostgreSQLSubjectCommitRepository,
+    SubjectCommitOwnerDrafts,
     SubjectCommitSnapshot,
 )
 from armi_runtime.adapters.persistence.unit_of_work import (
@@ -134,7 +163,9 @@ class SubjectCommitPipeline:
         capability_read: CapabilityReadPort,
         codex_commit: CodexCommitPort,
         context_projections: ContextProjectionInvalidationPort,
+        data_rights: DataRightsSubjectCommitGate,
         evidence: EvidenceWritePort,
+        evidence_read: EvidenceReadPort,
         expression_commit: ExpressionCommitPort,
         memory_commit: MemoryCommitPort,
         memory_cognition: MemoryCognitionPort,
@@ -175,12 +206,17 @@ class SubjectCommitPipeline:
             capability_commit,
             capability_read,
             codex_commit,
+            bootstrap_cognition_subject_commit(),
             context_projections,
+            data_rights,
             evidence,
+            evidence_read,
             expression_commit,
             memory_commit,
             mood_commit,
             opportunity_transition,
+            bootstrap_interaction_subject_commit(),
+            self._catalog,
             prompt_commit,
             material_commit,
             relationship_commit,
@@ -206,6 +242,7 @@ class SubjectCommitPipeline:
 
     async def commit_once(self) -> bool:
         snapshot: SubjectCommitSnapshot | None = None
+        episode_id: UUID | None = None
         try:
             records = await self._work.claim(
                 work_kind=_WORK_KIND,
@@ -219,8 +256,14 @@ class SubjectCommitPipeline:
             return False
         lease = cast(WorkLease, records[0].lease)
         try:
-            snapshot = await self._snapshot(lease)
+            owner = records[0].draft.owner
+            if owner.kind != "cognitive_episode":
+                raise SubjectCommitViolation("SUBJECT-WORK-OWNER")
+            episode_id = owner.reference
+            snapshot = await self._snapshot(lease, episode_id)
             change_set = self._change_set_codec.decode(await self._read(snapshot))
+            snapshot = self._bind_accepted_owner_payloads(snapshot, change_set)
+            owner_drafts = self._decode_owner_drafts(change_set)
             replies = tuple(
                 item
                 for item in change_set.action_choices
@@ -239,11 +282,7 @@ class SubjectCommitPipeline:
                 if research_requests
                 else None
             )
-            material_drafts = tuple(
-                self._material_cognition.decode(item.canonical_payload)
-                for item in change_set.owner_drafts
-                if item.owner == "material"
-            )
+            material_drafts = owner_drafts.material
             published_materials: list[tuple[str, PublishedArtifact]] = []
             for material in material_drafts:
                 if material.body_bytes is None:
@@ -254,11 +293,7 @@ class SubjectCommitPipeline:
                         await self._publish_material(material.body_bytes, snapshot),
                     )
                 )
-            prompt_drafts = tuple(
-                self._prompt_cognition.decode(item.canonical_payload)
-                for item in change_set.owner_drafts
-                if item.owner == "prompt"
-            )
+            prompt_drafts = owner_drafts.prompt
             published_prompts = [
                 (
                     prompt.proposal_ref,
@@ -347,6 +382,7 @@ class SubjectCommitPipeline:
                     lease=lease,
                     snapshot=snapshot,
                     change_set=change_set,
+                    owner_drafts=owner_drafts,
                     response_artifact=response_artifact,
                     research_artifact=research_artifact,
                     material_artifacts=material_artifacts,
@@ -363,10 +399,10 @@ class SubjectCommitPipeline:
                 if snapshot is not None:
                     await self._settle_stale(lease, snapshot)
                 return True
-            await self._fail(lease, error.code)
+            await self._fail(lease, episode_id, error.code)
             return True
         except ArtifactViolation:
-            await self._fail(lease, "SUBJECT-RESPONSE-ARTIFACT")
+            await self._fail(lease, episode_id, "SUBJECT-RESPONSE-ARTIFACT")
             return True
         except DatabaseTransactionError as error:
             if error.code == "DB-TX-COMMIT-UNKNOWN" and snapshot is not None:
@@ -384,7 +420,7 @@ class SubjectCommitPipeline:
                     f"subject_commit.settlement.deferred.{error.code.lower()}"
                 )
             else:
-                await self._fail(lease, error.code)
+                await self._fail(lease, episode_id, error.code)
             return True
         except WorkViolation as error:
             self._diagnostic(
@@ -417,10 +453,12 @@ class SubjectCommitPipeline:
         self._wakeups.notify(EXACT_LIFE_QUERY)
         self._wakeups.notify(EFFECT_REGISTER)
 
-    async def _snapshot(self, lease: WorkLease) -> SubjectCommitSnapshot:
+    async def _snapshot(
+        self, lease: WorkLease, episode_id: UUID
+    ) -> SubjectCommitSnapshot:
         try:
             async with self._factory.unit_of_work() as unit_of_work:
-                return await self._repository.snapshot(unit_of_work, lease)
+                return await self._repository.snapshot(unit_of_work, lease, episode_id)
         except DatabaseTransactionError:
             raise SubjectCommitViolation("SUBJECT-DATABASE") from None
 
@@ -436,12 +474,88 @@ class SubjectCommitPipeline:
             raise SubjectCommitViolation("SUBJECT-CHANGE-SET-ARTIFACT")
         return value
 
-    async def _fail(self, lease: WorkLease, code: str) -> None:
+    def _decode_owner_drafts(
+        self, change_set: SubjectChangeSet
+    ) -> SubjectCommitOwnerDrafts:
+        activity: list[CandidateActivityDraft | CandidateActivityDecisionDraft] = []
+        material: list[CandidateLifeMaterialDraft] = []
+        memory: list[CandidateMemoryDraft | CandidateMemoryRevisionDraft] = []
+        mood: list[CandidateMoodDraft] = []
+        prompt: list[CandidatePromptDraft] = []
+        relationship: list[CandidateRelationshipDraft] = []
+        sleep: list[
+            CandidateSleepDecisionDraft | CandidateMaintenanceDecisionDraft
+        ] = []
+        subject_state: list[CandidateSubjectStateDraft] = []
+        for item in change_set.owner_drafts:
+            if item.owner == "activity":
+                activity.append(self._activity_cognition.decode(item.canonical_payload))
+            elif item.owner == "material":
+                material.append(self._material_cognition.decode(item.canonical_payload))
+            elif item.owner == "memory":
+                memory.append(self._memory_cognition.decode(item.canonical_payload))
+            elif item.owner == "mood":
+                mood.append(self._mood_cognition.decode(item.canonical_payload))
+            elif item.owner == "prompt":
+                prompt.append(self._prompt_cognition.decode(item.canonical_payload))
+            elif item.owner == "relationship":
+                relationship.append(
+                    self._relationship_cognition.decode_change_set(
+                        item.canonical_payload
+                    )
+                )
+            elif item.owner == "sleep":
+                sleep.append(self._sleep_cognition.decode(item.canonical_payload))
+            elif item.owner in {"self", "mind", "life_mode"}:
+                subject_state.append(
+                    self._subject_state_cognition.decode(item.canonical_payload)
+                )
+            else:
+                raise SubjectCommitViolation("SUBJECT-CANDIDATE-OWNER")
+        return SubjectCommitOwnerDrafts(
+            tuple(activity),
+            tuple(material),
+            tuple(memory),
+            tuple(mood),
+            tuple(prompt),
+            tuple(relationship),
+            tuple(sleep),
+            tuple(subject_state),
+        )
+
+    @staticmethod
+    def _bind_accepted_owner_payloads(
+        snapshot: SubjectCommitSnapshot, change_set: SubjectChangeSet
+    ) -> SubjectCommitSnapshot:
+        payloads = {
+            (item.proposal_ref, item.owner): item.canonical_payload
+            for item in change_set.owner_drafts
+        }
+        return replace(
+            snapshot,
+            accepted_candidates=tuple(
+                replace(
+                    item,
+                    canonical_payload=payload,
+                    payload_digest=Digest.from_bytes(payload),
+                )
+                if (payload := payloads.get((item.proposal_ref, item.owner_identity)))
+                is not None
+                else item
+                for item in snapshot.accepted_candidates
+            ),
+        )
+
+    async def _fail(self, lease: WorkLease, episode_id: UUID | None, code: str) -> None:
+        if episode_id is None:
+            self._diagnostic("subject_commit.settlement.deferred")
+            return
         try:
             async with self._factory.unit_of_work() as unit_of_work:
                 await self._repository.fail(
                     unit_of_work,
                     lease=lease,
+                    episode_id=episode_id,
                     code=code,
                 )
                 self._wake_downstream()
@@ -722,7 +836,9 @@ def build_subject_commit_pipeline(
     capability_read: CapabilityReadPort,
     codex_commit: CodexCommitPort,
     context_projections: ContextProjectionInvalidationPort,
+    data_rights: DataRightsSubjectCommitGate,
     evidence: EvidenceWritePort,
+    evidence_read: EvidenceReadPort,
     expression_commit: ExpressionCommitPort,
     memory_commit: MemoryCommitPort,
     memory_cognition: MemoryCognitionPort,
@@ -757,7 +873,9 @@ def build_subject_commit_pipeline(
         capability_read=capability_read,
         codex_commit=codex_commit,
         context_projections=context_projections,
+        data_rights=data_rights,
         evidence=evidence,
+        evidence_read=evidence_read,
         expression_commit=expression_commit,
         memory_commit=memory_commit,
         memory_cognition=memory_cognition,

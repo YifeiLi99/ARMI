@@ -57,6 +57,17 @@ class DataRightsInteractionGate(Protocol):
 
 
 @runtime_checkable
+class DataRightsSubjectCommitGate(Protocol):
+    async def blocks_subject_commit(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        requester_party_id: UUID,
+        opportunity_purpose: str,
+    ) -> bool: ...
+
+
+@runtime_checkable
 class DataRightsProjectionInvalidationPort(Protocol):
     async def invalidate(
         self,
@@ -155,6 +166,7 @@ __all__ = (
     "DataRightsRelationshipPort",
     "DataRightsRequesterKind",
     "DataRightsScopeKind",
+    "DataRightsSubjectCommitGate",
     "DataRightsSubjectEpochPort",
     "DataRightsUnitOfWorkFactory",
     "DataRightsViolation",

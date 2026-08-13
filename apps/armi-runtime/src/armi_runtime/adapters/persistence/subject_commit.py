@@ -12,8 +12,12 @@ from armi_activity.api import (
     ActivityCommitContext,
     ActivityCommitPort,
     ActivityViolation,
+    CandidateActivityDecisionDraft,
+    CandidateActivityDraft,
 )
+from armi_artifact_store.api import ArtifactCatalogPort
 from armi_capability.api import (
+    CapabilityAcceptedBasis,
     CapabilityCommitContext,
     CapabilityCommitPort,
     CapabilityReadPort,
@@ -24,21 +28,34 @@ from armi_codex.api import (
     CodexCommitPort,
     CodexDelegationViolation,
 )
-from armi_cognition.api import SubjectChangeSet
+from armi_cognition.api import (
+    CognitionAcceptedCandidate,
+    CognitionApplicationDraft,
+    CognitionEpisodeStatus,
+    CognitionExactLifeQueryIntentDraft,
+    CognitionExperienceDraft,
+    CognitionSubjectCommitPort,
+    SubjectChangeSet,
+)
 from armi_context.api import (
     ContextProjectionInvalidationPort,
     ContextProjectionSourceRef,
 )
-from armi_evidence.api import EvidenceId, EvidenceWritePort, ExperienceEvidenceLink
+from armi_data_rights.api import DataRightsSubjectCommitGate
+from armi_evidence.api import (
+    EvidenceId,
+    EvidenceReadPort,
+    EvidenceViolation,
+    EvidenceWritePort,
+    ExperienceEvidenceLink,
+)
 from armi_expression.api import (
     ExpressionCommitContext,
     ExpressionCommitPort,
     ResponseViolation,
 )
+from armi_interaction.api import InteractionSubjectCommitPort, SceneQueryViolation
 from armi_kernel.application import (
-    ArtifactId,
-    ArtifactIntegrityStatus,
-    ArtifactPrivacyScope,
     ArtifactRef,
     AuditDraft,
     AuditEventId,
@@ -69,21 +86,37 @@ from armi_kernel.contracts import (
     SubjectId,
     TraceId,
 )
-from armi_material.api import MaterialCommitPort, MaterialViolation
+from armi_material.api import (
+    CandidateLifeMaterialDraft,
+    MaterialCommitPort,
+    MaterialViolation,
+)
 from armi_memory.api import (
+    CandidateMemoryDraft,
+    CandidateMemoryRevisionDraft,
     MemoryCommitPort,
     MemoryViolation,
 )
-from armi_mood.api import MoodCommitPort, MoodViolation
-from armi_opportunity.api import OpportunityTransitionPort
-from armi_prompt.api import PromptCommitPort, PromptViolation
-from armi_relationship.api import RelationshipCommitPort, RelationshipViolation
+from armi_mood.api import CandidateMoodDraft, MoodCommitPort, MoodViolation
+from armi_opportunity.api import LifeViolation, OpportunityTransitionPort
+from armi_prompt.api import CandidatePromptDraft, PromptCommitPort, PromptViolation
+from armi_relationship.api import (
+    CandidateRelationshipDraft,
+    RelationshipCommitPort,
+    RelationshipViolation,
+)
 from armi_sleep.api import (
+    CandidateMaintenanceDecisionDraft,
+    CandidateSleepDecisionDraft,
     SleepCommitContext,
     SleepCommitPort,
     SleepViolation,
 )
-from armi_subject_state.api import SubjectStateCommitPort, SubjectStateViolation
+from armi_subject_state.api import (
+    CandidateSubjectStateDraft,
+    SubjectStateCommitPort,
+    SubjectStateViolation,
+)
 from armi_web_observation.api import (
     WebResearchCommitContext,
     WebResearchCommitPort,
@@ -120,6 +153,19 @@ class SubjectCommitSnapshot:
     source_ref: UUID
     source_version: int
     source_activity_id: UUID | None
+    accepted_candidates: tuple[CognitionAcceptedCandidate, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class SubjectCommitOwnerDrafts:
+    activity: tuple[CandidateActivityDraft | CandidateActivityDecisionDraft, ...]
+    material: tuple[CandidateLifeMaterialDraft, ...]
+    memory: tuple[CandidateMemoryDraft | CandidateMemoryRevisionDraft, ...]
+    mood: tuple[CandidateMoodDraft, ...]
+    prompt: tuple[CandidatePromptDraft, ...]
+    relationship: tuple[CandidateRelationshipDraft, ...]
+    sleep: tuple[CandidateSleepDecisionDraft | CandidateMaintenanceDecisionDraft, ...]
+    subject_state: tuple[CandidateSubjectStateDraft, ...]
 
 
 def _sleep_commit_context(snapshot: SubjectCommitSnapshot) -> SleepCommitContext:
@@ -183,6 +229,11 @@ def _capability_commit_context(
         snapshot.scene_id,
         snapshot.creator_party_id,
         snapshot.trace_id,
+        tuple(
+            CapabilityAcceptedBasis(item.proposal_ref, item.basis_context_ids)
+            for item in snapshot.accepted_candidates
+            if item.owner_identity == "capability"
+        ),
     )
 
 
@@ -217,12 +268,17 @@ class PostgreSQLSubjectCommitRepository:
 
     __slots__ = (
         "_activity_commit",
+        "_artifact_catalog",
         "_capability_commit",
         "_capability_read",
         "_codex_commit",
+        "_cognition_commit",
         "_context_projections",
+        "_data_rights",
         "_evidence",
+        "_evidence_read",
         "_expression_commit",
+        "_interaction_commit",
         "_material_commit",
         "_memory_commit",
         "_mood_commit",
@@ -240,12 +296,17 @@ class PostgreSQLSubjectCommitRepository:
         capability_commit: CapabilityCommitPort,
         capability_read: CapabilityReadPort,
         codex_commit: CodexCommitPort,
+        cognition_commit: CognitionSubjectCommitPort,
         context_projections: ContextProjectionInvalidationPort,
+        data_rights: DataRightsSubjectCommitGate,
         evidence: EvidenceWritePort,
+        evidence_read: EvidenceReadPort,
         expression_commit: ExpressionCommitPort,
         memory_commit: MemoryCommitPort,
         mood_commit: MoodCommitPort,
         opportunity_transition: OpportunityTransitionPort,
+        interaction_commit: InteractionSubjectCommitPort,
+        artifact_catalog: ArtifactCatalogPort,
         prompt_commit: PromptCommitPort,
         material_commit: MaterialCommitPort,
         relationship_commit: RelationshipCommitPort,
@@ -257,12 +318,17 @@ class PostgreSQLSubjectCommitRepository:
         self._capability_commit = capability_commit
         self._capability_read = capability_read
         self._codex_commit = codex_commit
+        self._cognition_commit = cognition_commit
         self._context_projections = context_projections
+        self._data_rights = data_rights
         self._evidence = evidence
+        self._evidence_read = evidence_read
         self._expression_commit = expression_commit
         self._memory_commit = memory_commit
         self._mood_commit = mood_commit
         self._opportunity_transition = opportunity_transition
+        self._interaction_commit = interaction_commit
+        self._artifact_catalog = artifact_catalog
         self._prompt_commit = prompt_commit
         self._material_commit = material_commit
         self._relationship_commit = relationship_commit
@@ -304,67 +370,30 @@ class PostgreSQLSubjectCommitRepository:
         unit_of_work: PostgreSQLUnitOfWork,
         *,
         lease: WorkLease,
+        episode_id: UUID,
         code: str,
     ) -> None:
         """Terminally settle a current subject-commit attempt and its episode."""
 
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
-        row = await (
-            await connection.execute(
-                """
-                SELECT episode.cognitive_episode_id,
-                       episode.subject_id,
-                       episode.trace_id
-                FROM armi.durable_work AS work
-                JOIN armi.cognitive_episodes AS episode
-                  ON episode.cognitive_episode_id = work.owner_ref
-                WHERE work.work_id = %s
-                  AND work.work_kind = 'cognition.subject.commit'
-                  AND work.owner_kind = 'cognitive_episode'
-                  AND work.status = 'leased'
-                  AND work.current_attempt_id = %s
-                  AND work.lease_owner = %s
-                  AND work.lease_token = %s
-                  AND work.lease_expires_at >= statement_timestamp()
-                  AND episode.status = 'candidate_validated'
-                FOR UPDATE OF work, episode
-                """,
-                (
-                    lease.work_id.value,
-                    lease.attempt_id.value,
-                    lease.owner,
-                    lease.token,
-                ),
-            )
-        ).fetchone()
-        if row is None:
-            raise SubjectCommitViolation("SUBJECT-WORK-STALE")
-        await connection.execute(
-            """
-            UPDATE armi.cognitive_episodes
-            SET status = 'failed', failure_code = %s
-            WHERE cognitive_episode_id = %s
-              AND status = 'candidate_validated'
-            """,
-            (code, row[0]),
+        await _assert_lease(connection, lease, episode_id)
+        cognition = await self._cognition_commit.snapshot(
+            unit_of_work.transaction, episode_id=episode_id
         )
-        resolved = await (
-            await connection.execute(
-                """
-                UPDATE armi.opportunities AS opportunity
-                SET current_disposition = 'resolved',
-                    resolved_at = statement_timestamp()
-                FROM armi.cognitive_episodes AS episode
-                WHERE episode.cognitive_episode_id = %s
-                  AND opportunity.opportunity_id = episode.opportunity_id
-                  AND opportunity.current_disposition = 'selected'
-                RETURNING opportunity.opportunity_id
-                """,
-                (row[0],),
+        await self._cognition_commit.finish_episode(
+            unit_of_work.transaction,
+            episode_id=episode_id,
+            status=CognitionEpisodeStatus.FAILED,
+            application_status=None,
+            failure_code=code,
+        )
+        try:
+            await self._opportunity_transition.resolve_subject_commit(
+                unit_of_work.transaction,
+                opportunity_id=cognition.opportunity_id,
             )
-        ).fetchone()
-        if resolved is None:
-            raise SubjectCommitViolation("SUBJECT-OPPORTUNITY-STATE")
+        except LifeViolation:
+            raise SubjectCommitViolation("SUBJECT-OPPORTUNITY-STATE") from None
         await unit_of_work.work.fail(lease, error_code=code)
         await unit_of_work.audit.append(
             AuditDraft(
@@ -372,11 +401,11 @@ class PostgreSQLSubjectCommitRepository:
                 AuditReference("runtime", unit_of_work.environment_id),
                 Purpose("cognition.subject.commit"),
                 "cognition.subject.failed",
-                AuditReference("cognitive_episode", row[0]),
+                AuditReference("cognitive_episode", episode_id),
                 AuditResultStatus.FAILED,
-                TraceId(str(row[2])),
+                cognition.trace_id,
                 AuditSensitivity.PRIVATE,
-                subject_id=SubjectId(row[1]),
+                subject_id=SubjectId(cognition.subject_id),
                 request=AuditReference("durable_work", lease.work_id.value),
             )
         )
@@ -440,94 +469,58 @@ class PostgreSQLSubjectCommitRepository:
         self,
         unit_of_work: PostgreSQLUnitOfWork,
         lease: WorkLease,
+        episode_id: UUID,
     ) -> SubjectCommitSnapshot:
         connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
-        row = await (
-            await connection.execute(
-                """
-                SELECT
-                    validation.candidate_validation_id,
-                    episode.cognitive_episode_id,
-                    episode.subject_id,
-                    validation.life_generation_id,
-                    validation.bundle_activation_id,
-                    opportunity.opportunity_id,
-                    opportunity.root_opportunity_id,
-                    opportunity.reconsideration_no,
-                    opportunity.evidence_id,
-                    opportunity.scene_id,
-                    scene.scene_key,
-                    opportunity.context_party_id,
-                    validation.change_set_artifact_id,
-                    validation.base_subject_version,
-                    validation.base_state_epoch,
-                    validation.context_digest,
-                    episode.trace_id,
-                    opportunity.purpose,
-                    opportunity.source_kind,
-                    opportunity.source_ref,
-                    opportunity.source_version,
-                    opportunity.activity_id,
-                    opportunity.context_party_id
-                FROM armi.durable_work AS work
-                JOIN armi.cognitive_episodes AS episode
-                  ON episode.cognitive_episode_id = work.owner_ref
-                JOIN armi.cognitive_candidate_validations AS validation
-                  ON validation.cognitive_episode_id = episode.cognitive_episode_id
-                JOIN armi.opportunities AS opportunity
-                  ON opportunity.opportunity_id = episode.opportunity_id
-                LEFT JOIN armi.interaction_scenes AS scene
-                  ON scene.scene_id = opportunity.scene_id
-                WHERE work.work_id = %s
-                  AND work.work_kind = 'cognition.subject.commit'
-                  AND work.status = 'leased'
-                  AND work.current_attempt_id = %s
-                  AND work.lease_owner = %s
-                  AND work.lease_token = %s
-                  AND work.lease_expires_at > statement_timestamp()
-                  AND episode.status = 'candidate_validated'
-                  AND validation.validation_status IN ('accepted', 'partially_accepted')
-                  AND validation.change_set_artifact_id IS NOT NULL
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM armi.cognitive_candidate_applications AS application
-                      WHERE application.candidate_validation_id = validation.candidate_validation_id
-                  )
-                """,
-                (
-                    lease.work_id.value,
-                    lease.attempt_id.value,
-                    lease.owner,
-                    lease.token,
-                ),
+        await _assert_lease(connection, lease, episode_id)
+        cognition = await self._cognition_commit.snapshot(
+            unit_of_work.transaction, episode_id=episode_id
+        )
+        try:
+            opportunity = await self._opportunity_transition.subject_commit_snapshot(
+                unit_of_work.transaction,
+                opportunity_id=cognition.opportunity_id,
             )
-        ).fetchone()
-        if row is None:
-            raise SubjectCommitViolation("SUBJECT-WORK-STALE")
+            interaction = await self._interaction_commit.snapshot(
+                unit_of_work.transaction,
+                subject_id=cognition.subject_id,
+                scene_id=opportunity.scene_id,
+                context_party_id=opportunity.context_party_id,
+            )
+        except LifeViolation, SceneQueryViolation:
+            raise SubjectCommitViolation("SUBJECT-OWNER-SNAPSHOT") from None
+        if opportunity.subject_id != cognition.subject_id:
+            raise SubjectCommitViolation("SUBJECT-OWNER-SNAPSHOT")
+        artifact = await self._artifact_catalog.retained_ref_in(
+            unit_of_work.transaction, cognition.change_set_artifact_id
+        )
+        if artifact is None:
+            raise SubjectCommitViolation("SUBJECT-CHANGE-SET-ARTIFACT")
         return SubjectCommitSnapshot(
-            row[0],
-            row[1],
-            row[2],
-            row[3],
-            row[4],
-            row[5],
-            row[6],
-            int(row[7]),
-            row[8],
-            row[9],
-            None if row[10] is None else str(row[10]),
-            row[11],
-            row[22],
-            await _artifact_ref(connection, row[12]),
-            int(row[13]),
-            int(row[14]),
-            Digest(str(row[15])),
-            TraceId(str(row[16])),
-            str(row[17]),
-            str(row[18]),
-            row[19],
-            int(row[20]),
-            row[21],
+            cognition.validation_id,
+            cognition.episode_id,
+            cognition.subject_id,
+            cognition.generation_id,
+            cognition.activation_id,
+            opportunity.opportunity_id,
+            opportunity.root_opportunity_id,
+            opportunity.reconsideration_no,
+            opportunity.evidence_id,
+            interaction.scene_id,
+            interaction.scene_key,
+            interaction.creator_party_id,
+            interaction.other_party_id,
+            artifact,
+            cognition.base_subject_version,
+            cognition.base_state_epoch,
+            cognition.context_digest,
+            cognition.trace_id,
+            opportunity.purpose,
+            opportunity.source_kind,
+            opportunity.source_ref,
+            opportunity.source_version,
+            opportunity.activity_id,
+            cognition.accepted_candidates,
         )
 
     async def existing_result(
@@ -536,29 +529,22 @@ class PostgreSQLSubjectCommitRepository:
         validation_id: UUID,
     ) -> SubjectCommitResult | None:
         """Re-read the unique application after an indeterminate commit."""
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
-        row = await (
-            await connection.execute(
-                """
-                SELECT candidate_application_id, resolution,
-                       subject_commit_id,
-                       observed_subject_version, successor_opportunity_id
-                FROM armi.cognitive_candidate_applications
-                WHERE candidate_validation_id = %s
-                """,
-                (validation_id,),
-            )
-        ).fetchone()
-        if row is None:
+        application = await self._cognition_commit.existing_application(
+            unit_of_work.transaction, validation_id=validation_id
+        )
+        if application is None:
             return None
-        status = CandidateApplicationStatus(str(row[1]))
-        commit_id = SubjectCommitId(row[2]) if row[2] is not None else None
+        commit_id = (
+            SubjectCommitId(application.subject_commit_id)
+            if application.subject_commit_id is not None
+            else None
+        )
         return SubjectCommitResult(
-            CandidateApplicationId(row[0]),
-            status,
+            application.application_id,
+            application.status,
             commit_id,
-            int(row[3]) if commit_id is not None else None,
-            row[4],
+            application.observed_subject_version if commit_id is not None else None,
+            application.successor_opportunity_id,
         )
 
     async def settle(
@@ -568,6 +554,7 @@ class PostgreSQLSubjectCommitRepository:
         lease: WorkLease,
         snapshot: SubjectCommitSnapshot,
         change_set: SubjectChangeSet,
+        owner_drafts: SubjectCommitOwnerDrafts,
         response_artifact: ArtifactRef | None = None,
         research_artifact: ArtifactRef | None = None,
         material_artifacts: dict[str, ArtifactRef] | None = None,
@@ -588,10 +575,18 @@ class PostgreSQLSubjectCommitRepository:
             or change_set.context_digest != snapshot.context_digest
         ):
             raise SubjectCommitViolation("SUBJECT-CHANGE-SET-IDENTITY")
+        _assert_accepted_change_set(snapshot, change_set)
 
-        if await _data_rights_block_subject_commit(connection, snapshot):
+        party_id = snapshot.other_party_id or snapshot.creator_party_id
+        if party_id is not None and await self._data_rights.blocks_subject_commit(
+            unit_of_work,
+            requester_party_id=party_id,
+            opportunity_purpose=snapshot.opportunity_purpose,
+        ):
             return await _settle_data_rights_blocked(
                 unit_of_work,
+                cognition_commit=self._cognition_commit,
+                opportunity_transition=self._opportunity_transition,
                 expression_commit=self._expression_commit,
                 lease=lease,
                 snapshot=snapshot,
@@ -615,13 +610,13 @@ class PostgreSQLSubjectCommitRepository:
         subject_state_heads_current = await self._subject_state_commit.heads_match(
             unit_of_work.transaction,
             subject_id=snapshot.subject_id,
-            drafts=change_set.owner_drafts,
+            drafts=owner_drafts.subject_state,
         )
         try:
             activity_heads_current = await self._activity_commit.heads_match(
                 unit_of_work.transaction,
                 context=_activity_commit_context(snapshot),
-                drafts=change_set.owner_drafts,
+                drafts=owner_drafts.activity,
             )
         except ActivityViolation as error:
             raise SubjectCommitViolation(
@@ -630,19 +625,19 @@ class PostgreSQLSubjectCommitRepository:
         memory_heads_current = await self._memory_commit.heads_match(
             unit_of_work.transaction,
             subject_id=snapshot.subject_id,
-            drafts=change_set.owner_drafts,
+            drafts=owner_drafts.memory,
         )
         mood_heads_current = await self._mood_commit.heads_match(
             unit_of_work.transaction,
             subject_id=snapshot.subject_id,
-            drafts=change_set.owner_drafts,
+            drafts=owner_drafts.mood,
         )
         try:
             material_heads_current = await self._material_commit.heads_match(
                 unit_of_work.transaction,
                 subject_id=snapshot.subject_id,
                 generation_id=snapshot.generation_id,
-                drafts=change_set.owner_drafts,
+                drafts=owner_drafts.material,
             )
         except MaterialViolation as error:
             raise SubjectCommitViolation(
@@ -652,7 +647,7 @@ class PostgreSQLSubjectCommitRepository:
             prompt_heads_current = await self._prompt_commit.heads_match(
                 unit_of_work.transaction,
                 subject_id=snapshot.subject_id,
-                drafts=change_set.owner_drafts,
+                drafts=owner_drafts.prompt,
             )
         except PromptViolation as error:
             raise SubjectCommitViolation(f"SUBJECT-{error.code}") from None
@@ -660,7 +655,7 @@ class PostgreSQLSubjectCommitRepository:
             sleep_heads_current = await self._sleep_commit.heads_match(
                 unit_of_work.transaction,
                 context=_sleep_commit_context(snapshot),
-                drafts=change_set.owner_drafts,
+                drafts=owner_drafts.sleep,
             )
         except SleepViolation as error:
             raise SubjectCommitViolation(
@@ -691,6 +686,7 @@ class PostgreSQLSubjectCommitRepository:
             lease=lease,
             snapshot=snapshot,
             change_set=change_set,
+            owner_drafts=owner_drafts,
             response_artifact=response_artifact,
             research_artifact=research_artifact,
             material_artifacts=material_artifacts or {},
@@ -704,6 +700,7 @@ class PostgreSQLSubjectCommitRepository:
         lease: WorkLease,
         snapshot: SubjectCommitSnapshot,
         change_set: SubjectChangeSet,
+        owner_drafts: SubjectCommitOwnerDrafts,
         response_artifact: ArtifactRef | None,
         research_artifact: ArtifactRef | None,
         material_artifacts: dict[str, ArtifactRef],
@@ -722,6 +719,7 @@ class PostgreSQLSubjectCommitRepository:
             return await _settle_without_commit(
                 unit_of_work,
                 activity_commit=self._activity_commit,
+                cognition_commit=self._cognition_commit,
                 opportunity_transition=self._opportunity_transition,
                 expression_commit=self._expression_commit,
                 sleep_commit=self._sleep_commit,
@@ -730,6 +728,7 @@ class PostgreSQLSubjectCommitRepository:
                 status=status,
                 observed_version=change_set.base_subject_version,
                 change_set=change_set,
+                owner_drafts=owner_drafts,
             )
         if (
             not change_set.experiences
@@ -775,14 +774,28 @@ class PostgreSQLSubjectCommitRepository:
         for experience in change_set.experiences:
             experience_id = ExperienceId(uuid7())
             experience_ids[experience.proposal_ref] = experience_id
-            evidence_links = await _evidence_links(
-                connection,
-                snapshot=snapshot,
-                proposal_ref=experience.proposal_ref,
+            proof = next(
+                (
+                    item
+                    for item in snapshot.accepted_candidates
+                    if item.proposal_ref == experience.proposal_ref
+                    and item.owner_identity == "experience"
+                ),
+                None,
             )
-            if not evidence_links:
+            if (
+                proof is None
+                or not proof.basis_context_ids
+                or snapshot.evidence_id is None
+            ):
                 raise SubjectCommitViolation("SUBJECT-EXPERIENCE-BASIS")
-            received_at = evidence_links[0][2]
+            try:
+                evidence_snapshot = await self._evidence_read.snapshot(
+                    unit_of_work,
+                    evidence_id=EvidenceId(snapshot.evidence_id),
+                )
+            except EvidenceViolation:
+                raise SubjectCommitViolation("SUBJECT-EXPERIENCE-BASIS") from None
             try:
                 experience_kind, source_perspective = {
                     "consider_creator_input": ("creator_input", "creator_claim"),
@@ -798,40 +811,29 @@ class PostgreSQLSubjectCommitRepository:
                 }[snapshot.opportunity_purpose]
             except KeyError:
                 raise SubjectCommitViolation("SUBJECT-EXPERIENCE-SOURCE") from None
-            await connection.execute(
-                """
-                INSERT INTO armi.accepted_experiences (
-                    experience_id, subject_id, subject_commit_id, cognitive_episode_id,
-                    proposal_ref, experience_kind, fact_class,
-                    first_person_gist, scene_id, occurred_at, learned_at,
-                    source_perspective, uncertainty, privacy_scope) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s, 'private')
-                """,
-                (
-                    experience_id.value,
-                    snapshot.subject_id,
-                    commit_id.value,
-                    snapshot.episode_id,
-                    experience.proposal_ref,
-                    experience_kind,
-                    experience.fact_class.value,
-                    experience.first_person_gist,
-                    snapshot.scene_id,
-                    received_at,
-                    received_at,
-                    source_perspective,
-                    experience.uncertainty,
+            await self._cognition_commit.record_experience(
+                unit_of_work.transaction,
+                CognitionExperienceDraft(
+                    experience_id=experience_id.value,
+                    subject_id=snapshot.subject_id,
+                    subject_commit_id=commit_id.value,
+                    episode_id=snapshot.episode_id,
+                    proposal_ref=experience.proposal_ref,
+                    experience_kind=experience_kind,
+                    fact_class=experience.fact_class,
+                    first_person_gist=experience.first_person_gist,
+                    scene_id=snapshot.scene_id,
+                    occurred_at=evidence_snapshot.received_at,
+                    source_perspective=source_perspective,
+                    uncertainty=experience.uncertainty,
                 ),
             )
-            for ordinal, (context_item_id, evidence_id, _) in enumerate(
-                evidence_links, 1
-            ):
+            for ordinal, context_item_id in enumerate(proof.basis_context_ids, 1):
                 await self._evidence.link_experience(
                     unit_of_work,
                     ExperienceEvidenceLink(
                         experience_id.value,
-                        EvidenceId(evidence_id),
+                        evidence_snapshot.evidence_id,
                         context_item_id,
                         ordinal,
                     ),
@@ -844,7 +846,7 @@ class PostgreSQLSubjectCommitRepository:
                 generation_id=snapshot.generation_id,
                 commit_id=commit_id.value,
                 validation_id=snapshot.validation_id,
-                drafts=change_set.owner_drafts,
+                drafts=owner_drafts.memory,
                 experience_ids={
                     key: value.value for key, value in experience_ids.items()
                 },
@@ -861,7 +863,7 @@ class PostgreSQLSubjectCommitRepository:
                 subject_id=snapshot.subject_id,
                 generation_id=snapshot.generation_id,
                 commit_id=commit_id.value,
-                drafts=change_set.owner_drafts,
+                drafts=owner_drafts.relationship,
                 experience_ids={
                     key: value.value for key, value in experience_ids.items()
                 },
@@ -878,7 +880,7 @@ class PostgreSQLSubjectCommitRepository:
                 subject_id=snapshot.subject_id,
                 generation_id=snapshot.generation_id,
                 commit_id=commit_id.value,
-                drafts=change_set.owner_drafts,
+                drafts=owner_drafts.material,
                 artifacts=material_artifacts,
             )
         except MaterialViolation as error:
@@ -913,7 +915,7 @@ class PostgreSQLSubjectCommitRepository:
                 unit_of_work.transaction,
                 subject_id=snapshot.subject_id,
                 commit_id=commit_id.value,
-                drafts=change_set.owner_drafts,
+                drafts=owner_drafts.subject_state,
             )
         except SubjectStateViolation as error:
             raise SubjectCommitViolation(
@@ -925,7 +927,7 @@ class PostgreSQLSubjectCommitRepository:
                 unit_of_work.transaction,
                 subject_id=snapshot.subject_id,
                 commit_id=commit_id.value,
-                drafts=change_set.owner_drafts,
+                drafts=owner_drafts.mood,
             )
         except MoodViolation as error:
             raise SubjectCommitViolation(
@@ -938,7 +940,7 @@ class PostgreSQLSubjectCommitRepository:
                 validation_id=snapshot.validation_id,
                 subject_id=snapshot.subject_id,
                 commit_id=commit_id.value,
-                drafts=change_set.owner_drafts,
+                drafts=owner_drafts.prompt,
                 artifacts=prompt_artifacts,
             )
         except PromptViolation as error:
@@ -960,7 +962,7 @@ class PostgreSQLSubjectCommitRepository:
                 unit_of_work.transaction,
                 context=_activity_commit_context(snapshot),
                 commit_id=commit_id.value,
-                drafts=change_set.owner_drafts,
+                drafts=owner_drafts.activity,
             )
         except ActivityViolation as error:
             raise SubjectCommitViolation(
@@ -1008,6 +1010,7 @@ class PostgreSQLSubjectCommitRepository:
             raise SubjectCommitViolation(f"SUBJECT-{error.code}") from None
         await _insert_exact_life_query_intent(
             unit_of_work,
+            cognition_commit=self._cognition_commit,
             snapshot=snapshot,
             commit_id=commit_id,
             queries=change_set.exact_life_queries,
@@ -1043,7 +1046,7 @@ class PostgreSQLSubjectCommitRepository:
 
         application_id = CandidateApplicationId(uuid7())
         await _insert_application(
-            connection,
+            cognition_commit=self._cognition_commit,
             unit_of_work=unit_of_work,
             application_id=application_id,
             snapshot=snapshot,
@@ -1057,7 +1060,7 @@ class PostgreSQLSubjectCommitRepository:
                 unit_of_work.transaction,
                 context=_activity_commit_context(snapshot),
                 application_id=application_id.value,
-                drafts=change_set.owner_drafts,
+                drafts=owner_drafts.activity,
                 result_revision_id=activity_result.result_revision_id,
                 output_material_ids=committed_material_ids,
             )
@@ -1072,7 +1075,7 @@ class PostgreSQLSubjectCommitRepository:
                 application_id=application_id.value,
                 commit_id=commit_id.value,
                 resulting_subject_version=new_version,
-                drafts=change_set.owner_drafts,
+                drafts=owner_drafts.sleep,
                 committed_memory_ids=committed_memory_ids,
             )
         except SleepViolation as error:
@@ -1080,19 +1083,15 @@ class PostgreSQLSubjectCommitRepository:
                 f"SUBJECT-{error.code.removeprefix('SLEEP-')}"
             ) from None
         if snapshot.scene_id is not None:
-            timeline_item_id = uuid7()
-            await connection.execute(
-                """
-                INSERT INTO armi.scene_timeline_items (
-                    timeline_item_id, scene_id, source_kind, source_ref,
-                    source_event_no, result_status, occurred_at) VALUES (
-                    %s, %s, 'subject_commit', %s, 1, 'applied',
-                    statement_timestamp())
-                """,
-                (timeline_item_id, snapshot.scene_id, commit_id.value),
+            await self._interaction_commit.append_timeline(
+                unit_of_work.transaction,
+                scene_id=snapshot.scene_id,
+                subject_commit_id=commit_id.value,
             )
         await _finish_episode_and_work(
             unit_of_work,
+            cognition_commit=self._cognition_commit,
+            opportunity_transition=self._opportunity_transition,
             lease=lease,
             snapshot=snapshot,
             status=CandidateApplicationStatus.APPLIED,
@@ -1123,41 +1122,19 @@ class PostgreSQLSubjectCommitRepository:
         snapshot: SubjectCommitSnapshot,
         observed_version: int,
     ) -> SubjectCommitResult:
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
-        successor = uuid7() if snapshot.reconsideration_no == 0 else None
-        if successor is not None:
-            await connection.execute(
-                """
-                INSERT INTO armi.opportunities (
-                    opportunity_id, evidence_id, subject_id, scene_id,
-                    creator_party_id, other_party_id, purpose, eligibility_status,
-                    current_disposition, root_opportunity_id,
-                    predecessor_opportunity_id, reconsideration_no,
-                    source_kind, source_ref, source_version,
-                    activity_id) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s,
-                    'eligible', 'open', %s, %s, 1,
-                    %s, %s, %s, %s)
-                """,
-                (
-                    successor,
-                    snapshot.evidence_id,
-                    snapshot.subject_id,
-                    snapshot.scene_id,
-                    snapshot.creator_party_id,
-                    snapshot.other_party_id,
-                    snapshot.opportunity_purpose,
-                    snapshot.root_opportunity_id,
-                    snapshot.opportunity_id,
-                    snapshot.source_kind,
-                    snapshot.source_ref,
-                    snapshot.source_version,
-                    snapshot.source_activity_id,
-                ),
+        try:
+            successor_value = (
+                await self._opportunity_transition.supersede_subject_commit(
+                    unit_of_work.transaction,
+                    opportunity_id=snapshot.opportunity_id,
+                )
             )
+        except LifeViolation:
+            raise SubjectCommitViolation("SUBJECT-OPPORTUNITY-STATE") from None
+        successor = None if successor_value is None else successor_value.value
         application_id = CandidateApplicationId(uuid7())
         await _insert_application(
-            connection,
+            cognition_commit=self._cognition_commit,
             unit_of_work=unit_of_work,
             application_id=application_id,
             snapshot=snapshot,
@@ -1166,25 +1143,11 @@ class PostgreSQLSubjectCommitRepository:
             observed_version=observed_version,
             successor_id=successor,
         )
-        await connection.execute(
-            """
-            UPDATE armi.cognitive_episodes
-            SET status = 'stale', application_resolution = 'stale',
-                committed_at = statement_timestamp()
-            WHERE cognitive_episode_id = %s AND status = 'candidate_validated'
-            """,
-            (snapshot.episode_id,),
-        )
-        await connection.execute(
-            """
-            UPDATE armi.opportunities
-            SET current_disposition = %s, resolved_at = statement_timestamp()
-            WHERE opportunity_id = %s AND current_disposition = 'selected'
-            """,
-            (
-                "superseded" if successor is not None else "resolved",
-                snapshot.opportunity_id,
-            ),
+        await self._cognition_commit.finish_episode(
+            unit_of_work.transaction,
+            episode_id=snapshot.episode_id,
+            status=CognitionEpisodeStatus.STALE,
+            application_status=CandidateApplicationStatus.STALE,
         )
         await unit_of_work.work.complete(
             lease, WorkResultRef("candidate_application", application_id.value)
@@ -1210,6 +1173,7 @@ async def _settle_without_commit(
     unit_of_work: PostgreSQLUnitOfWork,
     *,
     activity_commit: ActivityCommitPort,
+    cognition_commit: CognitionSubjectCommitPort,
     opportunity_transition: OpportunityTransitionPort,
     expression_commit: ExpressionCommitPort,
     sleep_commit: SleepCommitPort,
@@ -1218,13 +1182,13 @@ async def _settle_without_commit(
     status: CandidateApplicationStatus,
     observed_version: int,
     change_set: SubjectChangeSet,
+    owner_drafts: SubjectCommitOwnerDrafts,
 ) -> SubjectCommitResult:
-    connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
     application_id = CandidateApplicationId(uuid7())
     try:
         activity_reconsideration = activity_commit.requests_reconsideration(
             context=_activity_commit_context(snapshot),
-            drafts=change_set.owner_drafts,
+            drafts=owner_drafts.activity,
         )
     except ActivityViolation as error:
         raise SubjectCommitViolation(
@@ -1233,7 +1197,7 @@ async def _settle_without_commit(
     try:
         sleep_reconsideration = sleep_commit.requests_reconsideration(
             context=_sleep_commit_context(snapshot),
-            drafts=change_set.owner_drafts,
+            drafts=owner_drafts.sleep,
         )
     except SleepViolation as error:
         raise SubjectCommitViolation(
@@ -1262,7 +1226,7 @@ async def _settle_without_commit(
         )
         successor_id = None if successor is None else successor.value
     await _insert_application(
-        connection,
+        cognition_commit=cognition_commit,
         unit_of_work=unit_of_work,
         application_id=application_id,
         snapshot=snapshot,
@@ -1276,7 +1240,7 @@ async def _settle_without_commit(
             unit_of_work.transaction,
             context=_activity_commit_context(snapshot),
             application_id=application_id.value,
-            drafts=change_set.owner_drafts,
+            drafts=owner_drafts.activity,
             result_revision_id=None,
         )
     except ActivityViolation as error:
@@ -1290,7 +1254,7 @@ async def _settle_without_commit(
             application_id=application_id.value,
             commit_id=None,
             resulting_subject_version=observed_version,
-            drafts=change_set.owner_drafts,
+            drafts=owner_drafts.sleep,
         )
     except SleepViolation as error:
         raise SubjectCommitViolation(
@@ -1303,14 +1267,14 @@ async def _settle_without_commit(
             application_id=application_id.value,
             application_status=status.value,
             choices=change_set.action_choices,
-            activity_owned=any(
-                item.owner == "activity" for item in change_set.owner_drafts
-            ),
+            activity_owned=bool(owner_drafts.activity),
         )
     except ResponseViolation as error:
         raise SubjectCommitViolation(error.code) from None
     await _finish_episode_and_work(
         unit_of_work,
+        cognition_commit=cognition_commit,
+        opportunity_transition=opportunity_transition,
         lease=lease,
         snapshot=snapshot,
         status=status,
@@ -1343,57 +1307,20 @@ async def _settle_without_commit(
     )
 
 
-async def _data_rights_block_subject_commit(
-    connection: Any,
-    snapshot: SubjectCommitSnapshot,
-) -> bool:
-    party_id = snapshot.other_party_id or snapshot.creator_party_id
-    if party_id is None:
-        return False
-    await connection.execute(
-        "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
-        (f"data-rights:{party_id}",),
-    )
-    row = await (
-        await connection.execute(
-            """
-            SELECT EXISTS (
-                SELECT 1
-                FROM armi.deletion_orders
-                WHERE requester_party_id = %s
-                  AND status = 'effective'
-                  AND (
-                      order_kind IN ('stop_use', 'delete_related')
-                      OR (
-                          order_kind = 'stop_contact'
-                          AND %s IN (
-                              'consider_creator_input',
-                              'consider_other_human_input',
-                              'consider_creator_outreach'
-                          )
-                      )
-                  )
-            )
-            """,
-            (party_id, snapshot.opportunity_purpose),
-        )
-    ).fetchone()
-    return bool(row is not None and row[0])
-
-
 async def _settle_data_rights_blocked(
     unit_of_work: PostgreSQLUnitOfWork,
     *,
+    cognition_commit: CognitionSubjectCommitPort,
+    opportunity_transition: OpportunityTransitionPort,
     expression_commit: ExpressionCommitPort,
     lease: WorkLease,
     snapshot: SubjectCommitSnapshot,
     observed_version: int,
 ) -> SubjectCommitResult:
-    connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
     status = CandidateApplicationStatus.NO_ACTION
     application_id = CandidateApplicationId(uuid7())
     await _insert_application(
-        connection,
+        cognition_commit=cognition_commit,
         unit_of_work=unit_of_work,
         application_id=application_id,
         snapshot=snapshot,
@@ -1415,6 +1342,8 @@ async def _settle_data_rights_blocked(
         raise SubjectCommitViolation(error.code) from None
     await _finish_episode_and_work(
         unit_of_work,
+        cognition_commit=cognition_commit,
+        opportunity_transition=opportunity_transition,
         lease=lease,
         snapshot=snapshot,
         status=status,
@@ -1436,37 +1365,34 @@ async def _settle_data_rights_blocked(
 async def _finish_episode_and_work(
     unit_of_work: PostgreSQLUnitOfWork,
     *,
+    cognition_commit: CognitionSubjectCommitPort,
+    opportunity_transition: OpportunityTransitionPort,
     lease: WorkLease,
     snapshot: SubjectCommitSnapshot,
     status: CandidateApplicationStatus,
     result_ref: UUID,
 ) -> None:
-    connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
-    await connection.execute(
-        """
-        UPDATE armi.cognitive_episodes
-        SET status = 'completed', application_resolution = %s,
-            committed_at = statement_timestamp()
-        WHERE cognitive_episode_id = %s AND status = 'candidate_validated'
-        """,
-        (status.value, snapshot.episode_id),
+    await cognition_commit.finish_episode(
+        unit_of_work.transaction,
+        episode_id=snapshot.episode_id,
+        status=CognitionEpisodeStatus.COMPLETED,
+        application_status=status,
     )
-    await connection.execute(
-        """
-        UPDATE armi.opportunities
-        SET current_disposition = 'resolved', resolved_at = statement_timestamp()
-        WHERE opportunity_id = %s AND current_disposition = 'selected'
-        """,
-        (snapshot.opportunity_id,),
-    )
+    try:
+        await opportunity_transition.resolve_subject_commit(
+            unit_of_work.transaction,
+            opportunity_id=snapshot.opportunity_id,
+        )
+    except LifeViolation:
+        raise SubjectCommitViolation("SUBJECT-OPPORTUNITY-STATE") from None
     await unit_of_work.work.complete(
         lease, WorkResultRef("candidate_application", result_ref)
     )
 
 
 async def _insert_application(
-    connection: Any,
     *,
+    cognition_commit: CognitionSubjectCommitPort,
     unit_of_work: PostgreSQLUnitOfWork,
     application_id: CandidateApplicationId,
     snapshot: SubjectCommitSnapshot,
@@ -1477,71 +1403,28 @@ async def _insert_application(
     successor_id: UUID | None = None,
 ) -> None:
     fence = cast(RuntimeFence, unit_of_work.runtime_fence)
-    await connection.execute(
-        """
-        INSERT INTO armi.cognitive_candidate_applications (
-            candidate_application_id, candidate_validation_id,
-            cognitive_episode_id, work_id, resolution, subject_commit_id,
-            successor_opportunity_id, base_subject_version,
-            observed_subject_version,
-            runtime_instance_id, fence_token) VALUES (
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """,
-        (
-            application_id.value,
-            snapshot.validation_id,
-            snapshot.episode_id,
-            lease.work_id.value,
-            status.value,
-            commit_id.value if commit_id is not None else None,
-            successor_id,
-            snapshot.base_subject_version,
-            observed_version,
-            fence.runtime_instance_id.value,
-            fence.fence_token,
+    await cognition_commit.record_application(
+        unit_of_work.transaction,
+        CognitionApplicationDraft(
+            application_id=application_id,
+            validation_id=snapshot.validation_id,
+            episode_id=snapshot.episode_id,
+            work_id=lease.work_id.value,
+            status=status,
+            subject_commit_id=commit_id.value if commit_id is not None else None,
+            successor_opportunity_id=successor_id,
+            base_subject_version=snapshot.base_subject_version,
+            observed_subject_version=observed_version,
+            runtime_instance_id=fence.runtime_instance_id.value,
+            fence_token=fence.fence_token,
         ),
     )
-
-
-async def _evidence_links(
-    connection: Any,
-    *,
-    snapshot: SubjectCommitSnapshot,
-    proposal_ref: str,
-) -> list[tuple[UUID, UUID, Any]]:
-    rows = await (
-        await connection.execute(
-            """
-            SELECT basis.context_item_id, evidence.evidence_id, evidence.received_at
-            FROM armi.cognitive_candidate_basis_links AS basis
-            JOIN armi.cognitive_context_items AS item
-              ON item.context_item_id = basis.context_item_id
-             AND item.cognitive_episode_id = %s
-             AND item.disposition = 'included'
-             AND item.trust_class = 'external_claim'
-             AND item.source_ref = %s
-            JOIN armi.external_evidence AS evidence
-              ON evidence.evidence_id = item.source_ref
-             AND evidence.evidence_id = %s
-            WHERE basis.candidate_validation_id = %s
-              AND basis.proposal_ref = %s
-            ORDER BY basis.ordinal
-            """,
-            (
-                snapshot.episode_id,
-                snapshot.evidence_id,
-                snapshot.evidence_id,
-                snapshot.validation_id,
-                proposal_ref,
-            ),
-        )
-    ).fetchall()
-    return [(row[0], row[1], row[2]) for row in rows]
 
 
 async def _insert_exact_life_query_intent(
     unit_of_work: PostgreSQLUnitOfWork,
     *,
+    cognition_commit: CognitionSubjectCommitPort,
     snapshot: SubjectCommitSnapshot,
     commit_id: SubjectCommitId,
     queries: tuple[CandidateExactLifeQueryDraft, ...],
@@ -1554,19 +1437,6 @@ async def _insert_exact_life_query_intent(
     if snapshot.scene_id is None or snapshot.creator_party_id is None:
         raise SubjectCommitViolation("SUBJECT-EXACT-LIFE-QUERY-SCENE")
     connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
-    item = await (
-        await connection.execute(
-            """
-            SELECT validation_status
-            FROM armi.cognitive_candidate_validation_items
-            WHERE candidate_validation_id = %s AND proposal_ref = %s
-              AND owner_kind = 'exact_life_query'
-            """,
-            (snapshot.validation_id, query.proposal_ref),
-        )
-    ).fetchone()
-    if item is None or str(item[0]) != "accepted":
-        raise SubjectCommitViolation("SUBJECT-EXACT-LIFE-QUERY-VALIDATION")
     now_row = await (
         await connection.execute("SELECT statement_timestamp()")
     ).fetchone()
@@ -1596,31 +1466,22 @@ async def _insert_exact_life_query_intent(
             WorkPayloadRef("exact_life_query_intent", intent_id),
         )
     )
-    await connection.execute(
-        """
-        INSERT INTO armi.exact_life_query_intents (
-            exact_life_query_intent_id, subject_commit_id,
-            source_opportunity_id, subject_id, scene_id, creator_party_id,
-            proposal_ref, record_kind, query_text, result_limit,
-            query_digest, execution_work_id, status, trace_id) VALUES (
-            %s, %s, %s, %s, %s, %s,
-            %s, %s, %s, %s,
-            %s, %s, 'pending', %s)
-        """,
-        (
-            intent_id,
-            commit_id.value,
-            snapshot.opportunity_id,
-            snapshot.subject_id,
-            snapshot.scene_id,
-            snapshot.creator_party_id,
-            query.proposal_ref,
-            query.record_kind.value,
-            query.query_text,
-            query.limit,
-            query_digest.value,
-            work_id.value,
-            snapshot.trace_id.value,
+    await cognition_commit.record_exact_life_query(
+        unit_of_work.transaction,
+        CognitionExactLifeQueryIntentDraft(
+            intent_id=intent_id,
+            subject_commit_id=commit_id.value,
+            source_opportunity_id=snapshot.opportunity_id,
+            subject_id=snapshot.subject_id,
+            scene_id=snapshot.scene_id,
+            creator_party_id=snapshot.creator_party_id,
+            proposal_ref=query.proposal_ref,
+            record_kind=query.record_kind.value,
+            query_text=query.query_text,
+            result_limit=query.limit,
+            query_digest=query_digest,
+            execution_work_id=work_id.value,
+            trace_id=snapshot.trace_id,
         ),
     )
     await unit_of_work.audit.append(
@@ -1659,31 +1520,6 @@ async def _assert_lease(connection: Any, lease: WorkLease, episode_id: UUID) -> 
         raise SubjectCommitViolation("SUBJECT-WORK-STALE")
 
 
-async def _artifact_ref(connection: Any, artifact_id: UUID) -> ArtifactRef:
-    row = await (
-        await connection.execute(
-            """
-            SELECT artifact_id, content_digest, media_type, byte_size,
-                   logical_kind, privacy_scope, integrity_status
-            FROM armi.artifacts
-            WHERE artifact_id = %s AND retention_status = 'retained'
-            """,
-            (artifact_id,),
-        )
-    ).fetchone()
-    if row is None:
-        raise SubjectCommitViolation("SUBJECT-CHANGE-SET-ARTIFACT")
-    return ArtifactRef(
-        ArtifactId(row[0]),
-        Digest(str(row[1])),
-        int(row[3]),
-        str(row[2]),
-        str(row[4]),
-        ArtifactPrivacyScope(str(row[5])),
-        ArtifactIntegrityStatus(str(row[6])),
-    )
-
-
 def _audit(
     unit_of_work: PostgreSQLUnitOfWork,
     snapshot: SubjectCommitSnapshot,
@@ -1706,4 +1542,40 @@ def _audit(
     )
 
 
-__all__ = ("PostgreSQLSubjectCommitRepository", "SubjectCommitSnapshot")
+def _assert_accepted_change_set(
+    snapshot: SubjectCommitSnapshot, change_set: SubjectChangeSet
+) -> None:
+    accepted = {
+        (item.proposal_ref, item.owner_identity): item
+        for item in snapshot.accepted_candidates
+    }
+    actual: dict[tuple[str, str], object] = {}
+    groups = (
+        ("experience", change_set.experiences),
+        ("capability", change_set.capability_requests),
+        ("action", change_set.action_choices),
+        ("web_research", change_set.web_research_requests),
+        ("codex_delegation", change_set.codex_delegations),
+        ("exact_life_query", change_set.exact_life_queries),
+    )
+    for owner, values in groups:
+        for value in values:
+            actual[(value.proposal_ref, owner)] = value
+    for value in change_set.owner_drafts:
+        actual[(value.proposal_ref, value.owner)] = value
+        proof = accepted.get((value.proposal_ref, value.owner))
+        if (
+            proof is None
+            or proof.atomic_group_ref != value.atomic_group_ref
+            or proof.fact_class is not value.fact_class
+        ):
+            raise SubjectCommitViolation("SUBJECT-CANDIDATE-ACCEPTANCE")
+    if set(actual) != set(accepted):
+        raise SubjectCommitViolation("SUBJECT-CANDIDATE-ACCEPTANCE")
+
+
+__all__ = (
+    "PostgreSQLSubjectCommitRepository",
+    "SubjectCommitOwnerDrafts",
+    "SubjectCommitSnapshot",
+)

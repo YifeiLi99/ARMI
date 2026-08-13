@@ -8,11 +8,11 @@ from uuid import UUID, uuid7
 
 import psycopg
 import rfc8785
-from armi_kernel.application import CandidateOwnerDraft
 from armi_runtime_foundation import PostgreSQLTransaction
 
 from ._application import SubjectStateApplication
 from .api import (
+    CandidateSubjectStateDraft,
     LifeModeHead,
     SubjectComponentSummary,
     SubjectStateHead,
@@ -225,19 +225,17 @@ class PostgreSQLSubjectStateOwner:
         ).fetchone()
         return 0 if row is None else int(row[0])
 
-    def _drafts(self, drafts: tuple[CandidateOwnerDraft, ...]):
-        return tuple(
-            self._application.decode(item.canonical_payload)
-            for item in drafts
-            if item.owner in {item.value for item in SubjectStateKind}
-        )
+    def _drafts(
+        self, drafts: tuple[CandidateSubjectStateDraft, ...]
+    ) -> tuple[CandidateSubjectStateDraft, ...]:
+        return drafts
 
     async def heads_match(
         self,
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[CandidateSubjectStateDraft, ...],
     ) -> bool:
         for draft in sorted(self._drafts(drafts), key=lambda item: item.kind.value):
             row = await (
@@ -256,7 +254,7 @@ class PostgreSQLSubjectStateOwner:
         *,
         subject_id: UUID,
         commit_id: UUID,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[CandidateSubjectStateDraft, ...],
     ) -> tuple[SubjectStateKind, ...]:
         changed: list[SubjectStateKind] = []
         for draft in sorted(self._drafts(drafts), key=lambda item: item.kind.value):

@@ -593,14 +593,14 @@ class ActivityCommitPort(Protocol):
         transaction: PostgreSQLTransaction,
         *,
         context: ActivityCommitContext,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[CandidateActivityDraft | CandidateActivityDecisionDraft, ...],
     ) -> bool: ...
 
     def requests_reconsideration(
         self,
         *,
         context: ActivityCommitContext,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[CandidateActivityDraft | CandidateActivityDecisionDraft, ...],
     ) -> bool: ...
 
     async def commit(
@@ -609,7 +609,7 @@ class ActivityCommitPort(Protocol):
         *,
         context: ActivityCommitContext,
         commit_id: UUID,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[CandidateActivityDraft | CandidateActivityDecisionDraft, ...],
     ) -> ActivityCommitResult: ...
 
     async def record_decision(
@@ -618,7 +618,7 @@ class ActivityCommitPort(Protocol):
         *,
         context: ActivityCommitContext,
         application_id: UUID,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[CandidateActivityDraft | CandidateActivityDecisionDraft, ...],
         result_revision_id: UUID | None,
         output_material_ids: tuple[UUID, ...] = (),
     ) -> None: ...

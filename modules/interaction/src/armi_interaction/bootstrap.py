@@ -24,6 +24,7 @@ from ._other_human_postgresql import OtherHumanInputRepository
 from ._perception_postgresql import PostgreSQLInteractionPerception
 from ._scenes import CreatorSceneService
 from ._scenes_postgresql import CreatorSceneRepository
+from ._subject_commit import PostgreSQLInteractionSubjectCommit
 from ._timeline_postgresql import PostgreSQLSceneTimelineQuery
 from .api import (
     CreatorInputTransactionPort,
@@ -37,6 +38,7 @@ from .api import (
     InteractionEffectDeliveryPort,
     InteractionIdentityPort,
     InteractionPerceptionPort,
+    InteractionSubjectCommitPort,
     InteractionWakeupPort,
     OtherHumanInputPort,
     SceneTimelineCodexTaskProjectionPort,
@@ -50,6 +52,10 @@ def bootstrap_interaction_identity() -> InteractionIdentityPort:
 
 def bootstrap_interaction_birth() -> InteractionBirthPort:
     return PostgreSQLInteractionBirth()
+
+
+def bootstrap_interaction_subject_commit() -> InteractionSubjectCommitPort:
+    return PostgreSQLInteractionSubjectCommit()
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,4 +168,5 @@ __all__ = (
     "bootstrap_interaction",
     "bootstrap_interaction_birth",
     "bootstrap_interaction_identity",
+    "bootstrap_interaction_subject_commit",
 )

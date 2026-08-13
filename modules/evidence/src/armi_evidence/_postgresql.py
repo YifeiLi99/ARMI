@@ -6,7 +6,13 @@ from uuid import UUID
 
 from armi_runtime_foundation import PostgreSQLTransactionAccess
 
-from .api import EvidenceDraft, EvidenceId, ExperienceEvidenceLink
+from .api import (
+    EvidenceDraft,
+    EvidenceId,
+    EvidenceSnapshot,
+    EvidenceViolation,
+    ExperienceEvidenceLink,
+)
 
 
 class PostgreSQLEvidenceWriter:
@@ -81,6 +87,26 @@ class PostgreSQLEvidenceWriter:
             )
         ).fetchone()
         return None if row is None else EvidenceId(row[0])
+
+    async def snapshot(
+        self,
+        transaction: PostgreSQLTransactionAccess,
+        *,
+        evidence_id: EvidenceId,
+    ) -> EvidenceSnapshot:
+        row = await (
+            await transaction.transaction.execute(
+                """
+                SELECT received_at
+                FROM armi.external_evidence
+                WHERE evidence_id = %s AND acceptance_status = 'accepted'
+                """,
+                (evidence_id.value,),
+            )
+        ).fetchone()
+        if row is None:
+            raise EvidenceViolation("EVIDENCE-NOT-FOUND")
+        return EvidenceSnapshot(evidence_id, row[0])
 
 
 __all__ = ("PostgreSQLEvidenceWriter",)

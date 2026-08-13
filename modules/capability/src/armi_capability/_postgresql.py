@@ -800,32 +800,24 @@ class PostgreSQLCreatorGrantPolicy:
             ).fetchone()
             if inserted is None:
                 continue
-            rows = await (
-                await connection.execute(
-                    """
-                    SELECT basis.context_item_id
-                    FROM armi.cognitive_candidate_basis_links AS basis
-                    JOIN armi.cognitive_context_items AS item
-                      ON item.context_item_id = basis.context_item_id
-                     AND item.cognitive_episode_id = %s
-                     AND item.disposition = 'included'
-                    WHERE basis.candidate_validation_id = %s
-                      AND basis.proposal_ref = %s
-                    ORDER BY basis.ordinal
-                    """,
-                    (context.episode_id, context.validation_id, draft.proposal_ref),
-                )
-            ).fetchall()
-            if len(rows) != len(draft.basis_ordinals):
+            basis = next(
+                (
+                    item.context_item_ids
+                    for item in context.accepted_basis
+                    if item.proposal_ref == draft.proposal_ref
+                ),
+                (),
+            )
+            if len(basis) != len(draft.basis_ordinals):
                 raise CapabilityViolation("CAPABILITY-BASIS")
-            for ordinal, row in enumerate(rows, 1):
+            for ordinal, context_item_id in enumerate(basis, 1):
                 await connection.execute(
                     """
                     INSERT INTO armi.capability_request_basis_links (
                         capability_request_id, context_item_id, ordinal
                     ) VALUES (%s, %s, %s)
                     """,
-                    (request_id, row[0], ordinal),
+                    (request_id, context_item_id, ordinal),
                 )
             await unit_of_work.audit.append(
                 _commit_audit(

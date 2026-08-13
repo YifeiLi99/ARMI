@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid7
 
-from armi_kernel.application import CandidateOwnerDraft
 from armi_runtime_foundation import PostgreSQLTransaction
 
 from ._application import ActivityApplication
@@ -26,20 +25,17 @@ class PostgreSQLActivityCommit:
         self._cognition = cognition
 
     def _drafts(
-        self, drafts: tuple[CandidateOwnerDraft, ...]
+        self,
+        drafts: tuple[CandidateActivityDraft | CandidateActivityDecisionDraft, ...],
     ) -> tuple[CandidateActivityDraft | CandidateActivityDecisionDraft, ...]:
-        return tuple(
-            self._cognition.decode(item.canonical_payload)
-            for item in drafts
-            if item.owner == "activity"
-        )
+        return drafts
 
     async def heads_match(
         self,
         transaction: PostgreSQLTransaction,
         *,
         context: ActivityCommitContext,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[CandidateActivityDraft | CandidateActivityDecisionDraft, ...],
     ) -> bool:
         values = self._drafts(drafts)
         if (
@@ -78,7 +74,7 @@ class PostgreSQLActivityCommit:
         self,
         *,
         context: ActivityCommitContext,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[CandidateActivityDraft | CandidateActivityDecisionDraft, ...],
     ) -> bool:
         decisions = tuple(
             item
@@ -98,7 +94,7 @@ class PostgreSQLActivityCommit:
         *,
         context: ActivityCommitContext,
         commit_id: UUID,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[CandidateActivityDraft | CandidateActivityDecisionDraft, ...],
     ) -> ActivityCommitResult:
         creates: list[CandidateActivityDraft] = []
         decisions: list[CandidateActivityDecisionDraft] = []
@@ -108,9 +104,6 @@ class PostgreSQLActivityCommit:
             else:
                 decisions.append(item)
         for activity in creates:
-            await self._assert_validation(
-                transaction, context.validation_id, activity.proposal_ref
-            )
             await transaction.execute(
                 """
                 INSERT INTO armi.activities (
@@ -192,7 +185,7 @@ class PostgreSQLActivityCommit:
         *,
         context: ActivityCommitContext,
         application_id: UUID,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[CandidateActivityDraft | CandidateActivityDecisionDraft, ...],
         result_revision_id: UUID | None,
         output_material_ids: tuple[UUID, ...] = (),
     ) -> None:
@@ -298,23 +291,6 @@ class PostgreSQLActivityCommit:
         ).fetchall()
         return tuple(UUID(str(row[0])) for row in rows)
 
-    @staticmethod
-    async def _assert_validation(
-        transaction: PostgreSQLTransaction, validation_id: UUID, proposal_ref: str
-    ) -> None:
-        row = await (
-            await transaction.execute(
-                """
-                SELECT 1 FROM armi.cognitive_candidate_validation_items
-                WHERE candidate_validation_id = %s AND proposal_ref = %s
-                  AND owner_kind = 'activity' AND validation_status = 'accepted'
-                """,
-                (validation_id, proposal_ref),
-            )
-        ).fetchone()
-        if row is None:
-            raise ActivityViolation("ACTIVITY-VALIDATION")
-
     async def _transition(
         self,
         transaction: PostgreSQLTransaction,
@@ -344,9 +320,6 @@ class PostgreSQLActivityCommit:
             or int(row[1]) != decision.expected_head_version
         ):
             raise ActivityViolation("ACTIVITY-HEAD-STALE")
-        await self._assert_validation(
-            transaction, context.validation_id, decision.proposal_ref
-        )
         kind = decision.decision_kind.value
         target = {
             "engage": "in_progress",

@@ -108,6 +108,23 @@ class PermissionGrantId:
 
 
 @dataclass(frozen=True, slots=True)
+class CapabilityAcceptedBasis:
+    proposal_ref: str
+    context_item_ids: tuple[UUID, ...]
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.proposal_ref) is not str
+            or not self.proposal_ref.startswith("proposal:")
+            or not self.context_item_ids
+            or len(set(self.context_item_ids)) != len(self.context_item_ids)
+        ):
+            raise CapabilityViolation("CON-CAPABILITY-BASIS")
+        for value in self.context_item_ids:
+            _uuid7(value, "CON-CAPABILITY-BASIS")
+
+
+@dataclass(frozen=True, slots=True)
 class CapabilityCommitContext:
     validation_id: UUID
     episode_id: UUID
@@ -115,6 +132,7 @@ class CapabilityCommitContext:
     scene_id: UUID | None
     creator_party_id: UUID | None
     trace_id: TraceId
+    accepted_basis: tuple[CapabilityAcceptedBasis, ...] = ()
 
     def __post_init__(self) -> None:
         for value in (self.validation_id, self.episode_id, self.subject_id):
@@ -124,6 +142,10 @@ class CapabilityCommitContext:
                 _uuid7(value, "CON-CAPABILITY-COMMIT-CONTEXT")
         if type(self.trace_id) is not TraceId:
             raise CapabilityViolation("CON-CAPABILITY-COMMIT-CONTEXT")
+        if len({item.proposal_ref for item in self.accepted_basis}) != len(
+            self.accepted_basis
+        ):
+            raise CapabilityViolation("CON-CAPABILITY-BASIS")
 
 
 @dataclass(frozen=True, slots=True)
@@ -529,6 +551,7 @@ def _uuid7(value: UUID, code: str) -> None:
 
 
 __all__ = (
+    "CapabilityAcceptedBasis",
     "CapabilityAuthorizationOutcome",
     "CapabilityAvailability",
     "CapabilityCommitContext",

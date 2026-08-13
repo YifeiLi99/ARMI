@@ -244,6 +244,44 @@ class DataRightsOrderRepository:
         ).fetchone()
         return row is not None and bool(row[0])
 
+    async def blocks_subject_commit(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        requester_party_id: UUID,
+        opportunity_purpose: str,
+    ) -> bool:
+        connection = unit_of_work.transaction
+        await connection.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+            (f"data-rights:{requester_party_id}",),
+        )
+        row = await (
+            await connection.execute(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM armi.deletion_orders
+                    WHERE requester_party_id = %s
+                      AND status = 'effective'
+                      AND (
+                          order_kind IN ('stop_use', 'delete_related')
+                          OR (
+                              order_kind = 'stop_contact'
+                              AND %s IN (
+                                  'consider_creator_input',
+                                  'consider_other_human_input',
+                                  'consider_creator_outreach'
+                              )
+                          )
+                      )
+                )
+                """,
+                (requester_party_id, opportunity_purpose),
+            )
+        ).fetchone()
+        return row is not None and bool(row[0])
+
 
 def _snapshot(row: tuple[Any, ...]) -> DataRightsOrderSnapshot:
     return DataRightsOrderSnapshot(

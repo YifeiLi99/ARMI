@@ -29,10 +29,12 @@ from ._candidate_application import CandidateValidationPipeline
 from ._change_set_codec import parse_subject_change_set
 from ._exact_life_query import PostgreSQLCognitionExactLifeQuery
 from ._model_application import ModelPipeline
+from ._subject_commit import PostgreSQLCognitionSubjectCommit
 from .api import (
     CognitionArtifactCatalogPort,
     CognitionExactLifeQueryPort,
     CognitionModelAdapterFactory,
+    CognitionSubjectCommitPort,
     CognitionWakeupPort,
     CognitionWorkerPort,
     SubjectChangeSet,
@@ -42,6 +44,10 @@ from .api import (
 
 def bootstrap_cognition_exact_life_query() -> CognitionExactLifeQueryPort:
     return PostgreSQLCognitionExactLifeQuery()
+
+
+def bootstrap_cognition_subject_commit() -> CognitionSubjectCommitPort:
+    return PostgreSQLCognitionSubjectCommit()
 
 
 class _BoundSubjectChangeSetCodec:
@@ -201,4 +207,5 @@ __all__ = (
     "bootstrap_cognition_change_set_codec",
     "bootstrap_cognition_exact_life_query",
     "bootstrap_cognition_model",
+    "bootstrap_cognition_subject_commit",
 )

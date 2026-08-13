@@ -5,11 +5,10 @@ from __future__ import annotations
 from uuid import UUID, uuid7
 
 import rfc8785
-from armi_kernel.application import CandidateOwnerDraft
 from armi_runtime_foundation import PostgreSQLTransaction
 
 from ._application import MoodApplication
-from .api import MoodHead, MoodViolation
+from .api import CandidateMoodDraft, MoodHead, MoodViolation
 
 _INITIAL = rfc8785.dumps(
     {"schema_version": "armi.mood.v1", "emotions": [], "mood": None}
@@ -57,19 +56,17 @@ class PostgreSQLMoodOwner:
         ).fetchone()
         return 0 if row is None else int(row[0])
 
-    def _drafts(self, drafts: tuple[CandidateOwnerDraft, ...]):
-        return tuple(
-            self._application.decode(item.canonical_payload)
-            for item in drafts
-            if item.owner == "mood"
-        )
+    def _drafts(
+        self, drafts: tuple[CandidateMoodDraft, ...]
+    ) -> tuple[CandidateMoodDraft, ...]:
+        return drafts
 
     async def heads_match(
         self,
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[CandidateMoodDraft, ...],
     ) -> bool:
         selected = self._drafts(drafts)
         if len(selected) > 1:
@@ -90,7 +87,7 @@ class PostgreSQLMoodOwner:
         *,
         subject_id: UUID,
         commit_id: UUID,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[CandidateMoodDraft, ...],
     ) -> bool:
         selected = self._drafts(drafts)
         if not selected:

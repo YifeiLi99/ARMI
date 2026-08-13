@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid7
 
-from armi_kernel.application import CandidateOwnerDraft
 from armi_runtime_foundation import PostgreSQLTransaction
 
 from ._application import SleepApplication
@@ -29,7 +28,9 @@ class PostgreSQLSleepCommit:
         transaction: PostgreSQLTransaction,
         *,
         context: SleepCommitContext,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[
+            CandidateSleepDecisionDraft | CandidateMaintenanceDecisionDraft, ...
+        ],
     ) -> bool:
         sleep, maintenance = self._decode(drafts)
         if sleep is not None and not await self._sleep_current(
@@ -44,7 +45,9 @@ class PostgreSQLSleepCommit:
         self,
         *,
         context: SleepCommitContext,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[
+            CandidateSleepDecisionDraft | CandidateMaintenanceDecisionDraft, ...
+        ],
     ) -> bool:
         sleep, maintenance = self._decode(drafts)
         if maintenance is not None or sleep is None:
@@ -62,7 +65,9 @@ class PostgreSQLSleepCommit:
         application_id: UUID,
         commit_id: UUID | None,
         resulting_subject_version: int,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[
+            CandidateSleepDecisionDraft | CandidateMaintenanceDecisionDraft, ...
+        ],
         committed_memory_ids: tuple[UUID, ...] = (),
     ) -> None:
         sleep, maintenance = self._decode(drafts)
@@ -109,16 +114,16 @@ class PostgreSQLSleepCommit:
         return tuple(UUID(str(row[0])) for row in rows)
 
     def _decode(
-        self, drafts: tuple[CandidateOwnerDraft, ...]
+        self,
+        drafts: tuple[
+            CandidateSleepDecisionDraft | CandidateMaintenanceDecisionDraft, ...
+        ],
     ) -> tuple[
         CandidateSleepDecisionDraft | None, CandidateMaintenanceDecisionDraft | None
     ]:
         sleep: CandidateSleepDecisionDraft | None = None
         maintenance: CandidateMaintenanceDecisionDraft | None = None
-        for draft in drafts:
-            if draft.owner != "sleep":
-                continue
-            value = self._cognition.decode(draft.canonical_payload)
+        for value in drafts:
             if isinstance(value, CandidateSleepDecisionDraft):
                 if sleep is not None:
                     raise SleepViolation("SLEEP-CANDIDATE-COUNT")

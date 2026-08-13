@@ -10,7 +10,6 @@ from typing import Any, cast
 from uuid import UUID, uuid7
 
 import rfc8785
-from armi_kernel.application import CandidateOwnerDraft
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
     PostgreSQLTransaction,
@@ -21,7 +20,6 @@ from ._codec import (
     boundary_to_dict,
     commitment_to_dict,
     decode_boundaries,
-    decode_candidate,
     decode_commitments,
     decode_event,
     decode_facts,
@@ -434,13 +432,10 @@ class PostgreSQLRelationshipOwner:
         commit_id: UUID,
         validation_id: UUID,
         experience_ids: dict[str, UUID],
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[CandidateRelationshipDraft, ...],
     ) -> tuple[UUID, ...]:
         affected: list[UUID] = []
-        for draft in drafts:
-            if draft.owner != "relationship":
-                continue
-            relationship = decode_candidate(draft.canonical_payload)
+        for relationship in drafts:
             await _commit_one(
                 transaction,
                 subject_id=subject_id,

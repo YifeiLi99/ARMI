@@ -12,12 +12,120 @@ from .api import (
     LifeViolation,
     OpportunityAdmissionOutcome,
     OpportunityAdmissionStatus,
+    OpportunityCommitSnapshot,
     OpportunityId,
     OpportunityPurpose,
 )
 
 
 class PostgreSQLOpportunityOwner:
+    async def subject_commit_snapshot(
+        self, transaction: PostgreSQLTransaction, *, opportunity_id: UUID
+    ) -> OpportunityCommitSnapshot:
+        row = await (
+            await transaction.execute(
+                """
+                SELECT opportunity_id, root_opportunity_id, reconsideration_no,
+                       evidence_id, subject_id, scene_id, context_party_id,
+                       purpose, source_kind, source_ref, source_version, activity_id
+                FROM armi.opportunities
+                WHERE opportunity_id = %s
+                  AND current_disposition = 'selected'
+                """,
+                (opportunity_id,),
+            )
+        ).fetchone()
+        if row is None:
+            raise LifeViolation("LIFE-OPPORTUNITY-STATE")
+        return OpportunityCommitSnapshot(
+            opportunity_id=row[0],
+            root_opportunity_id=row[1],
+            reconsideration_no=int(row[2]),
+            evidence_id=row[3],
+            subject_id=row[4],
+            scene_id=row[5],
+            context_party_id=row[6],
+            purpose=str(row[7]),
+            source_kind=str(row[8]),
+            source_ref=row[9],
+            source_version=int(row[10]),
+            activity_id=row[11],
+        )
+
+    async def resolve_subject_commit(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        opportunity_id: UUID,
+        disposition: str = "resolved",
+    ) -> None:
+        if disposition not in {"resolved", "superseded"}:
+            raise LifeViolation("LIFE-OPPORTUNITY-STATE")
+        row = await (
+            await transaction.execute(
+                """
+                UPDATE armi.opportunities
+                SET current_disposition = %s, resolved_at = statement_timestamp()
+                WHERE opportunity_id = %s AND current_disposition = 'selected'
+                RETURNING opportunity_id
+                """,
+                (disposition, opportunity_id),
+            )
+        ).fetchone()
+        if row is None:
+            raise LifeViolation("LIFE-OPPORTUNITY-STATE")
+
+    async def supersede_subject_commit(
+        self, transaction: PostgreSQLTransaction, *, opportunity_id: UUID
+    ) -> OpportunityId | None:
+        source = await self.subject_commit_snapshot(
+            transaction, opportunity_id=opportunity_id
+        )
+        successor: OpportunityId | None = None
+        if source.reconsideration_no == 0:
+            successor_id = uuid7()
+            row = await (
+                await transaction.execute(
+                    """
+                    INSERT INTO armi.opportunities (
+                        opportunity_id, evidence_id, subject_id, scene_id,
+                        context_party_id, purpose, eligibility_status,
+                        current_disposition, root_opportunity_id,
+                        predecessor_opportunity_id, reconsideration_no,
+                        source_kind, source_ref, source_version, activity_id
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s, 'eligible', 'open',
+                        %s, %s, 1, %s, %s, %s, %s
+                    )
+                    ON CONFLICT (predecessor_opportunity_id) DO NOTHING
+                    RETURNING opportunity_id
+                    """,
+                    (
+                        successor_id,
+                        source.evidence_id,
+                        source.subject_id,
+                        source.scene_id,
+                        source.context_party_id,
+                        source.purpose,
+                        source.root_opportunity_id,
+                        source.opportunity_id,
+                        source.source_kind,
+                        source.source_ref,
+                        source.source_version,
+                        source.activity_id,
+                    ),
+                )
+            ).fetchone()
+            if row is None:
+                raise LifeViolation("LIFE-ADMISSION-CONFLICT")
+            successor = OpportunityId(row[0])
+        await self.resolve_subject_commit(
+            transaction,
+            opportunity_id=opportunity_id,
+            disposition="superseded" if successor is not None else "resolved",
+        )
+        return successor
+
     async def admit_life_query_result(
         self,
         transaction: PostgreSQLTransaction,

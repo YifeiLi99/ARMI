@@ -400,7 +400,7 @@ class MemoryCommitPort(Protocol):
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[CandidateMemoryDraft | CandidateMemoryRevisionDraft, ...],
     ) -> bool: ...
 
     async def commit(
@@ -411,7 +411,7 @@ class MemoryCommitPort(Protocol):
         generation_id: UUID,
         commit_id: UUID,
         validation_id: UUID,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[CandidateMemoryDraft | CandidateMemoryRevisionDraft, ...],
         experience_ids: dict[str, UUID],
     ) -> tuple[UUID, ...]: ...
 

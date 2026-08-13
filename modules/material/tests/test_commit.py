@@ -40,7 +40,7 @@ async def apply_life_materials(
         subject_id=subject_id,
         generation_id=generation_id,
         commit_id=commit_id,
-        drafts=tuple(application.bind(item) for item in materials),
+        drafts=materials,
         artifacts=artifacts,
     )
 

@@ -57,6 +57,7 @@ from armi_context.bootstrap import (
 from armi_data_rights.api import (
     DataRightsInteractionGate,
     DataRightsProjectionInvalidationPort,
+    DataRightsSubjectCommitGate,
 )
 from armi_data_rights.bootstrap import (
     DataRightsCore,
@@ -1259,7 +1260,9 @@ def compose_subject_commit_pipeline(
     capability_commit: CapabilityCommitPort,
     capability_read: CapabilityReadPort,
     context_projections: ContextProjectionInvalidationPort,
+    data_rights: DataRightsSubjectCommitGate,
     evidence: EvidenceWritePort,
+    evidence_read: EvidenceReadPort,
     memory_commit: MemoryCommitPort,
     memory_cognition: MemoryCognitionPort,
     mood_commit: MoodCommitPort,
@@ -1309,7 +1312,9 @@ def compose_subject_commit_pipeline(
         capability_read=capability_read,
         codex_commit=bootstrap_codex_commit(),
         context_projections=context_projections,
+        data_rights=data_rights,
         evidence=evidence,
+        evidence_read=evidence_read,
         expression_commit=expression.commit,
         memory_commit=memory_commit,
         memory_cognition=memory_cognition,

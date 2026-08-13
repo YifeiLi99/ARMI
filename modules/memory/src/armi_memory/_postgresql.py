@@ -13,7 +13,7 @@ from typing import Any, cast
 from uuid import UUID, uuid7
 
 import rfc8785
-from armi_kernel.application import CandidateFactClass, CandidateOwnerDraft
+from armi_kernel.application import CandidateFactClass
 from armi_kernel.contracts import Instant, OpaqueCursor
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
@@ -422,19 +422,18 @@ class PostgreSQLMemoryOwner:
             Instant(row[10]),
         )
 
-    def _memory_drafts(self, drafts: tuple[CandidateOwnerDraft, ...]):
-        return tuple(
-            self._application.decode(item.canonical_payload)
-            for item in drafts
-            if item.owner == "memory"
-        )
+    def _memory_drafts(
+        self,
+        drafts: tuple[CandidateMemoryDraft | CandidateMemoryRevisionDraft, ...],
+    ) -> tuple[CandidateMemoryDraft | CandidateMemoryRevisionDraft, ...]:
+        return drafts
 
     async def heads_match(
         self,
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[CandidateMemoryDraft | CandidateMemoryRevisionDraft, ...],
     ) -> bool:
         revisions = tuple(
             item
@@ -466,7 +465,7 @@ class PostgreSQLMemoryOwner:
         generation_id: UUID,
         commit_id: UUID,
         validation_id: UUID,
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[CandidateMemoryDraft | CandidateMemoryRevisionDraft, ...],
         experience_ids: dict[str, UUID],
     ) -> tuple[UUID, ...]:
         affected: list[UUID] = []

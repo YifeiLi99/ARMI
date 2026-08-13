@@ -23,6 +23,7 @@ from .api import (
     DataRightsPartyIdentityPort,
     DataRightsProjectionInvalidationPort,
     DataRightsRelationshipPort,
+    DataRightsSubjectCommitGate,
     DataRightsSubjectEpochPort,
     DataRightsUnitOfWorkFactory,
 )
@@ -51,6 +52,7 @@ class DataRightsModule:
     orders: DataRightsOrderPort
     exports: CreatorExportPort
     gate: DataRightsInteractionGate
+    subject_commit: DataRightsSubjectCommitGate
     _orders: DataRightsOrderService
     _exports: CreatorExportService
 
@@ -110,7 +112,7 @@ def bootstrap_data_rights(
         unit_of_work_factory=unit_of_work_factory,
         catalog=catalog,
     )
-    return DataRightsModule(orders, exports, gate, orders, exports)
+    return DataRightsModule(orders, exports, gate, gate, orders, exports)
 
 
 __all__ = (

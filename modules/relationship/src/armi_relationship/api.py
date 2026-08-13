@@ -573,7 +573,7 @@ class RelationshipCommitPort(Protocol):
         commit_id: UUID,
         validation_id: UUID,
         experience_ids: dict[str, UUID],
-        drafts: tuple[CandidateOwnerDraft, ...],
+        drafts: tuple[CandidateRelationshipDraft, ...],
     ) -> tuple[UUID, ...]: ...
 
     async def affected_relationship_ids(

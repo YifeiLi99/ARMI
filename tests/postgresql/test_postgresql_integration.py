@@ -78,7 +78,10 @@ from armi_cognition._validator import (
     CandidateValidationContext,
     DeterministicCandidateValidator,
 )
-from armi_cognition.bootstrap import bootstrap_cognition_change_set_codec
+from armi_cognition.bootstrap import (
+    bootstrap_cognition_change_set_codec,
+    bootstrap_cognition_subject_commit,
+)
 from armi_data_rights.bootstrap import bootstrap_data_rights_core
 from armi_effect._admission import (
     PostgreSQLResponseAdmissionRepository,
@@ -127,6 +130,7 @@ from armi_interaction.api import (
 )
 from armi_interaction.bootstrap import (
     bootstrap_interaction_birth,
+    bootstrap_interaction_subject_commit,
 )
 from armi_kernel.application import (
     ArtifactId,
@@ -228,6 +232,7 @@ from armi_runtime.adapters.persistence.schema_gateway import (
 )
 from armi_runtime.adapters.persistence.subject_commit import (
     PostgreSQLSubjectCommitRepository,
+    SubjectCommitOwnerDrafts,
 )
 from armi_runtime.adapters.persistence.unit_of_work import (
     PostgreSQLUnitOfWorkFactory,
@@ -3589,6 +3594,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
             if live_credential is None:
                 cast(Any, pipeline)._adapter = ConformanceAdapter()
+            await web_factory.open()
             await pipeline.open()
             draft = WebObservationDraft(
                 WebObservationRequestId(_uuid7()),
@@ -3615,6 +3621,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 self.assertEqual(admitted.request_id, repeated.request_id)
             finally:
                 await pipeline.close()
+                await web_factory.close()
                 await authority.release(current.fence)
                 await authority.close()
             with psycopg.connect(fixture.provisioner_dsn) as connection:
@@ -5827,14 +5834,21 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 cursor_key=hashlib.sha256(b"t03-capability-cursor-key").digest(),
                 effect_cancellation=bootstrap_effect_grant_cancellation(),
             )
+            evidence_module = bootstrap_evidence()
+            data_rights_core = bootstrap_data_rights_core()
             repository = PostgreSQLSubjectCommitRepository(
                 activity_commit=activity_module.commit,
                 capability_commit=capability_module.commit,
                 capability_read=capability_module.read,
                 codex_commit=bootstrap_codex_commit(),
+                cognition_commit=bootstrap_cognition_subject_commit(),
                 context_projections=_ContextProjectionInvalidation(),
-                evidence=bootstrap_evidence().write,
+                data_rights=data_rights_core.seal(),
+                evidence=evidence_module.write,
+                evidence_read=evidence_module.read,
                 expression_commit=expression_module.commit,
+                interaction_commit=bootstrap_interaction_subject_commit(),
+                artifact_catalog=ArtifactCatalogRepository(),
                 memory_commit=memory_module.commit,
                 mood_commit=mood_module.commit,
                 opportunity_transition=bootstrap_opportunity_transition(),
@@ -5852,12 +5866,61 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             await factory.open()
             try:
                 async with factory.unit_of_work() as unit_of_work:
-                    snapshot = await repository.snapshot(unit_of_work, lease)
+                    snapshot = await repository.snapshot(
+                        unit_of_work, lease, ids["episode"]
+                    )
+                    owner_drafts = SubjectCommitOwnerDrafts(
+                        tuple(
+                            activity_module.cognition.decode(item.canonical_payload)
+                            for item in change_set.owner_drafts
+                            if item.owner == "activity"
+                        ),
+                        tuple(
+                            material_module.cognition.decode(item.canonical_payload)
+                            for item in change_set.owner_drafts
+                            if item.owner == "material"
+                        ),
+                        tuple(
+                            memory_module.cognition.decode(item.canonical_payload)
+                            for item in change_set.owner_drafts
+                            if item.owner == "memory"
+                        ),
+                        tuple(
+                            mood_module.cognition.decode(item.canonical_payload)
+                            for item in change_set.owner_drafts
+                            if item.owner == "mood"
+                        ),
+                        tuple(
+                            prompt_module.cognition.decode(item.canonical_payload)
+                            for item in change_set.owner_drafts
+                            if item.owner == "prompt"
+                        ),
+                        tuple(
+                            relationship_module.cognition.decode_change_set(
+                                item.canonical_payload
+                            )
+                            for item in change_set.owner_drafts
+                            if item.owner == "relationship"
+                        ),
+                        tuple(
+                            sleep_module.cognition.decode(item.canonical_payload)
+                            for item in change_set.owner_drafts
+                            if item.owner == "sleep"
+                        ),
+                        tuple(
+                            subject_state_module.cognition.decode(
+                                item.canonical_payload
+                            )
+                            for item in change_set.owner_drafts
+                            if item.owner in {"self", "mind", "life_mode"}
+                        ),
+                    )
                     result = await repository.settle(
                         unit_of_work,
                         lease=lease,
                         snapshot=snapshot,
                         change_set=change_set,
+                        owner_drafts=owner_drafts,
                         response_artifact=(
                             ArtifactRef(
                                 ArtifactId(artifact_ids["reply"]),
