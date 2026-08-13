@@ -1653,6 +1653,7 @@ def _dialogue_context_text(
         "guidance": "此刻",
         "self": "此刻",
         "mind": "此刻",
+        "mood": "此刻",
         "scene": "场合与关系",
         "relationship": "场合与关系",
         "memories": "想起的事",

@@ -330,6 +330,22 @@ def _request(binding: ModelBinding):
                     "layer": "turn_tail",
                     "items": [
                         {
+                            "section": "mood",
+                            "item_kind": "mood",
+                            "source": {
+                                "kind": "subjective_mood",
+                                "reference": "01980f7d-7b8f-7e2a-8a11-2ab8e123456a",
+                                "version": 1,
+                                "digest": Digest.from_bytes(b"calm").value,
+                            },
+                            "trust": "subjective_state",
+                            "privacy": "private",
+                            "content": json.dumps(
+                                {"description": "我现在很平静。"},
+                                ensure_ascii=False,
+                            ),
+                        },
+                        {
                             "section": "evidence",
                             "item_kind": "current_evidence",
                             "source": {
@@ -346,7 +362,7 @@ def _request(binding: ModelBinding):
                                     "text": "Hello",
                                 }
                             ),
-                        }
+                        },
                     ],
                 },
             ],
@@ -362,7 +378,8 @@ def _request(binding: ModelBinding):
         base_state_epoch=0,
         bundle_activation_id=_BUNDLE_ID,
         included_context_refs=(
-            {"ref": "ctx:1", "section": "evidence", "item_kind": "current_evidence"},
+            {"ref": "ctx:1", "section": "mood", "item_kind": "mood"},
+            {"ref": "ctx:2", "section": "evidence", "item_kind": "current_evidence"},
         ),
     )
     return checked_model_request(
@@ -464,8 +481,13 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     assert request["prompt_version"] == "armi.dialogue-prompt.v2"
     assert request["task"] == "respond_to_creator"
     assert request["available_refs"] == []
-    assert [message["role"] for message in request["messages"]] == ["system", "user"]
-    assert request["messages"][1]["content"] == "Hello"
+    assert [message["role"] for message in request["messages"]] == [
+        "system",
+        "system",
+        "user",
+    ]
+    assert "我现在很平静。" in request["messages"][1]["content"]
+    assert request["messages"][2]["content"] == "Hello"
     assert "任务:回应 Creator" in request["messages"][0]["content"]
     assert "ctx:1" not in request["messages"][0]["content"]
     assert request["diagnostics"]["output_schema_bytes"] > 0
