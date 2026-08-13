@@ -42,7 +42,8 @@ class PackageImportSmokeTests(unittest.TestCase):
             "import armi_kernel; "
             "assert armi_kernel.__all__ == "
             "('load_yaml_file', 'load_yaml_mapping'); "
-            "assert not any(name.startswith(('armi_runtime', 'armi_admin')) "
+            "assert not any(name == 'armi_runtime' or name.startswith('armi_runtime.') "
+            "or name == 'armi_admin' or name.startswith('armi_admin.') "
             "for name in sys.modules)",
         )
 
@@ -51,7 +52,8 @@ class PackageImportSmokeTests(unittest.TestCase):
             [RUNTIME_SOURCE, KERNEL_SOURCE],
             "import armi_runtime; "
             "assert armi_runtime.__all__ == (); "
-            "assert not any(name.startswith('armi_admin') for name in sys.modules)",
+            "assert not any(name == 'armi_admin' or name.startswith('armi_admin.') "
+            "for name in sys.modules)",
         )
 
     def test_admin_imports_with_kernel_but_without_runtime(self) -> None:
@@ -59,7 +61,8 @@ class PackageImportSmokeTests(unittest.TestCase):
             [ADMIN_SOURCE, KERNEL_SOURCE],
             "import armi_admin; "
             "assert armi_admin.__all__ == (); "
-            "assert not any(name.startswith('armi_runtime') for name in sys.modules)",
+            "assert not any(name == 'armi_runtime' or name.startswith('armi_runtime.') "
+            "for name in sys.modules)",
         )
 
     def test_napcat_channel_imports_without_armi(self) -> None:
@@ -73,7 +76,8 @@ class PackageImportSmokeTests(unittest.TestCase):
         self.run_isolated_import(
             [QQ_ADAPTER_SOURCE, NAPCAT_SOURCE, KERNEL_SOURCE],
             "import armi_adapter_qq; "
-            "assert not any(name.startswith(('armi_runtime', 'armi_admin')) "
+            "assert not any(name == 'armi_runtime' or name.startswith('armi_runtime.') "
+            "or name == 'armi_admin' or name.startswith('armi_admin.') "
             "for name in sys.modules)",
         )
 
