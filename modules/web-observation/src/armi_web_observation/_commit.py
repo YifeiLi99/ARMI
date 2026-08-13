@@ -46,19 +46,6 @@ class PostgreSQLWebResearchCommit:
             raise WebResearchViolation("WEB-RESEARCH-COUNT")
         request = requests[0]
         connection = unit_of_work.transaction
-        item = await (
-            await connection.execute(
-                """
-                SELECT validation_status
-                FROM armi.cognitive_candidate_validation_items
-                WHERE candidate_validation_id = %s AND proposal_ref = %s
-                  AND owner_kind = 'web_research'
-                """,
-                (context.validation_id, request.proposal_ref),
-            )
-        ).fetchone()
-        if item is None or str(item[0]) != "accepted":
-            raise WebResearchViolation("WEB-RESEARCH-VALIDATION")
         now_row = await (
             await connection.execute("SELECT statement_timestamp()")
         ).fetchone()

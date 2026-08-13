@@ -104,19 +104,6 @@ class PostgreSQLExpressionOwner:
         ):
             raise ResponseViolation("SUBJECT-RESPONSE-SCOPE")
         connection = unit_of_work.transaction
-        item = await (
-            await connection.execute(
-                """
-                SELECT validation_status
-                FROM armi.cognitive_candidate_validation_items
-                WHERE candidate_validation_id = %s AND proposal_ref = %s
-                  AND owner_kind = 'action'
-                """,
-                (context.validation_id, reply.proposal_ref),
-            )
-        ).fetchone()
-        if item is None or str(item[0]) != "accepted":
-            raise ResponseViolation("SUBJECT-RESPONSE-VALIDATION")
         action_id = uuid7()
         revision_id = uuid7()
         await connection.execute(
