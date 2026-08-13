@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWorkFactory
+
 from ._admin import PostgreSQLMaterialAdminRead
 from ._application import MaterialApplication
 from ._commit import PostgreSQLMaterialCommit
@@ -35,22 +37,18 @@ class MaterialModule:
 
 
 def bootstrap_material(
-    conninfo: str,
+    factory: PostgreSQLRuntimeUnitOfWorkFactory,
     *,
-    expected_role: str,
     creator_party_id: UUID,
     data_root: Path,
     max_object_bytes: int,
-    pool_timeout_seconds: int,
 ) -> MaterialModule:
     application = MaterialApplication()
     owner = PostgreSQLMaterialOwner(
-        conninfo,
-        expected_role=expected_role,
+        factory,
         creator_party_id=creator_party_id,
         data_root=data_root,
         max_object_bytes=max_object_bytes,
-        pool_timeout_seconds=pool_timeout_seconds,
     )
     return MaterialModule(
         owner, application, PostgreSQLMaterialCommit(application), owner, owner

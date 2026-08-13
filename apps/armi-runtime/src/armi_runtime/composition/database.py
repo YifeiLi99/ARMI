@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any, Final, cast
 from uuid import UUID
 
@@ -87,7 +88,6 @@ from armi_material.api import (
     MaterialCommitPort,
     MaterialProjectionPort,
     MaterialReadPort,
-    MaterialViolation,
 )
 from armi_material.bootstrap import MaterialModule, bootstrap_material
 from armi_memory.api import (
@@ -676,41 +676,20 @@ def compose_life_record_query(
 
 
 def compose_material_module(
-    prepared: PreparedEnvironment,
+    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     *,
     creator_party_id: UUID,
+    data_root: Path,
+    max_object_bytes: int,
 ) -> MaterialModule:
     """Resolve and bind the one active life-material owner implementation."""
 
-    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
-    if locator is None:
-        raise MaterialViolation("MATERIAL-QUERY-UNAVAILABLE")
-    try:
-        with prepared.credential_port.resolve(
-            locator,
-            CredentialPurpose("database.runtime"),
-        ) as handle:
-
-            def create(value: memoryview) -> MaterialModule:
-                try:
-                    conninfo = bytes(value).decode("utf-8")
-                except UnicodeDecodeError:
-                    raise MaterialViolation("MATERIAL-QUERY-UNAVAILABLE") from None
-                config = prepared.effective.config
-                return bootstrap_material(
-                    conninfo,
-                    expected_role=physical_role_name(
-                        config.environment.environment_id, "runtime"
-                    ),
-                    creator_party_id=creator_party_id,
-                    data_root=prepared.data_root,
-                    max_object_bytes=config.artifacts.max_object_bytes,
-                    pool_timeout_seconds=config.database.pool_acquire_timeout_seconds,
-                )
-
-            return handle.consume(create)
-    except ConfigurationViolation:
-        raise MaterialViolation("MATERIAL-QUERY-UNAVAILABLE") from None
+    return bootstrap_material(
+        unit_of_work_factory,
+        creator_party_id=creator_party_id,
+        data_root=data_root,
+        max_object_bytes=max_object_bytes,
+    )
 
 
 def compose_other_human_record_query(

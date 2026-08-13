@@ -73,12 +73,10 @@ def _repository(*, boundary: bool = False) -> PostgreSQLLifeOpportunityRepositor
         focus=cast(Any, _SubjectState()),
     )
     material = bootstrap_material(
-        "postgresql://unused",
-        expected_role="unused",
+        cast(Any, object()),
         creator_party_id=uuid7(),
         data_root=Path.cwd(),
         max_object_bytes=1_000_000,
-        pool_timeout_seconds=1,
     )
     return PostgreSQLLifeOpportunityRepository(
         cast(Any, _Relationships(boundary=boundary)),

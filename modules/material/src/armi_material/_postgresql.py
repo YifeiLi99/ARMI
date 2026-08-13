@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
 
-import psycopg
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_artifact_store.life_material_codec import parse_life_material_artifact
 from armi_kernel.application import (
@@ -18,9 +17,11 @@ from armi_kernel.application import (
     ArtifactViolation,
 )
 from armi_kernel.contracts import Digest, Instant
-from armi_runtime_foundation import PostgreSQLTransaction
-from psycopg.pq import TransactionStatus
-from psycopg_pool import AsyncConnectionPool, PoolTimeout
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    PostgreSQLTransaction,
+    RuntimeTransactionFailure,
+)
 
 from .api import (
     CreatorLifeMaterialItem,
@@ -34,21 +35,6 @@ from .api import (
     MaterialViolation,
     RecalledMaterials,
 )
-
-_SEARCH_PATH = "pg_catalog, armi"
-
-
-async def _configure(connection: psycopg.AsyncConnection[tuple[Any, ...]]) -> None:
-    await connection.set_autocommit(True)
-    await connection.execute("SET search_path TO pg_catalog, armi")
-
-
-async def _reset(connection: psycopg.AsyncConnection[tuple[Any, ...]]) -> None:
-    if connection.info.transaction_status != TransactionStatus.IDLE:
-        await connection.rollback()
-    await connection.execute("RESET ROLE")
-    await connection.execute("RESET ALL")
-    await connection.execute("SET search_path TO pg_catalog, armi")
 
 
 def _metadata(value: object) -> tuple[tuple[str, str], ...]:
@@ -77,59 +63,32 @@ def _artifact(row: tuple[Any, ...], offset: int) -> ArtifactRef:
 class PostgreSQLMaterialOwner:
     __slots__ = (
         "_creator_party_id",
-        "_expected_role",
-        "_pool",
-        "_pool_timeout_seconds",
+        "_factory",
         "_storage",
     )
 
     def __init__(
         self,
-        conninfo: str,
+        factory: PostgreSQLRuntimeUnitOfWorkFactory,
         *,
-        expected_role: str,
         creator_party_id: UUID,
         data_root: Path,
         max_object_bytes: int,
-        pool_timeout_seconds: int,
     ) -> None:
         self._creator_party_id = creator_party_id
-        self._expected_role = expected_role
-        self._pool_timeout_seconds = pool_timeout_seconds
+        self._factory = factory
         self._storage = ContentAddressedArtifactStore(
             data_root / "artifacts", max_object_bytes=max_object_bytes
         )
 
-        async def check(connection: psycopg.AsyncConnection[tuple[Any, ...]]) -> None:
-            row = await (
-                await connection.execute(
-                    "SELECT session_user,current_user,current_setting('search_path')"
-                )
-            ).fetchone()
-            if row != (self._expected_role, self._expected_role, _SEARCH_PATH):
-                raise MaterialViolation("MATERIAL-QUERY-UNAVAILABLE")
-
-        self._pool = AsyncConnectionPool[psycopg.AsyncConnection[tuple[Any, ...]]](
-            conninfo,
-            min_size=1,
-            max_size=1,
-            open=False,
-            configure=_configure,
-            check=check,
-            reset=_reset,
-            timeout=float(pool_timeout_seconds),
-            name="armi-material-query",
-        )
-
     async def open(self) -> None:
         try:
-            await self._pool.open(wait=True)
             await self._storage.prepare()
-        except psycopg.Error, PoolTimeout, ArtifactViolation:
+        except ArtifactViolation:
             raise MaterialViolation("MATERIAL-QUERY-UNAVAILABLE") from None
 
     async def close(self) -> None:
-        await self._pool.close()
+        return None
 
     async def candidate_sources(
         self,
@@ -252,13 +211,8 @@ class PostgreSQLMaterialOwner:
         self, material_id: UUID
     ) -> CreatorLifeMaterialItem | None:
         try:
-            async with (
-                self._pool.connection(
-                    timeout=float(self._pool_timeout_seconds)
-                ) as connection,
-                connection.transaction(),
-            ):
-                await connection.execute("SET TRANSACTION READ ONLY")
+            async with self._factory.unit_of_work(read_only=True) as unit_of_work:
+                connection = unit_of_work.transaction
                 creator = await (
                     await connection.execute(
                         """SELECT 1 FROM armi.parties WHERE party_id=%s AND party_kind='creator'
@@ -294,7 +248,7 @@ class PostgreSQLMaterialOwner:
                 ).fetchone()
         except MaterialViolation:
             raise
-        except psycopg.Error, PoolTimeout:
+        except RuntimeTransactionFailure:
             raise MaterialViolation("MATERIAL-QUERY-UNAVAILABLE") from None
         if row is None:
             return None

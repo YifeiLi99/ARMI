@@ -71,12 +71,12 @@ class _Connection:
         return _Cursor(None)
 
 
-class _ConnectionContext:
+class _UnitOfWorkContext:
     def __init__(self, connection: _Connection) -> None:
-        self.connection = connection
+        self.transaction = connection
 
-    async def __aenter__(self) -> _Connection:
-        return self.connection
+    async def __aenter__(self) -> Self:
+        return self
 
     async def __aexit__(
         self,
@@ -87,13 +87,13 @@ class _ConnectionContext:
         return False
 
 
-class _Pool:
+class _Factory:
     def __init__(self, connection: _Connection) -> None:
         self.connection_value = connection
 
-    def connection(self, *, timeout: float) -> _ConnectionContext:
-        assert timeout == 1.0
-        return _ConnectionContext(self.connection_value)
+    def unit_of_work(self, *, read_only: bool) -> _UnitOfWorkContext:
+        assert read_only
+        return _UnitOfWorkContext(self.connection_value)
 
 
 def _write_artifact(data_root: Path, artifact_bytes: bytes) -> tuple[str, str]:
@@ -145,14 +145,11 @@ def test_creator_material_query_reads_only_current_visible_verified_body(
         material_row=row,
     )
     query = PostgreSQLMaterialOwner(
-        "postgresql://unused",
-        expected_role="runtime_test",
+        _Factory(connection),  # type: ignore[arg-type]
         creator_party_id=creator_party_id,
         data_root=data_root,
         max_object_bytes=1_000_000,
-        pool_timeout_seconds=1,
     )
-    query._pool = _Pool(connection)  # pyright: ignore[reportPrivateUsage,reportAttributeAccessIssue]
 
     item = asyncio.run(query.get_creator_visible(material_id))
 

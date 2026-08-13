@@ -363,8 +363,10 @@ async def _serve(
             )
             await memory_module.open()
             material_module = compose_material_module(
-                prepared,
+                runtime_unit_of_work_factory,
                 creator_party_id=creator_context.party_id,
+                data_root=prepared.data_root,
+                max_object_bytes=config.artifacts.max_object_bytes,
             )
             await material_module.open()
             life_record_query = compose_life_record_query(

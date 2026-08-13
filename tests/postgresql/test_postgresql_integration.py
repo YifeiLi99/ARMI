@@ -2042,12 +2042,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             await activity_module.open()
             material_module = bootstrap_material(
-                fixture.runtime_dsn,
-                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                factories[0],
                 creator_party_id=manifest.creator_party_id,
                 data_root=root,
                 max_object_bytes=1024 * 1024,
-                pool_timeout_seconds=2,
             )
             await material_module.open()
             sleep_module = bootstrap_sleep(
@@ -2205,12 +2203,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             await factory.open()
             material_module = bootstrap_material(
-                fixture.runtime_dsn,
-                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                factory,
                 creator_party_id=creator_party_id,
                 data_root=root,
                 max_object_bytes=1024 * 1024,
-                pool_timeout_seconds=2,
             )
             await relationship_module.open()
             await memory_module.open()
@@ -2349,12 +2345,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             await activity_module.open()
             material_module = bootstrap_material(
-                fixture.runtime_dsn,
-                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                maintenance_factory,
                 creator_party_id=creator_party_id,
                 data_root=root,
                 max_object_bytes=1024 * 1024,
-                pool_timeout_seconds=2,
             )
             await material_module.open()
             sleep_module = bootstrap_sleep(
@@ -5785,12 +5779,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 focus=bootstrap_subject_state().read,
             )
             material_module = bootstrap_material(
-                fixture.runtime_dsn,
-                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                factory,
                 creator_party_id=creator_party_id,
                 data_root=Path.cwd(),
                 max_object_bytes=1024 * 1024,
-                pool_timeout_seconds=2,
             )
             subject_state_module = bootstrap_subject_state()
             mood_module = bootstrap_mood()
