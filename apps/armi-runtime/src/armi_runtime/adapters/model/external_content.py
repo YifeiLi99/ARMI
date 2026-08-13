@@ -168,7 +168,10 @@ class VolcengineArkExternalContentRecognizer(ExternalContentRecognitionPort):
 
 def load_external_recognition_binding(path: Path) -> ExternalRecognitionBindings:
     try:
-        value = load_yaml_file(path)["external_content_recognition"]
+        value = cast(
+            dict[str, Any],
+            load_yaml_file(path)["external_content_recognition"],
+        )
         ark = ArkExternalRecognitionBinding(
             api_base=value["api_base"],
             image_model_id=value["image_model_id"],

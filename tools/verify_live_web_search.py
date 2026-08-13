@@ -28,7 +28,9 @@ _BUDGET_MICROYUAN = 2_000_000
 
 def _rates(root: Path) -> tuple[int, int]:
     try:
-        manifest = load_yaml_file(root / "configs/model-bindings.yaml")
+        manifest = cast(
+            dict[str, Any], load_yaml_file(root / "configs/model-bindings.yaml")
+        )
         binding = next(
             item for item in manifest["bindings"] if item["model_id"] == MODEL
         )

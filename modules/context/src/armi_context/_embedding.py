@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, cast
 
 from armi_kernel import load_yaml_file
 from armi_kernel.application import ModelViolation
@@ -26,7 +27,7 @@ RECALL_MATERIAL_LIMIT = 2
 def load_embedding_binding(path: Path) -> EmbeddingBinding:
     manifest_path = path
     try:
-        value = load_yaml_file(manifest_path)["embedding"]
+        value = cast(dict[str, Any], load_yaml_file(manifest_path)["embedding"])
     except OSError, KeyError, TypeError, ValueError:
         raise ModelViolation("MODEL-BINDING-MANIFEST") from None
     expected = {

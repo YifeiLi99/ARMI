@@ -250,7 +250,10 @@ _REASON_BY_CODE: Final = {
 
 def _load_embedding_binding() -> EmbeddingBinding:
     try:
-        value = load_yaml_file(runtime_config_path("model-bindings.yaml"))["embedding"]
+        value = cast(
+            dict[str, Any],
+            load_yaml_file(runtime_config_path("model-bindings.yaml"))["embedding"],
+        )
     except OSError, KeyError, TypeError, ValueError:
         raise ModelViolation("MODEL-BINDING-MANIFEST") from None
     expected = {

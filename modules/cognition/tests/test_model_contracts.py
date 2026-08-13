@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any, cast
 from uuid import UUID, uuid7
 
 import armi_cognition._model_contract as model_contract_module
@@ -1557,7 +1558,7 @@ def test_invalid_dialogue_change_reference_cannot_suppress_a_valid_reply() -> No
 
 def test_manifest_rejects_a_second_binding_or_fixed_model(tmp_path: Path) -> None:
     source = Path("configs/model-bindings.yaml")
-    manifest = load_yaml_file(source)
+    manifest = cast(dict[str, Any], load_yaml_file(source))
     manifest["bindings"].append(dict(manifest["bindings"][0]))
     path = tmp_path / "model-bindings.yaml"
     path.write_text(json.dumps(manifest), encoding="utf-8")
@@ -1567,7 +1568,7 @@ def test_manifest_rejects_a_second_binding_or_fixed_model(tmp_path: Path) -> Non
 
 def test_web_dialogue_manifest_requires_explicit_v2_expectation(tmp_path: Path) -> None:
     source = Path("configs/model-bindings.yaml")
-    manifest = load_yaml_file(source)
+    manifest = cast(dict[str, Any], load_yaml_file(source))
     manifest["purpose_profiles"]["consider_creator_input"][
         "response_contract_version"
     ] = WEB_DIALOGUE_CANDIDATE_VERSION

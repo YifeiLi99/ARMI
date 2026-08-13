@@ -31,7 +31,7 @@ def load_qq_napcat_config(path: Path) -> QQNapCatBindingConfig | None:
     if not path.is_file() or path.is_symlink() or size > 1_048_576:
         raise ValueError("QQ channel configuration must be a regular file")
     try:
-        document = cast(dict[str, object], load_yaml_file(path))
+        document = load_yaml_file(path)
     except OSError, ValueError:
         raise ValueError("QQ channel configuration is unreadable") from None
     expected = {

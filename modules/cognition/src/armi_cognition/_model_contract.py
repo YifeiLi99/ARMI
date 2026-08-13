@@ -1267,8 +1267,8 @@ def load_active_binding(
 ) -> ModelBinding:
     manifest_path = path or Path("configs/model-bindings.yaml")
     try:
-        value = load_yaml_file(manifest_path)
-        binding = value["bindings"][0]
+        value = cast(dict[str, Any], load_yaml_file(manifest_path))
+        binding = cast(list[dict[str, Any]], value["bindings"])[0]
     except OSError, KeyError, TypeError, ValueError:
         raise ModelViolation("MODEL-BINDING-MANIFEST") from None
     if (
@@ -1362,9 +1362,11 @@ def load_purpose_binding(
         raise ModelViolation("MODEL-BINDING")
     manifest_path = path or Path("configs/model-bindings.yaml")
     try:
-        value = load_yaml_file(manifest_path)
-        base = value["bindings"][0]
-        profile = value["purpose_profiles"].get(purpose)
+        value = cast(dict[str, Any], load_yaml_file(manifest_path))
+        base = cast(list[dict[str, Any]], value["bindings"])[0]
+        profile = cast(dict[str, dict[str, Any]], value["purpose_profiles"]).get(
+            purpose
+        )
     except OSError, KeyError, TypeError, ValueError:
         raise ModelViolation("MODEL-BINDING-MANIFEST") from None
     load_active_binding(

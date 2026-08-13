@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import unittest
 from pathlib import Path
+from typing import Any, cast
 from uuid import uuid7
 
 from armi_kernel.application import (
@@ -83,7 +84,7 @@ class WebObservationCustodyTests(unittest.TestCase):
             load_custody_policy(manifest).binding_id,
             "armi.model-tool.volcengine-ark-web-search-v1",
         )
-        changed = load_yaml_mapping(manifest)
+        changed = cast(dict[str, Any], load_yaml_mapping(manifest))
         changed["tool_actions"].append("submit")
         with self.assertRaises(WebObservationViolation):
             load_custody_policy(json.dumps(changed).encode())
