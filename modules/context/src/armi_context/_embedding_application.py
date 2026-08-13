@@ -93,7 +93,11 @@ class ContextEmbeddingPipeline:
             return False
         lease = cast(WorkLease, records[0].lease)
         async with self._factory.unit_of_work(read_only=True) as unit_of_work:
-            source = await self._repository.load_source(unit_of_work, lease)
+            source = await self._repository.load_source(
+                unit_of_work,
+                owner_kind=records[0].draft.owner.kind,
+                owner_ref=records[0].draft.owner.reference,
+            )
         if source is None:
             async with self._factory.unit_of_work() as unit_of_work:
                 await unit_of_work.work.complete(

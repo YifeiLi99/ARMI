@@ -11,7 +11,6 @@ from uuid import UUID, uuid7
 from armi_kernel.application import (
     WorkDraft,
     WorkId,
-    WorkLease,
     WorkOwner,
     WorkPayloadRef,
 )
@@ -149,31 +148,14 @@ class PostgreSQLContextEmbeddingRepository:
     async def load_source(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
-        lease: WorkLease,
+        *,
+        owner_kind: str,
+        owner_ref: UUID,
     ) -> EmbeddingProjectionSource | None:
-        connection = unit_of_work.transaction
-        work = await (
-            await connection.execute(
-                """
-                SELECT owner_kind, owner_ref
-                FROM armi.durable_work
-                WHERE work_id = %s AND status = 'leased'
-                  AND current_attempt_id = %s AND lease_owner = %s
-                  AND lease_token = %s
-                  AND lease_expires_at >= statement_timestamp()
-                """,
-                (
-                    lease.work_id.value,
-                    lease.attempt_id.value,
-                    lease.owner,
-                    lease.token,
-                ),
+        if owner_kind == "subjective_memory":
+            memory = await self._memories.load_source(
+                unit_of_work.transaction, owner_ref
             )
-        ).fetchone()
-        if work is None:
-            return None
-        if work[0] == "subjective_memory":
-            memory = await self._memories.load_source(unit_of_work.transaction, work[1])
             if memory is None:
                 return None
             return EmbeddingProjectionSource(
@@ -184,7 +166,11 @@ class PostgreSQLContextEmbeddingRepository:
                 memory.head_version,
                 memory.text,
             )
-        material = await self._materials.load_source(unit_of_work.transaction, work[1])
+        if owner_kind != "life_material":
+            return None
+        material = await self._materials.load_source(
+            unit_of_work.transaction, owner_ref
+        )
         if material is None:
             return None
         source = ContextMaterialSource(
