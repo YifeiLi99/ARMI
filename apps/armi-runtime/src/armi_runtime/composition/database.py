@@ -102,8 +102,15 @@ from armi_memory.api import (
 from armi_memory.bootstrap import MemoryModule, bootstrap_memory
 from armi_mood.api import MoodCognitionPort, MoodCommitPort, MoodReadPort
 from armi_mood.bootstrap import MoodModule, bootstrap_mood
-from armi_opportunity.api import LifeViolation, OpportunityRuntimePort
-from armi_opportunity.bootstrap import bootstrap_opportunity
+from armi_opportunity.api import (
+    LifeViolation,
+    OpportunityAdmissionPort,
+    OpportunityRuntimePort,
+)
+from armi_opportunity.bootstrap import (
+    bootstrap_opportunity,
+    bootstrap_opportunity_admission,
+)
 from armi_perception.api import ExternalMediaFetchPort
 from armi_perception.bootstrap import PerceptionModule, bootstrap_perception
 from armi_prompt.api import (
@@ -496,6 +503,12 @@ def compose_evidence_module() -> EvidenceModule:
     return bootstrap_evidence()
 
 
+def compose_opportunity_admission() -> OpportunityAdmissionPort:
+    """Bind the transaction-scoped Opportunity owner port once."""
+
+    return bootstrap_opportunity_admission()
+
+
 def compose_interaction_module(
     prepared: PreparedEnvironment,
     *,
@@ -505,6 +518,7 @@ def compose_interaction_module(
     notifier: CreatorProjectionNotifier | None,
     subject_state_read: SubjectStateReadPort,
     evidence: EvidenceWritePort,
+    opportunity: OpportunityAdmissionPort,
     data_rights: DataRightsInteractionGate,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
@@ -569,6 +583,7 @@ def compose_interaction_module(
                     data_rights=data_rights,
                     subject_state=subject_state_read,
                     evidence=evidence,
+                    opportunity=opportunity,
                     notifier=notifier,
                     wakeups=wakeups,
                     diagnostic=diagnostic,
@@ -971,6 +986,7 @@ def compose_perception_module(
     authority_admission: Callable[[], RuntimeFence],
     fetch: ExternalMediaFetchPort,
     evidence: EvidenceWritePort,
+    opportunity: OpportunityAdmissionPort,
     wakeups: WorkWakeupBus,
     diagnostic: Callable[[str], None] | None = None,
 ) -> PerceptionModule:
@@ -1016,6 +1032,7 @@ def compose_perception_module(
                     catalog=ArtifactCatalogRepository(),
                     work=PostgreSQLDurableWorkGateway(factory),
                     evidence=evidence,
+                    opportunity=opportunity,
                     fetch=fetch,
                     ark_recognizer=VolcengineArkExternalContentRecognizer(
                         credential_port=prepared.credential_port,
@@ -2076,6 +2093,7 @@ __all__ = (
     "compose_memory_module",
     "compose_model_pipeline",
     "compose_mood_module",
+    "compose_opportunity_admission",
     "compose_other_human_record_query",
     "compose_perception_module",
     "compose_prompt_module",

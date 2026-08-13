@@ -11,6 +11,7 @@ from uuid import UUID
 
 from armi_kernel.application import CognitiveEpisodeId
 from armi_kernel.contracts import ActivityId, Digest
+from armi_runtime_foundation import PostgreSQLTransaction
 
 _TOKEN = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 _CODE = re.compile(r"^(?:LIFE|ACTIVITY)-[A-Z0-9-]+$", re.ASCII)
@@ -44,6 +45,37 @@ class OpportunityAdmissionStatus(StrEnum):
     ADMITTED = "admitted"
     DUPLICATE = "duplicate"
     REJECTED = "rejected"
+
+
+class OpportunityPurpose(StrEnum):
+    CONSIDER_CREATOR_INPUT = "consider_creator_input"
+    CONSIDER_OTHER_HUMAN_INPUT = "consider_other_human_input"
+    CONSIDER_WEB_EVIDENCE = "consider_web_evidence"
+    CONSIDER_CODEX_TASK = "consider_codex_task"
+    CONSIDER_CODEX_RESULT = "consider_codex_result"
+
+
+@dataclass(frozen=True, slots=True)
+class ExternalEvidenceOpportunityDraft:
+    evidence_id: UUID
+    subject_id: UUID
+    scene_id: UUID
+    context_party_id: UUID
+    purpose: OpportunityPurpose
+
+    def __post_init__(self) -> None:
+        if any(
+            type(value) is not UUID or value.version != 7
+            for value in (
+                self.evidence_id,
+                self.subject_id,
+                self.scene_id,
+                self.context_party_id,
+            )
+        ):
+            raise LifeViolation("LIFE-ADMISSION-ID")
+        if type(self.purpose) is not OpportunityPurpose:
+            raise LifeViolation("LIFE-ADMISSION-PURPOSE")
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,6 +189,23 @@ class LifeOpportunitySourcePort(Protocol):
 
 
 @runtime_checkable
+class OpportunityAdmissionPort(Protocol):
+    async def admit_external_evidence(
+        self,
+        transaction: PostgreSQLTransaction,
+        draft: ExternalEvidenceOpportunityDraft,
+    ) -> OpportunityAdmissionOutcome: ...
+
+    async def find_external_evidence(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        evidence_id: UUID,
+        purpose: OpportunityPurpose,
+    ) -> OpportunityId | None: ...
+
+
+@runtime_checkable
 class OpportunitySelector(Protocol):
     async def select_once(self) -> CognitiveEpisodeId | None:
         """Select at most one durable opportunity through the authoritative owner."""
@@ -197,13 +246,16 @@ def require_life_token(value: str) -> None:
 
 __all__ = (
     "CreatorOutreachPolicy",
+    "ExternalEvidenceOpportunityDraft",
     "LifeOpportunitySourceKind",
     "LifeOpportunitySourcePort",
     "LifeOpportunitySourceSnapshot",
     "LifeViolation",
     "OpportunityAdmissionOutcome",
+    "OpportunityAdmissionPort",
     "OpportunityAdmissionStatus",
     "OpportunityId",
+    "OpportunityPurpose",
     "OpportunityRuntimePort",
     "OpportunitySelector",
     "OpportunityWakeupPort",

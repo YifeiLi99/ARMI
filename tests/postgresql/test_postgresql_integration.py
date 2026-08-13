@@ -173,7 +173,10 @@ from armi_memory.bootstrap import bootstrap_memory
 from armi_mood.api import default_mood_cognition
 from armi_mood.bootstrap import bootstrap_mood, bootstrap_mood_admin_read
 from armi_opportunity.api import OpportunityAdmissionOutcome, OpportunityAdmissionStatus
-from armi_opportunity.bootstrap import bootstrap_opportunity
+from armi_opportunity.bootstrap import (
+    bootstrap_opportunity,
+    bootstrap_opportunity_admission,
+)
 from armi_perception._application import ExternalContentPipeline
 from armi_perception.api import (
     ExternalContentRecognitionResult,
@@ -655,8 +658,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 storage=storage,
                 catalog=ArtifactCatalogRepository(),
                 messages=ExternalMessageInputRepository(),
-                creator_inputs=CreatorInputRepository(bootstrap_evidence().write),
-                other_inputs=OtherHumanInputRepository(bootstrap_evidence().write),
+                creator_inputs=CreatorInputRepository(
+                    bootstrap_evidence().write, bootstrap_opportunity_admission()
+                ),
+                other_inputs=OtherHumanInputRepository(
+                    bootstrap_evidence().write, bootstrap_opportunity_admission()
+                ),
                 unit_of_work_factory=input_factory,
                 data_rights=bootstrap_data_rights_gate(),
             )
@@ -788,6 +795,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     catalog=ArtifactCatalogRepository(),
                     work=PostgreSQLDurableWorkGateway(pipeline_factory),
                     evidence=bootstrap_evidence().write,
+                    opportunity=bootstrap_opportunity_admission(),
                     fetch=_ExternalMediaFetch(),
                     recognizer=_ExternalContentRecognizer(),
                     target_for=lambda _kind: ("test_provider", "test_model"),
@@ -2435,7 +2443,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     storage=storage,
                     catalog=ArtifactCatalogRepository(),
                     creator_party_id=creator_party_id,
-                    input_repository=CreatorInputRepository(bootstrap_evidence().write),
+                    input_repository=CreatorInputRepository(
+                        bootstrap_evidence().write,
+                        bootstrap_opportunity_admission(),
+                    ),
                     evidence=bootstrap_evidence().write,
                     dispatch_boundary=bootstrap_effect_dispatch_boundary(),
                     notifier=None,
@@ -2451,7 +2462,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 repeated = await gateway.accept(command)
                 async with factory.unit_of_work(read_only=True) as unit_of_work:
                     operation = await CreatorInputRepository(
-                        bootstrap_evidence().write
+                        bootstrap_evidence().write,
+                        bootstrap_opportunity_admission(),
                     ).operation(
                         unit_of_work,
                         opportunity_id=first.opportunity_id,

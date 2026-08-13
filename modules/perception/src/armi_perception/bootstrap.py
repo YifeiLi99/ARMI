@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_evidence.api import EvidenceWritePort
 from armi_interaction.api import ExternalMessagePartKind
+from armi_opportunity.api import OpportunityAdmissionPort
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWorkFactory
 
 from ._application import Diagnostic, ExternalContentPipeline
@@ -43,6 +44,7 @@ def bootstrap_perception(
     catalog: PerceptionArtifactCatalogPort,
     work: PerceptionDurableWorkPort,
     evidence: EvidenceWritePort,
+    opportunity: OpportunityAdmissionPort,
     fetch: ExternalMediaFetchPort,
     ark_recognizer: ExternalContentRecognitionPort,
     speech_recognizer: ExternalContentRecognitionPort,
@@ -60,6 +62,7 @@ def bootstrap_perception(
         catalog=catalog,
         work=work,
         evidence=evidence,
+        opportunity=opportunity,
         fetch=fetch,
         recognizer=recognizer,
         target_for=target_for,

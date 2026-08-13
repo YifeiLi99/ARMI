@@ -13,6 +13,12 @@ from armi_evidence.api import (
     EvidenceWritePort,
 )
 from armi_kernel.contracts import Digest
+from armi_opportunity.api import (
+    ExternalEvidenceOpportunityDraft,
+    OpportunityAdmissionPort,
+    OpportunityAdmissionStatus,
+    OpportunityPurpose,
+)
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
 from ._creator_contract import OpportunityId
@@ -35,10 +41,15 @@ class OtherHumanInputContext:
 
 
 class OtherHumanInputRepository:
-    __slots__ = ("_evidence",)
+    __slots__ = ("_evidence", "_opportunity")
 
-    def __init__(self, evidence: EvidenceWritePort) -> None:
+    def __init__(
+        self,
+        evidence: EvidenceWritePort,
+        opportunity: OpportunityAdmissionPort,
+    ) -> None:
         self._evidence = evidence
+        self._opportunity = opportunity
 
     async def register_party(
         self,
@@ -211,15 +222,12 @@ class OtherHumanInputRepository:
             await connection.execute(
                 """
                 SELECT interaction.interaction_id, evidence.evidence_id,
-                       opportunity.opportunity_id, interaction.request_digest,
+                       interaction.request_digest,
                        COALESCE(interaction.cognition_content_digest,
                                 interaction.content_digest)
                 FROM armi.party_input_interactions AS interaction
                 JOIN armi.external_evidence AS evidence
                   ON evidence.interaction_id = interaction.interaction_id
-                JOIN armi.opportunities AS opportunity
-                  ON opportunity.evidence_id = evidence.evidence_id
-                 AND opportunity.purpose = 'consider_other_human_input'
                 WHERE interaction.source_party_id = %s AND interaction.scene_id = %s
                   AND interaction.purpose = 'other_human_message'
                   AND interaction.idempotency_key = %s
@@ -229,16 +237,23 @@ class OtherHumanInputRepository:
         ).fetchone()
         if row is None:
             return None
-        if row[3] != request_digest.value:
+        if row[2] != request_digest.value:
             raise OtherHumanInputViolation("IDEMPOTENCY-OTHER-HUMAN-INPUT-MISMATCH")
+        opportunity = await self._opportunity.find_external_evidence(
+            connection,
+            evidence_id=row[1],
+            purpose=OpportunityPurpose.CONSIDER_OTHER_HUMAN_INPUT,
+        )
+        if opportunity is None:
+            raise OtherHumanInputViolation("DB-OTHER-HUMAN-INPUT")
         return OtherHumanInputAcceptance(
             context.party_id,
             context.scene_id,
             OtherHumanInteractionId(row[0]),
             EvidenceId(row[1]),
-            OpportunityId(row[2]),
+            OpportunityId(opportunity.value),
+            Digest(row[2]),
             Digest(row[3]),
-            Digest(row[4]),
             False,
         )
 
@@ -257,8 +272,7 @@ class OtherHumanInputRepository:
         addressed_to_subject: bool | None = None,
     ) -> OtherHumanInputAcceptance:
         connection = unit_of_work.transaction
-        interaction_id, evidence_id, opportunity_id, timeline_id = (
-            uuid7(),
+        interaction_id, evidence_id, timeline_id = (
             uuid7(),
             uuid7(),
             uuid7(),
@@ -298,25 +312,21 @@ class OtherHumanInputRepository:
                 interaction_id=interaction_id,
             ),
         )
-        await connection.execute(
-            """
-            INSERT INTO armi.opportunities (
-                opportunity_id, evidence_id, subject_id, scene_id,
-                context_party_id, purpose, eligibility_status,
-                current_disposition, root_opportunity_id, source_kind, source_ref,
-                source_version, reconsideration_no) VALUES (%s,%s,%s,%s,%s,'consider_other_human_input',
-                      'eligible','open',%s,'external_evidence',%s,1,0)
-            """,
-            (
-                opportunity_id,
-                evidence_id,
-                context.subject_id,
-                context.scene_id,
-                context.party_id,
-                opportunity_id,
-                evidence_id,
+        admitted = await self._opportunity.admit_external_evidence(
+            connection,
+            ExternalEvidenceOpportunityDraft(
+                evidence_id=evidence_id,
+                subject_id=context.subject_id,
+                scene_id=context.scene_id,
+                context_party_id=context.party_id,
+                purpose=OpportunityPurpose.CONSIDER_OTHER_HUMAN_INPUT,
             ),
         )
+        if admitted.status is OpportunityAdmissionStatus.REJECTED:
+            raise OtherHumanInputViolation("DB-OTHER-HUMAN-INPUT")
+        opportunity_id = admitted.opportunity_id
+        if opportunity_id is None:
+            raise OtherHumanInputViolation("DB-OTHER-HUMAN-INPUT")
         await connection.execute(
             """
             INSERT INTO armi.scene_timeline_items (

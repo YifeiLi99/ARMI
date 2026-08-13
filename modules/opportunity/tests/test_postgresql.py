@@ -13,7 +13,14 @@ from armi_material.bootstrap import bootstrap_material
 from armi_opportunity._postgresql import (
     PostgreSQLLifeOpportunityRepository,
 )
-from armi_opportunity.api import CreatorOutreachPolicy, OpportunityAdmissionStatus
+from armi_opportunity.api import (
+    CreatorOutreachPolicy,
+    ExternalEvidenceOpportunityDraft,
+    OpportunityAdmissionPort,
+    OpportunityAdmissionStatus,
+    OpportunityPurpose,
+)
+from armi_opportunity.bootstrap import bootstrap_opportunity_admission
 from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWork
 from armi_subject_state.api import LifeModeHead
 
@@ -91,6 +98,47 @@ class _Cursor:
 
     async def fetchall(self) -> list[tuple[object, ...]]:
         return [] if self._row is None else [self._row]
+
+
+class _AdmissionConnection:
+    def __init__(self) -> None:
+        self.opportunity_id: UUID | None = None
+
+    async def execute(
+        self,
+        statement: str,
+        parameters: tuple[object, ...] = (),
+    ) -> _Cursor:
+        if "INSERT INTO armi.opportunities" in statement:
+            if self.opportunity_id is not None:
+                return _Cursor(None)
+            self.opportunity_id = cast(UUID, parameters[0])
+            return _Cursor((self.opportunity_id,))
+        if "SELECT opportunity_id" in statement:
+            return _Cursor(
+                None if self.opportunity_id is None else (self.opportunity_id,)
+            )
+        raise AssertionError(statement)
+
+
+def test_external_evidence_admission_port_is_typed_and_idempotent() -> None:
+    owner = bootstrap_opportunity_admission()
+    assert isinstance(owner, OpportunityAdmissionPort)
+    transaction = _AdmissionConnection()
+    draft = ExternalEvidenceOpportunityDraft(
+        evidence_id=uuid7(),
+        subject_id=uuid7(),
+        scene_id=uuid7(),
+        context_party_id=uuid7(),
+        purpose=OpportunityPurpose.CONSIDER_CREATOR_INPUT,
+    )
+
+    first = asyncio.run(owner.admit_external_evidence(cast(Any, transaction), draft))
+    replay = asyncio.run(owner.admit_external_evidence(cast(Any, transaction), draft))
+
+    assert first.status is OpportunityAdmissionStatus.ADMITTED
+    assert replay.status is OpportunityAdmissionStatus.DUPLICATE
+    assert replay.opportunity_id == first.opportunity_id
 
 
 class _Connection:

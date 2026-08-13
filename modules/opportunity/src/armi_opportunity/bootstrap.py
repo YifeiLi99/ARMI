@@ -11,7 +11,12 @@ from armi_sleep.api import SleepMaintenancePort, SleepReadPort
 from armi_subject_state.api import SubjectStateReadPort
 
 from ._application import compose_opportunity_pipeline
-from .api import OpportunityRuntimePort, OpportunityWakeupPort
+from ._owner import PostgreSQLOpportunityOwner
+from .api import OpportunityAdmissionPort, OpportunityRuntimePort, OpportunityWakeupPort
+
+
+def bootstrap_opportunity_admission() -> OpportunityAdmissionPort:
+    return PostgreSQLOpportunityOwner()
 
 
 def bootstrap_opportunity(
@@ -53,4 +58,4 @@ def bootstrap_opportunity(
     )
 
 
-__all__ = ("bootstrap_opportunity",)
+__all__ = ("bootstrap_opportunity", "bootstrap_opportunity_admission")

@@ -93,6 +93,7 @@ from .database import (
     compose_memory_module,
     compose_model_pipeline,
     compose_mood_module,
+    compose_opportunity_admission,
     compose_other_human_record_query,
     compose_perception_module,
     compose_prompt_module,
@@ -396,6 +397,7 @@ async def _serve(
                 notifier=creator_events,
             )
             await data_rights_module.open()
+            opportunity_admission = compose_opportunity_admission()
             interaction_module = compose_interaction_module(
                 prepared,
                 creator_party_id=creator_context.party_id,
@@ -404,6 +406,7 @@ async def _serve(
                 notifier=creator_events,
                 subject_state_read=subject_state_module.read,
                 evidence=evidence_module.write,
+                opportunity=opportunity_admission,
                 data_rights=data_rights_module.gate,
                 wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
@@ -438,6 +441,7 @@ async def _serve(
                         authority_admission=authority.require_writable,
                         fetch=qq_channel.media_fetch,
                         evidence=evidence_module.write,
+                        opportunity=opportunity_admission,
                         wakeups=work_wakeups,
                         diagnostic=lambda event: diagnostic.emit(
                             event,

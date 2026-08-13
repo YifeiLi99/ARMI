@@ -13,6 +13,12 @@ from armi_evidence.api import (
     EvidenceWritePort,
 )
 from armi_kernel.contracts import Digest
+from armi_opportunity.api import (
+    ExternalEvidenceOpportunityDraft,
+    OpportunityAdmissionPort,
+    OpportunityAdmissionStatus,
+    OpportunityPurpose,
+)
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
 from ._creator_contract import (
@@ -29,10 +35,15 @@ from ._creator_contract import (
 class CreatorInputRepository:
     """Own the fixed SQL for interaction, evidence, opportunity and timeline."""
 
-    __slots__ = ("_evidence",)
+    __slots__ = ("_evidence", "_opportunity")
 
-    def __init__(self, evidence: EvidenceWritePort) -> None:
+    def __init__(
+        self,
+        evidence: EvidenceWritePort,
+        opportunity: OpportunityAdmissionPort,
+    ) -> None:
         self._evidence = evidence
+        self._opportunity = opportunity
 
     async def lock_scene(
         self,
@@ -106,7 +117,6 @@ class CreatorInputRepository:
                 SELECT
                     interaction.interaction_id,
                     evidence.evidence_id,
-                    opportunity.opportunity_id,
                     interaction.request_digest,
                     COALESCE(interaction.cognition_content_digest,
                              interaction.content_digest)
@@ -114,8 +124,6 @@ class CreatorInputRepository:
                 JOIN armi.external_evidence AS evidence
                   ON evidence.interaction_id
                     = interaction.interaction_id
-                JOIN armi.opportunities AS opportunity
-                  ON opportunity.evidence_id = evidence.evidence_id
                 WHERE interaction.source_party_id = %s
                   AND interaction.scene_id = %s
                   AND interaction.purpose = 'creator_message'
@@ -130,9 +138,19 @@ class CreatorInputRepository:
         ).fetchone()
         if row is None:
             return None
-        if str(row[3]) != request_digest.value:
+        if str(row[2]) != request_digest.value:
             raise CreatorInputViolation("IDEMPOTENCY-MISMATCH")
-        return _acceptance(row, newly_accepted=False)
+        opportunity = await self._opportunity.find_external_evidence(
+            connection,
+            evidence_id=row[1],
+            purpose=OpportunityPurpose.CONSIDER_CREATOR_INPUT,
+        )
+        if opportunity is None:
+            raise CreatorInputViolation("DB-INPUT-STATE")
+        return _acceptance(
+            (row[0], row[1], opportunity.value, row[2], row[3]),
+            newly_accepted=False,
+        )
 
     async def create(
         self,
@@ -151,7 +169,6 @@ class CreatorInputRepository:
         connection = unit_of_work.transaction
         interaction_id = uuid7()
         evidence_id = uuid7()
-        opportunity_id = uuid7()
         timeline_item_id = uuid7()
         await connection.execute(
             """
@@ -196,37 +213,21 @@ class CreatorInputRepository:
                 interaction_id=interaction_id,
             ),
         )
-        await connection.execute(
-            """
-            INSERT INTO armi.opportunities (
-                opportunity_id,
-                evidence_id,
-                subject_id,
-                scene_id,
-                context_party_id,
-                purpose,
-                source_kind,
-                source_ref,
-                source_version,
-                eligibility_status,
-                current_disposition,
-                root_opportunity_id,
-                reconsideration_no)
-            VALUES (
-                %s, %s, %s, %s, %s,
-                'consider_creator_input', 'external_evidence', %s, 1,
-                'eligible', 'open', %s, 0)
-            """,
-            (
-                opportunity_id,
-                evidence_id,
-                context.subject_id,
-                context.scene_id,
-                context.creator_party_id,
-                evidence_id,
-                opportunity_id,
+        admitted = await self._opportunity.admit_external_evidence(
+            connection,
+            ExternalEvidenceOpportunityDraft(
+                evidence_id=evidence_id,
+                subject_id=context.subject_id,
+                scene_id=context.scene_id,
+                context_party_id=context.creator_party_id,
+                purpose=OpportunityPurpose.CONSIDER_CREATOR_INPUT,
             ),
         )
+        if admitted.status is OpportunityAdmissionStatus.REJECTED:
+            raise CreatorInputViolation("DB-INPUT-STATE")
+        opportunity_id = admitted.opportunity_id
+        if opportunity_id is None:
+            raise CreatorInputViolation("DB-INPUT-STATE")
         await connection.execute(
             """
             INSERT INTO armi.scene_timeline_items (

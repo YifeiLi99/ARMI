@@ -1,0 +1,97 @@
+"""PostgreSQL owner ports for opportunity facts shared within a caller UoW."""
+
+from __future__ import annotations
+
+from uuid import UUID, uuid7
+
+from armi_runtime_foundation import PostgreSQLTransaction
+
+from .api import (
+    ExternalEvidenceOpportunityDraft,
+    OpportunityAdmissionOutcome,
+    OpportunityAdmissionStatus,
+    OpportunityId,
+    OpportunityPurpose,
+)
+
+
+class PostgreSQLOpportunityOwner:
+    async def admit_external_evidence(
+        self,
+        transaction: PostgreSQLTransaction,
+        draft: ExternalEvidenceOpportunityDraft,
+    ) -> OpportunityAdmissionOutcome:
+        opportunity_id = uuid7()
+        row = await (
+            await transaction.execute(
+                """
+                INSERT INTO armi.opportunities (
+                    opportunity_id, evidence_id, subject_id, scene_id,
+                    context_party_id, purpose, source_kind, source_ref,
+                    source_version, eligibility_status, current_disposition,
+                    root_opportunity_id, reconsideration_no)
+                VALUES (%s,%s,%s,%s,%s,%s,'external_evidence',%s,1,
+                        'eligible','open',%s,0)
+                ON CONFLICT (
+                    subject_id, source_kind, source_ref, source_version,
+                    purpose, reconsideration_no
+                ) DO NOTHING
+                RETURNING opportunity_id
+                """,
+                (
+                    opportunity_id,
+                    draft.evidence_id,
+                    draft.subject_id,
+                    draft.scene_id,
+                    draft.context_party_id,
+                    draft.purpose.value,
+                    draft.evidence_id,
+                    opportunity_id,
+                ),
+            )
+        ).fetchone()
+        if row is not None:
+            return OpportunityAdmissionOutcome(
+                OpportunityAdmissionStatus.ADMITTED, row[0]
+            )
+        existing = await self.find_external_evidence(
+            transaction,
+            evidence_id=draft.evidence_id,
+            purpose=draft.purpose,
+        )
+        if existing is None:
+            return OpportunityAdmissionOutcome(
+                OpportunityAdmissionStatus.REJECTED,
+                None,
+                "LIFE-ADMISSION-CONFLICT",
+            )
+        return OpportunityAdmissionOutcome(
+            OpportunityAdmissionStatus.DUPLICATE, existing.value
+        )
+
+    async def find_external_evidence(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        evidence_id: UUID,
+        purpose: OpportunityPurpose,
+    ) -> OpportunityId | None:
+        row = await (
+            await transaction.execute(
+                """
+                SELECT opportunity_id
+                FROM armi.opportunities
+                WHERE evidence_id = %s
+                  AND source_kind = 'external_evidence'
+                  AND source_ref = %s
+                  AND source_version = 1
+                  AND purpose = %s
+                  AND reconsideration_no = 0
+                """,
+                (evidence_id, evidence_id, purpose.value),
+            )
+        ).fetchone()
+        return None if row is None else OpportunityId(row[0])
+
+
+__all__ = ("PostgreSQLOpportunityOwner",)

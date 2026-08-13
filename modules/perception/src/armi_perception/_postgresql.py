@@ -27,6 +27,12 @@ from armi_kernel.application import (
     WorkResultRef,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId, TraceId
+from armi_opportunity.api import (
+    ExternalEvidenceOpportunityDraft,
+    OpportunityAdmissionPort,
+    OpportunityAdmissionStatus,
+    OpportunityPurpose,
+)
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
 from .api import ExternalContentRecognitionResult
@@ -92,10 +98,15 @@ class ExternalFinalizationSnapshot:
 
 
 class PostgreSQLExternalContentRepository:
-    __slots__ = ("_evidence",)
+    __slots__ = ("_evidence", "_opportunity")
 
-    def __init__(self, evidence: EvidenceWritePort) -> None:
+    def __init__(
+        self,
+        evidence: EvidenceWritePort,
+        opportunity: OpportunityAdmissionPort,
+    ) -> None:
         self._evidence = evidence
+        self._opportunity = opportunity
 
     async def recover_terminal_recognition(
         self, unit: PostgreSQLRuntimeUnitOfWork
@@ -585,10 +596,9 @@ class PostgreSQLExternalContentRepository:
         )
         if updated.rowcount != 1:
             raise ExternalMessageViolation("EXTERNAL-MESSAGE-WORK-STALE")
-        evidence_id, opportunity_id, timeline_id = uuid7(), uuid7(), uuid7()
+        evidence_id, timeline_id = uuid7(), uuid7()
         creator = snapshot.purpose == "creator_message"
         source_kind = "creator_input" if creator else "other_human_input"
-        purpose = "consider_creator_input" if creator else "consider_other_human_input"
         await self._evidence.accept(
             unit,
             EvidenceDraft(
@@ -610,27 +620,22 @@ class PostgreSQLExternalContentRepository:
                 interaction_id=snapshot.interaction_id,
             ),
         )
-        await connection.execute(
-            """
-            INSERT INTO armi.opportunities (
-                opportunity_id, evidence_id, subject_id, scene_id,
-                context_party_id, purpose, source_kind, source_ref,
-                source_version, eligibility_status, current_disposition,
-                root_opportunity_id, reconsideration_no)
-            VALUES (%s,%s,%s,%s,%s,%s,'external_evidence',%s,1,
-                    'eligible','open',%s,0)
-            """,
-            (
-                opportunity_id,
-                evidence_id,
-                snapshot.subject_id,
-                snapshot.scene_id,
-                snapshot.source_party_id,
-                purpose,
-                evidence_id,
-                opportunity_id,
+        admitted = await self._opportunity.admit_external_evidence(
+            connection,
+            ExternalEvidenceOpportunityDraft(
+                evidence_id=evidence_id,
+                subject_id=snapshot.subject_id,
+                scene_id=snapshot.scene_id,
+                context_party_id=snapshot.source_party_id,
+                purpose=(
+                    OpportunityPurpose.CONSIDER_CREATOR_INPUT
+                    if creator
+                    else OpportunityPurpose.CONSIDER_OTHER_HUMAN_INPUT
+                ),
             ),
         )
+        if admitted.status is OpportunityAdmissionStatus.REJECTED:
+            raise ExternalMessageViolation("EXTERNAL-MESSAGE-FINALIZATION")
         await connection.execute(
             """
             INSERT INTO armi.scene_timeline_items (

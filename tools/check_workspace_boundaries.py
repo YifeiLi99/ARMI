@@ -371,6 +371,7 @@ DISTRIBUTIONS = (
             "armi-evidence==0.0.0",
             "armi-interaction==0.0.0",
             "armi-kernel==0.0.0",
+            "armi-opportunity==0.0.0",
             "armi-runtime-foundation==0.0.0",
             "openpyxl==3.1.5",
             "pillow==12.3.0",
@@ -1136,6 +1137,7 @@ def _check_import(
                 "armi-evidence",
                 "armi-interaction",
                 "armi-kernel",
+                "armi-opportunity",
                 "armi-runtime-foundation",
                 "armi-perception",
             }

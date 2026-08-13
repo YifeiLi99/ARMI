@@ -27,6 +27,7 @@ from armi_kernel.application import (
     WorkViolation,
 )
 from armi_kernel.contracts import Digest, TraceId
+from armi_opportunity.api import OpportunityAdmissionPort
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
     RuntimeTransactionFailure,
@@ -93,6 +94,7 @@ class ExternalContentPipeline:
         catalog: PerceptionArtifactCatalogPort,
         work: PerceptionDurableWorkPort,
         evidence: EvidenceWritePort,
+        opportunity: OpportunityAdmissionPort,
         fetch: ExternalMediaFetchPort,
         recognizer: ExternalContentRecognitionPort,
         target_for: Callable[[ExternalMessagePartKind], tuple[str, str]],
@@ -107,7 +109,7 @@ class ExternalContentPipeline:
         self._wakeups = wakeups
         self._diagnostic = diagnostic or _ignore_diagnostic
         self._catalog = catalog
-        self._repository = PostgreSQLExternalContentRepository(evidence)
+        self._repository = PostgreSQLExternalContentRepository(evidence, opportunity)
         self._work = work
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
