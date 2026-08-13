@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from armi_runtime_foundation import PostgreSQLTransactionAccess
 
 from .api import EvidenceDraft, EvidenceId, ExperienceEvidenceLink
@@ -61,6 +63,24 @@ class PostgreSQLEvidenceWriter:
                 link.ordinal,
             ),
         )
+
+    async def find_by_interaction(
+        self,
+        transaction: PostgreSQLTransactionAccess,
+        *,
+        interaction_id: UUID,
+    ) -> EvidenceId | None:
+        row = await (
+            await transaction.transaction.execute(
+                """
+                SELECT evidence_id
+                FROM armi.external_evidence
+                WHERE interaction_id = %s
+                """,
+                (interaction_id,),
+            )
+        ).fetchone()
+        return None if row is None else EvidenceId(row[0])
 
 
 __all__ = ("PostgreSQLEvidenceWriter",)

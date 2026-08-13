@@ -657,7 +657,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             service = ExternalMessageInputService(
                 storage=storage,
                 catalog=ArtifactCatalogRepository(),
-                messages=ExternalMessageInputRepository(),
+                messages=ExternalMessageInputRepository(
+                    bootstrap_evidence().read,
+                    bootstrap_opportunity_admission(),
+                ),
                 creator_inputs=CreatorInputRepository(
                     bootstrap_evidence().write, bootstrap_opportunity_admission()
                 ),

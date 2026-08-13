@@ -63,7 +63,7 @@ from armi_effect.bootstrap import (
     bootstrap_expression_effect_registration,
     bootstrap_response_admission,
 )
-from armi_evidence.api import EvidenceWritePort
+from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
 from armi_evidence.bootstrap import EvidenceModule, bootstrap_evidence
 from armi_expression.api import ResponseViolation
 from armi_expression.bootstrap import bootstrap_expression
@@ -518,6 +518,7 @@ def compose_interaction_module(
     notifier: CreatorProjectionNotifier | None,
     subject_state_read: SubjectStateReadPort,
     evidence: EvidenceWritePort,
+    evidence_read: EvidenceReadPort,
     opportunity: OpportunityAdmissionPort,
     data_rights: DataRightsInteractionGate,
     wakeups: WorkWakeupBus | None = None,
@@ -583,6 +584,7 @@ def compose_interaction_module(
                     data_rights=data_rights,
                     subject_state=subject_state_read,
                     evidence=evidence,
+                    evidence_read=evidence_read,
                     opportunity=opportunity,
                     notifier=notifier,
                     wakeups=wakeups,

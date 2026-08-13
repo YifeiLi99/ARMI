@@ -124,10 +124,21 @@ class EvidenceWritePort(Protocol):
     ) -> None: ...
 
 
+@runtime_checkable
+class EvidenceReadPort(Protocol):
+    async def find_by_interaction(
+        self,
+        transaction: PostgreSQLTransactionAccess,
+        *,
+        interaction_id: UUID,
+    ) -> EvidenceId | None: ...
+
+
 __all__ = (
     "EvidenceDraft",
     "EvidenceId",
     "EvidencePrivacyScope",
+    "EvidenceReadPort",
     "EvidenceSourceKind",
     "EvidenceViolation",
     "EvidenceWritePort",

@@ -5,11 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ._postgresql import PostgreSQLEvidenceWriter
-from .api import EvidenceWritePort
+from .api import EvidenceReadPort, EvidenceWritePort
 
 
 @dataclass(frozen=True, slots=True)
 class EvidenceModule:
+    read: EvidenceReadPort
     write: EvidenceWritePort
 
     async def open(self) -> None:
@@ -20,7 +21,8 @@ class EvidenceModule:
 
 
 def bootstrap_evidence() -> EvidenceModule:
-    return EvidenceModule(write=PostgreSQLEvidenceWriter())
+    owner = PostgreSQLEvidenceWriter()
+    return EvidenceModule(read=owner, write=owner)
 
 
 __all__ = ("EvidenceModule", "bootstrap_evidence")

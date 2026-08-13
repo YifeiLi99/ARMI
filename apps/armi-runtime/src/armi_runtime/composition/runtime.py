@@ -406,6 +406,7 @@ async def _serve(
                 notifier=creator_events,
                 subject_state_read=subject_state_module.read,
                 evidence=evidence_module.write,
+                evidence_read=evidence_module.read,
                 opportunity=opportunity_admission,
                 data_rights=data_rights_module.gate,
                 wakeups=work_wakeups,

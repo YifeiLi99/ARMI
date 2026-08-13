@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, cast
 from uuid import UUID, uuid7
 
+from armi_evidence.api import EvidenceReadPort
 from armi_kernel.application import (
     WorkDraft,
     WorkId,
@@ -14,6 +15,7 @@ from armi_kernel.application import (
     WorkPayloadRef,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId
+from armi_opportunity.api import OpportunityAdmissionPort, OpportunityPurpose
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
 from ._creator_contract import CreatorInputContext
@@ -59,7 +61,15 @@ class ExternalMessageInputContext:
 
 
 class ExternalMessageInputRepository:
-    __slots__ = ()
+    __slots__ = ("_evidence", "_opportunity")
+
+    def __init__(
+        self,
+        evidence: EvidenceReadPort,
+        opportunity: OpportunityAdmissionPort,
+    ) -> None:
+        self._evidence = evidence
+        self._opportunity = opportunity
 
     async def configure_creator(
         self,
@@ -260,17 +270,10 @@ class ExternalMessageInputRepository:
             await connection.execute(
                 """
                 SELECT interaction.interaction_id,
-                       evidence.evidence_id,
-                       opportunity.opportunity_id,
                        interaction.request_digest,
                        COALESCE(interaction.cognition_content_digest,
                                 interaction.content_digest)
                 FROM armi.party_input_interactions AS interaction
-                LEFT JOIN armi.external_evidence AS evidence
-                  ON evidence.interaction_id = interaction.interaction_id
-                LEFT JOIN armi.opportunities AS opportunity
-                  ON opportunity.evidence_id = evidence.evidence_id
-                 AND opportunity.root_opportunity_id = opportunity.opportunity_id
                 WHERE interaction.source_party_id = %s
                   AND interaction.scene_id = %s
                   AND interaction.idempotency_key = %s
@@ -280,11 +283,30 @@ class ExternalMessageInputRepository:
         ).fetchone()
         if row is None:
             return None
-        if str(row[3]) != request_digest.value:
+        if str(row[1]) != request_digest.value:
             raise ExternalMessageViolation("EXTERNAL-MESSAGE-IDEMPOTENCY-MISMATCH")
         from armi_evidence.api import EvidenceId
 
         from ._creator_contract import OpportunityId
+
+        evidence = await self._evidence.find_by_interaction(
+            unit_of_work,
+            interaction_id=row[0],
+        )
+        purpose = (
+            OpportunityPurpose.CONSIDER_CREATOR_INPUT
+            if context.sender_party_kind == "creator"
+            else OpportunityPurpose.CONSIDER_OTHER_HUMAN_INPUT
+        )
+        opportunity = (
+            None
+            if evidence is None
+            else await self._opportunity.find_external_evidence(
+                connection,
+                evidence_id=evidence.value,
+                purpose=purpose,
+            )
+        )
 
         return ExternalMessageInputAcceptance(
             context.conversation_binding_id,
@@ -292,10 +314,10 @@ class ExternalMessageInputRepository:
             context.sender_party_kind,
             context.scene_id,
             ExternalMessageInteractionId(row[0]),
-            None if row[1] is None else EvidenceId(row[1]),
-            None if row[2] is None else OpportunityId(row[2]),
+            None if evidence is None else EvidenceId(evidence.value),
+            None if opportunity is None else OpportunityId(opportunity.value),
             request_digest,
-            Digest(str(row[4])),
+            Digest(str(row[2])),
             False,
         )
 
