@@ -20,7 +20,10 @@ from armi_opportunity.api import (
     OpportunityAdmissionStatus,
     OpportunityPurpose,
 )
-from armi_opportunity.bootstrap import bootstrap_opportunity_admission
+from armi_opportunity.bootstrap import (
+    bootstrap_opportunity_admission,
+    bootstrap_opportunity_transition,
+)
 from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWork
 from armi_subject_state.api import LifeModeHead
 
@@ -139,6 +142,44 @@ def test_external_evidence_admission_port_is_typed_and_idempotent() -> None:
     assert first.status is OpportunityAdmissionStatus.ADMITTED
     assert replay.status is OpportunityAdmissionStatus.DUPLICATE
     assert replay.opportunity_id == first.opportunity_id
+
+
+class _TransitionConnection:
+    def __init__(self) -> None:
+        self.statements: list[str] = []
+
+    async def execute(
+        self,
+        statement: str,
+        parameters: tuple[object, ...] = (),
+    ) -> _Cursor:
+        self.statements.append(statement)
+        return _Cursor((parameters[0],))
+
+
+def test_reconsideration_sql_is_owned_by_opportunity_port() -> None:
+    owner = bootstrap_opportunity_transition()
+    connection = _TransitionConnection()
+    activity = asyncio.run(
+        owner.reconsider_activity(
+            cast(Any, connection),
+            subject_id=uuid7(),
+            root_opportunity_id=uuid7(),
+            predecessor_opportunity_id=uuid7(),
+            source_ref=uuid7(),
+            source_version=2,
+            activity_id=uuid7(),
+        )
+    )
+    sleep = asyncio.run(
+        owner.reconsider_sleep(
+            cast(Any, connection),
+            predecessor_opportunity_id=uuid7(),
+        )
+    )
+    assert activity is not None
+    assert sleep is not None
+    assert all("INSERT INTO armi.opportunities" in sql for sql in connection.statements)
 
 
 class _Connection:

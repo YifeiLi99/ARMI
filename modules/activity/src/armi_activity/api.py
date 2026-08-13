@@ -594,13 +594,12 @@ class ActivityCommitPort(Protocol):
         drafts: tuple[CandidateOwnerDraft, ...],
     ) -> bool: ...
 
-    async def reconsideration(
+    def requests_reconsideration(
         self,
-        transaction: PostgreSQLTransaction,
         *,
         context: ActivityCommitContext,
         drafts: tuple[CandidateOwnerDraft, ...],
-    ) -> UUID | None: ...
+    ) -> bool: ...
 
     async def commit(
         self,

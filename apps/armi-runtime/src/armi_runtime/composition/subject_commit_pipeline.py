@@ -52,6 +52,7 @@ from armi_kernel.contracts import ContractViolation, Instant, Purpose, SubjectId
 from armi_material.api import MaterialCognitionPort, MaterialCommitPort
 from armi_memory.api import MemoryCognitionPort, MemoryCommitPort
 from armi_mood.api import MoodCognitionPort, MoodCommitPort
+from armi_opportunity.api import OpportunityTransitionPort
 from armi_prompt.api import PromptCognitionPort, PromptCommitPort
 from armi_relationship.api import (
     RelationshipCognitionPort,
@@ -137,6 +138,7 @@ class SubjectCommitPipeline:
         memory_commit: MemoryCommitPort,
         memory_cognition: MemoryCognitionPort,
         mood_commit: MoodCommitPort,
+        opportunity_transition: OpportunityTransitionPort,
         mood_cognition: MoodCognitionPort,
         prompt_cognition: PromptCognitionPort,
         prompt_commit: PromptCommitPort,
@@ -176,6 +178,7 @@ class SubjectCommitPipeline:
             expression_commit,
             memory_commit,
             mood_commit,
+            opportunity_transition,
             prompt_commit,
             material_commit,
             relationship_commit,
@@ -732,6 +735,7 @@ def build_subject_commit_pipeline(
     memory_commit: MemoryCommitPort,
     memory_cognition: MemoryCognitionPort,
     mood_commit: MoodCommitPort,
+    opportunity_transition: OpportunityTransitionPort,
     mood_cognition: MoodCognitionPort,
     prompt_cognition: PromptCognitionPort,
     prompt_commit: PromptCommitPort,
@@ -774,6 +778,7 @@ def build_subject_commit_pipeline(
         memory_commit=memory_commit,
         memory_cognition=memory_cognition,
         mood_commit=mood_commit,
+        opportunity_transition=opportunity_transition,
         mood_cognition=mood_cognition,
         prompt_cognition=prompt_cognition,
         prompt_commit=prompt_commit,

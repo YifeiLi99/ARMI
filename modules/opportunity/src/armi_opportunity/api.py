@@ -206,6 +206,28 @@ class OpportunityAdmissionPort(Protocol):
 
 
 @runtime_checkable
+class OpportunityTransitionPort(Protocol):
+    async def reconsider_activity(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        root_opportunity_id: UUID,
+        predecessor_opportunity_id: UUID,
+        source_ref: UUID,
+        source_version: int,
+        activity_id: UUID,
+    ) -> OpportunityId | None: ...
+
+    async def reconsider_sleep(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        predecessor_opportunity_id: UUID,
+    ) -> OpportunityId | None: ...
+
+
+@runtime_checkable
 class OpportunitySelector(Protocol):
     async def select_once(self) -> CognitiveEpisodeId | None:
         """Select at most one durable opportunity through the authoritative owner."""
@@ -258,5 +280,6 @@ __all__ = (
     "OpportunityPurpose",
     "OpportunityRuntimePort",
     "OpportunitySelector",
+    "OpportunityTransitionPort",
     "OpportunityWakeupPort",
 )

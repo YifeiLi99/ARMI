@@ -12,10 +12,19 @@ from armi_subject_state.api import SubjectStateReadPort
 
 from ._application import compose_opportunity_pipeline
 from ._owner import PostgreSQLOpportunityOwner
-from .api import OpportunityAdmissionPort, OpportunityRuntimePort, OpportunityWakeupPort
+from .api import (
+    OpportunityAdmissionPort,
+    OpportunityRuntimePort,
+    OpportunityTransitionPort,
+    OpportunityWakeupPort,
+)
 
 
 def bootstrap_opportunity_admission() -> OpportunityAdmissionPort:
+    return PostgreSQLOpportunityOwner()
+
+
+def bootstrap_opportunity_transition() -> OpportunityTransitionPort:
     return PostgreSQLOpportunityOwner()
 
 
@@ -58,4 +67,8 @@ def bootstrap_opportunity(
     )
 
 
-__all__ = ("bootstrap_opportunity", "bootstrap_opportunity_admission")
+__all__ = (
+    "bootstrap_opportunity",
+    "bootstrap_opportunity_admission",
+    "bootstrap_opportunity_transition",
+)

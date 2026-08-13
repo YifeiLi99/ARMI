@@ -40,47 +40,19 @@ class PostgreSQLSleepCommit:
             transaction, context=context, decision=maintenance
         )
 
-    async def reconsideration(
+    def requests_reconsideration(
         self,
-        transaction: PostgreSQLTransaction,
         *,
         context: SleepCommitContext,
         drafts: tuple[CandidateOwnerDraft, ...],
-    ) -> UUID | None:
+    ) -> bool:
         sleep, maintenance = self._decode(drafts)
         if maintenance is not None or sleep is None:
-            return None
-        if (
-            sleep.decision_kind is not SleepDecisionKind.DEFER
-            or context.reconsideration_no != 0
-        ):
-            return None
-        successor_id = uuid7()
-        row = await (
-            await transaction.execute(
-                """
-                INSERT INTO armi.opportunities (
-                    opportunity_id, evidence_id, subject_id, scene_id,
-                    creator_party_id, purpose, eligibility_status,
-                    current_disposition, available_after, expires_at,
-                    root_opportunity_id, predecessor_opportunity_id,
-                    reconsideration_no, source_kind, source_ref, source_version,
-                    activity_id
-                )
-                SELECT %s, NULL, subject_id, NULL, NULL, purpose, 'eligible',
-                       'open', statement_timestamp() + interval '1 hour', expires_at,
-                       root_opportunity_id, opportunity_id, 1, source_kind,
-                       source_ref, source_version, NULL
-                FROM armi.opportunities
-                WHERE opportunity_id = %s
-                  AND statement_timestamp() + interval '1 hour' < expires_at
-                ON CONFLICT (predecessor_opportunity_id) DO NOTHING
-                RETURNING opportunity_id
-                """,
-                (successor_id, context.opportunity_id),
-            )
-        ).fetchone()
-        return None if row is None else row[0]
+            return False
+        return (
+            sleep.decision_kind is SleepDecisionKind.DEFER
+            and context.reconsideration_no == 0
+        )
 
     async def commit(
         self,

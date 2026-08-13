@@ -16,6 +16,80 @@ from .api import (
 
 
 class PostgreSQLOpportunityOwner:
+    async def reconsider_activity(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        root_opportunity_id: UUID,
+        predecessor_opportunity_id: UUID,
+        source_ref: UUID,
+        source_version: int,
+        activity_id: UUID,
+    ) -> OpportunityId | None:
+        successor_id = uuid7()
+        row = await (
+            await transaction.execute(
+                """
+                INSERT INTO armi.opportunities (
+                    opportunity_id, evidence_id, subject_id, scene_id,
+                    context_party_id, purpose, eligibility_status,
+                    current_disposition, available_after, root_opportunity_id,
+                    predecessor_opportunity_id, reconsideration_no, source_kind,
+                    source_ref, source_version, activity_id) VALUES (
+                    %s, NULL, %s, NULL, NULL, 'consider_activity_attention',
+                    'eligible', 'open',
+                    statement_timestamp() + make_interval(secs => 60),
+                    %s, %s, 1, 'activity_revision', %s, %s, %s)
+                ON CONFLICT (predecessor_opportunity_id) DO NOTHING
+                RETURNING opportunity_id
+                """,
+                (
+                    successor_id,
+                    subject_id,
+                    root_opportunity_id,
+                    predecessor_opportunity_id,
+                    source_ref,
+                    source_version,
+                    activity_id,
+                ),
+            )
+        ).fetchone()
+        return None if row is None else OpportunityId(row[0])
+
+    async def reconsider_sleep(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        predecessor_opportunity_id: UUID,
+    ) -> OpportunityId | None:
+        successor_id = uuid7()
+        row = await (
+            await transaction.execute(
+                """
+                INSERT INTO armi.opportunities (
+                    opportunity_id, evidence_id, subject_id, scene_id,
+                    context_party_id, purpose, eligibility_status,
+                    current_disposition, available_after, expires_at,
+                    root_opportunity_id, predecessor_opportunity_id,
+                    reconsideration_no, source_kind, source_ref, source_version,
+                    activity_id)
+                SELECT %s, NULL, subject_id, NULL, NULL, purpose, 'eligible',
+                       'open', statement_timestamp() + make_interval(secs => 3600),
+                       expires_at, root_opportunity_id, opportunity_id, 1,
+                       source_kind, source_ref, source_version, NULL
+                FROM armi.opportunities
+                WHERE opportunity_id = %s
+                  AND statement_timestamp() + make_interval(secs => 3600)
+                      < expires_at
+                ON CONFLICT (predecessor_opportunity_id) DO NOTHING
+                RETURNING opportunity_id
+                """,
+                (successor_id, predecessor_opportunity_id),
+            )
+        ).fetchone()
+        return None if row is None else OpportunityId(row[0])
+
     async def admit_external_evidence(
         self,
         transaction: PostgreSQLTransaction,

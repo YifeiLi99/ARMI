@@ -71,6 +71,7 @@ from armi_memory.api import (
     MemoryViolation,
 )
 from armi_mood.api import MoodCommitPort, MoodViolation
+from armi_opportunity.api import OpportunityTransitionPort
 from armi_prompt.api import PromptCommitPort, PromptViolation
 from armi_relationship.api import RelationshipCommitPort, RelationshipViolation
 from armi_sleep.api import (
@@ -220,6 +221,7 @@ class PostgreSQLSubjectCommitRepository:
         "_material_commit",
         "_memory_commit",
         "_mood_commit",
+        "_opportunity_transition",
         "_prompt_commit",
         "_relationship_commit",
         "_sleep_commit",
@@ -237,6 +239,7 @@ class PostgreSQLSubjectCommitRepository:
         expression_commit: ExpressionCommitPort,
         memory_commit: MemoryCommitPort,
         mood_commit: MoodCommitPort,
+        opportunity_transition: OpportunityTransitionPort,
         prompt_commit: PromptCommitPort,
         material_commit: MaterialCommitPort,
         relationship_commit: RelationshipCommitPort,
@@ -252,6 +255,7 @@ class PostgreSQLSubjectCommitRepository:
         self._expression_commit = expression_commit
         self._memory_commit = memory_commit
         self._mood_commit = mood_commit
+        self._opportunity_transition = opportunity_transition
         self._prompt_commit = prompt_commit
         self._material_commit = material_commit
         self._relationship_commit = relationship_commit
@@ -711,6 +715,7 @@ class PostgreSQLSubjectCommitRepository:
             return await _settle_without_commit(
                 unit_of_work,
                 activity_commit=self._activity_commit,
+                opportunity_transition=self._opportunity_transition,
                 expression_commit=self._expression_commit,
                 sleep_commit=self._sleep_commit,
                 lease=lease,
@@ -1187,6 +1192,7 @@ async def _settle_without_commit(
     unit_of_work: PostgreSQLUnitOfWork,
     *,
     activity_commit: ActivityCommitPort,
+    opportunity_transition: OpportunityTransitionPort,
     expression_commit: ExpressionCommitPort,
     sleep_commit: SleepCommitPort,
     lease: WorkLease,
@@ -1198,8 +1204,7 @@ async def _settle_without_commit(
     connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
     application_id = CandidateApplicationId(uuid7())
     try:
-        successor_id = await activity_commit.reconsideration(
-            unit_of_work.transaction,
+        activity_reconsideration = activity_commit.requests_reconsideration(
             context=_activity_commit_context(snapshot),
             drafts=change_set.owner_drafts,
         )
@@ -1208,8 +1213,7 @@ async def _settle_without_commit(
             f"SUBJECT-{error.code.removeprefix('ACTIVITY-')}"
         ) from None
     try:
-        sleep_successor = await sleep_commit.reconsideration(
-            unit_of_work.transaction,
+        sleep_reconsideration = sleep_commit.requests_reconsideration(
             context=_sleep_commit_context(snapshot),
             drafts=change_set.owner_drafts,
         )
@@ -1217,9 +1221,28 @@ async def _settle_without_commit(
         raise SubjectCommitViolation(
             f"SUBJECT-{error.code.removeprefix('SLEEP-')}"
         ) from None
-    if successor_id is not None and sleep_successor is not None:
+    if activity_reconsideration and sleep_reconsideration:
         raise SubjectCommitViolation("SUBJECT-SUCCESSOR-CONFLICT")
-    successor_id = successor_id or sleep_successor
+    successor_id: UUID | None = None
+    if activity_reconsideration:
+        if snapshot.source_activity_id is None:
+            raise SubjectCommitViolation("SUBJECT-ACTIVITY-SOURCE")
+        successor = await opportunity_transition.reconsider_activity(
+            unit_of_work.transaction,
+            subject_id=snapshot.subject_id,
+            root_opportunity_id=snapshot.root_opportunity_id,
+            predecessor_opportunity_id=snapshot.opportunity_id,
+            source_ref=snapshot.source_ref,
+            source_version=snapshot.source_version,
+            activity_id=snapshot.source_activity_id,
+        )
+        successor_id = None if successor is None else successor.value
+    elif sleep_reconsideration:
+        successor = await opportunity_transition.reconsider_sleep(
+            unit_of_work.transaction,
+            predecessor_opportunity_id=snapshot.opportunity_id,
+        )
+        successor_id = None if successor is None else successor.value
     await _insert_application(
         connection,
         unit_of_work=unit_of_work,

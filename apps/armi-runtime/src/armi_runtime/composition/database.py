@@ -110,6 +110,7 @@ from armi_opportunity.api import (
 from armi_opportunity.bootstrap import (
     bootstrap_opportunity,
     bootstrap_opportunity_admission,
+    bootstrap_opportunity_transition,
 )
 from armi_perception.api import ExternalMediaFetchPort
 from armi_perception.bootstrap import PerceptionModule, bootstrap_perception
@@ -1778,6 +1779,7 @@ def compose_subject_commit_pipeline(
                     memory_cognition=memory_cognition,
                     mood_commit=mood_commit,
                     mood_cognition=mood_cognition,
+                    opportunity_transition=bootstrap_opportunity_transition(),
                     prompt_cognition=prompt_cognition,
                     prompt_commit=prompt_commit,
                     material_cognition=material_cognition,

@@ -74,53 +74,23 @@ class PostgreSQLActivityCommit:
                 return False
         return True
 
-    async def reconsideration(
+    def requests_reconsideration(
         self,
-        transaction: PostgreSQLTransaction,
         *,
         context: ActivityCommitContext,
         drafts: tuple[CandidateOwnerDraft, ...],
-    ) -> UUID | None:
+    ) -> bool:
         decisions = tuple(
             item
             for item in self._drafts(drafts)
             if isinstance(item, CandidateActivityDecisionDraft)
         )
-        if (
-            context.opportunity_purpose != "consider_activity_attention"
-            or len(decisions) != 1
-            or decisions[0].decision_kind is not ActivityAttentionDecisionKind.DEFER
-            or context.reconsideration_no != 0
-        ):
-            return None
-        successor_id = uuid7()
-        inserted = await (
-            await transaction.execute(
-                """
-                INSERT INTO armi.opportunities (
-                    opportunity_id, evidence_id, subject_id, scene_id,
-                    creator_party_id, purpose, eligibility_status,
-                    current_disposition, available_after, root_opportunity_id,
-                    predecessor_opportunity_id, reconsideration_no, source_kind,
-                    source_ref, source_version, activity_id) VALUES (
-                    %s, NULL, %s, NULL, NULL, 'consider_activity_attention',
-                    'eligible', 'open', statement_timestamp() + interval '60 seconds',
-                    %s, %s, 1, 'activity_revision', %s, %s, %s)
-                ON CONFLICT (predecessor_opportunity_id) DO NOTHING
-                RETURNING opportunity_id
-                """,
-                (
-                    successor_id,
-                    context.subject_id,
-                    context.root_opportunity_id,
-                    context.opportunity_id,
-                    context.source_ref,
-                    context.source_version,
-                    context.source_activity_id,
-                ),
-            )
-        ).fetchone()
-        return None if inserted is None else inserted[0]
+        return (
+            context.opportunity_purpose == "consider_activity_attention"
+            and len(decisions) == 1
+            and decisions[0].decision_kind is ActivityAttentionDecisionKind.DEFER
+            and context.reconsideration_no == 0
+        )
 
     async def commit(
         self,

@@ -270,13 +270,12 @@ class SleepCommitPort(Protocol):
         drafts: tuple[CandidateOwnerDraft, ...],
     ) -> bool: ...
 
-    async def reconsideration(
+    def requests_reconsideration(
         self,
-        transaction: PostgreSQLTransaction,
         *,
         context: SleepCommitContext,
         drafts: tuple[CandidateOwnerDraft, ...],
-    ) -> UUID | None: ...
+    ) -> bool: ...
 
     async def commit(
         self,

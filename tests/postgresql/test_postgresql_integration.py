@@ -176,6 +176,7 @@ from armi_opportunity.api import OpportunityAdmissionOutcome, OpportunityAdmissi
 from armi_opportunity.bootstrap import (
     bootstrap_opportunity,
     bootstrap_opportunity_admission,
+    bootstrap_opportunity_transition,
 )
 from armi_perception._application import ExternalContentPipeline
 from armi_perception.api import (
@@ -5794,6 +5795,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 expression_commit=expression_module.commit,
                 memory_commit=memory_module.commit,
                 mood_commit=mood_module.commit,
+                opportunity_transition=bootstrap_opportunity_transition(),
                 prompt_commit=prompt_module.commit,
                 material_commit=material_module.commit,
                 relationship_commit=relationship_module.commit,
