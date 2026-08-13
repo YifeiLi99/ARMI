@@ -17,7 +17,6 @@ from armi_activity.api import (
     ActivityWaitingKind,
     CandidateActivityDecisionDraft,
     CandidateActivityDraft,
-    default_activity_cognition,
 )
 from armi_capability.api import (
     CapabilityKind,
@@ -57,7 +56,6 @@ from armi_material.api import (
     LifeMaterialRevisionKind,
     LifeMaterialStatus,
     MaterialCognitionPort,
-    default_material_cognition,
 )
 from armi_material.api import (
     MaterialContextItem as CandidateLifeMaterialContext,
@@ -70,17 +68,14 @@ from armi_memory.api import (
     MemoryRelationKind,
     MemoryRevisionKind,
     MemorySourceKind,
-    default_memory_cognition,
 )
 from armi_mood.api import (
     CandidateMoodDraft,
     MoodCognitionPort,
-    default_mood_cognition,
 )
 from armi_prompt.api import (
     CandidatePromptDraft,
     PromptCognitionPort,
-    default_prompt_cognition,
 )
 from armi_relationship.api import (
     CandidateRelationshipDraft,
@@ -107,13 +102,11 @@ from armi_sleep.api import (
     MaintenanceWorkOutcome,
     SleepCognitionPort,
     SleepDecisionKind,
-    default_sleep_cognition,
 )
 from armi_subject_state.api import (
     CandidateSubjectStateDraft,
     SubjectStateCognitionPort,
     SubjectStateKind,
-    default_subject_state_cognition,
 )
 from armi_web_observation.api import WebResearchRequestDraft
 from pydantic import ValidationError
@@ -549,32 +542,29 @@ class DeterministicCandidateValidator:
     def __init__(
         self,
         context: CandidateValidationContext,
-        activity_cognition: ActivityCognitionPort | None = None,
-        material_cognition: MaterialCognitionPort | None = None,
-        memory_cognition: MemoryCognitionPort | None = None,
-        mood_cognition: MoodCognitionPort | None = None,
-        prompt_cognition: PromptCognitionPort | None = None,
-        relationship_cognition: RelationshipCognitionPort | None = None,
-        sleep_cognition: SleepCognitionPort | None = None,
-        subject_state_cognition: SubjectStateCognitionPort | None = None,
+        *,
+        activity_cognition: ActivityCognitionPort,
+        material_cognition: MaterialCognitionPort,
+        memory_cognition: MemoryCognitionPort,
+        mood_cognition: MoodCognitionPort,
+        prompt_cognition: PromptCognitionPort,
+        relationship_cognition: RelationshipCognitionPort,
+        sleep_cognition: SleepCognitionPort,
+        subject_state_cognition: SubjectStateCognitionPort,
     ) -> None:
         self._context = context
-        self._activity_cognition = activity_cognition or default_activity_cognition()
-        self._material_cognition = material_cognition or default_material_cognition()
-        self._memory_cognition = memory_cognition or default_memory_cognition()
-        self._mood_cognition = mood_cognition or default_mood_cognition()
-        self._prompt_cognition = prompt_cognition or default_prompt_cognition()
+        self._activity_cognition = activity_cognition
+        self._material_cognition = material_cognition
+        self._memory_cognition = memory_cognition
+        self._mood_cognition = mood_cognition
+        self._prompt_cognition = prompt_cognition
         self._relationship_cognition = relationship_cognition
-        self._sleep_cognition = sleep_cognition or default_sleep_cognition()
-        self._subject_state_cognition = (
-            subject_state_cognition or default_subject_state_cognition()
-        )
+        self._sleep_cognition = sleep_cognition
+        self._subject_state_cognition = subject_state_cognition
 
     def _bind_relationship(
         self, value: CandidateRelationshipDraft
     ) -> CandidateOwnerDraft:
-        if self._relationship_cognition is None:
-            raise CandidateViolation("CANDIDATE-RELATIONSHIP-OWNER")
         return self._relationship_cognition.bind(value)
 
     def validate(

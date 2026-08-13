@@ -18,7 +18,6 @@ from armi_codex.api import CodexDelegationDraft
 from armi_cognition import (
     CandidateValidationContext,
     CandidateValidationStatus,
-    DeterministicCandidateValidator,
     build_request_bytes,
     candidate_schema,
     checked_model_request,
@@ -31,6 +30,7 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import Digest
 from armi_runtime.adapters.model.volcengine_ark import VolcengineArkModelAdapter
+from candidate_validation_composition import build_candidate_validator
 from live_ark_credential import DEFAULT_ENVIRONMENT_ROOT, load_live_ark_credential
 
 _ARK_SUCCESS_BUDGET_MICROYUAN = 2_000_000
@@ -94,7 +94,7 @@ async def _candidate_call(
         raise RuntimeError("S039-LIVE-MODEL")
     response = cast(dict[str, Any], json.loads(invocation.response_bytes))
     candidate_bytes = rfc8785.dumps(response["candidate"])
-    validation = DeterministicCandidateValidator(validation_context).validate(
+    validation = build_candidate_validator(validation_context).validate(
         candidate_bytes,
         bases=bases,
     )

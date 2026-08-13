@@ -34,9 +34,11 @@ from armi_cognition._validator import (
     CandidateRelationshipContext,
     CandidateSubjectPromptContext,
     CandidateValidationContext,
-    DeterministicCandidateValidator,
     _memory_source_kind,
     _relationship_wire,
+)
+from armi_cognition._validator import (
+    DeterministicCandidateValidator as _CandidateValidator,
 )
 from armi_cognition.api import CandidateValidationStatus
 from armi_expression.api import (
@@ -94,15 +96,20 @@ from armi_subject_state.api import (
     default_subject_state_cognition,
 )
 
-_CandidateValidator = DeterministicCandidateValidator
-
 
 def DeterministicCandidateValidator(
     context: CandidateValidationContext,
 ) -> Any:
     return _CandidateValidator(
         context,
+        activity_cognition=default_activity_cognition(),
+        material_cognition=default_material_cognition(),
+        memory_cognition=default_memory_cognition(),
+        mood_cognition=default_mood_cognition(),
+        prompt_cognition=default_prompt_cognition(),
         relationship_cognition=RelationshipApplication(),
+        sleep_cognition=default_sleep_cognition(),
+        subject_state_cognition=default_subject_state_cognition(),
     )
 
 

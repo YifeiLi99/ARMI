@@ -5140,7 +5140,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         scene_id,
                         creator_party_id,
                         (),
-                    )
+                    ),
+                    activity_cognition=default_activity_cognition(),
+                    material_cognition=default_material_cognition(),
+                    memory_cognition=default_memory_cognition(),
+                    mood_cognition=default_mood_cognition(),
+                    prompt_cognition=default_prompt_cognition(),
+                    relationship_cognition=bootstrap_relationship_cognition(),
+                    sleep_cognition=default_sleep_cognition(),
+                    subject_state_cognition=default_subject_state_cognition(),
                 ).validate(
                     candidate_bytes,
                     bases=(

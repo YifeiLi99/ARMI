@@ -18,7 +18,6 @@ from uuid import uuid7
 import rfc8785
 from armi_cognition import (
     CandidateValidationContext,
-    DeterministicCandidateValidator,
     build_request_bytes,
     candidate_schema,
     checked_model_request,
@@ -36,6 +35,7 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import Digest
 from armi_runtime.adapters.model.volcengine_ark import VolcengineArkModelAdapter
+from candidate_validation_composition import build_candidate_validator
 from live_ark_credential import DEFAULT_ENVIRONMENT_ROOT, load_live_ark_credential
 
 
@@ -190,7 +190,7 @@ async def _verify(environment_root: Path) -> dict[str, object]:
         raise RuntimeError("MODEL-LIVE-BUDGET")
     response = cast(dict[str, Any], json.loads(invocation.response_bytes))
     candidate_bytes = rfc8785.dumps(response["candidate"])
-    validation = DeterministicCandidateValidator(
+    validation = build_candidate_validator(
         CandidateValidationContext(
             subject_id,
             generation_id,
