@@ -249,15 +249,7 @@ class SleepCognitionPort(Protocol):
         self, payload: bytes
     ) -> CandidateSleepDecisionDraft | CandidateMaintenanceDecisionDraft: ...
 
-    def bind_legacy(
-        self, value: object, *, maintenance: bool
-    ) -> CandidateOwnerDraft: ...
-
-
-def default_sleep_cognition() -> SleepCognitionPort:
-    from ._application import SleepApplication
-
-    return SleepApplication()
+    def bind_wire(self, value: object, *, maintenance: bool) -> CandidateOwnerDraft: ...
 
 
 @runtime_checkable
@@ -549,7 +541,6 @@ __all__ = (
     "SleepMaintenanceSnapshot",
     "SleepReadPort",
     "SleepViolation",
-    "default_sleep_cognition",
     "plan_maintenance_checkpoint",
     "validate_maintenance_advance",
 )

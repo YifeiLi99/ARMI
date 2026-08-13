@@ -27,8 +27,8 @@ from uuid import UUID
 
 import psycopg
 import rfc8785
-from armi_activity.api import ActivityViolation, default_activity_cognition
-from armi_activity.bootstrap import bootstrap_activity
+from armi_activity.api import ActivityViolation
+from armi_activity.bootstrap import bootstrap_activity, bootstrap_activity_cognition
 from armi_admin.application import AdminConfig, AdminCredentialPort
 from armi_admin.mcp.contracts import (
     ApplyCorrectionRequest,
@@ -166,12 +166,17 @@ from armi_kernel.contracts import (
     SubjectId,
     TraceId,
 )
-from armi_material.api import default_material_cognition
-from armi_material.bootstrap import bootstrap_material, bootstrap_material_admin_read
-from armi_memory.api import default_memory_cognition
-from armi_memory.bootstrap import bootstrap_memory
-from armi_mood.api import default_mood_cognition
-from armi_mood.bootstrap import bootstrap_mood, bootstrap_mood_admin_read
+from armi_material.bootstrap import (
+    bootstrap_material,
+    bootstrap_material_admin_read,
+    bootstrap_material_cognition,
+)
+from armi_memory.bootstrap import bootstrap_memory, bootstrap_memory_cognition
+from armi_mood.bootstrap import (
+    bootstrap_mood,
+    bootstrap_mood_admin_read,
+    bootstrap_mood_cognition,
+)
 from armi_opportunity.api import OpportunityAdmissionOutcome, OpportunityAdmissionStatus
 from armi_opportunity.bootstrap import (
     bootstrap_opportunity,
@@ -184,8 +189,7 @@ from armi_perception.api import (
     ExternalContentRecognitionStatus,
     ExternalMediaContent,
 )
-from armi_prompt.api import default_prompt_cognition
-from armi_prompt.bootstrap import bootstrap_prompt
+from armi_prompt.bootstrap import bootstrap_prompt, bootstrap_prompt_cognition
 from armi_relationship.bootstrap import (
     bootstrap_relationship,
     bootstrap_relationship_cognition,
@@ -235,12 +239,12 @@ from armi_runtime.composition.birth_manifest import packaged_birth_digests
 from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
 from armi_runtime.composition.runtime_process import RuntimeProcessManager
 from armi_runtime.composition.work_wakeup import WorkWakeupBus
-from armi_sleep.api import CreatorMaintenanceViolation, default_sleep_cognition
-from armi_sleep.bootstrap import bootstrap_sleep
-from armi_subject_state.api import default_subject_state_cognition
+from armi_sleep.api import CreatorMaintenanceViolation
+from armi_sleep.bootstrap import bootstrap_sleep, bootstrap_sleep_cognition
 from armi_subject_state.bootstrap import (
     bootstrap_subject_state,
     bootstrap_subject_state_admin_read,
+    bootstrap_subject_state_cognition,
 )
 from armi_web_observation._custody import normalize_full_response
 from armi_web_observation.api import (
@@ -5054,14 +5058,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "rejections": [],
             }
             change_set = bootstrap_cognition_change_set_codec(
-                activity=default_activity_cognition(),
-                material=default_material_cognition(),
-                memory=default_memory_cognition(),
-                mood=default_mood_cognition(),
-                prompt=default_prompt_cognition(),
+                activity=bootstrap_activity_cognition(),
+                material=bootstrap_material_cognition(),
+                memory=bootstrap_memory_cognition(),
+                mood=bootstrap_mood_cognition(),
+                prompt=bootstrap_prompt_cognition(),
                 relationship=bootstrap_relationship_cognition(),
-                sleep=default_sleep_cognition(),
-                subject_state=default_subject_state_cognition(),
+                sleep=bootstrap_sleep_cognition(),
+                subject_state=bootstrap_subject_state_cognition(),
             ).decode(rfc8785.dumps(cast(Any, change_set_document)))
         else:
             try:
@@ -5141,14 +5145,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         creator_party_id,
                         (),
                     ),
-                    activity_cognition=default_activity_cognition(),
-                    material_cognition=default_material_cognition(),
-                    memory_cognition=default_memory_cognition(),
-                    mood_cognition=default_mood_cognition(),
-                    prompt_cognition=default_prompt_cognition(),
+                    activity_cognition=bootstrap_activity_cognition(),
+                    material_cognition=bootstrap_material_cognition(),
+                    memory_cognition=bootstrap_memory_cognition(),
+                    mood_cognition=bootstrap_mood_cognition(),
+                    prompt_cognition=bootstrap_prompt_cognition(),
                     relationship_cognition=bootstrap_relationship_cognition(),
-                    sleep_cognition=default_sleep_cognition(),
-                    subject_state_cognition=default_subject_state_cognition(),
+                    sleep_cognition=bootstrap_sleep_cognition(),
+                    subject_state_cognition=bootstrap_subject_state_cognition(),
                 ).validate(
                     candidate_bytes,
                     bases=(

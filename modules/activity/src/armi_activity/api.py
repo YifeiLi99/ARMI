@@ -575,13 +575,7 @@ class ActivityCognitionPort(Protocol):
     def decode(
         self, payload: bytes
     ) -> CandidateActivityDraft | CandidateActivityDecisionDraft: ...
-    def bind_legacy(self, value: object, *, decision: bool) -> CandidateOwnerDraft: ...
-
-
-def default_activity_cognition() -> ActivityCognitionPort:
-    from ._application import ActivityApplication
-
-    return ActivityApplication()
+    def bind_wire(self, value: object, *, decision: bool) -> CandidateOwnerDraft: ...
 
 
 @runtime_checkable
@@ -656,5 +650,4 @@ __all__ = (
     "CreatorActivityPage",
     "CreatorActivityTimeline",
     "CreatorActivityTimelineItem",
-    "default_activity_cognition",
 )

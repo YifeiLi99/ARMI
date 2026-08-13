@@ -14,14 +14,14 @@ from armi_sleep.api import (
     MaintenanceWorkOutcome,
     SleepDecisionKind,
     SleepViolation,
-    default_sleep_cognition,
     plan_maintenance_checkpoint,
     validate_maintenance_advance,
 )
+from armi_sleep.bootstrap import bootstrap_sleep_cognition
 
 
 def test_sleep_decision_round_trip_uses_canonical_owner_payload() -> None:
-    cognition = default_sleep_cognition()
+    cognition = bootstrap_sleep_cognition()
     decision = CandidateSleepDecisionDraft(
         "proposal:1",
         "group:1",
@@ -41,7 +41,7 @@ def test_sleep_decision_round_trip_uses_canonical_owner_payload() -> None:
 
 
 def test_maintenance_result_round_trip_preserves_exact_head_and_memory_ref() -> None:
-    cognition = default_sleep_cognition()
+    cognition = bootstrap_sleep_cognition()
     decision = CandidateMaintenanceDecisionDraft(
         "proposal:2",
         "group:1",
@@ -59,7 +59,7 @@ def test_maintenance_result_round_trip_preserves_exact_head_and_memory_ref() -> 
     draft = cognition.bind_maintenance(decision)
 
     assert cognition.decode(draft.canonical_payload) == decision
-    assert cognition.bind_legacy(decision, maintenance=True) == draft
+    assert cognition.bind_wire(decision, maintenance=True) == draft
 
 
 def test_maintenance_result_rejects_cross_phase_or_missing_memory_reference() -> None:
@@ -121,9 +121,9 @@ def test_maintenance_lifecycle_is_ordered_interruptible_and_terminal() -> None:
 
 
 def test_historical_sleep_shape_is_normalized_to_current_owner_payload() -> None:
-    cognition = default_sleep_cognition()
+    cognition = bootstrap_sleep_cognition()
     cycle_anchor_ref = uuid7()
-    owner = cognition.bind_legacy(
+    owner = cognition.bind_wire(
         {
             "proposal_ref": "proposal:1",
             "atomic_group_ref": "group:1",

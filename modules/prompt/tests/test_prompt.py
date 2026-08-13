@@ -20,9 +20,8 @@ from armi_prompt.api import (
     CreatorPromptViolation,
     PromptKind,
     PromptViolation,
-    default_prompt_cognition,
 )
-from armi_prompt.bootstrap import bootstrap_prompt
+from armi_prompt.bootstrap import bootstrap_prompt, bootstrap_prompt_cognition
 
 
 def _draft(
@@ -100,7 +99,7 @@ class _PromptTransaction:
 
 def test_prompt_owner_draft_round_trip_is_canonical() -> None:
     draft = _draft(uuid7())
-    cognition = default_prompt_cognition()
+    cognition = bootstrap_prompt_cognition()
     assert cognition.decode(cognition.bind(draft).canonical_payload) == draft
 
 

@@ -72,23 +72,10 @@ class MoodReadPort(Protocol):
     ) -> int: ...
 
 
-def default_mood_read() -> MoodReadPort:
-    from ._application import MoodApplication
-    from ._postgresql import PostgreSQLMoodOwner
-
-    return PostgreSQLMoodOwner(MoodApplication())
-
-
 @runtime_checkable
 class MoodCognitionPort(Protocol):
     def bind(self, value: CandidateMoodDraft) -> CandidateOwnerDraft: ...
     def decode(self, payload: bytes) -> CandidateMoodDraft: ...
-
-
-def default_mood_cognition() -> MoodCognitionPort:
-    from ._application import MoodApplication
-
-    return MoodApplication()
 
 
 @runtime_checkable
@@ -116,13 +103,6 @@ class MoodBirthPort(Protocol):
     async def initialize(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID
     ) -> None: ...
-
-
-def default_mood_birth() -> MoodBirthPort:
-    from ._application import MoodApplication
-    from ._postgresql import PostgreSQLMoodOwner
-
-    return PostgreSQLMoodOwner(MoodApplication())
 
 
 @runtime_checkable
@@ -191,7 +171,4 @@ __all__ = (
     "MoodHead",
     "MoodReadPort",
     "MoodViolation",
-    "default_mood_birth",
-    "default_mood_cognition",
-    "default_mood_read",
 )

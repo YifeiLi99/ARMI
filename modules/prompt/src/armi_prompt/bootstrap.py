@@ -81,8 +81,13 @@ def bootstrap_prompt_admin_reference() -> PromptAdminReferencePort:
     return PostgreSQLPromptAdmin()
 
 
+def bootstrap_prompt_cognition() -> PromptCognitionPort:
+    return PromptApplication()
+
+
 __all__ = (
     "PromptModule",
     "bootstrap_prompt",
     "bootstrap_prompt_admin_reference",
+    "bootstrap_prompt_cognition",
 )

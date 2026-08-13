@@ -53,4 +53,8 @@ def bootstrap_memory(
     return MemoryModule(owner, application, owner, owner, owner, owner)
 
 
-__all__ = ("MemoryModule", "bootstrap_memory")
+def bootstrap_memory_cognition() -> MemoryCognitionPort:
+    return MemoryApplication()
+
+
+__all__ = ("MemoryModule", "bootstrap_memory", "bootstrap_memory_cognition")

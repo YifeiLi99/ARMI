@@ -59,7 +59,7 @@ def decode(
         raise SleepViolation("SLEEP-CODEC") from None
 
 
-def decode_legacy(
+def decode_wire(
     value: object, *, maintenance: bool
 ) -> CandidateSleepDecisionDraft | CandidateMaintenanceDecisionDraft:
     if maintenance and type(value) is CandidateMaintenanceDecisionDraft:
@@ -111,4 +111,4 @@ def _decode_mapping(
     )
 
 
-__all__ = ("decode", "decode_legacy", "encode")
+__all__ = ("decode", "decode_wire", "encode")

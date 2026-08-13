@@ -360,7 +360,7 @@ def parse_subject_change_set(
                 )
             )
             else tuple(
-                _bind_legacy_relationship(item, relationship_cognition)
+                _bind_relationship_wire(item, relationship_cognition)
                 for item in relationships
             )
         )
@@ -371,7 +371,7 @@ def parse_subject_change_set(
                 if draft.owner == CandidateOwner.MEMORY.value:
                     decoded_memory = memory_cognition.decode(draft.canonical_payload)
                     if (
-                        memory_cognition.bind_legacy(
+                        memory_cognition.bind_wire(
                             decoded_memory,
                             revision=isinstance(
                                 decoded_memory, CandidateMemoryRevisionDraft
@@ -393,7 +393,7 @@ def parse_subject_change_set(
                 elif draft.owner == CandidateOwner.SLEEP.value:
                     decoded_sleep = sleep_cognition.decode(draft.canonical_payload)
                     if (
-                        sleep_cognition.bind_legacy(
+                        sleep_cognition.bind_wire(
                             decoded_sleep,
                             maintenance=isinstance(
                                 decoded_sleep, CandidateMaintenanceDecisionDraft
@@ -409,7 +409,7 @@ def parse_subject_change_set(
                         draft.canonical_payload
                     )
                     if (
-                        activity_cognition.bind_legacy(
+                        activity_cognition.bind_wire(
                             decoded_activity,
                             decision=isinstance(
                                 decoded_activity, CandidateActivityDecisionDraft
@@ -422,7 +422,7 @@ def parse_subject_change_set(
                     (".v26", ".v27", ".v28", ".v29")
                 ):
                     if (
-                        material_cognition.bind_legacy(
+                        material_cognition.bind_wire(
                             material_cognition.decode(draft.canonical_payload)
                         )
                         != draft
@@ -466,29 +466,29 @@ def parse_subject_change_set(
             subject_state_cognition.bind(item) for item in components
         )
         memory_owner_drafts = (
-            *(memory_cognition.bind_legacy(item, revision=False) for item in memories),
+            *(memory_cognition.bind_wire(item, revision=False) for item in memories),
             *(
-                memory_cognition.bind_legacy(item, revision=True)
+                memory_cognition.bind_wire(item, revision=True)
                 for item in memory_revisions
             ),
         )
         sleep_owner_drafts = (
             *(
-                sleep_cognition.bind_legacy(item, maintenance=False)
+                sleep_cognition.bind_wire(item, maintenance=False)
                 for item in sleep_decisions
             ),
             *(
-                sleep_cognition.bind_legacy(item, maintenance=True)
+                sleep_cognition.bind_wire(item, maintenance=True)
                 for item in maintenance_decisions
             ),
         )
         activity_owner_drafts = (
             *(
-                activity_cognition.bind_legacy(item, decision=False)
+                activity_cognition.bind_wire(item, decision=False)
                 for item in activities
             ),
             *(
-                activity_cognition.bind_legacy(item, decision=True)
+                activity_cognition.bind_wire(item, decision=True)
                 for item in activity_decisions
             ),
         )
@@ -512,7 +512,7 @@ def parse_subject_change_set(
             for item in _array(document.get("materials", []), 1)
         )
         material_owner_drafts = tuple(
-            material_cognition.bind_legacy(item) for item in materials
+            material_cognition.bind_wire(item) for item in materials
         )
         prompts = tuple(
             _prompt(item) for item in _array(document.get("prompts", []), 1)
@@ -1026,7 +1026,7 @@ def _owner_draft(value: object) -> CandidateOwnerDraft:
     )
 
 
-def _bind_legacy_relationship(
+def _bind_relationship_wire(
     value: CandidateRelationshipDraft,
     cognition: RelationshipCognitionPort | None,
 ) -> CandidateOwnerDraft:

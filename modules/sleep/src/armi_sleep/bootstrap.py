@@ -55,4 +55,8 @@ def bootstrap_sleep(
     )
 
 
-__all__ = ("SleepModule", "bootstrap_sleep")
+def bootstrap_sleep_cognition() -> SleepCognitionPort:
+    return SleepApplication()
+
+
+__all__ = ("SleepModule", "bootstrap_sleep", "bootstrap_sleep_cognition")

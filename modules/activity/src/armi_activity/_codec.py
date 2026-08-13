@@ -109,7 +109,7 @@ class _LegacyActivity(Protocol):
     terminal_reason: str | None
 
 
-def decode_legacy(
+def decode_wire(
     value: object, *, decision: bool
 ) -> CandidateActivityDraft | CandidateActivityDecisionDraft:
     required = ("proposal_ref", "atomic_group_ref", "basis_ordinals", "activity_id")
@@ -228,4 +228,4 @@ def _from_mapping(
     raise ActivityViolation("ACTIVITY-CODEC-PAYLOAD")
 
 
-__all__ = ("decode", "decode_legacy", "encode")
+__all__ = ("decode", "decode_wire", "encode")

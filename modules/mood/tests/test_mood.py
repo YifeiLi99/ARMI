@@ -5,7 +5,8 @@ from typing import Any, cast
 import pytest
 import rfc8785
 from armi_kernel.application import CandidateFactClass
-from armi_mood.api import CandidateMoodDraft, MoodViolation, default_mood_cognition
+from armi_mood.api import CandidateMoodDraft, MoodViolation
+from armi_mood.bootstrap import bootstrap_mood_cognition
 
 
 def _candidate(**overrides: Any) -> CandidateMoodDraft:
@@ -24,7 +25,7 @@ def _candidate(**overrides: Any) -> CandidateMoodDraft:
 
 
 def test_mood_owner_draft_round_trip_is_canonical() -> None:
-    cognition = default_mood_cognition()
+    cognition = bootstrap_mood_cognition()
     candidate = _candidate()
     bound = cognition.bind(candidate)
     assert bound.owner == "mood"

@@ -22,8 +22,8 @@ class SleepApplication:
     ) -> CandidateSleepDecisionDraft | CandidateMaintenanceDecisionDraft:
         return _codec.decode(payload)
 
-    def bind_legacy(self, value: object, *, maintenance: bool) -> CandidateOwnerDraft:
-        decoded = _codec.decode_legacy(value, maintenance=maintenance)
+    def bind_wire(self, value: object, *, maintenance: bool) -> CandidateOwnerDraft:
+        decoded = _codec.decode_wire(value, maintenance=maintenance)
         return _owner(decoded, _codec.encode(decoded))
 
 

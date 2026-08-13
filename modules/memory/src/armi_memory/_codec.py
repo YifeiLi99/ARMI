@@ -111,7 +111,7 @@ def decode(payload: bytes) -> CandidateMemoryDraft | CandidateMemoryRevisionDraf
         raise MemoryViolation("MEMORY-CODEC") from None
 
 
-def decode_legacy(
+def decode_wire(
     value: object, *, revision: bool
 ) -> CandidateMemoryDraft | CandidateMemoryRevisionDraft:
     if revision and type(value) is CandidateMemoryRevisionDraft:
@@ -169,4 +169,4 @@ def decode_legacy(
         raise MemoryViolation("MEMORY-CODEC-LEGACY") from None
 
 
-__all__ = ("decode", "decode_legacy", "encode")
+__all__ = ("decode", "decode_wire", "encode")

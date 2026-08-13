@@ -36,6 +36,10 @@ def bootstrap_mood() -> MoodModule:
     return MoodModule(owner, application, owner, owner, owner)
 
 
+def bootstrap_mood_cognition() -> MoodCognitionPort:
+    return MoodApplication()
+
+
 def bootstrap_mood_admin_correction() -> MoodAdminCorrectionPort:
     return PostgreSQLMoodAdmin()
 
@@ -51,4 +55,5 @@ __all__ = (
     "bootstrap_mood",
     "bootstrap_mood_admin_correction",
     "bootstrap_mood_admin_read",
+    "bootstrap_mood_cognition",
 )

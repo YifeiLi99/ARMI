@@ -175,23 +175,10 @@ class SubjectStateReadPort(Protocol):
     ) -> int: ...
 
 
-def default_subject_state_read() -> SubjectStateReadPort:
-    from ._application import SubjectStateApplication
-    from ._postgresql import PostgreSQLSubjectStateOwner
-
-    return PostgreSQLSubjectStateOwner(SubjectStateApplication())
-
-
 @runtime_checkable
 class SubjectStateCognitionPort(Protocol):
     def bind(self, value: CandidateSubjectStateDraft) -> CandidateOwnerDraft: ...
     def decode(self, payload: bytes) -> CandidateSubjectStateDraft: ...
-
-
-def default_subject_state_cognition() -> SubjectStateCognitionPort:
-    from ._application import SubjectStateApplication
-
-    return SubjectStateApplication()
 
 
 @runtime_checkable
@@ -229,13 +216,6 @@ class SubjectStateBirthPort(Protocol):
     async def initialize(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID
     ) -> None: ...
-
-
-def default_subject_state_birth() -> SubjectStateBirthPort:
-    from ._application import SubjectStateApplication
-    from ._postgresql import PostgreSQLSubjectStateOwner
-
-    return PostgreSQLSubjectStateOwner(SubjectStateApplication())
 
 
 @runtime_checkable
@@ -311,7 +291,4 @@ __all__ = (
     "SubjectStateReadPort",
     "SubjectStateViolation",
     "SubjectSummary",
-    "default_subject_state_birth",
-    "default_subject_state_cognition",
-    "default_subject_state_read",
 )

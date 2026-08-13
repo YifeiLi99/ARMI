@@ -72,4 +72,13 @@ def bootstrap_material_admin_read(
     )
 
 
-__all__ = ("MaterialModule", "bootstrap_material", "bootstrap_material_admin_read")
+def bootstrap_material_cognition() -> MaterialCognitionPort:
+    return MaterialApplication()
+
+
+__all__ = (
+    "MaterialModule",
+    "bootstrap_material",
+    "bootstrap_material_admin_read",
+    "bootstrap_material_cognition",
+)

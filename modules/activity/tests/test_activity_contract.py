@@ -16,14 +16,14 @@ from armi_activity.api import (
     ActivityViolation,
     CandidateActivityDecisionDraft,
     CandidateActivityDraft,
-    default_activity_cognition,
 )
+from armi_activity.bootstrap import bootstrap_activity_cognition
 from armi_kernel.application import CandidateFactClass
 from armi_kernel.contracts import ActivityId
 
 
 def test_activity_create_and_decision_round_trip_as_opaque_owner_drafts() -> None:
-    cognition = default_activity_cognition()
+    cognition = bootstrap_activity_cognition()
     activity_id = uuid7()
     created = CandidateActivityDraft(
         "proposal:1",
@@ -51,12 +51,12 @@ def test_activity_create_and_decision_round_trip_as_opaque_owner_drafts() -> Non
     assert decision_owner.owner == "activity"
     assert cognition.decode(created_owner.canonical_payload) == created
     assert cognition.decode(decision_owner.canonical_payload) == decision
-    assert cognition.bind_legacy(created, decision=False) == created_owner
-    assert cognition.bind_legacy(decision, decision=True) == decision_owner
+    assert cognition.bind_wire(created, decision=False) == created_owner
+    assert cognition.bind_wire(decision, decision=True) == decision_owner
 
 
 def test_activity_codec_rejects_noncanonical_or_wrong_shape() -> None:
-    cognition = default_activity_cognition()
+    cognition = bootstrap_activity_cognition()
     with pytest.raises(ActivityViolation, match="ACTIVITY-CODEC-PAYLOAD"):
         cognition.decode(b'{"kind": "create"}')
 

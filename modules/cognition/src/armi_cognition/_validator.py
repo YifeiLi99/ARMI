@@ -1132,11 +1132,11 @@ class DeterministicCandidateValidator:
                 if isinstance(value, CandidateOwnerDraft)
             ),
             *(
-                self._memory_cognition.bind_legacy(value, revision=False)
+                self._memory_cognition.bind_wire(value, revision=False)
                 for value in memories
             ),
             *(
-                self._memory_cognition.bind_legacy(value, revision=True)
+                self._memory_cognition.bind_wire(value, revision=True)
                 for value in memory_revisions
             ),
             *(self._bind_relationship(value) for value in relationships),
@@ -2111,7 +2111,7 @@ class DeterministicCandidateValidator:
         memory_owner_drafts = (
             ()
             if memory_revision is None
-            else (self._memory_cognition.bind_legacy(memory_revision, revision=True),)
+            else (self._memory_cognition.bind_wire(memory_revision, revision=True),)
         )
         sleep_owner_draft = self._sleep_cognition.bind_maintenance(decision)
         owner_drafts = (*memory_owner_drafts, sleep_owner_draft)

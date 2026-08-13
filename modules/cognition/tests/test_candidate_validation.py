@@ -13,7 +13,8 @@ from uuid import UUID, uuid7
 
 import pytest
 import rfc8785
-from armi_activity.api import ActivityStatus, default_activity_cognition
+from armi_activity.api import ActivityStatus
+from armi_activity.bootstrap import bootstrap_activity_cognition
 from armi_capability.api import CodexDelegatedWorkScope, CreatorSceneReplyScope
 from armi_codex.api import CodexDelegationDraft
 from armi_cognition._candidate_postgresql import (
@@ -61,17 +62,17 @@ from armi_material.api import (
     LifeMaterialPrivacyStatus,
     LifeMaterialRevisionKind,
     LifeMaterialStatus,
-    default_material_cognition,
 )
+from armi_material.bootstrap import bootstrap_material_cognition
 from armi_memory.api import (
     MemoryAccessibility,
     MemoryRelationKind,
     MemoryRevisionKind,
     MemorySourceKind,
-    default_memory_cognition,
 )
-from armi_mood.api import default_mood_cognition
-from armi_prompt.api import default_prompt_cognition
+from armi_memory.bootstrap import bootstrap_memory_cognition
+from armi_mood.bootstrap import bootstrap_mood_cognition
+from armi_prompt.bootstrap import bootstrap_prompt_cognition
 from armi_relationship._application import RelationshipApplication
 from armi_relationship.api import (
     RelationshipBoundary,
@@ -89,12 +90,12 @@ from armi_relationship.api import (
 from armi_sleep.api import (
     MaintenancePhase,
     MaintenanceWorkOutcome,
-    default_sleep_cognition,
 )
+from armi_sleep.bootstrap import bootstrap_sleep_cognition
 from armi_subject_state.api import (
     SubjectStateKind,
-    default_subject_state_cognition,
 )
+from armi_subject_state.bootstrap import bootstrap_subject_state_cognition
 
 
 def DeterministicCandidateValidator(
@@ -102,14 +103,14 @@ def DeterministicCandidateValidator(
 ) -> Any:
     return _CandidateValidator(
         context,
-        activity_cognition=default_activity_cognition(),
-        material_cognition=default_material_cognition(),
-        memory_cognition=default_memory_cognition(),
-        mood_cognition=default_mood_cognition(),
-        prompt_cognition=default_prompt_cognition(),
+        activity_cognition=bootstrap_activity_cognition(),
+        material_cognition=bootstrap_material_cognition(),
+        memory_cognition=bootstrap_memory_cognition(),
+        mood_cognition=bootstrap_mood_cognition(),
+        prompt_cognition=bootstrap_prompt_cognition(),
         relationship_cognition=RelationshipApplication(),
-        sleep_cognition=default_sleep_cognition(),
-        subject_state_cognition=default_subject_state_cognition(),
+        sleep_cognition=bootstrap_sleep_cognition(),
+        subject_state_cognition=bootstrap_subject_state_cognition(),
     )
 
 
@@ -117,13 +118,13 @@ def parse_subject_change_set(value: bytes) -> Any:
     return _parse_subject_change_set(
         value,
         RelationshipApplication(),
-        default_memory_cognition(),
-        default_sleep_cognition(),
-        default_activity_cognition(),
-        default_material_cognition(),
-        default_subject_state_cognition(),
-        default_mood_cognition(),
-        default_prompt_cognition(),
+        bootstrap_memory_cognition(),
+        bootstrap_sleep_cognition(),
+        bootstrap_activity_cognition(),
+        bootstrap_material_cognition(),
+        bootstrap_subject_state_cognition(),
+        bootstrap_mood_cognition(),
+        bootstrap_prompt_cognition(),
     )
 
 
@@ -137,7 +138,7 @@ def _relationships(change_set: Any) -> tuple[Any, ...]:
 
 
 def _memories(change_set: Any) -> tuple[Any, ...]:
-    cognition = default_memory_cognition()
+    cognition = bootstrap_memory_cognition()
     return tuple(
         cognition.decode(item.canonical_payload)
         for item in change_set.owner_drafts
@@ -146,7 +147,7 @@ def _memories(change_set: Any) -> tuple[Any, ...]:
 
 
 def _activities(change_set: Any) -> tuple[Any, ...]:
-    cognition = default_activity_cognition()
+    cognition = bootstrap_activity_cognition()
     return tuple(
         cognition.decode(item.canonical_payload)
         for item in change_set.owner_drafts
@@ -155,7 +156,7 @@ def _activities(change_set: Any) -> tuple[Any, ...]:
 
 
 def _materials(change_set: Any) -> tuple[Any, ...]:
-    cognition = default_material_cognition()
+    cognition = bootstrap_material_cognition()
     return tuple(
         cognition.decode(item.canonical_payload)
         for item in change_set.owner_drafts
@@ -164,7 +165,7 @@ def _materials(change_set: Any) -> tuple[Any, ...]:
 
 
 def _sleep(change_set: Any) -> tuple[Any, ...]:
-    cognition = default_sleep_cognition()
+    cognition = bootstrap_sleep_cognition()
     return tuple(
         cognition.decode(item.canonical_payload)
         for item in change_set.owner_drafts
@@ -173,7 +174,7 @@ def _sleep(change_set: Any) -> tuple[Any, ...]:
 
 
 def _prompts(change_set: Any) -> tuple[Any, ...]:
-    cognition = default_prompt_cognition()
+    cognition = bootstrap_prompt_cognition()
     return tuple(
         cognition.decode(item.canonical_payload)
         for item in change_set.owner_drafts
@@ -182,7 +183,7 @@ def _prompts(change_set: Any) -> tuple[Any, ...]:
 
 
 def _subject_states(change_set: Any) -> tuple[Any, ...]:
-    cognition = default_subject_state_cognition()
+    cognition = bootstrap_subject_state_cognition()
     return tuple(
         cognition.decode(item.canonical_payload)
         for item in change_set.owner_drafts
@@ -2413,7 +2414,7 @@ def test_compact_dialogue_binds_grounded_self_and_mind_growth() -> None:
         "understanding": ["这是我此刻作出的自主选择"],
     }
     mood_drafts = tuple(
-        default_mood_cognition().decode(item.canonical_payload)
+        bootstrap_mood_cognition().decode(item.canonical_payload)
         for item in result.change_set.owner_drafts
         if item.owner == "mood"
     )

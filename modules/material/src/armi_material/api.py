@@ -387,13 +387,7 @@ class MaterialAdminReadPort(Protocol):
 class MaterialCognitionPort(Protocol):
     def bind(self, value: CandidateLifeMaterialDraft) -> CandidateOwnerDraft: ...
     def decode(self, payload: bytes) -> CandidateLifeMaterialDraft: ...
-    def bind_legacy(self, value: object) -> CandidateOwnerDraft: ...
-
-
-def default_material_cognition() -> MaterialCognitionPort:
-    from ._application import MaterialApplication
-
-    return MaterialApplication()
+    def bind_wire(self, value: object) -> CandidateOwnerDraft: ...
 
 
 @runtime_checkable
@@ -474,5 +468,4 @@ __all__ = (
     "MaterialReadPort",
     "MaterialViolation",
     "RecalledMaterials",
-    "default_material_cognition",
 )

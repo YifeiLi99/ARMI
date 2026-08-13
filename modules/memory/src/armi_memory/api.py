@@ -372,14 +372,7 @@ class MemoryCognitionPort(Protocol):
     def decode(
         self, payload: bytes
     ) -> CandidateMemoryDraft | CandidateMemoryRevisionDraft: ...
-    def bind_legacy(self, value: object, *, revision: bool) -> CandidateOwnerDraft: ...
-
-
-def default_memory_cognition() -> MemoryCognitionPort:
-    """Create the stateless canonical memory cognition implementation."""
-    from ._application import MemoryApplication
-
-    return MemoryApplication()
+    def bind_wire(self, value: object, *, revision: bool) -> CandidateOwnerDraft: ...
 
 
 @runtime_checkable
@@ -494,5 +487,4 @@ __all__ = (
     "MemorySourceKind",
     "MemoryViolation",
     "RecalledMemories",
-    "default_memory_cognition",
 )

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from armi_kernel.application import CandidateOwnerDraft
 
-from ._codec import decode, decode_legacy, encode
+from ._codec import decode, decode_wire, encode
 from .api import (
     CandidateMemoryDraft,
     CandidateMemoryRevisionDraft,
@@ -51,8 +51,8 @@ class MemoryApplication:
     ) -> CandidateMemoryDraft | CandidateMemoryRevisionDraft:
         return decode(payload)
 
-    def bind_legacy(self, value: object, *, revision: bool) -> CandidateOwnerDraft:
-        candidate = decode_legacy(value, revision=revision)
+    def bind_wire(self, value: object, *, revision: bool) -> CandidateOwnerDraft:
+        candidate = decode_wire(value, revision=revision)
         return candidate.owner_draft(encode(candidate))
 
 

@@ -3,8 +3,8 @@ from armi_kernel.application import CandidateFactClass
 from armi_subject_state.api import (
     CandidateSubjectStateDraft,
     SubjectStateKind,
-    default_subject_state_cognition,
 )
+from armi_subject_state.bootstrap import bootstrap_subject_state_cognition
 
 
 def test_subject_state_owner_draft_round_trip() -> None:
@@ -26,7 +26,7 @@ def test_subject_state_owner_draft_round_trip() -> None:
             }
         ),
     )
-    cognition = default_subject_state_cognition()
+    cognition = bootstrap_subject_state_cognition()
     owner = cognition.bind(draft)
     assert owner.owner == "mind"
     assert cognition.decode(owner.canonical_payload) == draft

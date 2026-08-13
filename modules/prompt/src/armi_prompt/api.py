@@ -202,23 +202,10 @@ class PromptReadPort(Protocol):
     ) -> PromptRecoveryState: ...
 
 
-def default_prompt_read() -> PromptReadPort:
-    from ._application import PromptApplication
-    from ._postgresql import PostgreSQLPromptOwner
-
-    return PostgreSQLPromptOwner(PromptApplication())
-
-
 @runtime_checkable
 class PromptCognitionPort(Protocol):
     def bind(self, value: CandidatePromptDraft) -> CandidateOwnerDraft: ...
     def decode(self, payload: bytes) -> CandidatePromptDraft: ...
-
-
-def default_prompt_cognition() -> PromptCognitionPort:
-    from ._application import PromptApplication
-
-    return PromptApplication()
 
 
 @runtime_checkable
@@ -254,13 +241,6 @@ class PromptBirthPort(Protocol):
         anchor_artifact_id: UUID,
         anchor_content_digest: Digest,
     ) -> None: ...
-
-
-def default_prompt_birth() -> PromptBirthPort:
-    from ._application import PromptApplication
-    from ._postgresql import PostgreSQLPromptOwner
-
-    return PostgreSQLPromptOwner(PromptApplication())
 
 
 @runtime_checkable
@@ -312,8 +292,5 @@ __all__ = (
     "PromptRevisionKind",
     "PromptViolation",
     "SubjectPromptHead",
-    "default_prompt_birth",
-    "default_prompt_cognition",
-    "default_prompt_read",
     "probe_prompt_continuity",
 )

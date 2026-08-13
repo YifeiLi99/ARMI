@@ -49,4 +49,8 @@ def bootstrap_activity(
     return ActivityModule(query, cognition, PostgreSQLActivityCommit(cognition), query)
 
 
-__all__ = ("ActivityModule", "bootstrap_activity")
+def bootstrap_activity_cognition() -> ActivityCognitionPort:
+    return ActivityApplication()
+
+
+__all__ = ("ActivityModule", "bootstrap_activity", "bootstrap_activity_cognition")

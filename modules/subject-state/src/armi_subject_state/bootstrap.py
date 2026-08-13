@@ -36,6 +36,10 @@ def bootstrap_subject_state() -> SubjectStateModule:
     return SubjectStateModule(owner, application, owner, owner, owner)
 
 
+def bootstrap_subject_state_cognition() -> SubjectStateCognitionPort:
+    return SubjectStateApplication()
+
+
 def bootstrap_subject_state_admin_correction() -> SubjectStateAdminCorrectionPort:
     return PostgreSQLSubjectStateAdmin()
 
@@ -51,5 +55,6 @@ __all__ = (
     "bootstrap_subject_state",
     "bootstrap_subject_state_admin_correction",
     "bootstrap_subject_state_admin_read",
+    "bootstrap_subject_state_cognition",
     "probe_subject_state_counts",
 )
