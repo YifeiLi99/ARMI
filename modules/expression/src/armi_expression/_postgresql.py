@@ -163,25 +163,6 @@ class PostgreSQLExpressionOwner:
             raise ResponseViolation("SUBJECT-NO-ACTION-COUNT")
         decision = decisions[0]
         connection = unit_of_work.transaction
-        rows = await (
-            await connection.execute(
-                """
-                SELECT basis.context_item_id
-                FROM armi.cognitive_candidate_basis_links AS basis
-                JOIN armi.cognitive_candidate_validation_items AS item
-                  ON item.candidate_validation_id = basis.candidate_validation_id
-                 AND item.proposal_ref = basis.proposal_ref
-                 AND item.validation_status = 'accepted'
-                 AND item.owner_kind = 'action'
-                WHERE basis.candidate_validation_id = %s
-                  AND basis.proposal_ref = %s
-                ORDER BY basis.ordinal
-                """,
-                (context.validation_id, decision.proposal_ref),
-            )
-        ).fetchall()
-        if len(rows) != len(decision.basis_ordinals):
-            raise ResponseViolation("SUBJECT-NO-ACTION-BASIS")
         no_action_id = uuid7()
         await connection.execute(
             """
