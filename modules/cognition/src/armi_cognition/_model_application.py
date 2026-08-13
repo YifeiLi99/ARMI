@@ -777,7 +777,7 @@ class ModelPipeline:
             async with self._factory.unit_of_work() as unit_of_work:
                 if error.retryable:
                     now = await (
-                        await unit_of_work._connection_for_repository().execute(  # pyright: ignore[reportPrivateUsage]
+                        await unit_of_work.transaction.execute(
                             "SELECT statement_timestamp()"
                         )
                     ).fetchone()
