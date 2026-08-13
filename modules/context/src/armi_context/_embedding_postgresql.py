@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from itertools import pairwise
 from typing import cast
 from uuid import UUID, uuid7
 
@@ -59,10 +60,16 @@ class PostgreSQLContextEmbeddingRepository:
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
     ) -> bool:
         connection = unit_of_work.transaction
-        material = await self._materials.next_missing_source(
-            unit_of_work.transaction,
-            model_binding=_EMBEDDING_BINDING_ID,
-            work_kind=_WORK_KIND,
+        projected = await self._projected_source_versions(connection)
+        materials = await self._materials.projection_sources(unit_of_work.transaction)
+        material = next(
+            (
+                source
+                for source in materials
+                if ("life_material", source.material_id, source.head_version)
+                not in projected
+            ),
+            None,
         )
         row: tuple[UUID, UUID, str, UUID, int, datetime] | None = None
         if material is not None:
@@ -78,8 +85,15 @@ class PostgreSQLContextEmbeddingRepository:
                     material.head_version,
                     cast(datetime, timestamp[0]),
                 )
-        memory = await self._memories.next_missing_source(
-            unit_of_work.transaction, model_binding=_EMBEDDING_BINDING_ID
+        memories = await self._memories.projection_sources(unit_of_work.transaction)
+        memory = next(
+            (
+                source
+                for source in memories
+                if ("subjective_memory", source.memory_id, source.head_version)
+                not in projected
+            ),
+            None,
         )
         if memory is not None:
             timestamp = await (
@@ -118,6 +132,19 @@ class PostgreSQLContextEmbeddingRepository:
             )
         )
         return True
+
+    async def _projected_source_versions(
+        self, transaction: PostgreSQLTransaction
+    ) -> set[tuple[str, UUID, int]]:
+        rows = await (
+            await transaction.execute(
+                """SELECT DISTINCT source_kind,source_ref,source_version
+                   FROM armi.context_embedding_projections
+                   WHERE model_binding=%s""",
+                (_EMBEDDING_BINDING_ID,),
+            )
+        ).fetchall()
+        return {(str(row[0]), row[1], int(row[2])) for row in rows}
 
     async def load_source(
         self,
@@ -316,40 +343,94 @@ class PostgreSQLContextEmbeddingRepository:
         life_generation_id: UUID,
         query_vector: tuple[float, ...],
     ) -> RecalledContext:
-        recalled_materials = await self._materials.recall(
-            unit_of_work.transaction,
+        transaction = unit_of_work.transaction
+        memories = await self._memories.projection_sources(
+            transaction,
             subject_id=subject_id,
             generation_id=life_generation_id,
-            model_binding=_EMBEDDING_BINDING_ID,
-            query_vector=query_vector,
-            minimum_similarity=_RECALL_MIN_SIMILARITY,
-            limit=_RECALL_MATERIAL_LIMIT,
         )
-        recalled_memories = await self._memories.recall(
-            unit_of_work.transaction,
+        materials = await self._materials.projection_sources(
+            transaction,
             subject_id=subject_id,
             generation_id=life_generation_id,
-            model_binding=_EMBEDDING_BINDING_ID,
-            query_vector=query_vector,
-            minimum_similarity=_RECALL_MIN_SIMILARITY,
-            limit=_RECALL_MEMORY_LIMIT,
         )
-        memory_values = list(recalled_memories.items)
-        memory_values = memory_values[:_RECALL_MEMORY_LIMIT]
-        material_values = recalled_materials.items
+        current_memories = {
+            (source.memory_id, source.head_version): source for source in memories
+        }
+        current_materials = {
+            (source.material_id, source.head_version): source for source in materials
+        }
+        vector = "[" + ",".join(format(item, ".17g") for item in query_vector) + "]"
+        rows = await (
+            await transaction.execute(
+                """SELECT source_kind,source_ref,source_version,chunk_ordinal,
+                          chunk_text,
+                          1-(embedding OPERATOR(armi_extensions.<=>)
+                             %s::armi_extensions.vector) AS similarity
+                   FROM armi.context_embedding_projections
+                   WHERE subject_id=%s AND life_generation_id=%s
+                     AND model_binding=%s
+                     AND 1-(embedding OPERATOR(armi_extensions.<=>)
+                             %s::armi_extensions.vector)>=%s
+                   ORDER BY similarity DESC,source_kind,source_ref,chunk_ordinal
+                   LIMIT 128""",
+                (
+                    vector,
+                    subject_id,
+                    life_generation_id,
+                    _EMBEDDING_BINDING_ID,
+                    vector,
+                    _RECALL_MIN_SIMILARITY,
+                ),
+            )
+        ).fetchall()
+        projected = await self._projected_source_versions(transaction)
+        memory_values: list[tuple[UUID, int, str, float]] = []
+        material_chunks: dict[UUID, list[tuple[int, str, float, int]]] = {}
+        for kind, source_ref, version, ordinal, text, similarity in rows:
+            key = (source_ref, int(version))
+            if kind == "subjective_memory" and key in current_memories:
+                if len(memory_values) < _RECALL_MEMORY_LIMIT:
+                    memory_values.append(
+                        (source_ref, int(version), str(text), float(similarity))
+                    )
+            elif kind == "life_material" and key in current_materials:
+                material_chunks.setdefault(source_ref, []).append(
+                    (int(ordinal), str(text), float(similarity), int(version))
+                )
+        material_values: list[tuple[UUID, int, str, float]] = []
+        ordered_materials = sorted(
+            material_chunks.items(),
+            key=lambda item: max(chunk[2] for chunk in item[1]),
+            reverse=True,
+        )
+        for source_ref, chunks in ordered_materials[:_RECALL_MATERIAL_LIMIT]:
+            best = max(chunks, key=lambda item: item[2])
+            adjacent = sorted(
+                (item for item in chunks if abs(item[0] - best[0]) <= 1),
+                key=lambda item: item[0],
+            )
+            merged = adjacent[0][1]
+            for previous, current in pairwise(adjacent):
+                merged += current[1][min(150, len(previous[1]), len(current[1])) :]
+            material_values.append((source_ref, best[3], merged, best[2]))
+        missing_projection = any(
+            ("subjective_memory", source.memory_id, source.head_version)
+            not in projected
+            for source in memories
+        ) or any(
+            ("life_material", source.material_id, source.head_version) not in projected
+            for source in materials
+        )
         if not memory_values and not material_values:
             status = (
                 RecallStatus.PARTIAL
-                if recalled_materials.missing_projection
-                or recalled_memories.missing_projection
+                if missing_projection
                 else RecallStatus.NO_RELEVANT_RESULT
             )
         else:
             status = (
-                RecallStatus.PARTIAL
-                if recalled_materials.missing_projection
-                or recalled_memories.missing_projection
-                else RecallStatus.COMPLETE
+                RecallStatus.PARTIAL if missing_projection else RecallStatus.COMPLETE
             )
         return RecalledContext(status, tuple(memory_values), tuple(material_values))
 

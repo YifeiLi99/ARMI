@@ -310,12 +310,6 @@ class MemoryProjectionSource:
     text: str
 
 
-@dataclass(frozen=True, slots=True)
-class RecalledMemories:
-    items: tuple[tuple[UUID, int, str, float], ...]
-    missing_projection: bool
-
-
 @runtime_checkable
 class MemoryReadPort(Protocol):
     async def maintenance_context(
@@ -404,25 +398,17 @@ class MemoryCommitPort(Protocol):
 
 @runtime_checkable
 class MemoryProjectionPort(Protocol):
-    async def next_missing_source(
-        self, transaction: PostgreSQLTransaction, *, model_binding: str
-    ) -> MemoryProjectionSource | None: ...
+    async def projection_sources(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID | None = None,
+        generation_id: UUID | None = None,
+    ) -> tuple[MemoryProjectionSource, ...]: ...
 
     async def load_source(
         self, transaction: PostgreSQLTransaction, memory_id: UUID
     ) -> MemoryProjectionSource | None: ...
-
-    async def recall(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        subject_id: UUID,
-        generation_id: UUID,
-        model_binding: str,
-        query_vector: tuple[float, ...],
-        minimum_similarity: float,
-        limit: int,
-    ) -> RecalledMemories: ...
 
 
 @runtime_checkable
@@ -479,5 +465,4 @@ __all__ = (
     "MemoryRevisionRequest",
     "MemorySourceKind",
     "MemoryViolation",
-    "RecalledMemories",
 )

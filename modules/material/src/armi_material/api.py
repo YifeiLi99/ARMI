@@ -337,12 +337,6 @@ class MaterialProjectionSource:
     artifact: ArtifactRef
 
 
-@dataclass(frozen=True, slots=True)
-class RecalledMaterials:
-    items: tuple[tuple[UUID, int, str, float], ...]
-    missing_projection: bool
-
-
 @runtime_checkable
 class MaterialReadPort(Protocol):
     async def candidate_sources(
@@ -420,29 +414,17 @@ class MaterialCommitPort(Protocol):
 
 @runtime_checkable
 class MaterialProjectionPort(Protocol):
-    async def next_missing_source(
+    async def projection_sources(
         self,
         transaction: PostgreSQLTransaction,
         *,
-        model_binding: str,
-        work_kind: str,
-    ) -> MaterialProjectionSource | None: ...
+        subject_id: UUID | None = None,
+        generation_id: UUID | None = None,
+    ) -> tuple[MaterialProjectionSource, ...]: ...
 
     async def load_source(
         self, transaction: PostgreSQLTransaction, material_id: UUID
     ) -> MaterialProjectionSource | None: ...
-
-    async def recall(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        subject_id: UUID,
-        generation_id: UUID,
-        model_binding: str,
-        query_vector: tuple[float, ...],
-        minimum_similarity: float,
-        limit: int,
-    ) -> RecalledMaterials: ...
 
 
 __all__ = (
@@ -467,5 +449,4 @@ __all__ = (
     "MaterialProjectionSource",
     "MaterialReadPort",
     "MaterialViolation",
-    "RecalledMaterials",
 )

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from itertools import pairwise
 from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
@@ -33,7 +32,6 @@ from .api import (
     MaterialOpportunitySource,
     MaterialProjectionSource,
     MaterialViolation,
-    RecalledMaterials,
 )
 
 
@@ -283,32 +281,31 @@ class PostgreSQLMaterialOwner:
         except ArtifactViolation, TypeError, ValueError, UnicodeError:
             raise MaterialViolation("MATERIAL-QUERY-UNAVAILABLE") from None
 
-    async def next_missing_source(
+    async def projection_sources(
         self,
         transaction: PostgreSQLTransaction,
         *,
-        model_binding: str,
-        work_kind: str,
-    ) -> MaterialProjectionSource | None:
-        row = await (
+        subject_id: UUID | None = None,
+        generation_id: UUID | None = None,
+    ) -> tuple[MaterialProjectionSource, ...]:
+        rows = await (
             await transaction.execute(
                 """SELECT material.life_material_id FROM armi.life_materials AS material
                    JOIN armi.life_material_revisions AS revision
                      ON revision.life_material_revision_id=material.current_revision_id
                    WHERE material.deleted_at IS NULL AND revision.revision_kind<>'deleted'
-                     AND NOT EXISTS (SELECT 1 FROM armi.context_embedding_projections AS projection
-                       WHERE projection.source_kind='life_material'
-                         AND projection.source_ref=material.life_material_id
-                         AND projection.source_version=material.head_version
-                         AND projection.model_binding=%s)
-                     AND NOT EXISTS (SELECT 1 FROM armi.durable_work AS work
-                       WHERE work.owner_kind='life_material' AND work.owner_ref=material.life_material_id
-                         AND work.work_kind=%s AND work.status IN ('ready','leased'))
-                   ORDER BY material.life_material_id LIMIT 1""",
-                (model_binding, work_kind),
+                     AND (%s IS NULL OR material.subject_id=%s)
+                     AND (%s IS NULL OR material.life_generation_id=%s)
+                   ORDER BY material.life_material_id""",
+                (subject_id, subject_id, generation_id, generation_id),
             )
-        ).fetchone()
-        return None if row is None else await self.load_source(transaction, row[0])
+        ).fetchall()
+        sources: list[MaterialProjectionSource] = []
+        for row in rows:
+            source = await self.load_source(transaction, row[0])
+            if source is not None:
+                sources.append(source)
+        return tuple(sources)
 
     async def load_source(
         self, transaction: PostgreSQLTransaction, material_id: UUID
@@ -348,81 +345,6 @@ class PostgreSQLMaterialOwner:
                 _artifact(row, 11),
             )
         )
-
-    async def recall(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        subject_id: UUID,
-        generation_id: UUID,
-        model_binding: str,
-        query_vector: tuple[float, ...],
-        minimum_similarity: float,
-        limit: int,
-    ) -> RecalledMaterials:
-        vector = "[" + ",".join(format(item, ".17g") for item in query_vector) + "]"
-        rows = await (
-            await transaction.execute(
-                """SELECT projection.source_ref,projection.source_version,
-                          projection.chunk_ordinal,projection.chunk_text,
-                          1-(projection.embedding OPERATOR(armi_extensions.<=>)
-                             %s::armi_extensions.vector) AS similarity
-                   FROM armi.context_embedding_projections AS projection
-                   JOIN armi.life_materials AS material
-                     ON projection.source_kind='life_material'
-                    AND material.life_material_id=projection.source_ref
-                    AND material.head_version=projection.source_version
-                    AND material.deleted_at IS NULL
-                   WHERE projection.subject_id=%s AND projection.life_generation_id=%s
-                     AND projection.model_binding=%s
-                     AND 1-(projection.embedding OPERATOR(armi_extensions.<=>)
-                             %s::armi_extensions.vector)>=%s
-                   ORDER BY similarity DESC,projection.source_ref,projection.chunk_ordinal LIMIT 32""",
-                (
-                    vector,
-                    subject_id,
-                    generation_id,
-                    model_binding,
-                    vector,
-                    minimum_similarity,
-                ),
-            )
-        ).fetchall()
-        missing = await (
-            await transaction.execute(
-                """SELECT EXISTS (SELECT 1 FROM armi.life_materials AS material
-                   WHERE material.subject_id=%s AND material.life_generation_id=%s
-                     AND material.deleted_at IS NULL
-                     AND NOT EXISTS (SELECT 1 FROM armi.context_embedding_projections AS projection
-                       WHERE projection.source_kind='life_material'
-                         AND projection.source_ref=material.life_material_id
-                         AND projection.source_version=material.head_version
-                         AND projection.model_binding=%s))""",
-                (subject_id, generation_id, model_binding),
-            )
-        ).fetchone()
-        groups: dict[UUID, list[tuple[int, str, float, int]]] = {}
-        for source_ref, version, ordinal, text, similarity in rows:
-            groups.setdefault(source_ref, []).append(
-                (int(ordinal), str(text), float(similarity), int(version))
-            )
-        values: list[tuple[UUID, int, str, float]] = []
-        ordered = sorted(
-            groups.items(),
-            key=lambda item: max(chunk[2] for chunk in item[1]),
-            reverse=True,
-        )
-        for source_ref, chunks in ordered[:limit]:
-            best = max(chunks, key=lambda item: item[2])
-            adjacent = sorted(
-                (item for item in chunks if abs(item[0] - best[0]) <= 1),
-                key=lambda item: item[0],
-            )
-            merged = adjacent[0][1]
-            for previous, current in pairwise(adjacent):
-                merged += current[1][min(150, len(previous[1]), len(current[1])) :]
-            values.append((source_ref, best[3], merged, best[2]))
-        return RecalledMaterials(tuple(values), bool(missing and missing[0]))
 
 
 __all__ = ("PostgreSQLMaterialOwner",)

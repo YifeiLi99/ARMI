@@ -39,7 +39,6 @@ from .api import (
     MemoryRevisionKind,
     MemorySourceKind,
     MemoryViolation,
-    RecalledMemories,
 )
 
 
@@ -641,10 +640,14 @@ class PostgreSQLMemoryOwner:
         ).fetchall()
         return tuple(row[0] for row in rows)
 
-    async def next_missing_source(
-        self, transaction: PostgreSQLTransaction, *, model_binding: str
-    ) -> MemoryProjectionSource | None:
-        row = await (
+    async def projection_sources(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID | None = None,
+        generation_id: UUID | None = None,
+    ) -> tuple[MemoryProjectionSource, ...]:
+        rows = await (
             await transaction.execute(
                 """SELECT memory.subject_id,memory.life_generation_id,memory.memory_id,
                           memory.head_version,revision.summary
@@ -652,29 +655,15 @@ class PostgreSQLMemoryOwner:
                    JOIN armi.subjective_memory_revisions AS revision
                      ON revision.memory_revision_id=memory.current_revision_id
                    WHERE revision.accessibility IN ('available','faded')
-                     AND NOT EXISTS (SELECT 1 FROM armi.deletion_items AS item
-                       WHERE item.target_kind='memory' AND item.target_ref=memory.memory_id
-                         AND item.result_status IN ('completed','partial'))
-                     AND NOT EXISTS (SELECT 1 FROM armi.context_embedding_projections AS projection
-                       WHERE projection.source_kind='subjective_memory'
-                         AND projection.source_ref=memory.memory_id
-                         AND projection.source_version=memory.head_version
-                         AND projection.model_binding=%s)
-                     AND NOT EXISTS (SELECT 1 FROM armi.durable_work AS work
-                       WHERE work.owner_kind='subjective_memory'
-                         AND work.owner_ref=memory.memory_id
-                         AND work.work_kind='context.embedding.project'
-                         AND work.status IN ('ready','leased'))
-                   ORDER BY memory.memory_id LIMIT 1""",
-                (model_binding,),
+                     AND (%s IS NULL OR memory.subject_id=%s)
+                     AND (%s IS NULL OR memory.life_generation_id=%s)
+                   ORDER BY memory.memory_id""",
+                (subject_id, subject_id, generation_id, generation_id),
             )
-        ).fetchone()
-        return (
-            None
-            if row is None
-            else MemoryProjectionSource(
-                row[0], row[1], row[2], int(row[3]), str(row[4])
-            )
+        ).fetchall()
+        return tuple(
+            MemoryProjectionSource(row[0], row[1], row[2], int(row[3]), str(row[4]))
+            for row in rows
         )
 
     async def load_source(
@@ -688,9 +677,7 @@ class PostgreSQLMemoryOwner:
                    JOIN armi.subjective_memory_revisions AS revision
                      ON revision.memory_revision_id=memory.current_revision_id
                    WHERE memory.memory_id=%s AND revision.accessibility IN ('available','faded')
-                     AND NOT EXISTS (SELECT 1 FROM armi.deletion_items AS item
-                       WHERE item.target_kind='memory' AND item.target_ref=memory.memory_id
-                         AND item.result_status IN ('completed','partial'))""",
+                     """,
                 (memory_id,),
             )
         ).fetchone()
@@ -700,74 +687,6 @@ class PostgreSQLMemoryOwner:
             else MemoryProjectionSource(
                 row[0], row[1], row[2], int(row[3]), str(row[4])
             )
-        )
-
-    async def recall(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        subject_id: UUID,
-        generation_id: UUID,
-        model_binding: str,
-        query_vector: tuple[float, ...],
-        minimum_similarity: float,
-        limit: int,
-    ) -> RecalledMemories:
-        vector = "[" + ",".join(format(item, ".17g") for item in query_vector) + "]"
-        rows = await (
-            await transaction.execute(
-                """SELECT projection.source_ref,projection.source_version,
-                          projection.chunk_text,
-                          1-(projection.embedding OPERATOR(armi_extensions.<=>)
-                             %s::armi_extensions.vector) AS similarity
-                   FROM armi.context_embedding_projections AS projection
-                   JOIN armi.subjective_memories AS memory
-                     ON memory.memory_id=projection.source_ref
-                    AND memory.head_version=projection.source_version
-                   JOIN armi.subjective_memory_revisions AS revision
-                     ON revision.memory_revision_id=memory.current_revision_id
-                   WHERE projection.source_kind='subjective_memory'
-                     AND projection.subject_id=%s AND projection.life_generation_id=%s
-                     AND projection.model_binding=%s
-                     AND revision.accessibility IN ('available','faded')
-                     AND NOT EXISTS (SELECT 1 FROM armi.deletion_items AS item
-                       WHERE item.target_kind='memory' AND item.target_ref=memory.memory_id
-                         AND item.result_status IN ('completed','partial'))
-                     AND 1-(projection.embedding OPERATOR(armi_extensions.<=>)
-                             %s::armi_extensions.vector)>=%s
-                   ORDER BY similarity DESC,projection.source_ref LIMIT %s""",
-                (
-                    vector,
-                    subject_id,
-                    generation_id,
-                    model_binding,
-                    vector,
-                    minimum_similarity,
-                    limit,
-                ),
-            )
-        ).fetchall()
-        missing = await (
-            await transaction.execute(
-                """SELECT EXISTS (SELECT 1 FROM armi.subjective_memories AS memory
-                   JOIN armi.subjective_memory_revisions AS revision
-                     ON revision.memory_revision_id=memory.current_revision_id
-                   WHERE memory.subject_id=%s AND memory.life_generation_id=%s
-                     AND revision.accessibility IN ('available','faded')
-                     AND NOT EXISTS (SELECT 1 FROM armi.deletion_items AS item
-                       WHERE item.target_kind='memory' AND item.target_ref=memory.memory_id
-                         AND item.result_status IN ('completed','partial'))
-                     AND NOT EXISTS (SELECT 1 FROM armi.context_embedding_projections AS projection
-                       WHERE projection.source_kind='subjective_memory'
-                         AND projection.source_ref=memory.memory_id
-                         AND projection.source_version=memory.head_version
-                         AND projection.model_binding=%s))""",
-                (subject_id, generation_id, model_binding),
-            )
-        ).fetchone()
-        return RecalledMemories(
-            tuple((row[0], int(row[1]), str(row[2]), float(row[3])) for row in rows),
-            bool(missing and missing[0]),
         )
 
     async def find_for_party(
