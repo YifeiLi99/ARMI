@@ -12,13 +12,14 @@ from datetime import datetime
 from typing import Any, cast
 from uuid import UUID, uuid7
 
-import psycopg
 import rfc8785
 from armi_kernel.application import CandidateFactClass, CandidateOwnerDraft
 from armi_kernel.contracts import Instant, OpaqueCursor
-from armi_runtime_foundation import PostgreSQLTransaction
-from psycopg.pq import TransactionStatus
-from psycopg_pool import AsyncConnectionPool, PoolTimeout
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    PostgreSQLTransaction,
+    RuntimeTransactionFailure,
+)
 
 from ._application import MemoryApplication
 from ._domain import validate_transition
@@ -40,8 +41,6 @@ from .api import (
     MemoryViolation,
     RecalledMemories,
 )
-
-_SEARCH_PATH = "pg_catalog, armi"
 
 
 def _b64encode(value: bytes) -> str:
@@ -107,82 +106,36 @@ class _CursorCodec:
             raise MemoryViolation("MEMORY-CURSOR") from None
 
 
-async def _configure(connection: psycopg.AsyncConnection[Any]) -> None:
-    await connection.set_autocommit(True)
-    await connection.execute("SET search_path TO pg_catalog, armi")
-
-
-async def _reset(connection: psycopg.AsyncConnection[Any]) -> None:
-    if connection.info.transaction_status != TransactionStatus.IDLE:
-        await connection.rollback()
-    await connection.execute("RESET ROLE")
-    await connection.execute("RESET ALL")
-    await connection.execute("SET search_path TO pg_catalog, armi")
-
-
 class PostgreSQLMemoryOwner:
     def __init__(
         self,
-        conninfo: str,
+        factory: PostgreSQLRuntimeUnitOfWorkFactory,
         *,
-        expected_role: str,
         environment_id: UUID,
         creator_party_id: UUID,
         cursor_key: bytes,
-        pool_timeout_seconds: int,
     ) -> None:
         self._creator_party_id = creator_party_id
-        self._expected_role = expected_role
-        self._pool_timeout_seconds = pool_timeout_seconds
+        self._factory = factory
         self._codec = _CursorCodec(cursor_key, environment_id, creator_party_id)
-
-        async def check(connection: psycopg.AsyncConnection[Any]) -> None:
-            row = await (
-                await connection.execute(
-                    "SELECT session_user, current_user, current_setting('search_path')"
-                )
-            ).fetchone()
-            if row != (expected_role, expected_role, _SEARCH_PATH):
-                raise MemoryViolation("MEMORY-QUERY-UNAVAILABLE")
-
-        self._pool = AsyncConnectionPool(
-            conninfo,
-            min_size=1,
-            max_size=1,
-            open=False,
-            configure=_configure,
-            check=check,
-            reset=_reset,
-            timeout=float(pool_timeout_seconds),
-            name="armi-memory",
-        )
         self._application = MemoryApplication()
 
     async def open(self) -> None:
-        try:
-            await self._pool.open(wait=True)
-        except psycopg.Error, PoolTimeout:
-            raise MemoryViolation("MEMORY-QUERY-UNAVAILABLE") from None
+        return None
 
     async def close(self) -> None:
-        await self._pool.close()
+        return None
 
     @asynccontextmanager
     async def _read_connection(
         self,
-    ) -> AsyncGenerator[psycopg.AsyncConnection[Any]]:
+    ) -> AsyncGenerator[PostgreSQLTransaction]:
         try:
-            async with (
-                self._pool.connection(
-                    timeout=float(self._pool_timeout_seconds)
-                ) as conn,
-                conn.transaction(),
-            ):
-                await conn.execute("SET TRANSACTION READ ONLY")
-                yield conn
+            async with self._factory.unit_of_work(read_only=True) as unit_of_work:
+                yield unit_of_work.transaction
         except MemoryViolation:
             raise
-        except psycopg.Error, PoolTimeout:
+        except RuntimeTransactionFailure:
             raise MemoryViolation("MEMORY-QUERY-UNAVAILABLE") from None
 
     async def maintenance_context(

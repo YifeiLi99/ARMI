@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWorkFactory
+
 from ._application import MemoryApplication
 from ._postgresql import PostgreSQLMemoryOwner
 from .api import (
@@ -33,22 +35,18 @@ class MemoryModule:
 
 
 def bootstrap_memory(
-    conninfo: str,
+    factory: PostgreSQLRuntimeUnitOfWorkFactory,
     *,
-    expected_role: str,
     environment_id: UUID,
     creator_party_id: UUID,
     cursor_key: bytes,
-    pool_timeout_seconds: int,
 ) -> MemoryModule:
     application = MemoryApplication()
     owner = PostgreSQLMemoryOwner(
-        conninfo,
-        expected_role=expected_role,
+        factory,
         environment_id=environment_id,
         creator_party_id=creator_party_id,
         cursor_key=cursor_key,
-        pool_timeout_seconds=pool_timeout_seconds,
     )
     return MemoryModule(owner, application, owner, owner, owner, owner)
 

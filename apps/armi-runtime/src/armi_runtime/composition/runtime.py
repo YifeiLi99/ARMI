@@ -356,7 +356,8 @@ async def _serve(
             await relationship_module.open()
             creator_relationship_query = relationship_module.read
             memory_module = compose_memory_module(
-                prepared,
+                runtime_unit_of_work_factory,
+                environment_id=config.environment.environment_id,
                 creator_party_id=creator_context.party_id,
                 cursor_key=derive_timeline_cursor_key(prepared),
             )

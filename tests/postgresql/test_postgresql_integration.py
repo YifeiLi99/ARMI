@@ -2193,12 +2193,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 creator_party_id=creator_party_id,
             )
             memory_module = bootstrap_memory(
-                fixture.runtime_dsn,
-                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                factory,
                 environment_id=fixture.environment_id,
                 creator_party_id=creator_party_id,
                 cursor_key=hashlib.sha256(b"p0-s022-life-record-cursor-key").digest(),
-                pool_timeout_seconds=2,
             )
             activity_module = bootstrap_activity(
                 factory,
@@ -5772,12 +5770,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 creator_party_id=creator_party_id,
             )
             memory_module = bootstrap_memory(
-                fixture.runtime_dsn,
-                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                factory,
                 environment_id=fixture.environment_id,
                 creator_party_id=creator_party_id,
                 cursor_key=hashlib.sha256(b"t03-memory-cursor-key").digest(),
-                pool_timeout_seconds=2,
             )
             sleep_module = bootstrap_sleep(
                 factory,

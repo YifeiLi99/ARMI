@@ -96,7 +96,6 @@ from armi_memory.api import (
     MemoryDataRightsParticipant,
     MemoryProjectionPort,
     MemoryReadPort,
-    MemoryViolation,
 )
 from armi_memory.bootstrap import MemoryModule, bootstrap_memory
 from armi_mood.api import MoodCognitionPort, MoodCommitPort, MoodReadPort
@@ -866,41 +865,20 @@ def compose_runtime_unit_of_work_factory(
 
 
 def compose_memory_module(
-    prepared: PreparedEnvironment,
+    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     *,
+    environment_id: UUID,
     creator_party_id: UUID,
     cursor_key: bytes,
 ) -> MemoryModule:
     """Resolve and bind the one active subjective-memory owner implementation."""
 
-    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
-    if locator is None:
-        raise MemoryViolation("MEMORY-QUERY-UNAVAILABLE")
-    try:
-        with prepared.credential_port.resolve(
-            locator, CredentialPurpose("database.runtime")
-        ) as handle:
-
-            def create(value: memoryview) -> MemoryModule:
-                try:
-                    conninfo = bytes(value).decode("utf-8")
-                except UnicodeDecodeError:
-                    raise MemoryViolation("MEMORY-QUERY-UNAVAILABLE") from None
-                config = prepared.effective.config
-                return bootstrap_memory(
-                    conninfo,
-                    expected_role=physical_role_name(
-                        config.environment.environment_id, "runtime"
-                    ),
-                    environment_id=config.environment.environment_id,
-                    creator_party_id=creator_party_id,
-                    cursor_key=cursor_key,
-                    pool_timeout_seconds=config.database.pool_acquire_timeout_seconds,
-                )
-
-            return handle.consume(create)
-    except ConfigurationViolation:
-        raise MemoryViolation("MEMORY-QUERY-UNAVAILABLE") from None
+    return bootstrap_memory(
+        unit_of_work_factory,
+        environment_id=environment_id,
+        creator_party_id=creator_party_id,
+        cursor_key=cursor_key,
+    )
 
 
 def compose_sleep_module(
