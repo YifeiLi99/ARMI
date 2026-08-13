@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWorkFactory
+
 from ._application import ActivityApplication
 from ._commit import PostgreSQLActivityCommit
 from ._postgresql import PostgreSQLActivityRead
@@ -31,18 +33,14 @@ class ActivityModule:
 
 
 def bootstrap_activity(
-    conninfo: str,
+    factory: PostgreSQLRuntimeUnitOfWorkFactory,
     *,
-    expected_role: str,
     creator_party_id: UUID,
-    pool_timeout_seconds: int,
     focus: ActivityFocusReadPort,
 ) -> ActivityModule:
     query = PostgreSQLActivityRead(
-        conninfo,
-        expected_role=expected_role,
+        factory,
         creator_party_id=creator_party_id,
-        pool_timeout_seconds=pool_timeout_seconds,
         focus=focus,
     )
     cognition = ActivityApplication()

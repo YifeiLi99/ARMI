@@ -630,12 +630,19 @@ def compose_activity_module(
                     raise ActivityViolation("ACTIVITY-QUERY-UNAVAILABLE") from None
                 config = prepared.effective.config
                 return bootstrap_activity(
-                    conninfo,
-                    expected_role=physical_role_name(
-                        config.environment.environment_id, "runtime"
+                    PostgreSQLUnitOfWorkFactory(
+                        conninfo,
+                        environment_id=config.environment.environment_id,
+                        pool_min=config.database.pool_min,
+                        pool_max=config.database.pool_max,
+                        acquire_timeout_seconds=(
+                            config.database.pool_acquire_timeout_seconds
+                        ),
+                        statement_timeout_seconds=(
+                            config.database.statement_timeout_seconds
+                        ),
                     ),
                     creator_party_id=creator_party_id,
-                    pool_timeout_seconds=config.database.pool_acquire_timeout_seconds,
                     focus=subject_state,
                 )
 

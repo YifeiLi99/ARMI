@@ -2038,10 +2038,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             await relationship_module.open()
             activity_module = bootstrap_activity(
-                fixture.runtime_dsn,
-                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                factories[0],
                 creator_party_id=manifest.creator_party_id,
-                pool_timeout_seconds=2,
                 focus=bootstrap_subject_state().read,
             )
             await activity_module.open()
@@ -2195,12 +2193,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 pool_timeout_seconds=2,
             )
             activity_module = bootstrap_activity(
-                fixture.runtime_dsn,
-                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                factory,
                 creator_party_id=creator_party_id,
-                pool_timeout_seconds=2,
                 focus=bootstrap_subject_state().read,
             )
+            await factory.open()
             material_module = bootstrap_material(
                 fixture.runtime_dsn,
                 expected_role=physical_role_name(fixture.environment_id, "runtime"),
@@ -2257,6 +2254,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     await activity_module.read.timeline(_uuid7())
             finally:
                 await activity_module.close()
+                await factory.close()
 
             session_id, revision_id = _uuid7(), _uuid7()
             with psycopg.connect(fixture.provisioner_dsn) as connection:
@@ -2341,10 +2339,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             await relationship_module.open()
             activity_module = bootstrap_activity(
-                fixture.runtime_dsn,
-                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                maintenance_factory,
                 creator_party_id=creator_party_id,
-                pool_timeout_seconds=2,
                 focus=bootstrap_subject_state().read,
             )
             await activity_module.open()
@@ -5786,10 +5782,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 pool_timeout_seconds=2,
             )
             activity_module = bootstrap_activity(
-                fixture.runtime_dsn,
-                expected_role=physical_role_name(fixture.environment_id, "runtime"),
+                factory,
                 creator_party_id=creator_party_id,
-                pool_timeout_seconds=2,
                 focus=bootstrap_subject_state().read,
             )
             material_module = bootstrap_material(

@@ -6,11 +6,12 @@ from datetime import datetime
 from typing import Any, Literal, cast
 from uuid import UUID
 
-import psycopg
 import rfc8785
-from armi_runtime_foundation import PostgreSQLTransaction
-from psycopg.pq import TransactionStatus
-from psycopg_pool import AsyncConnectionPool, PoolTimeout
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    PostgreSQLTransaction,
+    RuntimeTransactionFailure,
+)
 
 from .api import (
     ActivityAttentionRootState,
@@ -32,23 +33,7 @@ from .api import (
     CreatorActivityTimelineItem,
 )
 
-_SEARCH_PATH = "pg_catalog, armi"
 _PAGE_SIZE = 100
-
-
-async def _configure(
-    connection: psycopg.AsyncConnection[tuple[Any, ...]],
-) -> None:
-    await connection.set_autocommit(True)
-    await connection.execute("SET search_path TO pg_catalog, armi")
-
-
-async def _reset(connection: psycopg.AsyncConnection[tuple[Any, ...]]) -> None:
-    if connection.info.transaction_status != TransactionStatus.IDLE:
-        await connection.rollback()
-    await connection.execute("RESET ROLE")
-    await connection.execute("RESET ALL")
-    await connection.execute("SET search_path TO pg_catalog, armi")
 
 
 class PostgreSQLActivityRead:
@@ -56,67 +41,31 @@ class PostgreSQLActivityRead:
 
     __slots__ = (
         "_creator_party_id",
-        "_expected_role",
+        "_factory",
         "_focus",
-        "_pool",
-        "_pool_timeout_seconds",
     )
 
     def __init__(
         self,
-        conninfo: str,
+        factory: PostgreSQLRuntimeUnitOfWorkFactory,
         *,
-        expected_role: str,
         creator_party_id: UUID,
-        pool_timeout_seconds: int,
         focus: ActivityFocusReadPort,
     ) -> None:
         self._creator_party_id = creator_party_id
-        self._expected_role = expected_role
-        self._pool_timeout_seconds = pool_timeout_seconds
+        self._factory = factory
         self._focus = focus
 
-        async def check(
-            connection: psycopg.AsyncConnection[tuple[Any, ...]],
-        ) -> None:
-            row = await (
-                await connection.execute(
-                    "SELECT session_user, current_user, current_setting('search_path')"
-                )
-            ).fetchone()
-            if row != (self._expected_role, self._expected_role, _SEARCH_PATH):
-                raise ActivityViolation("ACTIVITY-QUERY-UNAVAILABLE")
-
-        self._pool = AsyncConnectionPool[psycopg.AsyncConnection[tuple[Any, ...]]](
-            conninfo,
-            min_size=1,
-            max_size=1,
-            open=False,
-            configure=_configure,
-            check=check,
-            reset=_reset,
-            timeout=float(pool_timeout_seconds),
-            name="armi-creator-activity-query",
-        )
-
     async def open(self) -> None:
-        try:
-            await self._pool.open(wait=True)
-        except psycopg.Error, PoolTimeout:
-            raise ActivityViolation("ACTIVITY-QUERY-UNAVAILABLE") from None
+        return None
 
     async def close(self) -> None:
-        await self._pool.close()
+        return None
 
     async def list_current(self) -> CreatorActivityPage:
         try:
-            async with (
-                self._pool.connection(
-                    timeout=float(self._pool_timeout_seconds)
-                ) as connection,
-                connection.transaction(),
-            ):
-                await connection.execute("SET TRANSACTION READ ONLY")
+            async with self._factory.unit_of_work(read_only=True) as unit_of_work:
+                connection = unit_of_work.transaction
                 subject_id, focused = await self._scope(connection)
                 rows = await (
                     await connection.execute(
@@ -144,7 +93,7 @@ class PostgreSQLActivityRead:
                 ).fetchall()
         except ActivityViolation:
             raise
-        except psycopg.Error, PoolTimeout:
+        except RuntimeTransactionFailure:
             raise ActivityViolation("ACTIVITY-QUERY-UNAVAILABLE") from None
         return CreatorActivityPage(
             tuple(self._activity(row, focused) for row in rows[:_PAGE_SIZE]),
@@ -153,13 +102,8 @@ class PostgreSQLActivityRead:
 
     async def timeline(self, activity_id: UUID) -> CreatorActivityTimeline:
         try:
-            async with (
-                self._pool.connection(
-                    timeout=float(self._pool_timeout_seconds)
-                ) as connection,
-                connection.transaction(),
-            ):
-                await connection.execute("SET TRANSACTION READ ONLY")
+            async with self._factory.unit_of_work(read_only=True) as unit_of_work:
+                connection = unit_of_work.transaction
                 subject_id, _ = await self._scope(connection)
                 visible = await (
                     await connection.execute(
@@ -205,7 +149,7 @@ class PostgreSQLActivityRead:
                 ).fetchall()
         except ActivityViolation:
             raise
-        except psycopg.Error, PoolTimeout:
+        except RuntimeTransactionFailure:
             raise ActivityViolation("ACTIVITY-QUERY-UNAVAILABLE") from None
         return CreatorActivityTimeline(
             activity_id,
@@ -542,7 +486,7 @@ class PostgreSQLActivityRead:
         )
 
     async def _scope(
-        self, connection: psycopg.AsyncConnection[tuple[Any, ...]]
+        self, connection: PostgreSQLTransaction
     ) -> tuple[UUID, frozenset[str]]:
         row = await (
             await connection.execute(

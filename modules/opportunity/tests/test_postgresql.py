@@ -68,10 +68,8 @@ class _SubjectState:
 
 def _repository(*, boundary: bool = False) -> PostgreSQLLifeOpportunityRepository:
     activity = bootstrap_activity(
-        "postgresql://unused",
-        expected_role="unused",
+        cast(Any, object()),
         creator_party_id=uuid7(),
-        pool_timeout_seconds=1,
         focus=cast(Any, _SubjectState()),
     )
     material = bootstrap_material(
