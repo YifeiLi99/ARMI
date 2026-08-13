@@ -10,7 +10,6 @@ from armi_activity.api import (
     ActivityCognitionPort,
     ActivityCommitPort,
     ActivityReadPort,
-    ActivityViolation,
 )
 from armi_activity.bootstrap import ActivityModule, bootstrap_activity
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
@@ -127,7 +126,6 @@ from armi_relationship.api import (
     RelationshipDataRightsParticipant,
     RelationshipPolicyPort,
     RelationshipReadPort,
-    RelationshipViolation,
 )
 from armi_relationship.bootstrap import RelationshipModule, bootstrap_relationship
 from armi_sleep.api import (
@@ -607,48 +605,18 @@ def compose_interaction_module(
 
 
 def compose_activity_module(
-    prepared: PreparedEnvironment,
+    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     *,
     creator_party_id: UUID,
     subject_state: SubjectStateReadPort,
 ) -> ActivityModule:
     """Resolve and bind the one active Activity owner implementation."""
 
-    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
-    if locator is None:
-        raise ActivityViolation("ACTIVITY-QUERY-UNAVAILABLE")
-    try:
-        with prepared.credential_port.resolve(
-            locator,
-            CredentialPurpose("database.runtime"),
-        ) as handle:
-
-            def create(value: memoryview) -> ActivityModule:
-                try:
-                    conninfo = bytes(value).decode("utf-8")
-                except UnicodeDecodeError:
-                    raise ActivityViolation("ACTIVITY-QUERY-UNAVAILABLE") from None
-                config = prepared.effective.config
-                return bootstrap_activity(
-                    PostgreSQLUnitOfWorkFactory(
-                        conninfo,
-                        environment_id=config.environment.environment_id,
-                        pool_min=config.database.pool_min,
-                        pool_max=config.database.pool_max,
-                        acquire_timeout_seconds=(
-                            config.database.pool_acquire_timeout_seconds
-                        ),
-                        statement_timeout_seconds=(
-                            config.database.statement_timeout_seconds
-                        ),
-                    ),
-                    creator_party_id=creator_party_id,
-                    focus=subject_state,
-                )
-
-            return handle.consume(create)
-    except ConfigurationViolation:
-        raise ActivityViolation("ACTIVITY-QUERY-UNAVAILABLE") from None
+    return bootstrap_activity(
+        unit_of_work_factory,
+        creator_party_id=creator_party_id,
+        focus=subject_state,
+    )
 
 
 def compose_subject_state_module() -> SubjectStateModule:
@@ -834,48 +802,68 @@ def compose_exact_life_query_pipeline(
 
 
 def compose_relationship_module(
-    prepared: PreparedEnvironment,
+    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     *,
     creator_party_id: UUID,
 ) -> RelationshipModule:
     """Resolve and bind the one active relationship owner implementation."""
 
+    return bootstrap_relationship(
+        unit_of_work_factory,
+        creator_party_id=creator_party_id,
+    )
+
+
+def compose_runtime_unit_of_work_factory(
+    prepared: PreparedEnvironment,
+    *,
+    authority_admission: Callable[[], RuntimeFence],
+) -> PostgreSQLUnitOfWorkFactory:
+    """Resolve the sole normal Runtime PostgreSQL unit-of-work pool."""
+
     locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
     if locator is None:
-        raise RelationshipViolation("RELATIONSHIP-QUERY-UNAVAILABLE")
+        raise DatabaseViolation(
+            "DB-ROLE-CREDENTIAL-SCOPE",
+            "the configured PostgreSQL connection is unavailable",
+            status="unavailable",
+            exit_code=3,
+        )
     try:
         with prepared.credential_port.resolve(
             locator,
             CredentialPurpose("database.runtime"),
         ) as handle:
 
-            def create(value: memoryview) -> RelationshipModule:
+            def create(value: memoryview) -> PostgreSQLUnitOfWorkFactory:
                 try:
                     conninfo = bytes(value).decode("utf-8")
                 except UnicodeDecodeError:
-                    raise RelationshipViolation(
-                        "RELATIONSHIP-QUERY-UNAVAILABLE"
+                    raise DatabaseViolation(
+                        "DB-ROLE-CREDENTIAL-SCOPE",
+                        "the configured PostgreSQL connection is unavailable",
+                        status="unavailable",
+                        exit_code=3,
                     ) from None
                 config = prepared.effective.config
-                return bootstrap_relationship(
-                    PostgreSQLUnitOfWorkFactory(
-                        conninfo,
-                        environment_id=config.environment.environment_id,
-                        pool_min=config.database.pool_min,
-                        pool_max=config.database.pool_max,
-                        acquire_timeout_seconds=(
-                            config.database.pool_acquire_timeout_seconds
-                        ),
-                        statement_timeout_seconds=(
-                            config.database.statement_timeout_seconds
-                        ),
-                    ),
-                    creator_party_id=creator_party_id,
+                return PostgreSQLUnitOfWorkFactory(
+                    conninfo,
+                    environment_id=config.environment.environment_id,
+                    pool_min=config.database.pool_min,
+                    pool_max=config.database.pool_max,
+                    acquire_timeout_seconds=config.database.pool_acquire_timeout_seconds,
+                    statement_timeout_seconds=config.database.statement_timeout_seconds,
+                    authority_admission=authority_admission,
                 )
 
             return handle.consume(create)
     except ConfigurationViolation:
-        raise RelationshipViolation("RELATIONSHIP-QUERY-UNAVAILABLE") from None
+        raise DatabaseViolation(
+            "DB-ROLE-CREDENTIAL-SCOPE",
+            "the configured PostgreSQL connection is unavailable",
+            status="unavailable",
+            exit_code=3,
+        ) from None
 
 
 def compose_memory_module(
@@ -2129,6 +2117,7 @@ __all__ = (
     "compose_runtime_authority",
     "compose_runtime_observation",
     "compose_runtime_recovery",
+    "compose_runtime_unit_of_work_factory",
     "compose_sleep_module",
     "compose_subject_commit_pipeline",
     "compose_subject_state_module",

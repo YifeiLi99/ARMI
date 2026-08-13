@@ -54,6 +54,9 @@ from armi_web_observation.api import (
 from armi_runtime.adapters.persistence.runtime_observability import (
     RuntimeObservationError,
 )
+from armi_runtime.adapters.persistence.unit_of_work import (
+    PostgreSQLUnitOfWorkFactory,
+)
 from armi_runtime.interfaces.browser_sessions import (
     BrowserSessionStore,
     BrowserSessionViolation,
@@ -102,6 +105,7 @@ from .database import (
     compose_runtime_authority,
     compose_runtime_observation,
     compose_runtime_recovery,
+    compose_runtime_unit_of_work_factory,
     compose_sleep_module,
     compose_subject_commit_pipeline,
     compose_subject_state_module,
@@ -181,6 +185,7 @@ async def _serve(
     authority_port = None
     authority: RuntimeAuthorityController | None = None
     recovery_port = None
+    runtime_unit_of_work_factory: PostgreSQLUnitOfWorkFactory | None = None
     observation_port = None
     observation_driver: RuntimeObservationDriver | None = None
     recovery_reasons: tuple[str, ...] = ()
@@ -248,6 +253,11 @@ async def _serve(
             if acquired.fence.runtime_instance_id.value != instance_uuid:
                 raise RuntimeAuthorityViolation("AUTH-INSTANCE-MISMATCH")
             await authority.heartbeat_once()
+            runtime_unit_of_work_factory = compose_runtime_unit_of_work_factory(
+                prepared,
+                authority_admission=authority.require_writable,
+            )
+            await runtime_unit_of_work_factory.open()
             creator_context = inspect_creator_context(prepared)
             if creator_context is None:
                 raise BrowserSessionViolation(
@@ -334,13 +344,13 @@ async def _serve(
             evidence_module = compose_evidence_module()
             await evidence_module.open()
             activity_module = compose_activity_module(
-                prepared,
+                runtime_unit_of_work_factory,
                 creator_party_id=creator_context.party_id,
                 subject_state=subject_state_module.read,
             )
             await activity_module.open()
             relationship_module = compose_relationship_module(
-                prepared,
+                runtime_unit_of_work_factory,
                 creator_party_id=creator_context.party_id,
             )
             await relationship_module.open()
@@ -681,10 +691,12 @@ async def _serve(
                 result_code="AUTH_UNAVAILABLE",
                 reason_codes=("RUNTIME_AUTHORITY_UNAVAILABLE",),
             )
-            if authority_port is not None:
-                await authority_port.close()
             if observation_port is not None:
                 await observation_port.close()
+            if runtime_unit_of_work_factory is not None:
+                await runtime_unit_of_work_factory.close()
+            if authority_port is not None:
+                await authority_port.close()
             diagnostic.close()
             return EXIT_LISTENER_FAILURE
         except RecoveryViolation:
@@ -783,10 +795,12 @@ async def _serve(
                 await capability_policy.close()
             if authority is not None:
                 await authority.release()
-            if authority_port is not None:
-                await authority_port.close()
             if observation_port is not None:
                 await observation_port.close()
+            if runtime_unit_of_work_factory is not None:
+                await runtime_unit_of_work_factory.close()
+            if authority_port is not None:
+                await authority_port.close()
             diagnostic.close()
             return EXIT_LISTENER_FAILURE
         finally:
@@ -1316,10 +1330,12 @@ async def _serve(
             await codex_pipeline.close()
         if web_search_pipeline is not None:
             await web_search_pipeline.close()
-        if authority_port is not None:
-            await authority_port.close()
         if observation_port is not None:
             await observation_port.close()
+        if runtime_unit_of_work_factory is not None:
+            await runtime_unit_of_work_factory.close()
+        if authority_port is not None:
+            await authority_port.close()
     if server.force_exit:
         return EXIT_GRACEFUL_TIMEOUT
     if drain_timed_out:
