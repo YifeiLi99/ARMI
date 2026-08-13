@@ -62,7 +62,7 @@ def main() -> int:
     wheel = args.wheel
     if wheel is None:
         candidates = sorted(
-            (root / ".tmp/quality/python-dist").glob("armi_runtime*.whl")
+            (root / ".tmp/quality/python-dist").glob("armi_runtime-*.whl")
         )
         if len(candidates) != 1:
             print("WEB-WHEEL-MISSING: expected one Runtime wheel", file=sys.stderr)

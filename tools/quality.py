@@ -131,11 +131,13 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
             "armi_adapter_qq",
             "armi_admin",
             "armi_artifact_store",
+            "armi_capability",
             "armi_channel_napcat",
             "armi_cognition",
             "armi_codex",
             "armi_context",
             "armi_data_rights",
+            "armi_effect",
             "armi_evidence",
             "armi_expression",
             "armi_kernel",
@@ -161,10 +163,11 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
             and len(wheels) == 28
             and len(source_distributions) == 28
             and all(
-                any(name.startswith(prefix) for name in wheels) for prefix in expected
+                any(name.startswith(f"{prefix}-") for name in wheels)
+                for prefix in expected
             )
             and all(
-                any(name.startswith(prefix) for name in source_distributions)
+                any(name.startswith(f"{prefix}-") for name in source_distributions)
                 for prefix in expected
             )
         )
@@ -172,7 +175,7 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
         if not valid:
             return False, summary
         runtime_wheels = sorted(
-            path for path in python_dist.glob("armi_runtime*.whl") if path.is_file()
+            path for path in python_dist.glob("armi_runtime-*.whl") if path.is_file()
         )
         if len(runtime_wheels) != 1:
             return False, f"{summary}\nexpected one Runtime wheel"
