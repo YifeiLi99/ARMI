@@ -516,17 +516,7 @@ async def _commit_one(
     relationship: CandidateRelationshipDraft,
 ) -> None:
     source_experience_id = experience_ids.get(relationship.source_experience_ref)
-    accepted = await (
-        await connection.execute(
-            """
-            SELECT 1 FROM armi.cognitive_candidate_validation_items
-            WHERE candidate_validation_id = %s AND proposal_ref = %s
-              AND owner_kind = 'relationship' AND validation_status = 'accepted'
-            """,
-            (validation_id, relationship.proposal_ref),
-        )
-    ).fetchone()
-    if source_experience_id is None or accepted is None:
+    if source_experience_id is None:
         raise RelationshipViolation("RELATIONSHIP-COMMIT-VALIDATION")
     revision_id = uuid7()
     previous = None
