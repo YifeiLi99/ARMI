@@ -86,24 +86,6 @@ class PostgreSQLMaterialCommit:
             raise MaterialViolation("MATERIAL-ARTIFACT")
         affected: list[UUID] = []
         for material in materials:
-            validation = await (
-                await transaction.execute(
-                    """SELECT 1 FROM armi.cognitive_candidate_validation_items
-                       WHERE candidate_validation_id=%s AND proposal_ref=%s
-                         AND owner_kind='material' AND validation_status='accepted'""",
-                    (validation_id, material.proposal_ref),
-                )
-            ).fetchone()
-            owner = await (
-                await transaction.execute(
-                    """SELECT 1 FROM armi.parties WHERE party_id=%s
-                       AND represented_subject_id=%s AND party_kind='subject'""",
-                    (material.owner_party_id, subject_id),
-                )
-            ).fetchone()
-            if validation is None or owner is None:
-                raise MaterialViolation("MATERIAL-OWNER")
-
             revision_id = uuid7()
             reused_artifact_id: ArtifactId | None = None
             if material.current_revision_id is None:
