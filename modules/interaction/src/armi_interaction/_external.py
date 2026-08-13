@@ -100,13 +100,10 @@ class ExternalMessageInputService(ExternalMessageInputPort):
         self._notifier = notifier
 
     async def open(self) -> None:
-        try:
-            await self._factory.open()
-        except RuntimeTransactionFailure:
-            raise ExternalMessageViolation("DB-EXTERNAL-MESSAGE-UNAVAILABLE") from None
+        return None
 
     async def close(self) -> None:
-        await self._factory.close()
+        return None
 
     async def configure_creator(
         self, command: ConfigureExternalCreatorCommand

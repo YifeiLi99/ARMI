@@ -44,13 +44,10 @@ class CreatorSceneService(CreatorScenePort):
         self._repository = repository
 
     async def open(self) -> None:
-        try:
-            await self._factory.open()
-        except RuntimeTransactionFailure:
-            raise SceneQueryViolation("SCENE-QUERY-UNAVAILABLE") from None
+        return None
 
     async def close(self) -> None:
-        await self._factory.close()
+        return None
 
     async def list(self) -> CreatorSceneCollection:
         try:

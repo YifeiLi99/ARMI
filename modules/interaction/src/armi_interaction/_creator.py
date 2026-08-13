@@ -197,13 +197,10 @@ class EvidenceAcceptanceTransaction(
         return acceptance
 
     async def open(self) -> None:
-        try:
-            await self._uow_factory.open()
-        except RuntimeTransactionFailure:
-            raise CreatorInputViolation("DB-INPUT-UNAVAILABLE") from None
+        return None
 
     async def close(self) -> None:
-        await self._uow_factory.close()
+        return None
 
     async def get(self, opportunity_id: OpportunityId) -> CreatorOperation:
         try:

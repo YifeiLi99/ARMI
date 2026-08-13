@@ -88,13 +88,10 @@ class OtherHumanInputService(OtherHumanInputPort):
         self._notifier = notifier
 
     async def open(self) -> None:
-        try:
-            await self._uow_factory.open()
-        except RuntimeTransactionFailure:
-            raise OtherHumanInputViolation("DB-OTHER-HUMAN-UNAVAILABLE") from None
+        return None
 
     async def close(self) -> None:
-        await self._uow_factory.close()
+        return None
 
     async def register_party(
         self, command: RegisterOtherHumanPartyCommand
