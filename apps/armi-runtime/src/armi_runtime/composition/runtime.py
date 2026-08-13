@@ -18,9 +18,11 @@ from armi_activity.api import ActivityViolation
 from armi_capability.api import CapabilityViolation
 from armi_codex.api import CodexDelegationViolation, CodexRuntimePort
 from armi_codex.bootstrap import bootstrap_codex_commit
+from armi_cognition.bootstrap import bootstrap_cognition_context
 from armi_context.api import ContextViolation
 from armi_data_rights.api import CreatorExportViolation, DataRightsViolation
 from armi_effect.api import EffectViolation
+from armi_effect.bootstrap import bootstrap_effect_operation_read
 from armi_expression.api import ResponseViolation
 from armi_interaction.api import (
     CreatorInputCommand,
@@ -42,6 +44,7 @@ from armi_kernel.application import (
 from armi_kernel.contracts import IdempotencyKey, TraceId
 from armi_memory.api import MemoryViolation
 from armi_opportunity.api import LifeViolation
+from armi_opportunity.bootstrap import bootstrap_opportunity_cognition
 from armi_prompt.api import CreatorPromptViolation
 from armi_relationship.api import RelationshipViolation
 from armi_sleep.api import CreatorMaintenanceViolation, SleepViolation
@@ -51,6 +54,7 @@ from armi_web_observation.api import (
     WebResearchRuntimePort,
     WebResearchViolation,
 )
+from armi_web_observation.bootstrap import bootstrap_web_context_read
 
 from armi_runtime.adapters.persistence.runtime_observability import (
     RuntimeObservationError,
@@ -59,6 +63,7 @@ from armi_runtime.adapters.persistence.unit_of_work import (
     PostgreSQLUnitOfWorkFactory,
 )
 from armi_runtime.application.action_lifecycle import RuntimeCodexGrantActivation
+from armi_runtime.application.cognition_cycle import RuntimeCognitionState
 from armi_runtime.interfaces.browser_sessions import (
     BrowserSessionStore,
     BrowserSessionViolation,
@@ -99,6 +104,7 @@ from .database import (
     compose_evidence_module,
     compose_exact_life_query_pipeline,
     compose_expression_module,
+    compose_interaction_cognition_ports,
     compose_interaction_identity,
     compose_interaction_module,
     compose_life_opportunity_pipeline,
@@ -540,15 +546,27 @@ async def _serve(
                 notifier=creator_events,
             )
             await life_opportunity_pipeline.open()
+            interaction_cognition = compose_interaction_cognition_ports()
+            cognition_context = bootstrap_cognition_context()
+            opportunity_cognition = bootstrap_opportunity_cognition()
+            runtime_cognition_state = RuntimeCognitionState()
             context_pipeline = compose_context_pipeline(
                 prepared,
                 unit_of_work_factory=runtime_unit_of_work_factory,
                 activity_read=activity_module.read,
                 capability_read=capability_policy.read,
-                codex_commit=bootstrap_codex_commit(
-                    codex_reads.task_sources,
-                    expression_module.commit,
-                ),
+                codex_read=codex_reads.task_sources,
+                codex_context=codex_reads.context,
+                cognition_context=cognition_context,
+                evidence_read=evidence_module.read,
+                interaction_context=interaction_cognition.context,
+                interaction_cognition=interaction_cognition.cognition,
+                opportunity_cognition=opportunity_cognition,
+                runtime_subjects=runtime_cognition_state,
+                web_context=bootstrap_web_context_read(),
+                expression_read=expression_module.intents,
+                effect_read=bootstrap_effect_operation_read(),
+                data_rights=data_rights_module.cognition,
                 memory_read=memory_module.read,
                 memory_projection=memory_module.projection,
                 mood_read=mood_module.read,
@@ -572,6 +590,13 @@ async def _serve(
                 activity_read=activity_module.read,
                 material_context=candidate_context.material,
                 memory_context=candidate_context.memory,
+                context=candidate_context.cognition,
+                runtime_state=runtime_cognition_state,
+                interaction=interaction_cognition.cognition,
+                opportunity_context=opportunity_cognition,
+                opportunity_transitions=opportunity_cognition,
+                evidence=evidence_module.read,
+                codex=codex_reads.task_sources,
                 memory_cognition=memory_module.cognition,
                 memory_read=memory_module.read,
                 mood_cognition=mood_module.cognition,
@@ -721,6 +746,8 @@ async def _serve(
                     model_pipeline = compose_model_pipeline(
                         prepared,
                         unit_of_work_factory=runtime_unit_of_work_factory,
+                        context=candidate_context.cognition,
+                        opportunities=opportunity_cognition,
                         wakeups=work_wakeups,
                         diagnostic=lambda event: diagnostic.emit(
                             event,

@@ -407,6 +407,13 @@ class ExpressionIntentReadPort(Protocol):
         action_intent_id: UUID,
     ) -> ExpressionIntentSnapshot: ...
 
+    async def revision_snapshot(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        action_intent_revision_id: UUID,
+    ) -> ExpressionIntentSnapshot: ...
+
     async def delegation_for_commit(
         self,
         transaction: PostgreSQLTransaction,

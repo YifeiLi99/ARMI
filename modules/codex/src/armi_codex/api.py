@@ -122,6 +122,16 @@ class CodexTaskSourceReadPort(Protocol):
 
 
 @runtime_checkable
+class CodexContextReadPort(Protocol):
+    async def verification_effect_id(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        verification_id: UUID,
+    ) -> UUID: ...
+
+
+@runtime_checkable
 class CodexExecutionReadPort(Protocol):
     async def execution_for_effect(
         self,
@@ -184,6 +194,7 @@ __all__ = (
     "CodexCleanupStatus",
     "CodexCommitContext",
     "CodexCommitPort",
+    "CodexContextReadPort",
     "CodexDelegationDraft",
     "CodexDelegationPort",
     "CodexDelegationViolation",

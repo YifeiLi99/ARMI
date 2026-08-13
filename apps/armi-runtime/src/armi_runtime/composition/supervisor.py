@@ -58,11 +58,6 @@ class RuntimeSupervisor:
         """Stop admission, finish owned work, release authority, then heartbeat."""
 
         authority = self._authority
-        if authority is not None and authority.snapshot().state in {
-            LocalAuthorityState.ACTIVE,
-            LocalAuthorityState.SUSPENDED,
-        }:
-            authority.begin_drain()
         try:
             if self._tasks:
                 async with asyncio.timeout(deadline_seconds):
@@ -70,6 +65,11 @@ class RuntimeSupervisor:
         except TimeoutError:
             await self._cancel_all()
             return False
+        if authority is not None and authority.snapshot().state in {
+            LocalAuthorityState.ACTIVE,
+            LocalAuthorityState.SUSPENDED,
+        }:
+            authority.begin_drain()
         if authority is not None and authority.snapshot().state is (
             LocalAuthorityState.DRAINING
         ):

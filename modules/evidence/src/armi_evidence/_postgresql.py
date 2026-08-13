@@ -122,8 +122,10 @@ class PostgreSQLEvidenceWriter:
         row = await (
             await _connection(transaction).execute(
                 """
-                SELECT received_at, interaction_id, artifact_id,
-                       codex_task_source_id
+                SELECT received_at, interaction_id, artifact_id, source_kind,
+                       scene_id, context_party_id, web_observation_request_id,
+                       observation_attempt_id, codex_task_source_id,
+                       codex_verification_id
                 FROM armi.external_evidence
                 WHERE evidence_id = %s AND acceptance_status = 'accepted'
                 """,
@@ -132,7 +134,21 @@ class PostgreSQLEvidenceWriter:
         ).fetchone()
         if row is None:
             raise EvidenceViolation("EVIDENCE-NOT-FOUND")
-        return EvidenceSnapshot(evidence_id, row[0], row[1], row[2], row[3])
+        from .api import EvidenceSourceKind
+
+        return EvidenceSnapshot(
+            evidence_id,
+            row[0],
+            row[1],
+            row[2],
+            EvidenceSourceKind(str(row[3])),
+            row[4],
+            row[5],
+            row[6],
+            row[7],
+            row[8],
+            row[9],
+        )
 
 
 __all__ = ("PostgreSQLEvidenceWriter",)

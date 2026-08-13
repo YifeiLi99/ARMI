@@ -4,7 +4,10 @@ import asyncio
 import unittest
 
 from armi_kernel.application import RuntimeInstanceId
-from armi_runtime.composition.authority import RuntimeAuthorityController
+from armi_runtime.composition.authority import (
+    LocalAuthorityState,
+    RuntimeAuthorityController,
+)
 from armi_runtime.composition.supervisor import RuntimeSupervisor
 
 from tests.runtime.test_runtime_authority import _AuthorityPort
@@ -45,6 +48,10 @@ class RuntimeSupervisorTests(unittest.TestCase):
 
             async def short_transaction() -> None:
                 await asyncio.sleep(0)
+                self.assertIs(
+                    authority.snapshot().state,
+                    LocalAuthorityState.ACTIVE,
+                )
                 completed.set()
 
             async def heartbeat() -> None:

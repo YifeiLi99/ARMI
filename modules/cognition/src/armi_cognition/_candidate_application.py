@@ -18,6 +18,10 @@ from armi_artifact_store.content_store import (
 from armi_artifact_store.life_material_codec import (
     parse_life_material_artifact,
 )
+from armi_codex.api import CodexTaskSourceReadPort
+from armi_context.api import ContextCognitionReadPort
+from armi_evidence.api import EvidenceReadPort
+from armi_interaction.api import InteractionCognitionReadPort
 from armi_kernel.application import (
     ArtifactId,
     ArtifactIntegrityStatus,
@@ -34,6 +38,7 @@ from armi_kernel.application import (
     CandidateViolation,
     DurableWorkPort,
     WorkLease,
+    WorkRecord,
     WorkViolation,
 )
 from armi_kernel.contracts import Purpose, SubjectId
@@ -54,6 +59,10 @@ from armi_memory.api import (
     MemorySourceKind,
 )
 from armi_mood.api import MoodCognitionPort, MoodReadPort
+from armi_opportunity.api import (
+    OpportunityCognitionSelectionPort,
+    OpportunityContextReadPort,
+)
 from armi_prompt.api import PromptCognitionPort, PromptReadPort
 from armi_relationship.api import (
     RelationshipBoundary,
@@ -93,7 +102,11 @@ from ._validator import (
     CandidateValidationContext,
     DeterministicCandidateValidator,
 )
-from .api import CognitionArtifactCatalogPort, CognitionWakeupPort
+from .api import (
+    CognitionArtifactCatalogPort,
+    CognitionRuntimeStatePort,
+    CognitionWakeupPort,
+)
 
 _WORK_KIND = "cognition.candidate.validate"
 CANDIDATE_VALIDATE = _WORK_KIND
@@ -182,6 +195,13 @@ class CandidateValidationPipeline:
         activity_read: ActivityReadPort,
         material_context: MaterialCandidateContextPort,
         memory_context: MemoryCandidateContextPort,
+        context: ContextCognitionReadPort,
+        runtime_state: CognitionRuntimeStatePort,
+        interaction: InteractionCognitionReadPort,
+        opportunity_context: OpportunityContextReadPort,
+        opportunity_transitions: OpportunityCognitionSelectionPort,
+        evidence: EvidenceReadPort,
+        codex: CodexTaskSourceReadPort,
         memory_cognition: MemoryCognitionPort,
         memory_read: MemoryReadPort,
         mood_cognition: MoodCognitionPort,
@@ -218,6 +238,14 @@ class CandidateValidationPipeline:
             activity_read,
             material_context,
             memory_context,
+            context,
+            runtime_state,
+            interaction,
+            opportunity_context,
+            opportunity_transitions,
+            evidence,
+            codex,
+            catalog,
             memories=memory_read,
             mood=mood_read,
             prompts=prompt_read,
@@ -254,9 +282,10 @@ class CandidateValidationPipeline:
             raise CandidateViolation("CANDIDATE-DATABASE") from None
         if not records:
             return False
-        lease = cast(WorkLease, records[0].lease)
+        record = records[0]
+        lease = cast(WorkLease, record.lease)
         try:
-            snapshot = await self._snapshot(lease)
+            snapshot = await self._snapshot(record)
             response_bytes = await self._read_response(snapshot)
             material_contexts = await self._read_material_contexts(
                 snapshot.current_materials
@@ -423,10 +452,10 @@ class CandidateValidationPipeline:
             if error.code == "CANDIDATE-WORK-STALE":
                 self._diagnostic("candidate.work.stale")
                 return True
-            await self._fail(lease, error.code)
+            await self._fail(record, error.code)
             return True
         except ArtifactViolation:
-            await self._fail(lease, "CANDIDATE-ARTIFACT")
+            await self._fail(record, "CANDIDATE-ARTIFACT")
             return True
         except RuntimeTransactionFailure, WorkViolation:
             self._diagnostic("candidate.worker.transient_failure")
@@ -451,10 +480,10 @@ class CandidateValidationPipeline:
                 timeout_seconds=1,
             )
 
-    async def _snapshot(self, lease: WorkLease) -> CandidateEpisodeSnapshot:
+    async def _snapshot(self, work: WorkRecord) -> CandidateEpisodeSnapshot:
         try:
             async with self._factory.unit_of_work() as unit_of_work:
-                return await self._repository.snapshot(unit_of_work, lease)
+                return await self._repository.snapshot(unit_of_work, work)
         except RuntimeTransactionFailure:
             raise CandidateViolation("CANDIDATE-DATABASE") from None
 
@@ -523,12 +552,12 @@ class CandidateValidationPipeline:
         )
         return await self._storage.publish(staged)
 
-    async def _fail(self, lease: WorkLease, code: str) -> None:
+    async def _fail(self, work: WorkRecord, code: str) -> None:
         try:
             async with self._factory.unit_of_work() as unit_of_work:
                 await self._repository.fail(
                     unit_of_work,
-                    lease=lease,
+                    work=work,
                     error_code=code,
                 )
         except CandidateViolation, RuntimeTransactionFailure, WorkViolation:

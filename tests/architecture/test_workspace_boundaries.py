@@ -14,6 +14,7 @@ from tools.check_workspace_boundaries import (
 from tools.schema_ownership import (
     TABLE_OWNERSHIP,
     ownership_registry_errors,
+    scan_repository_foreign_table_accesses,
     scan_source_foreign_table_accesses,
     schema_tables_at_head,
 )
@@ -138,6 +139,24 @@ class WorkspaceBoundaryTests(unittest.TestCase):
             errors = ownership_registry_errors(schema_root)
         self.assertIn("unregistered table: armi.unregistered_fact", errors)
         self.assertIn("stale registry table: armi.subjects", errors)
+
+    def test_cognition_context_batch_reaches_owner_sql_budget(self) -> None:
+        accesses = scan_repository_foreign_table_accesses(ROOT)
+        production = tuple(
+            item
+            for item in accesses
+            if "/runtime_resources/schema/baseline/" not in item.path
+            and "/runtime_resources/schema/alembic/versions/" not in item.path
+        )
+        self.assertLessEqual(len(accesses), 254)
+        self.assertLessEqual(len(production), 230)
+        self.assertFalse(
+            tuple(
+                item
+                for item in production
+                if item.source_owner in {"cognition", "context"}
+            )
+        )
 
     def test_sql_owner_scanner_finds_reads_writes_and_ctes(self) -> None:
         accesses = scan_source_foreign_table_accesses(

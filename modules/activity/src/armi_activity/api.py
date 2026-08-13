@@ -541,7 +541,12 @@ class ActivityReadPort(Protocol):
     async def list_current(self) -> CreatorActivityPage: ...
     async def timeline(self, activity_id: UUID) -> CreatorActivityTimeline: ...
     async def candidate_head(
-        self, transaction: PostgreSQLTransaction, *, episode_id: UUID
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        activity_id: UUID | None,
+        expected_revision_id: UUID | None,
+        expected_revision_no: int | None,
     ) -> ActivityCandidateSnapshot | None: ...
     async def context_summary(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID, enabled: bool

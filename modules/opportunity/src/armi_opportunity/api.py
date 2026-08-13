@@ -10,7 +10,6 @@ from typing import Protocol, runtime_checkable
 from uuid import UUID
 
 from armi_activity.api import ActivityId
-from armi_kernel.application import CognitiveEpisodeId
 from armi_kernel.contracts import Digest
 from armi_runtime_foundation import PostgreSQLTransaction
 
@@ -230,6 +229,80 @@ class OpportunityOperationSnapshot:
     reconsideration_no: int
 
 
+@dataclass(frozen=True, slots=True)
+class OpportunitySelectionCursor:
+    available_after: datetime
+    opportunity_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
+class OpportunityCognitionSelectionScope:
+    subject_id: UUID
+    maintenance_source_ref: UUID | None = None
+    maintenance_source_version: int | None = None
+    maintenance_purpose: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class OpportunityCognitionCandidate:
+    opportunity_id: UUID
+    root_opportunity_id: UUID
+    evidence_id: UUID | None
+    subject_id: UUID
+    scene_id: UUID | None
+    context_party_id: UUID | None
+    purpose: str
+    source_kind: str
+    source_ref: UUID
+    source_version: int
+    available_after: datetime
+    expires_at: datetime | None
+    activity_id: UUID | None
+
+
+@runtime_checkable
+class OpportunityCognitionSelectionPort(Protocol):
+    async def next_candidate(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        scope: OpportunityCognitionSelectionScope,
+        after: OpportunitySelectionCursor | None = None,
+    ) -> OpportunityCognitionCandidate | None: ...
+
+    async def select_for_cognition(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        opportunity_id: UUID,
+    ) -> bool: ...
+
+    async def resolve_cognition_failure(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        opportunity_id: UUID,
+    ) -> bool: ...
+
+
+@runtime_checkable
+class OpportunityContextReadPort(Protocol):
+    async def context_snapshot(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        opportunity_id: UUID,
+    ) -> OpportunityCognitionCandidate: ...
+
+
+@runtime_checkable
+class OpportunityCognitionPort(
+    OpportunityCognitionSelectionPort,
+    OpportunityContextReadPort,
+    Protocol,
+): ...
+
+
 @runtime_checkable
 class OpportunityOperationReadPort(Protocol):
     async def operation_snapshot(
@@ -315,12 +388,6 @@ class OpportunityTransitionPort(Protocol):
 
 
 @runtime_checkable
-class OpportunitySelector(Protocol):
-    async def select_once(self) -> CognitiveEpisodeId | None:
-        """Select at most one durable opportunity through the authoritative owner."""
-        ...
-
-
 @runtime_checkable
 class OpportunityRuntimePort(LifeOpportunitySourcePort, Protocol):
     async def open(self) -> None: ...
@@ -364,13 +431,18 @@ __all__ = (
     "OpportunityAdmissionOutcome",
     "OpportunityAdmissionPort",
     "OpportunityAdmissionStatus",
+    "OpportunityCognitionCandidate",
+    "OpportunityCognitionPort",
+    "OpportunityCognitionSelectionPort",
+    "OpportunityCognitionSelectionScope",
     "OpportunityCommitSnapshot",
+    "OpportunityContextReadPort",
     "OpportunityId",
     "OpportunityOperationReadPort",
     "OpportunityOperationSnapshot",
     "OpportunityPurpose",
     "OpportunityRuntimePort",
-    "OpportunitySelector",
+    "OpportunitySelectionCursor",
     "OpportunityTransitionPort",
     "OpportunityWakeupPort",
 )

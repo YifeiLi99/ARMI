@@ -14,7 +14,7 @@ from armi_kernel.application import (
     PublishedArtifact,
 )
 from armi_kernel.contracts import TraceId
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
 
 from ._observation_contract import (
     WebObservationAdmissionPort,
@@ -108,6 +108,16 @@ class WebResearchRuntimePort(WebResearchIntentPort, Protocol):
 
 
 @runtime_checkable
+class WebContextReadPort(Protocol):
+    async def request_trace(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        request_id: UUID,
+    ) -> TraceId: ...
+
+
+@runtime_checkable
 class WebArtifactStorePort(ArtifactPort, Protocol):
     async def prepare(self) -> None: ...
 
@@ -125,6 +135,7 @@ class WebArtifactCatalogPort(Protocol):
 __all__ = (
     "WebArtifactCatalogPort",
     "WebArtifactStorePort",
+    "WebContextReadPort",
     "WebEvidenceAcceptancePort",
     "WebEvidenceAcceptanceResult",
     "WebEvidenceBundle",

@@ -87,6 +87,23 @@ class PostgreSQLCodexReadOwner:
             None if row[5] is None else Digest(str(row[5])),
         )
 
+    async def verification_effect_id(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        verification_id: UUID,
+    ) -> UUID:
+        row = await (
+            await transaction.execute(
+                "SELECT effect_id FROM armi.codex_verification_results "
+                "WHERE codex_verification_id=%s",
+                (verification_id,),
+            )
+        ).fetchone()
+        if row is None:
+            raise CodexDelegationViolation("CODEX-VERIFICATION")
+        return row[0]
+
     async def artifact_ref(
         self,
         transaction: PostgreSQLTransaction,

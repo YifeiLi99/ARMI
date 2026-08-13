@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
@@ -119,6 +120,81 @@ class InteractionSubjectCommitSnapshot:
     scene_key: str | None
     creator_party_id: UUID | None
     other_party_id: UUID | None
+
+
+@dataclass(frozen=True, slots=True)
+class InteractionContextSceneSnapshot:
+    scene_id: UUID
+    scene_key: str
+    scene_kind: str
+    audience_scope: str
+    status: str
+    scene_version: int
+    primary_party_id: UUID | None
+    context_party_id: UUID | None
+    context_party_label: str | None
+    context_party_kind: str | None
+    addressed_to_subject: bool | None
+
+
+@dataclass(frozen=True, slots=True)
+class InteractionContextTurn:
+    timeline_item_id: UUID
+    source_event_no: int
+    source_kind: str
+    source_ref: UUID
+    occurred_at: datetime
+    speaker_label: str | None
+    speaker_kind: str | None
+
+
+@runtime_checkable
+class InteractionContextReadPort(Protocol):
+    async def context_scene(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        scene_id: UUID,
+        context_party_id: UUID | None,
+        current_interaction_id: UUID | None,
+    ) -> InteractionContextSceneSnapshot: ...
+
+    async def recent_context_turns(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        scene_id: UUID,
+        before_interaction_id: UUID | None,
+        before_time: datetime | None,
+        source_kinds: tuple[str, ...],
+        limit: int,
+    ) -> tuple[InteractionContextTurn, ...]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class InteractionCognitionSnapshot:
+    scene_kind: str | None
+    context_party_kind: str | None
+    subject_party_id: UUID
+
+
+@runtime_checkable
+class InteractionCognitionReadPort(Protocol):
+    async def cognition_snapshot(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        scene_id: UUID | None,
+        context_party_id: UUID | None,
+    ) -> InteractionCognitionSnapshot: ...
+
+    async def interaction_trace(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        interaction_id: UUID,
+    ) -> TraceId: ...
 
 
 @runtime_checkable
@@ -463,6 +539,11 @@ __all__ = (
     "ExternalVisualRole",
     "InteractionArtifactCatalogPort",
     "InteractionBirthPort",
+    "InteractionCognitionReadPort",
+    "InteractionCognitionSnapshot",
+    "InteractionContextReadPort",
+    "InteractionContextSceneSnapshot",
+    "InteractionContextTurn",
     "InteractionDataRightsGate",
     "InteractionEffectDeliveryPort",
     "InteractionEffectRoute",

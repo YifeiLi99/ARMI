@@ -7,6 +7,10 @@ from pathlib import Path
 
 from armi_activity.api import ActivityCognitionPort, ActivityReadPort
 from armi_artifact_store import ContentAddressedArtifactStore
+from armi_codex.api import CodexTaskSourceReadPort
+from armi_context.api import ContextCognitionReadPort
+from armi_evidence.api import EvidenceReadPort
+from armi_interaction.api import InteractionCognitionReadPort
 from armi_kernel.application import DurableWorkPort
 from armi_material.api import (
     MaterialCandidateContextPort,
@@ -19,6 +23,10 @@ from armi_memory.api import (
     MemoryReadPort,
 )
 from armi_mood.api import MoodCognitionPort, MoodReadPort
+from armi_opportunity.api import (
+    OpportunityCognitionSelectionPort,
+    OpportunityContextReadPort,
+)
 from armi_prompt.api import PromptCognitionPort, PromptReadPort
 from armi_relationship.api import RelationshipCognitionPort, RelationshipReadPort
 from armi_runtime_foundation import (
@@ -30,15 +38,18 @@ from armi_subject_state.api import SubjectStateCognitionPort, SubjectStateReadPo
 
 from ._candidate_application import CandidateValidationPipeline
 from ._change_set_codec import parse_subject_change_set
+from ._context_postgresql import PostgreSQLCognitionContextLifecycle
 from ._exact_life_query import PostgreSQLCognitionExactLifeQuery
 from ._model_application import ModelPipeline
 from ._recovery import CognitionRecoveryParticipant
 from ._subject_commit import PostgreSQLCognitionSubjectCommit
 from .api import (
     CognitionArtifactCatalogPort,
+    CognitionContextLifecyclePort,
     CognitionExactLifeQueryPort,
     CognitionModelAdapterFactory,
     CognitionOperationReadPort,
+    CognitionRuntimeStatePort,
     CognitionSubjectCommitPort,
     CognitionWakeupPort,
     CognitionWorkerPort,
@@ -53,6 +64,10 @@ def bootstrap_cognition_exact_life_query() -> CognitionExactLifeQueryPort:
 
 def bootstrap_cognition_subject_commit() -> CognitionSubjectCommitPort:
     return PostgreSQLCognitionSubjectCommit()
+
+
+def bootstrap_cognition_context() -> CognitionContextLifecyclePort:
+    return PostgreSQLCognitionContextLifecycle()
 
 
 def bootstrap_cognition_operation() -> CognitionOperationReadPort:
@@ -134,6 +149,8 @@ def bootstrap_cognition_model(
     factory: PostgreSQLRuntimeUnitOfWorkFactory,
     storage: ContentAddressedArtifactStore,
     catalog: CognitionArtifactCatalogPort,
+    context: ContextCognitionReadPort,
+    opportunities: OpportunityCognitionSelectionPort,
     work: DurableWorkPort,
     adapter_factory: CognitionModelAdapterFactory,
     binding_path: Path,
@@ -145,6 +162,8 @@ def bootstrap_cognition_model(
         factory=factory,
         storage=storage,
         catalog=catalog,
+        context=context,
+        opportunities=opportunities,
         work=work,
         adapter_factory=adapter_factory,
         binding_path=binding_path,
@@ -164,6 +183,13 @@ def bootstrap_cognition_candidate(
     activity_read: ActivityReadPort,
     material_context: MaterialCandidateContextPort,
     memory_context: MemoryCandidateContextPort,
+    context: ContextCognitionReadPort,
+    runtime_state: CognitionRuntimeStatePort,
+    interaction: InteractionCognitionReadPort,
+    opportunity_context: OpportunityContextReadPort,
+    opportunity_transitions: OpportunityCognitionSelectionPort,
+    evidence: EvidenceReadPort,
+    codex: CodexTaskSourceReadPort,
     memory_cognition: MemoryCognitionPort,
     memory_read: MemoryReadPort,
     mood_cognition: MoodCognitionPort,
@@ -191,6 +217,13 @@ def bootstrap_cognition_candidate(
         activity_read=activity_read,
         material_context=material_context,
         memory_context=memory_context,
+        context=context,
+        runtime_state=runtime_state,
+        interaction=interaction,
+        opportunity_context=opportunity_context,
+        opportunity_transitions=opportunity_transitions,
+        evidence=evidence,
+        codex=codex,
         memory_cognition=memory_cognition,
         memory_read=memory_read,
         mood_cognition=mood_cognition,
@@ -218,6 +251,7 @@ def bootstrap_cognition_recovery() -> RecoveryParticipant:
 __all__ = (
     "bootstrap_cognition_candidate",
     "bootstrap_cognition_change_set_codec",
+    "bootstrap_cognition_context",
     "bootstrap_cognition_exact_life_query",
     "bootstrap_cognition_model",
     "bootstrap_cognition_operation",

@@ -50,7 +50,7 @@ def test_model_attempt_recovery_only_replays_pre_dispatch(
             return _Cursor((1,))
         if "UPDATE armi.cognitive_episodes" in statement and "RETURNING" in statement:
             return _Cursor((episode_id,))
-        if "UPDATE armi.opportunities" in statement:
+        if "SELECT opportunity_id FROM armi.cognitive_episodes" in statement:
             return _Cursor((uuid7(),))
         return _Cursor()
 
@@ -79,8 +79,15 @@ def test_model_attempt_recovery_only_replays_pre_dispatch(
     )
     request_artifact = SimpleNamespace(artifact_id=SimpleNamespace(value=uuid7()))
 
+    opportunities = SimpleNamespace(
+        resolve_cognition_failure=AsyncMock(return_value=True)
+    )
     result = asyncio.run(
-        PostgreSQLCognitiveModelRepository().prepare_attempt(
+        PostgreSQLCognitiveModelRepository(
+            cast(Any, SimpleNamespace()),
+            cast(Any, SimpleNamespace()),
+            cast(Any, opportunities),
+        ).prepare_attempt(
             cast(Any, unit_of_work),
             lease=cast(Any, lease),
             snapshot=cast(Any, snapshot),

@@ -118,7 +118,13 @@ class EvidenceSnapshot:
     received_at: datetime
     interaction_id: UUID | None
     artifact_id: UUID
+    source_kind: EvidenceSourceKind
+    scene_id: UUID
+    context_party_id: UUID | None
+    web_observation_request_id: UUID | None
+    observation_attempt_id: UUID | None
     codex_task_source_id: UUID | None
+    codex_verification_id: UUID | None
 
 
 @runtime_checkable

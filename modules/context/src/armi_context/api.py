@@ -13,11 +13,12 @@ from armi_kernel.application import (
     ArtifactId,
     ArtifactRef,
     ArtifactRegistration,
+    CandidateBasis,
     CognitiveEpisodeId,
     ModelViolation,
     PublishedArtifact,
 )
-from armi_kernel.contracts import Instant, Purpose
+from armi_kernel.contracts import Digest, Instant, Purpose, TraceId
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
 
 _TOKEN = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
@@ -335,6 +336,115 @@ class ContextRuntimePort(Protocol):
     async def run_worker(self) -> None: ...
 
 
+@dataclass(frozen=True, slots=True)
+class ContextEpisodeState:
+    episode_id: UUID
+    opportunity_id: UUID
+    subject_id: UUID
+    scene_id: UUID | None
+    context_party_id: UUID | None
+    purpose: str
+    base_subject_version: int
+    base_state_epoch: int
+    bundle_activation_id: UUID
+    mechanism_identity: str
+    trace_id: TraceId
+    life_query_intent_id: UUID | None = None
+    life_query_result_artifact_id: UUID | None = None
+
+
+@runtime_checkable
+class ContextEpisodePort(Protocol):
+    async def context_episode(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        episode_id: UUID,
+    ) -> ContextEpisodeState: ...
+
+    async def mark_context_prepared(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        episode_id: UUID,
+        manifest_artifact_id: UUID,
+        compiled_artifact_id: UUID,
+        context_digest: Digest,
+    ) -> ContextEpisodeState: ...
+
+    async def fail_context(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        episode_id: UUID,
+        error_code: str,
+    ) -> ContextEpisodeState: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ContextRuntimeSubjectSnapshot:
+    subject_id: UUID
+    subject_version: int
+    state_epoch: int
+    generation_id: UUID
+    bundle_activation_id: UUID
+
+
+@runtime_checkable
+class ContextRuntimeSubjectPort(Protocol):
+    async def current_subject(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+    ) -> ContextRuntimeSubjectSnapshot: ...
+
+
+@runtime_checkable
+class ContextSelectionPort(Protocol):
+    async def select_once(self) -> CognitiveEpisodeId | None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ContextModelReference:
+    ordinal: int
+    section: str
+    item_kind: str
+
+
+@dataclass(frozen=True, slots=True)
+class ContextBudgetExclusion:
+    ordinal: int
+    section: str
+    item_kind: str
+    reason_code: str
+
+
+@dataclass(frozen=True, slots=True)
+class ContextCandidateBasisSnapshot:
+    context_item_id: UUID
+    basis: CandidateBasis
+
+
+@runtime_checkable
+class ContextCognitionReadPort(Protocol):
+    async def model_references(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        episode_id: UUID,
+    ) -> tuple[
+        tuple[ContextModelReference, ...], tuple[ContextBudgetExclusion, ...]
+    ]: ...
+
+    async def candidate_bases(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        episode_id: UUID,
+    ) -> tuple[ContextCandidateBasisSnapshot, ...]: ...
+
+
 @runtime_checkable
 class ContextEmbeddingRuntimePort(Protocol):
     async def open(self) -> None: ...
@@ -380,19 +490,28 @@ __all__ = (
     "CognitiveEpisodeId",
     "CompiledContext",
     "ContextArtifactCatalogPort",
+    "ContextBudgetExclusion",
+    "ContextCandidateBasisSnapshot",
+    "ContextCognitionReadPort",
     "ContextCompiler",
     "ContextEmbeddingRuntimePort",
+    "ContextEpisodePort",
+    "ContextEpisodeState",
     "ContextItemCandidate",
     "ContextItemDisposition",
     "ContextItemResult",
     "ContextLayer",
+    "ContextModelReference",
     "ContextProjectionInvalidationPort",
     "ContextProjectionSourceRef",
     "ContextRequest",
     "ContextRequirement",
     "ContextResult",
     "ContextRuntimePort",
+    "ContextRuntimeSubjectPort",
+    "ContextRuntimeSubjectSnapshot",
     "ContextSection",
+    "ContextSelectionPort",
     "ContextSourceIdentity",
     "ContextTrustClass",
     "ContextViolation",

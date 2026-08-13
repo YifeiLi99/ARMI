@@ -14,6 +14,7 @@ from uuid import uuid7
 from armi_artifact_store.content_store import (
     ContentAddressedArtifactStore,
 )
+from armi_context.api import ContextCognitionReadPort
 from armi_kernel.application import (
     ArtifactId,
     ArtifactPolicy,
@@ -32,9 +33,11 @@ from armi_kernel.application import (
     ModelResultStatus,
     ModelViolation,
     WorkLease,
+    WorkRecord,
     WorkViolation,
 )
 from armi_kernel.contracts import Instant, Purpose, SubjectId
+from armi_opportunity.api import OpportunityCognitionSelectionPort
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWork,
     PostgreSQLRuntimeUnitOfWorkFactory,
@@ -159,6 +162,8 @@ class ModelPipeline:
         factory: PostgreSQLRuntimeUnitOfWorkFactory,
         storage: ContentAddressedArtifactStore,
         catalog: CognitionArtifactCatalogPort,
+        context: ContextCognitionReadPort,
+        opportunities: OpportunityCognitionSelectionPort,
         work: DurableWorkPort,
         adapter_factory: CognitionModelAdapterFactory,
         binding_path: Path,
@@ -459,7 +464,11 @@ class ModelPipeline:
             ),
         }
         self._catalog = catalog
-        self._repository = PostgreSQLCognitiveModelRepository()
+        self._repository = PostgreSQLCognitiveModelRepository(
+            context,
+            catalog,
+            opportunities,
+        )
         self._work = work
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
@@ -490,9 +499,10 @@ class ModelPipeline:
             raise ModelViolation("MODEL-DATABASE") from None
         if not records:
             return False
-        lease = cast(WorkLease, records[0].lease)
+        record = records[0]
+        lease = cast(WorkLease, record.lease)
         try:
-            snapshot = await self._snapshot(lease)
+            snapshot = await self._snapshot(record)
             adapter = self._adapter_for(snapshot.purpose)
             context_bytes = await self._read_context(snapshot)
             request_bytes = build_request_bytes(
@@ -650,10 +660,10 @@ class ModelPipeline:
                 timeout_seconds=1,
             )
 
-    async def _snapshot(self, lease: WorkLease) -> ModelEpisodeSnapshot:
+    async def _snapshot(self, work: WorkRecord) -> ModelEpisodeSnapshot:
         try:
             async with self._factory.unit_of_work() as unit_of_work:
-                return await self._repository.snapshot(unit_of_work, lease)
+                return await self._repository.snapshot(unit_of_work, work)
         except RuntimeTransactionFailure:
             raise ModelViolation("MODEL-DATABASE") from None
 

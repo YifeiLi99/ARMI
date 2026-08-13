@@ -6,6 +6,11 @@ dependencies = [
     "armi-activity==0.0.0",
     "armi-artifact-store==0.0.0",
     "armi-capability==0.0.0",
+    "armi-codex==0.0.0",
+    "armi-effect==0.0.0",
+    "armi-evidence==0.0.0",
+    "armi-expression==0.0.0",
+    "armi-interaction==0.0.0",
     "armi-kernel==0.0.0",
     "armi-material==0.0.0",
     "armi-memory==0.0.0",
@@ -23,6 +28,11 @@ dependencies = [
 armi-activity = { workspace = true }
 armi-artifact-store = { workspace = true }
 armi-capability = { workspace = true }
+armi-codex = { workspace = true }
+armi-effect = { workspace = true }
+armi-evidence = { workspace = true }
+armi-expression = { workspace = true }
+armi-interaction = { workspace = true }
 armi-kernel = { workspace = true }
 armi-material = { workspace = true }
 armi-memory = { workspace = true }

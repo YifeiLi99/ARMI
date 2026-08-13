@@ -68,6 +68,17 @@ class DataRightsSubjectCommitGate(Protocol):
 
 
 @runtime_checkable
+class DataRightsCognitionGate(Protocol):
+    async def blocks_cognition(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        requester_party_id: UUID,
+        opportunity_purpose: str,
+    ) -> bool: ...
+
+
+@runtime_checkable
 class DataRightsEffectGate(Protocol):
     async def blocks_effect(
         self,
@@ -160,6 +171,7 @@ __all__ = (
     "CreatorExportStatus",
     "CreatorExportViolation",
     "DataRightsArtifactStorePort",
+    "DataRightsCognitionGate",
     "DataRightsDeletionItemResult",
     "DataRightsEffectGate",
     "DataRightsExecutionStatus",

@@ -12,6 +12,7 @@ from uuid import UUID
 
 from armi_kernel.application import (
     ArtifactId,
+    ArtifactRef,
     ArtifactRegistration,
     CandidateApplicationId,
     CandidateApplicationStatus,
@@ -50,6 +51,97 @@ class CognitionArtifactCatalogPort(Protocol):
         artifact_id: ArtifactId,
         published: PublishedArtifact,
     ) -> ArtifactRegistration: ...
+
+    async def retained_ref(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        artifact_id: ArtifactId,
+    ) -> ArtifactRef | None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class CognitionRuntimeStateSnapshot:
+    subject_id: UUID
+    subject_version: int
+    state_epoch: int
+    generation_id: UUID
+    bundle_activation_id: UUID
+
+
+@runtime_checkable
+class CognitionRuntimeStatePort(Protocol):
+    async def current_state(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+    ) -> CognitionRuntimeStateSnapshot: ...
+
+
+@dataclass(frozen=True, slots=True)
+class CognitionContextEpisodeDraft:
+    episode_id: UUID
+    opportunity_id: UUID
+    subject_id: UUID
+    scene_id: UUID | None
+    context_party_id: UUID | None
+    purpose: str
+    base_subject_version: int
+    base_state_epoch: int
+    bundle_activation_id: UUID
+    mechanism_identity: str
+    trace_id: TraceId
+
+
+@dataclass(frozen=True, slots=True)
+class CognitionContextEpisodeSnapshot:
+    episode_id: UUID
+    opportunity_id: UUID
+    subject_id: UUID
+    scene_id: UUID | None
+    context_party_id: UUID | None
+    purpose: str
+    base_subject_version: int
+    base_state_epoch: int
+    bundle_activation_id: UUID
+    mechanism_identity: str
+    trace_id: TraceId
+    life_query_intent_id: UUID | None = None
+    life_query_result_artifact_id: UUID | None = None
+
+
+@runtime_checkable
+class CognitionContextLifecyclePort(Protocol):
+    async def create_context_episode(
+        self,
+        transaction: PostgreSQLTransaction,
+        draft: CognitionContextEpisodeDraft,
+    ) -> bool: ...
+
+    async def context_episode(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        episode_id: UUID,
+    ) -> CognitionContextEpisodeSnapshot: ...
+
+    async def mark_context_prepared(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        episode_id: UUID,
+        manifest_artifact_id: UUID,
+        compiled_artifact_id: UUID,
+        context_digest: Digest,
+    ) -> CognitionContextEpisodeSnapshot: ...
+
+    async def fail_context(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        episode_id: UUID,
+        error_code: str,
+    ) -> CognitionContextEpisodeSnapshot: ...
 
 
 class CognitionCandidateValue(Protocol):
@@ -393,6 +485,9 @@ __all__ = (
     "CognitionCandidateParser",
     "CognitionCandidateValue",
     "CognitionCommitSnapshot",
+    "CognitionContextEpisodeDraft",
+    "CognitionContextEpisodeSnapshot",
+    "CognitionContextLifecyclePort",
     "CognitionEpisodeStatus",
     "CognitionExactLifeQueryIntentDraft",
     "CognitionExactLifeQueryPort",
@@ -402,6 +497,8 @@ __all__ = (
     "CognitionModelPort",
     "CognitionOperationReadPort",
     "CognitionOperationSnapshot",
+    "CognitionRuntimeStatePort",
+    "CognitionRuntimeStateSnapshot",
     "CognitionSubjectCommitPort",
     "CognitionWakeupPort",
     "CognitionWorkerPort",

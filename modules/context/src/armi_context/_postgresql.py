@@ -1,15 +1,19 @@
-"""Fixed PostgreSQL ownership for S023 opportunity and Context state."""
+"""Context-owned persistence and owner-port snapshot assembly."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any
 from uuid import UUID, uuid7
 
 import rfc8785
 from armi_activity.api import ActivityReadPort
 from armi_capability.api import CapabilityContextStatePayload, CapabilityReadPort
+from armi_codex.api import CodexTaskSourceReadPort
+from armi_effect.api import EffectOperationReadPort
+from armi_evidence.api import EvidenceId, EvidenceReadPort
+from armi_expression.api import ExpressionIntentReadPort
+from armi_interaction.api import InteractionContextReadPort, InteractionContextTurn
 from armi_kernel.application import (
     ArtifactId,
     ArtifactRef,
@@ -36,18 +40,27 @@ from armi_kernel.contracts import (
     TraceId,
 )
 from armi_memory.api import MemoryReadPort
-from armi_mood.api import MoodReadPort, MoodViolation
-from armi_prompt.api import PromptReadPort, PromptViolation
+from armi_mood.api import MoodReadPort
+from armi_opportunity.api import (
+    OpportunityCognitionSelectionPort,
+    OpportunityContextReadPort,
+)
+from armi_prompt.api import PromptContextSource, PromptReadPort
 from armi_relationship.api import RelationshipReadPort
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
-from armi_sleep.api import MaintenancePhase, SleepReadPort
-from armi_subject_state.api import SubjectStateReadPort, SubjectStateViolation
+from armi_sleep.api import SleepReadPort
+from armi_subject_state.api import SubjectStateReadPort
 
-from .api import ContextArtifactCatalogPort, ContextResult, ContextViolation
+from .api import (
+    ContextArtifactCatalogPort,
+    ContextEpisodePort,
+    ContextResult,
+    ContextRuntimeSubjectPort,
+    ContextSelectionPort,
+    ContextViolation,
+)
 
-_WORK_KIND = "cognition.context.prepare"
 _MODEL_WORK_KIND = "cognition.model.invoke"
-_MECHANISM = "armi.context-compiler.layered-v2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,39 +94,6 @@ class ContextMaterialSource:
     metadata: tuple[tuple[str, str], ...]
     material_status: str
     privacy_status: str
-
-    def __post_init__(self) -> None:
-        if (
-            type(self.ref) is not ArtifactRef
-            or any(
-                type(value) is not UUID or value.version != 7
-                for value in (
-                    self.material_id,
-                    self.current_revision_id,
-                    self.owner_party_id,
-                )
-            )
-            or type(self.head_version) is not int
-            or self.head_version <= 0
-            or self.material_kind not in {"diary", "work", "collection", "draft"}
-            or type(self.title) is not str
-            or not 1 <= len(self.title) <= 256
-            or not self.title.strip()
-            or "\x00" in self.title
-            or type(self.metadata) is not tuple
-            or len(self.metadata) > 32
-            or any(
-                type(key) is not str
-                or type(value) is not str
-                or "\x00" in key
-                or "\x00" in value
-                for key, value in self.metadata
-            )
-            or tuple(sorted(self.metadata)) != self.metadata
-            or self.material_status not in {"active", "archived"}
-            or self.privacy_status not in {"creator_visible", "private"}
-        ):
-            raise ContextViolation("CTX-SOURCE-INVALID")
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,20 +136,6 @@ class ContextEpisodeSnapshot:
 
 
 class PostgreSQLContextRepository:
-    """Own SQL for selecting, freezing and settling one Context episode."""
-
-    __slots__ = (
-        "_activities",
-        "_capabilities",
-        "_catalog",
-        "_memories",
-        "_mood",
-        "_prompts",
-        "_relationships",
-        "_sleep",
-        "_subject_state",
-    )
-
     def __init__(
         self,
         relationships: RelationshipReadPort,
@@ -177,345 +143,70 @@ class PostgreSQLContextRepository:
         activities: ActivityReadPort,
         capabilities: CapabilityReadPort,
         catalog: ContextArtifactCatalogPort,
-        memories: MemoryReadPort | None = None,
-        mood: MoodReadPort | None = None,
-        prompts: PromptReadPort | None = None,
-        subject_state: SubjectStateReadPort | None = None,
+        *,
+        selection: ContextSelectionPort,
+        episodes: ContextEpisodePort,
+        subjects: ContextRuntimeSubjectPort,
+        opportunities: OpportunityContextReadPort,
+        opportunity_transitions: OpportunityCognitionSelectionPort,
+        evidence: EvidenceReadPort,
+        interaction: InteractionContextReadPort,
+        expression: ExpressionIntentReadPort,
+        effects: EffectOperationReadPort,
+        codex: CodexTaskSourceReadPort,
+        memories: MemoryReadPort,
+        mood: MoodReadPort,
+        prompts: PromptReadPort,
+        subject_state: SubjectStateReadPort,
     ) -> None:
+        self._relationships = relationships
+        self._sleep = sleep
         self._activities = activities
         self._capabilities = capabilities
         self._catalog = catalog
+        self._selection = selection
+        self._episodes = episodes
+        self._subjects = subjects
+        self._opportunities = opportunities
+        self._opportunity_transitions = opportunity_transitions
+        self._evidence = evidence
+        self._interaction = interaction
+        self._expression = expression
+        self._effects = effects
+        self._codex = codex
         self._memories = memories
         self._mood = mood
         self._prompts = prompts
-        self._relationships = relationships
-        self._sleep = sleep
         self._subject_state = subject_state
 
-    async def select_one(
-        self,
-        unit_of_work: PostgreSQLRuntimeUnitOfWork,
-    ) -> CognitiveEpisodeId | None:
-        connection = unit_of_work.transaction
-        fence = unit_of_work.runtime_fence
-        if fence is None:
-            raise ContextViolation("CTX-FENCE-REQUIRED")
-        maintenance = await self._sleep.active_maintenance(
-            connection, subject_id=fence.subject_id
-        )
-        maintenance_purpose = (
-            None
-            if maintenance is None
-            else {
-                MaintenancePhase.MEMORY_MAINTENANCE: "maintain_subjective_memory",
-                MaintenancePhase.SELF_CHECK: "perform_subject_self_check",
-            }.get(maintenance.phase)
-        )
-        row = await (
-            await connection.execute(
-                """
-                SELECT
-                    opportunity.opportunity_id,
-                    opportunity.subject_id,
-                    opportunity.scene_id,
-                    opportunity.context_party_id,
-                    COALESCE(
-                        interaction.trace_id,
-                        other_interaction.trace_id,
-                        intent.trace_id,
-                        task_source.trace_id,
-                        result_task_source.trace_id,
-                        replace(opportunity.opportunity_id::text, '-', '')
-                    ),
-                    subject.subject_version,
-                    subject.state_epoch,
-                    subject.current_bundle_activation_id,
-                    transaction_timestamp(),
-                    opportunity.purpose,
-                    opportunity.context_party_id
-                FROM armi.opportunities AS opportunity
-                LEFT JOIN armi.external_evidence AS evidence
-                  ON evidence.evidence_id = opportunity.evidence_id
-                LEFT JOIN armi.party_input_interactions AS interaction
-                  ON interaction.interaction_id
-                    = evidence.interaction_id
-                LEFT JOIN armi.party_input_interactions AS other_interaction
-                  ON other_interaction.interaction_id
-                    = evidence.interaction_id
-                LEFT JOIN armi.web_observation_requests AS observation
-                  ON observation.web_observation_request_id
-                    = evidence.web_observation_request_id
-                LEFT JOIN armi.web_research_intents AS intent
-                  ON intent.web_research_intent_id
-                    = observation.web_research_intent_id
-                LEFT JOIN armi.codex_task_sources AS task_source
-                  ON task_source.codex_task_source_id=evidence.codex_task_source_id
-                LEFT JOIN armi.codex_verification_results AS verification
-                  ON verification.codex_verification_id=evidence.codex_verification_id
-                LEFT JOIN armi.effects AS result_effect
-                  ON result_effect.effect_id=verification.effect_id
-                LEFT JOIN armi.action_intent_revisions AS result_revision
-                  ON result_revision.action_intent_revision_id=result_effect.action_intent_revision_id
-                LEFT JOIN armi.codex_task_sources AS result_task_source
-                  ON result_task_source.codex_task_source_id=result_revision.codex_task_source_id
-                JOIN armi.subjects AS subject
-                  ON subject.subject_id = opportunity.subject_id
-                 AND subject.singleton_key = 1
-                 AND subject.status = 'active'
-                WHERE opportunity.eligibility_status = 'eligible'
-                  AND opportunity.current_disposition = 'open'
-                  AND opportunity.purpose IN (
-                      'consider_creator_input', 'consider_web_evidence',
-                      'consider_codex_task', 'consider_codex_result',
-                      'consider_autonomous_life', 'consider_activity_attention',
-                      'consider_activity_internal_work', 'consider_sleep',
-                      'consider_life_query_result', 'maintain_subjective_memory',
-                      'perform_subject_self_check', 'consider_creator_outreach'
-                      , 'consider_other_human_input'
-                  )
-                  AND opportunity.available_after <= transaction_timestamp()
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM armi.deletion_orders AS deletion_order
-                      WHERE deletion_order.requester_party_id = COALESCE(
-                                opportunity.context_party_id,
-                                opportunity.context_party_id
-                            )
-                        AND deletion_order.status = 'effective'
-                        AND (
-                            deletion_order.order_kind IN (
-                                'stop_use', 'delete_related'
-                            )
-                            OR (
-                                deletion_order.order_kind = 'stop_contact'
-                                AND opportunity.purpose IN (
-                                    'consider_creator_input',
-                                    'consider_other_human_input',
-                                    'consider_creator_outreach'
-                                )
-                            )
-                        )
-                  )
-                  AND (
-                      opportunity.expires_at IS NULL
-                      OR opportunity.expires_at > transaction_timestamp()
-                  )
-                  AND (
-                      %s::uuid IS NULL
-                      OR (
-                          opportunity.source_kind = 'maintenance_phase_revision'
-                          AND opportunity.source_ref = %s
-                          AND opportunity.source_version = %s
-                          AND opportunity.purpose = %s
-                      )
-                  )
-                ORDER BY opportunity.available_after, opportunity.opportunity_id
-                FOR UPDATE OF opportunity SKIP LOCKED
-                LIMIT 1
-                """,
-                (
-                    None if maintenance is None else maintenance.current_revision_id,
-                    None if maintenance is None else maintenance.current_revision_id,
-                    None if maintenance is None else maintenance.head_version,
-                    maintenance_purpose,
-                ),
-            )
-        ).fetchone()
-        if row is None:
-            return None
-        episode_id = uuid7()
-        opportunity_id: UUID = row[0]
-        trace_id = TraceId(str(row[4]))
-        now = Instant(row[8])
-        await connection.execute(
-            """
-            UPDATE armi.opportunities
-            SET current_disposition = 'selected',
-                selected_at = transaction_timestamp()
-            WHERE opportunity_id = %s
-              AND current_disposition = 'open'
-              AND (expires_at IS NULL OR expires_at > transaction_timestamp())
-            """,
-            (opportunity_id,),
-        )
-        await connection.execute(
-            """
-            INSERT INTO armi.cognitive_episodes (
-                cognitive_episode_id,
-                opportunity_id,
-                subject_id,
-                scene_id,
-                context_party_id,
-                purpose,
-                status,
-                base_subject_version,
-                base_state_epoch,
-                bundle_activation_id,
-                mechanism_identity,
-                trace_id)
-            VALUES (
-                %s, %s, %s, %s, %s, %s, 'preparing',
-                %s, %s, %s, %s, %s)
-            """,
-            (
-                episode_id,
-                opportunity_id,
-                row[1],
-                row[2],
-                row[3],
-                row[9],
-                row[5],
-                row[6],
-                row[7],
-                _MECHANISM,
-                trace_id.value,
-            ),
-        )
-        work_digest = Digest.from_bytes(
-            rfc8785.dumps(
-                {
-                    "episode_id": str(episode_id),
-                    "opportunity_id": str(opportunity_id),
-                }
-            )
-        )
-        await unit_of_work.work.enqueue(
-            WorkDraft(
-                WorkId(uuid7()),
-                _WORK_KIND,
-                WorkOwner("cognitive_episode", episode_id),
-                IdempotencyKey(f"context:{opportunity_id}"),
-                work_digest,
-                50,
-                now,
-                Instant(now.value + timedelta(seconds=3600)),
-                2,
-                trace_id,
-                SubjectId(row[1]),
-                WorkPayloadRef("cognitive_episode", episode_id),
-            )
-        )
-        await unit_of_work.audit.append(
-            AuditDraft(
-                AuditEventId(uuid7()),
-                AuditReference("runtime", unit_of_work.environment_id),
-                Purpose("cognition.context"),
-                "opportunity.selected",
-                AuditReference("opportunity", opportunity_id),
-                AuditResultStatus.APPLIED,
-                trace_id,
-                AuditSensitivity.PRIVATE,
-                subject_id=SubjectId(row[1]),
-                request=AuditReference("cognitive_episode", episode_id),
-            )
-        )
-        return CognitiveEpisodeId(episode_id)
+    async def select_one(self) -> CognitiveEpisodeId | None:
+        return await self._selection.select_once()
 
     async def snapshot(
-        self,
-        unit_of_work: PostgreSQLRuntimeUnitOfWork,
-        episode_id: UUID,
+        self, unit_of_work: PostgreSQLRuntimeUnitOfWork, episode_id: UUID
     ) -> ContextEpisodeSnapshot:
-        connection = unit_of_work.transaction
-        row = await (
-            await connection.execute(
-                """
-                SELECT
-                    episode.cognitive_episode_id,
-                    episode.opportunity_id,
-                    episode.subject_id,
-                    episode.scene_id,
-                    episode.context_party_id,
-                    episode.base_subject_version,
-                    episode.base_state_epoch,
-                    episode.bundle_activation_id,
-                    'armi.context-policy.v3',
-                    episode.mechanism_identity,
-                    episode.trace_id,
-                    COALESCE(
-                        evidence.codex_task_source_id,
-                        evidence.evidence_id,
-                        life_query.exact_life_query_intent_id
-                    ),
-                    COALESCE(evidence.artifact_id, life_query.result_artifact_id),
-                    NULL::uuid,
-                    NULL::uuid,
-                    scene.scene_key,
-                    scene.scene_kind,
-                    scene.audience_scope,
-                    scene.current_status,
-                    scene.scene_version,
-                    episode.purpose,
-                    COALESCE(evidence.source_kind, opportunity.source_kind),
-                    opportunity.source_kind,
-                    opportunity.source_ref,
-                    opportunity.source_version,
-                    opportunity.available_after,
-                    opportunity.expires_at,
-                    subject.current_generation_id,
-                    NULL::uuid,
-                    NULL::integer,
-                    NULL::uuid,
-                    NULL::uuid,
-                    NULL::integer,
-                    NULL::uuid,
-                    CASE
-                      WHEN episode.purpose = 'consider_creator_input'
-                      THEN evidence.interaction_id
-                    END,
-                    CASE
-                      WHEN episode.purpose = 'consider_other_human_input'
-                      THEN evidence.interaction_id
-                    END,
-                    episode.context_party_id,
-                    context_party.display_label,
-                    current_interaction.addressed_to_subject,
-                    scene.primary_party_id,
-                    context_party.party_kind,
-                    task_source.task_manifest_digest
-                FROM armi.cognitive_episodes AS episode
-                JOIN armi.opportunities AS opportunity
-                  ON opportunity.opportunity_id = episode.opportunity_id
-                JOIN armi.subjects AS subject
-                  ON subject.subject_id = episode.subject_id
-                LEFT JOIN armi.external_evidence AS evidence
-                  ON evidence.evidence_id = opportunity.evidence_id
-                LEFT JOIN armi.party_input_interactions AS current_interaction
-                  ON current_interaction.interaction_id = evidence.interaction_id
-                LEFT JOIN armi.exact_life_query_intents AS life_query
-                  ON opportunity.source_kind = 'life_query_result'
-                 AND life_query.exact_life_query_intent_id = opportunity.source_ref
-                 AND life_query.result_opportunity_id = opportunity.opportunity_id
-                LEFT JOIN armi.interaction_scenes AS scene
-                  ON scene.scene_id = episode.scene_id
-                LEFT JOIN armi.parties AS context_party
-                  ON context_party.party_id = episode.context_party_id
-                LEFT JOIN armi.codex_task_sources AS task_source
-                  ON task_source.codex_task_source_id = evidence.codex_task_source_id
-                WHERE episode.cognitive_episode_id = %s
-                  AND episode.status = 'preparing'
-                """,
-                (episode_id,),
-            )
-        ).fetchone()
-        if row is None:
+        tx = unit_of_work.transaction
+        episode = await self._episodes.context_episode(tx, episode_id=episode_id)
+        opportunity = await self._opportunities.context_snapshot(
+            tx, opportunity_id=episode.opportunity_id
+        )
+        subject = await self._subjects.current_subject(
+            tx, subject_id=episode.subject_id
+        )
+        if (
+            subject.subject_version != episode.base_subject_version
+            or subject.state_epoch != episode.base_state_epoch
+            or subject.bundle_activation_id != episode.bundle_activation_id
+        ):
             raise ContextViolation("CTX-WORK-STALE")
-        if self._prompts is None:
-            raise ContextViolation("CTX-PROMPT-OWNER")
-        try:
-            prompt_sources = await self._prompts.context_sources(
-                unit_of_work.transaction, subject_id=row[2]
-            )
-        except PromptViolation:
-            raise ContextViolation("CTX-SOURCE-MISSING") from None
-        if self._subject_state is None:
-            raise ContextViolation("CTX-SUBJECT-STATE-OWNER")
-        try:
-            components = await self._subject_state.current_heads(
-                unit_of_work.transaction, subject_id=row[2]
-            )
-        except SubjectStateViolation:
-            raise ContextViolation("CTX-SOURCE-MISSING") from None
+
+        prompt_sources = await self._prompts.context_sources(
+            tx, subject_id=episode.subject_id
+        )
+        components = await self._subject_state.current_heads(
+            tx, subject_id=episode.subject_id
+        )
+        mood = await self._mood.current(tx, subject_id=episode.subject_id)
         component_payloads = tuple(
             (
                 item.kind.value,
@@ -525,26 +216,16 @@ class PostgreSQLContextRepository:
             )
             for item in components
         )
-        if self._mood is None:
-            raise ContextViolation("CTX-MOOD-OWNER")
-        try:
-            mood = await self._mood.current(unit_of_work.transaction, subject_id=row[2])
-        except MoodViolation:
-            raise ContextViolation("CTX-SOURCE-MISSING") from None
-        component_payloads = (
-            *component_payloads,
+        component_payloads += (
             ("mood", mood.current_revision_id, mood.version, mood.canonical_state),
         )
-        if self._memories is None:
-            raise ContextViolation("CTX-MEMORY-OWNER")
         memory_rows = await self._memories.maintenance_context(
-            connection,
-            subject_id=row[2],
-            generation_id=row[27],
-            enabled=row[20] == "maintain_subjective_memory",
+            tx,
+            subject_id=episode.subject_id,
+            generation_id=subject.generation_id,
+            enabled=episode.purpose == "maintain_subjective_memory",
             limit=8,
         )
-        memory_exists = (bool(memory_rows),)
         memory_payloads = tuple(
             (
                 item.memory_id,
@@ -562,338 +243,166 @@ class PostgreSQLContextRepository:
             )
             for item in memory_rows
         )
-        relationship_party_id = (
-            row[36] if row[20] == "consider_other_human_input" else row[4]
-        )
-        relationship_scope = (
-            "creator_social"
-            if row[20] == "consider_other_human_input" and row[40] == "creator"
-            else "other_human_social"
-            if row[20] == "consider_other_human_input"
-            else "creator_social"
-        )
+        other_human = episode.purpose == "consider_other_human_input"
         relationship_bundle = await self._relationships.context_bundle(
-            unit_of_work.transaction,
-            subject_id=row[2],
-            generation_id=row[27],
-            other_party_id=(
-                None
-                if row[20] == "perform_subject_self_check"
-                else relationship_party_id
-            ),
-            scope=(
-                None if row[20] == "perform_subject_self_check" else relationship_scope
-            ),
+            tx,
+            subject_id=episode.subject_id,
+            generation_id=subject.generation_id,
+            other_party_id=None
+            if episode.purpose == "perform_subject_self_check"
+            else episode.context_party_id,
+            scope=None
+            if episode.purpose == "perform_subject_self_check"
+            else ("other_human_social" if other_human else "creator_social"),
         )
-        relationship_payloads = relationship_bundle.relationships
-        relationship_commitment_payloads = relationship_bundle.commitments
-        relationship_issue_payloads = relationship_bundle.open_issues
-        material_sources: tuple[ContextMaterialSource, ...] = ()
-        activity_summary_bytes = await self._activities.context_summary(
-            unit_of_work.transaction,
-            subject_id=row[2],
-            enabled=row[20] != "consider_other_human_input",
+        activity = await self._activities.context_summary(
+            tx, subject_id=episode.subject_id, enabled=not other_human
         )
-        capability_state_payloads = (
+        capabilities = (
             ()
-            if row[20] == "consider_other_human_input"
+            if other_human
             else await self._capabilities.context_state_payloads(
-                unit_of_work.transaction,
-                subject_id=row[2],
+                tx, subject_id=episode.subject_id
             )
         )
-        scene_bytes = (
-            None
-            if row[3] is None
-            else rfc8785.dumps(
+
+        evidence_source = None
+        current_interaction_id = None
+        task_manifest_digest = None
+        if opportunity.evidence_id is not None:
+            item = await self._evidence.snapshot(
+                tx, evidence_id=EvidenceId(opportunity.evidence_id)
+            )
+            current_interaction_id = item.interaction_id
+            source_id = item.codex_task_source_id or item.evidence_id.value
+            if item.codex_task_source_id is not None:
+                task = await self._codex.task_source(
+                    tx, task_source_id=item.codex_task_source_id
+                )
+                task_manifest_digest = task.task_manifest_digest
+            evidence_source = ContextArtifactSource(
+                await self._artifact_ref(unit_of_work, item.artifact_id),
+                source_id,
+                1,
+                item.source_kind.value,
+                task_manifest_digest,
+            )
+        elif episode.life_query_result_artifact_id is not None:
+            evidence_source = ContextArtifactSource(
+                await self._artifact_ref(
+                    unit_of_work, episode.life_query_result_artifact_id
+                ),
+                episode.life_query_intent_id or opportunity.source_ref,
+                1,
+                "life_query_result",
+            )
+
+        scene_bytes = None
+        recent: tuple[ContextSceneTurnSource, ...] = ()
+        if episode.scene_id is not None:
+            scene = await self._interaction.context_scene(
+                tx,
+                scene_id=episode.scene_id,
+                context_party_id=episode.context_party_id,
+                current_interaction_id=current_interaction_id,
+            )
+            scene_bytes = rfc8785.dumps(
                 {
-                    "scene_key": str(row[15]),
-                    "scene_kind": str(row[16]),
-                    "audience_scope": str(row[17]),
-                    "status": str(row[18]),
-                    "primary_party_id": str(row[39] if row[39] is not None else row[4]),
-                    "context_party_id": str(row[4]),
-                    "context_party_display_label": row[37],
-                    "sender_party_kind": row[40],
-                    "addressed_to_subject": row[38],
+                    "scene_key": scene.scene_key,
+                    "scene_kind": scene.scene_kind,
+                    "audience_scope": scene.audience_scope,
+                    "status": scene.status,
+                    "primary_party_id": str(
+                        scene.primary_party_id or episode.context_party_id
+                    ),
+                    "context_party_id": str(episode.context_party_id),
+                    "context_party_display_label": scene.context_party_label,
+                    "sender_party_kind": scene.context_party_kind,
+                    "addressed_to_subject": scene.addressed_to_subject,
                 }
             )
-        )
-        recent_scene_sources: tuple[ContextSceneTurnSource, ...] = ()
-        if row[3] is not None and row[35] is not None:
-            recent_rows = await (
-                await connection.execute(
-                    """
-                    SELECT item.timeline_item_id, item.source_event_no,
-                           item.source_kind, item.occurred_at,
-                            COALESCE(
-                                prior_evidence.artifact_id,
-                                response_revision.response_artifact_id
-                            ) AS artifact_id,
-                            prior_party.display_label,
-                            prior_party.party_kind
-                    FROM armi.scene_timeline_items AS item
-                    JOIN armi.scene_timeline_items AS current_item
-                      ON current_item.scene_id = item.scene_id
-                     AND current_item.source_kind = 'other_human_input'
-                     AND current_item.source_ref = %s
-                    LEFT JOIN armi.party_input_interactions AS prior_input
-                      ON item.source_kind = 'other_human_input'
-                     AND prior_input.interaction_id = item.source_ref
-                     AND prior_input.scene_id = item.scene_id
-                    LEFT JOIN armi.external_evidence AS prior_evidence
-                      ON prior_evidence.interaction_id =
-                         prior_input.interaction_id
-                      AND prior_evidence.scene_id = item.scene_id
-                    LEFT JOIN armi.parties AS prior_party
-                      ON prior_party.party_id = prior_input.source_party_id
-                    LEFT JOIN armi.effects AS response_effect
-                      ON item.source_kind = 'party_response'
-                     AND response_effect.effect_id = item.source_ref
-                     AND response_effect.scene_id = item.scene_id
-                    LEFT JOIN armi.action_intent_revisions AS response_revision
-                      ON response_revision.action_intent_revision_id =
-                         response_effect.action_intent_revision_id
-                    WHERE item.scene_id = %s
-                      AND item.source_kind IN (
-                          'other_human_input', 'party_response'
-                      )
-                      AND (item.occurred_at, item.timeline_item_id) <
-                          (current_item.occurred_at, current_item.timeline_item_id)
-                      AND COALESCE(
-                          prior_evidence.artifact_id,
-                          response_revision.response_artifact_id
-                      ) IS NOT NULL
-                    ORDER BY item.occurred_at DESC, item.timeline_item_id DESC
-                    LIMIT 8
-                    """,
-                    (row[35], row[3]),
-                )
-            ).fetchall()
-        elif row[3] is not None and row[34] is not None:
-            recent_rows: list[tuple[Any, ...]] = await (
-                await connection.execute(
-                    """
-                    SELECT item.timeline_item_id, item.source_event_no,
-                           item.source_kind, item.occurred_at,
-                            COALESCE(
-                                prior_evidence.artifact_id,
-                                response_revision.response_artifact_id
-                            ) AS artifact_id,
-                            prior_party.display_label,
-                            prior_party.party_kind
-                    FROM armi.scene_timeline_items AS item
-                    JOIN armi.scene_timeline_items AS current_item
-                      ON current_item.scene_id = item.scene_id
-                     AND current_item.source_kind = 'creator_input'
-                     AND current_item.source_ref = %s
-                    LEFT JOIN armi.party_input_interactions AS prior_input
-                      ON item.source_kind = 'creator_input'
-                     AND prior_input.interaction_id = item.source_ref
-                     AND prior_input.scene_id = item.scene_id
-                     AND prior_input.purpose = 'creator_message'
-                    LEFT JOIN armi.external_evidence AS prior_evidence
-                      ON prior_evidence.interaction_id =
-                         prior_input.interaction_id
-                      AND prior_evidence.scene_id = item.scene_id
-                    LEFT JOIN armi.parties AS prior_party
-                      ON prior_party.party_id = prior_input.source_party_id
-                    LEFT JOIN armi.effects AS response_effect
-                      ON item.source_kind = 'party_response'
-                     AND response_effect.effect_id = item.source_ref
-                     AND response_effect.scene_id = item.scene_id
-                    LEFT JOIN armi.action_intent_revisions AS response_revision
-                      ON response_revision.action_intent_revision_id =
-                         response_effect.action_intent_revision_id
-                    WHERE item.scene_id = %s
-                      AND item.source_kind IN (
-                          'creator_input', 'party_response'
-                      )
-                      AND (
-                          item.occurred_at, item.timeline_item_id
-                      ) < (
-                          current_item.occurred_at,
-                          current_item.timeline_item_id
-                      )
-                      AND COALESCE(
-                          prior_evidence.artifact_id,
-                          response_revision.response_artifact_id
-                      ) IS NOT NULL
-                    ORDER BY item.occurred_at DESC, item.timeline_item_id DESC
-                    LIMIT 8
-                    """,
-                    (row[34], row[3]),
-                )
-            ).fetchall()
-        elif row[3] is not None and str(row[20]) == "consider_creator_outreach":
-            recent_rows = await (
-                await connection.execute(
-                    """
-                    SELECT item.timeline_item_id, item.source_event_no,
-                           item.source_kind, item.occurred_at,
-                            COALESCE(
-                                prior_evidence.artifact_id,
-                                response_revision.response_artifact_id
-                            ) AS artifact_id,
-                            prior_party.display_label,
-                            prior_party.party_kind
-                    FROM armi.scene_timeline_items AS item
-                    LEFT JOIN armi.party_input_interactions AS prior_input
-                      ON item.source_kind = 'creator_input'
-                     AND prior_input.interaction_id = item.source_ref
-                     AND prior_input.scene_id = item.scene_id
-                     AND prior_input.purpose = 'creator_message'
-                    LEFT JOIN armi.external_evidence AS prior_evidence
-                      ON prior_evidence.interaction_id =
-                         prior_input.interaction_id
-                      AND prior_evidence.scene_id = item.scene_id
-                    LEFT JOIN armi.parties AS prior_party
-                      ON prior_party.party_id = prior_input.source_party_id
-                    LEFT JOIN armi.effects AS response_effect
-                      ON item.source_kind = 'party_response'
-                     AND response_effect.effect_id = item.source_ref
-                     AND response_effect.scene_id = item.scene_id
-                    LEFT JOIN armi.action_intent_revisions AS response_revision
-                      ON response_revision.action_intent_revision_id =
-                         response_effect.action_intent_revision_id
-                    WHERE item.scene_id = %s
-                      AND item.source_kind IN (
-                          'creator_input', 'party_response'
-                      )
-                      AND item.occurred_at <= %s
-                      AND COALESCE(
-                          prior_evidence.artifact_id,
-                          response_revision.response_artifact_id
-                      ) IS NOT NULL
-                    ORDER BY item.occurred_at DESC, item.timeline_item_id DESC
-                    LIMIT 8
-                    """,
-                    (row[3], row[25]),
-                )
-            ).fetchall()
-        else:
-            recent_rows = []
-        if recent_rows:
-            recent_sources: list[ContextSceneTurnSource] = []
-            for item in reversed(recent_rows):
-                recent_sources.append(
-                    ContextSceneTurnSource(
-                        ref=await self._artifact_ref(unit_of_work, item[4]),
-                        timeline_item_id=item[0],
-                        source_version=int(item[1]),
-                        speaker=(
-                            "creator"
-                            if str(item[2]) == "other_human_input"
-                            and item[6] == "creator"
-                            else "other_human"
-                            if str(item[2]) == "other_human_input"
-                            else "creator"
-                            if str(item[2]) == "creator_input"
-                            else "armi"
-                        ),
-                        occurred_at=item[3],
-                        speaker_label=(
-                            str(item[5])
-                            if row[16] == "group_dialogue" and item[5] is not None
-                            else None
-                        ),
-                    )
-                )
-            recent_scene_sources = tuple(recent_sources)
-        evidence = (
-            None
-            if row[12] is None
-            else ContextArtifactSource(
-                await self._artifact_ref(unit_of_work, row[12]),
-                row[11],
-                1,
-                str(row[21]),
-                (Digest(str(row[41])) if row[41] is not None else None),
+            kinds = (
+                ("other_human_input", "party_response")
+                if other_human
+                else ("creator_input", "party_response")
             )
-        )
-        outreach_trigger_bytes = (
+            turns = await self._interaction.recent_context_turns(
+                tx,
+                scene_id=episode.scene_id,
+                before_interaction_id=current_interaction_id,
+                before_time=(
+                    opportunity.available_after
+                    if episode.purpose == "consider_creator_outreach"
+                    else None
+                ),
+                source_kinds=kinds,
+                limit=8,
+            )
+            recent_items: list[ContextSceneTurnSource] = []
+            for turn in turns:
+                recent_items.append(await self._turn_source(unit_of_work, turn))
+            recent = tuple(recent_items)
+
+        outreach = (
             rfc8785.dumps(
                 {
                     "schema_version": "armi.creator-outreach-trigger.v1",
-                    "kind": str(row[22]),
-                    "source_ref": str(row[23]),
-                    "source_version": int(row[24]),
-                    "available_after": row[25].isoformat(),
-                    "scene_id": str(row[3]),
+                    "kind": opportunity.source_kind,
+                    "source_ref": str(opportunity.source_ref),
+                    "source_version": opportunity.source_version,
+                    "available_after": opportunity.available_after.isoformat(),
+                    "scene_id": str(episode.scene_id),
                 }
             )
-            if str(row[20]) == "consider_creator_outreach"
+            if episode.purpose == "consider_creator_outreach"
             else None
         )
         return ContextEpisodeSnapshot(
-            episode_id=row[0],
-            opportunity_id=row[1],
-            subject_id=row[2],
-            life_generation_id=row[27],
-            scene_id=row[3],
-            creator_party_id=(
-                None if str(row[20]) == "consider_other_human_input" else row[4]
-            ),
-            other_party_id=(
-                row[4] if str(row[20]) == "consider_other_human_input" else None
-            ),
-            purpose=str(row[20]),
-            subject_version=int(row[5]),
-            state_epoch=int(row[6]),
-            bundle_activation_id=row[7],
-            policy_version=str(row[8]),
-            mechanism_identity=str(row[9]),
-            trace_id=TraceId(str(row[10])),
+            episode_id=episode.episode_id,
+            opportunity_id=episode.opportunity_id,
+            subject_id=episode.subject_id,
+            life_generation_id=subject.generation_id,
+            scene_id=episode.scene_id,
+            creator_party_id=None if other_human else episode.context_party_id,
+            other_party_id=episode.context_party_id if other_human else None,
+            purpose=episode.purpose,
+            subject_version=episode.base_subject_version,
+            state_epoch=episode.base_state_epoch,
+            bundle_activation_id=episode.bundle_activation_id,
+            policy_version="armi.context-policy.v3",
+            mechanism_identity=episode.mechanism_identity,
+            trace_id=episode.trace_id,
             component_payloads=component_payloads,
             memory_payloads=memory_payloads,
-            has_memory_records=bool(memory_exists and memory_exists[0]),
-            relationship_payloads=relationship_payloads,
-            relationship_commitment_payloads=relationship_commitment_payloads,
-            relationship_issue_payloads=relationship_issue_payloads,
-            material_sources=material_sources,
-            activity_summary_bytes=activity_summary_bytes,
-            capability_state_payloads=capability_state_payloads,
+            has_memory_records=bool(memory_rows),
+            relationship_payloads=relationship_bundle.relationships,
+            relationship_commitment_payloads=relationship_bundle.commitments,
+            relationship_issue_payloads=relationship_bundle.open_issues,
+            material_sources=(),
+            activity_summary_bytes=activity,
+            capability_state_payloads=capabilities,
             scene_bytes=scene_bytes,
-            evidence=evidence,
-            outreach_trigger_bytes=outreach_trigger_bytes,
-            opportunity_source_kind=str(row[22]),
-            opportunity_source_ref=row[23],
-            opportunity_source_version=int(row[24]),
-            opportunity_available_after=row[25],
-            opportunity_expires_at=row[26],
-            fixed_prompt=ContextArtifactSource(
-                await self._artifact_ref(
-                    unit_of_work, prompt_sources.fixed.artifact_id
-                ),
-                prompt_sources.fixed.source_id,
-                prompt_sources.fixed.source_version,
-                "fixed_prompt",
+            evidence=evidence_source,
+            outreach_trigger_bytes=outreach,
+            opportunity_source_kind=opportunity.source_kind,
+            opportunity_source_ref=opportunity.source_ref,
+            opportunity_source_version=opportunity.source_version,
+            opportunity_available_after=opportunity.available_after,
+            opportunity_expires_at=opportunity.expires_at,
+            fixed_prompt=await self._prompt_source(
+                unit_of_work, prompt_sources.fixed, "fixed_prompt"
             ),
-            creator_prompt=(
-                None
-                if prompt_sources.creator is None
-                else ContextArtifactSource(
-                    await self._artifact_ref(
-                        unit_of_work, prompt_sources.creator.artifact_id
-                    ),
-                    prompt_sources.creator.source_id,
-                    prompt_sources.creator.source_version,
-                    "creator_prompt",
-                )
+            creator_prompt=None
+            if prompt_sources.creator is None
+            else await self._prompt_source(
+                unit_of_work, prompt_sources.creator, "creator_prompt"
             ),
-            subject_prompt=(
-                None
-                if prompt_sources.subject is None
-                else ContextArtifactSource(
-                    await self._artifact_ref(
-                        unit_of_work, prompt_sources.subject.artifact_id
-                    ),
-                    prompt_sources.subject.source_id,
-                    prompt_sources.subject.source_version,
-                    "subject_prompt",
-                )
+            subject_prompt=None
+            if prompt_sources.subject is None
+            else await self._prompt_source(
+                unit_of_work, prompt_sources.subject, "subject_prompt"
             ),
-            recent_scene_sources=recent_scene_sources,
+            recent_scene_sources=recent,
         )
 
     async def settle_prepared(
@@ -906,29 +415,15 @@ class PostgreSQLContextRepository:
         manifest_artifact: ArtifactRef,
         compiled_artifact: ArtifactRef,
     ) -> None:
-        connection = unit_of_work.transaction
+        tx = unit_of_work.transaction
         for item in result.items:
             source = item.candidate.source
-            await connection.execute(
-                """
-                INSERT INTO armi.cognitive_context_items (
-                    context_item_id,
-                    cognitive_episode_id,
-                    ordinal,
-                    section,
-                    item_kind,
-                    source_kind,
-                    source_ref,
-                    source_version,
-                    trust_class,
-                    privacy_scope,
-                    disposition,
-                    reason_code,
-                    content_bytes)
-                VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s)
-                """,
+            await tx.execute(
+                """INSERT INTO armi.cognitive_context_items (
+                   context_item_id,cognitive_episode_id,ordinal,section,item_kind,
+                   source_kind,source_ref,source_version,trust_class,privacy_scope,
+                   disposition,reason_code,content_bytes)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'private',%s,%s,%s)""",
                 (
                     uuid7(),
                     episode_id,
@@ -939,36 +434,21 @@ class PostgreSQLContextRepository:
                     source.reference,
                     source.version,
                     item.candidate.trust_class.value,
-                    "private",
                     item.disposition.value,
                     item.reason_code,
                     item.content_bytes,
                 ),
             )
-        updated = await (
-            await connection.execute(
-                """
-                UPDATE armi.cognitive_episodes
-                SET status = 'prepared',
-                    context_manifest_artifact_id = %s,
-                    compiled_context_artifact_id = %s,
-                    context_digest = %s,
-                    prepared_at = statement_timestamp()
-                WHERE cognitive_episode_id = %s
-                  AND status = 'preparing'
-                RETURNING subject_id, trace_id, statement_timestamp()
-                """,
-                (
-                    manifest_artifact.artifact_id.value,
-                    compiled_artifact.artifact_id.value,
-                    manifest_artifact.content_digest.value,
-                    episode_id,
-                ),
-            )
-        ).fetchone()
-        if updated is None:
-            raise ContextViolation("CTX-WORK-STALE")
-        model_now = Instant(updated[2])
+        episode = await self._episodes.mark_context_prepared(
+            tx,
+            episode_id=episode_id,
+            manifest_artifact_id=manifest_artifact.artifact_id.value,
+            compiled_artifact_id=compiled_artifact.artifact_id.value,
+            context_digest=manifest_artifact.content_digest,
+        )
+        from datetime import UTC
+
+        now = Instant(datetime.now(UTC))
         await unit_of_work.work.enqueue(
             WorkDraft(
                 WorkId(uuid7()),
@@ -977,17 +457,16 @@ class PostgreSQLContextRepository:
                 IdempotencyKey(f"model:{episode_id}"),
                 manifest_artifact.content_digest,
                 50,
-                model_now,
-                Instant(model_now.value + timedelta(seconds=3600)),
+                now,
+                Instant(now.value + timedelta(seconds=3600)),
                 2,
-                TraceId(str(updated[1])),
-                SubjectId(updated[0]),
+                episode.trace_id,
+                SubjectId(episode.subject_id),
                 WorkPayloadRef("cognitive_episode", episode_id),
             )
         )
         await unit_of_work.work.complete(
-            lease,
-            WorkResultRef("cognitive_episode", episode_id),
+            lease, WorkResultRef("cognitive_episode", episode_id)
         )
         await unit_of_work.audit.append(
             AuditDraft(
@@ -997,9 +476,9 @@ class PostgreSQLContextRepository:
                 "cognition.context.prepared",
                 AuditReference("cognitive_episode", episode_id),
                 AuditResultStatus.COMPLETED,
-                TraceId(str(updated[1])),
+                episode.trace_id,
                 AuditSensitivity.PRIVATE,
-                subject_id=SubjectId(updated[0]),
+                subject_id=SubjectId(episode.subject_id),
             )
         )
         await unit_of_work.audit.append(
@@ -1010,9 +489,9 @@ class PostgreSQLContextRepository:
                 "cognition.model.queued",
                 AuditReference("cognitive_episode", episode_id),
                 AuditResultStatus.WAITING,
-                TraceId(str(updated[1])),
+                episode.trace_id,
                 AuditSensitivity.PRIVATE,
-                subject_id=SubjectId(updated[0]),
+                subject_id=SubjectId(episode.subject_id),
             )
         )
 
@@ -1024,63 +503,72 @@ class PostgreSQLContextRepository:
         episode_id: UUID,
         code: str,
     ) -> None:
-        connection = unit_of_work.transaction
-        updated = await (
-            await connection.execute(
-                """
-                UPDATE armi.cognitive_episodes
-                SET status = 'failed', failure_code = %s
-                WHERE cognitive_episode_id = %s
-                  AND status = 'preparing'
-                RETURNING subject_id, trace_id
-                """,
-                (code, episode_id),
-            )
-        ).fetchone()
-        if updated is None:
-            raise ContextViolation("CTX-WORK-STALE")
-        resolved = await (
-            await connection.execute(
-                """
-                UPDATE armi.opportunities AS opportunity
-                SET current_disposition = 'resolved',
-                    resolved_at = statement_timestamp()
-                FROM armi.cognitive_episodes AS episode
-                WHERE episode.cognitive_episode_id = %s
-                  AND opportunity.opportunity_id = episode.opportunity_id
-                  AND opportunity.current_disposition = 'selected'
-                RETURNING opportunity.opportunity_id
-                """,
-                (episode_id,),
-            )
-        ).fetchone()
-        if resolved is None:
+        episode = await self._episodes.fail_context(
+            unit_of_work.transaction, episode_id=episode_id, error_code=code
+        )
+        if not await self._opportunity_transitions.resolve_cognition_failure(
+            unit_of_work.transaction, opportunity_id=episode.opportunity_id
+        ):
             raise ContextViolation("CTX-OPPORTUNITY-STATE")
         await unit_of_work.work.fail(lease, error_code=code)
-        await unit_of_work.audit.append(
-            AuditDraft(
-                AuditEventId(uuid7()),
-                AuditReference("runtime", unit_of_work.environment_id),
-                Purpose("cognition.context"),
-                "cognition.context.failed",
-                AuditReference("cognitive_episode", episode_id),
-                AuditResultStatus.FAILED,
-                TraceId(str(updated[1])),
-                AuditSensitivity.PRIVATE,
-                subject_id=SubjectId(updated[0]),
+
+    async def _turn_source(
+        self, unit: PostgreSQLRuntimeUnitOfWork, turn: InteractionContextTurn
+    ) -> ContextSceneTurnSource:
+        artifact_id = None
+        if turn.source_kind in {"creator_input", "other_human_input"}:
+            evidence_id = await self._evidence.find_by_interaction(
+                unit.transaction, interaction_id=turn.source_ref
             )
+            if evidence_id is not None:
+                artifact_id = (
+                    await self._evidence.snapshot(
+                        unit.transaction, evidence_id=evidence_id
+                    )
+                ).artifact_id
+        elif turn.source_kind == "party_response":
+            effect = await self._effects.by_effect_id(
+                unit.transaction, effect_id=turn.source_ref
+            )
+            if effect is not None:
+                intent = await self._expression.revision_snapshot(
+                    unit.transaction,
+                    action_intent_revision_id=effect.action_intent_revision_id,
+                )
+                artifact_id = intent.response_artifact_id
+        if artifact_id is None:
+            raise ContextViolation("CTX-SOURCE-MISSING")
+        speaker = (
+            "creator"
+            if turn.source_kind == "creator_input"
+            else "other_human"
+            if turn.source_kind == "other_human_input"
+            else "armi"
+        )
+        return ContextSceneTurnSource(
+            await self._artifact_ref(unit, artifact_id),
+            turn.timeline_item_id,
+            turn.source_event_no,
+            speaker,
+            turn.occurred_at,
+            turn.speaker_label,
+        )
+
+    async def _prompt_source(
+        self, unit: PostgreSQLRuntimeUnitOfWork, source: PromptContextSource, kind: str
+    ) -> ContextArtifactSource:
+        return ContextArtifactSource(
+            await self._artifact_ref(unit, source.artifact_id),
+            source.source_id,
+            source.source_version,
+            kind,
         )
 
     async def _artifact_ref(
-        self,
-        unit_of_work: PostgreSQLRuntimeUnitOfWork,
-        artifact_id: UUID,
+        self, unit: PostgreSQLRuntimeUnitOfWork, artifact_id: UUID
     ) -> ArtifactRef:
         try:
-            ref = await self._catalog.retained_ref(
-                unit_of_work,
-                ArtifactId(artifact_id),
-            )
+            ref = await self._catalog.retained_ref(unit, ArtifactId(artifact_id))
         except ArtifactViolation:
             raise ContextViolation("CTX-SOURCE-INVALID") from None
         if ref is None:

@@ -16,6 +16,11 @@ from armi_artifact_store import (
     parse_life_material_artifact,
 )
 from armi_capability.api import CapabilityReadPort
+from armi_codex.api import CodexTaskSourceReadPort
+from armi_effect.api import EffectOperationReadPort
+from armi_evidence.api import EvidenceReadPort
+from armi_expression.api import ExpressionIntentReadPort
+from armi_interaction.api import InteractionContextReadPort
 from armi_kernel.application import (
     ArtifactId,
     ArtifactIntegrityStatus,
@@ -38,7 +43,10 @@ from armi_kernel.contracts import Instant, Purpose, SubjectId
 from armi_material.api import MaterialProjectionPort
 from armi_memory.api import MemoryProjectionPort, MemoryReadPort
 from armi_mood.api import MoodReadPort
-from armi_opportunity.api import OpportunitySelector
+from armi_opportunity.api import (
+    OpportunityCognitionSelectionPort,
+    OpportunityContextReadPort,
+)
 from armi_prompt.api import PromptReadPort
 from armi_relationship.api import RelationshipReadPort
 from armi_runtime_foundation import (
@@ -62,10 +70,13 @@ from ._postgresql import (
 from ._profiles import ContextAssemblyProfile, context_profile
 from .api import (
     ContextArtifactCatalogPort,
+    ContextEpisodePort,
     ContextItemCandidate,
     ContextRequest,
     ContextRequirement,
+    ContextRuntimeSubjectPort,
     ContextSection,
+    ContextSelectionPort,
     ContextSourceIdentity,
     ContextTrustClass,
     ContextViolation,
@@ -140,7 +151,7 @@ class _LocalWakeups:
         return current
 
 
-class ContextPipeline(OpportunitySelector):
+class ContextPipeline:
     """Own the active FIFO selector and the only Context worker."""
 
     __slots__ = (
@@ -177,6 +188,16 @@ class ContextPipeline(OpportunitySelector):
         relationship_read: RelationshipReadPort,
         sleep_read: SleepReadPort,
         subject_state_read: SubjectStateReadPort,
+        selection: ContextSelectionPort,
+        episodes: ContextEpisodePort,
+        runtime_subjects: ContextRuntimeSubjectPort,
+        opportunity_context: OpportunityContextReadPort,
+        opportunity_transitions: OpportunityCognitionSelectionPort,
+        evidence_read: EvidenceReadPort,
+        interaction_context: InteractionContextReadPort,
+        expression_read: ExpressionIntentReadPort,
+        effect_read: EffectOperationReadPort,
+        codex_read: CodexTaskSourceReadPort,
         policy_version: str = CONTEXT_POLICY_VERSION,
         web_search_active: bool = False,
         wakeups: ContextWakeupPort | None = None,
@@ -197,6 +218,16 @@ class ContextPipeline(OpportunitySelector):
             prompts=prompt_read,
             subject_state=subject_state_read,
             catalog=catalog,
+            selection=selection,
+            episodes=episodes,
+            subjects=runtime_subjects,
+            opportunities=opportunity_context,
+            opportunity_transitions=opportunity_transitions,
+            evidence=evidence_read,
+            interaction=interaction_context,
+            expression=expression_read,
+            effects=effect_read,
+            codex=codex_read,
         )
         self._catalog = catalog
         self._compiler = DeterministicContextCompiler()
@@ -224,8 +255,7 @@ class ContextPipeline(OpportunitySelector):
 
     async def select_once(self) -> CognitiveEpisodeId | None:
         try:
-            async with self._factory.unit_of_work() as unit_of_work:
-                selected = await self._repository.select_one(unit_of_work)
+            selected = await self._repository.select_one()
             if selected is not None:
                 self._wakeups.notify(CONTEXT_PREPARE)
             return selected

@@ -35,6 +35,7 @@ from .api import (
     CodexArtifactReadPort,
     CodexArtifactStorePort,
     CodexCommitPort,
+    CodexContextReadPort,
     CodexExecutionReadPort,
     CodexRuntimePort,
     CodexTaskSourceReadPort,
@@ -55,11 +56,12 @@ class CodexReadPorts:
     task_sources: CodexTaskSourceReadPort
     executions: CodexExecutionReadPort
     artifacts: CodexArtifactReadPort
+    context: CodexContextReadPort
 
 
 def bootstrap_codex_read_ports() -> CodexReadPorts:
     owner = PostgreSQLCodexReadOwner()
-    return CodexReadPorts(owner, owner, owner)
+    return CodexReadPorts(owner, owner, owner, owner)
 
 
 def bootstrap_codex_timeline_projection() -> CodexTaskTimelineProjection:

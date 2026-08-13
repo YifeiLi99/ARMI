@@ -54,6 +54,7 @@ from armi_kernel.application import (
     CandidateOwnerDraft,
     LifeRecordKind,
     SubjectCommitViolation,
+    WorkStatus,
 )
 from armi_kernel.contracts import Digest
 from armi_material.api import (
@@ -230,10 +231,7 @@ def test_terminal_validation_failure_also_fails_owning_episode() -> None:
     )
     connection = SimpleNamespace(
         execute=AsyncMock(
-            side_effect=(
-                SimpleNamespace(fetchone=AsyncMock(return_value=(episode_id, True))),
-                SimpleNamespace(fetchone=AsyncMock(return_value=(episode_id,))),
-            )
+            return_value=SimpleNamespace(fetchone=AsyncMock(return_value=(episode_id,)))
         )
     )
     work = SimpleNamespace(fail=AsyncMock())
@@ -244,14 +242,22 @@ def test_terminal_validation_failure_also_fails_owning_episode() -> None:
 
     asyncio.run(
         PostgreSQLCandidateValidationRepository(
-            cast(Any, SimpleNamespace()),
-            cast(Any, SimpleNamespace()),
-            cast(Any, SimpleNamespace()),
-            cast(Any, SimpleNamespace()),
-            cast(Any, SimpleNamespace()),
+            *(cast(Any, SimpleNamespace()) for _ in range(13)),
         ).fail(
             cast(Any, unit_of_work),
-            lease=cast(Any, lease),
+            work=cast(
+                Any,
+                SimpleNamespace(
+                    status=WorkStatus.LEASED,
+                    lease=lease,
+                    draft=SimpleNamespace(
+                        work_kind="cognition.candidate.validate",
+                        owner=SimpleNamespace(
+                            kind="cognitive_episode", reference=episode_id
+                        ),
+                    ),
+                ),
+            ),
             error_code="CON-CANDIDATE-RELATIONSHIP-CONTEXT",
         )
     )
@@ -262,7 +268,7 @@ def test_terminal_validation_failure_also_fails_owning_episode() -> None:
     )
     assert (
         "UPDATE armi.cognitive_episodes"
-        in connection.execute.await_args_list[1].args[0]
+        in connection.execute.await_args_list[0].args[0]
     )
 
 

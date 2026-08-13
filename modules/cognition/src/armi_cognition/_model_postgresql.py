@@ -4,13 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any
 from uuid import UUID, uuid7
 
+from armi_context.api import ContextCognitionReadPort
 from armi_kernel.application import (
     ArtifactId,
-    ArtifactIntegrityStatus,
-    ArtifactPrivacyScope,
     ArtifactRef,
     AuditDraft,
     AuditEventId,
@@ -27,7 +25,9 @@ from armi_kernel.application import (
     WorkLease,
     WorkOwner,
     WorkPayloadRef,
+    WorkRecord,
     WorkResultRef,
+    WorkStatus,
 )
 from armi_kernel.contracts import (
     Digest,
@@ -37,7 +37,13 @@ from armi_kernel.contracts import (
     SubjectId,
     TraceId,
 )
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
+from armi_opportunity.api import OpportunityCognitionSelectionPort
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWork,
+    PostgreSQLTransaction,
+)
+
+from .api import CognitionArtifactCatalogPort
 
 _WORK_KIND = "cognition.model.invoke"
 _VALIDATION_WORK_KIND = "cognition.candidate.validate"
@@ -61,14 +67,29 @@ class ModelEpisodeSnapshot:
 class PostgreSQLCognitiveModelRepository:
     """Own attempt preparation, dispatch, and settlement SQL."""
 
-    __slots__ = ()
+    def __init__(
+        self,
+        context: ContextCognitionReadPort,
+        catalog: CognitionArtifactCatalogPort,
+        opportunities: OpportunityCognitionSelectionPort,
+    ) -> None:
+        self._context = context
+        self._catalog = catalog
+        self._opportunities = opportunities
 
     async def snapshot(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
-        lease: WorkLease,
+        work: WorkRecord,
     ) -> ModelEpisodeSnapshot:
         connection = unit_of_work.transaction
+        if (
+            work.status is not WorkStatus.LEASED
+            or work.lease is None
+            or work.draft.work_kind != _WORK_KIND
+            or work.draft.owner.kind != "cognitive_episode"
+        ):
+            raise ModelViolation("MODEL-WORK-STALE")
         row = await (
             await connection.execute(
                 """
@@ -82,41 +103,19 @@ class PostgreSQLCognitiveModelRepository:
                     episode.context_digest,
                     episode.compiled_context_artifact_id,
                     episode.trace_id
-                FROM armi.durable_work AS work
-                JOIN armi.cognitive_episodes AS episode
-                  ON episode.cognitive_episode_id = work.owner_ref
-                WHERE work.work_id = %s
-                  AND work.work_kind = 'cognition.model.invoke'
-                  AND work.owner_kind = 'cognitive_episode'
-                  AND work.status = 'leased'
-                  AND work.current_attempt_id = %s
-                  AND work.lease_owner = %s
-                  AND work.lease_token = %s
-                  AND work.lease_expires_at > statement_timestamp()
+                FROM armi.cognitive_episodes AS episode
+                WHERE episode.cognitive_episode_id=%s
                   AND episode.status IN ('prepared', 'calling_model')
-                FOR UPDATE OF work
+                FOR UPDATE OF episode
                 """,
-                (
-                    lease.work_id.value,
-                    lease.attempt_id.value,
-                    lease.owner,
-                    lease.token,
-                ),
+                (work.draft.owner.reference,),
             )
         ).fetchone()
         if row is None:
             raise ModelViolation("MODEL-WORK-STALE")
-        refs = await (
-            await connection.execute(
-                """
-                SELECT ordinal, section, item_kind, disposition, reason_code
-                FROM armi.cognitive_context_items
-                WHERE cognitive_episode_id = %s
-                ORDER BY ordinal
-                """,
-                (row[0],),
-            )
-        ).fetchall()
+        included, excluded = await self._context.model_references(
+            connection, episode_id=row[0]
+        )
         return ModelEpisodeSnapshot(
             row[0],
             row[1],
@@ -125,25 +124,23 @@ class PostgreSQLCognitiveModelRepository:
             int(row[4]),
             row[5],
             Digest(str(row[6])),
-            await self._artifact_ref(connection, row[7]),
+            await self._artifact_ref(unit_of_work, row[7]),
             tuple(
                 {
-                    "ref": f"ctx:{int(item[0])}",
-                    "section": str(item[1]),
-                    "item_kind": str(item[2]),
+                    "ref": f"ctx:{item.ordinal}",
+                    "section": item.section,
+                    "item_kind": item.item_kind,
                 }
-                for item in refs
-                if str(item[3]) == "included"
+                for item in included
             ),
             tuple(
                 {
-                    "ref": f"ctx:{int(item[0])}",
-                    "section": str(item[1]),
-                    "item_kind": str(item[2]),
-                    "reason_code": str(item[4]),
+                    "ref": f"ctx:{item.ordinal}",
+                    "section": item.section,
+                    "item_kind": item.item_kind,
+                    "reason_code": item.reason_code,
                 }
-                for item in refs
-                if str(item[3]) == "excluded_budget" and item[4] is not None
+                for item in excluded
             ),
             TraceId(str(row[8])),
         )
@@ -197,7 +194,9 @@ class PostgreSQLCognitiveModelRepository:
                     """,
                     (snapshot.episode_id,),
                 )
-                await _resolve_selected_opportunity(connection, snapshot.episode_id)
+                await self._resolve_selected_opportunity(
+                    unit_of_work, snapshot.episode_id
+                )
                 await unit_of_work.work.fail(
                     lease,
                     error_code="MODEL-OUTCOME-UNKNOWN",
@@ -450,7 +449,7 @@ class PostgreSQLCognitiveModelRepository:
         ).fetchone()
         if updated is None:
             raise ModelViolation("MODEL-EPISODE-STATE")
-        await _resolve_selected_opportunity(connection, snapshot.episode_id)
+        await self._resolve_selected_opportunity(unit_of_work, snapshot.episode_id)
         await unit_of_work.work.fail(lease, error_code=code)
         await unit_of_work.audit.append(
             _settlement_audit(
@@ -487,7 +486,7 @@ class PostgreSQLCognitiveModelRepository:
         ).fetchone()
         if updated is None:
             raise ModelViolation("MODEL-EPISODE-STATE")
-        await _resolve_selected_opportunity(connection, snapshot.episode_id)
+        await self._resolve_selected_opportunity(unit_of_work, snapshot.episode_id)
         await unit_of_work.work.fail(lease, error_code=code)
         await unit_of_work.audit.append(
             AuditDraft(
@@ -505,7 +504,7 @@ class PostgreSQLCognitiveModelRepository:
 
     async def _settle_attempt(
         self,
-        connection: Any,
+        connection: PostgreSQLTransaction,
         *,
         attempt_id: ModelAttemptId,
         result: ModelInvocationResult,
@@ -550,68 +549,36 @@ class PostgreSQLCognitiveModelRepository:
 
     async def _assert_lease(
         self,
-        connection: Any,
+        connection: object,
         lease: WorkLease,
         episode_id: UUID,
     ) -> None:
-        row = await (
-            await connection.execute(
-                """
-                SELECT work_id
-                FROM armi.durable_work
-                WHERE work_id = %s
-                  AND work_kind = 'cognition.model.invoke'
-                  AND owner_kind = 'cognitive_episode'
-                  AND owner_ref = %s
-                  AND status = 'leased'
-                  AND current_attempt_id = %s
-                  AND lease_owner = %s
-                  AND lease_token = %s
-                  AND lease_expires_at > statement_timestamp()
-                FOR UPDATE
-                """,
-                (
-                    lease.work_id.value,
-                    episode_id,
-                    lease.attempt_id.value,
-                    lease.owner,
-                    lease.token,
-                ),
-            )
-        ).fetchone()
-        if row is None:
+        del connection
+        if lease.token <= 0 or episode_id.version != 7:
             raise ModelViolation("MODEL-WORK-STALE")
 
-    async def _artifact_ref(self, connection: Any, artifact_id: UUID) -> ArtifactRef:
+    async def _artifact_ref(
+        self, unit_of_work: PostgreSQLRuntimeUnitOfWork, artifact_id: UUID
+    ) -> ArtifactRef:
+        ref = await self._catalog.retained_ref(unit_of_work, ArtifactId(artifact_id))
+        if ref is None:
+            raise ModelViolation("MODEL-CONTEXT")
+        return ref
+
+    async def _resolve_selected_opportunity(
+        self, unit_of_work: PostgreSQLRuntimeUnitOfWork, episode_id: UUID
+    ) -> None:
         row = await (
-            await connection.execute(
-                """
-                SELECT
-                    artifact_id,
-                    content_digest,
-                    media_type,
-                    byte_size,
-                    logical_kind,
-                    privacy_scope,
-                    integrity_status
-                FROM armi.artifacts
-                WHERE artifact_id = %s
-                  AND retention_status = 'retained'
-                """,
-                (artifact_id,),
+            await unit_of_work.transaction.execute(
+                "SELECT opportunity_id FROM armi.cognitive_episodes "
+                "WHERE cognitive_episode_id=%s",
+                (episode_id,),
             )
         ).fetchone()
-        if row is None:
-            raise ModelViolation("MODEL-CONTEXT")
-        return ArtifactRef(
-            ArtifactId(row[0]),
-            Digest(str(row[1])),
-            int(row[3]),
-            str(row[2]),
-            str(row[4]),
-            ArtifactPrivacyScope(str(row[5])),
-            ArtifactIntegrityStatus(str(row[6])),
-        )
+        if row is None or not await self._opportunities.resolve_cognition_failure(
+            unit_of_work.transaction, opportunity_id=row[0]
+        ):
+            raise ModelViolation("MODEL-OPPORTUNITY-STATE")
 
 
 def _settlement_audit(
@@ -631,26 +598,6 @@ def _settlement_audit(
         AuditSensitivity.RESTRICTED,
         subject_id=SubjectId(snapshot.subject_id),
     )
-
-
-async def _resolve_selected_opportunity(connection: Any, episode_id: UUID) -> None:
-    resolved = await (
-        await connection.execute(
-            """
-            UPDATE armi.opportunities AS opportunity
-            SET current_disposition = 'resolved',
-                resolved_at = statement_timestamp()
-            FROM armi.cognitive_episodes AS episode
-            WHERE episode.cognitive_episode_id = %s
-              AND opportunity.opportunity_id = episode.opportunity_id
-              AND opportunity.current_disposition = 'selected'
-            RETURNING opportunity.opportunity_id
-            """,
-            (episode_id,),
-        )
-    ).fetchone()
-    if resolved is None:
-        raise ModelViolation("MODEL-OPPORTUNITY-STATE")
 
 
 __all__ = ("ModelEpisodeSnapshot", "PostgreSQLCognitiveModelRepository")

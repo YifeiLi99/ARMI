@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+from typing import cast
 from uuid import UUID, uuid7
 
 from armi_runtime_foundation import PostgreSQLTransaction
@@ -12,14 +14,105 @@ from .api import (
     LifeViolation,
     OpportunityAdmissionOutcome,
     OpportunityAdmissionStatus,
+    OpportunityCognitionCandidate,
+    OpportunityCognitionSelectionScope,
     OpportunityCommitSnapshot,
     OpportunityId,
     OpportunityOperationSnapshot,
     OpportunityPurpose,
+    OpportunitySelectionCursor,
 )
 
 
 class PostgreSQLOpportunityOwner:
+    async def next_candidate(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        scope: OpportunityCognitionSelectionScope,
+        after: OpportunitySelectionCursor | None = None,
+    ) -> OpportunityCognitionCandidate | None:
+        row = await (
+            await transaction.execute(
+                """
+                SELECT opportunity_id, root_opportunity_id, evidence_id,
+                       subject_id, scene_id, context_party_id, purpose,
+                       source_kind, source_ref, source_version,
+                       available_after, expires_at, activity_id
+                FROM armi.opportunities
+                WHERE subject_id=%s AND eligibility_status='eligible'
+                  AND current_disposition='open'
+                  AND available_after <= transaction_timestamp()
+                  AND (expires_at IS NULL OR expires_at > transaction_timestamp())
+                  AND (%s::timestamptz IS NULL OR (available_after, opportunity_id) > (%s, %s))
+                  AND (%s::uuid IS NULL OR (
+                       source_kind='maintenance_phase_revision'
+                       AND source_ref=%s AND source_version=%s AND purpose=%s))
+                ORDER BY available_after, opportunity_id
+                FOR UPDATE SKIP LOCKED LIMIT 1
+                """,
+                (
+                    scope.subject_id,
+                    None if after is None else after.available_after,
+                    None if after is None else after.available_after,
+                    None if after is None else after.opportunity_id,
+                    scope.maintenance_source_ref,
+                    scope.maintenance_source_ref,
+                    scope.maintenance_source_version,
+                    scope.maintenance_purpose,
+                ),
+            )
+        ).fetchone()
+        if row is None:
+            return None
+        return _cognition_candidate(row)
+
+    async def context_snapshot(
+        self, transaction: PostgreSQLTransaction, *, opportunity_id: UUID
+    ) -> OpportunityCognitionCandidate:
+        row = await (
+            await transaction.execute(
+                """SELECT opportunity_id, root_opportunity_id, evidence_id,
+                          subject_id, scene_id, context_party_id, purpose,
+                          source_kind, source_ref, source_version,
+                          available_after, expires_at, activity_id
+                   FROM armi.opportunities WHERE opportunity_id=%s""",
+                (opportunity_id,),
+            )
+        ).fetchone()
+        if row is None:
+            raise LifeViolation("LIFE-OPPORTUNITY-STATE")
+        return _cognition_candidate(row)
+
+    async def select_for_cognition(
+        self, transaction: PostgreSQLTransaction, *, opportunity_id: UUID
+    ) -> bool:
+        row = await (
+            await transaction.execute(
+                """UPDATE armi.opportunities SET current_disposition='selected',
+                      selected_at=transaction_timestamp()
+               WHERE opportunity_id=%s AND current_disposition='open'
+                 AND (expires_at IS NULL OR expires_at>transaction_timestamp())
+               RETURNING opportunity_id""",
+                (opportunity_id,),
+            )
+        ).fetchone()
+        return row is not None
+
+    async def resolve_cognition_failure(
+        self, transaction: PostgreSQLTransaction, *, opportunity_id: UUID
+    ) -> bool:
+        row = await (
+            await transaction.execute(
+                """UPDATE armi.opportunities SET current_disposition='resolved',
+                      resolved_at=statement_timestamp()
+               WHERE opportunity_id=%s AND current_disposition='selected'
+               RETURNING opportunity_id""",
+                (opportunity_id,),
+            )
+        ).fetchone()
+        return row is not None
+
     async def operation_snapshot(
         self,
         transaction: PostgreSQLTransaction,
@@ -361,3 +454,21 @@ class PostgreSQLOpportunityOwner:
 
 
 __all__ = ("PostgreSQLOpportunityOwner",)
+
+
+def _cognition_candidate(row: tuple[object, ...]) -> OpportunityCognitionCandidate:
+    return OpportunityCognitionCandidate(
+        opportunity_id=cast(UUID, row[0]),
+        root_opportunity_id=cast(UUID, row[1]),
+        evidence_id=cast(UUID | None, row[2]),
+        subject_id=cast(UUID, row[3]),
+        scene_id=cast(UUID | None, row[4]),
+        context_party_id=cast(UUID | None, row[5]),
+        purpose=str(row[6]),
+        source_kind=str(row[7]),
+        source_ref=cast(UUID, row[8]),
+        source_version=cast(int, row[9]),
+        available_after=cast(datetime, row[10]),
+        expires_at=cast(datetime | None, row[11]),
+        activity_id=cast(UUID | None, row[12]),
+    )

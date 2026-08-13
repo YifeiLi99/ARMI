@@ -124,6 +124,23 @@ class PostgreSQLExpressionActionOwner:
             reason_code=str(row[6]) if row[6] is not None else None,
         )
 
+    async def revision_snapshot(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        action_intent_revision_id: UUID,
+    ) -> ExpressionIntentSnapshot:
+        row = await (
+            await transaction.execute(
+                """SELECT action_intent_id FROM armi.action_intent_revisions
+                   WHERE action_intent_revision_id=%s""",
+                (action_intent_revision_id,),
+            )
+        ).fetchone()
+        if row is None:
+            raise ResponseViolation("RESPONSE-WORK-STALE")
+        return await self.intent_snapshot(transaction, action_intent_id=row[0])
+
     async def delegation_for_commit(
         self,
         transaction: PostgreSQLTransaction,

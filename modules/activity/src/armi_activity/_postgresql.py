@@ -161,28 +161,25 @@ class PostgreSQLActivityRead:
         self,
         transaction: PostgreSQLTransaction,
         *,
-        episode_id: UUID,
+        activity_id: UUID | None,
+        expected_revision_id: UUID | None,
+        expected_revision_no: int | None,
     ) -> ActivityCandidateSnapshot | None:
+        if activity_id is None:
+            return None
         row = await (
             await transaction.execute(
                 """
-                SELECT opportunity.activity_id, activity.current_revision_id,
+                SELECT activity.activity_id, activity.current_revision_id,
                        activity.head_version, revision.status
-                FROM armi.cognitive_episodes AS episode
-                JOIN armi.opportunities AS opportunity
-                  ON opportunity.opportunity_id = episode.opportunity_id
-                JOIN armi.activities AS activity
-                  ON activity.activity_id = opportunity.activity_id
+                FROM armi.activities AS activity
                 JOIN armi.activity_revisions AS revision
                   ON revision.activity_revision_id = activity.current_revision_id
-                WHERE episode.cognitive_episode_id = %s
-                  AND episode.purpose IN (
-                      'consider_activity_attention',
-                      'consider_activity_internal_work'
-                  )
-                  AND opportunity.source_ref = activity.current_revision_id
+                WHERE activity.activity_id = %s
+                  AND activity.current_revision_id = %s
+                  AND revision.revision_no = %s
                 """,
-                (episode_id,),
+                (activity_id, expected_revision_id, expected_revision_no),
             )
         ).fetchone()
         if row is None:

@@ -8,6 +8,11 @@ from dataclasses import dataclass
 from armi_activity.api import ActivityReadPort
 from armi_artifact_store import ContentAddressedArtifactStore
 from armi_capability.api import CapabilityReadPort
+from armi_codex.api import CodexTaskSourceReadPort
+from armi_effect.api import EffectOperationReadPort
+from armi_evidence.api import EvidenceReadPort
+from armi_expression.api import ExpressionIntentReadPort
+from armi_interaction.api import InteractionContextReadPort
 from armi_kernel.application import DurableWorkPort
 from armi_material.api import MaterialCandidateContextPort, MaterialProjectionPort
 from armi_memory.api import (
@@ -16,6 +21,10 @@ from armi_memory.api import (
     MemoryReadPort,
 )
 from armi_mood.api import MoodReadPort
+from armi_opportunity.api import (
+    OpportunityCognitionSelectionPort,
+    OpportunityContextReadPort,
+)
 from armi_prompt.api import PromptReadPort
 from armi_relationship.api import RelationshipReadPort
 from armi_runtime_foundation import (
@@ -32,9 +41,13 @@ from ._embedding_application import ContextEmbeddingPipeline
 from ._embedding_postgresql import PostgreSQLContextProjectionInvalidation
 from .api import (
     ContextArtifactCatalogPort,
+    ContextCognitionReadPort,
     ContextEmbeddingRuntimePort,
+    ContextEpisodePort,
     ContextProjectionInvalidationPort,
     ContextRuntimePort,
+    ContextRuntimeSubjectPort,
+    ContextSelectionPort,
     ContextWakeupPort,
     EmbeddingPort,
 )
@@ -58,6 +71,16 @@ def bootstrap_context(
     relationship_read: RelationshipReadPort,
     sleep_read: SleepReadPort,
     subject_state_read: SubjectStateReadPort,
+    selection: ContextSelectionPort,
+    episodes: ContextEpisodePort,
+    runtime_subjects: ContextRuntimeSubjectPort,
+    opportunity_context: OpportunityContextReadPort,
+    opportunity_transitions: OpportunityCognitionSelectionPort,
+    evidence_read: EvidenceReadPort,
+    interaction_context: InteractionContextReadPort,
+    expression_read: ExpressionIntentReadPort,
+    effect_read: EffectOperationReadPort,
+    codex_read: CodexTaskSourceReadPort,
     web_search_active: bool = False,
     wakeups: ContextWakeupPort | None = None,
     diagnostic: Diagnostic | None = None,
@@ -78,6 +101,16 @@ def bootstrap_context(
         relationship_read=relationship_read,
         sleep_read=sleep_read,
         subject_state_read=subject_state_read,
+        selection=selection,
+        episodes=episodes,
+        runtime_subjects=runtime_subjects,
+        opportunity_context=opportunity_context,
+        opportunity_transitions=opportunity_transitions,
+        evidence_read=evidence_read,
+        interaction_context=interaction_context,
+        expression_read=expression_read,
+        effect_read=effect_read,
+        codex_read=codex_read,
         web_search_active=web_search_active,
         wakeups=wakeups,
         diagnostic=diagnostic,
@@ -116,11 +149,12 @@ def bootstrap_context_recovery() -> RecoveryParticipant:
 class ContextCandidateReadPorts:
     material: MaterialCandidateContextPort
     memory: MemoryCandidateContextPort
+    cognition: ContextCognitionReadPort
 
 
 def bootstrap_context_candidate_read() -> ContextCandidateReadPorts:
     owner = PostgreSQLContextCandidateRead()
-    return ContextCandidateReadPorts(owner, owner)
+    return ContextCandidateReadPorts(owner, owner, owner)
 
 
 __all__ = (

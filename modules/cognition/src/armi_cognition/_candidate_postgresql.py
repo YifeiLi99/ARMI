@@ -4,22 +4,23 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, cast
+from typing import cast
 from uuid import UUID, uuid7
 
 from armi_activity.api import ActivityReadPort
 from armi_capability.api import CapabilityRequestDraft
-from armi_codex.api import CodexDelegationDraft
+from armi_codex.api import CodexDelegationDraft, CodexTaskSourceReadPort
+from armi_context.api import ContextCognitionReadPort
+from armi_evidence.api import EvidenceId, EvidenceReadPort
 from armi_expression.api import (
     CreatorReplyDraft,
     FormalNoActionDraft,
     OtherHumanEndConversationDraft,
     OtherHumanReplyDraft,
 )
+from armi_interaction.api import InteractionCognitionReadPort
 from armi_kernel.application import (
     ArtifactId,
-    ArtifactIntegrityStatus,
-    ArtifactPrivacyScope,
     ArtifactRef,
     AuditDraft,
     AuditEventId,
@@ -39,7 +40,9 @@ from armi_kernel.application import (
     WorkLease,
     WorkOwner,
     WorkPayloadRef,
+    WorkRecord,
     WorkResultRef,
+    WorkStatus,
 )
 from armi_kernel.contracts import (
     Digest,
@@ -61,9 +64,16 @@ from armi_memory.api import (
     MemoryReadPort,
 )
 from armi_mood.api import MoodReadPort
+from armi_opportunity.api import (
+    OpportunityCognitionSelectionPort,
+    OpportunityContextReadPort,
+)
 from armi_prompt.api import PromptReadPort, PromptViolation
 from armi_relationship.api import RelationshipReadPort
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWork,
+    PostgreSQLTransaction,
+)
 from armi_sleep.api import SleepReadPort
 from armi_subject_state.api import SubjectStateReadPort
 from armi_web_observation.api import WebResearchRequestDraft
@@ -73,6 +83,7 @@ from ._contracts import (
     CandidateValidationStatus,
     SubjectChangeSet,
 )
+from .api import CognitionArtifactCatalogPort, CognitionRuntimeStatePort
 
 _WORK_KIND = "cognition.candidate.validate"
 _COMMIT_WORK_KIND = "cognition.subject.commit"
@@ -148,13 +159,21 @@ class PostgreSQLCandidateValidationRepository:
 
     __slots__ = (
         "_activities",
+        "_catalog",
+        "_codex",
+        "_context",
+        "_evidence",
+        "_interaction",
         "_material_context",
         "_materials",
         "_memories",
         "_memory_context",
         "_mood",
+        "_opportunity_context",
+        "_opportunity_transitions",
         "_prompts",
         "_relationships",
+        "_runtime_state",
         "_sleep",
         "_subject_state",
     )
@@ -166,6 +185,14 @@ class PostgreSQLCandidateValidationRepository:
         activities: ActivityReadPort,
         material_context: MaterialCandidateContextPort,
         memory_context: MemoryCandidateContextPort,
+        context: ContextCognitionReadPort,
+        runtime_state: CognitionRuntimeStatePort,
+        interaction: InteractionCognitionReadPort,
+        opportunity_context: OpportunityContextReadPort,
+        opportunity_transitions: OpportunityCognitionSelectionPort,
+        evidence: EvidenceReadPort,
+        codex: CodexTaskSourceReadPort,
+        catalog: CognitionArtifactCatalogPort,
         memories: MemoryReadPort | None = None,
         mood: MoodReadPort | None = None,
         prompts: PromptReadPort | None = None,
@@ -173,6 +200,11 @@ class PostgreSQLCandidateValidationRepository:
         subject_state: SubjectStateReadPort | None = None,
     ) -> None:
         self._activities = activities
+        self._catalog = catalog
+        self._codex = codex
+        self._context = context
+        self._evidence = evidence
+        self._interaction = interaction
         self._material_context = material_context
         self._memories = memories
         self._memory_context = memory_context
@@ -180,15 +212,27 @@ class PostgreSQLCandidateValidationRepository:
         self._prompts = prompts
         self._materials = materials
         self._relationships = relationships
+        self._runtime_state = runtime_state
         self._sleep = sleep
         self._subject_state = subject_state
+        self._opportunity_context = opportunity_context
+        self._opportunity_transitions = opportunity_transitions
 
     async def snapshot(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
-        lease: WorkLease,
+        work: WorkRecord,
     ) -> CandidateEpisodeSnapshot:
         connection = unit_of_work.transaction
+        if (
+            work.status is not WorkStatus.LEASED
+            or work.lease is None
+            or work.draft.work_kind != _WORK_KIND
+            or work.draft.owner.kind != "cognitive_episode"
+            or work.draft.payload is None
+            or work.draft.payload.kind != "model_attempt"
+        ):
+            raise CandidateViolation("CANDIDATE-WORK-STALE")
         row = await (
             await connection.execute(
                 """
@@ -196,7 +240,6 @@ class PostgreSQLCandidateValidationRepository:
                     episode.cognitive_episode_id,
                     attempt.model_attempt_id,
                     episode.subject_id,
-                    subject.current_generation_id,
                     episode.bundle_activation_id,
                     episode.base_subject_version,
                     episode.base_state_epoch,
@@ -207,41 +250,21 @@ class PostgreSQLCandidateValidationRepository:
                     attempt.candidate_schema_version,
                     episode.trace_id,
                     episode.purpose,
-                    episode.opportunity_id,
-                    scene.scene_kind,
-                    context_party.party_kind
-                FROM armi.durable_work AS work
-                JOIN armi.cognitive_episodes AS episode
-                  ON episode.cognitive_episode_id = work.owner_ref
+                    episode.opportunity_id
+                FROM armi.cognitive_episodes AS episode
                 JOIN armi.cognitive_attempts AS attempt
                   ON attempt.cognitive_episode_id = episode.cognitive_episode_id
-                 AND attempt.model_attempt_id = work.payload_ref
-                JOIN armi.subjects AS subject
-                  ON subject.subject_id = episode.subject_id
-                LEFT JOIN armi.interaction_scenes AS scene
-                  ON scene.scene_id = episode.scene_id
-                LEFT JOIN armi.parties AS context_party
-                  ON context_party.party_id = episode.context_party_id
-                WHERE work.work_id = %s
-                  AND work.work_kind = 'cognition.candidate.validate'
-                  AND work.owner_kind = 'cognitive_episode'
-                  AND work.payload_kind = 'model_attempt'
-                  AND work.status = 'leased'
-                  AND work.current_attempt_id = %s
-                  AND work.lease_owner = %s
-                  AND work.lease_token = %s
-                  AND work.lease_expires_at > statement_timestamp()
+                 AND attempt.model_attempt_id = %s
+                WHERE episode.cognitive_episode_id = %s
                   AND episode.status IN ('model_returned', 'validating')
                   AND attempt.dispatch_status = 'settled'
                   AND attempt.result_status = 'succeeded'
                   AND attempt.response_artifact_id IS NOT NULL
-                FOR UPDATE OF work, episode
+                FOR UPDATE OF episode
                 """,
                 (
-                    lease.work_id.value,
-                    lease.attempt_id.value,
-                    lease.owner,
-                    lease.token,
+                    work.draft.payload.reference,
+                    work.draft.owner.reference,
                 ),
             )
         ).fetchone()
@@ -261,37 +284,26 @@ class PostgreSQLCandidateValidationRepository:
         ).fetchone()
         if updated is None:
             raise CandidateViolation("CANDIDATE-EPISODE-STATE")
-        context_rows = await (
-            await connection.execute(
-                """
-                SELECT
-                    context_item_id, ordinal, section, item_kind,
-                    source_ref, source_version,
-                    trust_class, privacy_scope
-                FROM armi.cognitive_context_items
-                WHERE cognitive_episode_id = %s
-                  AND disposition = 'included'
-                ORDER BY ordinal
-                """,
-                (row[0],),
-            )
-        ).fetchall()
-        bases: list[CandidateBasis] = []
-        basis_item_ids: list[tuple[int, UUID]] = []
-        for item in context_rows:
-            complete_source = all(value is not None for value in item[4:6])
-            bases.append(
-                CandidateBasis(
-                    int(item[1]),
-                    str(item[2]),
-                    str(item[3]),
-                    item[4] if complete_source else None,
-                    int(item[5]) if complete_source else None,
-                    str(item[6]),
-                    str(item[7]),
-                )
-            )
-            basis_item_ids.append((int(item[1]), item[0]))
+        state = await self._runtime_state.current_state(connection, subject_id=row[2])
+        if (
+            state.subject_version != int(row[4])
+            or state.state_epoch != int(row[5])
+            or state.bundle_activation_id != row[3]
+        ):
+            raise CandidateViolation("CANDIDATE-SUBJECT-STALE")
+        context_items = await self._context.candidate_bases(
+            connection, episode_id=row[0]
+        )
+        bases = tuple(item.basis for item in context_items)
+        basis_item_ids = tuple(
+            (item.basis.ordinal, item.context_item_id) for item in context_items
+        )
+        interaction = await self._interaction.cognition_snapshot(
+            connection,
+            subject_id=row[2],
+            scene_id=row[7],
+            context_party_id=row[8],
+        )
         if self._subject_state is None:
             raise CandidateViolation("CANDIDATE-SUBJECT-STATE-OWNER")
         component_rows = await self._subject_state.current_heads(
@@ -312,25 +324,38 @@ class PostgreSQLCandidateValidationRepository:
             *components,
             (CandidateOwner.MOOD, mood.version, mood.canonical_state),
         )
-        codex_rows = await (
-            await connection.execute(
-                """
-                SELECT source.codex_task_source_id,
-                       source.task_manifest_digest, source.validator_id
-                FROM armi.cognitive_episodes AS episode
-                JOIN armi.opportunities AS opportunity
-                  ON opportunity.opportunity_id=episode.opportunity_id
-                JOIN armi.external_evidence AS evidence
-                  ON evidence.evidence_id=opportunity.evidence_id
-                JOIN armi.codex_task_sources AS source
-                  ON source.codex_task_source_id=evidence.codex_task_source_id
-                WHERE episode.cognitive_episode_id=%s
-                """,
-                (row[0],),
+        opportunity = await self._opportunity_context.context_snapshot(
+            connection, opportunity_id=row[13]
+        )
+        codex_sources: tuple[tuple[UUID, Digest, str], ...] = ()
+        if opportunity.evidence_id is not None:
+            evidence = await self._evidence.snapshot(
+                connection, evidence_id=EvidenceId(opportunity.evidence_id)
             )
-        ).fetchall()
+            if evidence.codex_task_source_id is not None:
+                source = await self._codex.task_source(
+                    connection, task_source_id=evidence.codex_task_source_id
+                )
+                codex_sources = (
+                    (
+                        source.task_source_id,
+                        source.task_manifest_digest,
+                        source.validator_id,
+                    ),
+                )
         activity_row = await self._activities.candidate_head(
-            unit_of_work.transaction, episode_id=row[0]
+            unit_of_work.transaction,
+            activity_id=opportunity.activity_id,
+            expected_revision_id=(
+                opportunity.source_ref
+                if opportunity.source_kind == "activity_revision"
+                else None
+            ),
+            expected_revision_no=(
+                opportunity.source_version
+                if opportunity.source_kind == "activity_revision"
+                else None
+            ),
         )
         maintenance = await self._sleep.candidate_maintenance(
             connection, episode_id=row[0]
@@ -343,52 +368,34 @@ class PostgreSQLCandidateValidationRepository:
         memory_rows = await self._memories.candidate_context(
             connection, subject_id=row[2], sources=memory_context_sources
         )
-        subject_party_row = await (
-            await connection.execute(
-                """
-                SELECT party_id
-                FROM armi.parties
-                WHERE party_kind = 'subject'
-                  AND represented_subject_id = %s
-                """,
-                (row[2],),
-            )
-        ).fetchone()
-        if subject_party_row is None:
-            raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
-        relationship_context_row = await (
-            await connection.execute(
-                """
-                SELECT item.source_ref, item.source_version
-                FROM armi.cognitive_context_items AS item
-                WHERE item.cognitive_episode_id = %s
-                  AND item.disposition = 'included'
-                  AND item.section = 'relationship'
-                  AND item.item_kind = 'current_relationship'
-                  AND item.source_kind = 'relationship'
-                """,
-                (row[0],),
-            )
-        ).fetchone()
+        relationship_basis = next(
+            (
+                item
+                for item in bases
+                if item.section == "relationship"
+                and item.item_kind == "current_relationship"
+            ),
+            None,
+        )
         relationship_snapshot = (
             None
-            if relationship_context_row is None or row[9] is None
+            if relationship_basis is None or row[8] is None
             else await self._relationships.current_for_party(
                 unit_of_work.transaction,
                 subject_id=row[2],
-                generation_id=row[3],
-                other_party_id=row[9],
+                generation_id=state.generation_id,
+                other_party_id=row[8],
                 scope=(
                     "other_human_social"
-                    if row[13] == "consider_other_human_input"
+                    if row[12] == "consider_other_human_input"
                     else "creator_social"
                 ),
-                expected_head_version=int(relationship_context_row[1]),
+                expected_head_version=relationship_basis.source_version,
             )
         )
-        if relationship_context_row is not None and (
+        if relationship_basis is not None and (
             relationship_snapshot is None
-            or relationship_snapshot.relationship_id != relationship_context_row[0]
+            or relationship_snapshot.relationship_id != relationship_basis.source_ref
         ):
             raise CandidateViolation("CANDIDATE-RELATIONSHIP-CONTEXT")
         if self._materials is None:
@@ -400,7 +407,7 @@ class PostgreSQLCandidateValidationRepository:
         material_rows = await self._materials.candidate_sources(
             unit_of_work.transaction,
             subject_id=row[2],
-            generation_id=row[3],
+            generation_id=state.generation_id,
             sources=material_context_sources,
         )
         if self._prompts is None:
@@ -429,30 +436,30 @@ class PostgreSQLCandidateValidationRepository:
         except PromptViolation:
             raise CandidateViolation("CANDIDATE-SUBJECT-PROMPT-CONTEXT") from None
         creator_party_id, other_party_id = _relationship_party_ids(
-            str(row[13]),
-            row[9],
+            str(row[12]),
+            row[8],
         )
         return CandidateEpisodeSnapshot(
             row[0],
             row[1],
             row[2],
+            state.generation_id,
             row[3],
-            row[4],
+            int(row[4]),
             int(row[5]),
-            int(row[6]),
-            Digest(str(row[7])),
-            row[8],
+            Digest(str(row[6])),
+            row[7],
             creator_party_id,
             other_party_id,
-            await _artifact_ref(connection, row[10]),
-            str(row[11]),
-            TraceId(str(row[12])),
+            await self._artifact_ref(unit_of_work, row[9]),
+            str(row[10]),
+            TraceId(str(row[11])),
             tuple(bases),
             tuple(basis_item_ids),
             components,
-            str(row[13]),
-            tuple((item[0], Digest(str(item[1])), str(item[2])) for item in codex_rows),
-            row[14],
+            str(row[12]),
+            codex_sources,
+            row[13],
             None if activity_row is None else activity_row.activity_id,
             None if activity_row is None else activity_row.current_revision_id,
             None if activity_row is None else activity_row.head_version,
@@ -470,7 +477,7 @@ class PostgreSQLCandidateValidationRepository:
                 )
                 for item in memory_rows
             ),
-            subject_party_row[0],
+            interaction.subject_party_id,
             None
             if relationship_snapshot is None
             else (
@@ -525,46 +532,29 @@ class PostgreSQLCandidateValidationRepository:
             None if maintenance is None else maintenance.current_revision_id,
             None if maintenance is None else maintenance.head_version,
             None if maintenance is None else maintenance.phase.value,
-            None if row[15] is None else str(row[15]),
-            None if row[16] is None else str(row[16]),
+            interaction.scene_kind,
+            interaction.context_party_kind,
         )
 
     async def fail(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
-        lease: WorkLease,
+        work: WorkRecord,
         error_code: str,
     ) -> None:
         """Terminally fail deterministic validation work and its episode."""
 
-        connection = unit_of_work.transaction
-        row = await (
-            await connection.execute(
-                """
-                SELECT work.owner_ref
-                FROM armi.durable_work AS work
-                WHERE work.work_id = %s
-                  AND work.work_kind = 'cognition.candidate.validate'
-                  AND work.owner_kind = 'cognitive_episode'
-                  AND work.status = 'leased'
-                  AND work.current_attempt_id = %s
-                  AND work.lease_owner = %s
-                  AND work.lease_token = %s
-                  AND work.lease_expires_at >= statement_timestamp()
-                FOR UPDATE OF work
-                """,
-                (
-                    lease.work_id.value,
-                    lease.attempt_id.value,
-                    lease.owner,
-                    lease.token,
-                ),
-            )
-        ).fetchone()
-        if row is None:
+        if (
+            work.status is not WorkStatus.LEASED
+            or work.lease is None
+            or work.draft.work_kind != _WORK_KIND
+            or work.draft.owner.kind != "cognitive_episode"
+        ):
             raise CandidateViolation("CANDIDATE-WORK-STALE")
-        episode_id = row[0]
+        connection = unit_of_work.transaction
+        lease = work.lease
+        episode_id = work.draft.owner.reference
         await unit_of_work.work.fail(lease, error_code=error_code)
         updated = await (
             await connection.execute(
@@ -592,7 +582,7 @@ class PostgreSQLCandidateValidationRepository:
         change_set_artifact: ArtifactRef | None,
     ) -> None:
         connection = unit_of_work.transaction
-        await _assert_lease(connection, lease, snapshot)
+        _assert_lease(lease, snapshot)
         fence = unit_of_work.runtime_fence
         if fence is None:
             raise CandidateViolation("CANDIDATE-FENCE")
@@ -667,22 +657,13 @@ class PostgreSQLCandidateValidationRepository:
         ).fetchone()
         if updated is None:
             raise CandidateViolation("CANDIDATE-EPISODE-STATE")
-        if result.status is CandidateValidationStatus.REJECTED:
-            resolved = await (
-                await connection.execute(
-                    """
-                    UPDATE armi.opportunities
-                    SET current_disposition = 'resolved',
-                        resolved_at = statement_timestamp()
-                    WHERE opportunity_id = %s
-                      AND current_disposition = 'selected'
-                    RETURNING opportunity_id
-                    """,
-                    (snapshot.opportunity_id,),
-                )
-            ).fetchone()
-            if resolved is None:
-                raise CandidateViolation("CANDIDATE-OPPORTUNITY-STATE")
+        if result.status is CandidateValidationStatus.REJECTED and (
+            snapshot.opportunity_id is None
+            or not await self._opportunity_transitions.resolve_cognition_failure(
+                connection, opportunity_id=snapshot.opportunity_id
+            )
+        ):
+            raise CandidateViolation("CANDIDATE-OPPORTUNITY-STATE")
         if change_set is not None:
             artifact = cast(ArtifactRef, change_set_artifact)
             now_row = await (
@@ -735,9 +716,19 @@ class PostgreSQLCandidateValidationRepository:
             )
         )
 
+    async def _artifact_ref(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        artifact_id: UUID,
+    ) -> ArtifactRef:
+        ref = await self._catalog.retained_ref(unit_of_work, ArtifactId(artifact_id))
+        if ref is None:
+            raise CandidateViolation("CANDIDATE-ARTIFACT")
+        return ref
+
 
 async def _insert_items(
-    connection: Any,
+    connection: PostgreSQLTransaction,
     result: CandidateValidationResult,
     snapshot: CandidateEpisodeSnapshot,
 ) -> None:
@@ -905,63 +896,12 @@ def _implicit_fact_class(
     return CandidateFactClass.INFERENCE
 
 
-async def _assert_lease(
-    connection: Any,
+def _assert_lease(
     lease: WorkLease,
     snapshot: CandidateEpisodeSnapshot,
 ) -> None:
-    row = await (
-        await connection.execute(
-            """
-            SELECT 1
-            FROM armi.durable_work
-            WHERE work_id = %s
-              AND owner_ref = %s
-              AND work_kind = 'cognition.candidate.validate'
-              AND status = 'leased'
-              AND current_attempt_id = %s
-              AND lease_owner = %s
-              AND lease_token = %s
-              AND lease_expires_at > statement_timestamp()
-            """,
-            (
-                lease.work_id.value,
-                snapshot.episode_id,
-                lease.attempt_id.value,
-                lease.owner,
-                lease.token,
-            ),
-        )
-    ).fetchone()
-    if row is None:
+    if lease.token <= 0 or snapshot.episode_id.version != 7:
         raise CandidateViolation("CANDIDATE-WORK-STALE")
-
-
-async def _artifact_ref(connection: Any, artifact_id: UUID) -> ArtifactRef:
-    row = await (
-        await connection.execute(
-            """
-            SELECT
-                artifact_id, content_digest, media_type, byte_size,
-                logical_kind, privacy_scope, integrity_status
-            FROM armi.artifacts
-            WHERE artifact_id = %s
-              AND retention_status = 'retained'
-            """,
-            (artifact_id,),
-        )
-    ).fetchone()
-    if row is None:
-        raise CandidateViolation("CANDIDATE-ARTIFACT")
-    return ArtifactRef(
-        ArtifactId(row[0]),
-        Digest(str(row[1])),
-        int(row[3]),
-        str(row[2]),
-        str(row[4]),
-        ArtifactPrivacyScope(str(row[5])),
-        ArtifactIntegrityStatus(str(row[6])),
-    )
 
 
 def _relationship_party_ids(

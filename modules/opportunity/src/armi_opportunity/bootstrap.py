@@ -18,6 +18,8 @@ from ._owner import PostgreSQLOpportunityOwner
 from ._recovery import OpportunityRecoveryParticipant
 from .api import (
     OpportunityAdmissionPort,
+    OpportunityCognitionPort,
+    OpportunityContextReadPort,
     OpportunityOperationReadPort,
     OpportunityRuntimePort,
     OpportunityTransitionPort,
@@ -34,6 +36,14 @@ def bootstrap_opportunity_transition() -> OpportunityTransitionPort:
 
 
 def bootstrap_opportunity_operation() -> OpportunityOperationReadPort:
+    return PostgreSQLOpportunityOwner()
+
+
+def bootstrap_opportunity_cognition() -> OpportunityCognitionPort:
+    return PostgreSQLOpportunityOwner()
+
+
+def bootstrap_opportunity_context() -> OpportunityContextReadPort:
     return PostgreSQLOpportunityOwner()
 
 
@@ -83,6 +93,8 @@ def bootstrap_opportunity_recovery() -> RecoveryParticipant:
 __all__ = (
     "bootstrap_opportunity",
     "bootstrap_opportunity_admission",
+    "bootstrap_opportunity_cognition",
+    "bootstrap_opportunity_context",
     "bootstrap_opportunity_operation",
     "bootstrap_opportunity_recovery",
     "bootstrap_opportunity_transition",

@@ -34,6 +34,7 @@ from armi_capability.bootstrap import (
 )
 from armi_codex.api import (
     CodexCommitPort,
+    CodexContextReadPort,
     CodexDelegationViolation,
     CodexExecutionReadPort,
     CodexRuntimePort,
@@ -48,9 +49,11 @@ from armi_codex.bootstrap import (
 )
 from armi_cognition.api import (
     CognitionCandidateParser,
+    CognitionContextLifecyclePort,
     CognitionExactLifeQueryPort,
     CognitionModelPort,
     CognitionOperationReadPort,
+    CognitionRuntimeStatePort,
     CognitionWorkerPort,
 )
 from armi_cognition.bootstrap import (
@@ -63,6 +66,7 @@ from armi_cognition.bootstrap import (
 )
 from armi_context.api import (
     EMBEDDING_DIMENSIONS,
+    ContextCognitionReadPort,
     ContextEmbeddingRuntimePort,
     ContextProjectionInvalidationPort,
     ContextProjectionSourceRef,
@@ -78,6 +82,7 @@ from armi_context.bootstrap import (
     bootstrap_context_recovery,
 )
 from armi_data_rights.api import (
+    DataRightsCognitionGate,
     DataRightsEffectGate,
     DataRightsInteractionGate,
     DataRightsProjectionInvalidationPort,
@@ -129,6 +134,8 @@ from armi_interaction.api import (
     CreatorIdentityContext,
     CreatorInputTransactionPort,
     CreatorOperationQueryPort,
+    InteractionCognitionReadPort,
+    InteractionContextReadPort,
     InteractionEffectDeliveryPort,
     InteractionEffectRoutePort,
     InteractionIdentityPort,
@@ -138,6 +145,7 @@ from armi_interaction.api import (
 from armi_interaction.bootstrap import (
     InteractionModule,
     bootstrap_interaction,
+    bootstrap_interaction_cognition,
     bootstrap_interaction_identity,
     bootstrap_interaction_recovery,
 )
@@ -180,6 +188,9 @@ from armi_mood.api import MoodCognitionPort, MoodCommitPort, MoodReadPort
 from armi_mood.bootstrap import MoodModule, bootstrap_mood, bootstrap_mood_recovery
 from armi_opportunity.api import (
     OpportunityAdmissionPort,
+    OpportunityCognitionPort,
+    OpportunityCognitionSelectionPort,
+    OpportunityContextReadPort,
     OpportunityOperationReadPort,
     OpportunityRuntimePort,
 )
@@ -242,6 +253,7 @@ from armi_subject_state.bootstrap import (
     probe_subject_state_counts,
 )
 from armi_web_observation.api import (
+    WebContextReadPort,
     WebObservationRuntimePort,
     WebObservationViolation,
     WebResearchRuntimePort,
@@ -293,6 +305,11 @@ from armi_runtime.application.action_lifecycle import (
     RuntimeCodexArtifactReference,
     RuntimeCodexGrantActivation,
     RuntimeEffectRegistrationContext,
+)
+from armi_runtime.application.cognition_cycle import (
+    RuntimeCognitionCycleSelector,
+    RuntimeCognitionState,
+    RuntimeContextEpisodeAdapter,
 )
 from armi_runtime.application.operation_assembler import (
     RuntimeCreatorOperationAssembler,
@@ -1015,6 +1032,10 @@ def compose_interaction_identity() -> InteractionIdentityPort:
     return bootstrap_interaction_identity()
 
 
+def compose_interaction_cognition_ports():
+    return bootstrap_interaction_cognition()
+
+
 def compose_data_rights_module(
     prepared: PreparedEnvironment,
     *,
@@ -1103,7 +1124,18 @@ def compose_context_pipeline(
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     activity_read: ActivityReadPort,
     capability_read: CapabilityReadPort,
-    codex_commit: CodexCommitPort,
+    codex_read: CodexTaskSourceReadPort,
+    codex_context: CodexContextReadPort,
+    cognition_context: CognitionContextLifecyclePort,
+    evidence_read: EvidenceReadPort,
+    interaction_context: InteractionContextReadPort,
+    interaction_cognition: InteractionCognitionReadPort,
+    opportunity_cognition: OpportunityCognitionPort,
+    runtime_subjects: RuntimeCognitionState,
+    web_context: WebContextReadPort,
+    expression_read: ExpressionIntentReadPort,
+    effect_read: EffectOperationReadPort,
+    data_rights: DataRightsCognitionGate,
     memory_read: MemoryReadPort,
     memory_projection: MemoryProjectionPort,
     mood_read: MoodReadPort,
@@ -1123,6 +1155,20 @@ def compose_context_pipeline(
         else None
     )
     config = prepared.effective.config
+    selection = RuntimeCognitionCycleSelector(
+        factory=unit_of_work_factory,
+        opportunities=opportunity_cognition,
+        episodes=cognition_context,
+        sleep=sleep_read,
+        data_rights=data_rights,
+        evidence=evidence_read,
+        interaction=interaction_cognition,
+        web=web_context,
+        codex_context=codex_context,
+        codex_sources=codex_read,
+        effects=effect_read,
+        expression=expression_read,
+    )
     return bootstrap_context(
         factory=unit_of_work_factory,
         storage=ContentAddressedArtifactStore(
@@ -1141,6 +1187,16 @@ def compose_context_pipeline(
         relationship_read=relationship_read,
         sleep_read=sleep_read,
         subject_state_read=subject_state_read,
+        selection=selection,
+        episodes=RuntimeContextEpisodeAdapter(cognition_context),
+        runtime_subjects=runtime_subjects,
+        opportunity_context=opportunity_cognition,
+        opportunity_transitions=opportunity_cognition,
+        evidence_read=evidence_read,
+        interaction_context=interaction_context,
+        expression_read=expression_read,
+        effect_read=effect_read,
+        codex_read=codex_read,
         web_search_active=config.web.enabled,
         wakeups=wakeups,
         diagnostic=diagnostic,
@@ -1190,6 +1246,8 @@ def compose_model_pipeline(
     prepared: PreparedEnvironment,
     *,
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
+    context: ContextCognitionReadPort,
+    opportunities: OpportunityCognitionSelectionPort,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
 ) -> CognitionWorkerPort:
@@ -1236,6 +1294,8 @@ def compose_model_pipeline(
             max_object_bytes=config.artifacts.max_object_bytes,
         ),
         catalog=bootstrap_artifact_catalog(),
+        context=context,
+        opportunities=opportunities,
         work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
         adapter_factory=adapter_factory,
         binding_path=runtime_config_path("model-bindings.yaml"),
@@ -1314,6 +1374,13 @@ def compose_candidate_validation_pipeline(
     activity_read: ActivityReadPort,
     material_context: MaterialCandidateContextPort,
     memory_context: MemoryCandidateContextPort,
+    context: ContextCognitionReadPort,
+    runtime_state: CognitionRuntimeStatePort,
+    interaction: InteractionCognitionReadPort,
+    opportunity_context: OpportunityContextReadPort,
+    opportunity_transitions: OpportunityCognitionSelectionPort,
+    evidence: EvidenceReadPort,
+    codex: CodexTaskSourceReadPort,
     memory_cognition: MemoryCognitionPort,
     memory_read: MemoryReadPort,
     mood_cognition: MoodCognitionPort,
@@ -1346,6 +1413,13 @@ def compose_candidate_validation_pipeline(
         activity_read=activity_read,
         material_context=material_context,
         memory_context=memory_context,
+        context=context,
+        runtime_state=runtime_state,
+        interaction=interaction,
+        opportunity_context=opportunity_context,
+        opportunity_transitions=opportunity_transitions,
+        evidence=evidence,
+        codex=codex,
         memory_cognition=memory_cognition,
         memory_read=memory_read,
         mood_cognition=mood_cognition,
@@ -1742,6 +1816,7 @@ __all__ = (
     "compose_evidence_module",
     "compose_exact_life_query_pipeline",
     "compose_expression_module",
+    "compose_interaction_cognition_ports",
     "compose_interaction_identity",
     "compose_interaction_module",
     "compose_life_opportunity_pipeline",

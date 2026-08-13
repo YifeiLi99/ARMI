@@ -291,6 +291,19 @@ class DataRightsOrderRepository:
         """Apply the same contact/use/delete boundary to effect admission and dispatch."""
         return await self.blocks_new_interaction(unit_of_work, requester_party_id)
 
+    async def blocks_cognition(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        requester_party_id: UUID,
+        opportunity_purpose: str,
+    ) -> bool:
+        return await self.blocks_subject_commit(
+            unit_of_work,
+            requester_party_id=requester_party_id,
+            opportunity_purpose=opportunity_purpose,
+        )
+
 
 def _snapshot(row: tuple[Any, ...]) -> DataRightsOrderSnapshot:
     return DataRightsOrderSnapshot(
