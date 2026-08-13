@@ -468,16 +468,12 @@ class ModelPipeline:
 
     async def open(self) -> None:
         try:
-            await self._factory.open()
             await self._storage.prepare()
-        except RuntimeTransactionFailure:
-            raise ModelViolation("MODEL-DATABASE") from None
         except ArtifactViolation:
             raise ModelViolation("MODEL-ARTIFACT") from None
 
     async def close(self) -> None:
         self._stop.set()
-        await self._factory.close()
 
     def stop(self) -> None:
         self._stop.set()

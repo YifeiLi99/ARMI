@@ -65,7 +65,6 @@ from armi_interaction.api import CreatorInputTransactionPort
 from armi_interaction.bootstrap import InteractionModule, bootstrap_interaction
 from armi_kernel import load_yaml_file
 from armi_kernel.application import (
-    CandidateViolation,
     CreatorProjectionNotifier,
     CredentialPort,
     CredentialPurpose,
@@ -140,7 +139,6 @@ from armi_web_observation.api import (
     WebObservationRuntimePort,
     WebObservationViolation,
     WebResearchRuntimePort,
-    WebResearchViolation,
 )
 from armi_web_observation.bootstrap import (
     bootstrap_web_observation,
@@ -1079,163 +1077,101 @@ def compose_context_embedding_pipeline(
 def compose_model_pipeline(
     prepared: PreparedEnvironment,
     *,
-    authority_admission: Callable[[], RuntimeFence],
+    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
 ) -> CognitionWorkerPort:
     """Resolve the Runtime and model credentials for the active S024 worker."""
 
-    database_locator = prepared.effective.config.secret_locators.get(
-        RUNTIME_LOCATOR_NAME
-    )
     model_locator = prepared.effective.config.secret_locators.get(MODEL_LOCATOR_NAME)
-    if database_locator is None or model_locator is None:
+    if model_locator is None:
         raise ModelViolation("MODEL-CREDENTIAL")
-    try:
-        with prepared.credential_port.resolve(
-            database_locator,
-            CredentialPurpose("database.runtime"),
-        ) as handle:
+    config = prepared.effective.config
 
-            def create(value: memoryview) -> CognitionWorkerPort:
-                try:
-                    conninfo = bytes(value).decode("utf-8")
-                except UnicodeDecodeError:
-                    raise ModelViolation("MODEL-DATABASE") from None
-                config = prepared.effective.config
-                factory = PostgreSQLUnitOfWorkFactory(
-                    conninfo,
-                    environment_id=config.environment.environment_id,
-                    pool_min=config.database.pool_min,
-                    pool_max=config.database.pool_max,
-                    acquire_timeout_seconds=(
-                        config.database.pool_acquire_timeout_seconds
-                    ),
-                    statement_timeout_seconds=(
-                        config.database.statement_timeout_seconds
-                    ),
-                    authority_admission=authority_admission,
-                )
+    def adapter_factory(
+        *,
+        binding: ModelBinding,
+        candidate_schema: dict[str, Any],
+        candidate_parser: CognitionCandidateParser,
+        instructions: str | None = None,
+        schema_name: str | None = None,
+    ) -> CognitionModelPort:
+        parser = cast(CandidateParser, candidate_parser)
+        if instructions is None and schema_name is None:
+            return VolcengineArkModelAdapter(
+                binding=binding,
+                credential_port=prepared.credential_port,
+                locator=model_locator,
+                candidate_schema=candidate_schema,
+                candidate_parser=parser,
+            )
+        if instructions is None or schema_name is None:
+            raise ModelViolation("MODEL-BINDING")
+        return VolcengineArkModelAdapter(
+            binding=binding,
+            credential_port=prepared.credential_port,
+            locator=model_locator,
+            candidate_schema=candidate_schema,
+            candidate_parser=parser,
+            instructions=instructions,
+            schema_name=schema_name,
+        )
 
-                def adapter_factory(
-                    *,
-                    binding: ModelBinding,
-                    candidate_schema: dict[str, Any],
-                    candidate_parser: CognitionCandidateParser,
-                    instructions: str | None = None,
-                    schema_name: str | None = None,
-                ) -> CognitionModelPort:
-                    parser = cast(CandidateParser, candidate_parser)
-                    if instructions is None and schema_name is None:
-                        return VolcengineArkModelAdapter(
-                            binding=binding,
-                            credential_port=prepared.credential_port,
-                            locator=model_locator,
-                            candidate_schema=candidate_schema,
-                            candidate_parser=parser,
-                        )
-                    if instructions is None or schema_name is None:
-                        raise ModelViolation("MODEL-BINDING")
-                    return VolcengineArkModelAdapter(
-                        binding=binding,
-                        credential_port=prepared.credential_port,
-                        locator=model_locator,
-                        candidate_schema=candidate_schema,
-                        candidate_parser=parser,
-                        instructions=instructions,
-                        schema_name=schema_name,
-                    )
-
-                return bootstrap_cognition_model(
-                    factory=factory,
-                    storage=ContentAddressedArtifactStore(
-                        prepared.data_root / "artifacts",
-                        max_object_bytes=config.artifacts.max_object_bytes,
-                    ),
-                    catalog=ArtifactCatalogRepository(),
-                    work=PostgreSQLDurableWorkGateway(factory),
-                    adapter_factory=adapter_factory,
-                    binding_path=runtime_config_path("model-bindings.yaml"),
-                    web_search_active=prepared.effective.config.web.enabled,
-                    wakeups=wakeups,
-                    diagnostic=diagnostic,
-                )
-
-            return handle.consume(create)
-    except ConfigurationViolation:
-        raise ModelViolation("MODEL-CREDENTIAL") from None
+    return bootstrap_cognition_model(
+        factory=unit_of_work_factory,
+        storage=ContentAddressedArtifactStore(
+            prepared.data_root / "artifacts",
+            max_object_bytes=config.artifacts.max_object_bytes,
+        ),
+        catalog=ArtifactCatalogRepository(),
+        work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
+        adapter_factory=adapter_factory,
+        binding_path=runtime_config_path("model-bindings.yaml"),
+        web_search_active=config.web.enabled,
+        wakeups=wakeups,
+        diagnostic=diagnostic,
+    )
 
 
 def compose_web_search_pipeline(
     prepared: PreparedEnvironment,
     *,
-    authority_admission: Callable[[], RuntimeFence],
+    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     evidence: EvidenceWritePort,
     opportunity: OpportunityAdmissionPort,
     diagnostic: Callable[[str], None] | None = None,
 ) -> WebObservationRuntimePort:
     """Resolve the fixed database and Ark credentials for S033 custody."""
 
-    database_locator = prepared.effective.config.secret_locators.get(
-        RUNTIME_LOCATOR_NAME
-    )
     model_locator = prepared.effective.config.secret_locators.get(MODEL_LOCATOR_NAME)
-    if database_locator is None or model_locator is None:
+    if model_locator is None:
         raise WebObservationViolation("WEB-CREDENTIAL")
     try:
         manifest_bytes = runtime_config_path("web-search.yaml").read_bytes()
     except OSError:
         raise WebObservationViolation("WEB-MANIFEST") from None
-    try:
-        with prepared.credential_port.resolve(
-            database_locator,
-            CredentialPurpose("database.runtime"),
-        ) as handle:
-
-            def create(value: memoryview) -> WebObservationRuntimePort:
-                try:
-                    conninfo = bytes(value).decode("utf-8")
-                except UnicodeDecodeError:
-                    raise WebObservationViolation("WEB-DATABASE") from None
-                config = prepared.effective.config
-                factory = PostgreSQLUnitOfWorkFactory(
-                    conninfo,
-                    environment_id=config.environment.environment_id,
-                    pool_min=config.database.pool_min,
-                    pool_max=config.database.pool_max,
-                    acquire_timeout_seconds=(
-                        config.database.pool_acquire_timeout_seconds
-                    ),
-                    statement_timeout_seconds=(
-                        config.database.statement_timeout_seconds
-                    ),
-                    authority_admission=authority_admission,
-                )
-                return bootstrap_web_observation(
-                    factory=factory,
-                    storage=ContentAddressedArtifactStore(
-                        prepared.data_root / "artifacts",
-                        max_object_bytes=config.artifacts.max_object_bytes,
-                    ),
-                    catalog=ArtifactCatalogRepository(),
-                    work=PostgreSQLDurableWorkGateway(factory),
-                    credential_port=prepared.credential_port,
-                    credential_locator=model_locator,
-                    manifest_bytes=manifest_bytes,
-                    evidence=evidence,
-                    opportunity=opportunity,
-                    diagnostic=diagnostic,
-                )
-
-            return handle.consume(create)
-    except ConfigurationViolation:
-        raise WebObservationViolation("WEB-CREDENTIAL") from None
+    config = prepared.effective.config
+    return bootstrap_web_observation(
+        factory=unit_of_work_factory,
+        storage=ContentAddressedArtifactStore(
+            prepared.data_root / "artifacts",
+            max_object_bytes=config.artifacts.max_object_bytes,
+        ),
+        catalog=ArtifactCatalogRepository(),
+        work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
+        credential_port=prepared.credential_port,
+        credential_locator=model_locator,
+        manifest_bytes=manifest_bytes,
+        evidence=evidence,
+        opportunity=opportunity,
+        diagnostic=diagnostic,
+    )
 
 
 def compose_web_research_admission_pipeline(
     prepared: PreparedEnvironment,
     *,
-    authority_admission: Callable[[], RuntimeFence],
+    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     custody: WebObservationRuntimePort,
     evidence: EvidenceWritePort,
     opportunity: OpportunityAdmissionPort,
@@ -1243,58 +1179,25 @@ def compose_web_research_admission_pipeline(
 ) -> WebResearchRuntimePort:
     """Resolve the active S034 intent-to-custody worker."""
 
-    database_locator = prepared.effective.config.secret_locators.get(
-        RUNTIME_LOCATOR_NAME
+    config = prepared.effective.config
+    return bootstrap_web_research(
+        factory=unit_of_work_factory,
+        storage=ContentAddressedArtifactStore(
+            prepared.data_root / "artifacts",
+            max_object_bytes=config.artifacts.max_object_bytes,
+        ),
+        work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
+        custody=custody,
+        evidence=evidence,
+        opportunity=opportunity,
+        diagnostic=diagnostic,
     )
-    if database_locator is None:
-        raise WebResearchViolation("WEB-RESEARCH-DATABASE")
-    try:
-        with prepared.credential_port.resolve(
-            database_locator,
-            CredentialPurpose("database.runtime"),
-        ) as handle:
-
-            def create(value: memoryview) -> WebResearchRuntimePort:
-                try:
-                    conninfo = bytes(value).decode("utf-8")
-                except UnicodeDecodeError:
-                    raise WebResearchViolation("WEB-RESEARCH-DATABASE") from None
-                config = prepared.effective.config
-                factory = PostgreSQLUnitOfWorkFactory(
-                    conninfo,
-                    environment_id=config.environment.environment_id,
-                    pool_min=config.database.pool_min,
-                    pool_max=config.database.pool_max,
-                    acquire_timeout_seconds=(
-                        config.database.pool_acquire_timeout_seconds
-                    ),
-                    statement_timeout_seconds=(
-                        config.database.statement_timeout_seconds
-                    ),
-                    authority_admission=authority_admission,
-                )
-                return bootstrap_web_research(
-                    factory=factory,
-                    storage=ContentAddressedArtifactStore(
-                        prepared.data_root / "artifacts",
-                        max_object_bytes=config.artifacts.max_object_bytes,
-                    ),
-                    work=PostgreSQLDurableWorkGateway(factory),
-                    custody=custody,
-                    evidence=evidence,
-                    opportunity=opportunity,
-                    diagnostic=diagnostic,
-                )
-
-            return handle.consume(create)
-    except ConfigurationViolation:
-        raise WebResearchViolation("WEB-RESEARCH-DATABASE") from None
 
 
 def compose_candidate_validation_pipeline(
     prepared: PreparedEnvironment,
     *,
-    authority_admission: Callable[[], RuntimeFence],
+    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     activity_cognition: ActivityCognitionPort,
     activity_read: ActivityReadPort,
     memory_cognition: MemoryCognitionPort,
@@ -1316,66 +1219,35 @@ def compose_candidate_validation_pipeline(
 ) -> CognitionWorkerPort:
     """Resolve the Runtime credential for the active S025 validator."""
 
-    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
-    if locator is None:
-        raise CandidateViolation("CANDIDATE-DATABASE")
-    try:
-        with prepared.credential_port.resolve(
-            locator,
-            CredentialPurpose("database.runtime"),
-        ) as handle:
-
-            def create(value: memoryview) -> CognitionWorkerPort:
-                try:
-                    conninfo = bytes(value).decode("utf-8")
-                except UnicodeDecodeError:
-                    raise CandidateViolation("CANDIDATE-DATABASE") from None
-                config = prepared.effective.config
-                factory = PostgreSQLUnitOfWorkFactory(
-                    conninfo,
-                    environment_id=config.environment.environment_id,
-                    pool_min=config.database.pool_min,
-                    pool_max=config.database.pool_max,
-                    acquire_timeout_seconds=(
-                        config.database.pool_acquire_timeout_seconds
-                    ),
-                    statement_timeout_seconds=(
-                        config.database.statement_timeout_seconds
-                    ),
-                    authority_admission=authority_admission,
-                )
-                return bootstrap_cognition_candidate(
-                    factory=factory,
-                    storage=ContentAddressedArtifactStore(
-                        prepared.data_root / "artifacts",
-                        max_object_bytes=config.artifacts.max_object_bytes,
-                    ),
-                    catalog=ArtifactCatalogRepository(),
-                    work=PostgreSQLDurableWorkGateway(factory),
-                    activity_cognition=activity_cognition,
-                    activity_read=activity_read,
-                    memory_cognition=memory_cognition,
-                    memory_read=memory_read,
-                    mood_cognition=mood_cognition,
-                    mood_read=mood_read,
-                    prompt_cognition=prompt_cognition,
-                    prompt_read=prompt_read,
-                    material_cognition=material_cognition,
-                    material_read=material_read,
-                    relationship_cognition=relationship_cognition,
-                    relationship_read=relationship_read,
-                    sleep_cognition=sleep_cognition,
-                    sleep_read=sleep_read,
-                    subject_state_cognition=subject_state_cognition,
-                    subject_state_read=subject_state_read,
-                    web_search_active=prepared.effective.config.web.enabled,
-                    wakeups=wakeups,
-                    diagnostic=diagnostic,
-                )
-
-            return handle.consume(create)
-    except ConfigurationViolation:
-        raise CandidateViolation("CANDIDATE-DATABASE") from None
+    config = prepared.effective.config
+    return bootstrap_cognition_candidate(
+        factory=unit_of_work_factory,
+        storage=ContentAddressedArtifactStore(
+            prepared.data_root / "artifacts",
+            max_object_bytes=config.artifacts.max_object_bytes,
+        ),
+        catalog=ArtifactCatalogRepository(),
+        work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
+        activity_cognition=activity_cognition,
+        activity_read=activity_read,
+        memory_cognition=memory_cognition,
+        memory_read=memory_read,
+        mood_cognition=mood_cognition,
+        mood_read=mood_read,
+        prompt_cognition=prompt_cognition,
+        prompt_read=prompt_read,
+        material_cognition=material_cognition,
+        material_read=material_read,
+        relationship_cognition=relationship_cognition,
+        relationship_read=relationship_read,
+        sleep_cognition=sleep_cognition,
+        sleep_read=sleep_read,
+        subject_state_cognition=subject_state_cognition,
+        subject_state_read=subject_state_read,
+        web_search_active=config.web.enabled,
+        wakeups=wakeups,
+        diagnostic=diagnostic,
+    )
 
 
 def compose_subject_commit_pipeline(

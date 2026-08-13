@@ -76,16 +76,12 @@ class WebResearchAdmissionPipeline(WebResearchIntentPort):
 
     async def open(self) -> None:
         try:
-            await self._factory.open()
             await self._storage.prepare()
-        except RuntimeTransactionFailure:
-            raise WebResearchViolation("WEB-RESEARCH-DATABASE") from None
         except ArtifactViolation:
             raise WebResearchViolation("WEB-RESEARCH-ARTIFACT") from None
 
     async def close(self) -> None:
         self._stop.set()
-        await self._factory.close()
 
     def stop(self) -> None:
         self._stop.set()

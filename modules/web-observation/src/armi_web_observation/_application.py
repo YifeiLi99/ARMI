@@ -130,14 +130,12 @@ class WebSearchPipeline:
 
     async def open(self) -> None:
         try:
-            await self._factory.open()
             await self._storage.prepare()
-        except ArtifactViolation, RuntimeTransactionFailure:
+        except ArtifactViolation:
             raise WebObservationViolation("WEB-DEPENDENCY") from None
 
     async def close(self) -> None:
         self._stop.set()
-        await self._factory.close()
 
     def stop(self) -> None:
         self._stop.set()

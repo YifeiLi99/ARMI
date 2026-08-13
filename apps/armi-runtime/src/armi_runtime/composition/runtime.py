@@ -502,7 +502,7 @@ async def _serve(
             await context_pipeline.open()
             candidate_pipeline = compose_candidate_validation_pipeline(
                 prepared,
-                authority_admission=authority.require_writable,
+                unit_of_work_factory=runtime_unit_of_work_factory,
                 activity_cognition=activity_module.cognition,
                 activity_read=activity_module.read,
                 memory_cognition=memory_module.cognition,
@@ -631,7 +631,7 @@ async def _serve(
                 try:
                     model_pipeline = compose_model_pipeline(
                         prepared,
-                        authority_admission=authority.require_writable,
+                        unit_of_work_factory=runtime_unit_of_work_factory,
                         wakeups=work_wakeups,
                         diagnostic=lambda event: diagnostic.emit(
                             event,
@@ -652,7 +652,7 @@ async def _serve(
                     try:
                         web_search_pipeline = compose_web_search_pipeline(
                             prepared,
-                            authority_admission=authority.require_writable,
+                            unit_of_work_factory=runtime_unit_of_work_factory,
                             evidence=evidence_module.write,
                             opportunity=opportunity_admission,
                             diagnostic=lambda event: diagnostic.emit(
@@ -663,7 +663,7 @@ async def _serve(
                         await web_search_pipeline.open()
                         web_research_pipeline = compose_web_research_admission_pipeline(
                             prepared,
-                            authority_admission=authority.require_writable,
+                            unit_of_work_factory=runtime_unit_of_work_factory,
                             custody=web_search_pipeline,
                             evidence=evidence_module.write,
                             opportunity=opportunity_admission,

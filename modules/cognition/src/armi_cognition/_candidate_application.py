@@ -226,16 +226,12 @@ class CandidateValidationPipeline:
 
     async def open(self) -> None:
         try:
-            await self._factory.open()
             await self._storage.prepare()
-        except RuntimeTransactionFailure:
-            raise CandidateViolation("CANDIDATE-DATABASE") from None
         except ArtifactViolation:
             raise CandidateViolation("CANDIDATE-ARTIFACT") from None
 
     async def close(self) -> None:
         self._stop.set()
-        await self._factory.close()
 
     def stop(self) -> None:
         self._stop.set()
