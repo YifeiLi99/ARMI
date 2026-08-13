@@ -628,8 +628,11 @@ class ModelPipeline:
                     error,
                 )
             return True
-        except RuntimeTransactionFailure, WorkViolation:
-            self._diagnostic("model.worker.transient_failure")
+        except RuntimeTransactionFailure as error:
+            self._diagnostic(f"model.worker.transient_failure.{error.code.lower()}")
+            return True
+        except WorkViolation as error:
+            self._diagnostic(f"model.worker.transient_failure.{error.code.lower()}")
             return True
 
     async def run_worker(self) -> None:
