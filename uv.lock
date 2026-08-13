@@ -168,12 +168,14 @@ version = "0.0.0"
 source = { editable = "packages/armi-artifact-store" }
 dependencies = [
     { name = "armi-kernel" },
+    { name = "armi-runtime-foundation" },
     { name = "rfc8785" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "armi-kernel", editable = "packages/armi-kernel" },
+    { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
     { name = "rfc8785", specifier = "==0.1.4" },
 ]
 

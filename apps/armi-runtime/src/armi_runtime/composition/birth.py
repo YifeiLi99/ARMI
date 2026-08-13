@@ -6,6 +6,8 @@ from collections.abc import AsyncIterator
 from uuid import uuid7
 
 import rfc8785
+from armi_artifact_store.api import ArtifactCatalogPort
+from armi_artifact_store.bootstrap import bootstrap_artifact_catalog
 from armi_artifact_store.content_store import (
     ContentAddressedArtifactStore,
 )
@@ -13,6 +15,7 @@ from armi_kernel.application import (
     ArtifactId,
     ArtifactPolicy,
     ArtifactPrivacyScope,
+    ArtifactRegistration,
     ArtifactViolation,
     AuditDraft,
     AuditEventId,
@@ -31,10 +34,6 @@ from armi_mood.bootstrap import bootstrap_mood
 from armi_prompt.bootstrap import bootstrap_prompt
 from armi_subject_state.bootstrap import bootstrap_subject_state
 
-from armi_runtime.adapters.persistence.artifact_catalog import (
-    ArtifactCatalogRepository,
-    ArtifactRegistration,
-)
 from armi_runtime.adapters.persistence.birth import BirthArtifacts, BirthRepository
 from armi_runtime.adapters.persistence.unit_of_work import (
     PostgreSQLUnitOfWork,
@@ -57,7 +56,7 @@ class BirthTransaction:
     def __init__(
         self,
         storage: ContentAddressedArtifactStore,
-        catalog: ArtifactCatalogRepository,
+        catalog: ArtifactCatalogPort,
         repository: BirthRepository,
         unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     ) -> None:
@@ -251,7 +250,7 @@ async def execute_birth_with_conninfo(
     )
     transaction = BirthTransaction(
         storage,
-        ArtifactCatalogRepository(),
+        bootstrap_artifact_catalog(),
         BirthRepository(
             bootstrap_subject_state().birth,
             bootstrap_mood().birth,

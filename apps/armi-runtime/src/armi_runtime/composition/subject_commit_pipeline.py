@@ -10,6 +10,7 @@ from typing import cast
 from uuid import uuid7
 
 from armi_activity.api import ActivityCognitionPort, ActivityCommitPort
+from armi_artifact_store.bootstrap import bootstrap_artifact_catalog
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_artifact_store.life_material_codec import (
     build_life_material_artifact,
@@ -62,7 +63,6 @@ from armi_sleep.api import SleepCognitionPort, SleepCommitPort
 from armi_subject_state.api import SubjectStateCognitionPort, SubjectStateCommitPort
 from armi_web_observation.api import WebResearchCommitPort, WebResearchRequestDraft
 
-from armi_runtime.adapters.persistence.artifact_catalog import ArtifactCatalogRepository
 from armi_runtime.adapters.persistence.durable_work import PostgreSQLDurableWorkGateway
 from armi_runtime.adapters.persistence.subject_commit import (
     PostgreSQLSubjectCommitRepository,
@@ -160,7 +160,7 @@ class SubjectCommitPipeline:
         self._factory = factory
         self._change_set_codec = change_set_codec
         self._activity_cognition = activity_cognition
-        self._catalog = ArtifactCatalogRepository()
+        self._catalog = bootstrap_artifact_catalog()
         self._storage = storage
         self._notifier = notifier
         self._memory_cognition = memory_cognition

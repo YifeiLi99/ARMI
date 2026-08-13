@@ -54,7 +54,11 @@ DISTRIBUTIONS = (
         module="armi_artifact_store",
         project_dir=Path("packages/armi-artifact-store"),
         layers=(),
-        dependencies=("armi-kernel==0.0.0", "rfc8785==0.1.4"),
+        dependencies=(
+            "armi-kernel==0.0.0",
+            "armi-runtime-foundation==0.0.0",
+            "rfc8785==0.1.4",
+        ),
     ),
     Distribution(
         name="armi-postgresql-contract",

@@ -44,6 +44,9 @@ from armi_admin.mcp.contracts import (
 from armi_admin.mcp.service import AdminToolService
 from armi_admin.persistence.observation_gateway import AdminObservationGateway
 from armi_admin.persistence.role_session import AdminRoleBoundPool
+from armi_artifact_store.bootstrap import (
+    bootstrap_artifact_catalog as ArtifactCatalogRepository,
+)
 from armi_artifact_store.content_store import (
     ContentAddressedArtifactStore,
 )
@@ -196,9 +199,6 @@ from armi_relationship.bootstrap import (
     bootstrap_relationship_cognition,
 )
 from armi_runtime.adapters.model.volcengine_ark import VolcengineArkModelAdapter
-from armi_runtime.adapters.persistence.artifact_catalog import (
-    ArtifactCatalogRepository,
-)
 from armi_runtime.adapters.persistence.audit_events import AuditEventRepository
 from armi_runtime.adapters.persistence.birth import (
     BirthRepository,

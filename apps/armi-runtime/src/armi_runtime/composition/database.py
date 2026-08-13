@@ -13,6 +13,7 @@ from armi_activity.api import (
     ActivityReadPort,
 )
 from armi_activity.bootstrap import ActivityModule, bootstrap_activity
+from armi_artifact_store.bootstrap import bootstrap_artifact_catalog
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_capability.api import (
     CapabilityCommitPort,
@@ -170,7 +171,6 @@ from armi_runtime.adapters.model.volcengine_ark import (
 from armi_runtime.adapters.model.volcengine_embedding import (
     VolcengineArkEmbeddingAdapter,
 )
-from armi_runtime.adapters.persistence.artifact_catalog import ArtifactCatalogRepository
 from armi_runtime.adapters.persistence.birth import (
     ContinuityState,
     probe_continuity,
@@ -495,7 +495,7 @@ def compose_interaction_module(
             max_object_bytes=config.artifacts.max_object_bytes,
         ),
         codex_task_projection=bootstrap_codex_timeline_projection(),
-        catalog=ArtifactCatalogRepository(),
+        catalog=bootstrap_artifact_catalog(),
         data_rights=data_rights,
         subject_state=subject_state_read,
         evidence=evidence,
@@ -785,7 +785,7 @@ def compose_perception_module(
                 prepared.data_root / "artifacts",
                 max_object_bytes=config.artifacts.max_object_bytes,
             ),
-            catalog=ArtifactCatalogRepository(),
+            catalog=bootstrap_artifact_catalog(),
             work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
             evidence=evidence,
             evidence_read=evidence_read,
@@ -821,7 +821,7 @@ def compose_prompt_module(
     """Resolve the Runtime credential for the T-04 Creator Prompt owner."""
 
     config = prepared.effective.config
-    catalog = ArtifactCatalogRepository()
+    catalog = bootstrap_artifact_catalog()
     return bootstrap_prompt(
         creator_party_id=creator_party_id,
         storage=ContentAddressedArtifactStore(
@@ -951,7 +951,7 @@ def compose_context_pipeline(
             prepared.data_root / "artifacts",
             max_object_bytes=config.artifacts.max_object_bytes,
         ),
-        catalog=ArtifactCatalogRepository(),
+        catalog=bootstrap_artifact_catalog(),
         work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
         activity_read=activity_read,
         memory_read=memory_read,
@@ -1056,7 +1056,7 @@ def compose_model_pipeline(
             prepared.data_root / "artifacts",
             max_object_bytes=config.artifacts.max_object_bytes,
         ),
-        catalog=ArtifactCatalogRepository(),
+        catalog=bootstrap_artifact_catalog(),
         work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
         adapter_factory=adapter_factory,
         binding_path=runtime_config_path("model-bindings.yaml"),
@@ -1090,7 +1090,7 @@ def compose_web_search_pipeline(
             prepared.data_root / "artifacts",
             max_object_bytes=config.artifacts.max_object_bytes,
         ),
-        catalog=ArtifactCatalogRepository(),
+        catalog=bootstrap_artifact_catalog(),
         work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
         credential_port=prepared.credential_port,
         credential_locator=model_locator,
@@ -1159,7 +1159,7 @@ def compose_candidate_validation_pipeline(
             prepared.data_root / "artifacts",
             max_object_bytes=config.artifacts.max_object_bytes,
         ),
-        catalog=ArtifactCatalogRepository(),
+        catalog=bootstrap_artifact_catalog(),
         work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
         activity_cognition=activity_cognition,
         activity_read=activity_read,
@@ -1392,7 +1392,7 @@ def compose_codex_pipeline(
             prepared.data_root / "artifacts",
             max_object_bytes=config.artifacts.max_object_bytes,
         ),
-        catalog=ArtifactCatalogRepository(),
+        catalog=bootstrap_artifact_catalog(),
         environment_root=prepared.root,
         run_root=run_root,
         creator_party_id=creator_party_id,

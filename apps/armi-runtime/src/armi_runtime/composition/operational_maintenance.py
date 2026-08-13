@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from armi_artifact_store.bootstrap import bootstrap_artifact_catalog
 from armi_artifact_store.content_store import (
     ContentAddressedArtifactStore,
 )
@@ -10,9 +11,6 @@ from armi_kernel.application import (
     CredentialPurpose,
 )
 
-from armi_runtime.adapters.persistence.artifact_catalog import (
-    ArtifactCatalogRepository,
-)
 from armi_runtime.adapters.persistence.database_maintenance import (
     DatabaseMaintenanceReport,
     PostgreSQLDatabaseMaintenance,
@@ -91,7 +89,7 @@ async def run_artifact_retention(
     )
     coordinator = ContentAddressedArtifactCoordinator(
         storage,
-        ArtifactCatalogRepository(),
+        bootstrap_artifact_catalog(),
         factory,
         orphan_grace_seconds=(prepared.effective.config.artifacts.orphan_grace_seconds),
     )

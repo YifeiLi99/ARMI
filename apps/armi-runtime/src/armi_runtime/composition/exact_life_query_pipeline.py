@@ -9,6 +9,7 @@ from typing import Any, cast
 from uuid import uuid7
 
 import rfc8785
+from armi_artifact_store.bootstrap import bootstrap_artifact_catalog
 from armi_artifact_store.content_store import (
     ContentAddressedArtifactStore,
 )
@@ -27,9 +28,6 @@ from armi_kernel.application import (
     WorkViolation,
 )
 
-from armi_runtime.adapters.persistence.artifact_catalog import (
-    ArtifactCatalogRepository,
-)
 from armi_runtime.adapters.persistence.durable_work import (
     PostgreSQLDurableWorkGateway,
 )
@@ -84,7 +82,7 @@ class ExactLifeQueryPipeline:
         self._factory = factory
         self._storage = storage
         self._query = query
-        self._catalog = ArtifactCatalogRepository()
+        self._catalog = bootstrap_artifact_catalog()
         self._repository = PostgreSQLExactLifeQueryRepository()
         self._work = PostgreSQLDurableWorkGateway(factory)
         self._wakeups = wakeups or WorkWakeupBus()

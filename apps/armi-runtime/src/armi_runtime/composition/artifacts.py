@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import uuid7
 
+from armi_artifact_store.api import ArtifactCatalogPort
 from armi_artifact_store.content_store import (
     ContentAddressedArtifactStore,
     StorageFinding,
@@ -29,9 +30,6 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import Purpose, TraceId
 
-from armi_runtime.adapters.persistence.artifact_catalog import (
-    ArtifactCatalogRepository,
-)
 from armi_runtime.adapters.persistence.unit_of_work import (
     PostgreSQLUnitOfWorkFactory,
 )
@@ -85,7 +83,7 @@ class ContentAddressedArtifactCoordinator:
     def __init__(
         self,
         storage: ContentAddressedArtifactStore,
-        catalog: ArtifactCatalogRepository,
+        catalog: ArtifactCatalogPort,
         unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
         *,
         orphan_grace_seconds: int,
