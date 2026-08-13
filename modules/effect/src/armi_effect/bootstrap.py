@@ -7,7 +7,10 @@ from collections.abc import Callable
 from armi_capability.api import CapabilityGrantConsumptionPort
 from armi_expression.api import ExpressionEffectRegistrationPort
 from armi_kernel.application import CreatorProjectionNotifier, DurableWorkPort
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWorkFactory
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    RecoveryParticipant,
+)
 
 from ._application import EffectRegistrationPipeline
 from ._grant import (
@@ -15,6 +18,7 @@ from ._grant import (
     PostgreSQLEffectGrantCancellation,
 )
 from ._ledger import PostgreSQLDeclaredResponseEffectRegistration
+from ._recovery import EffectRecoveryParticipant
 from ._response import ResponseAdmissionPipeline
 from .api import (
     ActionAdapterPort,
@@ -89,9 +93,14 @@ def bootstrap_response_admission(
     )
 
 
+def bootstrap_effect_recovery() -> RecoveryParticipant:
+    return EffectRecoveryParticipant()
+
+
 __all__ = (
     "bootstrap_effect_dispatch_boundary",
     "bootstrap_effect_grant_cancellation",
+    "bootstrap_effect_recovery",
     "bootstrap_effect_runtime",
     "bootstrap_expression_effect_registration",
     "bootstrap_response_admission",

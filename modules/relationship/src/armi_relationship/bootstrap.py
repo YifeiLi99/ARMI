@@ -5,7 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWorkFactory
+from armi_runtime_foundation import (
+    EmptyRecoveryParticipant,
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    RecoveryParticipant,
+)
 
 from ._application import RelationshipApplication
 from ._postgresql import PostgreSQLRelationshipOwner
@@ -38,6 +42,10 @@ def bootstrap_relationship_cognition() -> RelationshipCognitionPort:
     return RelationshipApplication()
 
 
+def bootstrap_relationship_recovery() -> RecoveryParticipant:
+    return EmptyRecoveryParticipant("relationship")
+
+
 def bootstrap_relationship(
     factory: PostgreSQLRuntimeUnitOfWorkFactory,
     *,
@@ -62,4 +70,5 @@ __all__ = (
     "RelationshipModule",
     "bootstrap_relationship",
     "bootstrap_relationship_cognition",
+    "bootstrap_relationship_recovery",
 )

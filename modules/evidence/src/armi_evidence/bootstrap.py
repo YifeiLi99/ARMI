@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from armi_runtime_foundation import RecoveryParticipant
+
 from ._postgresql import PostgreSQLEvidenceWriter
+from ._recovery import EvidenceRecoveryParticipant
 from .api import EvidenceReadPort, EvidenceWritePort
 
 
@@ -25,4 +28,8 @@ def bootstrap_evidence() -> EvidenceModule:
     return EvidenceModule(read=owner, write=owner)
 
 
-__all__ = ("EvidenceModule", "bootstrap_evidence")
+def bootstrap_evidence_recovery() -> RecoveryParticipant:
+    return EvidenceRecoveryParticipant()
+
+
+__all__ = ("EvidenceModule", "bootstrap_evidence", "bootstrap_evidence_recovery")

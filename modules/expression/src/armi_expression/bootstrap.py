@@ -3,8 +3,10 @@
 from dataclasses import dataclass
 
 from armi_relationship.api import RelationshipPolicyPort, RelationshipReadPort
+from armi_runtime_foundation import RecoveryParticipant
 
 from ._postgresql import PostgreSQLExpressionOwner
+from ._recovery import ExpressionRecoveryParticipant
 from .api import ExpressionCommitPort, ExpressionEffectRegistrationPort
 
 
@@ -27,4 +29,12 @@ def bootstrap_expression(
     )
 
 
-__all__ = ("ExpressionModule", "bootstrap_expression")
+def bootstrap_expression_recovery() -> RecoveryParticipant:
+    return ExpressionRecoveryParticipant()
+
+
+__all__ = (
+    "ExpressionModule",
+    "bootstrap_expression",
+    "bootstrap_expression_recovery",
+)

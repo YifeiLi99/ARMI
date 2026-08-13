@@ -303,6 +303,7 @@ async def _serve(
                     result_code="REC_BLOCKED",
                     reason_codes=recovery_reasons,
                 )
+                raise RecoveryViolation("REC-BLOCKED")
             else:
                 diagnostic.emit(
                     "runtime.recovery.safe",
@@ -738,14 +739,28 @@ async def _serve(
                 await authority_port.close()
             diagnostic.close()
             return EXIT_LISTENER_FAILURE
-        except RecoveryViolation:
-            recovery_reasons = ("RUNTIME_RECOVERY_BLOCKED",)
+        except RecoveryViolation as error:
+            recovery_reasons = ("RUNTIME_RECOVERY_BLOCKED", error.code)
             diagnostic.emit(
                 "runtime.recovery.failed",
                 level=logging.ERROR,
                 result_code="REC_FAILED",
                 reason_codes=recovery_reasons,
             )
+            if prompt_module is not None:
+                await prompt_module.close()
+            if mood_module is not None:
+                await mood_module.close()
+            if subject_state_module is not None:
+                await subject_state_module.close()
+            if authority is not None:
+                await authority.release()
+            if runtime_unit_of_work_factory is not None:
+                await runtime_unit_of_work_factory.close()
+            if authority_port is not None:
+                await authority_port.close()
+            diagnostic.close()
+            return EXIT_LISTENER_FAILURE
         except (
             BrowserSessionViolation,
             CandidateViolation,

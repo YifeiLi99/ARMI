@@ -246,6 +246,7 @@ from armi_runtime.composition.audit import AuditQueryGateway
 from armi_runtime.composition.birth import BirthTransaction
 from armi_runtime.composition.birth_manifest import packaged_birth_digests
 from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
+from armi_runtime.composition.database import compose_recovery_participants
 from armi_runtime.composition.runtime_process import RuntimeProcessManager
 from armi_runtime.composition.work_wakeup import WorkWakeupBus
 from armi_sleep.api import CreatorMaintenanceViolation
@@ -6942,15 +6943,20 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     statement_timeout_seconds=5,
                     authority_admission=lambda: record.fence,
                 )
+                participants, expected_owners = compose_recovery_participants(
+                    mood_read=bootstrap_mood().read,
+                    prompt_read=bootstrap_prompt().read,
+                    subject_state_read=bootstrap_subject_state().read,
+                )
                 recovery = PostgreSQLRuntimeRecovery(
                     recovery_factory,
                     environment_id=fixture.environment_id,
                     data_root=root.parent,
                     max_object_bytes=1024 * 1024,
                     authority_admission=lambda: record.fence,
-                    mood=bootstrap_mood().read,
-                    prompts=bootstrap_prompt().read,
-                    subject_state=bootstrap_subject_state().read,
+                    participants=participants,
+                    expected_owners=expected_owners,
+                    catalog=ArtifactCatalogRepository(),
                 )
                 await recovery_factory.open()
                 await recovery.open()
@@ -6980,12 +6986,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 next(
                     metric.value
                     for metric in summary.metrics
-                    if metric.kind == "critical_artifact_count"
+                    if metric.kind == "artifact_store.verified_critical_count"
                 ),
                 next(
                     metric.value
                     for metric in summary.metrics
-                    if metric.kind == "requeued_work_count"
+                    if metric.kind == "runtime.requeued_work_count"
                 ),
                 operations,
             )
@@ -7554,16 +7560,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     """
                     SELECT
                         max(metric_value) FILTER (
-                            WHERE metric_kind = 'resumable_opportunity_count'
+                            WHERE metric_kind = 'opportunity.resumable_count'
                         ),
                         max(metric_value) FILTER (
-                            WHERE metric_kind = 'resumable_cognitive_episode_count'
-                        ),
-                        max(metric_value) FILTER (
-                            WHERE metric_kind = 'resumable_model_attempt_count'
-                        ),
-                        max(metric_value) FILTER (
-                            WHERE metric_kind = 'resumable_candidate_validation_count'
+                            WHERE metric_kind = 'cognition.resumable_episode_count'
                         )
                     FROM armi.runtime_recovery_metrics
                     WHERE recovery_run_id = (
@@ -7572,7 +7572,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     )
                     """
                 ).fetchone()
-                self.assertEqual(recovery_count, (0, 2, 2, 0))
+                self.assertEqual(recovery_count, (2, 2))
                 self.assertEqual(
                     database.execute(
                         """

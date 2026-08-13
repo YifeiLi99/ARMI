@@ -2,9 +2,12 @@
 
 from dataclasses import dataclass
 
+from armi_runtime_foundation import RecoveryParticipant
+
 from ._admin import PostgreSQLMoodAdmin
 from ._application import MoodApplication
 from ._postgresql import PostgreSQLMoodOwner
+from ._recovery import MoodRecoveryParticipant
 from .api import (
     MoodAdminCorrectionPort,
     MoodAdminReadPort,
@@ -50,10 +53,15 @@ def bootstrap_mood_admin_read(
     return PostgreSQLMoodAdmin(conninfo, expected_role=expected_role)
 
 
+def bootstrap_mood_recovery(read: MoodReadPort) -> RecoveryParticipant:
+    return MoodRecoveryParticipant(read)
+
+
 __all__ = (
     "MoodModule",
     "bootstrap_mood",
     "bootstrap_mood_admin_correction",
     "bootstrap_mood_admin_read",
     "bootstrap_mood_cognition",
+    "bootstrap_mood_recovery",
 )

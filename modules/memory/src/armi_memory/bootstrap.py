@@ -5,7 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWorkFactory
+from armi_runtime_foundation import (
+    EmptyRecoveryParticipant,
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    RecoveryParticipant,
+)
 
 from ._application import MemoryApplication
 from ._postgresql import PostgreSQLMemoryOwner
@@ -57,4 +61,13 @@ def bootstrap_memory_cognition() -> MemoryCognitionPort:
     return MemoryApplication()
 
 
-__all__ = ("MemoryModule", "bootstrap_memory", "bootstrap_memory_cognition")
+def bootstrap_memory_recovery() -> RecoveryParticipant:
+    return EmptyRecoveryParticipant("memory")
+
+
+__all__ = (
+    "MemoryModule",
+    "bootstrap_memory",
+    "bootstrap_memory_cognition",
+    "bootstrap_memory_recovery",
+)

@@ -162,6 +162,56 @@ OWN = "UPDATE armi.cognitive_episodes SET status = 'done'"
             ],
         )
 
+    def test_startup_recovery_sql_stays_with_each_table_owner(self) -> None:
+        sources = {
+            "runtime": ROOT
+            / "apps/armi-runtime/src/armi_runtime/adapters/persistence/recovery.py",
+            **{
+                owner: ROOT
+                / "modules"
+                / distribution
+                / "src"
+                / package
+                / "_recovery.py"
+                for owner, distribution, package in (
+                    ("capability", "capability", "armi_capability"),
+                    ("codex", "codex", "armi_codex"),
+                    ("cognition", "cognition", "armi_cognition"),
+                    ("effect", "effect", "armi_effect"),
+                    ("evidence", "evidence", "armi_evidence"),
+                    ("expression", "expression", "armi_expression"),
+                    ("interaction", "interaction", "armi_interaction"),
+                    ("mood", "mood", "armi_mood"),
+                    ("opportunity", "opportunity", "armi_opportunity"),
+                    ("perception", "perception", "armi_perception"),
+                    ("prompt", "prompt", "armi_prompt"),
+                    ("subject-state", "subject-state", "armi_subject_state"),
+                    (
+                        "web-observation",
+                        "web-observation",
+                        "armi_web_observation",
+                    ),
+                )
+            },
+        }
+        accesses = tuple(
+            access
+            for owner, path in sources.items()
+            for access in scan_source_foreign_table_accesses(
+                path.read_text(encoding="utf-8"),
+                path=path.relative_to(ROOT).as_posix(),
+                source_owner=owner,
+            )
+        )
+
+        self.assertEqual(accesses, ())
+        self.assertFalse(
+            (
+                ROOT
+                / "apps/armi-runtime/src/armi_runtime/adapters/persistence/recovery_responsibilities.py"
+            ).exists()
+        )
+
     def test_internal_policies_are_code_contracts_not_governance_json(self) -> None:
         resources = (
             ROOT / "apps/armi-runtime/src/armi_runtime/composition/runtime_resources"

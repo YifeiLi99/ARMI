@@ -12,7 +12,11 @@ from armi_activity.api import (
     ActivityCommitPort,
     ActivityReadPort,
 )
-from armi_activity.bootstrap import ActivityModule, bootstrap_activity
+from armi_activity.bootstrap import (
+    ActivityModule,
+    bootstrap_activity,
+    bootstrap_activity_recovery,
+)
 from armi_artifact_store.bootstrap import bootstrap_artifact_catalog
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_capability.api import (
@@ -20,11 +24,16 @@ from armi_capability.api import (
     CapabilityGrantConsumptionPort,
     CapabilityReadPort,
 )
-from armi_capability.bootstrap import CapabilityModule, bootstrap_capability
+from armi_capability.bootstrap import (
+    CapabilityModule,
+    bootstrap_capability,
+    bootstrap_capability_recovery,
+)
 from armi_codex.api import CodexDelegationViolation, CodexRuntimePort
 from armi_codex.bootstrap import (
     bootstrap_codex,
     bootstrap_codex_commit,
+    bootstrap_codex_recovery,
     bootstrap_codex_timeline_projection,
 )
 from armi_cognition.api import (
@@ -38,6 +47,7 @@ from armi_cognition.bootstrap import (
     bootstrap_cognition_change_set_codec,
     bootstrap_cognition_exact_life_query,
     bootstrap_cognition_model,
+    bootstrap_cognition_recovery,
 )
 from armi_context.api import (
     EMBEDDING_DIMENSIONS,
@@ -53,6 +63,7 @@ from armi_context.bootstrap import (
     bootstrap_context_candidate_read,
     bootstrap_context_embedding,
     bootstrap_context_projection_invalidation,
+    bootstrap_context_recovery,
 )
 from armi_data_rights.api import (
     DataRightsInteractionGate,
@@ -64,6 +75,7 @@ from armi_data_rights.bootstrap import (
     DataRightsModule,
     bootstrap_data_rights,
     bootstrap_data_rights_core,
+    bootstrap_data_rights_recovery,
 )
 from armi_effect.api import (
     ActionAdapterPort,
@@ -74,13 +86,21 @@ from armi_effect.api import (
 from armi_effect.bootstrap import (
     bootstrap_effect_dispatch_boundary,
     bootstrap_effect_grant_cancellation,
+    bootstrap_effect_recovery,
     bootstrap_effect_runtime,
     bootstrap_expression_effect_registration,
     bootstrap_response_admission,
 )
 from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
-from armi_evidence.bootstrap import EvidenceModule, bootstrap_evidence
-from armi_expression.bootstrap import bootstrap_expression
+from armi_evidence.bootstrap import (
+    EvidenceModule,
+    bootstrap_evidence,
+    bootstrap_evidence_recovery,
+)
+from armi_expression.bootstrap import (
+    bootstrap_expression,
+    bootstrap_expression_recovery,
+)
 from armi_interaction.api import (
     CreatorIdentityContext,
     CreatorInputTransactionPort,
@@ -92,6 +112,7 @@ from armi_interaction.bootstrap import (
     InteractionModule,
     bootstrap_interaction,
     bootstrap_interaction_identity,
+    bootstrap_interaction_recovery,
 )
 from armi_kernel import load_yaml_file
 from armi_kernel.application import (
@@ -110,7 +131,11 @@ from armi_material.api import (
     MaterialProjectionPort,
     MaterialReadPort,
 )
-from armi_material.bootstrap import MaterialModule, bootstrap_material
+from armi_material.bootstrap import (
+    MaterialModule,
+    bootstrap_material,
+    bootstrap_material_recovery,
+)
 from armi_memory.api import (
     MemoryCandidateContextPort,
     MemoryCognitionPort,
@@ -119,9 +144,13 @@ from armi_memory.api import (
     MemoryProjectionPort,
     MemoryReadPort,
 )
-from armi_memory.bootstrap import MemoryModule, bootstrap_memory
+from armi_memory.bootstrap import (
+    MemoryModule,
+    bootstrap_memory,
+    bootstrap_memory_recovery,
+)
 from armi_mood.api import MoodCognitionPort, MoodCommitPort, MoodReadPort
-from armi_mood.bootstrap import MoodModule, bootstrap_mood
+from armi_mood.bootstrap import MoodModule, bootstrap_mood, bootstrap_mood_recovery
 from armi_opportunity.api import (
     OpportunityAdmissionPort,
     OpportunityRuntimePort,
@@ -129,16 +158,25 @@ from armi_opportunity.api import (
 from armi_opportunity.bootstrap import (
     bootstrap_opportunity,
     bootstrap_opportunity_admission,
+    bootstrap_opportunity_recovery,
     bootstrap_opportunity_transition,
 )
 from armi_perception.api import ExternalMediaFetchPort
-from armi_perception.bootstrap import PerceptionModule, bootstrap_perception
+from armi_perception.bootstrap import (
+    PerceptionModule,
+    bootstrap_perception,
+    bootstrap_perception_recovery,
+)
 from armi_prompt.api import (
     PromptCognitionPort,
     PromptCommitPort,
     PromptReadPort,
 )
-from armi_prompt.bootstrap import PromptModule, bootstrap_prompt
+from armi_prompt.bootstrap import (
+    PromptModule,
+    bootstrap_prompt,
+    bootstrap_prompt_recovery,
+)
 from armi_relationship.api import (
     RelationshipCognitionPort,
     RelationshipCommitPort,
@@ -146,15 +184,23 @@ from armi_relationship.api import (
     RelationshipPolicyPort,
     RelationshipReadPort,
 )
-from armi_relationship.bootstrap import RelationshipModule, bootstrap_relationship
-from armi_runtime_foundation import PostgreSQLTransaction
+from armi_relationship.bootstrap import (
+    RelationshipModule,
+    bootstrap_relationship,
+    bootstrap_relationship_recovery,
+)
+from armi_runtime_foundation import (
+    PostgreSQLTransaction,
+    RecoveryOwnerIdentity,
+    RecoveryParticipant,
+)
 from armi_sleep.api import (
     SleepCognitionPort,
     SleepCommitPort,
     SleepMaintenancePort,
     SleepReadPort,
 )
-from armi_sleep.bootstrap import SleepModule, bootstrap_sleep
+from armi_sleep.bootstrap import SleepModule, bootstrap_sleep, bootstrap_sleep_recovery
 from armi_subject_state.api import (
     SubjectStateCognitionPort,
     SubjectStateCommitPort,
@@ -163,6 +209,7 @@ from armi_subject_state.api import (
 from armi_subject_state.bootstrap import (
     SubjectStateModule,
     bootstrap_subject_state,
+    bootstrap_subject_state_recovery,
     probe_subject_state_counts,
 )
 from armi_web_observation.api import (
@@ -172,6 +219,7 @@ from armi_web_observation.api import (
 )
 from armi_web_observation.bootstrap import (
     bootstrap_web_observation,
+    bootstrap_web_observation_recovery,
     bootstrap_web_research,
     bootstrap_web_research_commit,
 )
@@ -1384,6 +1432,64 @@ def compose_response_admission_pipeline(
     )
 
 
+def compose_recovery_participants(
+    *,
+    mood_read: MoodReadPort,
+    prompt_read: PromptReadPort,
+    subject_state_read: SubjectStateReadPort,
+) -> tuple[tuple[RecoveryParticipant, ...], tuple[RecoveryOwnerIdentity, ...]]:
+    """Construct the fixed owner roster without starting external adapters."""
+
+    expected_owners = tuple(
+        RecoveryOwnerIdentity(value)
+        for value in (
+            "subject-state",
+            "mood",
+            "prompt",
+            "activity",
+            "material",
+            "memory",
+            "relationship",
+            "sleep",
+            "context",
+            "interaction",
+            "perception",
+            "evidence",
+            "cognition",
+            "opportunity",
+            "expression",
+            "capability",
+            "effect",
+            "web-observation",
+            "codex",
+            "data-rights",
+        )
+    )
+    participants: tuple[RecoveryParticipant, ...] = (
+        bootstrap_subject_state_recovery(subject_state_read),
+        bootstrap_mood_recovery(mood_read),
+        bootstrap_prompt_recovery(prompt_read),
+        bootstrap_activity_recovery(),
+        bootstrap_material_recovery(),
+        bootstrap_memory_recovery(),
+        bootstrap_relationship_recovery(),
+        bootstrap_sleep_recovery(),
+        bootstrap_context_recovery(),
+        bootstrap_interaction_recovery(),
+        bootstrap_perception_recovery(),
+        bootstrap_evidence_recovery(),
+        bootstrap_cognition_recovery(),
+        bootstrap_opportunity_recovery(),
+        bootstrap_expression_recovery(),
+        bootstrap_capability_recovery(),
+        bootstrap_effect_recovery(),
+        bootstrap_web_observation_recovery(),
+        bootstrap_codex_recovery(),
+        bootstrap_data_rights_recovery(),
+    )
+    return participants, expected_owners
+
+
 def compose_runtime_recovery(
     prepared: PreparedEnvironment,
     *,
@@ -1396,15 +1502,20 @@ def compose_runtime_recovery(
     """Resolve the Runtime credential for the fenced startup recovery gateway."""
 
     config = prepared.effective.config
+    participants, expected_owners = compose_recovery_participants(
+        mood_read=mood_read,
+        prompt_read=prompt_read,
+        subject_state_read=subject_state_read,
+    )
     return PostgreSQLRuntimeRecovery(
         unit_of_work_factory,
         environment_id=config.environment.environment_id,
         data_root=prepared.data_root,
         max_object_bytes=config.artifacts.max_object_bytes,
         authority_admission=authority_admission,
-        mood=mood_read,
-        prompts=prompt_read,
-        subject_state=subject_state_read,
+        participants=participants,
+        expected_owners=expected_owners,
+        catalog=bootstrap_artifact_catalog(),
     )
 
 
@@ -1508,6 +1619,7 @@ __all__ = (
     "compose_other_human_record_query",
     "compose_perception_module",
     "compose_prompt_module",
+    "compose_recovery_participants",
     "compose_relationship_module",
     "compose_response_admission_pipeline",
     "compose_runtime_authority",

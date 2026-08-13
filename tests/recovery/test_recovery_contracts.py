@@ -26,10 +26,8 @@ class RecoveryContractTests(unittest.TestCase):
             recovery_run_id=RecoveryRunId(uuid7()),
             status=RecoveryStatus.SAFE,
             metrics=(
-                RecoveryMetric("critical_artifact_count", 2),
-                RecoveryMetric("requeued_work_count", 1),
-                RecoveryMetric("resumable_opportunity_count", 4),
-                RecoveryMetric("resumable_work_count", 2),
+                RecoveryMetric("artifact_store.verified_critical_count", 2),
+                RecoveryMetric("runtime.requeued_work_count", 1),
             ),
             blocker_count=0,
             findings=(finding,),
@@ -49,7 +47,7 @@ class RecoveryContractTests(unittest.TestCase):
             RecoverySummary(
                 recovery_run_id=RecoveryRunId(uuid7()),
                 status=RecoveryStatus.SAFE,
-                metrics=(RecoveryMetric("critical_artifact_count", 2),),
+                metrics=(RecoveryMetric("runtime.requeued_work_count", 2),),
                 blocker_count=1,
             )
         with self.assertRaises(RecoveryViolation):

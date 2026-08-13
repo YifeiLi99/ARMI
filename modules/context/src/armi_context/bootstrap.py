@@ -18,7 +18,11 @@ from armi_memory.api import (
 from armi_mood.api import MoodReadPort
 from armi_prompt.api import PromptReadPort
 from armi_relationship.api import RelationshipReadPort
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWorkFactory
+from armi_runtime_foundation import (
+    EmptyRecoveryParticipant,
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    RecoveryParticipant,
+)
 from armi_sleep.api import SleepReadPort
 from armi_subject_state.api import SubjectStateReadPort
 
@@ -104,6 +108,10 @@ def bootstrap_context_projection_invalidation() -> ContextProjectionInvalidation
     return PostgreSQLContextProjectionInvalidation()
 
 
+def bootstrap_context_recovery() -> RecoveryParticipant:
+    return EmptyRecoveryParticipant("context")
+
+
 @dataclass(frozen=True, slots=True)
 class ContextCandidateReadPorts:
     material: MaterialCandidateContextPort
@@ -121,4 +129,5 @@ __all__ = (
     "bootstrap_context_candidate_read",
     "bootstrap_context_embedding",
     "bootstrap_context_projection_invalidation",
+    "bootstrap_context_recovery",
 )

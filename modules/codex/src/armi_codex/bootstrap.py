@@ -15,12 +15,16 @@ from armi_kernel.application import (
     CredentialPort,
 )
 from armi_opportunity.api import OpportunityAdmissionPort
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWorkFactory
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    RecoveryParticipant,
+)
 
 from ._application import CodexEffectPipeline
 from ._codec import decode_task, encode_result
 from ._commit import PostgreSQLCodexCommit
 from ._custody_codec import encode_custodied_result
+from ._recovery import CodexRecoveryParticipant
 from ._runner import IsolatedCodexRunner
 from ._timeline_projection import CodexTaskTimelineProjection
 from .api import (
@@ -93,9 +97,15 @@ decode_runner_task = decode_task
 encode_runner_result = encode_result
 encode_custodied_runner_result = encode_custodied_result
 
+
+def bootstrap_codex_recovery() -> RecoveryParticipant:
+    return CodexRecoveryParticipant()
+
+
 __all__ = (
     "bootstrap_codex",
     "bootstrap_codex_commit",
+    "bootstrap_codex_recovery",
     "bootstrap_codex_runner",
     "bootstrap_codex_timeline_projection",
     "decode_runner_task",

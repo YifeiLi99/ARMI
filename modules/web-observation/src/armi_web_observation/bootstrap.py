@@ -7,10 +7,14 @@ from collections.abc import Callable
 from armi_evidence.api import EvidenceWritePort
 from armi_kernel.application import CredentialLocator, CredentialPort, DurableWorkPort
 from armi_opportunity.api import OpportunityAdmissionPort
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWorkFactory
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    RecoveryParticipant,
+)
 
 from ._application import WebSearchPipeline
 from ._commit import PostgreSQLWebResearchCommit
+from ._recovery import WebObservationRecoveryParticipant
 from ._research import WebResearchAdmissionPipeline
 from .api import (
     WebArtifactCatalogPort,
@@ -75,8 +79,13 @@ def bootstrap_web_research(
     )
 
 
+def bootstrap_web_observation_recovery() -> RecoveryParticipant:
+    return WebObservationRecoveryParticipant()
+
+
 __all__ = (
     "bootstrap_web_observation",
+    "bootstrap_web_observation_recovery",
     "bootstrap_web_research",
     "bootstrap_web_research_commit",
 )

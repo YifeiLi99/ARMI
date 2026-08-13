@@ -21,7 +21,10 @@ from armi_memory.api import (
 from armi_mood.api import MoodCognitionPort, MoodReadPort
 from armi_prompt.api import PromptCognitionPort, PromptReadPort
 from armi_relationship.api import RelationshipCognitionPort, RelationshipReadPort
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWorkFactory
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    RecoveryParticipant,
+)
 from armi_sleep.api import SleepCognitionPort, SleepReadPort
 from armi_subject_state.api import SubjectStateCognitionPort, SubjectStateReadPort
 
@@ -29,6 +32,7 @@ from ._candidate_application import CandidateValidationPipeline
 from ._change_set_codec import parse_subject_change_set
 from ._exact_life_query import PostgreSQLCognitionExactLifeQuery
 from ._model_application import ModelPipeline
+from ._recovery import CognitionRecoveryParticipant
 from ._subject_commit import PostgreSQLCognitionSubjectCommit
 from .api import (
     CognitionArtifactCatalogPort,
@@ -202,10 +206,15 @@ def bootstrap_cognition_candidate(
     )
 
 
+def bootstrap_cognition_recovery() -> RecoveryParticipant:
+    return CognitionRecoveryParticipant()
+
+
 __all__ = (
     "bootstrap_cognition_candidate",
     "bootstrap_cognition_change_set_codec",
     "bootstrap_cognition_exact_life_query",
     "bootstrap_cognition_model",
+    "bootstrap_cognition_recovery",
     "bootstrap_cognition_subject_commit",
 )

@@ -9,10 +9,14 @@ from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
 from armi_interaction.api import ExternalMessagePartKind, InteractionPerceptionPort
 from armi_opportunity.api import OpportunityAdmissionPort
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWorkFactory
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    RecoveryParticipant,
+)
 
 from ._application import Diagnostic, ExternalContentPipeline
 from ._recognizer import ExternalContentRecognizer
+from ._recovery import PerceptionRecoveryParticipant
 from .api import (
     ExternalContentRecognitionPort,
     ExternalMediaFetchPort,
@@ -76,4 +80,12 @@ def bootstrap_perception(
     return PerceptionModule(worker)
 
 
-__all__ = ("PerceptionModule", "bootstrap_perception")
+def bootstrap_perception_recovery() -> RecoveryParticipant:
+    return PerceptionRecoveryParticipant()
+
+
+__all__ = (
+    "PerceptionModule",
+    "bootstrap_perception",
+    "bootstrap_perception_recovery",
+)

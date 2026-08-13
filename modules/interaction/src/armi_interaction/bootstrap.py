@@ -10,7 +10,10 @@ from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
 from armi_kernel.application import CreatorProjectionNotifier
 from armi_opportunity.api import OpportunityAdmissionPort
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWorkFactory
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    RecoveryParticipant,
+)
 from armi_subject_state.api import SubjectStateReadPort
 
 from ._birth_postgresql import PostgreSQLInteractionBirth
@@ -22,6 +25,7 @@ from ._identity_postgresql import PostgreSQLInteractionIdentity
 from ._other_human import OtherHumanInputService
 from ._other_human_postgresql import OtherHumanInputRepository
 from ._perception_postgresql import PostgreSQLInteractionPerception
+from ._recovery import InteractionRecoveryParticipant
 from ._scenes import CreatorSceneService
 from ._scenes_postgresql import CreatorSceneRepository
 from ._subject_commit import PostgreSQLInteractionSubjectCommit
@@ -163,10 +167,15 @@ def bootstrap_interaction(
     )
 
 
+def bootstrap_interaction_recovery() -> RecoveryParticipant:
+    return InteractionRecoveryParticipant()
+
+
 __all__ = (
     "InteractionModule",
     "bootstrap_interaction",
     "bootstrap_interaction_birth",
     "bootstrap_interaction_identity",
+    "bootstrap_interaction_recovery",
     "bootstrap_interaction_subject_commit",
 )

@@ -8,6 +8,7 @@ from uuid import UUID
 
 from armi_artifact_store.api import ArtifactCatalogPort
 from armi_kernel.application import CreatorProjectionNotifier
+from armi_runtime_foundation import EmptyRecoveryParticipant, RecoveryParticipant
 
 from ._application import DataRightsOrderService
 from ._creator_export import CreatorExportService
@@ -115,9 +116,14 @@ def bootstrap_data_rights(
     return DataRightsModule(orders, exports, gate, gate, orders, exports)
 
 
+def bootstrap_data_rights_recovery() -> RecoveryParticipant:
+    return EmptyRecoveryParticipant("data-rights")
+
+
 __all__ = (
     "DataRightsCore",
     "DataRightsModule",
     "bootstrap_data_rights",
     "bootstrap_data_rights_core",
+    "bootstrap_data_rights_recovery",
 )

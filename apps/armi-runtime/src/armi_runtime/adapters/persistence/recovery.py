@@ -1,20 +1,16 @@
-"""Fenced PostgreSQL startup recovery for currently manifested responsibilities."""
+"""Fenced startup recovery coordinated through owner participants."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
 from uuid import UUID, uuid7
 
-from armi_artifact_store.content_store import (
-    ContentAddressedArtifactStore,
-)
+from armi_artifact_store.api import ArtifactCatalogPort
+from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_kernel.application import (
     ArtifactId,
     ArtifactIntegrityStatus,
-    ArtifactPrivacyScope,
     ArtifactRef,
     ArtifactViolation,
     AuditDraft,
@@ -22,7 +18,6 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
-    AuditWriter,
     RecoveryDecision,
     RecoveryFinding,
     RecoveryMetric,
@@ -32,69 +27,40 @@ from armi_kernel.application import (
     RecoveryViolation,
     RuntimeAuthorityViolation,
     RuntimeFence,
+    TransactionIsolation,
 )
-from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
-from armi_mood.api import MoodReadPort
-from armi_prompt.api import PromptReadPort, PromptViolation
-from armi_runtime_foundation import PostgreSQLTransaction, RuntimeTransactionFailure
-from armi_subject_state.api import SubjectStateReadPort
+from armi_kernel.contracts import Purpose, SubjectId, TraceId
+from armi_runtime_foundation import (
+    PostgreSQLTransaction,
+    RecoveryAuditContribution,
+    RecoveryContribution,
+    RecoveryDependentParticipant,
+    RecoveryFindingContribution,
+    RecoveryFindingDecision,
+    RecoveryMetricContribution,
+    RecoveryOwnerIdentity,
+    RecoveryParticipant,
+    RecoveryScope,
+    RecoveryWorkCommand,
+    RecoveryWorkCommandKind,
+    RecoveryWorkSnapshot,
+    RuntimeTransactionFailure,
+)
 
-from .recovery_responsibilities import (
-    repair_terminal_cognitive_responsibilities,
-    repair_work,
-)
 from .unit_of_work import PostgreSQLUnitOfWorkFactory
-
-_EXPECTED_CRITICAL_ARTIFACT_COUNT = 1
-_RECOVERY_METRIC_KINDS = (
-    "requeued_work_count",
-    "terminal_work_count",
-    "resumable_work_count",
-    "critical_artifact_count",
-    "resumable_opportunity_count",
-    "resumable_cognitive_episode_count",
-    "resumable_model_attempt_count",
-    "resumable_candidate_validation_count",
-    "resumable_subject_commit_count",
-    "resumable_capability_request_count",
-    "resumable_response_operation_count",
-    "resumable_effect_count",
-    "resumable_effect_outbox_count",
-    "resumable_effect_attempt_count",
-    "reliable_effect_observation_count",
-    "creator_response_delivery_count",
-    "resumable_web_observation_count",
-    "unknown_web_observation_attempt_count",
-    "resumable_web_research_intent_count",
-    "pending_web_evidence_acceptance_count",
-    "resumable_web_cognition_count",
-    "resumable_admin_correction_work_count",
-    "resumable_codex_task_count",
-    "resumable_codex_effect_count",
-    "pending_codex_result_acceptance_count",
-)
-
-
-@dataclass(frozen=True, slots=True)
-class _Scan:
-    recovery_run_id: UUID
-    findings: tuple[RecoveryFinding, ...]
-    critical_artifacts: tuple[ArtifactRef, ...]
-    requeued_work: int
-    terminal_work: int
 
 
 class PostgreSQLRuntimeRecovery:
-    """Classify and repair startup responsibility under one current fence."""
+    """Own Runtime recovery facts and coordinate fixed owner participants."""
 
     __slots__ = (
         "_admission",
+        "_catalog",
         "_environment_id",
+        "_expected_owners",
         "_factory",
-        "_mood",
-        "_prompts",
+        "_participants",
         "_storage",
-        "_subject_state",
     )
 
     def __init__(
@@ -105,20 +71,20 @@ class PostgreSQLRuntimeRecovery:
         data_root: Path,
         max_object_bytes: int,
         authority_admission: Callable[[], RuntimeFence],
-        mood: MoodReadPort,
-        prompts: PromptReadPort,
-        subject_state: SubjectStateReadPort,
+        participants: tuple[RecoveryParticipant, ...],
+        expected_owners: tuple[RecoveryOwnerIdentity, ...],
+        catalog: ArtifactCatalogPort,
     ) -> None:
         self._environment_id = environment_id
         self._factory = factory
         self._admission = authority_admission
-        self._subject_state = subject_state
-        self._mood = mood
-        self._prompts = prompts
+        self._participants = participants
+        self._expected_owners = expected_owners
+        self._catalog = catalog
         self._storage = ContentAddressedArtifactStore(
-            data_root / "artifacts",
-            max_object_bytes=max_object_bytes,
+            data_root / "artifacts", max_object_bytes=max_object_bytes
         )
+        self._validate_roster()
 
     async def open(self) -> None:
         try:
@@ -131,114 +97,407 @@ class PostgreSQLRuntimeRecovery:
 
     async def recover(self) -> RecoverySummary:
         fence = self._require_fence()
+        scope = RecoveryScope(
+            self._environment_id,
+            fence.subject_id,
+            fence.life_generation_id,
+            fence.bundle_activation_id,
+            fence.runtime_instance_id.value,
+            fence.fence_token,
+        )
         try:
-            scan = await self._start_and_repair(fence)
-            artifact_findings = await self._verify_artifacts(scan.critical_artifacts)
+            run_id, contributions, refs = await self._recover_owners(fence, scope)
+            artifact_contribution = await self._verify_artifacts(refs)
             return await self._finalize(
-                fence,
-                scan,
-                (*scan.findings, *artifact_findings),
+                fence, run_id, (*contributions, artifact_contribution)
             )
         except RecoveryViolation:
             raise
-        except RuntimeTransactionFailure:
+        except RuntimeTransactionFailure, ValueError:
             raise RecoveryViolation("REC-DATABASE") from None
 
-    async def _start_and_repair(self, fence: RuntimeFence) -> _Scan:
-        async with self._factory.unit_of_work() as unit_of_work:
-            connection = unit_of_work.transaction
-            await self._verify_fence(connection, fence)
-            writer = unit_of_work.audit
-            await self._abandon_old_runs(connection, writer, fence)
-            run_id, inserted = await self._running_row(connection, fence)
-            if inserted:
-                await writer.append(_audit(fence, "runtime.recovery.started", run_id))
-            findings: list[RecoveryFinding] = []
-            continuity, artifacts = await self._continuity(connection, fence)
-            findings.extend(continuity)
-            work = await repair_work(connection, writer, fence, _audit)
-            findings.extend(work[0])
-            findings.extend(
-                await repair_terminal_cognitive_responsibilities(
-                    connection, writer, fence, _audit
-                )
-            )
-            await self._verify_fence(connection, fence)
-            return _Scan(
-                recovery_run_id=run_id,
-                findings=tuple(sorted(findings, key=_finding_key)),
-                critical_artifacts=artifacts,
-                requeued_work=work[1],
-                terminal_work=work[2],
-            )
+    def _validate_roster(self) -> None:
+        actual = tuple(participant.owner_identity for participant in self._participants)
+        if actual != self._expected_owners or len(set(actual)) != len(actual):
+            raise RecoveryViolation("REC-PARTICIPANT-ROSTER")
 
-    async def _abandon_old_runs(
-        self,
-        connection: PostgreSQLTransaction,
-        writer: AuditWriter,
-        fence: RuntimeFence,
-    ) -> None:
+    async def _recover_owners(
+        self, fence: RuntimeFence, scope: RecoveryScope
+    ) -> tuple[UUID, tuple[RecoveryContribution, ...], tuple[ArtifactRef, ...]]:
+        async with self._factory.unit_of_work(
+            isolation=TransactionIsolation.SERIALIZABLE
+        ) as unit:
+            transaction = unit.transaction
+            await self._verify_fence(transaction, fence)
+            await self._abandon_old_runs(transaction, fence)
+            run_id = await self._running_row(transaction, fence)
+            runtime = await self._recover_runtime_work(transaction, scope)
+            snapshots = await self._work_snapshots(transaction)
+            contributions: list[RecoveryContribution] = [runtime]
+            for participant in self._participants:
+                selected = tuple(
+                    item
+                    for item in snapshots
+                    if (item.owner_kind, item.work_kind) in participant.work_scopes
+                )
+                if isinstance(participant, RecoveryDependentParticipant):
+                    contribution = await participant.recover_with_prior(
+                        transaction, scope, selected, tuple(contributions)
+                    )
+                else:
+                    contribution = await participant.recover(
+                        transaction, scope, selected
+                    )
+                self._validate_contribution(participant, contribution)
+                contributions.append(contribution)
+            artifact_ids = tuple(
+                artifact_id
+                for contribution in contributions
+                for artifact_id in contribution.critical_artifact_ids
+            )
+            if len(set(artifact_ids)) != len(artifact_ids):
+                raise RecoveryViolation("REC-ARTIFACT-DUPLICATE")
+            refs: list[ArtifactRef] = []
+            for artifact_id in artifact_ids:
+                ref = await self._catalog.retained_ref_in(
+                    transaction, ArtifactId(artifact_id)
+                )
+                if ref is None:
+                    contributions.append(
+                        RecoveryContribution(
+                            RecoveryOwnerIdentity("artifact-store"),
+                            findings=(
+                                _finding(
+                                    "critical_artifact",
+                                    RecoveryFindingDecision.BLOCKED,
+                                    "REC-ARTIFACT-MISSING",
+                                    artifact_id,
+                                ),
+                            ),
+                        )
+                    )
+                else:
+                    refs.append(ref)
+            for contribution in contributions:
+                for command in contribution.work_commands:
+                    await self._apply_work_command(transaction, command)
+                for audit in contribution.audits:
+                    await unit.audit.append(_owner_audit(fence, audit))
+            await unit.audit.append(
+                _runtime_audit(fence, "runtime.recovery.started", run_id)
+            )
+            await self._verify_fence(transaction, fence)
+            return run_id, tuple(contributions), tuple(refs)
+
+    async def _recover_runtime_work(
+        self, transaction: PostgreSQLTransaction, scope: RecoveryScope
+    ) -> RecoveryContribution:
         rows = await (
-            await connection.execute(
+            await transaction.execute(
                 """
-                SELECT run.recovery_run_id
-                FROM armi.runtime_recovery_runs AS run
-                JOIN armi.runtime_instances AS instance
-                  ON instance.runtime_instance_id = run.runtime_instance_id
-                WHERE run.status = 'running'
-                  AND run.runtime_instance_id <> %s
-                  AND instance.status IN ('fenced', 'stopped')
-                FOR UPDATE OF run
-                """,
-                (fence.runtime_instance_id.value,),
+                UPDATE armi.durable_work
+                SET status = CASE
+                        WHEN attempt_count < max_attempts THEN 'ready'
+                        ELSE 'failed'
+                    END,
+                    current_attempt_id = NULL,
+                    lease_owner = NULL,
+                    lease_expires_at = NULL,
+                    last_error_code = CASE
+                        WHEN attempt_count < max_attempts THEN 'WORK-LEASE-EXPIRED'
+                        ELSE 'WORK-ATTEMPTS-EXHAUSTED'
+                    END,
+                    updated_at = clock_timestamp()
+                WHERE status = 'leased'
+                  AND lease_expires_at <= statement_timestamp()
+                RETURNING status
+                """
             )
         ).fetchall()
-        for row in rows:
-            await connection.execute(
+        continuity = await (
+            await transaction.execute(
+                """
+                SELECT count(*)
+                FROM armi.subjects AS subject
+                JOIN armi.life_generations AS generation
+                  ON generation.life_generation_id = subject.current_generation_id
+                 AND generation.subject_id = subject.subject_id
+                 AND generation.status = 'active'
+                JOIN armi.runtime_bundle_activations AS activation
+                  ON activation.bundle_activation_id
+                   = subject.current_bundle_activation_id
+                 AND activation.status = 'current'
+                WHERE subject.singleton_key = 1
+                  AND subject.status = 'active'
+                  AND subject.subject_id = %s
+                  AND subject.current_generation_id = %s
+                  AND subject.current_bundle_activation_id = %s
+                """,
+                (
+                    scope.subject_id,
+                    scope.life_generation_id,
+                    scope.bundle_activation_id,
+                ),
+            )
+        ).fetchone()
+        requeued = sum(str(row[0]) == "ready" for row in rows)
+        terminal = sum(str(row[0]) == "failed" for row in rows)
+        findings = ()
+        if continuity is None or int(continuity[0]) != 1:
+            findings = (
+                _finding(
+                    "subject_continuity",
+                    RecoveryFindingDecision.BLOCKED,
+                    "REC-SUBJECT-INVALID",
+                ),
+            )
+        return RecoveryContribution(
+            RecoveryOwnerIdentity("runtime"),
+            findings=findings,
+            metrics=(
+                _metric("runtime.requeued_work_count", requeued),
+                _metric("runtime.terminal_work_count", terminal),
+            ),
+        )
+
+    async def _work_snapshots(
+        self, transaction: PostgreSQLTransaction
+    ) -> tuple[RecoveryWorkSnapshot, ...]:
+        rows = await (
+            await transaction.execute(
+                """
+                SELECT work_id, work_kind, owner_kind, owner_ref, status,
+                       attempt_count, max_attempts, payload_kind, payload_ref,
+                       payload_digest
+                FROM armi.durable_work
+                ORDER BY work_id
+                """
+            )
+        ).fetchall()
+        return tuple(
+            RecoveryWorkSnapshot(
+                row[0],
+                str(row[1]),
+                str(row[2]),
+                row[3],
+                str(row[4]),
+                int(row[5]),
+                int(row[6]),
+                None if row[7] is None else str(row[7]),
+                row[8],
+                None if row[9] is None else str(row[9]),
+            )
+            for row in rows
+        )
+
+    def _validate_contribution(
+        self, participant: RecoveryParticipant, value: RecoveryContribution
+    ) -> None:
+        if value.owner != participant.owner_identity:
+            raise RecoveryViolation("REC-PARTICIPANT-IDENTITY")
+        prefix = value.owner.value.replace("-", "_") + "."
+        if any(not metric.kind.startswith(prefix) for metric in value.metrics):
+            raise RecoveryViolation("REC-PARTICIPANT-METRIC")
+
+    async def _apply_work_command(
+        self, transaction: PostgreSQLTransaction, command: RecoveryWorkCommand
+    ) -> None:
+        if command.kind is RecoveryWorkCommandKind.ENQUEUE:
+            raise RecoveryViolation("REC-WORK-COMMAND")
+        target = (
+            "failed" if command.kind is RecoveryWorkCommandKind.FAIL else "cancelled"
+        )
+        result = await transaction.execute(
+            """
+            UPDATE armi.durable_work
+            SET status = %s, current_attempt_id = NULL, lease_owner = NULL,
+                lease_expires_at = NULL, last_error_code = %s,
+                updated_at = clock_timestamp()
+            WHERE work_id = %s AND work_kind = %s
+              AND owner_kind = %s AND owner_ref = %s
+              AND status IN ('ready', 'leased')
+            """,
+            (
+                target,
+                command.reason_code,
+                command.work_id,
+                command.work_kind,
+                command.owner_kind,
+                command.owner_ref,
+            ),
+        )
+        if result.rowcount != 1:
+            raise RecoveryViolation("REC-WORK-COMMAND")
+
+    async def _verify_artifacts(
+        self, refs: tuple[ArtifactRef, ...]
+    ) -> RecoveryContribution:
+        findings: list[RecoveryFindingContribution] = []
+        for ref in refs:
+            try:
+                stream = await self._storage.open_verified(ref)
+                await stream.close()
+            except ArtifactViolation as error:
+                reason = (
+                    "REC-ARTIFACT-MISSING"
+                    if error.code == "ART-MISSING"
+                    else "REC-ARTIFACT-CORRUPT"
+                )
+                findings.append(
+                    _finding(
+                        "critical_artifact",
+                        RecoveryFindingDecision.BLOCKED,
+                        reason,
+                        ref.artifact_id.value,
+                    )
+                )
+            else:
+                findings.append(
+                    _finding(
+                        "critical_artifact",
+                        RecoveryFindingDecision.VERIFIED,
+                        "REC-ARTIFACT-VERIFIED",
+                        ref.artifact_id.value,
+                    )
+                )
+        return RecoveryContribution(
+            RecoveryOwnerIdentity("artifact-store"),
+            findings=tuple(findings),
+            metrics=(
+                _metric(
+                    "artifact_store.verified_critical_count",
+                    sum(
+                        item.decision is RecoveryFindingDecision.VERIFIED
+                        for item in findings
+                    ),
+                ),
+            ),
+        )
+
+    async def _finalize(
+        self,
+        fence: RuntimeFence,
+        run_id: UUID,
+        contributions: tuple[RecoveryContribution, ...],
+    ) -> RecoverySummary:
+        findings = tuple(
+            sorted(
+                (item for value in contributions for item in value.findings),
+                key=lambda item: (
+                    item.kind,
+                    item.reason_code,
+                    str(item.reference or ""),
+                ),
+            )
+        )
+        metrics = tuple(
+            sorted(
+                (item for value in contributions for item in value.metrics),
+                key=lambda item: item.kind,
+            )
+        )
+        if len({metric.kind for metric in metrics}) != len(metrics):
+            raise RecoveryViolation("REC-METRIC-SET")
+        blockers = sum(
+            item.decision is RecoveryFindingDecision.BLOCKED for item in findings
+        )
+        status = RecoveryStatus.SAFE if blockers == 0 else RecoveryStatus.BLOCKED
+        async with self._factory.unit_of_work(
+            isolation=TransactionIsolation.SERIALIZABLE
+        ) as unit:
+            transaction = unit.transaction
+            await self._verify_fence(transaction, fence)
+            for finding in findings:
+                if finding.reference is None or finding.reason_code not in {
+                    "REC-ARTIFACT-MISSING",
+                    "REC-ARTIFACT-CORRUPT",
+                }:
+                    continue
+                await self._catalog.mark_integrity(
+                    unit,
+                    _artifact_id(finding.reference),
+                    ArtifactIntegrityStatus.MISSING
+                    if finding.reason_code == "REC-ARTIFACT-MISSING"
+                    else ArtifactIntegrityStatus.CORRUPT,
+                )
+            for metric in metrics:
+                await transaction.execute(
+                    """
+                    INSERT INTO armi.runtime_recovery_metrics
+                        (recovery_run_id, metric_kind, metric_value)
+                    VALUES (%s, %s, %s)
+                    """,
+                    (run_id, metric.kind, metric.value),
+                )
+            result = await transaction.execute(
                 """
                 UPDATE armi.runtime_recovery_runs
-                SET status = 'abandoned',
-                    completed_at = statement_timestamp(),
-                    blocker_count = 1
-                WHERE recovery_run_id = %s
-                  AND status = 'running'
+                SET status = %s, completed_at = statement_timestamp(),
+                    blocker_count = %s
+                WHERE recovery_run_id = %s AND status = 'running'
                 """,
-                (row[0],),
+                (status.value, blockers, run_id),
             )
-            await writer.append(_audit(fence, "runtime.recovery.abandoned", row[0]))
+            if result.rowcount != 1:
+                raise RecoveryViolation("REC-RUN-STALE")
+            await unit.audit.append(
+                _runtime_audit(fence, f"runtime.recovery.{status.value}", run_id)
+            )
+        return RecoverySummary(
+            RecoveryRunId(run_id),
+            status,
+            tuple(RecoveryMetric(item.kind, item.value) for item in metrics),
+            blockers,
+            tuple(
+                RecoveryFinding(
+                    item.kind,
+                    RecoveryDecision(item.decision.value),
+                    item.reason_code,
+                    item.reference,
+                )
+                for item in findings
+            ),
+        )
+
+    async def _abandon_old_runs(
+        self, transaction: PostgreSQLTransaction, fence: RuntimeFence
+    ) -> None:
+        await transaction.execute(
+            """
+            UPDATE armi.runtime_recovery_runs AS run
+            SET status = 'abandoned', completed_at = statement_timestamp(),
+                blocker_count = 1
+            FROM armi.runtime_instances AS instance
+            WHERE instance.runtime_instance_id = run.runtime_instance_id
+              AND run.status = 'running'
+              AND run.runtime_instance_id <> %s
+              AND instance.status IN ('fenced', 'stopped')
+            """,
+            (fence.runtime_instance_id.value,),
+        )
 
     async def _running_row(
-        self,
-        connection: PostgreSQLTransaction,
-        fence: RuntimeFence,
-    ) -> tuple[UUID, bool]:
-        existing = await (
-            await connection.execute(
+        self, transaction: PostgreSQLTransaction, fence: RuntimeFence
+    ) -> UUID:
+        row = await (
+            await transaction.execute(
                 """
-                SELECT recovery_run_id, status
-                FROM armi.runtime_recovery_runs
-                WHERE runtime_instance_id = %s
-                FOR UPDATE
+                SELECT recovery_run_id, status FROM armi.runtime_recovery_runs
+                WHERE runtime_instance_id = %s FOR UPDATE
                 """,
                 (fence.runtime_instance_id.value,),
             )
         ).fetchone()
-        if existing is not None:
-            if str(existing[1]) != "running":
+        if row is not None:
+            if str(row[1]) != "running":
                 raise RecoveryViolation("REC-ALREADY-COMPLETED")
-            await self._validate_metric_set(connection, existing[0])
-            return existing[0], False
+            return row[0]
         run_id = uuid7()
-        await connection.execute(
+        await transaction.execute(
             """
             INSERT INTO armi.runtime_recovery_runs (
-                recovery_run_id,
-                runtime_instance_id,
-                subject_id,
-                life_generation_id,
-                bundle_activation_id,
-                fence_token,
-                status)
+                recovery_run_id, runtime_instance_id, subject_id,
+                life_generation_id, bundle_activation_id, fence_token, status)
             VALUES (%s, %s, %s, %s, %s, %s, 'running')
             """,
             (
@@ -250,1491 +509,81 @@ class PostgreSQLRuntimeRecovery:
                 fence.fence_token,
             ),
         )
-        await connection.execute(
-            """
-            INSERT INTO armi.runtime_recovery_metrics (
-                recovery_run_id, metric_kind, metric_value
-            )
-            SELECT %s, metric_kind, 0
-            FROM unnest(%s::text[]) AS metric_kind
-            """,
-            (run_id, list(_RECOVERY_METRIC_KINDS)),
-        )
-        await self._validate_metric_set(connection, run_id)
-        return run_id, True
-
-    async def _validate_metric_set(
-        self,
-        connection: PostgreSQLTransaction,
-        run_id: UUID,
-    ) -> None:
-        rows = await (
-            await connection.execute(
-                """SELECT metric_kind FROM armi.runtime_recovery_metrics
-                   WHERE recovery_run_id = %s ORDER BY metric_kind""",
-                (run_id,),
-            )
-        ).fetchall()
-        if tuple(str(row[0]) for row in rows) != tuple(sorted(_RECOVERY_METRIC_KINDS)):
-            raise RecoveryViolation("REC-METRIC-SET")
-
-    async def _continuity(
-        self,
-        connection: PostgreSQLTransaction,
-        fence: RuntimeFence,
-    ) -> tuple[tuple[RecoveryFinding, ...], tuple[ArtifactRef, ...]]:
-        findings: list[RecoveryFinding] = []
-        row = await (
-            await connection.execute(
-                """
-                SELECT
-                    subject.subject_id,
-                    subject.current_generation_id,
-                    subject.current_bundle_activation_id,
-                    NULL::uuid,
-                    (
-                        SELECT count(*)
-                        FROM armi.interaction_scenes AS scene
-                        JOIN armi.parties AS creator
-                          ON creator.party_id = scene.primary_party_id
-                         AND creator.party_kind = 'creator'
-                         AND creator.creator_role = 'unique_primary_creator'
-                         AND creator.status = 'active'
-                        WHERE scene.subject_id = subject.subject_id
-                          AND scene.scene_key = 'default'
-                          AND scene.scene_kind = 'creator_dialogue'
-                          AND scene.audience_scope = 'creator'
-                          AND scene.current_status = 'open'
-                          AND scene.closed_at IS NULL
-                    )
-                FROM armi.subjects AS subject
-                JOIN armi.runtime_bundle_activations AS activation
-                  ON activation.bundle_activation_id
-                    = subject.current_bundle_activation_id
-                 AND activation.status = 'current'
-                WHERE subject.singleton_key = 1
-                  AND subject.status = 'active'
-                """
-            )
-        ).fetchone()
-        if (
-            row is None
-            or row[0] != fence.subject_id
-            or row[1] != fence.life_generation_id
-            or row[2] != fence.bundle_activation_id
-            or int(row[4]) != 1
-            or await self._subject_state.current_head_count(
-                connection, subject_id=fence.subject_id
-            )
-            != 3
-            or await self._mood.current_head_count(
-                connection, subject_id=fence.subject_id
-            )
-            != 1
-        ):
-            findings.append(
-                RecoveryFinding(
-                    "subject_continuity",
-                    RecoveryDecision.BLOCKED,
-                    "REC-SUBJECT-INVALID",
-                )
-            )
-            return tuple(findings), ()
-        try:
-            prompt_state = await self._prompts.recovery_state(
-                connection, subject_id=fence.subject_id
-            )
-        except PromptViolation:
-            findings.append(
-                RecoveryFinding(
-                    "subject_continuity",
-                    RecoveryDecision.BLOCKED,
-                    "REC-SUBJECT-INVALID",
-                )
-            )
-            return tuple(findings), ()
-        if prompt_state.document_count != 3 or prompt_state.fixed_revision_count != 1:
-            findings.append(
-                RecoveryFinding(
-                    "subject_continuity",
-                    RecoveryDecision.BLOCKED,
-                    "REC-SUBJECT-INVALID",
-                )
-            )
-            return tuple(findings), ()
-        refs: list[ArtifactRef] = []
-        for artifact_id in (prompt_state.fixed_artifact_id,):
-            artifact_row = await (
-                await connection.execute(
-                    """
-                    SELECT
-                        artifact_id,
-                        content_digest,
-                        byte_size,
-                        media_type,
-                        logical_kind,
-                        privacy_scope,
-                        integrity_status
-                    FROM armi.artifacts
-                    WHERE artifact_id = %s
-                    """,
-                    (artifact_id,),
-                )
-            ).fetchone()
-            if artifact_row is None:
-                findings.append(
-                    RecoveryFinding(
-                        "critical_artifact",
-                        RecoveryDecision.BLOCKED,
-                        "REC-ARTIFACT-MISSING",
-                        artifact_id,
-                    )
-                )
-                continue
-            try:
-                refs.append(_artifact_ref(artifact_row))
-            except ArtifactViolation:
-                findings.append(
-                    RecoveryFinding(
-                        "critical_artifact",
-                        RecoveryDecision.BLOCKED,
-                        "REC-ARTIFACT-INVALID",
-                        artifact_id,
-                    )
-                )
-        return tuple(findings), tuple(refs)
-
-    async def _verify_artifacts(
-        self,
-        refs: tuple[ArtifactRef, ...],
-    ) -> tuple[RecoveryFinding, ...]:
-        findings: list[RecoveryFinding] = []
-        for ref in refs:
-            if ref.integrity_status is not ArtifactIntegrityStatus.VERIFIED:
-                findings.append(
-                    RecoveryFinding(
-                        "critical_artifact",
-                        RecoveryDecision.BLOCKED,
-                        "REC-ARTIFACT-INVALID",
-                        ref.artifact_id.value,
-                    )
-                )
-                continue
-            try:
-                stream = await self._storage.open_verified(ref)
-                await stream.close()
-            except ArtifactViolation as error:
-                reason = (
-                    "REC-ARTIFACT-MISSING"
-                    if error.code == "ART-MISSING"
-                    else "REC-ARTIFACT-CORRUPT"
-                )
-                findings.append(
-                    RecoveryFinding(
-                        "critical_artifact",
-                        RecoveryDecision.BLOCKED,
-                        reason,
-                        ref.artifact_id.value,
-                    )
-                )
-            else:
-                findings.append(
-                    RecoveryFinding(
-                        "critical_artifact",
-                        RecoveryDecision.VERIFIED,
-                        "REC-ARTIFACT-VERIFIED",
-                        ref.artifact_id.value,
-                    )
-                )
-        return tuple(findings)
-
-    async def _finalize(
-        self,
-        fence: RuntimeFence,
-        scan: _Scan,
-        findings: tuple[RecoveryFinding, ...],
-    ) -> RecoverySummary:
-        sorted_findings = tuple(sorted(findings, key=_finding_key))
-        blockers = sum(
-            value.decision is RecoveryDecision.BLOCKED for value in sorted_findings
-        )
-        critical = sum(
-            value.kind == "critical_artifact"
-            and value.decision is RecoveryDecision.VERIFIED
-            for value in sorted_findings
-        )
-        async with self._factory.unit_of_work() as unit_of_work:
-            connection = unit_of_work.transaction
-            await self._verify_fence(connection, fence)
-            await self._record_artifact_failures(
-                connection,
-                unit_of_work.audit,
-                fence,
-                sorted_findings,
-            )
-            backfilled = await (
-                await connection.execute(
-                    """
-                    WITH source AS (
-                        SELECT
-                            episode.cognitive_episode_id,
-                            episode.subject_id,
-                            episode.trace_id,
-                            attempt.model_attempt_id,
-                            artifact.content_digest
-                        FROM armi.cognitive_episodes AS episode
-                        JOIN armi.cognitive_attempts AS attempt
-                          ON attempt.cognitive_episode_id
-                           = episode.cognitive_episode_id
-                         AND attempt.dispatch_status = 'settled'
-                         AND attempt.result_status = 'succeeded'
-                        JOIN armi.artifacts AS artifact
-                          ON artifact.artifact_id = attempt.response_artifact_id
-                        WHERE episode.status = 'model_returned'
-                          AND NOT EXISTS (
-                              SELECT 1
-                              FROM armi.durable_work AS existing
-                              WHERE existing.owner_kind = 'cognitive_episode'
-                                AND existing.owner_ref
-                                  = episode.cognitive_episode_id
-                                AND existing.work_kind
-                                  = 'cognition.candidate.validate'
-                          )
-                    ),
-                    inserted AS (
-                        INSERT INTO armi.durable_work (
-                            work_id, work_kind, owner_kind, owner_ref,
-                            subject_id, idempotency_key, payload_kind,
-                            payload_ref, payload_digest, priority, not_before,
-                            deadline_at, status, max_attempts, attempt_count,
-                            lease_token, trace_id
-                        )
-                        SELECT
-                            uuidv7(), 'cognition.candidate.validate',
-                            'cognitive_episode', cognitive_episode_id,
-                            subject_id, 'candidate:' || cognitive_episode_id::text,
-                            'model_attempt', model_attempt_id, content_digest,
-                            50, statement_timestamp(),
-                            statement_timestamp() + interval '3600 seconds',
-                            'ready', 2, 0, 0, trace_id
-                        FROM source
-                        RETURNING
-                            work_id, owner_ref, subject_id, trace_id
-                    )
-                    SELECT
-                        work_id, owner_ref, subject_id, trace_id
-                    FROM inserted
-                    """
-                )
-            ).fetchall()
-            for _work_id, episode_id, subject_id, trace_id in backfilled:
-                await unit_of_work.audit.append(
-                    AuditDraft(
-                        AuditEventId(uuid7()),
-                        AuditReference(
-                            "runtime",
-                            fence.runtime_instance_id.value,
-                        ),
-                        Purpose("cognition.candidate"),
-                        "cognition.candidate.queued",
-                        AuditReference("cognitive_episode", episode_id),
-                        AuditResultStatus.WAITING,
-                        TraceId(str(trace_id)),
-                        AuditSensitivity.PRIVATE,
-                        subject_id=SubjectId(subject_id),
-                    )
-                )
-            response_backfill = await (
-                await connection.execute(
-                    """
-                    SELECT intent.operation_ref,
-                           intent.subject_id,
-                           intent.action_intent_id,
-                           revision.action_intent_revision_id,
-                           revision.response_digest,
-                           interaction.trace_id
-                    FROM armi.action_intents AS intent
-                    JOIN armi.action_intent_revisions AS revision
-                      ON revision.action_intent_revision_id =
-                         intent.current_revision_id
-                    JOIN armi.opportunities AS opportunity
-                      ON opportunity.opportunity_id =
-                         intent.root_opportunity_id
-                    JOIN armi.external_evidence AS evidence
-                      ON evidence.evidence_id = opportunity.evidence_id
-                    JOIN armi.party_input_interactions AS interaction
-                      ON interaction.interaction_id =
-                         evidence.interaction_id
-                    WHERE NOT EXISTS (
-                        SELECT 1 FROM armi.effects AS effect
-                        WHERE effect.action_intent_id = intent.action_intent_id
-                    )
-                      AND NOT EXISTS (
-                        SELECT 1 FROM armi.durable_work AS work
-                        WHERE work.work_kind = 'effect.register'
-                          AND work.owner_kind = 'action_intent'
-                          AND work.owner_ref = intent.action_intent_id
-                          AND work.status IN ('ready', 'leased', 'completed')
-                    )
-                    ORDER BY intent.operation_ref
-                    FOR UPDATE OF intent
-                    """
-                )
-            ).fetchall()
-            for (
-                response_operation_id,
-                subject_id,
-                action_intent_id,
-                action_revision_id,
-                response_digest,
-                trace_id,
-            ) in response_backfill:
-                work_id = uuid7()
-                await connection.execute(
-                    """
-                    INSERT INTO armi.durable_work (
-                        work_id, work_kind, owner_kind, owner_ref,
-                        subject_id, idempotency_key, payload_kind,
-                        payload_ref, payload_digest, priority, not_before,
-                        deadline_at, status, max_attempts, attempt_count,
-                        lease_token, trace_id) VALUES (
-                        %s, 'effect.register', 'action_intent', %s,
-                        %s, %s, 'action_intent_revision', %s, %s, 50,
-                        statement_timestamp(),
-                        statement_timestamp() + interval '3600 seconds',
-                        'ready', 2, 0, 0, %s)
-                    """,
-                    (
-                        work_id,
-                        action_intent_id,
-                        subject_id,
-                        f"effect:{response_operation_id}",
-                        action_revision_id,
-                        response_digest,
-                        trace_id,
-                    ),
-                )
-                await unit_of_work.audit.append(
-                    AuditDraft(
-                        AuditEventId(uuid7()),
-                        AuditReference(
-                            "runtime",
-                            fence.runtime_instance_id.value,
-                        ),
-                        Purpose("effect.registration"),
-                        "effect.registration.queued",
-                        AuditReference(
-                            "creator_response_operation",
-                            response_operation_id,
-                        ),
-                        AuditResultStatus.WAITING,
-                        TraceId(str(trace_id)),
-                        AuditSensitivity.PRIVATE,
-                        subject_id=SubjectId(subject_id),
-                    )
-                )
-            await connection.execute(
-                """
-                UPDATE armi.cognitive_attempts AS attempt
-                SET dispatch_status = 'settled',
-                    result_status = 'cancelled',
-                    error_code = 'MODEL-RECOVERY-PRE-DISPATCH',
-                    settled_at = statement_timestamp()
-                FROM armi.durable_work AS work
-                WHERE attempt.work_id = work.work_id
-                  AND attempt.dispatch_status = 'prepared'
-                  AND work.status = 'ready'
-                """
-            )
-            await connection.execute(
-                """
-                UPDATE armi.cognitive_attempts AS attempt
-                SET dispatch_status = 'settled',
-                    result_status = 'outcome_unknown',
-                    error_code = 'MODEL-OUTCOME-UNKNOWN',
-                    settled_at = statement_timestamp()
-                FROM armi.durable_work AS work
-                WHERE attempt.work_id = work.work_id
-                  AND attempt.dispatch_status = 'dispatched'
-                  AND work.status = 'ready'
-                """
-            )
-            await connection.execute(
-                """
-                UPDATE armi.cognitive_episodes AS episode
-                SET status = 'failed',
-                    failure_code = 'MODEL-OUTCOME-UNKNOWN'
-                FROM armi.durable_work AS work
-                WHERE work.owner_kind = 'cognitive_episode'
-                  AND work.owner_ref = episode.cognitive_episode_id
-                  AND work.work_kind = 'cognition.model.invoke'
-                  AND work.status = 'ready'
-                  AND episode.status = 'calling_model'
-                  AND EXISTS (
-                      SELECT 1
-                      FROM armi.cognitive_attempts AS attempt
-                      WHERE attempt.cognitive_episode_id
-                          = episode.cognitive_episode_id
-                        AND attempt.result_status = 'outcome_unknown'
-                  )
-                """
-            )
-            await connection.execute(
-                """
-                UPDATE armi.opportunities AS opportunity
-                SET current_disposition = 'resolved',
-                    resolved_at = statement_timestamp()
-                FROM armi.cognitive_episodes AS episode
-                WHERE opportunity.opportunity_id = episode.opportunity_id
-                  AND opportunity.current_disposition = 'selected'
-                  AND episode.status = 'failed'
-                  AND episode.failure_code = 'MODEL-OUTCOME-UNKNOWN'
-                """
-            )
-            await connection.execute(
-                """
-                UPDATE armi.durable_work AS work
-                SET status = 'failed', current_attempt_id = NULL,
-                    lease_owner = NULL, lease_expires_at = NULL,
-                    last_error_code = 'MODEL-OUTCOME-UNKNOWN',
-                    updated_at = clock_timestamp()
-                FROM armi.cognitive_episodes AS episode
-                WHERE work.owner_kind = 'cognitive_episode'
-                  AND work.owner_ref = episode.cognitive_episode_id
-                  AND work.work_kind = 'cognition.model.invoke'
-                  AND work.status = 'ready'
-                  AND episode.status = 'failed'
-                  AND episode.failure_code = 'MODEL-OUTCOME-UNKNOWN'
-                """
-            )
-            await connection.execute(
-                """
-                UPDATE armi.cognitive_episodes AS episode
-                SET status = 'prepared'
-                FROM armi.durable_work AS work
-                WHERE work.owner_kind = 'cognitive_episode'
-                  AND work.owner_ref = episode.cognitive_episode_id
-                  AND work.work_kind = 'cognition.model.invoke'
-                  AND work.status = 'ready'
-                  AND episode.status = 'calling_model'
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM armi.cognitive_attempts AS attempt
-                      WHERE attempt.cognitive_episode_id
-                          = episode.cognitive_episode_id
-                        AND attempt.dispatch_status <> 'settled'
-                  )
-                """
-            )
-            counts = await (
-                await connection.execute(
-                    """
-                    SELECT
-                        count(*) FILTER (
-                            WHERE status = 'ready'
-                              AND deadline_at > statement_timestamp()
-                              AND attempt_count < max_attempts
-                        ),
-                        0::bigint,
-                        (
-                            SELECT count(*)
-                            FROM armi.opportunities AS opportunity
-                            JOIN armi.external_evidence AS evidence
-                              ON evidence.evidence_id = opportunity.evidence_id
-                             AND evidence.subject_id = opportunity.subject_id
-                             AND evidence.scene_id = opportunity.scene_id
-                             AND evidence.context_party_id
-                               = opportunity.context_party_id
-                            JOIN armi.party_input_interactions AS interaction
-                              ON interaction.interaction_id
-                               = evidence.interaction_id
-                             AND interaction.subject_id = evidence.subject_id
-                             AND interaction.scene_id = evidence.scene_id
-                             AND interaction.source_party_id
-                               = evidence.context_party_id
-                            WHERE opportunity.current_disposition = 'open'
-                              AND opportunity.eligibility_status = 'eligible'
-                              AND opportunity.available_after
-                                  <= statement_timestamp()
-                              AND opportunity.expires_at IS NULL
-                        ),
-                        (
-                            SELECT count(*)
-                            FROM armi.cognitive_episodes AS episode
-                            JOIN armi.opportunities AS opportunity
-                              ON opportunity.opportunity_id
-                               = episode.opportunity_id
-                             AND opportunity.current_disposition = 'selected'
-                            JOIN armi.durable_work AS work
-                              ON work.owner_kind = 'cognitive_episode'
-                             AND work.owner_ref = episode.cognitive_episode_id
-                             AND work.work_kind = 'cognition.context.prepare'
-                            WHERE (
-                                episode.status = 'preparing'
-                                AND work.status IN ('ready', 'leased')
-                            )
-                            OR (
-                                episode.status = 'prepared'
-                                AND work.status = 'completed'
-                                AND work.result_kind = 'cognitive_episode'
-                                AND work.result_ref = episode.cognitive_episode_id
-                            )
-                        ),
-                        (
-                            SELECT count(*)
-                            FROM armi.cognitive_episodes AS episode
-                            JOIN armi.durable_work AS work
-                              ON work.owner_kind = 'cognitive_episode'
-                             AND work.owner_ref = episode.cognitive_episode_id
-                             AND work.work_kind = 'cognition.candidate.validate'
-                            WHERE (
-                                episode.status IN ('model_returned', 'validating')
-                                AND work.status IN ('ready', 'leased')
-                            )
-                            OR (
-                                episode.status IN (
-                                    'candidate_validated',
-                                    'candidate_rejected'
-                                )
-                                AND work.status = 'completed'
-                                AND work.result_kind = 'candidate_validation'
-                                AND EXISTS (
-                                    SELECT 1
-                                    FROM armi.cognitive_candidate_validations
-                                        AS validation
-                                    WHERE validation.candidate_validation_id
-                                        = work.result_ref
-                                      AND validation.cognitive_episode_id
-                                        = episode.cognitive_episode_id
-                                )
-                            )
-                        ),
-                        (
-                            SELECT count(*)
-                            FROM armi.cognitive_episodes AS episode
-                            JOIN armi.durable_work AS work
-                              ON work.owner_kind = 'cognitive_episode'
-                             AND work.owner_ref = episode.cognitive_episode_id
-                             AND work.work_kind = 'cognition.model.invoke'
-                            WHERE (
-                                episode.status = 'prepared'
-                                AND work.status IN ('ready', 'leased')
-                            )
-                            OR (
-                                episode.status = 'calling_model'
-                                AND work.status = 'leased'
-                                AND EXISTS (
-                                    SELECT 1
-                                    FROM armi.cognitive_attempts AS attempt
-                                    WHERE attempt.cognitive_episode_id
-                                        = episode.cognitive_episode_id
-                                      AND attempt.work_id = work.work_id
-                                      AND attempt.dispatch_status
-                                        IN ('prepared', 'dispatched')
-                                )
-                            )
-                            OR (
-                                episode.status = 'model_returned'
-                                AND work.status = 'completed'
-                                AND work.result_kind = 'model_attempt'
-                                AND EXISTS (
-                                    SELECT 1
-                                    FROM armi.cognitive_attempts AS attempt
-                                    WHERE attempt.model_attempt_id = work.result_ref
-                                      AND attempt.cognitive_episode_id
-                                        = episode.cognitive_episode_id
-                                      AND attempt.dispatch_status = 'settled'
-                                      AND attempt.result_status = 'succeeded'
-                                )
-                            )
-                        ),
-                        (
-                            SELECT count(*)
-                            FROM armi.cognitive_episodes AS episode
-                            JOIN armi.durable_work AS work
-                              ON work.owner_kind = 'cognitive_episode'
-                             AND work.owner_ref = episode.cognitive_episode_id
-                             AND work.work_kind = 'cognition.subject.commit'
-                            WHERE (
-                                episode.status IN (
-                                    'candidate_validated',
-                                    'committing'
-                                )
-                                AND work.status IN ('ready', 'leased')
-                            )
-                            OR (
-                                episode.status IN ('completed', 'stale')
-                                AND work.status = 'completed'
-                                AND work.result_kind = 'candidate_application'
-                                AND EXISTS (
-                                    SELECT 1
-                                    FROM armi.cognitive_candidate_applications
-                                        AS application
-                                    WHERE application.candidate_application_id
-                                        = work.result_ref
-                                      AND application.cognitive_episode_id
-                                        = episode.cognitive_episode_id
-                                )
-                            )
-                        ),
-                        (
-                            SELECT count(*)
-                            FROM armi.opportunities AS opportunity
-                            LEFT JOIN armi.external_evidence AS evidence
-                              ON evidence.evidence_id = opportunity.evidence_id
-                             AND evidence.subject_id = opportunity.subject_id
-                             AND evidence.scene_id = opportunity.scene_id
-                             AND evidence.context_party_id
-                               = opportunity.context_party_id
-                            LEFT JOIN armi.party_input_interactions AS interaction
-                              ON interaction.interaction_id
-                               = evidence.interaction_id
-                             AND interaction.subject_id = evidence.subject_id
-                             AND interaction.scene_id = evidence.scene_id
-                             AND interaction.source_party_id
-                               = evidence.context_party_id
-                            WHERE opportunity.purpose = 'consider_creator_input'
-                              AND (
-                                  evidence.evidence_id IS NULL
-                               OR interaction.interaction_id IS NULL
-                               OR opportunity.current_disposition
-                                  NOT IN (
-                                      'open',
-                                      'selected',
-                                      'resolved',
-                                      'superseded'
-                                  )
-                               OR opportunity.eligibility_status <> 'eligible'
-                               OR opportunity.expires_at IS NOT NULL
-                               OR evidence.source_kind <> 'creator_input'
-                               OR evidence.trust_status <> 'external_claim'
-                               OR evidence.privacy_scope <> 'creator_visible'
-                               OR evidence.acceptance_status <> 'accepted'
-                               OR interaction.purpose <> 'creator_message'
-                               OR (
-                                   opportunity.current_disposition = 'open'
-                                   AND EXISTS (
-                                       SELECT 1
-                                       FROM armi.cognitive_episodes AS episode
-                                       WHERE episode.opportunity_id
-                                         = opportunity.opportunity_id
-                                   )
-                               )
-                               OR (
-                                   opportunity.current_disposition = 'selected'
-                                   AND NOT EXISTS (
-                                       SELECT 1
-                                       FROM armi.cognitive_episodes AS episode
-                                       WHERE episode.opportunity_id
-                                         = opportunity.opportunity_id
-                                         AND (
-                                             (
-                                                 episode.status = 'preparing'
-                                                 AND EXISTS (
-                                                     SELECT 1
-                                                     FROM armi.durable_work AS work
-                                                     WHERE work.owner_kind
-                                                         = 'cognitive_episode'
-                                                       AND work.owner_ref
-                                                         = episode.cognitive_episode_id
-                                                       AND work.work_kind
-                                                         = 'cognition.context.prepare'
-                                                       AND work.status
-                                                         IN ('ready', 'leased')
-                                                 )
-                                             )
-                                             OR (
-                                                 episode.status
-                                                   IN ('prepared', 'calling_model')
-                                                 AND EXISTS (
-                                                     SELECT 1
-                                                     FROM armi.durable_work AS work
-                                                     WHERE work.owner_kind
-                                                         = 'cognitive_episode'
-                                                       AND work.owner_ref
-                                                         = episode.cognitive_episode_id
-                                                       AND work.work_kind
-                                                         = 'cognition.context.prepare'
-                                                       AND work.status = 'completed'
-                                                 )
-                                                 AND EXISTS (
-                                                     SELECT 1
-                                                     FROM armi.durable_work AS work
-                                                     WHERE work.owner_kind
-                                                         = 'cognitive_episode'
-                                                       AND work.owner_ref
-                                                         = episode.cognitive_episode_id
-                                                       AND work.work_kind
-                                                         = 'cognition.model.invoke'
-                                                       AND work.status
-                                                         IN ('ready', 'leased')
-                                                 )
-                                             )
-                                             OR (
-                                                 episode.status = 'model_returned'
-                                                 AND EXISTS (
-                                                     SELECT 1
-                                                     FROM armi.durable_work AS work
-                                                     WHERE work.owner_kind
-                                                         = 'cognitive_episode'
-                                                       AND work.owner_ref
-                                                         = episode.cognitive_episode_id
-                                                       AND work.work_kind
-                                                         = 'cognition.model.invoke'
-                                                       AND work.status = 'completed'
-                                                       AND work.result_kind
-                                                         = 'model_attempt'
-                                                 )
-                                                 AND EXISTS (
-                                                     SELECT 1
-                                                     FROM armi.durable_work AS work
-                                                     WHERE work.owner_kind
-                                                         = 'cognitive_episode'
-                                                       AND work.owner_ref
-                                                         = episode.cognitive_episode_id
-                                                       AND work.work_kind
-                                                         = 'cognition.candidate.validate'
-                                                       AND work.status
-                                                         IN ('ready', 'leased')
-                                                 )
-                                             )
-                                             OR (
-                                                 episode.status = 'validating'
-                                                 AND EXISTS (
-                                                     SELECT 1
-                                                     FROM armi.durable_work AS work
-                                                     WHERE work.owner_kind
-                                                         = 'cognitive_episode'
-                                                       AND work.owner_ref
-                                                         = episode.cognitive_episode_id
-                                                       AND work.work_kind
-                                                         = 'cognition.candidate.validate'
-                                                       AND work.status
-                                                         IN ('ready', 'leased')
-                                                 )
-                                             )
-                                             OR (
-                                                 episode.status IN (
-                                                     'candidate_validated',
-                                                     'candidate_rejected'
-                                                 )
-                                                 AND EXISTS (
-                                                     SELECT 1
-                                                     FROM armi.durable_work AS work
-                                                     JOIN armi.cognitive_candidate_validations
-                                                         AS validation
-                                                       ON validation.candidate_validation_id
-                                                         = work.result_ref
-                                                     WHERE work.owner_kind
-                                                         = 'cognitive_episode'
-                                                       AND work.owner_ref
-                                                         = episode.cognitive_episode_id
-                                                       AND work.work_kind
-                                                         = 'cognition.candidate.validate'
-                                                       AND work.status = 'completed'
-                                                       AND work.result_kind
-                                                         = 'candidate_validation'
-                                                       AND validation.cognitive_episode_id
-                                                         = episode.cognitive_episode_id
-                                                 )
-                                             )
-                                             OR (
-                                                 episode.status = 'failed'
-                                                 AND EXISTS (
-                                                     SELECT 1
-                                                     FROM armi.durable_work AS work
-                                                     WHERE work.owner_kind
-                                                         = 'cognitive_episode'
-                                                       AND work.owner_ref
-                                                         = episode.cognitive_episode_id
-                                                       AND work.status = 'failed'
-                                                 )
-                                             )
-                                             OR (
-                                                 episode.status = 'cancelled'
-                                                 AND EXISTS (
-                                                     SELECT 1
-                                                     FROM armi.durable_work AS work
-                                                     WHERE work.owner_kind
-                                                         = 'cognitive_episode'
-                                                       AND work.owner_ref
-                                                         = episode.cognitive_episode_id
-                                                       AND work.status = 'cancelled'
-                                                 )
-                                             )
-                                         )
-                                   )
-                               )
-                              )
-                        )
-                    FROM armi.durable_work
-                    """
-                )
-            ).fetchone()
-            capability_counts = await (
-                await connection.execute(
-                    """
-                    SELECT
-                        count(*) FILTER (
-                            WHERE request.current_status IN (
-                                'pending', 'granted', 'limited'
-                            )
-                        ),
-                        count(*) FILTER (
-                            WHERE capability.capability_id IS NULL
-                               OR commit.subject_commit_id IS NULL
-                               OR scene.scene_id IS NULL
-                               OR scene.subject_id <> request.subject_id
-                               OR scene.primary_party_id <> request.creator_party_id
-                               OR (
-                                   request.current_status IN ('granted', 'limited')
-                                   AND permission.grant_id IS NULL
-                               )
-                               OR (
-                                   request.current_status IN (
-                                       'pending', 'denied', 'revoked', 'expired'
-                                   )
-                                   AND permission.grant_id IS NOT NULL
-                                   AND permission.status = 'active'
-                               )
-                        )
-                    FROM armi.capability_requests AS request
-                    LEFT JOIN armi.capabilities AS capability
-                      ON capability.capability_id = request.capability_id
-                     AND capability.capability_kind = request.capability_kind
-                     AND capability.operation_class = request.operation_class
-                    LEFT JOIN armi.subject_commits AS commit
-                      ON commit.subject_commit_id = request.subject_commit_id
-                     AND commit.subject_id = request.subject_id
-                    LEFT JOIN armi.interaction_scenes AS scene
-                      ON scene.scene_id = request.interaction_scene_id
-                    LEFT JOIN armi.permission_grants AS permission
-                      ON permission.capability_request_id
-                       = request.capability_request_id
-                    """
-                )
-            ).fetchone()
-            response_counts = await (
-                await connection.execute(
-                    """
-                    SELECT
-                        count(*) FILTER (
-                            WHERE policy.policy_decision_id IS NULL
-                              AND effect.effect_id IS NULL
-                              AND work.status IN ('ready', 'leased')
-                        ),
-                        count(*) FILTER (
-                            WHERE opportunity.opportunity_id IS NULL
-                               OR scene.scene_id IS NULL
-                               OR scene.subject_id <> intent.subject_id
-                               OR scene.primary_party_id
-                                  <> intent.context_party_id
-                               OR revision.action_intent_revision_id IS NULL
-                        )
-                    FROM armi.action_intents AS intent
-                    LEFT JOIN armi.opportunities AS opportunity
-                      ON opportunity.opportunity_id
-                       = intent.root_opportunity_id
-                    LEFT JOIN armi.interaction_scenes AS scene
-                      ON scene.scene_id = intent.scene_id
-                    LEFT JOIN armi.action_intent_revisions AS revision
-                      ON revision.action_intent_id = intent.action_intent_id
-                     AND revision.action_intent_revision_id
-                       = intent.current_revision_id
-                    LEFT JOIN armi.durable_work AS work
-                      ON work.owner_kind = 'action_intent'
-                     AND work.owner_ref = intent.action_intent_id
-                     AND work.work_kind = 'cognition.response.admit'
-                    LEFT JOIN armi.policy_decisions AS policy
-                      ON policy.action_intent_revision_id =
-                         revision.action_intent_revision_id
-                     AND policy.is_current
-                    LEFT JOIN armi.effects AS effect
-                      ON effect.action_intent_id = intent.action_intent_id
-                    """
-                )
-            ).fetchone()
-            effect_counts = await (
-                await connection.execute(
-                    """
-                    SELECT
-                        count(*),
-                        count(*) FILTER (WHERE outbox.effect_id IS NULL),
-                        count(outbox.effect_id),
-                        count(*) FILTER (
-                            WHERE decision.policy_decision_id IS NULL
-                               OR decision.decision_outcome <> 'allowed'
-                               OR (
-                                   effect.status = 'registered'
-                                   AND outbox.status <> 'ready'
-                               )
-                               OR (
-                                   effect.status = 'cancelled'
-                                   AND (
-                                       outbox.status <> 'cancelled'
-                                   )
-                               )
-                        )
-                    FROM armi.effects AS effect
-                    LEFT JOIN armi.policy_decisions AS decision
-                      ON decision.policy_decision_id = effect.policy_decision_id
-                    LEFT JOIN armi.effect_outbox_items AS outbox
-                      ON outbox.effect_id = effect.effect_id
-                    """
-                )
-            ).fetchone()
-            effect_execution_counts = await (
-                await connection.execute(
-                    """
-                    SELECT
-                        (SELECT count(*)
-                         FROM armi.effect_attempts
-                         WHERE dispatch_state IN ('prepared', 'dispatching')),
-                        (SELECT count(*)
-                         FROM armi.effect_observations
-                         WHERE reliability = 'reliable'),
-                        (SELECT count(*) FROM armi.local_inbox_deliveries),
-                        count(*) FILTER (
-                            WHERE
-                                (effect.status = 'registered'
-                                 AND outbox.status <> 'ready')
-                                OR (effect.status = 'dispatching' AND (
-                                    outbox.status <> 'claimed'
-                                    OR attempt.dispatch_state <> 'dispatching'
-                                ))
-                                OR (effect.status = 'completed' AND (
-                                    outbox.status <> 'delivered'
-                                    OR attempt.result_status
-                                       NOT IN ('succeeded', 'unknown')
-                                    OR observation.reliability <> 'reliable'
-                                ))
-                                OR (effect.status = 'failed' AND (
-                                    outbox.status <> 'dead'
-                                    OR attempt.result_status
-                                       NOT IN ('failed', 'unknown')
-                                ))
-                                OR (effect.status = 'unknown' AND (
-                                    outbox.status <> 'unknown'
-                                    OR attempt.result_status <> 'unknown'
-                                    OR observation.reliability <> 'inconclusive'
-                                ))
-                                OR (effect.status = 'cancelled'
-                                    AND outbox.status <> 'cancelled')
-                        )
-                    FROM armi.effects AS effect
-                    JOIN armi.effect_outbox_items AS outbox
-                      ON outbox.effect_id = effect.effect_id
-                    LEFT JOIN armi.effect_attempts AS attempt
-                      ON attempt.effect_attempt_id = effect.current_attempt_id
-                     AND attempt.effect_id = effect.effect_id
-                    LEFT JOIN armi.effect_observations AS observation
-                      ON observation.effect_observation_id
-                       = effect.current_observation_id
-                     AND observation.effect_id = effect.effect_id
-                     AND observation.effect_attempt_id
-                       = attempt.effect_attempt_id
-                    """
-                )
-            ).fetchone()
-            await connection.execute(
-                """
-                UPDATE armi.observation_attempts AS attempt
-                SET dispatch_state = 'settled', result_status = 'cancelled',
-                    error_code = 'WEB-RECOVERY-PRE-DISPATCH',
-                    settled_at = statement_timestamp()
-                FROM armi.web_observation_requests AS request,
-                     armi.durable_work AS work
-                WHERE attempt.web_observation_request_id
-                      = request.web_observation_request_id
-                  AND request.work_id = work.work_id
-                  AND attempt.dispatch_state = 'prepared'
-                  AND work.status = 'ready'
-                """
-            )
-            await connection.execute(
-                """
-                UPDATE armi.observation_attempts
-                SET dispatch_state = 'settled',
-                    result_status = 'outcome_unknown',
-                    error_code = 'WEB-RECOVERY-OUTCOME-UNKNOWN',
-                    settled_at = statement_timestamp()
-                WHERE dispatch_state = 'dispatched'
-                """
-            )
-            await connection.execute(
-                """
-                UPDATE armi.web_observation_requests AS request
-                SET status = 'unknown',
-                    last_error_code = 'WEB-RECOVERY-OUTCOME-UNKNOWN',
-                    completed_at = statement_timestamp()
-                WHERE request.status IN ('pending', 'running')
-                  AND EXISTS (
-                      SELECT 1 FROM armi.observation_attempts AS attempt
-                      WHERE attempt.web_observation_request_id
-                            = request.web_observation_request_id
-                        AND attempt.result_status = 'outcome_unknown'
-                  )
-                """
-            )
-            await connection.execute(
-                """
-                UPDATE armi.durable_work AS work
-                SET status = 'failed', current_attempt_id = NULL,
-                    lease_owner = NULL, lease_expires_at = NULL,
-                    last_error_code = 'WEB-RECOVERY-OUTCOME-UNKNOWN'
-                FROM armi.web_observation_requests AS request
-                WHERE request.work_id = work.work_id
-                  AND request.status = 'unknown'
-                  AND work.status IN ('ready', 'leased')
-                """
-            )
-            web_counts = await (
-                await connection.execute(
-                    """
-                    SELECT
-                        count(*) FILTER (
-                            WHERE request.status IN ('pending', 'running')
-                        ),
-                        (SELECT count(*) FROM armi.observation_attempts
-                         WHERE result_status = 'outcome_unknown'),
-                        count(*) FILTER (
-                            WHERE (request.status IN ('pending', 'running')
-                                   AND work.status NOT IN ('ready', 'leased'))
-                               OR (request.status = 'succeeded' AND (
-                                   request.result_artifact_id IS NULL
-                                   OR request.result_artifact_id IS NULL
-                                   OR work.status <> 'completed'
-                               ))
-                               OR (request.status = 'unknown' AND NOT EXISTS (
-                                   SELECT 1
-                                   FROM armi.observation_attempts AS attempt
-                                   WHERE attempt.web_observation_request_id
-                                         = request.web_observation_request_id
-                                     AND attempt.result_status
-                                         = 'outcome_unknown'
-                               ))
-                        )
-                    FROM armi.web_observation_requests AS request
-                    JOIN armi.durable_work AS work
-                      ON work.work_id = request.work_id
-                    """
-                )
-            ).fetchone()
-            web_evidence_counts = await (
-                await connection.execute(
-                    """
-                    SELECT
-                        count(*) FILTER (
-                            WHERE intent.status IN ('pending', 'admitted')
-                        ),
-                        count(*) FILTER (
-                            WHERE intent.status = 'admitted'
-                              AND request.status IN ('pending', 'running')
-                        ),
-                        (SELECT count(*)
-                         FROM armi.opportunities
-                         WHERE purpose = 'consider_web_evidence'
-                           AND current_disposition IN ('open', 'selected')),
-                        count(*) FILTER (
-                            WHERE (intent.status = 'pending' AND (
-                                work.status NOT IN ('ready', 'leased')
-                                OR intent.web_observation_request_id IS NOT NULL
-                            ))
-                            OR (intent.status = 'admitted' AND (
-                                intent.web_observation_request_id IS NULL
-                                OR request.web_research_intent_id
-                                   IS DISTINCT FROM intent.web_research_intent_id
-                            ))
-                            OR (intent.status = 'succeeded' AND NOT EXISTS (
-                                SELECT 1
-                                FROM armi.external_evidence AS evidence
-                                WHERE evidence.web_observation_request_id
-                                      = intent.web_observation_request_id
-                                  AND evidence.source_kind = 'web_search'
-                            ))
-                        )
-                    FROM armi.web_research_intents AS intent
-                    JOIN armi.durable_work AS work
-                      ON work.work_id = intent.admission_work_id
-                    LEFT JOIN armi.web_observation_requests AS request
-                      ON request.web_observation_request_id
-                         = intent.web_observation_request_id
-                    """
-                )
-            ).fetchone()
-            codex_counts = await (
-                await connection.execute(
-                    """
-                    SELECT
-                        (SELECT count(*)
-                         FROM armi.opportunities
-                         WHERE purpose='consider_codex_task'
-                           AND current_disposition IN ('open', 'selected')),
-                        (SELECT count(*)
-                         FROM armi.effects
-                         WHERE effect_kind='codex_delegation'
-                           AND status IN ('registered', 'dispatching', 'unknown')),
-                        (SELECT count(*)
-                         FROM armi.opportunities
-                         WHERE purpose='consider_codex_result'
-                           AND current_disposition IN ('open', 'selected')),
-                        (SELECT count(*)
-                         FROM armi.codex_result_sources AS source
-                         JOIN armi.codex_verification_results AS verification
-                           ON verification.codex_verification_id=source.codex_verification_id
-                         JOIN armi.effects AS effect ON effect.effect_id=verification.effect_id
-                         WHERE (effect.status='completed'
-                                AND verification.execution_status<>'verified')
-                            OR (effect.status IN ('failed','unknown','cancelled')
-                                AND verification.execution_status='verified'))
-                    """
-                )
-            ).fetchone()
-            admin_correction_work_count = await (
-                await connection.execute(
-                    """
-                    SELECT count(*)
-                    FROM armi.durable_work AS work
-                    WHERE work.work_kind = 'admin.correction.artifact-cleanup'
-                      AND work.owner_kind = 'admin_correction'
-                      AND work.status = 'ready'
-                    """
-                )
-            ).fetchone()
-            counts = cast(tuple[Any, ...], counts)
-            capability_counts = cast(tuple[Any, ...], capability_counts)
-            response_counts = cast(tuple[Any, ...], response_counts)
-            effect_counts = cast(tuple[Any, ...], effect_counts)
-            effect_execution_counts = cast(tuple[Any, ...], effect_execution_counts)
-            web_counts = cast(tuple[Any, ...], web_counts)
-            web_evidence_counts = cast(tuple[Any, ...], web_evidence_counts)
-            codex_counts = cast(tuple[Any, ...], codex_counts)
-            admin_correction_work_count = cast(
-                tuple[Any, ...], admin_correction_work_count
-            )
-            if int(counts[7]) > 0:
-                blockers += 1
-                sorted_findings = tuple(
-                    sorted(
-                        (
-                            *sorted_findings,
-                            RecoveryFinding(
-                                "opportunity",
-                                RecoveryDecision.BLOCKED,
-                                "REC-OPPORTUNITY-INVALID",
-                            ),
-                        ),
-                        key=_finding_key,
-                    )
-                )
-            if int(capability_counts[1]) > 0:
-                blockers += 1
-                sorted_findings = tuple(
-                    sorted(
-                        (
-                            *sorted_findings,
-                            RecoveryFinding(
-                                "capability_request",
-                                RecoveryDecision.BLOCKED,
-                                "REC-CAPABILITY-REQUEST-INVALID",
-                            ),
-                        ),
-                        key=_finding_key,
-                    )
-                )
-            if int(response_counts[1]) > 0:
-                blockers += 1
-                sorted_findings = tuple(
-                    sorted(
-                        (
-                            *sorted_findings,
-                            RecoveryFinding(
-                                "response_operation",
-                                RecoveryDecision.BLOCKED,
-                                "REC-RESPONSE-OPERATION-INVALID",
-                            ),
-                        ),
-                        key=_finding_key,
-                    )
-                )
-            if (
-                int(effect_counts[1]) > 0
-                or int(effect_counts[3]) > 0
-                or int(effect_execution_counts[3]) > 0
-            ):
-                blockers += 1
-                sorted_findings = tuple(
-                    sorted(
-                        (
-                            *sorted_findings,
-                            RecoveryFinding(
-                                "effect", RecoveryDecision.BLOCKED, "REC-EFFECT-INVALID"
-                            ),
-                        ),
-                        key=_finding_key,
-                    )
-                )
-            if int(web_counts[2]) > 0:
-                blockers += 1
-                sorted_findings = tuple(
-                    sorted(
-                        (
-                            *sorted_findings,
-                            RecoveryFinding(
-                                "web_observation",
-                                RecoveryDecision.BLOCKED,
-                                "REC-WEB-OBSERVATION-INVALID",
-                            ),
-                        ),
-                        key=_finding_key,
-                    )
-                )
-            if int(web_evidence_counts[3]) > 0:
-                blockers += 1
-                sorted_findings = tuple(
-                    sorted(
-                        (
-                            *sorted_findings,
-                            RecoveryFinding(
-                                "web_evidence",
-                                RecoveryDecision.BLOCKED,
-                                "REC-WEB-EVIDENCE-INVALID",
-                            ),
-                        ),
-                        key=_finding_key,
-                    )
-                )
-            if int(codex_counts[3]) > 0:
-                blockers += 1
-                sorted_findings = tuple(
-                    sorted(
-                        (
-                            *sorted_findings,
-                            RecoveryFinding(
-                                "codex_delegation",
-                                RecoveryDecision.BLOCKED,
-                                "REC-CODEX-DELEGATION-INVALID",
-                            ),
-                        ),
-                        key=_finding_key,
-                    )
-                )
-            status = (
-                RecoveryStatus.SAFE
-                if blockers == 0 and critical == _EXPECTED_CRITICAL_ARTIFACT_COUNT
-                else RecoveryStatus.BLOCKED
-            )
-            if critical != _EXPECTED_CRITICAL_ARTIFACT_COUNT and blockers == 0:
-                blockers = 1
-                sorted_findings = (
-                    *sorted_findings,
-                    RecoveryFinding(
-                        "critical_artifact",
-                        RecoveryDecision.BLOCKED,
-                        "REC-ARTIFACT-COUNT",
-                    ),
-                )
-            metrics = {
-                "requeued_work_count": scan.requeued_work,
-                "terminal_work_count": scan.terminal_work,
-                "resumable_work_count": int(counts[0]),
-                "resumable_opportunity_count": int(counts[2]),
-                "resumable_cognitive_episode_count": int(counts[3]),
-                "resumable_model_attempt_count": int(counts[5]),
-                "resumable_candidate_validation_count": int(counts[4]),
-                "resumable_subject_commit_count": int(counts[6]),
-                "resumable_capability_request_count": int(capability_counts[0]),
-                "resumable_response_operation_count": int(response_counts[0]),
-                "resumable_effect_count": int(effect_counts[0]),
-                "resumable_effect_outbox_count": int(effect_counts[2]),
-                "resumable_effect_attempt_count": int(effect_execution_counts[0]),
-                "reliable_effect_observation_count": int(effect_execution_counts[1]),
-                "creator_response_delivery_count": int(effect_execution_counts[2]),
-                "resumable_web_observation_count": int(web_counts[0]),
-                "unknown_web_observation_attempt_count": int(web_counts[1]),
-                "resumable_web_research_intent_count": int(web_evidence_counts[0]),
-                "pending_web_evidence_acceptance_count": int(web_evidence_counts[1]),
-                "resumable_web_cognition_count": int(web_evidence_counts[2]),
-                "resumable_admin_correction_work_count": int(
-                    admin_correction_work_count[0]
-                ),
-                "resumable_codex_task_count": int(codex_counts[0]),
-                "resumable_codex_effect_count": int(codex_counts[1]),
-                "pending_codex_result_acceptance_count": int(codex_counts[2]),
-                "critical_artifact_count": critical,
-            }
-            updated = await connection.execute(
-                """
-                UPDATE armi.runtime_recovery_runs
-                SET status = %s,
-                    completed_at = statement_timestamp(),
-                    blocker_count = %s
-                WHERE recovery_run_id = %s
-                  AND status = 'running'
-                """,
-                (
-                    status.value,
-                    blockers,
-                    scan.recovery_run_id,
-                ),
-            )
-            if updated.rowcount != 1:
-                raise RecoveryViolation("REC-RUN-STALE")
-            metric_rowcount = 0
-            for kind in _RECOVERY_METRIC_KINDS:
-                metric_result = await connection.execute(
-                    """UPDATE armi.runtime_recovery_metrics SET metric_value = %s
-                       WHERE recovery_run_id = %s AND metric_kind = %s""",
-                    (metrics[kind], scan.recovery_run_id, kind),
-                )
-                metric_rowcount += metric_result.rowcount
-            if metric_rowcount != len(_RECOVERY_METRIC_KINDS):
-                raise RecoveryViolation("REC-METRIC-SET")
-            await self._validate_metric_set(connection, scan.recovery_run_id)
-            await unit_of_work.audit.append(
-                _audit(
-                    fence,
-                    f"runtime.recovery.{status.value}",
-                    scan.recovery_run_id,
-                )
-            )
-            await self._verify_fence(connection, fence)
-        return RecoverySummary(
-            recovery_run_id=RecoveryRunId(scan.recovery_run_id),
-            status=status,
-            metrics=tuple(
-                RecoveryMetric(kind, value) for kind, value in sorted(metrics.items())
-            ),
-            blocker_count=blockers,
-            findings=tuple(sorted_findings),
-        )
-
-    async def _record_artifact_failures(
-        self,
-        connection: PostgreSQLTransaction,
-        writer: AuditWriter,
-        fence: RuntimeFence,
-        findings: tuple[RecoveryFinding, ...],
-    ) -> None:
-        for finding in findings:
-            if (
-                finding.kind != "critical_artifact"
-                or finding.reference is None
-                or finding.reason_code
-                not in {"REC-ARTIFACT-MISSING", "REC-ARTIFACT-CORRUPT"}
-            ):
-                continue
-            status = (
-                "missing"
-                if finding.reason_code == "REC-ARTIFACT-MISSING"
-                else "corrupt"
-            )
-            row = await (
-                await connection.execute(
-                    """
-                    UPDATE armi.artifacts
-                    SET integrity_status = %s
-                    WHERE artifact_id = %s
-                      AND integrity_status = 'verified'
-                    RETURNING artifact_id
-                    """,
-                    (status, finding.reference),
-                )
-            ).fetchone()
-            if row is not None:
-                await writer.append(
-                    _audit(
-                        fence,
-                        f"artifact.integrity.{status}",
-                        finding.reference,
-                    )
-                )
+        return run_id
 
     async def _verify_fence(
-        self,
-        connection: PostgreSQLTransaction,
-        fence: RuntimeFence,
+        self, transaction: PostgreSQLTransaction, fence: RuntimeFence
     ) -> None:
         row = await (
-            await connection.execute(
+            await transaction.execute(
                 """
-                SELECT 1
-                FROM armi.runtime_instances AS instance
-                JOIN armi.subjects AS subject
-                  ON subject.subject_id = instance.subject_id
-                WHERE instance.runtime_instance_id = %s
-                  AND instance.fence_token = %s
-                  AND instance.status = 'active'
-                  AND instance.lease_expires_at > statement_timestamp()
-                  AND subject.singleton_key = 1
-                  AND subject.current_generation_id = instance.life_generation_id
-                  AND subject.current_bundle_activation_id
-                    = instance.bundle_activation_id
-                FOR UPDATE OF instance
+                SELECT status, lease_expires_at > statement_timestamp()
+                FROM armi.runtime_instances
+                WHERE runtime_instance_id = %s AND subject_id = %s
+                  AND life_generation_id = %s AND bundle_activation_id = %s
+                  AND fence_token = %s
                 """,
-                (fence.runtime_instance_id.value, fence.fence_token),
+                (
+                    fence.runtime_instance_id.value,
+                    fence.subject_id,
+                    fence.life_generation_id,
+                    fence.bundle_activation_id,
+                    fence.fence_token,
+                ),
             )
         ).fetchone()
-        if row is None:
+        if row is None or str(row[0]) != "active" or not bool(row[1]):
             raise RecoveryViolation("REC-FENCE-STALE")
 
     def _require_fence(self) -> RuntimeFence:
         try:
             fence = self._admission()
-        except RuntimeAuthorityViolation as error:
-            code = (
-                "REC-AUTHORITY-SUSPENDED"
-                if error.code == "AUTH-LOCAL-SUSPENDED"
-                else "REC-FENCE-STALE"
-            )
-            raise RecoveryViolation(code) from None
+        except RuntimeAuthorityViolation:
+            raise RecoveryViolation("REC-FENCE-STALE") from None
         return fence
 
 
-def _artifact_ref(row: tuple[Any, ...]) -> ArtifactRef:
-    return ArtifactRef(
-        artifact_id=ArtifactId(row[0]),
-        content_digest=Digest(str(row[1])),
-        byte_size=int(row[2]),
-        media_type=str(row[3]),
-        logical_kind=str(row[4]),
-        privacy_scope=ArtifactPrivacyScope(str(row[5])),
-        integrity_status=ArtifactIntegrityStatus(str(row[6])),
-    )
+def _finding(
+    kind: str,
+    decision: RecoveryFindingDecision,
+    reason: str,
+    reference: UUID | None = None,
+) -> RecoveryFindingContribution:
+    return RecoveryFindingContribution(kind, decision, reason, reference)
 
 
-def _finding_key(value: RecoveryFinding) -> tuple[str, str, str, str]:
-    return (
-        value.kind,
-        value.decision.value,
-        value.reason_code,
-        "" if value.reference is None else str(value.reference),
-    )
+def _metric(kind: str, value: int) -> RecoveryMetricContribution:
+    return RecoveryMetricContribution(kind, value)
 
 
-def _audit(
-    fence: RuntimeFence,
-    operation: str,
-    target_ref: UUID,
-) -> AuditDraft:
-    target_kind = (
-        "durable_work"
-        if operation.startswith("work.")
-        else "outbox"
-        if operation.startswith("outbox.")
-        else "artifact"
-        if operation.startswith("artifact.")
-        else "recovery"
-    )
+def _artifact_id(value: UUID) -> ArtifactId:
+    return ArtifactId(value)
+
+
+def _runtime_audit(fence: RuntimeFence, operation: str, target: UUID) -> AuditDraft:
     return AuditDraft(
-        audit_event_id=AuditEventId(uuid7()),
-        actor=AuditReference("runtime", fence.runtime_instance_id.value),
-        purpose=Purpose("runtime.recovery"),
-        operation=operation,
-        target=AuditReference(target_kind, target_ref),
-        result_status=AuditResultStatus.APPLIED,
-        trace_id=TraceId(fence.runtime_instance_id.value.hex),
-        sensitivity=AuditSensitivity.INTERNAL,
+        AuditEventId(uuid7()),
+        AuditReference("runtime", fence.runtime_instance_id.value),
+        Purpose("runtime.recovery"),
+        operation,
+        AuditReference("recovery", target),
+        AuditResultStatus.COMPLETED,
+        TraceId(fence.runtime_instance_id.value.hex),
+        AuditSensitivity.PRIVATE,
+        subject_id=SubjectId(fence.subject_id),
+    )
+
+
+def _owner_audit(fence: RuntimeFence, value: RecoveryAuditContribution) -> AuditDraft:
+    return AuditDraft(
+        AuditEventId(uuid7()),
+        AuditReference("runtime", fence.runtime_instance_id.value),
+        Purpose("runtime.recovery"),
+        value.operation,
+        AuditReference(value.target_kind, value.target_ref),
+        AuditResultStatus.COMPLETED,
+        TraceId(fence.runtime_instance_id.value.hex),
+        AuditSensitivity.PRIVATE,
         subject_id=SubjectId(fence.subject_id),
     )
 

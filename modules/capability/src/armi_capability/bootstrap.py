@@ -6,9 +6,13 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from armi_kernel.application import CreatorProjectionNotifier
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWorkFactory
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    RecoveryParticipant,
+)
 
 from ._postgresql import PostgreSQLCreatorGrantPolicy
+from ._recovery import CapabilityRecoveryParticipant
 from .api import (
     CapabilityCommitPort,
     CapabilityEffectCancellationPort,
@@ -78,4 +82,12 @@ def bootstrap_capability(
     return CapabilityModule(owner, owner, owner, owner, owner)
 
 
-__all__ = ("CapabilityModule", "bootstrap_capability")
+def bootstrap_capability_recovery() -> RecoveryParticipant:
+    return CapabilityRecoveryParticipant()
+
+
+__all__ = (
+    "CapabilityModule",
+    "bootstrap_capability",
+    "bootstrap_capability_recovery",
+)

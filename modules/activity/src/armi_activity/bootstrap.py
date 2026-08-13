@@ -5,7 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWorkFactory
+from armi_runtime_foundation import (
+    EmptyRecoveryParticipant,
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    RecoveryParticipant,
+)
 
 from ._application import ActivityApplication
 from ._commit import PostgreSQLActivityCommit
@@ -51,4 +55,13 @@ def bootstrap_activity_cognition() -> ActivityCognitionPort:
     return ActivityApplication()
 
 
-__all__ = ("ActivityModule", "bootstrap_activity", "bootstrap_activity_cognition")
+def bootstrap_activity_recovery() -> RecoveryParticipant:
+    return EmptyRecoveryParticipant("activity")
+
+
+__all__ = (
+    "ActivityModule",
+    "bootstrap_activity",
+    "bootstrap_activity_cognition",
+    "bootstrap_activity_recovery",
+)
