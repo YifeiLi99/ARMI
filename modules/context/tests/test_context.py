@@ -184,6 +184,44 @@ def test_exact_life_query_result_is_current_runtime_evidence() -> None:
     assert evidence.trust_class.value == "runtime_authority"
 
 
+def test_codex_task_context_exposes_registered_manifest_digest() -> None:
+    source_id = uuid7()
+    manifest_digest = Digest.from_bytes(b"registered task manifest")
+    snapshot = _snapshot((), purpose="consider_codex_task")
+    snapshot = cast(
+        ContextEpisodeSnapshot,
+        SimpleNamespace(
+            **{
+                **vars(snapshot),
+                "evidence": SimpleNamespace(
+                    source_id=source_id,
+                    source_version=1,
+                    source_kind="codex_task_source",
+                    task_manifest_digest=manifest_digest,
+                ),
+            }
+        ),
+    )
+    request = _context_request(
+        snapshot,
+        rfc8785.dumps(
+            {
+                "schema_version": "armi.codex-task-source.v2",
+                "source_tree_digest": Digest.from_bytes(b"source tree").value,
+            }
+        ),
+        b"fixed prompt",
+        web_search_active=False,
+    )
+
+    evidence = next(
+        item for item in request.items if item.item_kind == "codex_task_source"
+    )
+    document = json.loads(cast(str, evidence.content))
+    assert document["task_manifest_digest"] == manifest_digest.value
+    assert document["source_tree_digest"] != manifest_digest.value
+
+
 def test_creator_outreach_trigger_is_required_runtime_evidence() -> None:
     scene_id = uuid7()
     trigger = b'{"kind":"creator_outreach_absence"}'

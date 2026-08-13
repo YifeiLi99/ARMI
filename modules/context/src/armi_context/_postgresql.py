@@ -57,6 +57,7 @@ class ContextArtifactSource:
     source_id: UUID
     source_version: int
     source_kind: str
+    task_manifest_digest: Digest | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -465,7 +466,8 @@ class PostgreSQLContextRepository:
                     context_party.display_label,
                     current_interaction.addressed_to_subject,
                     scene.primary_party_id,
-                    context_party.party_kind
+                    context_party.party_kind,
+                    task_source.task_manifest_digest
                 FROM armi.durable_work AS work
                 JOIN armi.cognitive_episodes AS episode
                   ON episode.cognitive_episode_id = work.owner_ref
@@ -487,6 +489,8 @@ class PostgreSQLContextRepository:
                   ON scene.scene_id = episode.scene_id
                 LEFT JOIN armi.parties AS context_party
                   ON context_party.party_id = episode.context_party_id
+                LEFT JOIN armi.codex_task_sources AS task_source
+                  ON task_source.codex_task_source_id = evidence.codex_task_source_id
                 WHERE work.work_id = %s
                   AND work.status = 'leased'
                   AND work.current_attempt_id = %s
@@ -813,6 +817,7 @@ class PostgreSQLContextRepository:
                 row[11],
                 1,
                 str(row[21]),
+                (Digest(str(row[41])) if row[41] is not None else None),
             )
         )
         outreach_trigger_bytes = (

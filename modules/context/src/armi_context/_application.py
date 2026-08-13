@@ -6,7 +6,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
-from typing import cast
+from typing import Any, cast
 from uuid import UUID, uuid7
 
 import rfc8785
@@ -1153,6 +1153,12 @@ def _context_request(
     )
     items = [item for item in items if profile.allows(item.item_kind)]
     if snapshot.evidence is not None:
+        evidence_content = cast(bytes, evidence_bytes)
+        if snapshot.evidence.source_kind == "codex_task_source":
+            evidence_content = _codex_task_source_content(
+                snapshot.evidence,
+                evidence_content,
+            )
         items.append(
             _item(
                 profile,
@@ -1164,7 +1170,7 @@ def _context_request(
                 ),
                 snapshot.evidence.source_id,
                 snapshot.evidence.source_version,
-                cast(bytes, evidence_bytes),
+                evidence_content,
                 (
                     ContextTrustClass.RUNTIME_AUTHORITY
                     if snapshot.evidence.source_kind == "life_query_result"
@@ -1214,6 +1220,26 @@ def _context_request(
         max(16_384, required_content_bytes + 8192) if dialogue_purpose else 524_288,
         tuple(items),
     )
+
+
+def _codex_task_source_content(
+    source: ContextArtifactSource,
+    content: bytes,
+) -> bytes:
+    if source.task_manifest_digest is None:
+        raise ContextViolation("CTX-SOURCE-MISSING")
+    try:
+        value = json.loads(content)
+    except UnicodeDecodeError, json.JSONDecodeError:
+        raise ContextViolation("CTX-SOURCE-READ-FAILED") from None
+    if type(value) is not dict or "task_manifest_digest" in value:
+        raise ContextViolation("CTX-SOURCE-READ-FAILED")
+    document = cast(dict[str, object], value)
+    document["task_manifest_digest"] = source.task_manifest_digest.value
+    try:
+        return rfc8785.dumps(cast(Any, document))
+    except TypeError, UnicodeEncodeError:
+        raise ContextViolation("CTX-SOURCE-READ-FAILED") from None
 
 
 def _item(
