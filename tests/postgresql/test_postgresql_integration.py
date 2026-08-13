@@ -79,7 +79,7 @@ from armi_cognition._validator import (
     DeterministicCandidateValidator,
 )
 from armi_cognition.bootstrap import bootstrap_cognition_change_set_codec
-from armi_data_rights.bootstrap import bootstrap_data_rights_gate
+from armi_data_rights.bootstrap import bootstrap_data_rights_core
 from armi_effect._admission import (
     PostgreSQLResponseAdmissionRepository,
 )
@@ -125,7 +125,9 @@ from armi_interaction.api import (
     SceneTimelinePage,
     SceneTimelineQuery,
 )
-from armi_interaction.bootstrap import bootstrap_interaction_birth
+from armi_interaction.bootstrap import (
+    bootstrap_interaction_birth,
+)
 from armi_kernel.application import (
     ArtifactId,
     ArtifactIntegrityStatus,
@@ -690,7 +692,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     bootstrap_evidence().write, bootstrap_opportunity_admission()
                 ),
                 unit_of_work_factory=input_factory,
-                data_rights=bootstrap_data_rights_gate(),
+                data_rights=bootstrap_data_rights_core().gate,
             )
             await input_factory.open()
             await service.open()

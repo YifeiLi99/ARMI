@@ -20,9 +20,29 @@ from .api import (
     DataRightsArtifactStorePort,
     DataRightsInteractionGate,
     DataRightsOrderPort,
+    DataRightsPartyIdentityPort,
     DataRightsProjectionInvalidationPort,
+    DataRightsSubjectEpochPort,
     DataRightsUnitOfWorkFactory,
 )
+
+
+class DataRightsCore:
+    __slots__ = ("_gate", "_sealed")
+
+    def __init__(self) -> None:
+        self._gate = DataRightsOrderRepository()
+        self._sealed = False
+
+    @property
+    def gate(self) -> DataRightsInteractionGate:
+        return self._gate
+
+    def seal(self) -> DataRightsOrderRepository:
+        if self._sealed:
+            raise RuntimeError("data rights core is already sealed")
+        self._sealed = True
+        return self._gate
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,8 +66,8 @@ class DataRightsModule:
         await self._exports.close()
 
 
-def bootstrap_data_rights_gate() -> DataRightsInteractionGate:
-    return DataRightsOrderRepository()
+def bootstrap_data_rights_core() -> DataRightsCore:
+    return DataRightsCore()
 
 
 def bootstrap_data_rights(
@@ -59,9 +79,12 @@ def bootstrap_data_rights(
     memory: MemoryDataRightsParticipant,
     relationship: RelationshipDataRightsParticipant,
     context_projections: DataRightsProjectionInvalidationPort,
+    core: DataRightsCore,
+    parties: DataRightsPartyIdentityPort,
+    subject_epoch: DataRightsSubjectEpochPort,
     notifier: CreatorProjectionNotifier | None = None,
 ) -> DataRightsModule:
-    gate = DataRightsOrderRepository()
+    gate = core.seal()
     deletion = LocalDataDeletionExecutor(
         repository=LocalDataDeletionRepository(
             memory, relationship, context_projections
@@ -75,6 +98,8 @@ def bootstrap_data_rights(
         repository=gate,
         unit_of_work_factory=unit_of_work_factory,
         notifier=notifier,
+        parties=parties,
+        subject_epoch=subject_epoch,
     )
     exports = CreatorExportService(
         creator_party_id=creator_party_id,
@@ -86,7 +111,8 @@ def bootstrap_data_rights(
 
 
 __all__ = (
+    "DataRightsCore",
     "DataRightsModule",
     "bootstrap_data_rights",
-    "bootstrap_data_rights_gate",
+    "bootstrap_data_rights_core",
 )

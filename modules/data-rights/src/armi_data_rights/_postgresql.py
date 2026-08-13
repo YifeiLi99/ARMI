@@ -12,7 +12,6 @@ from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 from .api import (
     DataRightsExecutionStatus,
     DataRightsOrderKind,
-    DataRightsPartyKey,
     DataRightsRequesterKind,
     DataRightsScopeKind,
     DataRightsViolation,
@@ -47,44 +46,6 @@ class DataRightsDeletionItemSnapshot:
 
 class DataRightsOrderRepository:
     __slots__ = ()
-
-    async def creator_party(
-        self,
-        unit_of_work: PostgreSQLRuntimeUnitOfWork,
-        creator_party_id: UUID,
-    ) -> UUID:
-        connection = unit_of_work.transaction
-        row = await (
-            await connection.execute(
-                """
-                SELECT party_id FROM armi.parties
-                WHERE party_id = %s AND party_kind = 'creator'
-                """,
-                (creator_party_id,),
-            )
-        ).fetchone()
-        if row is None:
-            raise DataRightsViolation("DATA-RIGHTS-REQUESTER-NOT-FOUND")
-        return row[0]
-
-    async def other_human_party(
-        self,
-        unit_of_work: PostgreSQLRuntimeUnitOfWork,
-        party_key: DataRightsPartyKey,
-    ) -> UUID:
-        connection = unit_of_work.transaction
-        row = await (
-            await connection.execute(
-                """
-                SELECT party_id FROM armi.parties
-                WHERE declared_identity_key = %s AND party_kind = 'other_human'
-                """,
-                (party_key.value,),
-            )
-        ).fetchone()
-        if row is None:
-            raise DataRightsViolation("DATA-RIGHTS-REQUESTER-NOT-FOUND")
-        return row[0]
 
     async def find_existing(
         self,

@@ -2252,7 +2252,9 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
             "data_rights_module = compose_data_rights_module(",
             "data_rights_module.exports",
             "data_rights_module.orders",
-            "data_rights=data_rights_module.gate",
+            "data_rights=data_rights_core.gate",
+            "core=data_rights_core",
+            "parties=interaction_module.identity",
         ),
     }.items():
         if any(item not in runtime_source for item in required):

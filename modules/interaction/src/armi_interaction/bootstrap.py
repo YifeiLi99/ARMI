@@ -63,6 +63,7 @@ class InteractionModule:
     external_message_input: ExternalMessageInputPort
     perception: InteractionPerceptionPort
     effect_delivery: InteractionEffectDeliveryPort
+    identity: InteractionIdentityPort
     _timeline: PostgreSQLSceneTimelineQuery
 
     async def open(self) -> None:
@@ -90,6 +91,7 @@ def bootstrap_interaction(
     wakeups: InteractionWakeupPort | None = None,
     diagnostic: Callable[[str], None] | None = None,
     fault_injector: Callable[[str], None] | None = None,
+    identity: InteractionIdentityPort,
 ) -> InteractionModule:
     creator_repository = CreatorInputRepository(evidence, opportunity)
     other_repository = OtherHumanInputRepository(evidence, opportunity)
@@ -150,6 +152,7 @@ def bootstrap_interaction(
         external_message_input=external,
         perception=perception,
         effect_delivery=perception,
+        identity=identity,
         _timeline=timeline,
     )
 

@@ -120,6 +120,20 @@ class InteractionIdentityPort(Protocol):
         subject_id: UUID,
     ) -> CreatorIdentityContext | None: ...
 
+    async def creator_party(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        creator_party_id: UUID,
+    ) -> UUID | None: ...
+
+    async def other_human_party(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        declared_identity_key: str,
+    ) -> UUID | None: ...
+
 
 @runtime_checkable
 class InteractionBirthPort(Protocol):

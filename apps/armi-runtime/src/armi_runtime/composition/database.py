@@ -56,7 +56,12 @@ from armi_data_rights.api import (
     DataRightsInteractionGate,
     DataRightsProjectionInvalidationPort,
 )
-from armi_data_rights.bootstrap import DataRightsModule, bootstrap_data_rights
+from armi_data_rights.bootstrap import (
+    DataRightsCore,
+    DataRightsModule,
+    bootstrap_data_rights,
+    bootstrap_data_rights_core,
+)
 from armi_effect.api import (
     ActionAdapterPort,
     EffectGrantCancellationPort,
@@ -77,6 +82,7 @@ from armi_interaction.api import (
     CreatorIdentityContext,
     CreatorInputTransactionPort,
     InteractionEffectDeliveryPort,
+    InteractionIdentityPort,
     InteractionPerceptionPort,
 )
 from armi_interaction.bootstrap import (
@@ -435,10 +441,10 @@ async def inspect_creator_context(
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     *,
     subject_id: UUID,
+    identity: InteractionIdentityPort,
 ) -> CreatorIdentityContext | None:
     """Read the unique born Creator through the Interaction owner."""
 
-    identity = bootstrap_interaction_identity()
     async with unit_of_work_factory.unit_of_work(read_only=True) as unit:
         return await identity.creator_context(
             unit.transaction,
@@ -450,10 +456,12 @@ async def inspect_creator_party_id(
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     *,
     subject_id: UUID,
+    identity: InteractionIdentityPort,
 ) -> UUID | None:
     context = await inspect_creator_context(
         unit_of_work_factory,
         subject_id=subject_id,
+        identity=identity,
     )
     return None if context is None else context.party_id
 
@@ -482,6 +490,7 @@ def compose_interaction_module(
     evidence_read: EvidenceReadPort,
     opportunity: OpportunityAdmissionPort,
     data_rights: DataRightsInteractionGate,
+    identity: InteractionIdentityPort,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
     fault_injector: Callable[[str], None] | None = None,
@@ -501,6 +510,7 @@ def compose_interaction_module(
         codex_task_projection=bootstrap_codex_timeline_projection(),
         catalog=bootstrap_artifact_catalog(),
         data_rights=data_rights,
+        identity=identity,
         subject_state=subject_state_read,
         evidence=evidence,
         evidence_read=evidence_read,
@@ -865,6 +875,24 @@ class _DataRightsContextProjectionInvalidation(DataRightsProjectionInvalidationP
         )
 
 
+class _DataRightsSubjectEpoch:
+    async def advance(
+        self,
+        transaction: PostgreSQLTransaction,
+    ) -> None:
+        await transaction.execute(
+            """
+            UPDATE armi.subjects
+            SET state_epoch = state_epoch + 1
+            WHERE singleton_key = 1
+            """
+        )
+
+
+def compose_interaction_identity() -> InteractionIdentityPort:
+    return bootstrap_interaction_identity()
+
+
 def compose_data_rights_module(
     prepared: PreparedEnvironment,
     *,
@@ -873,6 +901,8 @@ def compose_data_rights_module(
     memory_data_rights: MemoryDataRightsParticipant,
     relationship_data_rights: RelationshipDataRightsParticipant,
     context_projections: ContextProjectionInvalidationPort,
+    core: DataRightsCore,
+    parties: InteractionIdentityPort,
     notifier: CreatorProjectionNotifier | None = None,
 ) -> DataRightsModule:
     config = prepared.effective.config
@@ -889,8 +919,15 @@ def compose_data_rights_module(
         context_projections=_DataRightsContextProjectionInvalidation(
             context_projections
         ),
+        core=core,
+        parties=parties,
+        subject_epoch=_DataRightsSubjectEpoch(),
         notifier=notifier,
     )
+
+
+def compose_data_rights_core() -> DataRightsCore:
+    return bootstrap_data_rights_core()
 
 
 def compose_context_projection_invalidation() -> ContextProjectionInvalidationPort:
@@ -1430,11 +1467,13 @@ __all__ = (
     "compose_codex_pipeline",
     "compose_cognition_exact_life_query",
     "compose_context_pipeline",
+    "compose_data_rights_core",
     "compose_data_rights_module",
     "compose_effect_grant_cancellation",
     "compose_effect_registration_pipeline",
     "compose_evidence_module",
     "compose_exact_life_query_pipeline",
+    "compose_interaction_identity",
     "compose_interaction_module",
     "compose_life_opportunity_pipeline",
     "compose_life_record_query",

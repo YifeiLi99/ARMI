@@ -10,6 +10,40 @@ from .api import CreatorIdentityContext
 
 
 class PostgreSQLInteractionIdentity:
+    async def creator_party(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        creator_party_id: UUID,
+    ) -> UUID | None:
+        row = await (
+            await transaction.execute(
+                """
+                SELECT party_id FROM armi.parties
+                WHERE party_id = %s AND party_kind = 'creator'
+                """,
+                (creator_party_id,),
+            )
+        ).fetchone()
+        return None if row is None else row[0]
+
+    async def other_human_party(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        declared_identity_key: str,
+    ) -> UUID | None:
+        row = await (
+            await transaction.execute(
+                """
+                SELECT party_id FROM armi.parties
+                WHERE declared_identity_key = %s AND party_kind = 'other_human'
+                """,
+                (declared_identity_key,),
+            )
+        ).fetchone()
+        return None if row is None else row[0]
+
     async def creator_context(
         self,
         transaction: PostgreSQLTransaction,

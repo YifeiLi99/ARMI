@@ -18,6 +18,7 @@ from armi_data_rights.api import (
     DataRightsScopeKind,
     DataRightsViolation,
 )
+from armi_data_rights.bootstrap import bootstrap_data_rights_core
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, TraceId
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
@@ -53,6 +54,15 @@ class _UnitOfWork:
     @property
     def transaction(self) -> _Connection:
         return self.connection
+
+
+def test_data_rights_core_seals_exactly_once() -> None:
+    core = bootstrap_data_rights_core()
+    gate = core.gate
+
+    assert core.seal() is gate
+    with pytest.raises(RuntimeError):
+        core.seal()
 
 
 def test_three_order_kinds_are_explicit_and_bounded() -> None:

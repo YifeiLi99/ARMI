@@ -33,9 +33,11 @@ from .api import (
     DataRightsOrderKind,
     DataRightsOrderPort,
     DataRightsOrderResult,
+    DataRightsPartyIdentityPort,
     DataRightsPartyKey,
     DataRightsRequesterKind,
     DataRightsScopeKind,
+    DataRightsSubjectEpochPort,
     DataRightsUnitOfWorkFactory,
     DataRightsViolation,
 )
@@ -46,7 +48,9 @@ class DataRightsOrderService(DataRightsOrderPort):
         "_creator_party_id",
         "_deletion",
         "_notifier",
+        "_parties",
         "_repository",
+        "_subject_epoch",
         "_uow_factory",
     )
 
@@ -57,6 +61,8 @@ class DataRightsOrderService(DataRightsOrderPort):
         deletion: LocalDataDeletionExecutor,
         repository: DataRightsOrderRepository,
         unit_of_work_factory: DataRightsUnitOfWorkFactory,
+        parties: DataRightsPartyIdentityPort,
+        subject_epoch: DataRightsSubjectEpochPort,
         notifier: CreatorProjectionNotifier | None = None,
     ) -> None:
         if creator_party_id.version != 7:
@@ -66,6 +72,8 @@ class DataRightsOrderService(DataRightsOrderPort):
         self._repository = repository
         self._uow_factory = unit_of_work_factory
         self._notifier = notifier
+        self._parties = parties
+        self._subject_epoch = subject_epoch
 
     async def open(self) -> None:
         try:
@@ -343,13 +351,7 @@ class DataRightsOrderService(DataRightsOrderPort):
                     trace_id=command.trace_id.value,
                 )
                 if command.order_kind is DataRightsOrderKind.DELETE_RELATED:
-                    await unit_of_work.transaction.execute(
-                        """
-                        UPDATE armi.subjects
-                        SET state_epoch = state_epoch + 1
-                        WHERE singleton_key = 1
-                        """
-                    )
+                    await self._subject_epoch.advance(unit_of_work.transaction)
                 await unit_of_work.audit.append(
                     AuditDraft(
                         AuditEventId(uuid7()),
@@ -398,12 +400,20 @@ class DataRightsOrderService(DataRightsOrderPort):
         party_key: DataRightsPartyKey | None,
     ) -> UUID:
         if requester_kind is DataRightsRequesterKind.CREATOR:
-            return await self._repository.creator_party(
-                unit_of_work, self._creator_party_id
+            party_id = await self._parties.creator_party(
+                unit_of_work.transaction,
+                creator_party_id=self._creator_party_id,
             )
-        if party_key is None:
+        elif party_key is None:
             raise DataRightsViolation("DATA-RIGHTS-REQUESTER")
-        return await self._repository.other_human_party(unit_of_work, party_key)
+        else:
+            party_id = await self._parties.other_human_party(
+                unit_of_work.transaction,
+                declared_identity_key=party_key.value,
+            )
+        if party_id is None:
+            raise DataRightsViolation("DATA-RIGHTS-REQUESTER-NOT-FOUND")
+        return party_id
 
     def _request_digest(
         self,

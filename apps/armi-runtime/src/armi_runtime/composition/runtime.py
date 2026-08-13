@@ -86,11 +86,13 @@ from .database import (
     compose_context_embedding_pipeline,
     compose_context_pipeline,
     compose_context_projection_invalidation,
+    compose_data_rights_core,
     compose_data_rights_module,
     compose_effect_grant_cancellation,
     compose_effect_registration_pipeline,
     compose_evidence_module,
     compose_exact_life_query_pipeline,
+    compose_interaction_identity,
     compose_interaction_module,
     compose_life_opportunity_pipeline,
     compose_life_record_query,
@@ -260,9 +262,11 @@ async def _serve(
                 authority_admission=authority.require_writable,
             )
             await runtime_unit_of_work_factory.open()
+            interaction_identity = compose_interaction_identity()
             creator_context = await inspect_creator_context(
                 runtime_unit_of_work_factory,
                 subject_id=authority.require_writable().subject_id,
+                identity=interaction_identity,
             )
             if creator_context is None:
                 raise BrowserSessionViolation(
@@ -417,16 +421,7 @@ async def _serve(
             )
             await sleep_module.open()
             context_projection_invalidation = compose_context_projection_invalidation()
-            data_rights_module = compose_data_rights_module(
-                prepared,
-                unit_of_work_factory=runtime_unit_of_work_factory,
-                creator_party_id=creator_context.party_id,
-                memory_data_rights=memory_module.data_rights,
-                relationship_data_rights=relationship_module.data_rights,
-                context_projections=context_projection_invalidation,
-                notifier=creator_events,
-            )
-            await data_rights_module.open()
+            data_rights_core = compose_data_rights_core()
             interaction_module = compose_interaction_module(
                 prepared,
                 unit_of_work_factory=runtime_unit_of_work_factory,
@@ -437,7 +432,8 @@ async def _serve(
                 evidence=evidence_module.write,
                 evidence_read=evidence_module.read,
                 opportunity=opportunity_admission,
-                data_rights=data_rights_module.gate,
+                data_rights=data_rights_core.gate,
+                identity=interaction_identity,
                 wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
                     event,
@@ -446,6 +442,18 @@ async def _serve(
                 fault_injector=inject_admin_fault,
             )
             await interaction_module.open()
+            data_rights_module = compose_data_rights_module(
+                prepared,
+                unit_of_work_factory=runtime_unit_of_work_factory,
+                creator_party_id=creator_context.party_id,
+                memory_data_rights=memory_module.data_rights,
+                relationship_data_rights=relationship_module.data_rights,
+                context_projections=context_projection_invalidation,
+                core=data_rights_core,
+                parties=interaction_module.identity,
+                notifier=creator_events,
+            )
+            await data_rights_module.open()
             scene_timeline_query = interaction_module.scene_timeline
             creator_scenes = interaction_module.creator_scenes
             creator_input = interaction_module.creator_input

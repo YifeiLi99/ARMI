@@ -67,6 +67,28 @@ class DataRightsProjectionInvalidationPort(Protocol):
 
 
 @runtime_checkable
+class DataRightsPartyIdentityPort(Protocol):
+    async def creator_party(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        creator_party_id: UUID,
+    ) -> UUID | None: ...
+
+    async def other_human_party(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        declared_identity_key: str,
+    ) -> UUID | None: ...
+
+
+@runtime_checkable
+class DataRightsSubjectEpochPort(Protocol):
+    async def advance(self, transaction: PostgreSQLTransaction) -> None: ...
+
+
+@runtime_checkable
 class DataRightsUnitOfWorkFactory(Protocol):
     @property
     def environment_id(self) -> UUID: ...
@@ -98,10 +120,12 @@ __all__ = (
     "DataRightsOrderKind",
     "DataRightsOrderPort",
     "DataRightsOrderResult",
+    "DataRightsPartyIdentityPort",
     "DataRightsPartyKey",
     "DataRightsProjectionInvalidationPort",
     "DataRightsRequesterKind",
     "DataRightsScopeKind",
+    "DataRightsSubjectEpochPort",
     "DataRightsUnitOfWorkFactory",
     "DataRightsViolation",
 )
