@@ -318,6 +318,7 @@ DISTRIBUTIONS = (
             "armi-evidence==0.0.0",
             "armi-interaction==0.0.0",
             "armi-kernel==0.0.0",
+            "armi-opportunity==0.0.0",
             "armi-runtime-foundation==0.0.0",
             "openai-codex==0.144.4",
             "rfc8785==0.1.4",
@@ -1092,6 +1093,7 @@ def _check_import(
                 "armi-evidence",
                 "armi-interaction",
                 "armi-kernel",
+                "armi-opportunity",
                 "armi-runtime-foundation",
             }
         )

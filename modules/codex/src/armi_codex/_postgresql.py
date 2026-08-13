@@ -33,6 +33,12 @@ from armi_kernel.application import (
     AuditSensitivity,
 )
 from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
+from armi_opportunity.api import (
+    ExternalEvidenceOpportunityDraft,
+    OpportunityAdmissionPort,
+    OpportunityAdmissionStatus,
+    OpportunityPurpose,
+)
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
 from ._delegation_contract import (
@@ -71,14 +77,16 @@ class CodexDispatchSnapshot:
 
 
 class PostgreSQLCodexDelegationRepository:
-    __slots__ = ("_dispatch_boundary", "_evidence")
+    __slots__ = ("_dispatch_boundary", "_evidence", "_opportunity")
 
     def __init__(
         self,
         evidence: EvidenceWritePort,
+        opportunity: OpportunityAdmissionPort,
         dispatch_boundary: EffectDispatchBoundaryPort,
     ) -> None:
         self._evidence = evidence
+        self._opportunity = opportunity
         self._dispatch_boundary = dispatch_boundary
 
     async def admit_task_source(
@@ -154,7 +162,7 @@ class PostgreSQLCodexDelegationRepository:
                 draft.trace_id.value,
             ),
         )
-        evidence_id, opportunity_id = uuid7(), uuid7()
+        evidence_id = uuid7()
         await self._evidence.accept(
             uow,
             EvidenceDraft(
@@ -168,26 +176,18 @@ class PostgreSQLCodexDelegationRepository:
                 codex_task_source_id=draft.task_source_id.value,
             ),
         )
-        await connection.execute(
-            """
-            INSERT INTO armi.opportunities (
-                opportunity_id, evidence_id, subject_id, scene_id,
-                context_party_id, purpose, source_kind, source_ref,
-                source_version, eligibility_status,
-                current_disposition, root_opportunity_id,
-                predecessor_opportunity_id, reconsideration_no) VALUES (%s,%s,%s,%s,%s,'consider_codex_task',
-                'external_evidence',%s,1,'eligible','open',%s,NULL,0)
-            """,
-            (
-                opportunity_id,
-                evidence_id,
-                draft.subject_id.value,
-                subject[0],
-                subject[1],
-                evidence_id,
-                opportunity_id,
+        admitted = await self._opportunity.admit_external_evidence(
+            connection,
+            ExternalEvidenceOpportunityDraft(
+                evidence_id=evidence_id,
+                subject_id=draft.subject_id.value,
+                scene_id=subject[0],
+                context_party_id=subject[1],
+                purpose=OpportunityPurpose.CONSIDER_CODEX_TASK,
             ),
         )
+        if admitted.status is OpportunityAdmissionStatus.REJECTED:
+            raise CodexDelegationViolation("CODEX-TASK-ADMISSION")
         await uow.audit.append(
             AuditDraft(
                 AuditEventId(uuid7()),
@@ -216,7 +216,7 @@ class PostgreSQLCodexDelegationRepository:
             await connection.execute(
                 """
                 SELECT interaction.interaction_id, evidence.evidence_id,
-                       opportunity.opportunity_id, interaction.request_digest,
+                       interaction.request_digest,
                        interaction.content_digest
                 FROM armi.party_input_interactions AS interaction
                 JOIN armi.codex_task_sources AS source
@@ -228,9 +228,6 @@ class PostgreSQLCodexDelegationRepository:
                  AND evidence.scene_id=interaction.scene_id
                  AND evidence.context_party_id=interaction.source_party_id
                  AND evidence.source_kind='codex_task_source'
-                JOIN armi.opportunities AS opportunity
-                  ON opportunity.evidence_id=evidence.evidence_id
-                 AND opportunity.purpose='consider_codex_task'
                 WHERE interaction.source_party_id=%s
                   AND interaction.scene_id=%s
                   AND interaction.purpose='codex_task_request'
@@ -245,14 +242,21 @@ class PostgreSQLCodexDelegationRepository:
         ).fetchone()
         if row is None:
             return None
-        if str(row[3]) != request_digest.value:
+        if str(row[2]) != request_digest.value:
             raise CodexDelegationViolation("CODEX-TASK-IDEMPOTENCY")
+        opportunity = await self._opportunity.find_external_evidence(
+            connection,
+            evidence_id=row[1],
+            purpose=OpportunityPurpose.CONSIDER_CODEX_TASK,
+        )
+        if opportunity is None:
+            raise CodexDelegationViolation("CODEX-TASK-ADMISSION")
         return CreatorInputAcceptance(
             CreatorInteractionId(row[0]),
             EvidenceId(row[1]),
-            OpportunityId(row[2]),
+            OpportunityId(opportunity.value),
+            Digest(str(row[2])),
             Digest(str(row[3])),
-            Digest(str(row[4])),
             False,
         )
 
@@ -287,8 +291,7 @@ class PostgreSQLCodexDelegationRepository:
             draft.manifest_digest,
         )
         await _insert_task_source(connection, draft)
-        interaction_id, evidence_id, opportunity_id, timeline_id = (
-            uuid7(),
+        interaction_id, evidence_id, timeline_id = (
             uuid7(),
             uuid7(),
             uuid7(),
@@ -324,26 +327,21 @@ class PostgreSQLCodexDelegationRepository:
                 codex_task_source_id=draft.task_source_id.value,
             ),
         )
-        await connection.execute(
-            """
-            INSERT INTO armi.opportunities (
-                opportunity_id, evidence_id, subject_id, scene_id,
-                context_party_id, purpose, source_kind, source_ref,
-                source_version, eligibility_status,
-                current_disposition, root_opportunity_id,
-                predecessor_opportunity_id, reconsideration_no) VALUES (%s,%s,%s,%s,%s,'consider_codex_task',
-                'external_evidence',%s,1,'eligible','open',%s,NULL,0)
-            """,
-            (
-                opportunity_id,
-                evidence_id,
-                context.subject_id,
-                context.scene_id,
-                context.creator_party_id,
-                evidence_id,
-                opportunity_id,
+        admitted = await self._opportunity.admit_external_evidence(
+            connection,
+            ExternalEvidenceOpportunityDraft(
+                evidence_id=evidence_id,
+                subject_id=context.subject_id,
+                scene_id=context.scene_id,
+                context_party_id=context.creator_party_id,
+                purpose=OpportunityPurpose.CONSIDER_CODEX_TASK,
             ),
         )
+        if admitted.status is OpportunityAdmissionStatus.REJECTED:
+            raise CodexDelegationViolation("CODEX-TASK-ADMISSION")
+        opportunity_id = admitted.opportunity_id
+        if opportunity_id is None:
+            raise CodexDelegationViolation("CODEX-TASK-ADMISSION")
         await connection.execute(
             """
             INSERT INTO armi.scene_timeline_items (
@@ -768,7 +766,7 @@ class PostgreSQLCodexDelegationRepository:
                 snapshot.operation_id,
             ),
         )
-        evidence_id, opportunity_id, result_source_id = uuid7(), uuid7(), uuid7()
+        evidence_id, result_source_id = uuid7(), uuid7()
         evidence_ref = (
             artifacts["final_result"]
             if status is CodexVerificationStatus.VERIFIED
@@ -787,26 +785,21 @@ class PostgreSQLCodexDelegationRepository:
                 codex_verification_id=verification_id,
             ),
         )
-        await connection.execute(
-            """
-            INSERT INTO armi.opportunities (
-                opportunity_id, evidence_id, subject_id, scene_id,
-                context_party_id, purpose, source_kind, source_ref,
-                source_version, eligibility_status,
-                current_disposition, root_opportunity_id,
-                predecessor_opportunity_id, reconsideration_no) VALUES (%s,%s,%s,%s,%s,'consider_codex_result',
-                'external_evidence',%s,1,'eligible','open',%s,NULL,0)
-            """,
-            (
-                opportunity_id,
-                evidence_id,
-                snapshot.subject_id,
-                snapshot.scene_id,
-                snapshot.creator_party_id,
-                evidence_id,
-                opportunity_id,
+        admitted = await self._opportunity.admit_external_evidence(
+            connection,
+            ExternalEvidenceOpportunityDraft(
+                evidence_id=evidence_id,
+                subject_id=snapshot.subject_id,
+                scene_id=snapshot.scene_id,
+                context_party_id=snapshot.creator_party_id,
+                purpose=OpportunityPurpose.CONSIDER_CODEX_RESULT,
             ),
         )
+        if admitted.status is OpportunityAdmissionStatus.REJECTED:
+            raise CodexDelegationViolation("CODEX-RESULT-ADMISSION")
+        opportunity_id = admitted.opportunity_id
+        if opportunity_id is None:
+            raise CodexDelegationViolation("CODEX-RESULT-ADMISSION")
         result_kind = {
             CodexVerificationStatus.VERIFIED: CodexResultEvidenceKind.VERIFIED_COMPLETION,
             CodexVerificationStatus.FAILED: CodexResultEvidenceKind.EXECUTION_FAILURE,

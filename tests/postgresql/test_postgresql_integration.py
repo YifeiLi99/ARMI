@@ -2448,6 +2448,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         bootstrap_opportunity_admission(),
                     ),
                     evidence=bootstrap_evidence().write,
+                    opportunity=bootstrap_opportunity_admission(),
                     dispatch_boundary=bootstrap_effect_dispatch_boundary(),
                     notifier=None,
                     diagnostic=lambda _event: None,

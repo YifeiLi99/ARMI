@@ -14,6 +14,7 @@ from armi_kernel.application import (
     CredentialLocator,
     CredentialPort,
 )
+from armi_opportunity.api import OpportunityAdmissionPort
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWorkFactory
 
 from ._application import CodexEffectPipeline
@@ -50,6 +51,7 @@ def bootstrap_codex(
     creator_party_id: UUID,
     creator_input: CreatorInputTransactionPort,
     evidence: EvidenceWritePort,
+    opportunity: OpportunityAdmissionPort,
     dispatch_boundary: EffectDispatchBoundaryPort,
     runner_entry_module: str,
     notifier: CreatorProjectionNotifier | None = None,
@@ -66,6 +68,7 @@ def bootstrap_codex(
         creator_party_id=creator_party_id,
         creator_input=creator_input,
         evidence=evidence,
+        opportunity=opportunity,
         dispatch_boundary=dispatch_boundary,
         runner_entry_module=runner_entry_module,
         notifier=notifier,

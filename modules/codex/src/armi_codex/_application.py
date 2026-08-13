@@ -40,6 +40,7 @@ from armi_kernel.application import (
     CreatorProjectionNotifier,
 )
 from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId, TraceId
+from armi_opportunity.api import OpportunityAdmissionPort
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWork,
     PostgreSQLRuntimeUnitOfWorkFactory,
@@ -103,6 +104,7 @@ class CodexTaskSourceGateway(
         creator_party_id: UUID,
         input_repository: CreatorInputTransactionPort,
         evidence: EvidenceWritePort,
+        opportunity: OpportunityAdmissionPort,
         dispatch_boundary: EffectDispatchBoundaryPort,
         notifier: CreatorProjectionNotifier | None,
         diagnostic: Diagnostic,
@@ -114,6 +116,7 @@ class CodexTaskSourceGateway(
         self._diagnostic = diagnostic
         self._repository = PostgreSQLCodexDelegationRepository(
             evidence,
+            opportunity,
             dispatch_boundary,
         )
         self._input_repository = input_repository
@@ -332,6 +335,7 @@ class CodexEffectPipeline:
         creator_party_id: UUID,
         creator_input: CreatorInputTransactionPort,
         evidence: EvidenceWritePort,
+        opportunity: OpportunityAdmissionPort,
         dispatch_boundary: EffectDispatchBoundaryPort,
         runner_entry_module: str,
         notifier: CreatorProjectionNotifier | None,
@@ -344,6 +348,7 @@ class CodexEffectPipeline:
         self._runner_entry_module = runner_entry_module
         self._repository = PostgreSQLCodexDelegationRepository(
             evidence,
+            opportunity,
             dispatch_boundary,
         )
         self._catalog = catalog
@@ -357,6 +362,7 @@ class CodexEffectPipeline:
             creator_party_id=creator_party_id,
             input_repository=creator_input,
             evidence=evidence,
+            opportunity=opportunity,
             dispatch_boundary=dispatch_boundary,
             notifier=notifier,
             diagnostic=self._diagnostic,

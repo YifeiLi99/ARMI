@@ -577,6 +577,7 @@ async def _serve(
                         creator_party_id=creator_context.party_id,
                         creator_input=interaction_module.creator_transaction,
                         evidence=evidence_module.write,
+                        opportunity=opportunity_admission,
                         authority_admission=authority.require_writable,
                         notifier=creator_events,
                         diagnostic=lambda event: diagnostic.emit(
