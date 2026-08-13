@@ -196,6 +196,7 @@ class ContextPipeline(OpportunitySelector):
             mood=mood_read,
             prompts=prompt_read,
             subject_state=subject_state_read,
+            catalog=catalog,
         )
         self._catalog = catalog
         self._compiler = DeterministicContextCompiler()

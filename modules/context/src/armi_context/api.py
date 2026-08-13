@@ -11,6 +11,7 @@ from uuid import UUID
 
 from armi_kernel.application import (
     ArtifactId,
+    ArtifactRef,
     ArtifactRegistration,
     CognitiveEpisodeId,
     ModelViolation,
@@ -295,6 +296,12 @@ class ContextArtifactCatalogPort(Protocol):
         artifact_id: ArtifactId,
         published: PublishedArtifact,
     ) -> ArtifactRegistration: ...
+
+    async def retained_ref(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        artifact_id: ArtifactId,
+    ) -> ArtifactRef | None: ...
 
 
 @runtime_checkable

@@ -12,9 +12,8 @@ from armi_activity.api import ActivityReadPort
 from armi_capability.api import CapabilityContextStatePayload, CapabilityReadPort
 from armi_kernel.application import (
     ArtifactId,
-    ArtifactIntegrityStatus,
-    ArtifactPrivacyScope,
     ArtifactRef,
+    ArtifactViolation,
     AuditDraft,
     AuditEventId,
     AuditReference,
@@ -44,7 +43,7 @@ from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 from armi_sleep.api import MaintenancePhase, SleepReadPort
 from armi_subject_state.api import SubjectStateReadPort, SubjectStateViolation
 
-from .api import ContextResult, ContextViolation
+from .api import ContextArtifactCatalogPort, ContextResult, ContextViolation
 
 _WORK_KIND = "cognition.context.prepare"
 _MODEL_WORK_KIND = "cognition.model.invoke"
@@ -162,6 +161,7 @@ class PostgreSQLContextRepository:
     __slots__ = (
         "_activities",
         "_capabilities",
+        "_catalog",
         "_memories",
         "_mood",
         "_prompts",
@@ -176,6 +176,7 @@ class PostgreSQLContextRepository:
         sleep: SleepReadPort,
         activities: ActivityReadPort,
         capabilities: CapabilityReadPort,
+        catalog: ContextArtifactCatalogPort,
         memories: MemoryReadPort | None = None,
         mood: MoodReadPort | None = None,
         prompts: PromptReadPort | None = None,
@@ -183,6 +184,7 @@ class PostgreSQLContextRepository:
     ) -> None:
         self._activities = activities
         self._capabilities = capabilities
+        self._catalog = catalog
         self._memories = memories
         self._mood = mood
         self._prompts = prompts
@@ -776,7 +778,7 @@ class PostgreSQLContextRepository:
             for item in reversed(recent_rows):
                 recent_sources.append(
                     ContextSceneTurnSource(
-                        ref=await self._artifact_ref(connection, item[4]),
+                        ref=await self._artifact_ref(unit_of_work, item[4]),
                         timeline_item_id=item[0],
                         source_version=int(item[1]),
                         speaker=(
@@ -802,7 +804,7 @@ class PostgreSQLContextRepository:
             None
             if row[12] is None
             else ContextArtifactSource(
-                await self._artifact_ref(connection, row[12]),
+                await self._artifact_ref(unit_of_work, row[12]),
                 row[11],
                 1,
                 str(row[21]),
@@ -860,7 +862,9 @@ class PostgreSQLContextRepository:
             opportunity_available_after=row[25],
             opportunity_expires_at=row[26],
             fixed_prompt=ContextArtifactSource(
-                await self._artifact_ref(connection, prompt_sources.fixed.artifact_id),
+                await self._artifact_ref(
+                    unit_of_work, prompt_sources.fixed.artifact_id
+                ),
                 prompt_sources.fixed.source_id,
                 prompt_sources.fixed.source_version,
                 "fixed_prompt",
@@ -870,7 +874,7 @@ class PostgreSQLContextRepository:
                 if prompt_sources.creator is None
                 else ContextArtifactSource(
                     await self._artifact_ref(
-                        connection, prompt_sources.creator.artifact_id
+                        unit_of_work, prompt_sources.creator.artifact_id
                     ),
                     prompt_sources.creator.source_id,
                     prompt_sources.creator.source_version,
@@ -882,7 +886,7 @@ class PostgreSQLContextRepository:
                 if prompt_sources.subject is None
                 else ContextArtifactSource(
                     await self._artifact_ref(
-                        connection, prompt_sources.subject.artifact_id
+                        unit_of_work, prompt_sources.subject.artifact_id
                     ),
                     prompt_sources.subject.source_id,
                     prompt_sources.subject.source_version,
@@ -1067,39 +1071,21 @@ class PostgreSQLContextRepository:
             )
         )
 
-    async def _artifact_ref(self, connection: Any, artifact_id: UUID) -> ArtifactRef:
-        row = await (
-            await connection.execute(
-                """
-                SELECT
-                    artifact_id,
-                    content_digest,
-                    byte_size,
-                    media_type,
-                    logical_kind,
-                    privacy_scope,
-                    integrity_status
-                FROM armi.artifacts
-                WHERE artifact_id = %s
-                  AND retention_status = 'retained'
-                """,
-                (artifact_id,),
-            )
-        ).fetchone()
-        if row is None:
-            raise ContextViolation("CTX-SOURCE-MISSING")
+    async def _artifact_ref(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        artifact_id: UUID,
+    ) -> ArtifactRef:
         try:
-            return ArtifactRef(
-                ArtifactId(row[0]),
-                Digest(str(row[1])),
-                int(row[2]),
-                str(row[3]),
-                str(row[4]),
-                ArtifactPrivacyScope(str(row[5])),
-                ArtifactIntegrityStatus(str(row[6])),
+            ref = await self._catalog.retained_ref(
+                unit_of_work,
+                ArtifactId(artifact_id),
             )
-        except TypeError, ValueError:
+        except ArtifactViolation:
             raise ContextViolation("CTX-SOURCE-INVALID") from None
+        if ref is None:
+            raise ContextViolation("CTX-SOURCE-MISSING")
+        return ref
 
 
 __all__ = (
