@@ -471,16 +471,6 @@ class PostgreSQLMemoryOwner:
     ) -> tuple[UUID, ...]:
         affected: list[UUID] = []
         for value in self._memory_drafts(drafts):
-            valid = await (
-                await transaction.execute(
-                    """SELECT 1 FROM armi.cognitive_candidate_validation_items
-                       WHERE candidate_validation_id=%s AND proposal_ref=%s
-                         AND owner_kind='memory' AND validation_status='accepted'""",
-                    (validation_id, value.proposal_ref),
-                )
-            ).fetchone()
-            if valid is None:
-                raise MemoryViolation("MEMORY-VALIDATION")
             if isinstance(value, CandidateMemoryDraft):
                 source = experience_ids.get(value.source_experience_ref)
                 if source is None:
