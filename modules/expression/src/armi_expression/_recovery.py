@@ -3,8 +3,6 @@
 from armi_runtime_foundation import (
     PostgreSQLTransaction,
     RecoveryContribution,
-    RecoveryFindingContribution,
-    RecoveryFindingDecision,
     RecoveryMetricContribution,
     RecoveryOwnerIdentity,
     RecoveryScope,
@@ -39,19 +37,10 @@ class ExpressionRecoveryParticipant:
         missing = [row[0] for row in rows if row[0] not in active]
         return RecoveryContribution(
             self.owner_identity,
-            findings=()
-            if not missing
-            else (
-                RecoveryFindingContribution(
-                    "action_intent",
-                    RecoveryFindingDecision.BLOCKED,
-                    "REC-EXPRESSION-WORK-MISSING",
-                    missing[0],
-                ),
-            ),
             metrics=(
                 RecoveryMetricContribution(
-                    "expression.pending_intent_count", len(missing)
+                    "expression.intent_without_registration_work_count",
+                    len(missing),
                 ),
             ),
         )

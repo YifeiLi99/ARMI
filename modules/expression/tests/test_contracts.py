@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
 from uuid import uuid7
 
 import pytest
+from armi_expression._recovery import ExpressionRecoveryParticipant
 from armi_expression.api import (
     ActionIntentId,
     CreatorReplyDraft,
@@ -19,6 +21,7 @@ from armi_expression.api import (
     ResponseViolation,
 )
 from armi_kernel.contracts import Digest, TraceId
+from armi_runtime_foundation import RecoveryScope
 
 
 def test_creator_reply_preserves_exact_utf8_and_scope() -> None:
@@ -109,3 +112,23 @@ def test_declared_response_effect_draft_freezes_the_cross_owner_contract() -> No
         max_attempts=1,
     )
     assert draft.destination_binding_id == ids[8]
+
+
+@pytest.mark.asyncio
+async def test_recovery_does_not_treat_missing_registration_work_as_corruption() -> (
+    None
+):
+    intent_id = uuid7()
+    result = AsyncMock()
+    result.fetchall.return_value = ((intent_id,),)
+    transaction = AsyncMock()
+    transaction.execute.return_value = result
+    scope = RecoveryScope(uuid7(), uuid7(), uuid7(), uuid7(), uuid7(), 1)
+
+    contribution = await ExpressionRecoveryParticipant().recover(transaction, scope, ())
+
+    assert contribution.findings == ()
+    assert contribution.metrics[0].kind == (
+        "expression.intent_without_registration_work_count"
+    )
+    assert contribution.metrics[0].value == 1

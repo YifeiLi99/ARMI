@@ -39,6 +39,7 @@ from armi_kernel.application import (
     LifeRecordQueryViolation,
     ModelViolation,
     OtherHumanRecordViolation,
+    RecoveryDecision,
     RecoveryStatus,
     RecoveryViolation,
     RuntimeAuthorityViolation,
@@ -331,7 +332,18 @@ async def _serve(
             await recovery_port.open()
             recovery = await recovery_port.recover()
             if recovery.status is RecoveryStatus.BLOCKED:
-                recovery_reasons = ("RUNTIME_RECOVERY_BLOCKED",)
+                recovery_reasons = tuple(
+                    dict.fromkeys(
+                        (
+                            "RUNTIME_RECOVERY_BLOCKED",
+                            *(
+                                finding.reason_code
+                                for finding in recovery.findings
+                                if finding.decision is RecoveryDecision.BLOCKED
+                            ),
+                        )
+                    )
+                )
                 diagnostic.emit(
                     "runtime.recovery.blocked",
                     level=logging.ERROR,

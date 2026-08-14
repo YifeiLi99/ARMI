@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
+from unittest.mock import AsyncMock
 from uuid import uuid7
 
 import pytest
@@ -18,8 +19,10 @@ from armi_context._postgresql import (
     ContextEpisodeSnapshot,
     ContextMaterialSource,
     ContextSceneTurnSource,
+    PostgreSQLContextRepository,
 )
 from armi_context.api import ContextItemDisposition, ContextViolation
+from armi_interaction.api import InteractionContextTurn
 from armi_kernel.contracts import Digest, TraceId
 
 
@@ -491,6 +494,28 @@ def test_context_distinguishes_no_natural_recall_from_no_database_record() -> No
     )
     empty = next(item for item in none.items if item.item_kind == "memory")
     assert empty.unavailable_reason == "CTX-MEMORY-NONE"
+
+
+@pytest.mark.asyncio
+async def test_optional_recent_turn_without_owner_source_is_omitted() -> None:
+    repository = object.__new__(PostgreSQLContextRepository)
+    repository._evidence = AsyncMock()
+    repository._evidence.find_by_interaction.return_value = None
+    turn = InteractionContextTurn(
+        uuid7(),
+        1,
+        "creator_input",
+        uuid7(),
+        datetime.now(UTC),
+        "Creator",
+        "creator",
+    )
+
+    source = await repository._turn_source(
+        cast(Any, SimpleNamespace(transaction=object())), turn
+    )
+
+    assert source is None
 
 
 def test_context_includes_current_relationship_or_explicitly_reports_none() -> None:

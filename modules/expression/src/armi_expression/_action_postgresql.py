@@ -31,9 +31,52 @@ class PostgreSQLExpressionActionOwner:
             or work.draft.owner.kind != "action_intent"
         ):
             raise ResponseViolation("RESPONSE-WORK-STALE")
-        return await self.intent_snapshot(
-            transaction,
-            action_intent_id=work.draft.owner.reference,
+        row = await (
+            await transaction.execute(
+                """
+                SELECT intent.operation_ref, intent.action_intent_id,
+                       revision.action_intent_revision_id,
+                       intent.root_opportunity_id, intent.subject_id,
+                       intent.scene_id, intent.context_party_id,
+                       intent.action_kind, revision.capability_kind,
+                       revision.operation_class, revision.purpose,
+                       revision.response_artifact_id, revision.response_digest,
+                       revision.response_bytes, revision.codex_task_source_id,
+                       revision.task_manifest_digest, revision.validator_id,
+                       intent.created_at
+                FROM armi.action_intents AS intent
+                JOIN armi.action_intent_revisions AS revision
+                  ON revision.action_intent_revision_id=intent.current_revision_id
+                 AND revision.action_intent_id=intent.action_intent_id
+                WHERE intent.action_intent_id=%s
+                FOR UPDATE OF intent
+                """,
+                (work.draft.owner.reference,),
+            )
+        ).fetchone()
+        if row is None:
+            raise ResponseViolation("RESPONSE-WORK-STALE")
+        return ExpressionIntentSnapshot(
+            operation_ref=row[0],
+            action_intent_id=row[1],
+            action_intent_revision_id=row[2],
+            root_opportunity_id=row[3],
+            subject_id=row[4],
+            scene_id=row[5],
+            context_party_id=row[6],
+            action_kind=str(row[7]),
+            capability_kind=str(row[8]),
+            operation_class=str(row[9]),
+            purpose=str(row[10]),
+            response_artifact_id=row[11],
+            response_digest=Digest(str(row[12])) if row[12] is not None else None,
+            response_bytes=int(row[13]) if row[13] is not None else None,
+            codex_task_source_id=row[14],
+            task_manifest_digest=(
+                Digest(str(row[15])) if row[15] is not None else None
+            ),
+            validator_id=str(row[16]) if row[16] is not None else None,
+            created_at=row[17],
         )
 
     async def intent_snapshot(
@@ -60,7 +103,6 @@ class PostgreSQLExpressionActionOwner:
                   ON revision.action_intent_revision_id=intent.current_revision_id
                  AND revision.action_intent_id=intent.action_intent_id
                 WHERE intent.action_intent_id=%s
-                FOR UPDATE OF intent
                 """,
                 (action_intent_id,),
             )

@@ -340,7 +340,9 @@ class PostgreSQLContextRepository:
             )
             recent_items: list[ContextSceneTurnSource] = []
             for turn in turns:
-                recent_items.append(await self._turn_source(unit_of_work, turn))
+                source = await self._turn_source(unit_of_work, turn)
+                if source is not None:
+                    recent_items.append(source)
             recent = tuple(recent_items)
 
         outreach = (
@@ -514,7 +516,7 @@ class PostgreSQLContextRepository:
 
     async def _turn_source(
         self, unit: PostgreSQLRuntimeUnitOfWork, turn: InteractionContextTurn
-    ) -> ContextSceneTurnSource:
+    ) -> ContextSceneTurnSource | None:
         artifact_id = None
         if turn.source_kind in {"creator_input", "other_human_input"}:
             evidence_id = await self._evidence.find_by_interaction(
@@ -537,7 +539,7 @@ class PostgreSQLContextRepository:
                 )
                 artifact_id = intent.response_artifact_id
         if artifact_id is None:
-            raise ContextViolation("CTX-SOURCE-MISSING")
+            return None
         speaker = (
             "creator"
             if turn.source_kind == "creator_input"
