@@ -368,6 +368,7 @@ class NapCatProcessManager:
                 "PATH",
                 "PROGRAMDATA",
                 "PROGRAMFILES",
+                "SYSTEMDRIVE",
                 "SYSTEMROOT",
                 "TEMP",
                 "TMP",
@@ -389,7 +390,6 @@ class NapCatProcessManager:
             os.fspath(installation.launcher),
             os.fspath(installation.qq_executable),
             os.fspath(installation.hook_library),
-            "-q",
             str(binding.adapter.account_id),
         )
         creation_flags = 0
