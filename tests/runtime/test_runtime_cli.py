@@ -290,7 +290,38 @@ class RuntimeCliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(json.loads(output.getvalue()), safe)
         self.assertEqual(prepare.call_args.kwargs["credential_scope"], {})
-        manager_type.return_value.open_webui.assert_called_once_with()
+        manager_type.return_value.open_webui.assert_called_once_with(auto_login=False)
+
+    def test_channel_qq_open_can_explicitly_accept_url_query_auto_login(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            make_environment(root)
+            output = io.StringIO()
+            safe = {
+                "status": "opened",
+                "webui_url": "http://127.0.0.1:6099/webui/",
+                "token_delivery": "url_query",
+            }
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch("armi_runtime.cli.NapCatProcessManager") as manager_type,
+                redirect_stdout(output),
+            ):
+                manager_type.return_value.open_webui.return_value.safe_view.return_value = safe
+                exit_code = main(
+                    (
+                        "channel",
+                        "qq",
+                        "open",
+                        "--auto-login",
+                        "--environment-root",
+                        str(root),
+                    )
+                )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(json.loads(output.getvalue()), safe)
+        manager_type.return_value.open_webui.assert_called_once_with(auto_login=True)
 
     def test_background_status_accepts_dedicated_environment_root_locator(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

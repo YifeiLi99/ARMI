@@ -87,6 +87,15 @@ def _parser() -> argparse.ArgumentParser:
     for channel_lifecycle_command in ("open", "start", "status"):
         channel_lifecycle = channel_qq_command.add_parser(channel_lifecycle_command)
         channel_lifecycle.add_argument("--environment-root", type=Path)
+        if channel_lifecycle_command == "open":
+            channel_lifecycle.add_argument(
+                "--auto-login",
+                action="store_true",
+                help=(
+                    "put the NapCat WebUI token in the browser URL query to log in "
+                    "automatically; this can expose it in browser or process history"
+                ),
+            )
     database = command.add_parser("db")
     database_command = database.add_subparsers(dest="database_command", required=True)
     database_status = database_command.add_parser("status")
@@ -413,7 +422,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             if args.channel_qq_command == "start":
                 result = manager.start().safe_view()
             elif args.channel_qq_command == "open":
-                result = manager.open_webui().safe_view()
+                result = manager.open_webui(auto_login=args.auto_login).safe_view()
             else:
                 result = manager.status().safe_view()
         except RuntimeViolation as error:

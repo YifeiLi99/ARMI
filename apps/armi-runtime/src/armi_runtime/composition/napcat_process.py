@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, TypeVar, cast
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 
 import httpx
 from armi_adapter_qq import QQNapCatBindingConfig, load_qq_napcat_config
@@ -88,12 +88,13 @@ class NapCatStartResult:
 @dataclass(frozen=True, slots=True)
 class NapCatWebUIOpenResult:
     webui_url: str
+    token_delivery: Literal["clipboard", "url_query"]
 
     def safe_view(self) -> dict[str, object]:
         return {
             "status": "opened",
             "webui_url": self.webui_url,
-            "token_delivery": "clipboard",
+            "token_delivery": self.token_delivery,
         }
 
 
@@ -206,24 +207,30 @@ class NapCatProcessManager:
             ),
         )
 
-    def open_webui(self) -> NapCatWebUIOpenResult:
+    def open_webui(self, *, auto_login: bool = False) -> NapCatWebUIOpenResult:
         config = _load_napcat_webui_config(self._prepared.root)
         if not _port_is_listening("127.0.0.1", config.port):
             raise RuntimeViolation(
                 "CLI-QQ-WEBUI-UNAVAILABLE",
                 "the NapCat WebUI is not listening on its configured local port",
             )
+        target_url = config.url
+        token_delivery: Literal["clipboard", "url_query"] = "clipboard"
+        if auto_login:
+            target_url = f"{config.url}?{urlencode({'token': config.token})}"
+            token_delivery = "url_query"
+        else:
+            try:
+                _copy_text_to_clipboard(config.token)
+            except RuntimeViolation:
+                raise
+            except Exception as exc:
+                raise RuntimeViolation(
+                    "CLI-QQ-WEBUI-CLIPBOARD",
+                    "the NapCat WebUI token could not be copied to the clipboard",
+                ) from exc
         try:
-            _copy_text_to_clipboard(config.token)
-        except RuntimeViolation:
-            raise
-        except Exception as exc:
-            raise RuntimeViolation(
-                "CLI-QQ-WEBUI-CLIPBOARD",
-                "the NapCat WebUI token could not be copied to the clipboard",
-            ) from exc
-        try:
-            opened = _open_default_browser(config.url)
+            opened = _open_default_browser(target_url)
         except Exception as exc:
             raise RuntimeViolation(
                 "CLI-QQ-WEBUI-OPEN",
@@ -234,7 +241,7 @@ class NapCatProcessManager:
                 "CLI-QQ-WEBUI-OPEN",
                 "the NapCat WebUI could not be opened in the default browser",
             )
-        return NapCatWebUIOpenResult(config.url)
+        return NapCatWebUIOpenResult(config.url, token_delivery)
 
     def _binding(self) -> QQNapCatBindingConfig | None:
         path = self._prepared.root / "channels" / "qq-napcat.yaml"

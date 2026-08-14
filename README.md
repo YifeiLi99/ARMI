@@ -94,11 +94,12 @@ uv run armi status --environment-root C:\path\to\environment
 uv run armi channel qq status --environment-root C:\path\to\environment
 uv run armi channel qq start --environment-root C:\path\to\environment
 uv run armi channel qq open --environment-root C:\path\to\environment
+uv run armi channel qq open --auto-login --environment-root C:\path\to\environment
 uv run armi creator send --environment-root C:\path\to\environment --message "你好"
 uv run armi stop --environment-root C:\path\to\environment
 ```
 
-`armi stop` 只停止权威 Runtime，不终止交互式 QQ/NapCat；渠道掉线也不会持续自动重启。重新运行 `armi start` 或 `armi channel qq start` 会先检查健康状态，健康实例不会被重复拉起。`armi channel qq open` 从当前 NapCat 安装读取 WebUI 地址，把 WebUI 登录凭据复制到 Windows 剪贴板并打开默认浏览器；命令输出和 URL 都不包含凭据。Creator“运行与维护”页显示渠道状态并提供无密钥的本机 NapCat 管理页入口，不授予浏览器宿主进程控制权。
+`armi stop` 只停止权威 Runtime，不终止交互式 QQ/NapCat；渠道掉线也不会持续自动重启。重新运行 `armi start` 或 `armi channel qq start` 会先检查健康状态，健康实例不会被重复拉起。`armi channel qq open` 从当前 NapCat 安装读取 WebUI 地址，把 WebUI 登录凭据复制到 Windows 剪贴板并打开默认浏览器；命令输出和 URL 都不包含凭据。显式增加 `--auto-login` 会把 token 作为浏览器 URL 查询参数交给 NapCat 自动登录，不再复制剪贴板；命令输出仍保持脱敏，但 token 可能进入浏览器、进程、引用来源或本机访问日志，调用该选项即表示操作者接受这项风险。Creator“运行与维护”页继续只提供无密钥的本机 NapCat 管理页入口，不授予浏览器宿主进程控制权。
 
 自动化 Creator 对话不需要驱动浏览器。运行中的环境可通过 `armi creator send` 把输入送入与工作台相同的正式 Creator intake；重复调用需要自行传入稳定的 `--idempotency-key`。消息也可通过 `--message-file <path>` 读取，或用 `--message-file -` 从标准输入读取。Codex 管理会话可使用 Admin MCP 的 `inject_creator_input`，两条入口最终进入同一 Runtime intake，不直接写数据库。
 
