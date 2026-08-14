@@ -81,7 +81,10 @@ from armi_runtime.interfaces.browser_sessions import (
     BrowserSessionViolation,
 )
 from armi_runtime.interfaces.creator_app import create_runtime_app
-from armi_runtime.interfaces.creator_contract import RuntimeStatusResponse
+from armi_runtime.interfaces.creator_contract import (
+    QQChannelHealthResponse,
+    RuntimeStatusResponse,
+)
 from armi_runtime.interfaces.creator_events import CreatorEventBroker
 from armi_runtime.interfaces.static_assets import AssetViolation, StaticAssetStore
 
@@ -146,6 +149,7 @@ from .database import (
 from .diagnostics import StructuredDiagnosticLog
 from .environment import PreparedEnvironment
 from .lifecycle import RUNTIME_BLOCKING_REASONS, LifecycleController
+from .napcat_process import compose_qq_health, disabled_qq_health
 from .owner_roster import compose_runtime_owner_roster
 from .qq_channel import QQChannelBinding, compose_qq_channel
 from .runtime_errors import RuntimeViolation
@@ -1354,6 +1358,31 @@ async def _serve(
             observed_at=snapshot.observed_at,
         )
 
+    async def qq_health_status() -> QQChannelHealthResponse:
+        if qq_channel is None:
+            health = disabled_qq_health()
+        else:
+            health = compose_qq_health(
+                await qq_channel.inspect_health(
+                    expected_account_id=qq_channel.account_id
+                ),
+                ingress_ready=qq_server is not None and qq_server.started,
+                environment_root=prepared.root,
+            )
+        return QQChannelHealthResponse(
+            contract_version="1.0",
+            projection_version="creator-channel-health.v1",
+            channel="qq",
+            driver="napcat",
+            state=health.state,
+            ingress_ready=health.ingress_ready,
+            api_reachable=health.api_reachable,
+            account_online=health.account_online,
+            account_matches=health.account_matches,
+            observed_at=health.observed_at,
+            reason_codes=list(health.reason_codes),
+        )
+
     def security_event(event: str) -> None:
         diagnostic.emit(event, result_code="CREATOR_SECURITY_EVENT")
 
@@ -1420,6 +1449,7 @@ async def _serve(
     app = create_runtime_app(
         readiness=lambda: lifecycle.snapshot().readiness,
         runtime_status=runtime_status,
+        qq_channel_health=qq_health_status,
         assets=assets,
         browser_sessions=browser_sessions,
         creator_scenes=creator_scenes,

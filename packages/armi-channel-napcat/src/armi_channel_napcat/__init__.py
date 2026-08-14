@@ -1,6 +1,12 @@
 """Public OneBot boundary for a locally running NapCat instance."""
 
-from .client import NapCatDownloadedFile, NapCatGateway, NapCatHttpClient
+from .client import (
+    NapCatDownloadedFile,
+    NapCatGateway,
+    NapCatHealthSnapshot,
+    NapCatHealthState,
+    NapCatHttpClient,
+)
 from .contracts import (
     NapCatActionResponse,
     NapCatAmbiguousDelivery,
@@ -18,6 +24,8 @@ __all__ = (
     "NapCatDownloadedFile",
     "NapCatGateway",
     "NapCatGroupMessageEvent",
+    "NapCatHealthSnapshot",
+    "NapCatHealthState",
     "NapCatHttpClient",
     "NapCatMessageSegment",
     "NapCatPrivateMessageEvent",

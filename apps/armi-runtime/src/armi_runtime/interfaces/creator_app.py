@@ -193,6 +193,7 @@ from .creator_contract import (
     OtherHumanSceneRecordResponse,
     OtherHumanTimelineRecordPageResponse,
     OtherHumanTimelineRecordResponse,
+    QQChannelHealthResponse,
     Readiness,
     ReadyResponse,
     RuntimeStatusResponse,
@@ -239,6 +240,7 @@ _SECURITY_HEADERS = {
 AsyncCallback = Callable[[], Awaitable[None]]
 ReadinessProvider = Callable[[], Readiness]
 RuntimeStatusProvider = Callable[[], RuntimeStatusResponse]
+QQChannelHealthProvider = Callable[[], Awaitable[QQChannelHealthResponse]]
 SubjectSummaryProvider = Callable[[], Awaitable[SubjectSummary]]
 SecurityEvent = Callable[[str], None]
 
@@ -1462,6 +1464,7 @@ def create_runtime_app(
     *,
     readiness: ReadinessProvider,
     runtime_status: RuntimeStatusProvider,
+    qq_channel_health: QQChannelHealthProvider,
     assets: StaticAssetStore,
     browser_sessions: BrowserSessionStore | None,
     expected_authority: str,
@@ -1654,6 +1657,31 @@ def create_runtime_app(
                 content=_rejected(error.code),
             )
         return JSONResponse(content=runtime_status().model_dump(mode="json"))
+
+    @app.get("/v1/channels/qq/status")
+    async def get_qq_channel_health(request: Request) -> JSONResponse:
+        if browser_sessions is None or not _browser_boundary(
+            request, canonical_origin=canonical_origin
+        ):
+            return JSONResponse(
+                status_code=403 if browser_sessions is not None else 503,
+                content=(
+                    _rejected("AUTH_BROWSER_BOUNDARY")
+                    if browser_sessions is not None
+                    else _unavailable("DEPENDENCY_CREATOR_SESSION_UNAVAILABLE")
+                ),
+            )
+        token = _bearer(request)
+        try:
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            browser_sessions.verify(token)
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_rejected(error.code),
+            )
+        return JSONResponse(content=(await qq_channel_health()).model_dump(mode="json"))
 
     @app.get("/v1/subject/summary")
     async def get_subject_summary(request: Request) -> JSONResponse:
@@ -4427,6 +4455,7 @@ def create_runtime_app(
         create_browser_session,
         current_browser_session,
         get_runtime_status,
+        get_qq_channel_health,
         get_subject_summary,
         creator_redirect,
         creator_index,

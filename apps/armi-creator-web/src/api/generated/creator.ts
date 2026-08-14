@@ -140,6 +140,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/channels/qq/status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Qq Channel Health */
+    get: operations["getQQChannelHealth"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/data-rights/orders": {
     parameters: {
       query?: never;
@@ -2543,6 +2560,52 @@ export interface components {
       /** Timeline Item Id */
       timeline_item_id: string;
     };
+    /** QQChannelHealthResponse */
+    QQChannelHealthResponse: {
+      /** Account Matches */
+      account_matches: boolean | null;
+      /** Account Online */
+      account_online: boolean | null;
+      /** Api Reachable */
+      api_reachable: boolean;
+      /**
+       * Channel
+       * @constant
+       */
+      channel: "qq";
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      /**
+       * Driver
+       * @constant
+       */
+      driver: "napcat";
+      /** Ingress Ready */
+      ingress_ready: boolean;
+      /** Observed At */
+      observed_at: string;
+      /**
+       * Projection Version
+       * @constant
+       */
+      projection_version: "creator-channel-health.v1";
+      /** Reason Codes */
+      reason_codes: components["schemas"]["ReasonCode"][];
+      /**
+       * State
+       * @enum {string}
+       */
+      state:
+        | "disabled"
+        | "starting"
+        | "login_required"
+        | "ready"
+        | "unavailable"
+        | "misconfigured";
+    };
     /**
      * Readiness
      * @enum {string}
@@ -3139,6 +3202,53 @@ export interface operations {
       };
       /** @description Content Too Large */
       413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["UnavailableOutcomeResponse"];
+        };
+      };
+    };
+  };
+  getQQChannelHealth: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["QQChannelHealthResponse"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RejectedOutcomeResponse"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
         headers: {
           [name: string]: unknown;
         };

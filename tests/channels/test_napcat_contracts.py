@@ -18,6 +18,116 @@ from armi_channel_napcat import (
 
 
 class NapCatContractTests(unittest.TestCase):
+    def _health(
+        self,
+        handler: httpx.MockTransport,
+        *,
+        expected_account_id: int = 10001,
+    ):
+        async def exercise():
+            async with httpx.AsyncClient(
+                base_url="http://127.0.0.1:3000",
+                transport=handler,
+            ) as client:
+                gateway = NapCatHttpClient(
+                    base_url="http://127.0.0.1:3000",
+                    access_token="test-" + "token",
+                    client=client,
+                )
+                return await gateway.inspect_health(
+                    expected_account_id=expected_account_id
+                )
+
+        return asyncio.run(exercise())
+
+    def test_health_requires_status_and_matching_login(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            data = (
+                {"online": True, "good": True}
+                if request.url.path == "/get_status"
+                else {"user_id": 10001, "nickname": "private"}
+            )
+            return httpx.Response(
+                200, json={"status": "ok", "retcode": 0, "data": data}
+            )
+
+        health = self._health(httpx.MockTransport(handler))
+        self.assertEqual(health.state, "ready")
+        self.assertTrue(health.api_reachable)
+        self.assertTrue(health.account_online)
+        self.assertTrue(health.account_matches)
+        self.assertEqual(health.reason_codes, ())
+        self.assertNotIn("nickname", repr(health))
+
+    def test_health_distinguishes_login_required_unhealthy_and_wrong_account(
+        self,
+    ) -> None:
+        cases = (
+            (
+                {"online": False, "good": True},
+                10001,
+                "login_required",
+                "NAPCAT-LOGIN-REQUIRED",
+            ),
+            (
+                {"online": True, "good": False},
+                10001,
+                "unavailable",
+                "NAPCAT-STATUS-UNHEALTHY",
+            ),
+            (
+                {"online": True, "good": True},
+                99999,
+                "misconfigured",
+                "NAPCAT-ACCOUNT-MISMATCH",
+            ),
+        )
+        for status_data, login_id, state, reason in cases:
+            with self.subTest(state=state, reason=reason):
+
+                def handler(
+                    request: httpx.Request,
+                    status_value: dict[str, bool] = status_data,
+                    login_value: int = login_id,
+                ) -> httpx.Response:
+                    data = (
+                        status_value
+                        if request.url.path == "/get_status"
+                        else {"user_id": login_value}
+                    )
+                    return httpx.Response(
+                        200, json={"status": "ok", "retcode": 0, "data": data}
+                    )
+
+                health = self._health(httpx.MockTransport(handler))
+                self.assertEqual(health.state, state)
+                self.assertIn(reason, health.reason_codes)
+
+    def test_health_maps_auth_timeout_and_malformed_response(self) -> None:
+        def timeout(_request: httpx.Request) -> httpx.Response:
+            raise httpx.ReadTimeout("timeout")
+
+        cases = (
+            (
+                httpx.MockTransport(lambda _request: httpx.Response(401)),
+                "misconfigured",
+                "NAPCAT-HEALTH-AUTH-REJECTED",
+            ),
+            (httpx.MockTransport(timeout), "unavailable", "NAPCAT-HEALTH-UNAVAILABLE"),
+            (
+                httpx.MockTransport(
+                    lambda _request: httpx.Response(200, text="broken")
+                ),
+                "misconfigured",
+                "NAPCAT-HEALTH-RESPONSE-INVALID",
+            ),
+        )
+        for transport, state, reason in cases:
+            with self.subTest(state=state, reason=reason):
+                health = self._health(transport)
+                self.assertEqual(health.state, state)
+                self.assertIn(reason, health.reason_codes)
+
     def test_parses_group_message_and_mentions(self) -> None:
         parsed = parse_onebot_message(
             json.dumps(

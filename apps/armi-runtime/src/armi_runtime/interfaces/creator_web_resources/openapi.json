@@ -4751,6 +4751,101 @@
         "title": "OtherHumanTimelineRecordResponse",
         "type": "object"
       },
+      "QQChannelHealthResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "account_matches": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Matches"
+          },
+          "account_online": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Online"
+          },
+          "api_reachable": {
+            "title": "Api Reachable",
+            "type": "boolean"
+          },
+          "channel": {
+            "const": "qq",
+            "title": "Channel",
+            "type": "string"
+          },
+          "contract_version": {
+            "const": "1.0",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "driver": {
+            "const": "napcat",
+            "title": "Driver",
+            "type": "string"
+          },
+          "ingress_ready": {
+            "title": "Ingress Ready",
+            "type": "boolean"
+          },
+          "observed_at": {
+            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
+            "title": "Observed At",
+            "type": "string"
+          },
+          "projection_version": {
+            "const": "creator-channel-health.v1",
+            "title": "Projection Version",
+            "type": "string"
+          },
+          "reason_codes": {
+            "items": {
+              "$ref": "#/components/schemas/ReasonCode"
+            },
+            "maxItems": 16,
+            "title": "Reason Codes",
+            "type": "array"
+          },
+          "state": {
+            "enum": [
+              "disabled",
+              "starting",
+              "login_required",
+              "ready",
+              "unavailable",
+              "misconfigured"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "projection_version",
+          "channel",
+          "driver",
+          "state",
+          "ingress_ready",
+          "api_reachable",
+          "account_online",
+          "account_matches",
+          "observed_at",
+          "reason_codes"
+        ],
+        "title": "QQChannelHealthResponse",
+        "type": "object"
+      },
       "Readiness": {
         "enum": [
           "ready",
@@ -5779,6 +5874,59 @@
           }
         ],
         "summary": "Decide Capability Request"
+      }
+    },
+    "/v1/channels/qq/status": {
+      "get": {
+        "operationId": "getQQChannelHealth",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QQChannelHealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnavailableOutcomeResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "Qq Channel Health"
       }
     },
     "/v1/data-rights/orders": {

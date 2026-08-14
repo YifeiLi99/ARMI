@@ -71,6 +71,7 @@ class CreatorContractTests(unittest.TestCase):
                 "/health/ready",
                 "/v1/browser-sessions",
                 "/v1/browser-sessions/current",
+                "/v1/channels/qq/status",
                 "/v1/activities",
                 "/v1/activities/{activity_id}/timeline",
                 "/v1/life-records",
@@ -120,6 +121,10 @@ class CreatorContractTests(unittest.TestCase):
         self.assertEqual(runtime["operationId"], "getRuntimeStatus")
         self.assertEqual(runtime["security"], [{"browserSessionBearer": []}])
         self.assertEqual(set(runtime["responses"]), {"200", "401", "403", "503"})
+        qq_health = paths["/v1/channels/qq/status"]["get"]
+        self.assertEqual(qq_health["operationId"], "getQQChannelHealth")
+        self.assertEqual(qq_health["security"], [{"browserSessionBearer": []}])
+        self.assertEqual(set(qq_health["responses"]), {"200", "401", "403", "503"})
         self.assertNotIn("security", paths["/v1/browser-sessions"]["post"])
         self.assertEqual(
             set(paths["/v1/browser-sessions"]["post"]["responses"]),

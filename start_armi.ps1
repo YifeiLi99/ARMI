@@ -113,7 +113,7 @@ try {
     )
 
     Write-Host 'Starting the ARMI Runtime...'
-    $null = Invoke-ArmiJson @(
+    $start = Invoke-ArmiJson @(
         'start',
         '--environment-root', $resolvedEnvironmentRoot,
         '--creator-web-resources', $creatorResources
@@ -131,6 +131,12 @@ try {
         throw "ARMI-START-READINESS: Runtime is $($status.runtime.runtime_state); reasons=$reasons"
     }
 
+    $qqState = [string]$status.channels.qq.state
+    if ($qqState -ne 'ready' -and $qqState -ne 'disabled') {
+        $qqReasons = @($status.channels.qq.reason_codes) -join ','
+        Write-Warning "QQ channel is $qqState; reasons=$qqReasons"
+    }
+
     $creatorUrl = "http://$($config.config.creator.bind_host):$($config.config.creator.port)/ui/"
     if ($OpenBrowser) {
         Start-Process -FilePath $creatorUrl
@@ -139,6 +145,8 @@ try {
         status = 'ready'
         environment_root = $resolvedEnvironmentRoot
         runtime_state = $status.runtime.runtime_state
+        qq_state = $qqState
+        qq_start_status = $start.channel_start.qq
         pid = $status.pid
         creator_url = $creatorUrl
         reason_codes = @($status.runtime.reason_codes)

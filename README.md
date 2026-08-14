@@ -65,7 +65,7 @@ docs/                       私有叙述性设计与外部研究资料
 .\start_armi.ps1 -OpenBrowser
 ```
 
-默认环境根是源码仓库同级的 `ARMI-Environment`。也可以通过 `-EnvironmentRoot` 或 `ARMI_ENVIRONMENT_ROOT` 显式覆盖。脚本会同步锁定依赖，把 Creator Web 构建到被 Git 忽略的 `apps/armi-runtime/build/`，检查环境、启动并等待 PostgreSQL、检查数据库、启动 Runtime，并以业务 readiness 为最终成功条件；它不会暗中执行数据库安装或出生初始化。
+默认环境根是源码仓库同级的 `ARMI-Environment`。也可以通过 `-EnvironmentRoot` 或 `ARMI_ENVIRONMENT_ROOT` 显式覆盖。脚本会同步锁定依赖，把 Creator Web 构建到被 Git 忽略的 `apps/armi-runtime/build/`，检查环境、启动并等待 PostgreSQL、检查数据库、启动 Runtime，并以业务 readiness 为最终成功条件。环境启用 QQ 时，它会在 Runtime 事件入口就绪后幂等确保 `<environment-root>/tools/napcat` 中的 NapCat 启动；等待扫码或渠道异常会作为独立 `qq_state` 警告，不会伪装可用，也不会阻断 Creator。脚本不会暗中执行数据库安装或出生初始化。
 
 修改 Creator 前端时，先用上述脚本启动 Runtime，再在另一个 PowerShell 终端运行 Vite 开发服务器：
 
@@ -91,9 +91,13 @@ uv run armi db install --environment-root C:\path\to\environment
 uv run armi bootstrap birth --environment-root C:\path\to\environment
 uv run armi start --environment-root C:\path\to\environment
 uv run armi status --environment-root C:\path\to\environment
+uv run armi channel qq status --environment-root C:\path\to\environment
+uv run armi channel qq start --environment-root C:\path\to\environment
 uv run armi creator send --environment-root C:\path\to\environment --message "你好"
 uv run armi stop --environment-root C:\path\to\environment
 ```
+
+`armi stop` 只停止权威 Runtime，不终止交互式 QQ/NapCat；渠道掉线也不会持续自动重启。重新运行 `armi start` 或 `armi channel qq start` 会先检查健康状态，健康实例不会被重复拉起。Creator“运行与维护”页只读展示 ARMI 事件入口、NapCat API、QQ 在线与账号匹配状态，不授予浏览器宿主进程控制权。
 
 自动化 Creator 对话不需要驱动浏览器。运行中的环境可通过 `armi creator send` 把输入送入与工作台相同的正式 Creator intake；重复调用需要自行传入稳定的 `--idempotency-key`。消息也可通过 `--message-file <path>` 读取，或用 `--message-file -` 从标准输入读取。Codex 管理会话可使用 Admin MCP 的 `inject_creator_input`，两条入口最终进入同一 Runtime intake，不直接写数据库。
 

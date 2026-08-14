@@ -130,6 +130,7 @@ from armi_runtime.interfaces.creator_app import (
     operation_wire,
 )
 from armi_runtime.interfaces.creator_contract import (
+    QQChannelHealthResponse,
     Readiness,
     RuntimeStatusResponse,
 )
@@ -1138,6 +1139,21 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             observed_at=snapshot.observed_at,
         )
 
+    async def _qq_health(self) -> QQChannelHealthResponse:
+        return QQChannelHealthResponse(
+            contract_version="1.0",
+            projection_version="creator-channel-health.v1",
+            channel="qq",
+            driver="napcat",
+            state="ready",
+            ingress_ready=True,
+            api_reachable=True,
+            account_online=True,
+            account_matches=True,
+            observed_at="2026-08-14T08:00:00.000000Z",
+            reason_codes=[],
+        )
+
     def _app(self, *, sessions: bool = True):
         async def started() -> None:
             self.lifecycle.start()
@@ -1150,6 +1166,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         return create_runtime_app(
             readiness=lambda: self.lifecycle.snapshot().readiness,
             runtime_status=self._status,
+            qq_channel_health=self._qq_health,
             assets=self.assets,
             browser_sessions=self.sessions if sessions else None,
             expected_authority=AUTHORITY,
@@ -1560,6 +1577,10 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                 "/v1/runtime/status",
                 headers=self._browser_headers(token),
             )
+            qq_status = client.get(
+                "/v1/channels/qq/status",
+                headers=self._browser_headers(token),
+            )
 
         self.assertEqual(current.status_code, 200)
         self.assertEqual(current.json()["creator_party_id"], CREATOR_ID)
@@ -1567,6 +1588,9 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.assertNotIn("browser_session_token", current.json())
         self.assertEqual(status.status_code, 200)
         self.assertEqual(status.json()["runtime_state"], "blocked")
+        self.assertEqual(qq_status.status_code, 200)
+        self.assertEqual(qq_status.json()["state"], "ready")
+        self.assertNotIn("account_id", qq_status.json())
 
     def test_timeline_is_authenticated_and_query_parameters_are_exact(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:

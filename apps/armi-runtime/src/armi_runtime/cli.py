@@ -8,6 +8,7 @@ import json
 import os
 import sys
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 
 from armi_kernel.application import BirthViolation
@@ -26,6 +27,7 @@ from armi_runtime.composition.database import (
     migrate_operator_schema,
 )
 from armi_runtime.composition.environment import prepare_environment
+from armi_runtime.composition.napcat_process import NapCatProcessManager
 from armi_runtime.composition.operational_maintenance import (
     run_artifact_retention,
     run_database_maintenance,
@@ -75,6 +77,16 @@ def _parser() -> argparse.ArgumentParser:
     creator_source.add_argument("--message")
     creator_source.add_argument("--message-file")
     creator_send.add_argument("--idempotency-key")
+    channel = command.add_parser("channel")
+    channel_command = channel.add_subparsers(dest="channel_command", required=True)
+    channel_qq = channel_command.add_parser("qq")
+    channel_qq_command = channel_qq.add_subparsers(
+        dest="channel_qq_command",
+        required=True,
+    )
+    for channel_lifecycle_command in ("start", "status"):
+        channel_lifecycle = channel_qq_command.add_parser(channel_lifecycle_command)
+        channel_lifecycle.add_argument("--environment-root", type=Path)
     database = command.add_parser("db")
     database_command = database.add_subparsers(dest="database_command", required=True)
     database_status = database_command.add_parser("status")
@@ -238,7 +250,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         credential_scope = {"database.recovery": "database.migrator"}
     elif args.command == "bootstrap":
         credential_scope = {"database.birth": "database.runtime"}
-    elif args.command in {"status", "stop", "capacity", "creator"}:
+    elif args.command == "channel":
+        credential_scope = {
+            QQ_NAPCAT_ACCESS_TOKEN_PURPOSE: QQ_NAPCAT_ACCESS_TOKEN_LOCATOR,
+            **(
+                {QQ_NAPCAT_EVENT_SECRET_PURPOSE: (QQ_NAPCAT_EVENT_SECRET_LOCATOR)}
+                if args.channel_qq_command == "start"
+                else {}
+            ),
+        }
+    elif args.command == "status":
+        credential_scope = {
+            QQ_NAPCAT_ACCESS_TOKEN_PURPOSE: QQ_NAPCAT_ACCESS_TOKEN_LOCATOR,
+        }
+    elif args.command in {"stop", "capacity", "creator"}:
         credential_scope = {}
     else:
         credential_scope = {
@@ -378,23 +403,72 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         )
         return 0
+    if args.command == "channel":
+        manager = NapCatProcessManager(prepared)
+        try:
+            result = (
+                manager.start().safe_view()
+                if args.channel_qq_command == "start"
+                else manager.status().safe_view()
+            )
+        except RuntimeViolation as error:
+            _safe_failure(error)
+            return 3
+        print(
+            json.dumps(
+                result,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+        return 0
     if args.command in {"start", "status", "stop"}:
         process = RuntimeProcessManager(
             prepared.root,
             str(prepared.effective.config.environment.environment_id),
         )
         try:
-            result = (
-                (
+            if args.command == "start":
+                result = (
                     process.start()
                     if args.creator_web_resources is None
                     else process.start(
                         creator_web_resources=args.creator_web_resources,
                     )
                 )
-                if args.command == "start"
-                else getattr(process, args.command)()
-            )
+                channel_start_status = "attention"
+                try:
+                    channel_result = NapCatProcessManager(prepared).start()
+                    channel_health = channel_result.health.safe_view()
+                    channel_start_status = channel_result.status
+                except RuntimeViolation as error:
+                    failed_health = NapCatProcessManager(prepared).status()
+                    channel_health = replace(
+                        failed_health,
+                        reason_codes=tuple(
+                            dict.fromkeys(
+                                (
+                                    *failed_health.reason_codes,
+                                    error.code.replace("-", "_"),
+                                )
+                            )
+                        ),
+                    ).safe_view()
+                result = {
+                    **result,
+                    "channels": {"qq": channel_health},
+                    "channel_start": {"qq": channel_start_status},
+                }
+            elif args.command == "status":
+                result = {
+                    **process.status(),
+                    "channels": {
+                        "qq": NapCatProcessManager(prepared).status().safe_view()
+                    },
+                }
+            else:
+                result = process.stop()
         except RuntimeViolation as error:
             _safe_failure(error)
             return 3

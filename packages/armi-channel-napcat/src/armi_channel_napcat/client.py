@@ -7,8 +7,9 @@ import binascii
 import mimetypes
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Protocol, cast, runtime_checkable
+from typing import Any, Literal, Protocol, cast, runtime_checkable
 from urllib.parse import urlsplit
 
 import httpx
@@ -58,6 +59,24 @@ class NapCatDownloadedFile:
             raise NapCatViolation("NAPCAT-MEDIA-INVALID")
 
 
+type NapCatHealthState = Literal[
+    "login_required",
+    "ready",
+    "unavailable",
+    "misconfigured",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class NapCatHealthSnapshot:
+    state: NapCatHealthState
+    api_reachable: bool
+    account_online: bool | None
+    account_matches: bool | None
+    observed_at: str
+    reason_codes: tuple[str, ...]
+
+
 class NapCatHttpClient(NapCatGateway):
     """Use NapCat's HTTP action endpoint; incoming events use a separate webhook."""
 
@@ -89,6 +108,108 @@ class NapCatHttpClient(NapCatGateway):
     async def close(self) -> None:
         if self._owns_client:
             await self._client.aclose()
+
+    async def inspect_health(self, *, expected_account_id: int) -> NapCatHealthSnapshot:
+        if type(expected_account_id) is not int or expected_account_id <= 0:
+            raise NapCatViolation("NAPCAT-ACCOUNT-INVALID")
+        observed_at = _observed_at()
+        try:
+            status = await self._read_health_action("/get_status")
+        except NapCatViolation as error:
+            return NapCatHealthSnapshot(
+                "misconfigured"
+                if error.code
+                in {
+                    "NAPCAT-HEALTH-AUTH-REJECTED",
+                    "NAPCAT-HEALTH-RESPONSE-INVALID",
+                }
+                else "unavailable",
+                error.code != "NAPCAT-HEALTH-UNAVAILABLE",
+                None,
+                None,
+                observed_at,
+                (error.code,),
+            )
+        online = status.get("online")
+        good = status.get("good")
+        if type(online) is not bool or type(good) is not bool:
+            return NapCatHealthSnapshot(
+                "misconfigured",
+                True,
+                None,
+                None,
+                observed_at,
+                ("NAPCAT-HEALTH-RESPONSE-INVALID",),
+            )
+        if not online:
+            return NapCatHealthSnapshot(
+                "login_required",
+                True,
+                False,
+                None,
+                observed_at,
+                ("NAPCAT-LOGIN-REQUIRED",),
+            )
+        if not good:
+            return NapCatHealthSnapshot(
+                "unavailable",
+                True,
+                True,
+                None,
+                observed_at,
+                ("NAPCAT-STATUS-UNHEALTHY",),
+            )
+        try:
+            login = await self._read_health_action("/get_login_info")
+        except NapCatViolation as error:
+            return NapCatHealthSnapshot(
+                "misconfigured"
+                if error.code
+                in {
+                    "NAPCAT-HEALTH-AUTH-REJECTED",
+                    "NAPCAT-HEALTH-RESPONSE-INVALID",
+                }
+                else "unavailable",
+                error.code != "NAPCAT-HEALTH-UNAVAILABLE",
+                True,
+                None,
+                observed_at,
+                (error.code,),
+            )
+        raw_account_id = login.get("user_id")
+        account_id = (
+            raw_account_id
+            if type(raw_account_id) is int
+            else int(raw_account_id)
+            if type(raw_account_id) is str and raw_account_id.isdecimal()
+            else None
+        )
+        if account_id is None or account_id <= 0:
+            return NapCatHealthSnapshot(
+                "misconfigured",
+                True,
+                True,
+                None,
+                observed_at,
+                ("NAPCAT-HEALTH-RESPONSE-INVALID",),
+            )
+        if account_id != expected_account_id:
+            return NapCatHealthSnapshot(
+                "misconfigured",
+                True,
+                True,
+                False,
+                observed_at,
+                ("NAPCAT-ACCOUNT-MISMATCH",),
+            )
+        return NapCatHealthSnapshot(
+            "ready",
+            True,
+            True,
+            True,
+            observed_at,
+            (),
+        )
 
     async def send_group_text(
         self, *, group_id: int, text: str, echo: str
@@ -189,6 +310,31 @@ class NapCatHttpClient(NapCatGateway):
             raise NapCatViolation("NAPCAT-ACTION-REJECTED")
         return cast(dict[str, Any], response_document)
 
+    async def _read_health_action(self, path: str) -> dict[str, Any]:
+        try:
+            response = await self._client.post(path, json={})
+        except httpx.TimeoutException, httpx.NetworkError:
+            raise NapCatViolation("NAPCAT-HEALTH-UNAVAILABLE") from None
+        if response.status_code in {401, 403}:
+            raise NapCatViolation("NAPCAT-HEALTH-AUTH-REJECTED")
+        if response.status_code < 200 or response.status_code >= 300:
+            raise NapCatViolation("NAPCAT-HEALTH-UNAVAILABLE")
+        try:
+            document: object = response.json()
+        except ValueError:
+            raise NapCatViolation("NAPCAT-HEALTH-RESPONSE-INVALID") from None
+        if not isinstance(document, dict):
+            raise NapCatViolation("NAPCAT-HEALTH-RESPONSE-INVALID")
+        response_document = cast(dict[object, object], document)
+        data = response_document.get("data")
+        if (
+            response_document.get("status") != "ok"
+            or response_document.get("retcode") != 0
+            or not isinstance(data, dict)
+        ):
+            raise NapCatViolation("NAPCAT-HEALTH-RESPONSE-INVALID")
+        return cast(dict[str, Any], data)
+
     async def _send(
         self, path: str, payload: dict[str, int | str], echo: str
     ) -> NapCatActionResponse:
@@ -233,6 +379,10 @@ def _validate_base_url(value: str) -> None:
         raise NapCatViolation("NAPCAT-URI-NOT-LOOPBACK")
 
 
+def _observed_at() -> str:
+    return datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
 def _media_bytes(data: dict[str, Any], *, max_bytes: int) -> bytes:
     base64_value = data.get("base64")
     if type(base64_value) is str and base64_value:
@@ -272,4 +422,10 @@ def _media_bytes(data: dict[str, Any], *, max_bytes: int) -> bytes:
     return content
 
 
-__all__ = ("NapCatDownloadedFile", "NapCatGateway", "NapCatHttpClient")
+__all__ = (
+    "NapCatDownloadedFile",
+    "NapCatGateway",
+    "NapCatHealthSnapshot",
+    "NapCatHealthState",
+    "NapCatHttpClient",
+)

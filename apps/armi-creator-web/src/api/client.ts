@@ -5,6 +5,7 @@ export type BrowserSession =
 export type BrowserSessionEstablished =
   components["schemas"]["BrowserSessionResponse"];
 export type RuntimeStatus = components["schemas"]["RuntimeStatusResponse"];
+export type QQChannelHealth = components["schemas"]["QQChannelHealthResponse"];
 export type SceneTimelinePage =
   components["schemas"]["SceneTimelinePageResponse"];
 export type CreatorScene = components["schemas"]["CreatorSceneResponse"];
@@ -190,6 +191,18 @@ export async function getRuntimeStatus(
   signal?: AbortSignal,
 ): Promise<RuntimeStatus> {
   const response = await fetch("/v1/runtime/status", {
+    credentials: "omit",
+    headers: { Authorization: `Bearer ${token}` },
+    ...(signal === undefined ? {} : { signal }),
+  });
+  return requireJson(response);
+}
+
+export async function getQQChannelHealth(
+  token: string,
+  signal?: AbortSignal,
+): Promise<QQChannelHealth> {
+  const response = await fetch("/v1/channels/qq/status", {
     credentials: "omit",
     headers: { Authorization: `Bearer ${token}` },
     ...(signal === undefined ? {} : { signal }),

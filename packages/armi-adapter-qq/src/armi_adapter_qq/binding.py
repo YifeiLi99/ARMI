@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from armi_channel_napcat import NapCatHttpClient, NapCatViolation
+from armi_channel_napcat import (
+    NapCatHealthSnapshot,
+    NapCatHttpClient,
+    NapCatViolation,
+)
 from armi_effect.api import ActionAdapterPort
 from armi_interaction.api import ExternalMessageInputPort
 from armi_perception.api import ExternalMediaFetchPort
@@ -30,10 +34,16 @@ class QQNapCatBinding:
     media_fetch: ExternalMediaFetchPort
     event_app: FastAPI
     event_port: int
+    account_id: int
     _gateway: NapCatHttpClient
 
     async def close(self) -> None:
         await self._gateway.close()
+
+    async def inspect_health(self, *, expected_account_id: int) -> NapCatHealthSnapshot:
+        return await self._gateway.inspect_health(
+            expected_account_id=expected_account_id
+        )
 
 
 def create_qq_napcat_binding(
@@ -68,6 +78,7 @@ def create_qq_napcat_binding(
         QQMediaFetchAdapter(config=config.adapter, gateway=gateway),
         event_app,
         config.event_port,
+        config.adapter.account_id,
         gateway,
     )
 

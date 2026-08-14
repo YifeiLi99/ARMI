@@ -656,6 +656,27 @@ class RuntimeStatusResponse(_StrictWireModel):
     observed_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
 
 
+class QQChannelHealthResponse(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    projection_version: Literal["creator-channel-health.v1"]
+    channel: Literal["qq"]
+    driver: Literal["napcat"]
+    state: Literal[
+        "disabled",
+        "starting",
+        "login_required",
+        "ready",
+        "unavailable",
+        "misconfigured",
+    ]
+    ingress_ready: bool
+    api_reachable: bool
+    account_online: bool | None
+    account_matches: bool | None
+    observed_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+    reason_codes: Annotated[list[ReasonCode], Field(max_length=16)]
+
+
 class ErrorDescriptorResponse(_StrictWireModel):
     category: ErrorCategoryValue
     code: Annotated[str, Field(pattern=_ERROR_CODE_PATTERN)]
@@ -1286,6 +1307,20 @@ def build_creator_openapi() -> dict[str, object]:
         dependencies=[Security(bearer)],
     )
     async def runtime_status() -> RuntimeStatusResponse:
+        raise NotImplementedError
+
+    @app.get(
+        "/v1/channels/qq/status",
+        operation_id="getQQChannelHealth",
+        response_model=QQChannelHealthResponse,
+        responses={
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
+    async def qq_channel_health() -> QQChannelHealthResponse:
         raise NotImplementedError
 
     @app.get(
@@ -2073,6 +2108,7 @@ def build_creator_openapi() -> dict[str, object]:
         create_browser_session,
         current_browser_session,
         runtime_status,
+        qq_channel_health,
         subject_summary,
         get_creator_prompt,
         revise_creator_prompt,
@@ -2251,6 +2287,7 @@ __all__ = (
     "OtherHumanSceneRecordResponse",
     "OtherHumanTimelineRecordPageResponse",
     "OtherHumanTimelineRecordResponse",
+    "QQChannelHealthResponse",
     "Readiness",
     "ReadyResponse",
     "RejectedOutcomeResponse",

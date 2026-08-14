@@ -17,6 +17,7 @@ import type { StoredBrowserSession } from "./storage";
 import { MessageComposer } from "../scene/MessageComposer";
 import { ActivityPanel } from "../activity/ActivityPanel";
 import { MaintenancePanel } from "../maintenance/MaintenancePanel";
+import { QQChannelHealthCard } from "../maintenance/QQChannelHealthCard";
 import { MaterialPanel } from "../material/MaterialPanel";
 import { MemoryPanel } from "../memory/MemoryPanel";
 import { RelationshipPanel } from "../relationship/RelationshipPanel";
@@ -355,6 +356,12 @@ export function SessionPanel() {
                 creatorPartyId={view.session.creator_party_id}
                 onUnauthorized={unauthorized}
               />
+              {activePage === "maintenance" ? (
+                <QQChannelHealthCard
+                  token={view.stored.token}
+                  onUnauthorized={unauthorized}
+                />
+              ) : null}
             </div>
           </div>
           <div hidden={activePage !== "activities"}>
