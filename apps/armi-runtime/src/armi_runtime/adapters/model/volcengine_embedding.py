@@ -38,7 +38,10 @@ class ArkEmbeddingTransport:
         binding: EmbeddingBinding,
         text: str,
     ) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=binding.timeout_seconds) as client:
+        async with httpx.AsyncClient(
+            timeout=binding.timeout_seconds,
+            trust_env=False,
+        ) as client:
             response = await client.post(
                 f"{binding.api_base}/embeddings/multimodal",
                 headers={
