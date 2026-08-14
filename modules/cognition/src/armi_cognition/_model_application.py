@@ -634,7 +634,9 @@ class ModelPipeline:
                     result=_error_result(error),
                 )
                 return True
-            await self._settle_before_attempt(lease, locals().get("snapshot"), error)
+            await self._settle_before_attempt(
+                record, lease, locals().get("snapshot"), error
+            )
             return True
         except ArtifactViolation:
             error = ModelViolation("MODEL-ARTIFACT")
@@ -651,6 +653,7 @@ class ModelPipeline:
                 )
             else:
                 await self._settle_before_attempt(
+                    record,
                     lease,
                     current_snapshot,
                     error,
@@ -792,6 +795,7 @@ class ModelPipeline:
 
     async def _settle_before_attempt(
         self,
+        record: WorkRecord,
         lease: WorkLease,
         snapshot: object,
         error: ModelViolation,
@@ -803,7 +807,10 @@ class ModelPipeline:
             return
         try:
             async with self._factory.unit_of_work() as unit_of_work:
-                if error.retryable:
+                if (
+                    error.retryable
+                    and record.attempt_count < record.draft.max_attempts
+                ):
                     now = await (
                         await unit_of_work.transaction.execute(
                             "SELECT statement_timestamp()"

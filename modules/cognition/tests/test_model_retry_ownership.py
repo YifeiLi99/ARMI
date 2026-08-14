@@ -3,17 +3,22 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock
 from uuid import uuid7
 
 import pytest
+from armi_cognition._model_application import ModelPipeline
 from armi_cognition._model_postgresql import (
+    ModelEpisodeSnapshot,
     PostgreSQLCognitiveModelRepository,
 )
-from armi_kernel.application import ModelAttemptId
-from armi_kernel.contracts import TraceId
+from armi_cognition._recovery import CognitionRecoveryParticipant
+from armi_kernel.application import ModelAttemptId, ModelViolation
+from armi_kernel.contracts import Digest, TraceId
+from armi_runtime_foundation import RecoveryWorkSnapshot
 
 
 class _Cursor:
@@ -22,6 +27,9 @@ class _Cursor:
 
     async def fetchone(self) -> tuple[object, ...] | None:
         return self._row
+
+    async def fetchall(self) -> list[tuple[object, ...]]:
+        return []
 
 
 @pytest.mark.parametrize(
@@ -112,3 +120,100 @@ def test_model_attempt_recovery_only_replays_pre_dispatch(
             lease,
             error_code="MODEL-OUTCOME-UNKNOWN",
         )
+
+
+def test_retryable_preparation_failure_settles_on_final_work_attempt() -> None:
+    episode_id = uuid7()
+    lease = cast(Any, SimpleNamespace())
+    work = SimpleNamespace(release=AsyncMock())
+    unit_of_work = SimpleNamespace(work=work)
+
+    @asynccontextmanager
+    async def unit_of_work_context():
+        yield unit_of_work
+
+    repository = SimpleNamespace(fail_before_attempt=AsyncMock())
+    pipeline = object.__new__(ModelPipeline)
+    pipeline._factory = cast(Any, SimpleNamespace(unit_of_work=unit_of_work_context))
+    pipeline._repository = cast(Any, repository)
+    pipeline._diagnostic = cast(Any, lambda _event: None)
+    snapshot = ModelEpisodeSnapshot(
+        episode_id,
+        uuid7(),
+        "consider_creator_input",
+        1,
+        0,
+        uuid7(),
+        Digest.from_bytes(b"context"),
+        cast(Any, SimpleNamespace()),
+        (),
+        (),
+        TraceId("a" * 32),
+    )
+    record = cast(
+        Any,
+        SimpleNamespace(attempt_count=2, draft=SimpleNamespace(max_attempts=2)),
+    )
+
+    asyncio.run(
+        pipeline._settle_before_attempt(
+            record,
+            lease,
+            snapshot,
+            ModelViolation("MODEL-CONNECTION"),
+        )
+    )
+
+    work.release.assert_not_awaited()
+    repository.fail_before_attempt.assert_awaited_once_with(
+        unit_of_work,
+        lease=lease,
+        snapshot=snapshot,
+        code="MODEL-CONNECTION",
+    )
+
+
+def test_recovery_fails_episode_when_model_work_exhausted() -> None:
+    episode_id = uuid7()
+    opportunity_id = uuid7()
+    statements: list[str] = []
+
+    async def execute(statement: str, _parameters: object = None) -> _Cursor:
+        statements.append(statement)
+        if "dispatch_status='dispatched'" in statement:
+            return _Cursor()
+        if "SELECT opportunity_id, status" in statement:
+            return cast(Any, _RowsCursor([(opportunity_id, "failed")]))
+        if "SELECT cognitive_episode_id, status" in statement:
+            return cast(Any, _RowsCursor([]))
+        return _Cursor()
+
+    contribution = asyncio.run(
+        CognitionRecoveryParticipant().recover(
+            cast(Any, SimpleNamespace(execute=execute)),
+            cast(Any, None),
+            (
+                RecoveryWorkSnapshot(
+                    uuid7(),
+                    "cognition.model.invoke",
+                    "cognitive_episode",
+                    episode_id,
+                    "failed",
+                    2,
+                    2,
+                ),
+            ),
+        )
+    )
+
+    assert any("MODEL-WORK-ATTEMPTS-EXHAUSTED" in item for item in statements)
+    assert contribution.findings[0].reference == opportunity_id
+
+
+class _RowsCursor(_Cursor):
+    def __init__(self, rows: list[tuple[object, ...]]) -> None:
+        super().__init__()
+        self._rows = rows
+
+    async def fetchall(self) -> list[tuple[object, ...]]:
+        return self._rows

@@ -56,6 +56,23 @@ class CognitionRecoveryParticipant:
             """,
                 ([row[0] for row in unknown],),
             )
+        exhausted_model_episodes = [
+            item.owner_ref
+            for item in work
+            if item.work_kind == "cognition.model.invoke"
+            and item.status == "failed"
+            and item.attempt_count >= item.max_attempts
+        ]
+        if exhausted_model_episodes:
+            await transaction.execute(
+                """
+                UPDATE armi.cognitive_episodes SET status='failed',
+                    failure_code='MODEL-WORK-ATTEMPTS-EXHAUSTED'
+                WHERE cognitive_episode_id=ANY(%s::uuid[])
+                  AND status IN ('prepared','calling_model')
+                """,
+                (exhausted_model_episodes,),
+            )
         terminal_opportunities = await (
             await transaction.execute(
                 """
