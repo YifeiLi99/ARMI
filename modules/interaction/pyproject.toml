@@ -7,7 +7,7 @@ dependencies = [
     "armi-artifact-store==0.0.0",
     "armi-evidence==0.0.0",
     "armi-kernel==0.0.0",
-    "armi-opportunity==0.0.0",
+    "armi-attention==0.0.0",
     "armi-runtime-foundation==0.0.0",
     "armi-subject-state==0.0.0",
     "psycopg[binary]==3.3.4",
@@ -20,7 +20,7 @@ armi-data-rights = { workspace = true }
 armi-artifact-store = { workspace = true }
 armi-evidence = { workspace = true }
 armi-kernel = { workspace = true }
-armi-opportunity = { workspace = true }
+armi-attention = { workspace = true }
 armi-runtime-foundation = { workspace = true }
 armi-subject-state = { workspace = true }
 

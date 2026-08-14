@@ -15,6 +15,10 @@ from armi_artifact_store import (
     ContentAddressedArtifactStore,
     parse_life_material_artifact,
 )
+from armi_attention.api import (
+    OpportunityCognitionSelectionPort,
+    OpportunityContextReadPort,
+)
 from armi_capability.api import CapabilityReadPort
 from armi_codex.api import CodexTaskSourceReadPort
 from armi_effect.api import EffectOperationReadPort
@@ -43,10 +47,6 @@ from armi_kernel.contracts import Instant, Purpose, SubjectId
 from armi_material.api import MaterialProjectionPort
 from armi_memory.api import MemoryProjectionPort, MemoryReadPort
 from armi_mood.api import MoodReadPort
-from armi_opportunity.api import (
-    OpportunityCognitionSelectionPort,
-    OpportunityContextReadPort,
-)
 from armi_prompt.api import PromptReadPort
 from armi_relationship.api import RelationshipReadPort
 from armi_runtime_foundation import (

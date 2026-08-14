@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock
 from uuid import uuid7
 
 import pytest
-from armi_opportunity._application import MaintenanceCoordinator
-from armi_opportunity.api import (
+from armi_attention._application import MaintenanceCoordinator
+from armi_attention.api import (
     OpportunityAdmissionStatus,
 )
 from armi_sleep.api import (

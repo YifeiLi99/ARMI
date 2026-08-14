@@ -16,7 +16,7 @@ dependencies = [
     "armi-expression==0.0.0",
     "armi-interaction==0.0.0",
     "armi-kernel==0.0.0",
-    "armi-opportunity==0.0.0",
+    "armi-attention==0.0.0",
     "armi-perception==0.0.0",
     "armi-postgresql-contract==0.0.0",
     "armi-runtime-foundation==0.0.0",
@@ -56,7 +56,7 @@ armi-evidence = { workspace = true }
 armi-effect = { workspace = true }
 armi-expression = { workspace = true }
 armi-kernel = { workspace = true }
-armi-opportunity = { workspace = true }
+armi-attention = { workspace = true }
 armi-postgresql-contract = { workspace = true }
 armi-runtime-foundation = { workspace = true }
 armi-relationship = { workspace = true }

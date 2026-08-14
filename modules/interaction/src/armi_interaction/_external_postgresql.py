@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, cast
 from uuid import UUID, uuid7
 
+from armi_attention.api import OpportunityAdmissionPort, OpportunityPurpose
 from armi_evidence.api import EvidenceReadPort
 from armi_kernel.application import (
     WorkDraft,
@@ -15,7 +16,6 @@ from armi_kernel.application import (
     WorkPayloadRef,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId
-from armi_opportunity.api import OpportunityAdmissionPort, OpportunityPurpose
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
 from ._creator_contract import CreatorInputContext

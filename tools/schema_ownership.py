@@ -64,8 +64,8 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "external_content_recognition_attempts": TableOwnership("perception"),
     "experience_evidence_links": TableOwnership("evidence"),
     "external_evidence": TableOwnership("evidence"),
-    # Opportunity and context.
-    "opportunities": TableOwnership("opportunity"),
+    # Attention and context.
+    "opportunities": TableOwnership("attention"),
     "cognitive_context_items": TableOwnership("context"),
     "context_embedding_attempts": TableOwnership("context"),
     "context_embedding_projections": TableOwnership("context"),

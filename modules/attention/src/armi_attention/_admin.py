@@ -1,4 +1,4 @@
-"""Fixed Admin operations owned by Opportunity."""
+"""Fixed Admin operations owned by the Attention module."""
 
 from typing import cast
 from uuid import UUID

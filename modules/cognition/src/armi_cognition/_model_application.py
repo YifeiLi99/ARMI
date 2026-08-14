@@ -15,6 +15,7 @@ import rfc8785
 from armi_artifact_store.content_store import (
     ContentAddressedArtifactStore,
 )
+from armi_attention.api import OpportunityCognitionSelectionPort
 from armi_context.api import ContextCognitionReadPort
 from armi_kernel.application import (
     ArtifactId,
@@ -39,7 +40,6 @@ from armi_kernel.application import (
     WorkViolation,
 )
 from armi_kernel.contracts import Instant, Purpose, SubjectId
-from armi_opportunity.api import OpportunityCognitionSelectionPort
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWork,
     PostgreSQLRuntimeUnitOfWorkFactory,

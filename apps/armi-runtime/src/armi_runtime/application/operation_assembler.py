@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from armi_attention.api import OpportunityOperationReadPort
 from armi_capability.api import (
     CapabilityAuthorizationOutcome,
     CapabilityOperationReadPort,
@@ -23,7 +24,6 @@ from armi_interaction.api import (
     CreatorOperationQueryPort,
     OpportunityId,
 )
-from armi_opportunity.api import OpportunityOperationReadPort
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWorkFactory
 
 

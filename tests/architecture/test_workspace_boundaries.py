@@ -175,9 +175,9 @@ OWN = "UPDATE armi.cognitive_episodes SET status = 'done'"
         self.assertEqual(
             [(value.operation, value.table, value.table_owner) for value in accesses],
             [
-                ("FROM", "opportunities", "opportunity"),
+                ("FROM", "opportunities", "attention"),
                 ("INSERT INTO", "effects", "effect"),
-                ("FROM", "opportunities", "opportunity"),
+                ("FROM", "opportunities", "attention"),
                 ("DELETE FROM", "effects", "effect"),
             ],
         )
@@ -202,7 +202,7 @@ OWN = "UPDATE armi.cognitive_episodes SET status = 'done'"
                     ("expression", "expression", "armi_expression"),
                     ("interaction", "interaction", "armi_interaction"),
                     ("mood", "mood", "armi_mood"),
-                    ("opportunity", "opportunity", "armi_opportunity"),
+                    ("attention", "attention", "armi_attention"),
                     ("perception", "perception", "armi_perception"),
                     ("prompt", "prompt", "armi_prompt"),
                     ("subject-state", "subject-state", "armi_subject_state"),

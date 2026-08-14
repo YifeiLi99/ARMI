@@ -21,6 +21,7 @@ from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_artifact_store.life_material_codec import (
     build_life_material_artifact,
 )
+from armi_attention.api import OpportunityTransitionPort
 from armi_capability.api import CapabilityCommitPort, CapabilityReadPort
 from armi_codex.api import CodexCommitPort
 from armi_cognition.api import (
@@ -74,7 +75,6 @@ from armi_memory.api import (
     MemoryCommitPort,
 )
 from armi_mood.api import CandidateMoodDraft, MoodCognitionPort, MoodCommitPort
-from armi_opportunity.api import OpportunityTransitionPort
 from armi_prompt.api import CandidatePromptDraft, PromptCognitionPort, PromptCommitPort
 from armi_relationship.api import (
     CandidateRelationshipDraft,

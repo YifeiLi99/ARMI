@@ -8,6 +8,7 @@ from datetime import timedelta
 from typing import cast
 from uuid import uuid7
 
+from armi_attention.api import OpportunityAdmissionPort
 from armi_evidence.api import EvidenceWritePort
 from armi_kernel.application import (
     ArtifactId,
@@ -38,7 +39,6 @@ from armi_kernel.contracts import (
     Purpose,
     TraceId,
 )
-from armi_opportunity.api import OpportunityAdmissionPort
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWork,
     PostgreSQLRuntimeUnitOfWorkFactory,

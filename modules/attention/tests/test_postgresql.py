@@ -7,11 +7,10 @@ from typing import Any, cast
 from uuid import UUID, uuid7
 
 import pytest
-from armi_kernel.application import RuntimeFence, RuntimeInstanceId
-from armi_opportunity._postgresql import (
+from armi_attention._postgresql import (
     PostgreSQLLifeOpportunityRepository,
 )
-from armi_opportunity.api import (
+from armi_attention.api import (
     AttentionRetryFacts,
     CreatorOutreachFacts,
     CreatorOutreachPolicy,
@@ -21,10 +20,11 @@ from armi_opportunity.api import (
     OpportunityAdmissionStatus,
     OpportunityPurpose,
 )
-from armi_opportunity.bootstrap import (
+from armi_attention.bootstrap import (
     bootstrap_opportunity_admission,
     bootstrap_opportunity_transition,
 )
+from armi_kernel.application import RuntimeFence, RuntimeInstanceId
 from armi_runtime.composition.postgresql_test import (
     bootstrap_activity,
     bootstrap_artifact_catalog,

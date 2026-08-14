@@ -13,6 +13,10 @@ from armi_artifact_store.api import ArtifactCatalogPort
 from armi_artifact_store.content_store import (
     ContentAddressedArtifactStore,
 )
+from armi_attention.api import (
+    LifeQueryResultOpportunityDraft,
+    OpportunityAdmissionPort,
+)
 from armi_cognition.api import (
     CognitionExactLifeQueryPort,
     CognitionExactLifeQuerySnapshot,
@@ -39,10 +43,6 @@ from armi_kernel.application import (
     WorkViolation,
 )
 from armi_kernel.contracts import Purpose, SubjectId
-from armi_opportunity.api import (
-    LifeQueryResultOpportunityDraft,
-    OpportunityAdmissionPort,
-)
 
 from armi_runtime.adapters.persistence.durable_work import (
     PostgreSQLDurableWorkGateway,

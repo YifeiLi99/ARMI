@@ -235,7 +235,7 @@ DISTRIBUTIONS = (
             "armi-artifact-store==0.0.0",
             "armi-evidence==0.0.0",
             "armi-kernel==0.0.0",
-            "armi-opportunity==0.0.0",
+            "armi-attention==0.0.0",
             "armi-runtime-foundation==0.0.0",
             "armi-subject-state==0.0.0",
             "psycopg[binary]==3.3.4",
@@ -244,9 +244,9 @@ DISTRIBUTIONS = (
         ),
     ),
     Distribution(
-        name="armi-opportunity",
-        module="armi_opportunity",
-        project_dir=Path("modules/opportunity"),
+        name="armi-attention",
+        module="armi_attention",
+        project_dir=Path("modules/attention"),
         layers=(),
         dependencies=(
             "armi-activity==0.0.0",
@@ -276,7 +276,7 @@ DISTRIBUTIONS = (
             "armi-material==0.0.0",
             "armi-memory==0.0.0",
             "armi-mood==0.0.0",
-            "armi-opportunity==0.0.0",
+            "armi-attention==0.0.0",
             "armi-prompt==0.0.0",
             "armi-relationship==0.0.0",
             "armi-runtime-foundation==0.0.0",
@@ -323,7 +323,7 @@ DISTRIBUTIONS = (
         dependencies=(
             "armi-evidence==0.0.0",
             "armi-kernel==0.0.0",
-            "armi-opportunity==0.0.0",
+            "armi-attention==0.0.0",
             "armi-runtime-foundation==0.0.0",
             "httpx==0.28.1",
             "openai==2.49.0",
@@ -342,7 +342,7 @@ DISTRIBUTIONS = (
             "armi-expression==0.0.0",
             "armi-interaction==0.0.0",
             "armi-kernel==0.0.0",
-            "armi-opportunity==0.0.0",
+            "armi-attention==0.0.0",
             "armi-runtime-foundation==0.0.0",
             "openai-codex==0.144.4",
             "rfc8785==0.1.4",
@@ -379,7 +379,7 @@ DISTRIBUTIONS = (
             "armi-material==0.0.0",
             "armi-memory==0.0.0",
             "armi-mood==0.0.0",
-            "armi-opportunity==0.0.0",
+            "armi-attention==0.0.0",
             "armi-prompt==0.0.0",
             "armi-relationship==0.0.0",
             "armi-runtime-foundation==0.0.0",
@@ -400,7 +400,7 @@ DISTRIBUTIONS = (
             "armi-evidence==0.0.0",
             "armi-interaction==0.0.0",
             "armi-kernel==0.0.0",
-            "armi-opportunity==0.0.0",
+            "armi-attention==0.0.0",
             "armi-runtime-foundation==0.0.0",
             "openpyxl==3.1.5",
             "pillow==12.3.0",
@@ -427,7 +427,7 @@ DISTRIBUTIONS = (
             "armi-expression==0.0.0",
             "armi-interaction==0.0.0",
             "armi-kernel==0.0.0",
-            "armi-opportunity==0.0.0",
+            "armi-attention==0.0.0",
             "armi-perception==0.0.0",
             "armi-postgresql-contract==0.0.0",
             "armi-runtime-foundation==0.0.0",
@@ -467,7 +467,7 @@ DISTRIBUTIONS = (
             "armi-kernel==0.0.0",
             "armi-material==0.0.0",
             "armi-mood==0.0.0",
-            "armi-opportunity==0.0.0",
+            "armi-attention==0.0.0",
             "armi-perception==0.0.0",
             "armi-prompt==0.0.0",
             "armi-subject-state==0.0.0",
@@ -497,7 +497,7 @@ DATA_RIGHTS_PARTICIPANT_DISTRIBUTIONS = frozenset(
         "armi-material",
         "armi-memory",
         "armi-mood",
-        "armi-opportunity",
+        "armi-attention",
         "armi-perception",
         "armi-prompt",
         "armi-relationship",
@@ -1079,21 +1079,21 @@ def _check_import(
                 "armi-artifact-store",
                 "armi-evidence",
                 "armi-kernel",
-                "armi-opportunity",
+                "armi-attention",
                 "armi-runtime-foundation",
                 "armi-subject-state",
                 "armi-interaction",
             }
         )
         or (
-            source_distribution == "armi-opportunity"
+            source_distribution == "armi-attention"
             and target_distribution
             not in {
                 None,
                 "armi-activity",
                 "armi-kernel",
                 "armi-material",
-                "armi-opportunity",
+                "armi-attention",
                 "armi-relationship",
                 "armi-runtime-foundation",
                 "armi-sleep",
@@ -1118,7 +1118,7 @@ def _check_import(
                 "armi-material",
                 "armi-memory",
                 "armi-mood",
-                "armi-opportunity",
+                "armi-attention",
                 "armi-prompt",
                 "armi-relationship",
                 "armi-runtime-foundation",
@@ -1160,7 +1160,7 @@ def _check_import(
                 None,
                 "armi-evidence",
                 "armi-kernel",
-                "armi-opportunity",
+                "armi-attention",
                 "armi-runtime-foundation",
                 "armi-web-observation",
             }
@@ -1177,7 +1177,7 @@ def _check_import(
                 "armi-expression",
                 "armi-interaction",
                 "armi-kernel",
-                "armi-opportunity",
+                "armi-attention",
                 "armi-runtime-foundation",
             }
         )
@@ -1210,7 +1210,7 @@ def _check_import(
                 "armi-material",
                 "armi-memory",
                 "armi-mood",
-                "armi-opportunity",
+                "armi-attention",
                 "armi-prompt",
                 "armi-relationship",
                 "armi-runtime-foundation",
@@ -1228,7 +1228,7 @@ def _check_import(
                 "armi-evidence",
                 "armi-interaction",
                 "armi-kernel",
-                "armi-opportunity",
+                "armi-attention",
                 "armi-runtime-foundation",
                 "armi-perception",
             }
@@ -1349,11 +1349,11 @@ def _check_import(
         "armi-evidence": frozenset(
             {"armi_evidence", "armi_evidence.api", "armi_evidence.bootstrap"}
         ),
-        "armi-opportunity": frozenset(
+        "armi-attention": frozenset(
             {
-                "armi_opportunity",
-                "armi_opportunity.api",
-                "armi_opportunity.bootstrap",
+                "armi_attention",
+                "armi_attention.api",
+                "armi_attention.bootstrap",
             }
         ),
         "armi-context": frozenset(
@@ -1539,7 +1539,7 @@ def _check_import(
                 )
             )
         if (
-            imported_module == "armi_opportunity.bootstrap"
+            imported_module == "armi_attention.bootstrap"
             and not source_module.startswith("armi_runtime.composition")
             and source_module != "armi_admin.composition"
         ):
@@ -1548,7 +1548,7 @@ def _check_import(
                     "ARC-SURFACE-BOOTSTRAP",
                     path,
                     line,
-                    "opportunity bootstrap is reserved for Runtime composition",
+                    "Attention bootstrap is reserved for Runtime composition",
                 )
             )
         if imported_module == "armi_context.bootstrap" and not source_module.startswith(
@@ -1848,12 +1848,10 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         "armi_evidence.api": root / "modules/evidence/src/armi_evidence/api.py",
         "armi_evidence.bootstrap": root
         / "modules/evidence/src/armi_evidence/bootstrap.py",
-        "armi_opportunity": root
-        / "modules/opportunity/src/armi_opportunity/__init__.py",
-        "armi_opportunity.api": root
-        / "modules/opportunity/src/armi_opportunity/api.py",
-        "armi_opportunity.bootstrap": root
-        / "modules/opportunity/src/armi_opportunity/bootstrap.py",
+        "armi_attention": root / "modules/attention/src/armi_attention/__init__.py",
+        "armi_attention.api": root / "modules/attention/src/armi_attention/api.py",
+        "armi_attention.bootstrap": root
+        / "modules/attention/src/armi_attention/bootstrap.py",
         "armi_context": root / "modules/context/src/armi_context/__init__.py",
         "armi_context.api": root / "modules/context/src/armi_context/api.py",
         "armi_context.bootstrap": root
@@ -2365,7 +2363,7 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         "armi_context",
         "armi_effect",
         "armi_interaction",
-        "armi_opportunity",
+        "armi_attention",
         "creator-activity.v1",
         "creator-effect.v3",
         "creator-operation.v2",
@@ -2451,7 +2449,7 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
             "evidence_module = compose_evidence_module()",
             "evidence=evidence_module.write",
         ),
-        "opportunity": (
+        "Attention": (
             "life_opportunity_pipeline = compose_life_opportunity_pipeline(",
             "sleep_maintenance=sleep_module.maintenance",
             "activity_read=activity_module.read",
@@ -2528,7 +2526,7 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         "Artifact Catalog": "artifact_catalog = bootstrap_artifact_catalog()",
         "Cognition owner": "cognition_owner = bootstrap_cognition_owner()",
         "Effect owner": "effect_owner = bootstrap_effect_operation_read()",
-        "Opportunity owner": "opportunity_owner = bootstrap_opportunity_owner()",
+        "Attention owner": "opportunity_owner = bootstrap_opportunity_owner()",
         "owner participant roster": "owner_roster = compose_runtime_owner_roster(",
         "Runtime UoW pool": (
             "runtime_unit_of_work_factory = compose_runtime_unit_of_work_factory("

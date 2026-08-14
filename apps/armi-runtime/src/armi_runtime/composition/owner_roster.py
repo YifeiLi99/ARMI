@@ -8,6 +8,10 @@ from armi_activity.bootstrap import (
     bootstrap_activity_data_rights,
     bootstrap_activity_recovery,
 )
+from armi_attention.bootstrap import (
+    bootstrap_opportunity_data_rights,
+    bootstrap_opportunity_recovery,
+)
 from armi_capability.bootstrap import (
     bootstrap_capability_data_rights,
     bootstrap_capability_recovery,
@@ -49,10 +53,6 @@ from armi_memory.bootstrap import (
 )
 from armi_mood.api import MoodReadPort
 from armi_mood.bootstrap import bootstrap_mood_data_rights, bootstrap_mood_recovery
-from armi_opportunity.bootstrap import (
-    bootstrap_opportunity_data_rights,
-    bootstrap_opportunity_recovery,
-)
 from armi_perception.bootstrap import (
     bootstrap_perception_data_rights,
     bootstrap_perception_recovery,

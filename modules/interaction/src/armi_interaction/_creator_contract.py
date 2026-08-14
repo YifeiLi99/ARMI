@@ -8,9 +8,9 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
+from armi_attention.api import OpportunityId
 from armi_evidence.api import EvidenceId
 from armi_kernel.contracts import Digest, IdempotencyKey, TraceId
-from armi_opportunity.api import OpportunityId
 
 _CODE = re.compile(
     r"^(?:CON-INPUT|INPUT|IDEMPOTENCY|SCOPE|AUTHORITY|ART|DB)-[A-Z0-9-]+$",

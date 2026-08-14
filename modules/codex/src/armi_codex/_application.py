@@ -18,6 +18,7 @@ from uuid import UUID, uuid7
 
 import rfc8785
 from armi_artifact_store.api import ArtifactCatalogPort
+from armi_attention.api import OpportunityAdmissionPort
 from armi_effect.api import EffectCodexLifecyclePort
 from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
 from armi_expression.api import ExpressionIntentReadPort
@@ -43,7 +44,6 @@ from armi_kernel.application import (
     CreatorResourceKind,
 )
 from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId, TraceId
-from armi_opportunity.api import OpportunityAdmissionPort
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWork,
     PostgreSQLRuntimeUnitOfWorkFactory,

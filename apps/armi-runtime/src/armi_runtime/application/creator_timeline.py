@@ -5,6 +5,11 @@ from __future__ import annotations
 from uuid import UUID
 
 from armi_artifact_store.api import ArtifactCatalogPort
+from armi_attention.api import (
+    OpportunityAdmissionPort,
+    OpportunityContextReadPort,
+    OpportunityPurpose,
+)
 from armi_codex.api import CodexTaskSourceReadPort
 from armi_cognition.api import CognitionOperationReadPort
 from armi_evidence.api import EvidenceReadPort, EvidenceSourceKind
@@ -14,11 +19,6 @@ from armi_interaction.api import (
 )
 from armi_kernel.application import ArtifactId
 from armi_kernel.contracts import Digest
-from armi_opportunity.api import (
-    OpportunityAdmissionPort,
-    OpportunityContextReadPort,
-    OpportunityPurpose,
-)
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
 
 

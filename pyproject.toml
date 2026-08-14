@@ -36,7 +36,7 @@ members = [
     "modules/prompt",
     "modules/evidence",
     "modules/interaction",
-    "modules/opportunity",
+    "modules/attention",
     "modules/context",
     "modules/expression",
     "modules/effect",

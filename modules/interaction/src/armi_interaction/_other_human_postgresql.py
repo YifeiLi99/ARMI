@@ -8,6 +8,12 @@ from datetime import datetime
 from typing import cast
 from uuid import UUID, uuid7
 
+from armi_attention.api import (
+    ExternalEvidenceOpportunityDraft,
+    OpportunityAdmissionPort,
+    OpportunityAdmissionStatus,
+    OpportunityPurpose,
+)
 from armi_evidence.api import (
     EvidenceDraft,
     EvidenceId,
@@ -17,12 +23,6 @@ from armi_evidence.api import (
     EvidenceWritePort,
 )
 from armi_kernel.contracts import Digest
-from armi_opportunity.api import (
-    ExternalEvidenceOpportunityDraft,
-    OpportunityAdmissionPort,
-    OpportunityAdmissionStatus,
-    OpportunityPurpose,
-)
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
 
 from ._creator_contract import OpportunityId

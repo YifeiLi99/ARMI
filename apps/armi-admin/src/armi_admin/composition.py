@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from armi_artifact_store.bootstrap import bootstrap_artifact_admin
+from armi_attention.bootstrap import bootstrap_opportunity_admin
 from armi_codex.bootstrap import bootstrap_codex_admin
 from armi_cognition.bootstrap import bootstrap_cognition_admin
 from armi_effect.bootstrap import bootstrap_effect_admin
@@ -17,7 +18,6 @@ from armi_mood.bootstrap import (
     bootstrap_mood_admin_correction,
     bootstrap_mood_admin_read,
 )
-from armi_opportunity.bootstrap import bootstrap_opportunity_admin
 from armi_perception.bootstrap import bootstrap_perception_admin
 from armi_prompt.bootstrap import bootstrap_prompt_admin_reference
 from armi_subject_state.bootstrap import (

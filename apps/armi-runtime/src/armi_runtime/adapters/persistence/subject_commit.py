@@ -16,6 +16,7 @@ from armi_activity.api import (
     CandidateActivityDraft,
 )
 from armi_artifact_store.api import ArtifactCatalogPort
+from armi_attention.api import LifeViolation, OpportunityTransitionPort
 from armi_capability.api import (
     CapabilityAcceptedBasis,
     CapabilityCommitContext,
@@ -99,7 +100,6 @@ from armi_memory.api import (
     MemoryViolation,
 )
 from armi_mood.api import CandidateMoodDraft, MoodCommitPort, MoodViolation
-from armi_opportunity.api import LifeViolation, OpportunityTransitionPort
 from armi_prompt.api import CandidatePromptDraft, PromptCommitPort, PromptViolation
 from armi_relationship.api import (
     CandidateRelationshipDraft,

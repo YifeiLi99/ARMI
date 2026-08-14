@@ -5,6 +5,12 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid7
 
+from armi_attention.api import (
+    ExternalEvidenceOpportunityDraft,
+    OpportunityAdmissionPort,
+    OpportunityAdmissionStatus,
+    OpportunityPurpose,
+)
 from armi_evidence.api import (
     EvidenceDraft,
     EvidenceId,
@@ -30,12 +36,6 @@ from armi_kernel.application import (
     WorkResultRef,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId
-from armi_opportunity.api import (
-    ExternalEvidenceOpportunityDraft,
-    OpportunityAdmissionPort,
-    OpportunityAdmissionStatus,
-    OpportunityPurpose,
-)
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
 from .api import ExternalContentRecognitionResult

@@ -46,6 +46,7 @@ from armi_admin.persistence.role_session import AdminRoleBoundPool
 from armi_artifact_store.content_store import (
     ContentAddressedArtifactStore,
 )
+from armi_attention.api import OpportunityAdmissionOutcome, OpportunityAdmissionStatus
 from armi_capability.api import (
     CapabilityDecisionId,
     CapabilityDispatchAuthorization,
@@ -123,7 +124,6 @@ from armi_kernel.contracts import (
     SubjectId,
     TraceId,
 )
-from armi_opportunity.api import OpportunityAdmissionOutcome, OpportunityAdmissionStatus
 from armi_perception.api import (
     ExternalContentRecognitionResult,
     ExternalContentRecognitionStatus,

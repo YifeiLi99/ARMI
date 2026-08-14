@@ -14,6 +14,7 @@ from uuid import UUID
 
 import rfc8785
 from armi_artifact_store.api import ArtifactAdminPort
+from armi_attention.api import OpportunityAdminPort
 from armi_codex.api import CodexAdminPort
 from armi_cognition.api import CognitionAdminPort
 from armi_effect.api import EffectAdminPort
@@ -22,7 +23,6 @@ from armi_expression.api import ExpressionAdminPort
 from armi_interaction.api import InteractionAdminPort
 from armi_material.api import MaterialAdminReadPort
 from armi_mood.api import MoodAdminCorrectionPort
-from armi_opportunity.api import OpportunityAdminPort
 from armi_perception.api import PerceptionAdminPort
 from armi_prompt.api import PromptAdminReferencePort
 from armi_runtime_foundation import (

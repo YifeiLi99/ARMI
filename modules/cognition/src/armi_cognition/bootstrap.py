@@ -7,6 +7,10 @@ from pathlib import Path
 
 from armi_activity.api import ActivityCognitionPort, ActivityReadPort
 from armi_artifact_store import ContentAddressedArtifactStore
+from armi_attention.api import (
+    OpportunityCognitionSelectionPort,
+    OpportunityContextReadPort,
+)
 from armi_codex.api import CodexTaskSourceReadPort
 from armi_context.api import ContextCognitionReadPort
 from armi_data_rights.api import DataRightsParticipant
@@ -24,10 +28,6 @@ from armi_memory.api import (
     MemoryReadPort,
 )
 from armi_mood.api import MoodCognitionPort, MoodReadPort
-from armi_opportunity.api import (
-    OpportunityCognitionSelectionPort,
-    OpportunityContextReadPort,
-)
 from armi_prompt.api import PromptCognitionPort, PromptReadPort
 from armi_relationship.api import RelationshipCognitionPort, RelationshipReadPort
 from armi_runtime_foundation import (

@@ -15,8 +15,7 @@ from armi_activity.api import (
     ActivityStatus,
     ActivityWaitingKind,
 )
-from armi_kernel.contracts import Digest
-from armi_opportunity.api import (
+from armi_attention.api import (
     CreatorOutreachPolicy,
     LifeOpportunitySourceKind,
     LifeOpportunitySourceSnapshot,
@@ -24,6 +23,7 @@ from armi_opportunity.api import (
     OpportunityAdmissionOutcome,
     OpportunityAdmissionStatus,
 )
+from armi_kernel.contracts import Digest
 
 
 def _source(

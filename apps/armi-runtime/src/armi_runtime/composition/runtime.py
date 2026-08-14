@@ -16,6 +16,11 @@ from uuid import uuid7
 import uvicorn
 from armi_activity.api import ActivityViolation
 from armi_artifact_store.bootstrap import bootstrap_artifact_catalog
+from armi_attention.api import LifeViolation
+from armi_attention.bootstrap import (
+    bootstrap_opportunity_owner,
+    bootstrap_opportunity_sleep,
+)
 from armi_capability.api import CapabilityViolation
 from armi_codex.api import CodexDelegationViolation, CodexRuntimePort
 from armi_codex.bootstrap import bootstrap_codex_commit
@@ -48,11 +53,6 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import IdempotencyKey, TraceId
 from armi_memory.api import MemoryViolation
-from armi_opportunity.api import LifeViolation
-from armi_opportunity.bootstrap import (
-    bootstrap_opportunity_owner,
-    bootstrap_opportunity_sleep,
-)
 from armi_prompt.api import CreatorPromptViolation
 from armi_relationship.api import RelationshipViolation
 from armi_sleep.api import CreatorMaintenanceViolation, SleepViolation

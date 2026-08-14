@@ -18,6 +18,20 @@ from armi_activity.bootstrap import (
 )
 from armi_artifact_store.api import ArtifactCatalogPort
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
+from armi_attention.api import (
+    LifeOpportunityFactsPort,
+    OpportunityAdmissionPort,
+    OpportunityCognitionPort,
+    OpportunityCognitionSelectionPort,
+    OpportunityContextReadPort,
+    OpportunityOperationReadPort,
+    OpportunityRuntimePort,
+    OpportunityTransitionPort,
+)
+from armi_attention.bootstrap import (
+    bootstrap_opportunity,
+    bootstrap_opportunity_admission,
+)
 from armi_capability.api import (
     CapabilityActionAuthorizationPort,
     CapabilityAdmissionPort,
@@ -178,20 +192,6 @@ from armi_memory.bootstrap import (
 )
 from armi_mood.api import MoodCognitionPort, MoodCommitPort, MoodReadPort
 from armi_mood.bootstrap import MoodModule, bootstrap_mood
-from armi_opportunity.api import (
-    LifeOpportunityFactsPort,
-    OpportunityAdmissionPort,
-    OpportunityCognitionPort,
-    OpportunityCognitionSelectionPort,
-    OpportunityContextReadPort,
-    OpportunityOperationReadPort,
-    OpportunityRuntimePort,
-    OpportunityTransitionPort,
-)
-from armi_opportunity.bootstrap import (
-    bootstrap_opportunity,
-    bootstrap_opportunity_admission,
-)
 from armi_perception.api import ExternalMediaFetchPort
 from armi_perception.bootstrap import (
     PerceptionModule,

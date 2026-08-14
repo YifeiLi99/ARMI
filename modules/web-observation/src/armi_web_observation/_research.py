@@ -7,6 +7,7 @@ from collections.abc import Callable
 from typing import cast
 from uuid import uuid7
 
+from armi_attention.api import OpportunityAdmissionPort
 from armi_evidence.api import EvidenceWritePort
 from armi_kernel.application import (
     ArtifactViolation,
@@ -14,7 +15,6 @@ from armi_kernel.application import (
     WorkLease,
     WorkViolation,
 )
-from armi_opportunity.api import OpportunityAdmissionPort
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
     RuntimeTransactionFailure,

@@ -8,6 +8,10 @@ from typing import cast
 from uuid import UUID, uuid7
 
 from armi_activity.api import ActivityReadPort
+from armi_attention.api import (
+    OpportunityCognitionSelectionPort,
+    OpportunityContextReadPort,
+)
 from armi_capability.api import CapabilityRequestDraft
 from armi_codex.api import CodexDelegationDraft, CodexTaskSourceReadPort
 from armi_context.api import ContextCognitionReadPort
@@ -62,10 +66,6 @@ from armi_memory.api import (
     MemoryReadPort,
 )
 from armi_mood.api import MoodReadPort
-from armi_opportunity.api import (
-    OpportunityCognitionSelectionPort,
-    OpportunityContextReadPort,
-)
 from armi_prompt.api import PromptReadPort, PromptViolation
 from armi_relationship.api import RelationshipReadPort
 from armi_runtime_foundation import (

@@ -8,6 +8,12 @@ from typing import Any
 from uuid import UUID, uuid7
 
 from armi_artifact_store.api import ArtifactCatalogPort
+from armi_attention.api import (
+    ExternalEvidenceOpportunityDraft,
+    OpportunityAdmissionPort,
+    OpportunityAdmissionStatus,
+    OpportunityPurpose,
+)
 from armi_effect.api import EffectCodexClaim, EffectCodexLifecyclePort
 from armi_evidence.api import (
     EvidenceDraft,
@@ -36,12 +42,6 @@ from armi_kernel.application import (
     AuditSensitivity,
 )
 from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
-from armi_opportunity.api import (
-    ExternalEvidenceOpportunityDraft,
-    OpportunityAdmissionPort,
-    OpportunityAdmissionStatus,
-    OpportunityPurpose,
-)
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
 from ._delegation_contract import (

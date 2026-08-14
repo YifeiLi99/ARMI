@@ -6,6 +6,12 @@ from datetime import timedelta
 from uuid import UUID, uuid7
 
 import rfc8785
+from armi_attention.api import (
+    OpportunityCognitionCandidate,
+    OpportunityCognitionSelectionPort,
+    OpportunityCognitionSelectionScope,
+    OpportunitySelectionCursor,
+)
 from armi_codex.api import CodexContextReadPort, CodexTaskSourceReadPort
 from armi_cognition.api import (
     CognitionContextEpisodeDraft,
@@ -42,12 +48,6 @@ from armi_kernel.contracts import (
     Purpose,
     SubjectId,
     TraceId,
-)
-from armi_opportunity.api import (
-    OpportunityCognitionCandidate,
-    OpportunityCognitionSelectionPort,
-    OpportunityCognitionSelectionScope,
-    OpportunitySelectionCursor,
 )
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,

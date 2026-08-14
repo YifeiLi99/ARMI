@@ -1,4 +1,4 @@
-"""Data-rights participant owned by the opportunity module."""
+"""Data-rights participant owned by the Attention module."""
 
 from __future__ import annotations
 

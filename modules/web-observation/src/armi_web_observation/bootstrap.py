@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from armi_attention.api import OpportunityAdmissionPort
 from armi_data_rights.api import DataRightsParticipant
 from armi_evidence.api import EvidenceWritePort
 from armi_kernel.application import CredentialLocator, CredentialPort, DurableWorkPort
-from armi_opportunity.api import OpportunityAdmissionPort
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
     RecoveryParticipant,

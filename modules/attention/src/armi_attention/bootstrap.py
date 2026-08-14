@@ -1,4 +1,4 @@
-"""Composition-only construction of the active opportunity module."""
+"""Composition-only construction of the active Attention module."""
 
 from __future__ import annotations
 

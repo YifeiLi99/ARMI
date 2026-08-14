@@ -5,6 +5,12 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID, uuid7
 
+from armi_attention.api import (
+    ExternalEvidenceOpportunityDraft,
+    OpportunityAdmissionPort,
+    OpportunityAdmissionStatus,
+    OpportunityPurpose,
+)
 from armi_evidence.api import (
     EvidenceDraft,
     EvidenceId,
@@ -14,12 +20,6 @@ from armi_evidence.api import (
     EvidenceWritePort,
 )
 from armi_kernel.contracts import Digest, TraceId
-from armi_opportunity.api import (
-    ExternalEvidenceOpportunityDraft,
-    OpportunityAdmissionPort,
-    OpportunityAdmissionStatus,
-    OpportunityPurpose,
-)
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
 
 from ._creator_contract import (

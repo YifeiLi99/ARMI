@@ -12,6 +12,7 @@ from typing import Any, Literal, Protocol, TypedDict, assert_never, cast
 from uuid import UUID, uuid7
 
 from armi_activity.api import ActivityReadPort, ActivityViolation
+from armi_attention.api import LifeViolation
 from armi_capability.api import (
     CapabilityDecisionId,
     CapabilityPolicyPort,
@@ -102,7 +103,6 @@ from armi_kernel.contracts import (
 )
 from armi_material.api import CreatorLifeMaterialItem, MaterialViolation
 from armi_memory.api import MemoryReadPort, MemoryViolation
-from armi_opportunity.api import LifeViolation
 from armi_prompt.api import (
     CreatorPromptDeactivateCommand,
     CreatorPromptPort,

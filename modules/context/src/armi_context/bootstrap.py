@@ -7,6 +7,10 @@ from dataclasses import dataclass
 
 from armi_activity.api import ActivityReadPort
 from armi_artifact_store import ContentAddressedArtifactStore
+from armi_attention.api import (
+    OpportunityCognitionSelectionPort,
+    OpportunityContextReadPort,
+)
 from armi_capability.api import CapabilityReadPort
 from armi_codex.api import CodexTaskSourceReadPort
 from armi_data_rights.api import DataRightsParticipant
@@ -22,10 +26,6 @@ from armi_memory.api import (
     MemoryReadPort,
 )
 from armi_mood.api import MoodReadPort
-from armi_opportunity.api import (
-    OpportunityCognitionSelectionPort,
-    OpportunityContextReadPort,
-)
 from armi_prompt.api import PromptReadPort
 from armi_relationship.api import RelationshipReadPort
 from armi_runtime_foundation import (

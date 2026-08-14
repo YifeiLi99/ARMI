@@ -8,6 +8,13 @@ repositories remain reachable only from their own distribution bootstrap.
 
 from armi_activity.bootstrap import bootstrap_activity, bootstrap_activity_cognition
 from armi_artifact_store.bootstrap import bootstrap_artifact_catalog
+from armi_attention.bootstrap import (
+    bootstrap_opportunity,
+    bootstrap_opportunity_admission,
+    bootstrap_opportunity_cognition,
+    bootstrap_opportunity_sleep,
+    bootstrap_opportunity_transition,
+)
 from armi_capability.bootstrap import bootstrap_capability
 from armi_codex.bootstrap import (
     bootstrap_codex_commit,
@@ -59,13 +66,6 @@ from armi_interaction.bootstrap import (
 from armi_material.bootstrap import bootstrap_material, bootstrap_material_cognition
 from armi_memory.bootstrap import bootstrap_memory, bootstrap_memory_cognition
 from armi_mood.bootstrap import bootstrap_mood, bootstrap_mood_cognition
-from armi_opportunity.bootstrap import (
-    bootstrap_opportunity,
-    bootstrap_opportunity_admission,
-    bootstrap_opportunity_cognition,
-    bootstrap_opportunity_sleep,
-    bootstrap_opportunity_transition,
-)
 from armi_perception.bootstrap import compose_external_content_pipeline
 from armi_prompt.bootstrap import bootstrap_prompt, bootstrap_prompt_cognition
 from armi_relationship.bootstrap import (

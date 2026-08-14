@@ -6,10 +6,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
+from armi_attention.api import OpportunityAdmissionPort
 from armi_data_rights.api import DataRightsParticipant
 from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
 from armi_interaction.api import ExternalMessagePartKind, InteractionPerceptionPort
-from armi_opportunity.api import OpportunityAdmissionPort
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
     RecoveryParticipant,

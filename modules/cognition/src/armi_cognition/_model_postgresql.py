@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from uuid import UUID, uuid7
 
+from armi_attention.api import OpportunityCognitionSelectionPort
 from armi_context.api import ContextCognitionReadPort
 from armi_kernel.application import (
     ArtifactId,
@@ -37,7 +38,6 @@ from armi_kernel.contracts import (
     SubjectId,
     TraceId,
 )
-from armi_opportunity.api import OpportunityCognitionSelectionPort
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWork,
     PostgreSQLTransaction,

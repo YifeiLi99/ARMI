@@ -18,6 +18,10 @@ from armi_artifact_store.content_store import (
 from armi_artifact_store.life_material_codec import (
     parse_life_material_artifact,
 )
+from armi_attention.api import (
+    OpportunityCognitionSelectionPort,
+    OpportunityContextReadPort,
+)
 from armi_codex.api import CodexTaskSourceReadPort
 from armi_context.api import ContextCognitionReadPort
 from armi_evidence.api import EvidenceReadPort
@@ -59,10 +63,6 @@ from armi_memory.api import (
     MemorySourceKind,
 )
 from armi_mood.api import MoodCognitionPort, MoodReadPort
-from armi_opportunity.api import (
-    OpportunityCognitionSelectionPort,
-    OpportunityContextReadPort,
-)
 from armi_prompt.api import PromptCognitionPort, PromptReadPort
 from armi_relationship.api import (
     RelationshipBoundary,

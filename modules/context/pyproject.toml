@@ -16,7 +16,7 @@ dependencies = [
     "armi-material==0.0.0",
     "armi-memory==0.0.0",
     "armi-mood==0.0.0",
-    "armi-opportunity==0.0.0",
+    "armi-attention==0.0.0",
     "armi-prompt==0.0.0",
     "armi-relationship==0.0.0",
     "armi-runtime-foundation==0.0.0",
@@ -39,7 +39,7 @@ armi-kernel = { workspace = true }
 armi-material = { workspace = true }
 armi-memory = { workspace = true }
 armi-mood = { workspace = true }
-armi-opportunity = { workspace = true }
+armi-attention = { workspace = true }
 armi-prompt = { workspace = true }
 armi-relationship = { workspace = true }
 armi-runtime-foundation = { workspace = true }

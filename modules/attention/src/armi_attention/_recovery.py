@@ -1,4 +1,4 @@
-"""Opportunity-owned startup recovery contribution."""
+"""Attention-owned startup recovery contribution."""
 
 from armi_runtime_foundation import (
     PostgreSQLTransaction,

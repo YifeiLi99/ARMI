@@ -8,6 +8,7 @@ from pathlib import Path
 from uuid import UUID
 
 from armi_artifact_store.api import ArtifactCatalogPort
+from armi_attention.api import OpportunityAdmissionPort
 from armi_data_rights.api import DataRightsParticipant
 from armi_effect.api import EffectCodexLifecyclePort
 from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
@@ -18,7 +19,6 @@ from armi_kernel.application import (
     CredentialLocator,
     CredentialPort,
 )
-from armi_opportunity.api import OpportunityAdmissionPort
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
     RecoveryParticipant,

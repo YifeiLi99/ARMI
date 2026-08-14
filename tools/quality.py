@@ -142,7 +142,7 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
             "armi_expression",
             "armi_kernel",
             "armi_interaction",
-            "armi_opportunity",
+            "armi_attention",
             "armi_perception",
             "armi_memory",
             "armi_material",

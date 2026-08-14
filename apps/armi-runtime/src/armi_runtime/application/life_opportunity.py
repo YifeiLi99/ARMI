@@ -6,17 +6,17 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from armi_activity.api import ActivityReadPort
-from armi_capability.api import CapabilityOperationReadPort
-from armi_cognition.api import CognitionOperationReadPort
-from armi_effect.api import EffectOperationReadPort
-from armi_expression.api import ExpressionIntentReadPort
-from armi_interaction.api import InteractionIdentityPort
-from armi_opportunity.api import (
+from armi_attention.api import (
     AttentionRetryFacts,
     CreatorOutreachFacts,
     LifeGenerationFacts,
     LifeOpportunityFactsPort,
 )
+from armi_capability.api import CapabilityOperationReadPort
+from armi_cognition.api import CognitionOperationReadPort
+from armi_effect.api import EffectOperationReadPort
+from armi_expression.api import ExpressionIntentReadPort
+from armi_interaction.api import InteractionIdentityPort
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
 
 

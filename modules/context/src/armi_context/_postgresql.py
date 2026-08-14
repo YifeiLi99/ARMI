@@ -8,6 +8,10 @@ from uuid import UUID, uuid7
 
 import rfc8785
 from armi_activity.api import ActivityReadPort
+from armi_attention.api import (
+    OpportunityCognitionSelectionPort,
+    OpportunityContextReadPort,
+)
 from armi_capability.api import CapabilityContextStatePayload, CapabilityReadPort
 from armi_codex.api import CodexTaskSourceReadPort
 from armi_effect.api import EffectOperationReadPort
@@ -41,10 +45,6 @@ from armi_kernel.contracts import (
 )
 from armi_memory.api import MemoryReadPort
 from armi_mood.api import MoodReadPort
-from armi_opportunity.api import (
-    OpportunityCognitionSelectionPort,
-    OpportunityContextReadPort,
-)
 from armi_prompt.api import PromptContextSource, PromptReadPort
 from armi_relationship.api import RelationshipReadPort
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
