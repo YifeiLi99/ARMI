@@ -2591,7 +2591,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "creator-channel-health.v1";
+      projection_version: "creator-channel-health.v2";
       /** Reason Codes */
       reason_codes: components["schemas"]["ReasonCode"][];
       /**
@@ -2605,6 +2605,8 @@ export interface components {
         | "ready"
         | "unavailable"
         | "misconfigured";
+      /** Webui Url */
+      webui_url: string | null;
     };
     /**
      * Readiness

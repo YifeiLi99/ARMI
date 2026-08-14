@@ -10,7 +10,7 @@ function response(state: string, reasonCodes: string[] = []): Response {
   return new Response(
     JSON.stringify({
       contract_version: "1.0",
-      projection_version: "creator-channel-health.v1",
+      projection_version: "creator-channel-health.v2",
       channel: "qq",
       driver: "napcat",
       state,
@@ -18,6 +18,7 @@ function response(state: string, reasonCodes: string[] = []): Response {
       api_reachable: state === "ready" || state === "login_required",
       account_online: state === "ready",
       account_matches: state === "ready",
+      webui_url: "http://127.0.0.1:6099/webui/",
       observed_at: "2026-08-14T08:00:00.000000Z",
       reason_codes: reasonCodes,
     }),
@@ -73,5 +74,19 @@ describe("QQ channel health card", () => {
     ).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "刷新" }));
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("links to the local WebUI without putting its credential in the URL", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => response("ready")),
+    );
+    renderCard();
+
+    const link = await screen.findByRole("link", { name: "打开 NapCat" });
+    expect(link).toHaveAttribute("href", "http://127.0.0.1:6099/webui/");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noreferrer");
+    expect(link.getAttribute("href")).not.toContain("token");
   });
 });

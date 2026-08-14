@@ -54,13 +54,25 @@ export function QQChannelHealthCard({
           <p className="eyebrow">外部渠道</p>
           <h2 id="qq-health-heading">QQ / NapCat</h2>
         </div>
-        <button
-          type="button"
-          className="secondary"
-          onClick={() => void health.refetch()}
-        >
-          刷新
-        </button>
+        <div className="panel-actions">
+          {health.data?.webui_url ? (
+            <a
+              className="secondary-action"
+              href={health.data.webui_url}
+              target="_blank"
+              rel="noreferrer"
+            >
+              打开 NapCat
+            </a>
+          ) : null}
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => void health.refetch()}
+          >
+            刷新
+          </button>
+        </div>
       </div>
 
       {health.isPending ? <p role="status">正在检查 QQ 渠道</p> : null}
@@ -88,6 +100,10 @@ export function QQChannelHealthCard({
               <dd>{yesNo(health.data.account_matches)}</dd>
             </div>
             <div>
+              <dt>管理页面</dt>
+              <dd>{health.data.webui_url ? "可以打开" : "地址不可用"}</dd>
+            </div>
+            <div>
               <dt>最近检查</dt>
               <dd>{health.data.observed_at}</dd>
             </div>
@@ -100,7 +116,9 @@ export function QQChannelHealthCard({
         </>
       )}
       <p className="boundary-note">
-        QQ 渠道异常不会阻断 Creator；页面仅显示状态，不控制宿主进程。
+        “打开 NapCat”只跳转本机管理页。首次认证可运行{" "}
+        <code>armi channel qq open</code>，命令会复制登录凭据并打开页面；Creator
+        不控制宿主进程。
       </p>
     </section>
   );

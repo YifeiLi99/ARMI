@@ -7,9 +7,11 @@ import ctypes
 import hmac
 import json
 import os
+import shutil
 import socket
 import subprocess
 import time
+import webbrowser
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -54,12 +56,13 @@ class QQChannelHealth:
     api_reachable: bool
     account_online: bool | None
     account_matches: bool | None
+    webui_url: str | None
     observed_at: str
     reason_codes: tuple[str, ...]
 
     def safe_view(self) -> dict[str, object]:
         return {
-            "projection_version": "creator-channel-health.v1",
+            "projection_version": "creator-channel-health.v2",
             "channel": "qq",
             "driver": "napcat",
             "state": self.state,
@@ -67,6 +70,7 @@ class QQChannelHealth:
             "api_reachable": self.api_reachable,
             "account_online": self.account_online,
             "account_matches": self.account_matches,
+            "webui_url": self.webui_url,
             "observed_at": self.observed_at,
             "reason_codes": list(self.reason_codes),
         }
@@ -79,6 +83,18 @@ class NapCatStartResult:
 
     def safe_view(self) -> dict[str, object]:
         return {"status": self.status, "channel": self.health.safe_view()}
+
+
+@dataclass(frozen=True, slots=True)
+class NapCatWebUIOpenResult:
+    webui_url: str
+
+    def safe_view(self) -> dict[str, object]:
+        return {
+            "status": "opened",
+            "webui_url": self.webui_url,
+            "token_delivery": "clipboard",
+        }
 
 
 class NapCatProcessManager:
@@ -184,10 +200,41 @@ class NapCatProcessManager:
                 last.api_reachable,
                 last.account_online,
                 last.account_matches,
+                last.webui_url,
                 _observed_at(),
                 ("NAPCAT_START_PENDING",),
             ),
         )
+
+    def open_webui(self) -> NapCatWebUIOpenResult:
+        config = _load_napcat_webui_config(self._prepared.root)
+        if not _port_is_listening("127.0.0.1", config.port):
+            raise RuntimeViolation(
+                "CLI-QQ-WEBUI-UNAVAILABLE",
+                "the NapCat WebUI is not listening on its configured local port",
+            )
+        try:
+            _copy_text_to_clipboard(config.token)
+        except RuntimeViolation:
+            raise
+        except Exception as exc:
+            raise RuntimeViolation(
+                "CLI-QQ-WEBUI-CLIPBOARD",
+                "the NapCat WebUI token could not be copied to the clipboard",
+            ) from exc
+        try:
+            opened = _open_default_browser(config.url)
+        except Exception as exc:
+            raise RuntimeViolation(
+                "CLI-QQ-WEBUI-OPEN",
+                "the NapCat WebUI could not be opened in the default browser",
+            ) from exc
+        if not opened:
+            raise RuntimeViolation(
+                "CLI-QQ-WEBUI-OPEN",
+                "the NapCat WebUI could not be opened in the default browser",
+            )
+        return NapCatWebUIOpenResult(config.url)
 
     def _binding(self) -> QQNapCatBindingConfig | None:
         path = self._prepared.root / "channels" / "qq-napcat.yaml"
@@ -428,6 +475,127 @@ class _Installation:
     qq_executable: Path
 
 
+@dataclass(frozen=True, slots=True, repr=False)
+class _NapCatWebUIConfig:
+    url: str
+    port: int
+    token: str
+
+
+def _load_napcat_webui_config(environment_root: Path) -> _NapCatWebUIConfig:
+    path = environment_root / "tools" / "napcat" / "config" / "webui.json"
+    try:
+        resolved, root = require_within_roots(
+            path,
+            (environment_root,),
+            code="CLI-QQ-WEBUI-CONFIG",
+        )
+    except ConfigurationViolation:
+        raise RuntimeViolation(
+            "CLI-QQ-WEBUI-CONFIG",
+            "the NapCat WebUI configuration path is invalid",
+        ) from None
+    if (
+        not resolved.is_file()
+        or resolved.is_symlink()
+        or has_reparse_point(resolved, root=root)
+    ):
+        raise RuntimeViolation(
+            "CLI-QQ-WEBUI-CONFIG",
+            "the NapCat WebUI configuration is unavailable",
+        )
+    try:
+        document: object = json.loads(
+            resolved.read_text(encoding="utf-8", errors="strict")
+        )
+    except OSError, UnicodeError, json.JSONDecodeError:
+        raise RuntimeViolation(
+            "CLI-QQ-WEBUI-CONFIG",
+            "the NapCat WebUI configuration is invalid",
+        ) from None
+    if not isinstance(document, dict):
+        raise RuntimeViolation(
+            "CLI-QQ-WEBUI-CONFIG",
+            "the NapCat WebUI configuration is invalid",
+        )
+    values = cast(dict[object, object], document)
+    host = values.get("host")
+    port = values.get("port")
+    token = values.get("token")
+    if (
+        type(host) is not str
+        or host.strip().casefold()
+        not in {"::", "::1", "0.0.0.0", "127.0.0.1", "localhost"}
+        or type(port) is not int
+        or not 1 <= port <= 65535
+        or type(token) is not str
+        or not token
+        or len(token) > 4096
+        or "\r" in token
+        or "\n" in token
+    ):
+        raise RuntimeViolation(
+            "CLI-QQ-WEBUI-CONFIG",
+            "the NapCat WebUI configuration is invalid",
+        )
+    return _NapCatWebUIConfig(
+        f"http://127.0.0.1:{port}/webui/",
+        port,
+        token,
+    )
+
+
+def _discover_napcat_webui_url(environment_root: Path) -> str | None:
+    try:
+        return _load_napcat_webui_config(environment_root).url
+    except RuntimeViolation:
+        return None
+
+
+def _copy_text_to_clipboard(value: str) -> None:
+    executable = shutil.which("pwsh")
+    if os.name != "nt" or executable is None:
+        raise RuntimeViolation(
+            "CLI-QQ-WEBUI-CLIPBOARD",
+            "the Windows clipboard is unavailable",
+        )
+    try:
+        completed = subprocess.run(
+            (
+                executable,
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "Set-Clipboard -Value ([Console]::In.ReadToEnd())",
+            ),
+            input=value,
+            text=True,
+            encoding="utf-8",
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5.0,
+            check=False,
+        )
+    except OSError, subprocess.TimeoutExpired:
+        raise RuntimeViolation(
+            "CLI-QQ-WEBUI-CLIPBOARD",
+            "the NapCat WebUI token could not be copied to the clipboard",
+        ) from None
+    if completed.returncode != 0:
+        raise RuntimeViolation(
+            "CLI-QQ-WEBUI-CLIPBOARD",
+            "the NapCat WebUI token could not be copied to the clipboard",
+        )
+
+
+def _open_default_browser(url: str) -> bool:
+    try:
+        return webbrowser.open(url, new=2)
+    except OSError, webbrowser.Error:
+        return False
+
+
 async def _inspect(
     binding: QQNapCatBindingConfig, token_view: memoryview
 ) -> NapCatHealthSnapshot:
@@ -452,6 +620,7 @@ def _compose_health(
     health: NapCatHealthSnapshot,
     *,
     ingress_ready: bool,
+    webui_url: str | None,
 ) -> QQChannelHealth:
     reasons = tuple(reason.replace("-", "_") for reason in health.reason_codes)
     state: QQChannelState = health.state
@@ -464,6 +633,7 @@ def _compose_health(
         health.api_reachable,
         health.account_online,
         health.account_matches,
+        webui_url,
         health.observed_at,
         reasons,
     )
@@ -475,7 +645,16 @@ def compose_qq_health(
     ingress_ready: bool,
     environment_root: Path | None = None,
 ) -> QQChannelHealth:
-    composed = _compose_health(health, ingress_ready=ingress_ready)
+    webui_url = (
+        _discover_napcat_webui_url(environment_root)
+        if environment_root is not None
+        else None
+    )
+    composed = _compose_health(
+        health,
+        ingress_ready=ingress_ready,
+        webui_url=webui_url,
+    )
     if (
         environment_root is not None
         and composed.state == "unavailable"
@@ -490,6 +669,7 @@ def compose_qq_health(
             False,
             False,
             None,
+            composed.webui_url,
             composed.observed_at,
             ("NAPCAT_LOGIN_REQUIRED",),
         )
@@ -497,7 +677,16 @@ def compose_qq_health(
 
 
 def _disabled_health() -> QQChannelHealth:
-    return QQChannelHealth("disabled", False, False, None, None, _observed_at(), ())
+    return QQChannelHealth(
+        "disabled",
+        False,
+        False,
+        None,
+        None,
+        None,
+        _observed_at(),
+        (),
+    )
 
 
 def disabled_qq_health() -> QQChannelHealth:
@@ -509,6 +698,7 @@ def _misconfigured_health(ingress_ready: bool, reason: str) -> QQChannelHealth:
         "misconfigured",
         ingress_ready,
         False,
+        None,
         None,
         None,
         _observed_at(),
@@ -662,6 +852,7 @@ def _executable_is_running(executable: Path) -> bool:
 __all__ = (
     "NapCatProcessManager",
     "NapCatStartResult",
+    "NapCatWebUIOpenResult",
     "QQChannelHealth",
     "QQChannelState",
     "compose_qq_health",

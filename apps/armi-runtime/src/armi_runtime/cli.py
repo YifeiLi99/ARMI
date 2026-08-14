@@ -84,7 +84,7 @@ def _parser() -> argparse.ArgumentParser:
         dest="channel_qq_command",
         required=True,
     )
-    for channel_lifecycle_command in ("start", "status"):
+    for channel_lifecycle_command in ("open", "start", "status"):
         channel_lifecycle = channel_qq_command.add_parser(channel_lifecycle_command)
         channel_lifecycle.add_argument("--environment-root", type=Path)
     database = command.add_parser("db")
@@ -251,14 +251,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     elif args.command == "bootstrap":
         credential_scope = {"database.birth": "database.runtime"}
     elif args.command == "channel":
-        credential_scope = {
-            QQ_NAPCAT_ACCESS_TOKEN_PURPOSE: QQ_NAPCAT_ACCESS_TOKEN_LOCATOR,
-            **(
-                {QQ_NAPCAT_EVENT_SECRET_PURPOSE: (QQ_NAPCAT_EVENT_SECRET_LOCATOR)}
-                if args.channel_qq_command == "start"
-                else {}
-            ),
-        }
+        credential_scope = (
+            {}
+            if args.channel_qq_command == "open"
+            else {
+                QQ_NAPCAT_ACCESS_TOKEN_PURPOSE: QQ_NAPCAT_ACCESS_TOKEN_LOCATOR,
+                **(
+                    {QQ_NAPCAT_EVENT_SECRET_PURPOSE: (QQ_NAPCAT_EVENT_SECRET_LOCATOR)}
+                    if args.channel_qq_command == "start"
+                    else {}
+                ),
+            }
+        )
     elif args.command == "status":
         credential_scope = {
             QQ_NAPCAT_ACCESS_TOKEN_PURPOSE: QQ_NAPCAT_ACCESS_TOKEN_LOCATOR,
@@ -406,11 +410,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "channel":
         manager = NapCatProcessManager(prepared)
         try:
-            result = (
-                manager.start().safe_view()
-                if args.channel_qq_command == "start"
-                else manager.status().safe_view()
-            )
+            if args.channel_qq_command == "start":
+                result = manager.start().safe_view()
+            elif args.channel_qq_command == "open":
+                result = manager.open_webui().safe_view()
+            else:
+                result = manager.status().safe_view()
         except RuntimeViolation as error:
             _safe_failure(error)
             return 3

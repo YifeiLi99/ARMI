@@ -1142,7 +1142,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
     async def _qq_health(self) -> QQChannelHealthResponse:
         return QQChannelHealthResponse(
             contract_version="1.0",
-            projection_version="creator-channel-health.v1",
+            projection_version="creator-channel-health.v2",
             channel="qq",
             driver="napcat",
             state="ready",
@@ -1150,6 +1150,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             api_reachable=True,
             account_online=True,
             account_matches=True,
+            webui_url="http://127.0.0.1:6099/webui/",
             observed_at="2026-08-14T08:00:00.000000Z",
             reason_codes=[],
         )

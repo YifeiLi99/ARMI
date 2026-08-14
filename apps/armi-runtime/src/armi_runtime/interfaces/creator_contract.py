@@ -658,7 +658,7 @@ class RuntimeStatusResponse(_StrictWireModel):
 
 class QQChannelHealthResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["creator-channel-health.v1"]
+    projection_version: Literal["creator-channel-health.v2"]
     channel: Literal["qq"]
     driver: Literal["napcat"]
     state: Literal[
@@ -673,6 +673,13 @@ class QQChannelHealthResponse(_StrictWireModel):
     api_reachable: bool
     account_online: bool | None
     account_matches: bool | None
+    webui_url: (
+        Annotated[
+            str,
+            Field(pattern=r"^http://127\.0\.0\.1:[1-9][0-9]{0,4}/webui/$"),
+        ]
+        | None
+    )
     observed_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
     reason_codes: Annotated[list[ReasonCode], Field(max_length=16)]
 

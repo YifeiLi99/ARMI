@@ -1371,7 +1371,7 @@ async def _serve(
             )
         return QQChannelHealthResponse(
             contract_version="1.0",
-            projection_version="creator-channel-health.v1",
+            projection_version="creator-channel-health.v2",
             channel="qq",
             driver="napcat",
             state=health.state,
@@ -1379,6 +1379,7 @@ async def _serve(
             api_reachable=health.api_reachable,
             account_online=health.account_online,
             account_matches=health.account_matches,
+            webui_url=health.webui_url,
             observed_at=health.observed_at,
             reason_codes=list(health.reason_codes),
         )

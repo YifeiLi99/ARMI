@@ -358,6 +358,14 @@ textarea:focus-visible {
   margin-bottom: 0.35rem;
 }
 
+.panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: flex-end;
+}
+
 .activity-list,
 .activity-timeline ol,
 .maintenance-timeline ol {
@@ -1428,6 +1436,24 @@ button.account-button {
   background: var(--app-bg);
 }
 
+.page-content a.secondary-action {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--surface);
+  color: #45454b;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: normal;
+  text-decoration: none;
+}
+
+.page-content a.secondary-action:hover {
+  background: var(--app-bg);
+}
+
 .page-content input,
 .page-content textarea,
 .page-content select {
@@ -1440,6 +1466,7 @@ button.account-button {
 .page-content textarea:focus-visible,
 .page-content select:focus-visible,
 .page-content button:focus-visible,
+.page-content a.secondary-action:focus-visible,
 .workspace-sidebar button:focus-visible,
 .workspace-toolbar button:focus-visible {
   outline: 2px solid #606067;
