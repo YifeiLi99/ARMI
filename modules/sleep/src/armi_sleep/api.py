@@ -247,11 +247,20 @@ class SleepOpportunityDraft:
     source_kind: str
     source_ref: UUID
     source_version: int
-    available_after: datetime | None = None
+    available_after: datetime
     expires_at: datetime | None = None
     predecessor_id: UUID | None = None
     root_id: UUID | None = None
     reconsideration_no: int = 0
+
+    def __post_init__(self) -> None:
+        if self.available_after.tzinfo is None:
+            raise SleepViolation("SLEEP-OPPORTUNITY-TIME")
+        if self.expires_at is not None and (
+            self.expires_at.tzinfo is None
+            or self.expires_at <= self.available_after
+        ):
+            raise SleepViolation("SLEEP-OPPORTUNITY-TIME")
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime, timedelta
 from uuid import uuid7
 
 import pytest
@@ -13,6 +14,7 @@ from armi_sleep.api import (
     MaintenanceViolation,
     MaintenanceWorkOutcome,
     SleepDecisionKind,
+    SleepOpportunityDraft,
     SleepViolation,
     plan_maintenance_checkpoint,
     validate_maintenance_advance,
@@ -39,6 +41,33 @@ def test_sleep_decision_round_trip_uses_canonical_owner_payload() -> None:
         draft.canonical_payload
     )
 
+
+def test_sleep_opportunity_requires_an_aware_available_time() -> None:
+    now = datetime.now(UTC)
+    draft = SleepOpportunityDraft(
+        uuid7(), "consider_sleep", "maintenance_window", uuid7(), 1, now
+    )
+    assert draft.available_after == now
+
+    with pytest.raises(SleepViolation, match="SLEEP-OPPORTUNITY-TIME"):
+        SleepOpportunityDraft(
+            uuid7(),
+            "consider_sleep",
+            "maintenance_window",
+            uuid7(),
+            1,
+            datetime.now(),
+        )
+    with pytest.raises(SleepViolation, match="SLEEP-OPPORTUNITY-TIME"):
+        SleepOpportunityDraft(
+            uuid7(),
+            "consider_sleep",
+            "maintenance_window",
+            uuid7(),
+            1,
+            now,
+            now - timedelta(seconds=1),
+        )
 
 def test_maintenance_result_round_trip_preserves_exact_head_and_memory_ref() -> None:
     cognition = bootstrap_sleep_cognition()

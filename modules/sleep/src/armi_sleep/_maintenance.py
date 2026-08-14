@@ -529,6 +529,7 @@ class PostgreSQLMaintenanceRepository:
                 "maintenance_phase_revision",
                 revision_id,
                 head_version,
+                datetime.now(UTC),
             ),
         )
         return first.opportunity_id, first.inserted
