@@ -396,7 +396,7 @@ class NapCatProcessManager:
         if os.name == "nt":
             creation_flags = (
                 subprocess.CREATE_NEW_PROCESS_GROUP
-                | subprocess.DETACHED_PROCESS
+                | subprocess.CREATE_NO_WINDOW
                 | subprocess.CREATE_BREAKAWAY_FROM_JOB
             )
         try:

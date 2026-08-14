@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -42,3 +43,6 @@ def test_quick_login_passes_account_as_launcher_argument(
         "10001",
     )
     assert popen.call_args.kwargs["env"]["SYSTEMDRIVE"] == "C:"
+    creation_flags = popen.call_args.kwargs["creationflags"]
+    assert creation_flags & subprocess.CREATE_NO_WINDOW
+    assert not creation_flags & subprocess.DETACHED_PROCESS
