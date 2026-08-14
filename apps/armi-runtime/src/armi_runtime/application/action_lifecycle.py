@@ -156,7 +156,6 @@ class RuntimeEffectRegistrationContext:
                 transaction,
                 scene_id=intent.scene_id,
                 context_party_id=intent.context_party_id,
-                intended_destination_kind="creator_inbox",
             )
             destination_party_id = route.destination_party_id
             destination_kind = route.destination_kind

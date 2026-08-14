@@ -64,6 +64,10 @@ class PostgreSQLInteractionActionOwner:
             destination_kind = "external_private"
             destination_party = context_party_id
             binding_index = 9
+        elif str(row[4]) == "creator":
+            destination_kind = "creator_inbox"
+            destination_party = context_party_id
+            binding_index = None
         else:
             destination_kind = "other_human_inbox"
             destination_party = context_party_id
