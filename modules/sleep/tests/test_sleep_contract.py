@@ -69,6 +69,7 @@ def test_sleep_opportunity_requires_an_aware_available_time() -> None:
             now - timedelta(seconds=1),
         )
 
+
 def test_maintenance_result_round_trip_preserves_exact_head_and_memory_ref() -> None:
     cognition = bootstrap_sleep_cognition()
     decision = CandidateMaintenanceDecisionDraft(
@@ -129,6 +130,23 @@ def test_maintenance_lifecycle_is_ordered_interruptible_and_terminal() -> None:
         MaintenanceResultStatus.RUNNING,
     )
     validate_maintenance_advance(preparing, memory)
+
+    phase = memory
+    for expected in (
+        MaintenancePhase.SELF_CHECK,
+        MaintenancePhase.REFLECT_SELF,
+        MaintenancePhase.REFLECT_MIND,
+        MaintenancePhase.REFLECT_PROMPT,
+        MaintenancePhase.LIFE_QUIET,
+    ):
+        planned = plan_maintenance_checkpoint(
+            phase,
+            wake_requested=False,
+            quiet_elapsed=True,
+        )
+        assert planned is not None
+        assert planned.following.phase is expected
+        phase = planned.following
 
     with pytest.raises(MaintenanceViolation):
         validate_maintenance_advance(

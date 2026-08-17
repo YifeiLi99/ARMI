@@ -54,6 +54,7 @@ from armi_subject_state.api import SubjectStateReadPort
 from .api import (
     ContextArtifactCatalogPort,
     ContextEpisodePort,
+    ContextExperienceState,
     ContextResult,
     ContextRuntimeSubjectPort,
     ContextSelectionPort,
@@ -114,6 +115,7 @@ class ContextEpisodeSnapshot:
     trace_id: TraceId
     component_payloads: tuple[tuple[str, UUID, int, bytes], ...]
     memory_payloads: tuple[tuple[UUID, int, bytes, str], ...]
+    experience_context: tuple[ContextExperienceState, ...]
     has_memory_records: bool
     relationship_payloads: tuple[tuple[UUID, int, bytes], ...]
     relationship_commitment_payloads: tuple[tuple[UUID, int, bytes, str], ...]
@@ -249,10 +251,22 @@ class PostgreSQLContextRepository:
             subject_id=episode.subject_id,
             generation_id=subject.generation_id,
             other_party_id=None
-            if episode.purpose == "perform_subject_self_check"
+            if episode.purpose
+            in {
+                "perform_subject_self_check",
+                "reflect_self",
+                "reflect_mind",
+                "reflect_prompt",
+            }
             else episode.context_party_id,
             scope=None
-            if episode.purpose == "perform_subject_self_check"
+            if episode.purpose
+            in {
+                "perform_subject_self_check",
+                "reflect_self",
+                "reflect_mind",
+                "reflect_prompt",
+            }
             else ("other_human_social" if other_human else "creator_social"),
         )
         activity = await self._activities.context_summary(
@@ -376,6 +390,7 @@ class PostgreSQLContextRepository:
             trace_id=episode.trace_id,
             component_payloads=component_payloads,
             memory_payloads=memory_payloads,
+            experience_context=episode.experience_context,
             has_memory_records=bool(memory_rows),
             relationship_payloads=relationship_bundle.relationships,
             relationship_commitment_payloads=relationship_bundle.commitments,

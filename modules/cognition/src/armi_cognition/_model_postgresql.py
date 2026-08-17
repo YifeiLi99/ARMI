@@ -50,6 +50,17 @@ _VALIDATION_WORK_KIND = "cognition.candidate.validate"
 
 
 @dataclass(frozen=True, slots=True)
+class ModelBranchSnapshot:
+    branch_id: UUID
+    role: str
+    status: str
+    selected_attempt_id: UUID | None
+    response_artifact: ArtifactRef | None
+    failure_code: str | None
+    attempt_count: int
+
+
+@dataclass(frozen=True, slots=True)
 class ModelEpisodeSnapshot:
     episode_id: UUID
     subject_id: UUID
@@ -62,6 +73,7 @@ class ModelEpisodeSnapshot:
     included_context_refs: tuple[dict[str, object], ...]
     budget_exclusions: tuple[dict[str, object], ...]
     trace_id: TraceId
+    branches: tuple[ModelBranchSnapshot, ...]
 
 
 class PostgreSQLCognitiveModelRepository:
@@ -116,6 +128,42 @@ class PostgreSQLCognitiveModelRepository:
         included, excluded = await self._context.model_references(
             connection, episode_id=row[0]
         )
+        branch_rows = await (
+            await connection.execute(
+                """SELECT branch.cognitive_branch_id,branch.branch_role,branch.status,
+                          branch.selected_attempt_id,branch.response_artifact_id,
+                          branch.failure_code,
+                          (SELECT count(*) FROM armi.cognitive_attempts AS attempt
+                           WHERE attempt.cognitive_branch_id=branch.cognitive_branch_id)
+                   FROM armi.cognitive_branches AS branch
+                   WHERE branch.cognitive_episode_id=%s
+                   ORDER BY CASE branch_role
+                     WHEN 'response_action' THEN 1
+                     WHEN 'episode_appraisal' THEN 2 ELSE 3 END
+                   FOR UPDATE OF branch""",
+                (row[0],),
+            )
+        ).fetchall()
+        if not branch_rows:
+            raise ModelViolation("MODEL-BRANCH-STATE")
+        branches: list[ModelBranchSnapshot] = []
+        for item in branch_rows:
+            response_artifact = (
+                None
+                if item[4] is None
+                else await self._artifact_ref(unit_of_work, item[4])
+            )
+            branches.append(
+                ModelBranchSnapshot(
+                    item[0],
+                    str(item[1]),
+                    str(item[2]),
+                    item[3],
+                    response_artifact,
+                    None if item[5] is None else str(item[5]),
+                    int(item[6]),
+                )
+            )
         return ModelEpisodeSnapshot(
             row[0],
             row[1],
@@ -143,6 +191,7 @@ class PostgreSQLCognitiveModelRepository:
                 for item in excluded
             ),
             TraceId(str(row[8])),
+            tuple(branches),
         )
 
     async def prepare_attempt(
@@ -151,6 +200,7 @@ class PostgreSQLCognitiveModelRepository:
         *,
         lease: WorkLease,
         snapshot: ModelEpisodeSnapshot,
+        branch: ModelBranchSnapshot,
         binding: ModelBinding,
         request_artifact: ArtifactRef,
     ) -> ModelAttemptId | None:
@@ -161,13 +211,13 @@ class PostgreSQLCognitiveModelRepository:
                 """
                 SELECT model_attempt_id, dispatch_status
                 FROM armi.cognitive_attempts
-                WHERE cognitive_episode_id = %s
+                WHERE cognitive_branch_id = %s
                   AND dispatch_status IN ('prepared', 'dispatched')
                 ORDER BY attempt_no DESC
                 LIMIT 1
                 FOR UPDATE
                 """,
-                (snapshot.episode_id,),
+                (branch.branch_id,),
             )
         ).fetchone()
         if previous is not None:
@@ -185,21 +235,13 @@ class PostgreSQLCognitiveModelRepository:
                     (previous_id.value,),
                 )
                 await connection.execute(
-                    """
-                    UPDATE armi.cognitive_episodes
-                    SET status = 'failed',
-                        failure_code = 'MODEL-OUTCOME-UNKNOWN'
-                    WHERE cognitive_episode_id = %s
-                      AND status = 'calling_model'
-                    """,
-                    (snapshot.episode_id,),
-                )
-                await self._resolve_selected_opportunity(
-                    unit_of_work, snapshot.episode_id
-                )
-                await unit_of_work.work.fail(
-                    lease,
-                    error_code="MODEL-OUTCOME-UNKNOWN",
+                    """UPDATE armi.cognitive_branches
+                       SET status='outcome_unknown',selected_attempt_id=%s,
+                           failure_code='MODEL-OUTCOME-UNKNOWN',
+                           settled_at=statement_timestamp()
+                       WHERE cognitive_branch_id=%s
+                         AND status IN ('prepared','calling_model')""",
+                    (previous_id.value, branch.branch_id),
                 )
                 await unit_of_work.audit.append(
                     _settlement_audit(
@@ -225,9 +267,9 @@ class PostgreSQLCognitiveModelRepository:
                 """
                 SELECT count(*)
                 FROM armi.cognitive_attempts
-                WHERE cognitive_episode_id = %s
+                WHERE cognitive_branch_id = %s
                 """,
-                (snapshot.episode_id,),
+                (branch.branch_id,),
             )
         ).fetchone()
         if count_row is None:
@@ -239,6 +281,7 @@ class PostgreSQLCognitiveModelRepository:
             INSERT INTO armi.cognitive_attempts (
                 model_attempt_id,
                 cognitive_episode_id,
+                cognitive_branch_id,
                 work_id,
                 work_attempt_id,
                 attempt_no,
@@ -253,12 +296,13 @@ class PostgreSQLCognitiveModelRepository:
                 request_artifact_id,
                 dispatch_status)
             VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s, %s, %s,
                 %s, %s, %s, %s, %s, %s, 'prepared')
             """,
             (
                 attempt_id.value,
                 snapshot.episode_id,
+                branch.branch_id,
                 lease.work_id.value,
                 lease.attempt_id.value,
                 attempt_no,
@@ -276,17 +320,25 @@ class PostgreSQLCognitiveModelRepository:
         updated = await (
             await connection.execute(
                 """
-                UPDATE armi.cognitive_episodes
-                SET status = 'calling_model'
-                WHERE cognitive_episode_id = %s
-                  AND status IN ('prepared', 'calling_model')
-                RETURNING cognitive_episode_id
+                UPDATE armi.cognitive_branches
+                SET status = 'calling_model', selected_attempt_id = NULL,
+                    response_artifact_id = NULL, failure_code = NULL,
+                    settled_at = NULL
+                WHERE cognitive_branch_id = %s
+                  AND status IN ('prepared', 'calling_model', 'failed',
+                                 'timed_out', 'cancelled')
+                RETURNING cognitive_branch_id
                 """,
-                (snapshot.episode_id,),
+                (branch.branch_id,),
             )
         ).fetchone()
         if updated is None:
-            raise ModelViolation("MODEL-EPISODE-STATE")
+            raise ModelViolation("MODEL-BRANCH-STATE")
+        await connection.execute(
+            """UPDATE armi.cognitive_episodes SET status='calling_model'
+               WHERE cognitive_episode_id=%s AND status IN ('prepared','calling_model')""",
+            (snapshot.episode_id,),
+        )
         await unit_of_work.audit.append(
             AuditDraft(
                 AuditEventId(uuid7()),
@@ -342,6 +394,7 @@ class PostgreSQLCognitiveModelRepository:
         *,
         lease: WorkLease,
         snapshot: ModelEpisodeSnapshot,
+        branch: ModelBranchSnapshot,
         attempt_id: ModelAttemptId,
         response_artifact: ArtifactRef,
         result: ModelInvocationResult,
@@ -357,63 +410,27 @@ class PostgreSQLCognitiveModelRepository:
         updated = await (
             await connection.execute(
                 """
-                UPDATE armi.cognitive_episodes
-                SET status = 'model_returned',
-                    model_returned_at = statement_timestamp()
-                WHERE cognitive_episode_id = %s
-                  AND status = 'calling_model'
-                RETURNING cognitive_episode_id
+                UPDATE armi.cognitive_branches
+                SET status='succeeded',selected_attempt_id=%s,
+                    response_artifact_id=%s,settled_at=statement_timestamp()
+                WHERE cognitive_branch_id=%s AND status='calling_model'
+                RETURNING cognitive_branch_id
                 """,
-                (snapshot.episode_id,),
+                (
+                    attempt_id.value,
+                    response_artifact.artifact_id.value,
+                    branch.branch_id,
+                ),
             )
         ).fetchone()
         if updated is None:
-            raise ModelViolation("MODEL-EPISODE-STATE")
-        now_row = await (
-            await connection.execute("SELECT statement_timestamp()")
-        ).fetchone()
-        if now_row is None:
-            raise ModelViolation("MODEL-DATABASE")
-        now = Instant(now_row[0])
-        await unit_of_work.work.enqueue(
-            WorkDraft(
-                WorkId(uuid7()),
-                _VALIDATION_WORK_KIND,
-                WorkOwner("cognitive_episode", snapshot.episode_id),
-                IdempotencyKey(f"candidate:{snapshot.episode_id}"),
-                response_artifact.content_digest,
-                50,
-                now,
-                Instant(now.value + timedelta(seconds=3600)),
-                2,
-                snapshot.trace_id,
-                SubjectId(snapshot.subject_id),
-                WorkPayloadRef("model_attempt", attempt_id.value),
-            )
-        )
-        await unit_of_work.work.complete(
-            lease,
-            WorkResultRef("model_attempt", attempt_id.value),
-        )
+            raise ModelViolation("MODEL-BRANCH-STATE")
         await unit_of_work.audit.append(
             _settlement_audit(
                 unit_of_work,
                 snapshot,
                 attempt_id,
                 AuditResultStatus.COMPLETED,
-            )
-        )
-        await unit_of_work.audit.append(
-            AuditDraft(
-                AuditEventId(uuid7()),
-                AuditReference("runtime", unit_of_work.environment_id),
-                Purpose("cognition.candidate"),
-                "cognition.candidate.queued",
-                AuditReference("cognitive_episode", snapshot.episode_id),
-                AuditResultStatus.WAITING,
-                snapshot.trace_id,
-                AuditSensitivity.PRIVATE,
-                subject_id=SubjectId(snapshot.subject_id),
             )
         )
 
@@ -423,6 +440,7 @@ class PostgreSQLCognitiveModelRepository:
         *,
         lease: WorkLease,
         snapshot: ModelEpisodeSnapshot,
+        branch: ModelBranchSnapshot,
         attempt_id: ModelAttemptId,
         result: ModelInvocationResult,
     ) -> None:
@@ -435,22 +453,29 @@ class PostgreSQLCognitiveModelRepository:
             response_artifact_id=None,
         )
         code = result.error_code or "MODEL-PROVIDER-FAILED"
+        branch_status = (
+            "timed_out"
+            if result.status.value == "timed_out"
+            else "cancelled"
+            if result.status.value == "cancelled"
+            else "outcome_unknown"
+            if result.status.value == "outcome_unknown"
+            else "failed"
+        )
         updated = await (
             await connection.execute(
                 """
-            UPDATE armi.cognitive_episodes
-            SET status = 'failed', failure_code = %s
-            WHERE cognitive_episode_id = %s
-              AND status = 'calling_model'
-            RETURNING cognitive_episode_id
-            """,
-                (code, snapshot.episode_id),
+                UPDATE armi.cognitive_branches
+                SET status=%s,selected_attempt_id=%s,failure_code=%s,
+                    settled_at=statement_timestamp()
+                WHERE cognitive_branch_id=%s AND status='calling_model'
+                RETURNING cognitive_branch_id
+                """,
+                (branch_status, attempt_id.value, code, branch.branch_id),
             )
         ).fetchone()
         if updated is None:
-            raise ModelViolation("MODEL-EPISODE-STATE")
-        await self._resolve_selected_opportunity(unit_of_work, snapshot.episode_id)
-        await unit_of_work.work.fail(lease, error_code=code)
+            raise ModelViolation("MODEL-BRANCH-STATE")
         await unit_of_work.audit.append(
             _settlement_audit(
                 unit_of_work,
@@ -460,12 +485,50 @@ class PostgreSQLCognitiveModelRepository:
             )
         )
 
+    async def record_late_response(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        snapshot: ModelEpisodeSnapshot,
+        attempt_id: ModelAttemptId,
+        response_artifact: ArtifactRef,
+    ) -> None:
+        updated = await (
+            await unit_of_work.transaction.execute(
+                """UPDATE armi.cognitive_attempts
+                   SET late_response_artifact_id=%s,
+                       late_observed_at=statement_timestamp()
+                   WHERE model_attempt_id=%s
+                     AND result_status='outcome_unknown'
+                     AND late_response_artifact_id IS NULL
+                   RETURNING model_attempt_id""",
+                (response_artifact.artifact_id.value, attempt_id.value),
+            )
+        ).fetchone()
+        if updated is None:
+            return
+        await unit_of_work.audit.append(
+            AuditDraft(
+                AuditEventId(uuid7()),
+                AuditReference("runtime", unit_of_work.environment_id),
+                Purpose("cognition.model"),
+                "cognition.model.late_response_observed",
+                AuditReference("model_attempt", attempt_id.value),
+                AuditResultStatus.ACCEPTED,
+                snapshot.trace_id,
+                AuditSensitivity.PRIVATE,
+                subject_id=SubjectId(snapshot.subject_id),
+                request=AuditReference("cognitive_episode", snapshot.episode_id),
+            )
+        )
+
     async def fail_before_attempt(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         lease: WorkLease,
         snapshot: ModelEpisodeSnapshot,
+        branch: ModelBranchSnapshot,
         code: str,
     ) -> None:
         if not code.startswith("MODEL-"):
@@ -475,19 +538,18 @@ class PostgreSQLCognitiveModelRepository:
         updated = await (
             await connection.execute(
                 """
-                UPDATE armi.cognitive_episodes
-                SET status = 'failed', failure_code = %s
-                WHERE cognitive_episode_id = %s
+                UPDATE armi.cognitive_branches
+                SET status = 'failed', failure_code = %s,
+                    settled_at=statement_timestamp()
+                WHERE cognitive_branch_id = %s
                   AND status IN ('prepared', 'calling_model')
-                RETURNING cognitive_episode_id
+                RETURNING cognitive_branch_id
                 """,
-                (code, snapshot.episode_id),
+                (code, branch.branch_id),
             )
         ).fetchone()
         if updated is None:
-            raise ModelViolation("MODEL-EPISODE-STATE")
-        await self._resolve_selected_opportunity(unit_of_work, snapshot.episode_id)
-        await unit_of_work.work.fail(lease, error_code=code)
+            raise ModelViolation("MODEL-BRANCH-STATE")
         await unit_of_work.audit.append(
             AuditDraft(
                 AuditEventId(uuid7()),
@@ -498,6 +560,185 @@ class PostgreSQLCognitiveModelRepository:
                 AuditResultStatus.FAILED,
                 snapshot.trace_id,
                 AuditSensitivity.RESTRICTED,
+                subject_id=SubjectId(snapshot.subject_id),
+            )
+        )
+
+    async def finalize_primary_success(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        lease: WorkLease,
+        snapshot: ModelEpisodeSnapshot,
+        attempt_id: ModelAttemptId,
+        response_artifact: ArtifactRef,
+    ) -> None:
+        await self._mark_episode_returned(unit_of_work, snapshot.episode_id)
+        await self._enqueue_validation(
+            unit_of_work,
+            snapshot=snapshot,
+            payload=WorkPayloadRef("model_attempt", attempt_id.value),
+            digest=response_artifact.content_digest,
+        )
+        await unit_of_work.work.complete(
+            lease, WorkResultRef("model_attempt", attempt_id.value)
+        )
+
+    async def finalize_dialogue_aggregate(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        lease: WorkLease,
+        snapshot: ModelEpisodeSnapshot,
+        outcome: str,
+        response_branch_id: UUID | None,
+        appraisal_branch_id: UUID | None,
+        primary_attempt_id: ModelAttemptId,
+        aggregate_artifact: ArtifactRef,
+        response_kind: str | None,
+    ) -> None:
+        if outcome not in {"complete", "response_only", "internal_only"}:
+            raise ModelViolation("MODEL-AGGREGATE")
+        await unit_of_work.transaction.execute(
+            """INSERT INTO armi.cognitive_dialogue_aggregates (
+                   cognitive_episode_id,aggregate_outcome,response_branch_id,
+                   appraisal_branch_id,primary_model_attempt_id,
+                   aggregate_artifact_id,response_kind)
+               VALUES (%s,%s,%s,%s,%s,%s,%s)
+               ON CONFLICT (cognitive_episode_id) DO NOTHING""",
+            (
+                snapshot.episode_id,
+                outcome,
+                response_branch_id,
+                appraisal_branch_id,
+                primary_attempt_id.value,
+                aggregate_artifact.artifact_id.value,
+                response_kind,
+            ),
+        )
+        await self._mark_episode_returned(unit_of_work, snapshot.episode_id)
+        await self._enqueue_validation(
+            unit_of_work,
+            snapshot=snapshot,
+            payload=WorkPayloadRef("dialogue_aggregate", snapshot.episode_id),
+            digest=aggregate_artifact.content_digest,
+        )
+        await unit_of_work.work.complete(
+            lease, WorkResultRef("dialogue_aggregate", snapshot.episode_id)
+        )
+
+    async def fail_episode(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        lease: WorkLease,
+        snapshot: ModelEpisodeSnapshot,
+        code: str,
+    ) -> None:
+        row = await (
+            await unit_of_work.transaction.execute(
+                """UPDATE armi.cognitive_episodes
+                   SET status='failed',failure_code=%s
+                   WHERE cognitive_episode_id=%s
+                     AND status IN ('prepared','calling_model')
+                   RETURNING cognitive_episode_id""",
+                (code, snapshot.episode_id),
+            )
+        ).fetchone()
+        if row is None:
+            raise ModelViolation("MODEL-EPISODE-STATE")
+        await self._resolve_selected_opportunity(unit_of_work, snapshot.episode_id)
+        await unit_of_work.work.fail(lease, error_code=code)
+
+    async def abandon_hot_episode(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        lease: WorkLease,
+        snapshot: ModelEpisodeSnapshot,
+        code: str,
+    ) -> None:
+        await self._assert_lease(unit_of_work.transaction, lease, snapshot.episode_id)
+        await unit_of_work.transaction.execute(
+            """UPDATE armi.cognitive_attempts
+               SET dispatch_status='settled',result_status='outcome_unknown',
+                   error_code=%s,settled_at=statement_timestamp()
+               WHERE cognitive_episode_id=%s
+                 AND dispatch_status IN ('prepared','dispatched')""",
+            (code, snapshot.episode_id),
+        )
+        await unit_of_work.transaction.execute(
+            """UPDATE armi.cognitive_branches
+               SET status='outcome_unknown',failure_code=%s,
+                   settled_at=statement_timestamp()
+               WHERE cognitive_episode_id=%s
+                 AND status IN ('prepared','calling_model')""",
+            (code, snapshot.episode_id),
+        )
+        await self.fail_episode(
+            unit_of_work,
+            lease=lease,
+            snapshot=snapshot,
+            code=code,
+        )
+
+    async def _mark_episode_returned(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        episode_id: UUID,
+    ) -> None:
+        row = await (
+            await unit_of_work.transaction.execute(
+                """UPDATE armi.cognitive_episodes
+                   SET status='model_returned',model_returned_at=statement_timestamp()
+                   WHERE cognitive_episode_id=%s AND status='calling_model'
+                   RETURNING cognitive_episode_id""",
+                (episode_id,),
+            )
+        ).fetchone()
+        if row is None:
+            raise ModelViolation("MODEL-EPISODE-STATE")
+
+    async def _enqueue_validation(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        snapshot: ModelEpisodeSnapshot,
+        payload: WorkPayloadRef,
+        digest: Digest,
+    ) -> None:
+        now_row = await (
+            await unit_of_work.transaction.execute("SELECT statement_timestamp()")
+        ).fetchone()
+        if now_row is None:
+            raise ModelViolation("MODEL-DATABASE")
+        now = Instant(now_row[0])
+        await unit_of_work.work.enqueue(
+            WorkDraft(
+                WorkId(uuid7()),
+                _VALIDATION_WORK_KIND,
+                WorkOwner("cognitive_episode", snapshot.episode_id),
+                IdempotencyKey(f"candidate:{snapshot.episode_id}"),
+                digest,
+                50,
+                now,
+                Instant(now.value + timedelta(seconds=3600)),
+                2,
+                snapshot.trace_id,
+                SubjectId(snapshot.subject_id),
+                payload,
+            )
+        )
+        await unit_of_work.audit.append(
+            AuditDraft(
+                AuditEventId(uuid7()),
+                AuditReference("runtime", unit_of_work.environment_id),
+                Purpose("cognition.candidate"),
+                "cognition.candidate.queued",
+                AuditReference("cognitive_episode", snapshot.episode_id),
+                AuditResultStatus.WAITING,
+                snapshot.trace_id,
+                AuditSensitivity.PRIVATE,
                 subject_id=SubjectId(snapshot.subject_id),
             )
         )
@@ -600,4 +841,8 @@ def _settlement_audit(
     )
 
 
-__all__ = ("ModelEpisodeSnapshot", "PostgreSQLCognitiveModelRepository")
+__all__ = (
+    "ModelBranchSnapshot",
+    "ModelEpisodeSnapshot",
+    "PostgreSQLCognitiveModelRepository",
+)

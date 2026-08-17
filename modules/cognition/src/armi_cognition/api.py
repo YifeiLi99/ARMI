@@ -53,6 +53,25 @@ class CandidateValidationStatus(StrEnum):
     REJECTED = "rejected"
 
 
+class CognitiveBranchRole(StrEnum):
+    PRIMARY = "primary"
+    RESPONSE_ACTION = "response_action"
+    EPISODE_APPRAISAL = "episode_appraisal"
+
+
+class HotDialogueAggregateOutcome(StrEnum):
+    COMPLETE = "complete"
+    RESPONSE_ONLY = "response_only"
+    INTERNAL_ONLY = "internal_only"
+    FAILED = "failed"
+
+
+class MaintenanceIssueTarget(StrEnum):
+    SELF = "self"
+    MIND = "mind"
+    PROMPT = "prompt"
+
+
 @dataclass(frozen=True, slots=True)
 class CandidateExactLifeQueryDraft:
     proposal_ref: str
@@ -211,6 +230,7 @@ class CognitionContextEpisodeDraft:
     episode_id: UUID
     opportunity_id: UUID
     subject_id: UUID
+    generation_id: UUID
     scene_id: UUID | None
     context_party_id: UUID | None
     purpose: str
@@ -219,6 +239,20 @@ class CognitionContextEpisodeDraft:
     bundle_activation_id: UUID
     mechanism_identity: str
     trace_id: TraceId
+    maintenance_trigger_kind: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CognitionExperienceContextItem:
+    experience_id: UUID
+    ordinal: int
+    fact_class: str
+    first_person_gist: str
+    occurred_at: datetime
+    accepted_at: datetime
+    source_perspective: str
+    uncertainty: str | None
+    maintenance_source: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,6 +270,7 @@ class CognitionContextEpisodeSnapshot:
     trace_id: TraceId
     life_query_intent_id: UUID | None = None
     life_query_result_artifact_id: UUID | None = None
+    experience_context: tuple[CognitionExperienceContextItem, ...] = ()
 
 
 @runtime_checkable
@@ -533,6 +568,7 @@ class CognitionLifeRecordPort(Protocol):
 class CognitionExperienceDraft:
     experience_id: UUID
     subject_id: UUID
+    generation_id: UUID
     subject_commit_id: UUID
     episode_id: UUID
     proposal_ref: str
@@ -558,6 +594,8 @@ class CognitionApplicationDraft:
     observed_subject_version: int
     runtime_instance_id: UUID
     fence_token: int
+    purpose: str | None = None
+    generation_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -709,6 +747,7 @@ __all__ = (
     "CognitionExactLifeQueryIntentDraft",
     "CognitionExactLifeQueryPort",
     "CognitionExactLifeQuerySnapshot",
+    "CognitionExperienceContextItem",
     "CognitionExperienceDraft",
     "CognitionLifeRecordItem",
     "CognitionLifeRecordPort",
@@ -723,6 +762,9 @@ __all__ = (
     "CognitionSubjectCommitPort",
     "CognitionWakeupPort",
     "CognitionWorkerPort",
+    "CognitiveBranchRole",
+    "HotDialogueAggregateOutcome",
+    "MaintenanceIssueTarget",
     "SubjectChangeSet",
     "SubjectChangeSetCodec",
 )

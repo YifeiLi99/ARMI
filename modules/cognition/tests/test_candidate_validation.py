@@ -748,6 +748,15 @@ def test_other_human_commitment_violation_stays_in_current_relationship() -> Non
             "subjective_state",
             "private",
         ),
+        CandidateBasis(
+            5,
+            "capability",
+            "capability_catalog",
+            uuid7(),
+            1,
+            "policy",
+            "private",
+        ),
     )
     result = DeterministicCandidateValidator(context).validate(
         json.dumps(
@@ -873,11 +882,13 @@ def _maintenance_fixture(
         "这个理解可能过于绝对。",
         MemoryAccessibility.AVAILABLE,
     )
-    purpose = (
-        "maintain_subjective_memory"
-        if phase is MaintenancePhase.MEMORY_MAINTENANCE
-        else "perform_subject_self_check"
-    )
+    purpose = {
+        MaintenancePhase.MEMORY_MAINTENANCE: "maintain_subjective_memory",
+        MaintenancePhase.SELF_CHECK: "perform_subject_self_check",
+        MaintenancePhase.REFLECT_SELF: "reflect_self",
+        MaintenancePhase.REFLECT_MIND: "reflect_mind",
+        MaintenancePhase.REFLECT_PROMPT: "reflect_prompt",
+    }[phase]
     maintenance = replace(
         context,
         purpose=purpose,
@@ -1010,6 +1021,7 @@ def test_self_check_records_creator_visible_issue_without_domain_rewrite() -> No
                 "issue_kind": "incomplete_internal_responsibility",
                 "internal_summary": "一个内部承诺与当前活动状态不一致。",
                 "creator_visible_summary": "有一项内部责任需要后续关注。",
+                "issue_target": "mind",
             }
         ),
         bases=bases,
@@ -1021,6 +1033,7 @@ def test_self_check_records_creator_visible_issue_without_domain_rewrite() -> No
     decision = _sleep(result.change_set)[0]
     assert decision.outcome is MaintenanceWorkOutcome.ISSUE_FOUND
     assert decision.creator_visible_problem == "有一项内部责任需要后续关注。"
+    assert decision.issue_target == "mind"
 
     no_issue = DeterministicCandidateValidator(context).validate(
         _bytes({"kind": "no_issue", "summary": "未发现需要提交的问题。"}),
@@ -1038,6 +1051,118 @@ def test_self_check_records_creator_visible_issue_without_domain_rewrite() -> No
     )
     assert wrong_phase.status is CandidateValidationStatus.REJECTED
     assert wrong_phase.error_code == "CANDIDATE-MAINTENANCE-CONTEXT"
+
+
+def test_owner_reflection_updates_only_its_target_with_expected_version() -> None:
+    context, bases, _ = _maintenance_fixture(MaintenancePhase.REFLECT_SELF)
+    candidate = {
+        "kind": "update",
+        "target": "self",
+        "summary": "补充这段维护中形成的自我理解。",
+        "basis_refs": ["ctx:4", "ctx:1"],
+        "expected_version": 1,
+        "next_state": _self_state(name="阿米"),
+    }
+
+    result = DeterministicCandidateValidator(context).validate(
+        _bytes(candidate), bases=bases
+    )
+
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    states = _subject_states(result.change_set)
+    assert len(states) == 1
+    assert states[0].kind is SubjectStateKind.SELF
+    decision = _sleep(result.change_set)[0]
+    assert decision.phase is MaintenancePhase.REFLECT_SELF
+    assert decision.outcome is MaintenanceWorkOutcome.REFLECTION_CHANGED
+
+
+def test_owner_reflection_rejects_cross_owner_candidate() -> None:
+    context, bases, _ = _maintenance_fixture(MaintenancePhase.REFLECT_MIND)
+    result = DeterministicCandidateValidator(context).validate(
+        _bytes(
+            {
+                "kind": "update",
+                "target": "self",
+                "summary": "越权修改 Self。",
+                "basis_refs": ["ctx:4", "ctx:1"],
+                "expected_version": 1,
+                "next_state": _self_state(name="不应采用"),
+            }
+        ),
+        bases=bases,
+    )
+
+    assert result.status is CandidateValidationStatus.REJECTED
+    assert result.error_code == "CANDIDATE-REFLECTION-CONTEXT"
+
+
+def test_mind_and_prompt_reflections_commit_only_the_target_owner() -> None:
+    mind_context, mind_bases, _ = _maintenance_fixture(MaintenancePhase.REFLECT_MIND)
+    mind = DeterministicCandidateValidator(mind_context).validate(
+        _bytes(
+            {
+                "kind": "update",
+                "target": "mind",
+                "summary": "补充本次自检后形成的理解。",
+                "basis_refs": ["ctx:4", "ctx:3"],
+                "expected_version": 1,
+                "next_state": _mind_state(thoughts=["以后先核对承诺的当前状态。"]),
+            }
+        ),
+        bases=mind_bases,
+    )
+    assert mind.status is CandidateValidationStatus.ACCEPTED
+    assert mind.change_set is not None
+    assert tuple(item.kind for item in _subject_states(mind.change_set)) == (
+        SubjectStateKind.MIND,
+    )
+    assert _prompts(mind.change_set) == ()
+
+    prompt_context, prompt_bases, _ = _maintenance_fixture(
+        MaintenancePhase.REFLECT_PROMPT
+    )
+    document_id, revision_id = uuid7(), uuid7()
+    prompt_context = replace(
+        prompt_context,
+        current_subject_prompt=CandidateSubjectPromptContext(
+            document_id, revision_id, 2
+        ),
+    )
+    prompt_bases = (
+        *prompt_bases,
+        CandidateBasis(
+            6,
+            "prompt",
+            "subject_prompt",
+            revision_id,
+            2,
+            "policy",
+            "private",
+        ),
+    )
+    prompt = DeterministicCandidateValidator(prompt_context).validate(
+        _bytes(
+            {
+                "kind": "update",
+                "target": "prompt",
+                "summary": "让反思方法明确核对来源。",
+                "basis_refs": ["ctx:4", "ctx:6"],
+                "expected_version": 2,
+                "next_state": {
+                    "cognition_method": "区分观察、主张与自己的推断",
+                    "expression_method": "先说结论,再说明仍不确定的部分",
+                    "reflection_method": "每次修改前核对经历来源和当前版本",
+                },
+            }
+        ),
+        bases=prompt_bases,
+    )
+    assert prompt.status is CandidateValidationStatus.ACCEPTED
+    assert prompt.change_set is not None
+    assert _subject_states(prompt.change_set) == ()
+    assert len(_prompts(prompt.change_set)) == 1
 
 
 def _candidate(context: CandidateValidationContext) -> dict[str, object]:
@@ -2440,6 +2565,138 @@ def test_compact_dialogue_binds_grounded_self_and_mind_growth() -> None:
     assert tuple(
         item for item in reparsed.owner_drafts if item.owner == "mood"
     ) == tuple(item for item in result.change_set.owner_drafts if item.owner == "mood")
+
+
+def test_creator_aggregate_applies_event_signal_without_authoring_full_mood() -> None:
+    context, bases = _fixture()
+    bases = (
+        *bases,
+        CandidateBasis(
+            4,
+            "scene",
+            "current_scene",
+            context.scene_id,
+            1,
+            "runtime_authority",
+            "private",
+        ),
+        CandidateBasis(
+            5,
+            "capability",
+            "capability_catalog",
+            uuid7(),
+            1,
+            "policy",
+            "private",
+        ),
+    )
+    candidate = {
+        "schema_version": "armi.creator-dialogue-aggregate.v1",
+        "outcome": "complete",
+        "response": {"kind": "reply", "content": "我记住了。"},
+        "appraisal": {
+            "experience": {
+                "first_person_gist": "Creator 明确请我记住这件事。",
+                "remember": True,
+                "memory_summary": "Creator 希望我记住这件事。",
+            },
+            "affect": {
+                "valence": "positive",
+                "activation": "medium",
+                "intensity": "medium",
+                "emotions": ["认真", "被信任"],
+                "mood_tendency": "温暖",
+                "basis_refs": ["ctx:2"],
+            },
+        },
+    }
+
+    result = DeterministicCandidateValidator(context).validate(
+        _bytes(candidate), bases=bases
+    )
+
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    assert len(result.change_set.experiences) == 1
+    assert len(_memories(result.change_set)) == 1
+    mood = next(
+        bootstrap_mood_cognition().decode(item.canonical_payload)
+        for item in result.change_set.owner_drafts
+        if item.owner == "mood"
+    )
+    assert json.loads(mood.canonical_next_state) == {
+        **_mood_state(),
+        "emotions": ["认真", "被信任"],
+        "mood": "温暖",
+    }
+
+
+def test_low_intensity_affect_preserves_long_term_mood() -> None:
+    context, bases = _fixture()
+    candidate = {
+        "schema_version": "armi.creator-dialogue-aggregate.v1",
+        "outcome": "internal_only",
+        "appraisal": {
+            "affect": {
+                "valence": "negative",
+                "activation": "low",
+                "intensity": "low",
+                "emotions": ["遗憾"],
+                "mood_tendency": "低落",
+                "basis_refs": ["ctx:2"],
+            }
+        },
+    }
+
+    result = DeterministicCandidateValidator(context).validate(
+        _bytes(candidate), bases=bases
+    )
+
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    mood = next(
+        bootstrap_mood_cognition().decode(item.canonical_payload)
+        for item in result.change_set.owner_drafts
+        if item.owner == "mood"
+    )
+    assert json.loads(mood.canonical_next_state)["mood"] is None
+
+
+def test_decline_can_still_commit_a_real_internal_experience() -> None:
+    context, bases = _fixture()
+    bases = (
+        *bases,
+        CandidateBasis(
+            4,
+            "scene",
+            "current_scene",
+            context.scene_id,
+            1,
+            "runtime_authority",
+            "private",
+        ),
+    )
+    candidate = {
+        "schema_version": "armi.creator-dialogue-aggregate.v1",
+        "outcome": "complete",
+        "response": {"kind": "decline"},
+        "appraisal": {
+            "experience": {
+                "first_person_gist": "我听到要求后选择拒绝。",
+                "remember": False,
+            }
+        },
+    }
+
+    result = DeterministicCandidateValidator(context).validate(
+        _bytes(candidate), bases=bases
+    )
+
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    assert len(result.change_set.experiences) == 1
+    assert len(result.change_set.action_choices) == 1
+    assert result.change_set.disposition.value == "change"
 
 
 def test_compact_dialogue_creates_and_revises_subject_prompt_from_experience() -> None:

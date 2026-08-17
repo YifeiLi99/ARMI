@@ -72,11 +72,16 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     # Cognition.
     "accepted_experiences": TableOwnership("cognition"),
     "cognitive_attempts": TableOwnership("cognition"),
+    "cognitive_branches": TableOwnership("cognition"),
     "cognitive_candidate_applications": TableOwnership("cognition"),
     "cognitive_candidate_basis_links": TableOwnership("cognition"),
     "cognitive_candidate_validation_items": TableOwnership("cognition"),
     "cognitive_candidate_validations": TableOwnership("cognition"),
     "cognitive_episodes": TableOwnership("cognition"),
+    "cognitive_dialogue_aggregates": TableOwnership("cognition"),
+    "cognition_maintenance_batch_sources": TableOwnership("cognition"),
+    "cognition_maintenance_batches": TableOwnership("cognition"),
+    "cognition_maintenance_cursors": TableOwnership("cognition"),
     "exact_life_query_intents": TableOwnership("cognition"),
     # Subject-owned components.
     "subject_component_heads": TableOwnership("subject-state"),

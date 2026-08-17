@@ -131,6 +131,11 @@ from ._autonomous_activity_contract import (
     AutonomousTerminalDecision,
     StartActivityDecision,
 )
+from ._creator_branch_contract import (
+    CREATOR_DIALOGUE_AGGREGATE_VERSION,
+    AffectiveEventSignal,
+    CreatorDialogueAggregate,
+)
 from ._dialogue_contract import (
     DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION,
@@ -201,6 +206,7 @@ from ._dialogue_contract import (
     DialogueWebResearchDecisionV18,
     DialogueWebResearchDecisionV20,
     parse_dialogue_candidate,
+    translate_compact_change_set,
 )
 from ._maintenance_contract import (
     MAINTENANCE_WORK_CANDIDATE_VERSION,
@@ -237,6 +243,10 @@ from ._other_human_contract import (
     OtherHumanTerminalDecision,
 )
 from ._owners import CandidateOwner
+from ._reflection_contract import (
+    OwnerReflectionCandidate,
+    parse_owner_reflection,
+)
 from ._sleep_contract import (
     SLEEP_DECISION_CANDIDATE_VERSION,
     SleepDecisionCandidate,
@@ -245,6 +255,7 @@ from .api import (
     CandidateExactLifeQueryDraft,
     CandidateValidationResult,
     CandidateValidationStatus,
+    MaintenanceIssueTarget,
     SubjectChangeSet,
 )
 
@@ -490,7 +501,13 @@ class CandidateValidationContext:
             or type(self.current_maintenance_head_version) is not int
             or self.current_maintenance_head_version <= 0
             or self.current_maintenance_phase
-            not in {MaintenancePhase.MEMORY_MAINTENANCE, MaintenancePhase.SELF_CHECK}
+            not in {
+                MaintenancePhase.MEMORY_MAINTENANCE,
+                MaintenancePhase.SELF_CHECK,
+                MaintenancePhase.REFLECT_SELF,
+                MaintenancePhase.REFLECT_MIND,
+                MaintenancePhase.REFLECT_PROMPT,
+            }
         ):
             raise CandidateViolation("CON-CANDIDATE-MAINTENANCE-CONTEXT")
         if type(self.current_memories) is not tuple or any(
@@ -579,33 +596,45 @@ class DeterministicCandidateValidator:
         basis_by_ref = {f"ctx:{basis.ordinal}": basis for basis in bases}
         if len(basis_by_ref) != len(bases):
             raise CandidateViolation("CANDIDATE-BASIS-DUPLICATE")
+        reflection_purpose = self._context.purpose in {
+            "reflect_self",
+            "reflect_mind",
+            "reflect_prompt",
+        }
         try:
-            parsed_candidate = parse_candidate(
-                candidate_bytes,
-                allowed_context_refs=frozenset(basis_by_ref),
-                expected_version=(
-                    ACTIVITY_ATTENTION_CANDIDATE_VERSION
-                    if self._context.purpose == "consider_activity_attention"
-                    else ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION
-                    if self._context.purpose == "consider_activity_internal_work"
-                    else AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION
-                    if self._context.purpose == "consider_autonomous_life"
-                    else SLEEP_DECISION_CANDIDATE_VERSION
-                    if self._context.purpose == "consider_sleep"
-                    else MAINTENANCE_WORK_CANDIDATE_VERSION
-                    if self._context.purpose
-                    in {"maintain_subjective_memory", "perform_subject_self_check"}
-                    else self._context.candidate_contract_version
-                    if self._context.purpose
-                    in {
-                        "consider_creator_input",
-                        "consider_creator_outreach",
-                        "consider_other_human_input",
-                    }
-                    else None
-                ),
+            parsed_candidate = (
+                parse_owner_reflection(
+                    json.loads(candidate_bytes),
+                    allowed_context_refs=frozenset(basis_by_ref),
+                )
+                if reflection_purpose
+                else parse_candidate(
+                    candidate_bytes,
+                    allowed_context_refs=frozenset(basis_by_ref),
+                    expected_version=(
+                        ACTIVITY_ATTENTION_CANDIDATE_VERSION
+                        if self._context.purpose == "consider_activity_attention"
+                        else ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION
+                        if self._context.purpose == "consider_activity_internal_work"
+                        else AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION
+                        if self._context.purpose == "consider_autonomous_life"
+                        else SLEEP_DECISION_CANDIDATE_VERSION
+                        if self._context.purpose == "consider_sleep"
+                        else MAINTENANCE_WORK_CANDIDATE_VERSION
+                        if self._context.purpose
+                        in {"maintain_subjective_memory", "perform_subject_self_check"}
+                        else self._context.candidate_contract_version
+                        if self._context.purpose
+                        in {
+                            "consider_creator_input",
+                            "consider_creator_outreach",
+                            "consider_other_human_input",
+                        }
+                        else None
+                    ),
+                )
             )
-        except ModelViolation:
+        except ModelViolation, ValidationError, ValueError, json.JSONDecodeError:
             try:
                 raw = cast(dict[str, Any], json.loads(candidate_bytes))
             except UnicodeDecodeError, json.JSONDecodeError:
@@ -624,6 +653,11 @@ class DeterministicCandidateValidator:
             return _rejected(code)
         if isinstance(parsed_candidate, SleepDecisionCandidate):
             return self._validate_sleep(
+                parsed_candidate,
+                bases=bases,
+            )
+        if isinstance(parsed_candidate, OwnerReflectionCandidate):
+            return self._validate_owner_reflection(
                 parsed_candidate,
                 bases=bases,
             )
@@ -682,7 +716,17 @@ class DeterministicCandidateValidator:
             return _rejected("CANDIDATE-SCENE-CONTEXT")
         source_version = parsed_candidate.schema_version
         dialogue_bound_changes: DialogueBoundChanges | None = None
-        if isinstance(parsed_candidate, CreatorDialogueCandidate):
+        if isinstance(parsed_candidate, CreatorDialogueAggregate):
+            candidate, dialogue_bound_changes, expansion_error = (
+                _expand_creator_dialogue_aggregate(
+                    parsed_candidate,
+                    bases=bases,
+                    context=self._context,
+                )
+            )
+            if candidate is None:
+                return _rejected(expansion_error or "CANDIDATE-CONTRACT")
+        elif isinstance(parsed_candidate, CreatorDialogueCandidate):
             candidate, dialogue_bound_changes, expansion_error = (
                 _expand_dialogue_candidate(
                     parsed_candidate,
@@ -730,23 +774,28 @@ class DeterministicCandidateValidator:
             return _rejected("CANDIDATE-FACT-CLASS")
 
         proposals = _all_proposals(candidate)
-        if self._context.purpose == "consider_life_query_result" and any(
-            not (
-                owner is CandidateOwner.CAPABILITY
-                and proposal.payload.capability_kind == "creator.scene.reply"
-            )
-            and not (
-                owner is CandidateOwner.ACTION
-                and isinstance(
-                    proposal.payload,
-                    (
-                        CreatorReplyPayload,
-                        RuntimeBoundCreatorReplyPayload,
-                        FormalNoActionPayload,
-                    ),
+        aggregate_dialogue = source_version == CREATOR_DIALOGUE_AGGREGATE_VERSION
+        if (
+            self._context.purpose == "consider_life_query_result"
+            and not aggregate_dialogue
+            and any(
+                not (
+                    owner is CandidateOwner.CAPABILITY
+                    and proposal.payload.capability_kind == "creator.scene.reply"
                 )
+                and not (
+                    owner is CandidateOwner.ACTION
+                    and isinstance(
+                        proposal.payload,
+                        (
+                            CreatorReplyPayload,
+                            RuntimeBoundCreatorReplyPayload,
+                            FormalNoActionPayload,
+                        ),
+                    )
+                )
+                for owner, proposal in proposals
             )
-            for owner, proposal in proposals
         ):
             return _rejected("CANDIDATE-LIFE-QUERY-RESULT-SCOPE")
         formal_no_action = tuple(
@@ -755,7 +804,11 @@ class DeterministicCandidateValidator:
             if owner is CandidateOwner.ACTION
             and isinstance(proposal.payload, FormalNoActionPayload)
         )
-        if candidate.disposition == "change" and formal_no_action:
+        if (
+            candidate.disposition == "change"
+            and formal_no_action
+            and not aggregate_dialogue
+        ):
             return _rejected("CANDIDATE-DISPOSITION")
         if candidate.disposition != "change" and any(
             owner is not CandidateOwner.ACTION
@@ -769,7 +822,7 @@ class DeterministicCandidateValidator:
                 or formal_no_action[0].payload.decision != candidate.disposition
             ):
                 return _rejected("CANDIDATE-DISPOSITION")
-        elif formal_no_action:
+        elif formal_no_action and not aggregate_dialogue:
             return _rejected("CANDIDATE-DISPOSITION")
 
         component_state = {
@@ -1049,12 +1102,20 @@ class DeterministicCandidateValidator:
 
         for proposal_ref, draft in tuple(accepted.items()):
             if (
-                isinstance(draft, CandidatePromptDraft)
-                or (
-                    isinstance(draft, CandidateOwnerDraft)
-                    and draft.owner in {"self", "mind", "mood", "life_mode"}
+                (
+                    isinstance(draft, CandidatePromptDraft)
+                    or (
+                        isinstance(draft, CandidateOwnerDraft)
+                        and draft.owner in {"self", "mind", "mood", "life_mode"}
+                    )
                 )
-            ) and draft.atomic_group_ref not in group_experiences:
+                and draft.atomic_group_ref not in group_experiences
+                and not (
+                    aggregate_dialogue
+                    and isinstance(draft, CandidateOwnerDraft)
+                    and draft.owner == "mood"
+                )
+            ):
                 rejected[proposal_ref] = CandidateRejection(
                     proposal_ref,
                     draft.atomic_group_ref,
@@ -2015,6 +2076,201 @@ class DeterministicCandidateValidator:
             None,
         )
 
+    def _validate_owner_reflection(
+        self,
+        candidate: OwnerReflectionCandidate,
+        *,
+        bases: tuple[CandidateBasis, ...],
+    ) -> CandidateValidationResult:
+        context = self._context
+        target, phase = {
+            "reflect_self": ("self", MaintenancePhase.REFLECT_SELF),
+            "reflect_mind": ("mind", MaintenancePhase.REFLECT_MIND),
+            "reflect_prompt": ("prompt", MaintenancePhase.REFLECT_PROMPT),
+        }.get(context.purpose, (None, None))
+        if (
+            target is None
+            or phase is None
+            or candidate.target != target
+            or context.opportunity_id is None
+            or context.scene_id is not None
+            or context.creator_party_id is not None
+            or context.current_maintenance_session_id is None
+            or context.current_maintenance_revision_id is None
+            or context.current_maintenance_head_version is None
+            or context.current_maintenance_phase is not phase
+        ):
+            return _rejected("CANDIDATE-REFLECTION-CONTEXT")
+        basis_by_ref = {f"ctx:{item.ordinal}": item for item in bases}
+        phase_basis = next(
+            (
+                item
+                for item in bases
+                if item.item_kind == "current_maintenance_phase"
+                and item.source_ref == context.current_maintenance_revision_id
+                and item.source_version == context.current_maintenance_head_version
+                and item.trust_class == "runtime_authority"
+            ),
+            None,
+        )
+        if phase_basis is None:
+            return _rejected("CANDIDATE-REFLECTION-SOURCE")
+        cited = tuple(basis_by_ref[ref] for ref in candidate.basis_refs)
+        owner_drafts: tuple[CandidateOwnerDraft, ...] = ()
+        outcome = MaintenanceWorkOutcome.REFLECTION_UNCHANGED
+        if candidate.kind == "update":
+            if phase_basis not in cited:
+                return _rejected("CANDIDATE-REFLECTION-BASIS")
+            owner_draft: CandidateOwnerDraft
+            if target in {"self", "mind"}:
+                owner = CandidateOwner(target)
+                current = next(
+                    (
+                        (version, canonical)
+                        for item_owner, version, canonical in context.current_components
+                        if item_owner is owner
+                    ),
+                    None,
+                )
+                state_basis = next(
+                    (
+                        item
+                        for item in cited
+                        if item.item_kind == target
+                        and item.trust_class == "subjective_state"
+                    ),
+                    None,
+                )
+                if (
+                    current is None
+                    or state_basis is None
+                    or candidate.expected_version != current[0]
+                    or state_basis.source_version != current[0]
+                ):
+                    return _rejected("CANDIDATE-REFLECTION-VERSION")
+                next_state = candidate.next_state
+                if not isinstance(next_state, (SelfState, MindState)):
+                    return _rejected("CANDIDATE-REFLECTION-CONTRACT")
+                next_bytes = rfc8785.dumps(
+                    cast(Any, next_state.model_dump(mode="json"))
+                )
+                if next_bytes == current[1]:
+                    return _rejected("CANDIDATE-REFLECTION-NOOP")
+                owner_draft = self._subject_state_cognition.bind(
+                    CandidateSubjectStateDraft(
+                        "proposal:1",
+                        "group:1",
+                        tuple(item.ordinal for item in cited),
+                        CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
+                        SubjectStateKind(target),
+                        cast(int, candidate.expected_version),
+                        next_bytes,
+                    )
+                )
+            else:
+                current_prompt = context.current_subject_prompt
+                if (
+                    current_prompt is None
+                    or candidate.expected_version != current_prompt.revision_no
+                ):
+                    return _rejected("CANDIDATE-REFLECTION-VERSION")
+                if current_prompt.current_revision_id is not None and not any(
+                    item.item_kind == "subject_prompt"
+                    and item.source_ref == current_prompt.current_revision_id
+                    and item.source_version == current_prompt.revision_no
+                    and item.trust_class == "policy"
+                    for item in cited
+                ):
+                    return _rejected("CANDIDATE-REFLECTION-BASIS")
+                prompt_state = cast(Any, candidate.next_state)
+                content = rfc8785.dumps(
+                    cast(
+                        Any,
+                        {
+                            "schema_version": "armi.subject-prompt.v1",
+                            **prompt_state.model_dump(mode="json"),
+                        },
+                    )
+                )
+                owner_draft = self._prompt_cognition.bind(
+                    CandidatePromptDraft(
+                        "proposal:1",
+                        "group:1",
+                        tuple(item.ordinal for item in cited),
+                        CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
+                        current_prompt.prompt_document_id,
+                        current_prompt.current_revision_id,
+                        current_prompt.revision_no,
+                        content,
+                    )
+                )
+            owner_drafts = (owner_draft,)
+            outcome = MaintenanceWorkOutcome.REFLECTION_CHANGED
+        basis_ordinals = tuple(
+            dict.fromkeys((phase_basis.ordinal, *(item.ordinal for item in cited)))
+        )
+        decision = CandidateMaintenanceDecisionDraft(
+            "proposal:2" if owner_drafts else "proposal:1",
+            "group:1",
+            basis_ordinals,
+            context.current_maintenance_session_id,
+            context.current_maintenance_revision_id,
+            context.current_maintenance_head_version,
+            phase,
+            outcome,
+            candidate.summary,
+        )
+        sleep_draft = self._sleep_cognition.bind_maintenance(decision)
+        all_owner_drafts = (*owner_drafts, sleep_draft)
+        value = {
+            "schema_version": ACTIVE_CHANGE_SET_VERSION,
+            "subject_id": str(context.subject_id),
+            "generation_id": str(context.generation_id),
+            "episode_id": str(context.episode_id),
+            "model_attempt_id": str(context.model_attempt_id),
+            "base": {
+                "subject_version": context.base_subject_version,
+                "state_epoch": context.base_state_epoch,
+                "bundle_activation_id": str(context.bundle_activation_id),
+                "context_digest": context.context_digest.value,
+            },
+            "disposition": CandidateDisposition.CHANGE.value,
+            "experiences": [],
+            "capability_requests": [],
+            "action_choices": [],
+            "web_research_requests": [],
+            "codex_delegations": [],
+            "owner_drafts": [_owner_draft_wire(item) for item in all_owner_drafts],
+            "exact_life_queries": [],
+            "rejections": [],
+        }
+        change_set = SubjectChangeSet(
+            canonical_bytes=rfc8785.dumps(cast(Any, value)),
+            subject_id=context.subject_id,
+            generation_id=context.generation_id,
+            episode_id=context.episode_id,
+            model_attempt_id=context.model_attempt_id,
+            base_subject_version=context.base_subject_version,
+            base_state_epoch=context.base_state_epoch,
+            bundle_activation_id=context.bundle_activation_id,
+            context_digest=context.context_digest,
+            disposition=CandidateDisposition.CHANGE,
+            experiences=(),
+            capability_requests=(),
+            action_choices=(),
+            web_research_requests=(),
+            rejections=(),
+            owner_drafts=all_owner_drafts,
+        )
+        return CandidateValidationResult(
+            CandidateValidationId(uuid7()),
+            CandidateValidationStatus.ACCEPTED,
+            change_set,
+            len(all_owner_drafts),
+            0,
+            None,
+        )
+
     def _validate_maintenance(
         self,
         candidate: MaintenanceWorkCandidate,
@@ -2108,6 +2364,11 @@ class DeterministicCandidateValidator:
             result_summary,
             creator_problem,
             memory_ref,
+            (
+                MaintenanceIssueTarget(candidate.issue_target).value
+                if isinstance(candidate, SelfCheckIssueFound)
+                else None
+            ),
         )
         memory_owner_drafts = (
             ()
@@ -2263,6 +2524,232 @@ def _optional_dialogue_failure_owner(
         if error_code.startswith(prefix):
             return owner
     return None
+
+
+def _expand_creator_dialogue_aggregate(
+    source: CreatorDialogueAggregate,
+    *,
+    bases: tuple[CandidateBasis, ...],
+    context: CandidateValidationContext,
+) -> tuple[
+    CognitionCandidateV5 | CognitionCandidateV7 | None,
+    DialogueBoundChanges | None,
+    str | None,
+]:
+    try:
+        response = (
+            source.response.as_dialogue(web_search=context.web_search_active)
+            if source.response is not None
+            else parse_dialogue_candidate(
+                {"kind": "no_change"},
+                version=(
+                    WEB_DIALOGUE_CANDIDATE_VERSION
+                    if context.web_search_active
+                    else DIALOGUE_CANDIDATE_VERSION
+                ),
+            )
+        )
+    except ValidationError, ValueError:
+        return None, None, "CANDIDATE-RESPONSE-BRANCH"
+    candidate, bound, error = _expand_dialogue_candidate(
+        response,
+        bases=bases,
+        context=context,
+    )
+    if candidate is None or bound is None or error is not None:
+        return candidate, bound, error
+    if source.response is None:
+        internal_value = candidate.model_dump(mode="python")
+        internal_value["action_choices"] = ()
+        internal_value["capability_requests"] = ()
+        internal_value["disposition"] = "no_change"
+        try:
+            candidate = type(candidate).model_validate(internal_value, strict=True)
+        except ValidationError:
+            return None, None, "CANDIDATE-CONTRACT"
+    appraisal = source.appraisal
+    if appraisal is None:
+        return candidate, bound, None
+    evidence = next(
+        (
+            item
+            for item in bases
+            if item.item_kind == "current_evidence"
+            and item.trust_class in {"external_claim", "runtime_authority"}
+        ),
+        None,
+    )
+    if evidence is None:
+        return None, None, "CANDIDATE-EVIDENCE-REQUIRED"
+    evidence_ref = f"ctx:{evidence.ordinal}"
+    used_refs = [proposal.proposal_ref for _, proposal in _all_proposals(candidate)]
+    used_refs.extend(
+        item.proposal_ref
+        for item in (
+            bound.memory_revision,
+            bound.relationship,
+            bound.material,
+            bound.prompt,
+            bound.exact_life_query,
+        )
+        if item is not None
+    )
+    proposal_no = max((int(ref.partition(":")[2]) for ref in used_refs), default=0) + 1
+    candidate_value = candidate.model_dump(mode="python")
+    experiences = list(candidate_value["experiences"])
+    component_changes = list(candidate_value["component_changes"])
+    memory_changes = list(candidate_value["memory_changes"])
+    experience_ref: str | None = None
+    if appraisal.experience is not None:
+        experience_ref = f"proposal:{proposal_no}"
+        experiences.append(
+            {
+                "proposal_ref": experience_ref,
+                "atomic_group_ref": "group:4",
+                "basis_refs": (evidence_ref,),
+                "payload": {
+                    "proposal_kind": "experiences",
+                    "fact_class": "external_claim",
+                    "first_person_gist": appraisal.experience.first_person_gist,
+                    "source_perspective": "creator_claim",
+                    "uncertainty": appraisal.experience.uncertainty,
+                    "privacy_scope": "private",
+                },
+            }
+        )
+        proposal_no += 1
+        if appraisal.experience.remember:
+            memory_changes.append(
+                {
+                    "proposal_ref": f"proposal:{proposal_no}",
+                    "atomic_group_ref": "group:4",
+                    "basis_refs": (evidence_ref,),
+                    "payload": {
+                        "proposal_kind": "memory_changes",
+                        "fact_class": "external_claim",
+                        "summary": appraisal.experience.memory_summary,
+                    },
+                }
+            )
+            proposal_no += 1
+    if appraisal.affect is not None:
+        mood_change, mood_error = _bind_affective_event(
+            appraisal.affect,
+            proposal_ref=f"proposal:{proposal_no}",
+            bases=bases,
+            context=context,
+        )
+        if mood_error is not None:
+            return None, None, mood_error
+        if mood_change is not None:
+            mood_change["atomic_group_ref"] = "group:4"
+            component_changes.append(mood_change)
+            proposal_no += 1
+    relationship = None
+    if appraisal.relationship_events:
+        if appraisal.experience is None or experience_ref is None:
+            return None, None, "CANDIDATE-RELATIONSHIP-EXPERIENCE"
+        try:
+            translated = translate_compact_change_set(appraisal.relationship_events)
+            relationship_change = cast(
+                DialogueRelationshipChange, translated["relationship_change"]
+            )
+        except KeyError, ValidationError, ValueError:
+            return None, None, "CANDIDATE-RELATIONSHIP-CONTRACT"
+        relationship, relationship_error = _bind_dialogue_relationship(
+            relationship_change,
+            experience=appraisal.experience.as_dialogue_experience(),
+            source_experience_ref=experience_ref,
+            proposal_ref=f"proposal:{proposal_no}",
+            evidence=evidence,
+            bases=bases,
+            context=context,
+        )
+        if relationship is None:
+            return None, None, relationship_error or "CANDIDATE-RELATIONSHIP-CONTEXT"
+        relationship = replace(relationship, atomic_group_ref="group:4")
+    candidate_value["experiences"] = tuple(experiences)
+    candidate_value["component_changes"] = tuple(component_changes)
+    candidate_value["memory_changes"] = tuple(memory_changes)
+    has_internal_change = bool(
+        experiences or component_changes or memory_changes or relationship is not None
+    )
+    if has_internal_change:
+        candidate_value["disposition"] = "change"
+    try:
+        candidate = type(candidate).model_validate(candidate_value, strict=True)
+    except ValidationError:
+        return None, None, "CANDIDATE-CONTRACT"
+    return candidate, replace(bound, relationship=relationship), None
+
+
+def _bind_affective_event(
+    signal: AffectiveEventSignal,
+    *,
+    proposal_ref: str,
+    bases: tuple[CandidateBasis, ...],
+    context: CandidateValidationContext,
+) -> tuple[dict[str, Any] | None, str | None]:
+    current = next(
+        (
+            (version, canonical)
+            for owner, version, canonical in context.current_components
+            if owner is CandidateOwner.MOOD
+        ),
+        None,
+    )
+    mood_basis = next(
+        (
+            item
+            for item in bases
+            if item.item_kind == "mood"
+            and current is not None
+            and item.source_version == current[0]
+        ),
+        None,
+    )
+    if current is None or mood_basis is None:
+        return None, "CANDIDATE-MOOD-CONTEXT"
+    basis_refs = tuple(dict.fromkeys((*signal.basis_refs, f"ctx:{mood_basis.ordinal}")))
+    allowed_refs = {f"ctx:{item.ordinal}" for item in bases}
+    if not set(basis_refs).issubset(allowed_refs):
+        return None, "CANDIDATE-MOOD-BASIS"
+    try:
+        current_state = MoodState.model_validate_json(current[1], strict=True)
+        current_value = current_state.model_dump(mode="python")
+        emotions = tuple(
+            dict.fromkeys(
+                (*signal.emotions, *cast(list[str], current_value["emotions"]))
+            )
+        )[:16]
+        mood = current_value["mood"]
+        if signal.intensity in {"medium", "high"} and signal.mood_tendency is not None:
+            mood = signal.mood_tendency
+        next_value = {
+            "schema_version": "armi.mood.v1",
+            "emotions": emotions,
+            "mood": mood,
+        }
+        next_state = MoodState.model_validate(next_value, strict=True)
+    except ValidationError, TypeError:
+        return None, "CANDIDATE-MOOD-STATE"
+    if next_state == current_state:
+        return None, None
+    return (
+        {
+            "proposal_ref": proposal_ref,
+            "atomic_group_ref": "group:4",
+            "basis_refs": basis_refs,
+            "payload": {
+                "proposal_kind": "component_changes",
+                "fact_class": "subjective_understanding",
+                "owner": "mood",
+                "expected_version": current[0],
+                "next_state": next_state.model_dump(mode="python"),
+            },
+        },
+        None,
+    )
 
 
 def _expand_dialogue_candidate(

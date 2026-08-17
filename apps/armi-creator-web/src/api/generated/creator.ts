@@ -2196,6 +2196,9 @@ export interface components {
       | "preparing"
       | "memory_maintenance"
       | "self_check"
+      | "reflect_self"
+      | "reflect_mind"
+      | "reflect_prompt"
       | "life_quiet"
       | "resume_check"
       | "completed";
@@ -2206,7 +2209,12 @@ export interface components {
       "started" | "advanced" | "completed" | "interrupted" | "system_failed";
     /** @enum {string} */
     MaintenanceWorkOutcomeValue:
-      "memory_changed" | "memory_unchanged" | "issue_found" | "no_issue";
+      | "memory_changed"
+      | "memory_unchanged"
+      | "issue_found"
+      | "no_issue"
+      | "reflection_changed"
+      | "reflection_unchanged";
     /** @enum {string} */
     MemoryAccessibilityValue: "available" | "faded" | "forgotten";
     /** @enum {string} */

@@ -6,7 +6,7 @@ import html
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Any, Literal, cast
+from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 from uuid import UUID
 
 import rfc8785
@@ -48,6 +48,19 @@ from ._autonomous_activity_contract import (
     autonomous_activity_candidate_schema,
     parse_autonomous_activity_candidate,
 )
+from ._creator_branch_contract import (
+    CREATOR_APPRAISAL_CANDIDATE_VERSION,
+    CREATOR_DIALOGUE_AGGREGATE_VERSION,
+    CREATOR_RESPONSE_CANDIDATE_VERSION,
+    CreatorDialogueAggregate,
+    creator_aggregate_schema,
+    creator_appraisal_schema,
+    creator_response_schema,
+    parse_creator_aggregate,
+)
+
+if TYPE_CHECKING:
+    from ._reflection_contract import OwnerReflectionCandidate
 from ._dialogue_contract import (
     DIALOGUE_CANDIDATE_VERSION,
     HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION,
@@ -130,7 +143,8 @@ from ._strict_model_json import strict_model_value
 MODEL_BINDING_VERSION = "armi.model-bindings.v1"
 MODEL_REQUEST_VERSION = "armi.model-request.v1"
 DIALOGUE_MODEL_INPUT_VERSION = "armi.creator-dialogue-input.v4"
-DialoguePromptVersion = Literal["armi.dialogue-prompt.v2"]
+CREATOR_BRANCH_MODEL_INPUT_VERSION = "armi.creator-dialogue-input.v5"
+DialoguePromptVersion = Literal["armi.dialogue-prompt.v2", "armi.dialogue-prompt.v3"]
 CANDIDATE_VERSION = "armi.cognition-candidate.v7"
 HISTORICAL_CANDIDATE_VERSION = "armi.cognition-candidate.v4"
 WEB_CANDIDATE_VERSION = "armi.cognition-candidate.v5"
@@ -731,6 +745,16 @@ _RUNTIME_BOUND_CANDIDATE_ADAPTER = TypeAdapter(CognitionCandidateV7)
 def candidate_schema(
     version: str = CANDIDATE_VERSION,
 ) -> dict[str, Any]:
+    if version == "armi.owner-reflection-candidate.v1":
+        from ._reflection_contract import owner_reflection_schema
+
+        return cast(dict[str, Any], owner_reflection_schema())
+    if version == CREATOR_RESPONSE_CANDIDATE_VERSION:
+        return cast(dict[str, Any], creator_response_schema())
+    if version == CREATOR_APPRAISAL_CANDIDATE_VERSION:
+        return cast(dict[str, Any], creator_appraisal_schema())
+    if version == CREATOR_DIALOGUE_AGGREGATE_VERSION:
+        return cast(dict[str, Any], creator_aggregate_schema())
     if version == ACTIVITY_ATTENTION_CANDIDATE_VERSION:
         return activity_attention_candidate_schema()
     if version == ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION:
@@ -792,6 +816,8 @@ def parse_candidate(
     | MaintenanceWorkCandidate
     | AutonomousActivityCandidate
     | SleepDecisionCandidate
+    | CreatorDialogueAggregate
+    | OwnerReflectionCandidate
     | CreatorDialogueCandidate
     | OtherHumanDialogueCandidate
     | CognitionCandidate
@@ -820,7 +846,22 @@ def parse_candidate(
             if candidate_object is not None
             else None
         )
-        if (
+        if candidate_object is not None and (
+            expected_version == CREATOR_DIALOGUE_AGGREGATE_VERSION
+            or version == CREATOR_DIALOGUE_AGGREGATE_VERSION
+        ):
+            candidate = parse_creator_aggregate(candidate_object)
+        elif (
+            candidate_object is not None
+            and expected_version == "armi.owner-reflection-candidate.v1"
+        ):
+            from ._reflection_contract import parse_owner_reflection
+
+            return parse_owner_reflection(
+                candidate_object,
+                allowed_context_refs=allowed_context_refs,
+            )
+        elif (
             candidate_object is not None
             and expected_version == ACTIVITY_ATTENTION_CANDIDATE_VERSION
         ):
@@ -966,6 +1007,27 @@ def parse_candidate(
         ValueError,
     ):
         raise ModelViolation("MODEL-RESPONSE-SCHEMA") from None
+    if isinstance(candidate, CreatorDialogueAggregate):
+        refs: set[str] = set()
+        if candidate.appraisal is not None:
+            if candidate.appraisal.affect is not None:
+                refs.update(candidate.appraisal.affect.basis_refs)
+            for change in candidate.appraisal.relationship_events:
+                refs.update(
+                    ref
+                    for ref in (change.target_ref, change.related_ref)
+                    if ref is not None
+                )
+        if candidate.response is not None:
+            for change in candidate.response.changes:
+                refs.update(
+                    ref
+                    for ref in (change.target_ref, change.related_ref)
+                    if ref is not None
+                )
+        if not refs.issubset(allowed_context_refs):
+            raise ModelViolation("MODEL-RESPONSE-REFERENCE")
+        return candidate
     if isinstance(
         candidate,
         AttentionSimpleDecision,
@@ -1206,60 +1268,6 @@ def parse_candidate(
     return candidate
 
 
-def parse_dialogue_candidate_with_independent_expression(
-    value: bytes,
-    *,
-    allowed_context_refs: frozenset[str],
-    expected_version: str,
-) -> CreatorDialogueCandidate:
-    """Keep a valid expression when an optional state proposal is malformed.
-
-    The complete provider response remains the attempt evidence.  This projection only
-    prevents an invalid optional state proposal from turning a valid reply into silence.
-
-    TODO: Evaluate two concurrent LLM calls, one for expression and one for state
-    proposals, if independent latency, quality and cost measurements justify it.  The
-    normal dialogue path deliberately remains one model call until then.
-    """
-    try:
-        candidate = parse_candidate(
-            value,
-            allowed_context_refs=allowed_context_refs,
-            expected_version=expected_version,
-        )
-    except ModelViolation as error:
-        if error.code not in {
-            "MODEL-RESPONSE-SCHEMA",
-            "MODEL-RESPONSE-REFERENCE",
-            "MODEL-RESPONSE-LIMIT",
-        }:
-            raise
-        try:
-            raw = json.loads(value)
-        except UnicodeDecodeError, json.JSONDecodeError:
-            raise error from None
-        if not isinstance(raw, dict):
-            raise error from None
-        raw_mapping = cast(dict[str, object], raw)
-        if raw_mapping.get("kind") != "reply":
-            raise error from None
-        minimal: dict[str, object] = {
-            "kind": "reply",
-            "content": raw_mapping.get("content"),
-        }
-        return cast(
-            CreatorDialogueCandidate,
-            parse_candidate(
-                json.dumps(minimal, ensure_ascii=False, separators=(",", ":")).encode(
-                    "utf-8"
-                ),
-                allowed_context_refs=allowed_context_refs,
-                expected_version=expected_version,
-            ),
-        )
-    return cast(CreatorDialogueCandidate, candidate)
-
-
 def load_active_binding(
     path: Path | None = None,
     *,
@@ -1281,10 +1289,15 @@ def load_active_binding(
         or len(value.get("bindings", ())) != 1
         or value.get("purpose_profiles")
         != {
-            "consider_creator_input": {
-                "profile": "creator_dialogue",
-                "response_contract_version": expected_dialogue_version,
+            "consider_creator_response": {
+                "profile": "creator_response",
+                "response_contract_version": CREATOR_RESPONSE_CANDIDATE_VERSION,
                 "output_token_limit": 1024,
+            },
+            "appraise_creator_input": {
+                "profile": "creator_appraisal",
+                "response_contract_version": CREATOR_APPRAISAL_CANDIDATE_VERSION,
+                "output_token_limit": 768,
             },
             "consider_codex_result": {
                 "profile": "codex_result",
@@ -1296,10 +1309,15 @@ def load_active_binding(
                 "response_contract_version": CANDIDATE_VERSION,
                 "output_token_limit": 1024,
             },
-            "consider_life_query_result": {
-                "profile": "creator_dialogue",
-                "response_contract_version": expected_dialogue_version,
+            "consider_life_query_response": {
+                "profile": "creator_response",
+                "response_contract_version": CREATOR_RESPONSE_CANDIDATE_VERSION,
                 "output_token_limit": 1024,
+            },
+            "appraise_life_query_result": {
+                "profile": "creator_appraisal",
+                "response_contract_version": CREATOR_APPRAISAL_CANDIDATE_VERSION,
+                "output_token_limit": 768,
             },
             "consider_creator_outreach": {
                 "profile": "creator_outreach",
@@ -1344,6 +1362,21 @@ def load_active_binding(
             "perform_subject_self_check": {
                 "profile": "subject_self_check",
                 "response_contract_version": MAINTENANCE_WORK_CANDIDATE_VERSION,
+                "output_token_limit": 1024,
+            },
+            "reflect_self": {
+                "profile": "reflect_self",
+                "response_contract_version": "armi.owner-reflection-candidate.v1",
+                "output_token_limit": 2048,
+            },
+            "reflect_mind": {
+                "profile": "reflect_mind",
+                "response_contract_version": "armi.owner-reflection-candidate.v1",
+                "output_token_limit": 2048,
+            },
+            "reflect_prompt": {
+                "profile": "reflect_prompt",
+                "response_contract_version": "armi.owner-reflection-candidate.v1",
                 "output_token_limit": 1024,
             },
         }
@@ -1429,6 +1462,8 @@ _DIALOGUE_GROUP_TITLES = {
 _DIALOGUE_TASK_TITLES = {
     "respond_to_creator": "回应 Creator 的当前输入",
     "respond_to_verified_life_query": "根据已核验的生活查询结果继续回应 Creator",
+    "appraise_creator_input": "评估 Creator 当前输入形成的主观经历",
+    "appraise_verified_life_query": "评估已核验生活查询结果形成的主观经历",
     "consider_creator_outreach": "考虑是否主动联系 Creator",
     "respond_to_other_human": "回应当前对方",
 }
@@ -1563,6 +1598,7 @@ class DialoguePromptPlan:
     def request_value(
         self,
         *,
+        schema_version: str = DIALOGUE_MODEL_INPUT_VERSION,
         output_schema_bytes: int,
         budget_exclusions: tuple[dict[str, object], ...],
     ) -> dict[str, object]:
@@ -1572,7 +1608,7 @@ class DialoguePromptPlan:
                 segment.text.encode("utf-8")
             )
         return {
-            "schema_version": DIALOGUE_MODEL_INPUT_VERSION,
+            "schema_version": schema_version,
             "prompt_version": self.version,
             "task": self.task,
             "messages": list(self.messages),
@@ -1769,7 +1805,12 @@ def _dialogue_messages(
     current_creator_text: str | None = None
     current_input_ref: str | None = None
     if (
-        task in {"respond_to_creator", "respond_to_other_human"}
+        task
+        in {
+            "respond_to_creator",
+            "respond_to_other_human",
+            "appraise_creator_input",
+        }
         and len(groups["current_input"]) == 1
     ):
         current_item = groups["current_input"][0]
@@ -1849,6 +1890,7 @@ def _dialogue_request_value(
     compiled_value: object,
     included_context_refs: tuple[dict[str, object], ...],
     *,
+    branch_role: Literal["response_action", "episode_appraisal"] | None = None,
     output_schema_bytes: int,
     budget_exclusions: tuple[dict[str, object], ...],
 ) -> dict[str, object]:
@@ -1902,6 +1944,12 @@ def _dialogue_request_value(
         group = _DIALOGUE_SECTION_GROUP.get(section)
         if group is None:
             continue
+        if branch_role == "episode_appraisal" and (
+            group in {"abilities", "materials"} or item_kind in {"creator_prompt"}
+        ):
+            continue
+        if branch_role == "response_action" and item_kind == "recent_experience":
+            continue
         if item_kind == "recent_scene_turn":
             group = "recent_dialogue"
         content = _semantic_item_content(item_kind, item.get("content"))
@@ -1917,12 +1965,19 @@ def _dialogue_request_value(
             semantic_item["perspective"] = "armi_subjective"
         groups[group].append(semantic_item)
         text = _dialogue_segment_text(item_kind, content)
-        referenceable = item_kind in _REFERENCEABLE_DIALOGUE_KINDS or (
-            item_kind.startswith("capability_state_")
-            and isinstance(content, dict)
-            and cast(dict[str, object], content).get("capability_kind")
-            == "codex.delegated-work"
-            and bool(text)
+        referenceable = (
+            item_kind in _REFERENCEABLE_DIALOGUE_KINDS
+            or (
+                branch_role == "episode_appraisal"
+                and item_kind in {"current_evidence", "recent_experience"}
+            )
+            or (
+                item_kind.startswith("capability_state_")
+                and isinstance(content, dict)
+                and cast(dict[str, object], content).get("capability_kind")
+                == "codex.delegated-work"
+                and bool(text)
+            )
         )
         segments.append(
             DialoguePromptSegment(
@@ -1939,8 +1994,16 @@ def _dialogue_request_value(
             visible_refs.append(ref)
 
     task = {
-        "consider_creator_input": "respond_to_creator",
-        "consider_life_query_result": "respond_to_verified_life_query",
+        "consider_creator_input": (
+            "appraise_creator_input"
+            if branch_role == "episode_appraisal"
+            else "respond_to_creator"
+        ),
+        "consider_life_query_result": (
+            "appraise_verified_life_query"
+            if branch_role == "episode_appraisal"
+            else "respond_to_verified_life_query"
+        ),
         "consider_creator_outreach": "consider_creator_outreach",
         "consider_other_human_input": "respond_to_other_human",
     }.get(purpose)
@@ -1948,7 +2011,9 @@ def _dialogue_request_value(
         raise ModelViolation("MODEL-CONTEXT")
     segment_tuple = tuple(segments)
     plan = DialoguePromptPlan(
-        "armi.dialogue-prompt.v2",
+        "armi.dialogue-prompt.v3"
+        if branch_role is not None
+        else "armi.dialogue-prompt.v2",
         task,
         segment_tuple,
         tuple(
@@ -1961,6 +2026,11 @@ def _dialogue_request_value(
         tuple(visible_refs),
     )
     return plan.request_value(
+        schema_version=(
+            CREATOR_BRANCH_MODEL_INPUT_VERSION
+            if branch_role is not None
+            else DIALOGUE_MODEL_INPUT_VERSION
+        ),
         output_schema_bytes=output_schema_bytes,
         budget_exclusions=budget_exclusions,
     )
@@ -1985,6 +2055,8 @@ def build_request_bytes(
         DIALOGUE_CANDIDATE_VERSION,
         WEB_DIALOGUE_CANDIDATE_VERSION,
         OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+        CREATOR_RESPONSE_CANDIDATE_VERSION,
+        CREATOR_APPRAISAL_CANDIDATE_VERSION,
     }:
         try:
             output_schema = candidate_schema(binding.response_contract_version)
@@ -1995,6 +2067,15 @@ def build_request_bytes(
                         _dialogue_request_value(
                             compiled_value,
                             included_context_refs,
+                            branch_role=(
+                                "response_action"
+                                if binding.response_contract_version
+                                == CREATOR_RESPONSE_CANDIDATE_VERSION
+                                else "episode_appraisal"
+                                if binding.response_contract_version
+                                == CREATOR_APPRAISAL_CANDIDATE_VERSION
+                                else None
+                            ),
                             output_schema_bytes=len(rfc8785.dumps(output_schema)),
                             budget_exclusions=budget_exclusions,
                         ),
@@ -2067,7 +2148,10 @@ __all__ = (
     "ACTIVITY_INTERNAL_WORK_INSTRUCTIONS",
     "CANDIDATE_VERSION",
     "CODEX_CANDIDATE_VERSION",
+    "CREATOR_APPRAISAL_CANDIDATE_VERSION",
+    "CREATOR_DIALOGUE_AGGREGATE_VERSION",
     "CREATOR_OUTREACH_INSTRUCTIONS",
+    "CREATOR_RESPONSE_CANDIDATE_VERSION",
     "DIALOGUE_CANDIDATE_VERSION",
     "DIALOGUE_INSTRUCTIONS",
     "DIALOGUE_MODEL_INPUT_VERSION",
@@ -2098,5 +2182,4 @@ __all__ = (
     "load_active_binding",
     "load_purpose_binding",
     "parse_candidate",
-    "parse_dialogue_candidate_with_independent_expression",
 )

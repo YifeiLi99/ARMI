@@ -11,9 +11,7 @@ import armi_cognition._model_contract as model_contract_module
 import armi_cognition._other_human_contract as other_human_contract_module
 import pytest
 from armi_cognition._dialogue_contract import (
-    DIALOGUE_MODEL_OUTPUT_VERSION,
     HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION,
-    dialogue_model_output_schema,
 )
 from armi_cognition._model_contract import (
     ACTIVE_MODEL_ID,
@@ -22,7 +20,6 @@ from armi_cognition._model_contract import (
     ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION,
     AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
     DIALOGUE_CANDIDATE_VERSION,
-    DIALOGUE_INSTRUCTIONS,
     MAINTENANCE_WORK_CANDIDATE_VERSION,
     WEB_DIALOGUE_CANDIDATE_VERSION,
     CognitionCandidateV7,
@@ -32,7 +29,6 @@ from armi_cognition._model_contract import (
     load_active_binding,
     load_purpose_binding,
     parse_candidate,
-    parse_dialogue_candidate_with_independent_expression,
 )
 from armi_cognition._other_human_contract import (
     HISTORICAL_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
@@ -338,6 +334,22 @@ def _request(binding: ModelBinding):
                             ),
                         },
                         {
+                            "section": "memory",
+                            "item_kind": "recent_experience",
+                            "source": {
+                                "kind": "accepted_experience",
+                                "reference": "01980f7d-7b8f-7e2a-8a11-2ab8e1234567",
+                                "version": 1,
+                                "digest": Digest.from_bytes(b"recent").value,
+                            },
+                            "trust": "subjective_state",
+                            "privacy": "private",
+                            "content": json.dumps(
+                                {"first_person_gist": "之前我听到过相近的事情。"},
+                                ensure_ascii=False,
+                            ),
+                        },
+                        {
                             "section": "evidence",
                             "item_kind": "current_evidence",
                             "source": {
@@ -371,7 +383,12 @@ def _request(binding: ModelBinding):
         bundle_activation_id=_BUNDLE_ID,
         included_context_refs=(
             {"ref": "ctx:1", "section": "mood", "item_kind": "mood"},
-            {"ref": "ctx:2", "section": "evidence", "item_kind": "current_evidence"},
+            {
+                "ref": "ctx:2",
+                "section": "memory",
+                "item_kind": "recent_experience",
+            },
+            {"ref": "ctx:3", "section": "evidence", "item_kind": "current_evidence"},
         ),
     )
     return checked_model_request(
@@ -396,41 +413,15 @@ def test_only_evolving_binding_is_active_and_request_is_stable() -> None:
 
 def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     legacy = load_active_binding()
-    dialogue = load_purpose_binding("consider_creator_input")
-    life_query_result = load_purpose_binding("consider_life_query_result")
-    assert dialogue.model_id == legacy.model_id == ACTIVE_MODEL_ID
-    assert dialogue.profile == "creator_dialogue"
-    assert dialogue.response_contract_version == DIALOGUE_CANDIDATE_VERSION
+    dialogue = load_purpose_binding("consider_creator_response")
+    appraisal = load_purpose_binding("appraise_creator_input")
+    assert dialogue.model_id == appraisal.model_id == legacy.model_id == ACTIVE_MODEL_ID
+    assert dialogue.profile == "creator_response"
+    assert appraisal.profile == "creator_appraisal"
+    assert dialogue.response_contract_version == "armi.creator-response-candidate.v1"
+    assert appraisal.response_contract_version == "armi.creator-appraisal-candidate.v1"
     assert dialogue.output_token_limit == 1024
-    assert life_query_result == dialogue
-    dialogue_schema = candidate_schema(DIALOGUE_CANDIDATE_VERSION)
-    model_output_schema = dialogue_model_output_schema(web_search=False)
-    legacy_schema = candidate_schema(HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION)
-    dialogue_schema_text = json.dumps(dialogue_schema, separators=(",", ":"))
-    assert dialogue_schema != legacy_schema
-    assert '"schema_version"' not in dialogue_schema_text
-    assert '"reason_summary"' not in dialogue_schema_text
-    assert '"decision"' not in dialogue_schema_text
-    assert model_output_schema != dialogue_schema
-    encoded_model_schema = json.dumps(model_output_schema, separators=(",", ":"))
-    assert '"default"' not in encoded_model_schema
-    assert '"discriminator"' not in encoded_model_schema
-    assert len(encoded_model_schema) < len(dialogue_schema_text)
-    change_schema = model_output_schema["$defs"]["DialogueCompactChange"]
-    assert set(change_schema["properties"]) == {
-        "op",
-        "target_ref",
-        "related_ref",
-        "field",
-        "party",
-        "text",
-        "items",
-        "metadata",
-    }
-    assert DIALOGUE_MODEL_OUTPUT_VERSION == "armi.creator-dialogue-model-output.v2"
-    assert "通常一句短话" in DIALOGUE_INSTRUCTIONS
-    assert "回应和追问通常二选一" in DIALOGUE_INSTRUCTIONS
-    assert "符合电子存在的真实处境" in DIALOGUE_INSTRUCTIONS
+    assert appraisal.output_token_limit == 768
 
     request = json.loads(_request(dialogue).canonical_bytes)
     assert "candidate_base" not in request
@@ -438,8 +429,8 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     assert "binding" not in request
     assert "context_digest" not in request
     assert "output_contract" not in request
-    assert request["schema_version"] == "armi.creator-dialogue-input.v4"
-    assert request["prompt_version"] == "armi.dialogue-prompt.v2"
+    assert request["schema_version"] == "armi.creator-dialogue-input.v5"
+    assert request["prompt_version"] == "armi.dialogue-prompt.v3"
     assert request["task"] == "respond_to_creator"
     assert request["available_refs"] == []
     assert [message["role"] for message in request["messages"]] == [
@@ -451,25 +442,15 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     assert request["messages"][2]["content"] == "Hello"
     assert "任务:回应 Creator" in request["messages"][0]["content"]
     assert "ctx:1" not in request["messages"][0]["content"]
+    assert "之前我听到过相近的事情" not in json.dumps(request, ensure_ascii=False)
     assert request["diagnostics"]["output_schema_bytes"] > 0
     assert str(_BUNDLE_ID) not in json.dumps(request)
-    parsed = parse_candidate(
-        json.dumps(_dialogue_candidate(), ensure_ascii=False).encode(),
-        allowed_context_refs=frozenset(),
-    )
-    assert parsed.schema_version == DIALOGUE_CANDIDATE_VERSION
-    assert parsed.model_dump(mode="json") == {
-        "kind": "reply",
-        "content": "Hello, I am here.",
-        "experience": None,
-        "memory_change": None,
-        "relationship_change": None,
-        "material_change": None,
-        "capability_request": None,
-        "self_change": None,
-        "mind_change": None,
-        "subject_prompt_change": None,
-    }
+    appraisal_request = json.loads(_request(appraisal).canonical_bytes)
+    assert appraisal_request["task"] == "appraise_creator_input"
+    assert "abilities" not in appraisal_request
+    assert "materials" not in appraisal_request
+    assert "之前我听到过相近的事情" in json.dumps(appraisal_request, ensure_ascii=False)
+    assert appraisal_request["available_refs"] == ["ctx:2", "ctx:3"]
 
 
 def test_active_codex_capability_schema_matches_domain_fact_classes() -> None:
@@ -518,7 +499,7 @@ def test_active_codex_capability_schema_matches_domain_fact_classes() -> None:
 def test_creator_dialogue_request_prioritizes_exact_recent_turns_and_local_refs() -> (
     None
 ):
-    binding = load_purpose_binding("consider_creator_input")
+    binding = load_purpose_binding("consider_creator_response")
     source_id = "01980f7d-7b8f-7e2a-8a11-2ab8e1234570"
     items = (
         (
@@ -668,7 +649,7 @@ def test_creator_dialogue_request_prioritizes_exact_recent_turns_and_local_refs(
     assert messages[2]["content"] == "我也想知道那片光落在哪里。"
     assert messages[4]["content"] == "你想聊些什么?"
     assert request["available_refs"] == ["ctx:5"]
-    assert request["prompt_version"] == "armi.dialogue-prompt.v2"
+    assert request["prompt_version"] == "armi.dialogue-prompt.v3"
     assert request["diagnostics"]["section_bytes"]["memories"] > 0
     assert source_id not in json.dumps(request, ensure_ascii=False)
 
@@ -1448,59 +1429,6 @@ def test_dialogue_exact_life_query_schema_excludes_logs_and_admin_data() -> None
         )
 
 
-def test_invalid_dialogue_change_cannot_suppress_a_valid_reply() -> None:
-    parsed = parse_dialogue_candidate_with_independent_expression(
-        json.dumps(
-            {
-                "kind": "reply",
-                "content": "The reply remains available.",
-                "relationship_change": {
-                    "interpretation": "The optional change is incomplete."
-                },
-            },
-            ensure_ascii=False,
-        ).encode(),
-        allowed_context_refs=frozenset(),
-        expected_version=DIALOGUE_CANDIDATE_VERSION,
-    )
-
-    assert parsed.model_dump(mode="json", exclude_none=True) == {
-        "kind": "reply",
-        "content": "The reply remains available.",
-    }
-
-
-def test_dialogue_reply_recovery_does_not_hide_invalid_content() -> None:
-    with pytest.raises(ModelViolation, match="MODEL-RESPONSE-SCHEMA"):
-        parse_dialogue_candidate_with_independent_expression(
-            b'{"kind":"reply","content":null,"relationship_change":{}}',
-            allowed_context_refs=frozenset(),
-            expected_version=DIALOGUE_CANDIDATE_VERSION,
-        )
-
-
-def test_invalid_dialogue_change_reference_cannot_suppress_a_valid_reply() -> None:
-    parsed = parse_dialogue_candidate_with_independent_expression(
-        json.dumps(
-            {
-                "kind": "reply",
-                "content": "I can still answer.",
-                "memory_change": {
-                    "action": "forget",
-                    "memory_ref": "ctx:99",
-                },
-            }
-        ).encode(),
-        allowed_context_refs=frozenset({"ctx:1"}),
-        expected_version=DIALOGUE_CANDIDATE_VERSION,
-    )
-
-    assert parsed.model_dump(mode="json", exclude_none=True) == {
-        "kind": "reply",
-        "content": "I can still answer.",
-    }
-
-
 def test_manifest_rejects_a_second_binding_or_fixed_model(tmp_path: Path) -> None:
     source = Path("configs/model-bindings.yaml")
     manifest = cast(dict[str, Any], load_yaml_file(source))
@@ -1511,13 +1439,10 @@ def test_manifest_rejects_a_second_binding_or_fixed_model(tmp_path: Path) -> Non
         load_active_binding(path)
 
 
-def test_web_dialogue_manifest_requires_explicit_v2_expectation(tmp_path: Path) -> None:
+def test_branch_manifest_rejects_legacy_dialogue_contract(tmp_path: Path) -> None:
     source = Path("configs/model-bindings.yaml")
     manifest = cast(dict[str, Any], load_yaml_file(source))
-    manifest["purpose_profiles"]["consider_creator_input"][
-        "response_contract_version"
-    ] = WEB_DIALOGUE_CANDIDATE_VERSION
-    manifest["purpose_profiles"]["consider_life_query_result"][
+    manifest["purpose_profiles"]["consider_creator_response"][
         "response_contract_version"
     ] = WEB_DIALOGUE_CANDIDATE_VERSION
     path = tmp_path / "model-bindings.yaml"
@@ -1525,17 +1450,6 @@ def test_web_dialogue_manifest_requires_explicit_v2_expectation(tmp_path: Path) 
 
     with pytest.raises(ModelViolation, match="MODEL-BINDING-MANIFEST"):
         load_active_binding(path)
-    binding = load_purpose_binding(
-        "consider_creator_input",
-        path,
-        expected_dialogue_version=WEB_DIALOGUE_CANDIDATE_VERSION,
-    )
-    assert binding.response_contract_version == WEB_DIALOGUE_CANDIDATE_VERSION
-    request = json.loads(_request(binding).canonical_bytes)
-    assert "candidate_base" not in request
-    assert request["schema_version"] == "armi.creator-dialogue-input.v4"
-    assert "output_contract" not in request
-
     manifest["bindings"] = [manifest["bindings"][0]]
     manifest["bindings"][0]["model_id"] = "doubao-seed-2-1-turbo-260628"
     path.write_text(json.dumps(manifest), encoding="utf-8")

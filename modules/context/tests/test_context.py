@@ -42,6 +42,7 @@ def _snapshot(
     opportunity_source_kind: str = "external_evidence",
     activity_summary_bytes: bytes = b'{"activities":[]}',
     component_payloads: tuple[tuple[object, ...], ...] = (),
+    experience_context: tuple[object, ...] = (),
 ) -> ContextEpisodeSnapshot:
     source_ref = uuid7()
     return cast(
@@ -57,6 +58,7 @@ def _snapshot(
             scene_id=scene_id,
             scene_bytes=scene_bytes,
             memory_payloads=memory_payloads,
+            experience_context=experience_context,
             has_memory_records=has_memory_records,
             relationship_payloads=relationship_payloads,
             relationship_commitment_payloads=relationship_commitment_payloads,
@@ -419,11 +421,25 @@ def test_context_includes_only_naturally_accessible_memory_heads() -> None:
 
 def test_maintenance_context_separates_memory_work_from_subject_self_check() -> None:
     memories = (_memory("available"), _memory("forgotten"))
+    experience_id = uuid7()
+    accepted_at = datetime(2026, 1, 2, tzinfo=UTC)
     memory_request = _context_request(
         _snapshot(
             memories,
             purpose="maintain_subjective_memory",
             opportunity_source_kind="maintenance_phase_revision",
+            experience_context=(
+                SimpleNamespace(
+                    experience_id=experience_id,
+                    fact_class="external_claim",
+                    first_person_gist="Creator 明确让我记住生日。",
+                    occurred_at=accepted_at,
+                    accepted_at=accepted_at,
+                    source_perspective="creator_claim",
+                    uncertainty=None,
+                    maintenance_source=True,
+                ),
+            ),
         ),
         None,
         b"fixed prompt",
@@ -445,6 +461,14 @@ def test_maintenance_context_separates_memory_work_from_subject_self_check() -> 
         if item.item_kind == "current_maintenance_phase"
     )
     assert memory_phase.required
+    frozen_experience = next(
+        item
+        for item in memory_request.items
+        if item.item_kind == "maintenance_experience"
+    )
+    assert frozen_experience.required
+    assert frozen_experience.source.reference == experience_id
+    assert "Creator 明确让我记住生日" in (frozen_experience.content or "")
     assert "forgotten memory" not in "".join(
         item.content or "" for item in memory_request.items
     )

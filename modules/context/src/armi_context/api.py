@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
@@ -337,6 +338,18 @@ class ContextRuntimePort(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class ContextExperienceState:
+    experience_id: UUID
+    fact_class: str
+    first_person_gist: str
+    occurred_at: datetime
+    accepted_at: datetime
+    source_perspective: str
+    uncertainty: str | None
+    maintenance_source: bool
+
+
+@dataclass(frozen=True, slots=True)
 class ContextEpisodeState:
     episode_id: UUID
     opportunity_id: UUID
@@ -351,6 +364,7 @@ class ContextEpisodeState:
     trace_id: TraceId
     life_query_intent_id: UUID | None = None
     life_query_result_artifact_id: UUID | None = None
+    experience_context: tuple[ContextExperienceState, ...] = ()
 
 
 @runtime_checkable
@@ -497,6 +511,7 @@ __all__ = (
     "ContextEmbeddingRuntimePort",
     "ContextEpisodePort",
     "ContextEpisodeState",
+    "ContextExperienceState",
     "ContextItemCandidate",
     "ContextItemDisposition",
     "ContextItemResult",

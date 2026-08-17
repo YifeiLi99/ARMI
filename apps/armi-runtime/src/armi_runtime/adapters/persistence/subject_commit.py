@@ -833,6 +833,7 @@ class PostgreSQLSubjectCommitRepository:
                 CognitionExperienceDraft(
                     experience_id=experience_id.value,
                     subject_id=snapshot.subject_id,
+                    generation_id=snapshot.generation_id,
                     subject_commit_id=commit_id.value,
                     episode_id=snapshot.episode_id,
                     proposal_ref=experience.proposal_ref,
@@ -1433,6 +1434,8 @@ async def _insert_application(
             observed_subject_version=observed_version,
             runtime_instance_id=fence.runtime_instance_id.value,
             fence_token=fence.fence_token,
+            purpose=snapshot.opportunity_purpose,
+            generation_id=snapshot.generation_id,
         ),
     )
 

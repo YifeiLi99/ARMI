@@ -175,6 +175,9 @@ class PostgreSQLSleepCommit:
         expected_purpose = {
             "memory_maintenance": "maintain_subjective_memory",
             "self_check": "perform_subject_self_check",
+            "reflect_self": "reflect_self",
+            "reflect_mind": "reflect_mind",
+            "reflect_prompt": "reflect_prompt",
         }[decision.phase.value]
         if (
             context.opportunity_purpose != expected_purpose
@@ -316,9 +319,9 @@ class PostgreSQLSleepCommit:
                 candidate_application_id, subject_commit_id,
                 maintenance_session_id, maintenance_revision_id,
                 expected_head_version, phase, outcome, result_summary,
-                creator_visible_problem, memory_id) VALUES (
+                creator_visible_problem, memory_id, issue_target) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, %s)
+                %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 uuid7(),
@@ -335,6 +338,7 @@ class PostgreSQLSleepCommit:
                 decision.result_summary,
                 decision.creator_visible_problem,
                 memory_id,
+                decision.issue_target,
             ),
         )
 

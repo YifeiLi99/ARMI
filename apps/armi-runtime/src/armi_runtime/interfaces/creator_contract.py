@@ -519,6 +519,9 @@ type MaintenancePhaseValue = Literal[
     "preparing",
     "memory_maintenance",
     "self_check",
+    "reflect_self",
+    "reflect_mind",
+    "reflect_prompt",
     "life_quiet",
     "resume_check",
     "completed",
@@ -541,6 +544,8 @@ type MaintenanceWorkOutcomeValue = Literal[
     "memory_unchanged",
     "issue_found",
     "no_issue",
+    "reflection_changed",
+    "reflection_unchanged",
 ]
 
 

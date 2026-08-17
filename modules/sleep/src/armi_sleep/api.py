@@ -145,6 +145,7 @@ class CandidateMaintenanceDecisionDraft:
     result_summary: str
     creator_visible_problem: str | None = None
     memory_proposal_ref: str | None = None
+    issue_target: str | None = None
 
     def __post_init__(self) -> None:
         _proposal(self.proposal_ref, self.atomic_group_ref, self.basis_ordinals)
@@ -156,7 +157,13 @@ class CandidateMaintenanceDecisionDraft:
             or type(self.expected_head_version) is not int
             or self.expected_head_version <= 0
             or self.phase
-            not in {MaintenancePhase.MEMORY_MAINTENANCE, MaintenancePhase.SELF_CHECK}
+            not in {
+                MaintenancePhase.MEMORY_MAINTENANCE,
+                MaintenancePhase.SELF_CHECK,
+                MaintenancePhase.REFLECT_SELF,
+                MaintenancePhase.REFLECT_MIND,
+                MaintenancePhase.REFLECT_PROMPT,
+            }
             or type(self.outcome) is not MaintenanceWorkOutcome
             or type(self.result_summary) is not str
             or not 1 <= len(self.result_summary) <= 512
@@ -175,6 +182,7 @@ class CandidateMaintenanceDecisionDraft:
                     or self.memory_proposal_ref == self.proposal_ref
                 )
             )
+            or self.issue_target not in {None, "self", "mind", "prompt"}
         ):
             raise SleepViolation("SLEEP-CANDIDATE-MAINTENANCE")
         memory_phase = self.phase is MaintenancePhase.MEMORY_MAINTENANCE
@@ -189,6 +197,21 @@ class CandidateMaintenanceDecisionDraft:
             raise SleepViolation("SLEEP-CANDIDATE-MAINTENANCE-SHAPE")
         issue_found = self.outcome is MaintenanceWorkOutcome.ISSUE_FOUND
         if issue_found != (self.creator_visible_problem is not None):
+            raise SleepViolation("SLEEP-CANDIDATE-MAINTENANCE-SHAPE")
+        if issue_found != (self.issue_target is not None):
+            raise SleepViolation("SLEEP-CANDIDATE-MAINTENANCE-SHAPE")
+        reflection_phase = self.phase in {
+            MaintenancePhase.REFLECT_SELF,
+            MaintenancePhase.REFLECT_MIND,
+            MaintenancePhase.REFLECT_PROMPT,
+        }
+        if reflection_phase != (
+            self.outcome
+            in {
+                MaintenanceWorkOutcome.REFLECTION_CHANGED,
+                MaintenanceWorkOutcome.REFLECTION_UNCHANGED,
+            }
+        ):
             raise SleepViolation("SLEEP-CANDIDATE-MAINTENANCE-SHAPE")
 
 
@@ -257,8 +280,7 @@ class SleepOpportunityDraft:
         if self.available_after.tzinfo is None:
             raise SleepViolation("SLEEP-OPPORTUNITY-TIME")
         if self.expires_at is not None and (
-            self.expires_at.tzinfo is None
-            or self.expires_at <= self.available_after
+            self.expires_at.tzinfo is None or self.expires_at <= self.available_after
         ):
             raise SleepViolation("SLEEP-OPPORTUNITY-TIME")
 
@@ -293,6 +315,7 @@ class SleepMaintenanceSnapshot:
     current_revision_id: UUID
     head_version: int
     phase: MaintenancePhase
+    trigger_kind: MaintenanceTriggerKind
 
     def __post_init__(self) -> None:
         if (
@@ -301,6 +324,7 @@ class SleepMaintenanceSnapshot:
             or type(self.head_version) is not int
             or self.head_version <= 0
             or type(self.phase) is not MaintenancePhase
+            or type(self.trigger_kind) is not MaintenanceTriggerKind
         ):
             raise SleepViolation("SLEEP-MAINTENANCE-SNAPSHOT")
 
@@ -519,9 +543,26 @@ class CreatorMaintenanceTimelineItem:
             )
             or (
                 self.phase
+                in {
+                    MaintenancePhase.REFLECT_SELF,
+                    MaintenancePhase.REFLECT_MIND,
+                    MaintenancePhase.REFLECT_PROMPT,
+                }
+                and self.work_outcome is not None
+                and self.work_outcome
+                not in {
+                    MaintenanceWorkOutcome.REFLECTION_CHANGED,
+                    MaintenanceWorkOutcome.REFLECTION_UNCHANGED,
+                }
+            )
+            or (
+                self.phase
                 not in {
                     MaintenancePhase.MEMORY_MAINTENANCE,
                     MaintenancePhase.SELF_CHECK,
+                    MaintenancePhase.REFLECT_SELF,
+                    MaintenancePhase.REFLECT_MIND,
+                    MaintenancePhase.REFLECT_PROMPT,
                 }
                 and self.work_outcome is not None
             )

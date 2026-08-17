@@ -34,6 +34,7 @@ def _snapshot(row: tuple[Any, ...]) -> SleepMaintenanceSnapshot:
         current_revision_id=row[1],
         head_version=int(row[2]),
         phase=MaintenancePhase(str(row[3])),
+        trigger_kind=MaintenanceTriggerKind(str(row[4])),
     )
 
 
@@ -74,7 +75,7 @@ class PostgreSQLSleepRead:
                 """
                 SELECT session.maintenance_session_id,
                        session.current_revision_id,
-                       session.head_version, revision.phase
+                       session.head_version, revision.phase, session.trigger_kind
                 FROM armi.maintenance_sessions AS session
                 JOIN armi.maintenance_session_revisions AS revision
                   ON revision.maintenance_revision_id = session.current_revision_id
@@ -100,7 +101,7 @@ class PostgreSQLSleepRead:
                 """
                 SELECT session.maintenance_session_id,
                        session.current_revision_id,
-                       session.head_version, revision.phase
+                       session.head_version, revision.phase, session.trigger_kind
                 FROM armi.maintenance_session_revisions AS revision
                 JOIN armi.maintenance_sessions AS session
                   ON session.maintenance_session_id = revision.maintenance_session_id

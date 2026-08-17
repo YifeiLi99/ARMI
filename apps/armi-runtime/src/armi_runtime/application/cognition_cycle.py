@@ -21,6 +21,7 @@ from armi_cognition.api import (
 )
 from armi_context.api import (
     ContextEpisodeState,
+    ContextExperienceState,
     ContextRuntimeSubjectSnapshot,
     ContextViolation,
 )
@@ -178,6 +179,9 @@ class RuntimeCognitionCycleSelector:
                 else {
                     MaintenancePhase.MEMORY_MAINTENANCE: "maintain_subjective_memory",
                     MaintenancePhase.SELF_CHECK: "perform_subject_self_check",
+                    MaintenancePhase.REFLECT_SELF: "reflect_self",
+                    MaintenancePhase.REFLECT_MIND: "reflect_mind",
+                    MaintenancePhase.REFLECT_PROMPT: "reflect_prompt",
                 }.get(maintenance.phase)
             )
             scope = OpportunityCognitionSelectionScope(
@@ -217,6 +221,7 @@ class RuntimeCognitionCycleSelector:
                         episode_id,
                         candidate.opportunity_id,
                         candidate.subject_id,
+                        fence.life_generation_id,
                         candidate.scene_id,
                         candidate.context_party_id,
                         candidate.purpose,
@@ -225,6 +230,13 @@ class RuntimeCognitionCycleSelector:
                         state.bundle_activation_id,
                         _MECHANISM,
                         trace,
+                        (
+                            None
+                            if maintenance is None
+                            else "runtime_idle"
+                            if maintenance.trigger_kind.value == "system_deadline"
+                            else "sleep"
+                        ),
                     ),
                 ):
                     raise ContextViolation("CTX-EPISODE-DUPLICATE")
@@ -334,6 +346,19 @@ def _context_episode(value: CognitionContextEpisodeSnapshot) -> ContextEpisodeSt
         value.trace_id,
         value.life_query_intent_id,
         value.life_query_result_artifact_id,
+        tuple(
+            ContextExperienceState(
+                item.experience_id,
+                item.fact_class,
+                item.first_person_gist,
+                item.occurred_at,
+                item.accepted_at,
+                item.source_perspective,
+                item.uncertainty,
+                item.maintenance_source,
+            )
+            for item in value.experience_context
+        ),
     )
 
 

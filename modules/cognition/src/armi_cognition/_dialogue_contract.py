@@ -1188,7 +1188,7 @@ def _require_compact_shape(
         raise ValueError("compact change shape is invalid")
 
 
-def _translate_compact_change_set(
+def translate_compact_change_set(
     changes: tuple[DialogueCompactChange, ...],
 ) -> dict[str, object]:
     result: dict[str, object] = {}
@@ -1422,7 +1422,7 @@ def _translate_compact_dialogue(
             "kind": "reply",
             "content": envelope.content,
             "experience": envelope.experience,
-            **_translate_compact_change_set(envelope.changes),
+            **translate_compact_change_set(envelope.changes),
         }
         reply_type = DialogueReplyDecisionV20 if web else DialogueReplyDecisionV19
         return reply_type.model_validate(values)
@@ -1585,4 +1585,5 @@ __all__ = (
     "dialogue_candidate_schema",
     "dialogue_model_output_schema",
     "parse_dialogue_candidate",
+    "translate_compact_change_set",
 )

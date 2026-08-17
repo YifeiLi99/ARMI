@@ -43,6 +43,7 @@ def encode(
             result_summary=value.result_summary,
             creator_visible_problem=value.creator_visible_problem,
             memory_proposal_ref=value.memory_proposal_ref,
+            issue_target=value.issue_target,
         )
     return rfc8785.dumps(cast(Any, common))
 
@@ -108,6 +109,7 @@ def _decode_mapping(
             if item["memory_proposal_ref"] is None
             else str(item["memory_proposal_ref"])
         ),
+        None if item.get("issue_target") is None else str(item["issue_target"]),
     )
 
 

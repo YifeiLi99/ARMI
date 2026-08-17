@@ -54,9 +54,16 @@ class PostgreSQLCognitionAdmin:
     ) -> int:
         row = transaction.execute(
             "SELECT (SELECT count(*) FROM armi.cognitive_episodes WHERE context_manifest_artifact_id=%s OR compiled_context_artifact_id=%s)+"
-            "(SELECT count(*) FROM armi.cognitive_attempts WHERE request_artifact_id=%s OR response_artifact_id=%s)+"
+            "(SELECT count(*) FROM armi.cognitive_attempts WHERE request_artifact_id=%s OR response_artifact_id=%s OR late_response_artifact_id=%s)+"
             "(SELECT count(*) FROM armi.cognitive_candidate_validations WHERE change_set_artifact_id=%s)",
-            (artifact_id, artifact_id, artifact_id, artifact_id, artifact_id),
+            (
+                artifact_id,
+                artifact_id,
+                artifact_id,
+                artifact_id,
+                artifact_id,
+                artifact_id,
+            ),
         ).fetchone()
         return 0 if row is None else int(cast(int, row[0]))
 

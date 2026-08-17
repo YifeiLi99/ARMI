@@ -41,7 +41,7 @@ def test_schema_resources_use_one_linear_alembic_history() -> None:
     assert not (RESOURCE / "migrations").exists()
     assert not list(RESOURCE.glob("**/manifest.json"))
     script = _script()
-    assert script.get_heads() == ["0010"]
+    assert script.get_heads() == ["0011"]
     revisions = list(script.walk_revisions(base="base", head="heads"))
     assert [revision.revision for revision in reversed(revisions)] == [
         "0000",
@@ -55,6 +55,7 @@ def test_schema_resources_use_one_linear_alembic_history() -> None:
         "0008",
         "0009",
         "0010",
+        "0011",
     ]
 
 
@@ -90,6 +91,16 @@ def test_active_cognition_contracts_have_a_forward_schema_revision() -> None:
     assert (
         "cognitive_candidate_validation_candidate_contract_version_check" in migration
     )
+    branches = (
+        RESOURCE / "alembic/versions/0011_creator_cognition_branches.py"
+    ).read_text(encoding="utf-8")
+    assert "armi.creator-response-candidate.v1" in branches
+    assert "armi.creator-appraisal-candidate.v1" in branches
+    assert "armi.creator-dialogue-aggregate.v1" in branches
+    assert "cognition_maintenance_batches" in branches
+    assert "processed_through_experience_id" in branches
+    assert "late_response_artifact_id" in branches
+    assert "reflect_self','reflect_mind','reflect_prompt" in branches
 
 
 def test_gateway_exposes_install_status_and_explicit_migration() -> None:

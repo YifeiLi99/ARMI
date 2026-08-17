@@ -26,6 +26,9 @@ class MaintenancePhase(StrEnum):
     PREPARING = "preparing"
     MEMORY_MAINTENANCE = "memory_maintenance"
     SELF_CHECK = "self_check"
+    REFLECT_SELF = "reflect_self"
+    REFLECT_MIND = "reflect_mind"
+    REFLECT_PROMPT = "reflect_prompt"
     LIFE_QUIET = "life_quiet"
     RESUME_CHECK = "resume_check"
     COMPLETED = "completed"
@@ -43,6 +46,8 @@ class MaintenanceWorkOutcome(StrEnum):
     MEMORY_UNCHANGED = "memory_unchanged"
     ISSUE_FOUND = "issue_found"
     NO_ISSUE = "no_issue"
+    REFLECTION_CHANGED = "reflection_changed"
+    REFLECTION_UNCHANGED = "reflection_unchanged"
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,7 +60,10 @@ class MaintenanceCheckpointPlan:
 _NEXT_PHASE = {
     MaintenancePhase.PREPARING: MaintenancePhase.MEMORY_MAINTENANCE,
     MaintenancePhase.MEMORY_MAINTENANCE: MaintenancePhase.SELF_CHECK,
-    MaintenancePhase.SELF_CHECK: MaintenancePhase.LIFE_QUIET,
+    MaintenancePhase.SELF_CHECK: MaintenancePhase.REFLECT_SELF,
+    MaintenancePhase.REFLECT_SELF: MaintenancePhase.REFLECT_MIND,
+    MaintenancePhase.REFLECT_MIND: MaintenancePhase.REFLECT_PROMPT,
+    MaintenancePhase.REFLECT_PROMPT: MaintenancePhase.LIFE_QUIET,
     MaintenancePhase.LIFE_QUIET: MaintenancePhase.RESUME_CHECK,
     MaintenancePhase.RESUME_CHECK: MaintenancePhase.COMPLETED,
 }

@@ -701,7 +701,11 @@ def _context_request(
                 payload.decode("utf-8"),
                 requested_required=kind == "self"
                 or (
-                    snapshot.purpose == "perform_subject_self_check"
+                    snapshot.purpose
+                    in {
+                        "perform_subject_self_check",
+                        "reflect_prompt",
+                    }
                     and kind in {"self", "mind"}
                 ),
                 relevance=90,
@@ -810,6 +814,38 @@ def _context_request(
                     if snapshot.has_memory_records
                     else "CTX-MEMORY-NONE"
                 ),
+            )
+        )
+    for experience in getattr(snapshot, "experience_context", ()):
+        item_kind = (
+            "maintenance_experience"
+            if experience.maintenance_source
+            else "recent_experience"
+        )
+        items.append(
+            _candidate(
+                profile,
+                ContextSection.MEMORY,
+                item_kind,
+                ContextSourceIdentity(
+                    "accepted_experience", experience.experience_id, 1
+                ),
+                ContextTrustClass.SUBJECTIVE_STATE,
+                "private",
+                rfc8785.dumps(
+                    {
+                        "schema_version": "armi.experience-context.v1",
+                        "fact_class": experience.fact_class,
+                        "first_person_gist": experience.first_person_gist,
+                        "occurred_at": experience.occurred_at.isoformat(),
+                        "accepted_at": experience.accepted_at.isoformat(),
+                        "source_perspective": experience.source_perspective,
+                        "uncertainty": experience.uncertainty,
+                    }
+                ).decode("utf-8"),
+                requested_required=experience.maintenance_source,
+                relevance=96 if experience.maintenance_source else 78,
+                business_time=Instant(experience.accepted_at),
             )
         )
     if (
@@ -1071,13 +1107,21 @@ def _context_request(
                 in {
                     "maintain_subjective_memory",
                     "perform_subject_self_check",
-                    "consider_creator_outreach",
+                    "reflect_self",
+                    "reflect_mind",
+                    "reflect_prompt",
                 },
                 relevance=100,
                 source_kind=snapshot.opportunity_source_kind,
             )
             if snapshot.purpose
-            in {"maintain_subjective_memory", "perform_subject_self_check"}
+            in {
+                "maintain_subjective_memory",
+                "perform_subject_self_check",
+                "reflect_self",
+                "reflect_mind",
+                "reflect_prompt",
+            }
             else _unavailable(profile, ContextSection.LIFE_MODE, "maintenance_phase"),
             _item(
                 profile,

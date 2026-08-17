@@ -12,6 +12,7 @@ from uuid import uuid7
 import pytest
 from armi_cognition._model_application import ModelPipeline
 from armi_cognition._model_postgresql import (
+    ModelBranchSnapshot,
     ModelEpisodeSnapshot,
     PostgreSQLCognitiveModelRepository,
 )
@@ -56,6 +57,8 @@ def test_model_attempt_recovery_only_replays_pre_dispatch(
             return _Cursor((previous_id, dispatch_status))
         if "SELECT count(*)" in statement:
             return _Cursor((1,))
+        if "UPDATE armi.cognitive_branches" in statement and "RETURNING" in statement:
+            return _Cursor((branch.branch_id,))
         if "UPDATE armi.cognitive_episodes" in statement and "RETURNING" in statement:
             return _Cursor((episode_id,))
         if "SELECT opportunity_id FROM armi.cognitive_episodes" in statement:
@@ -75,6 +78,7 @@ def test_model_attempt_recovery_only_replays_pre_dispatch(
         subject_id=uuid7(),
         trace_id=TraceId("a" * 32),
     )
+    branch = SimpleNamespace(branch_id=uuid7())
     binding = SimpleNamespace(
         provider="provider",
         model_id="model",
@@ -99,6 +103,7 @@ def test_model_attempt_recovery_only_replays_pre_dispatch(
             cast(Any, unit_of_work),
             lease=cast(Any, lease),
             snapshot=cast(Any, snapshot),
+            branch=cast(Any, branch),
             binding=cast(Any, binding),
             request_artifact=cast(Any, request_artifact),
         )
@@ -116,10 +121,7 @@ def test_model_attempt_recovery_only_replays_pre_dispatch(
         work.fail.assert_not_awaited()
     else:
         assert result is None
-        work.fail.assert_awaited_once_with(
-            lease,
-            error_code="MODEL-OUTCOME-UNKNOWN",
-        )
+        work.fail.assert_not_awaited()
 
 
 def test_retryable_preparation_failure_settles_on_final_work_attempt() -> None:
@@ -133,6 +135,7 @@ def test_retryable_preparation_failure_settles_on_final_work_attempt() -> None:
         yield unit_of_work
 
     repository = SimpleNamespace(fail_before_attempt=AsyncMock())
+    repository.fail_episode = AsyncMock()
     pipeline = object.__new__(ModelPipeline)
     pipeline._factory = cast(Any, SimpleNamespace(unit_of_work=unit_of_work_context))
     pipeline._repository = cast(Any, repository)
@@ -149,6 +152,7 @@ def test_retryable_preparation_failure_settles_on_final_work_attempt() -> None:
         (),
         (),
         TraceId("a" * 32),
+        (ModelBranchSnapshot(uuid7(), "primary", "prepared", None, None, None, 0),),
     )
     record = cast(
         Any,
@@ -169,8 +173,10 @@ def test_retryable_preparation_failure_settles_on_final_work_attempt() -> None:
         unit_of_work,
         lease=lease,
         snapshot=snapshot,
+        branch=snapshot.branches[0],
         code="MODEL-CONNECTION",
     )
+    repository.fail_episode.assert_awaited_once()
 
 
 def test_recovery_fails_episode_when_model_work_exhausted() -> None:

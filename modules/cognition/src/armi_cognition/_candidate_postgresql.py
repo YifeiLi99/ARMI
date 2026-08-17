@@ -231,12 +231,45 @@ class PostgreSQLCandidateValidationRepository:
             or work.draft.work_kind != _WORK_KIND
             or work.draft.owner.kind != "cognitive_episode"
             or work.draft.payload is None
-            or work.draft.payload.kind != "model_attempt"
+            or work.draft.payload.kind not in {"model_attempt", "dialogue_aggregate"}
         ):
             raise CandidateViolation("CANDIDATE-WORK-STALE")
-        row = await (
-            await connection.execute(
-                """
+        if work.draft.payload.kind == "dialogue_aggregate":
+            row = await (
+                await connection.execute(
+                    """
+                    SELECT
+                        episode.cognitive_episode_id,
+                        aggregate.primary_model_attempt_id,
+                        episode.subject_id,
+                        episode.bundle_activation_id,
+                        episode.base_subject_version,
+                        episode.base_state_epoch,
+                        episode.context_digest,
+                        episode.scene_id,
+                        episode.context_party_id,
+                        aggregate.aggregate_artifact_id,
+                        'armi.creator-dialogue-aggregate.v1',
+                        episode.trace_id,
+                        episode.purpose,
+                        episode.opportunity_id
+                    FROM armi.cognitive_episodes AS episode
+                    JOIN armi.cognitive_dialogue_aggregates AS aggregate
+                      ON aggregate.cognitive_episode_id=episode.cognitive_episode_id
+                    JOIN armi.cognitive_attempts AS attempt
+                      ON attempt.model_attempt_id=aggregate.primary_model_attempt_id
+                    WHERE episode.cognitive_episode_id=%s
+                      AND episode.status IN ('model_returned','validating')
+                      AND attempt.result_status='succeeded'
+                    FOR UPDATE OF episode
+                    """,
+                    (work.draft.owner.reference,),
+                )
+            ).fetchone()
+        else:
+            row = await (
+                await connection.execute(
+                    """
                 SELECT
                     episode.cognitive_episode_id,
                     attempt.model_attempt_id,
@@ -263,12 +296,12 @@ class PostgreSQLCandidateValidationRepository:
                   AND attempt.response_artifact_id IS NOT NULL
                 FOR UPDATE OF episode
                 """,
-                (
-                    work.draft.payload.reference,
-                    work.draft.owner.reference,
-                ),
-            )
-        ).fetchone()
+                    (
+                        work.draft.payload.reference,
+                        work.draft.owner.reference,
+                    ),
+                )
+            ).fetchone()
         if row is None:
             raise CandidateViolation("CANDIDATE-WORK-STALE")
         updated = await (

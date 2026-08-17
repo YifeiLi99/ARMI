@@ -289,6 +289,25 @@ class PostgreSQLCognitionSubjectCommit:
                 draft.uncertainty,
             ),
         )
+        await transaction.execute(
+            """
+            INSERT INTO armi.cognition_maintenance_cursors (
+                subject_id,life_generation_id,last_experience_id,dirty_since)
+            VALUES (%s,%s,%s,statement_timestamp())
+            ON CONFLICT (subject_id,life_generation_id) DO UPDATE
+            SET last_experience_id=EXCLUDED.last_experience_id,
+                processed_through_experience_id=CASE
+                  WHEN armi.cognition_maintenance_cursors.dirty_since IS NULL
+                  THEN NULL
+                  ELSE armi.cognition_maintenance_cursors.processed_through_experience_id
+                END,
+                dirty_since=COALESCE(
+                    armi.cognition_maintenance_cursors.dirty_since,
+                    EXCLUDED.dirty_since),
+                updated_at=statement_timestamp()
+            """,
+            (draft.subject_id, draft.generation_id, draft.experience_id),
+        )
 
     async def record_application(
         self, transaction: PostgreSQLTransaction, draft: CognitionApplicationDraft
@@ -316,6 +335,52 @@ class PostgreSQLCognitionSubjectCommit:
                 draft.fence_token,
             ),
         )
+        if (
+            draft.status is CandidateApplicationStatus.APPLIED
+            and draft.purpose == "reflect_prompt"
+            and draft.generation_id is not None
+        ):
+            episode = await (
+                await transaction.execute(
+                    """SELECT subject_id FROM armi.cognitive_episodes
+                       WHERE cognitive_episode_id=%s""",
+                    (draft.episode_id,),
+                )
+            ).fetchone()
+            if episode is None:
+                raise SubjectCommitViolation("SUBJECT-EPISODE-STATE")
+            await transaction.execute(
+                """WITH completed AS (
+                     UPDATE armi.cognition_maintenance_batches
+                     SET status='completed',finished_at=statement_timestamp()
+                     WHERE subject_id=%s AND life_generation_id=%s
+                       AND status='running'
+                     RETURNING maintenance_batch_id
+                   ), frozen_tail AS (
+                     SELECT source.experience_id
+                     FROM armi.cognition_maintenance_batch_sources AS source
+                     JOIN completed
+                       ON completed.maintenance_batch_id=source.maintenance_batch_id
+                     ORDER BY source.ordinal DESC
+                     LIMIT 1
+                   )
+                   UPDATE armi.cognition_maintenance_cursors
+                   SET dirty_since=CASE
+                         WHEN last_experience_id=(SELECT experience_id FROM frozen_tail)
+                         THEN NULL ELSE dirty_since END,
+                       processed_through_experience_id=CASE
+                         WHEN last_experience_id=(SELECT experience_id FROM frozen_tail)
+                         THEN NULL ELSE (SELECT experience_id FROM frozen_tail) END,
+                       updated_at=statement_timestamp()
+                   WHERE subject_id=%s AND life_generation_id=%s
+                     AND EXISTS (SELECT 1 FROM frozen_tail)""",
+                (
+                    episode[0],
+                    draft.generation_id,
+                    episode[0],
+                    draft.generation_id,
+                ),
+            )
 
     async def record_exact_life_query(
         self,

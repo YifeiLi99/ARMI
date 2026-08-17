@@ -193,6 +193,21 @@ _PROFILES = {
         required=frozenset({"current_maintenance_phase", "current_activities"}),
         forbidden=_PRIVATE_RECALL,
     ),
+    "reflect_self": _profile(
+        "reflect_self",
+        required=frozenset({"current_maintenance_phase", "self"}),
+        forbidden=_PRIVATE_RECALL,
+    ),
+    "reflect_mind": _profile(
+        "reflect_mind",
+        required=frozenset({"current_maintenance_phase", "mind"}),
+        forbidden=_PRIVATE_RECALL,
+    ),
+    "reflect_prompt": _profile(
+        "reflect_prompt",
+        required=frozenset({"current_maintenance_phase", "self", "mind"}),
+        forbidden=_PRIVATE_RECALL,
+    ),
     "consider_creator_outreach": _profile(
         "consider_creator_outreach",
         required=frozenset(

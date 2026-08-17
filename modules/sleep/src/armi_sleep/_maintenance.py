@@ -225,6 +225,9 @@ class PostgreSQLMaintenanceRepository:
         elif phase in {
             MaintenancePhase.MEMORY_MAINTENANCE,
             MaintenancePhase.SELF_CHECK,
+            MaintenancePhase.REFLECT_SELF,
+            MaintenancePhase.REFLECT_MIND,
+            MaintenancePhase.REFLECT_PROMPT,
         }:
             completed = await (
                 await connection.execute(
@@ -520,6 +523,9 @@ class PostgreSQLMaintenanceRepository:
         purpose = {
             MaintenancePhase.MEMORY_MAINTENANCE: "maintain_subjective_memory",
             MaintenancePhase.SELF_CHECK: "perform_subject_self_check",
+            MaintenancePhase.REFLECT_SELF: "reflect_self",
+            MaintenancePhase.REFLECT_MIND: "reflect_mind",
+            MaintenancePhase.REFLECT_PROMPT: "reflect_prompt",
         }[phase]
         first = await self._opportunities.admit_sleep(
             unit_of_work.transaction,

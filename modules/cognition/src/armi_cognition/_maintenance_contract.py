@@ -87,6 +87,7 @@ class SelfCheckIssueFound(_StrictModel):
     ]
     internal_summary: str
     creator_visible_summary: str
+    issue_target: Literal["self", "mind", "prompt"]
 
     @field_validator("internal_summary", "creator_visible_summary")
     @classmethod
