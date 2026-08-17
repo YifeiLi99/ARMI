@@ -190,6 +190,7 @@ def compose_data_rights_participants(
         "perception",
         "evidence",
         "opportunity",
+        "experience",
         "cognition",
         "memory",
         "relationship",

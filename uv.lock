@@ -17,6 +17,7 @@ members = [
     "armi-data-rights",
     "armi-effect",
     "armi-evidence",
+    "armi-experience",
     "armi-expression",
     "armi-interaction",
     "armi-kernel",
@@ -304,6 +305,7 @@ dependencies = [
     { name = "armi-context" },
     { name = "armi-data-rights" },
     { name = "armi-evidence" },
+    { name = "armi-experience" },
     { name = "armi-expression" },
     { name = "armi-interaction" },
     { name = "armi-kernel" },
@@ -330,6 +332,7 @@ requires-dist = [
     { name = "armi-context", editable = "modules/context" },
     { name = "armi-data-rights", editable = "modules/data-rights" },
     { name = "armi-evidence", editable = "modules/evidence" },
+    { name = "armi-experience", editable = "modules/experience" },
     { name = "armi-expression", editable = "modules/expression" },
     { name = "armi-interaction", editable = "modules/interaction" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
@@ -451,6 +454,23 @@ requires-dist = [
 name = "armi-evidence"
 version = "0.0.0"
 source = { editable = "modules/evidence" }
+dependencies = [
+    { name = "armi-data-rights" },
+    { name = "armi-kernel" },
+    { name = "armi-runtime-foundation" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "armi-data-rights", editable = "modules/data-rights" },
+    { name = "armi-kernel", editable = "packages/armi-kernel" },
+    { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
+]
+
+[[package]]
+name = "armi-experience"
+version = "0.0.0"
+source = { editable = "modules/experience" }
 dependencies = [
     { name = "armi-data-rights" },
     { name = "armi-kernel" },
@@ -701,6 +721,7 @@ dependencies = [
     { name = "armi-data-rights" },
     { name = "armi-effect" },
     { name = "armi-evidence" },
+    { name = "armi-experience" },
     { name = "armi-expression" },
     { name = "armi-interaction" },
     { name = "armi-kernel" },
@@ -740,6 +761,7 @@ requires-dist = [
     { name = "armi-data-rights", editable = "modules/data-rights" },
     { name = "armi-effect", editable = "modules/effect" },
     { name = "armi-evidence", editable = "modules/evidence" },
+    { name = "armi-experience", editable = "modules/experience" },
     { name = "armi-expression", editable = "modules/expression" },
     { name = "armi-interaction", editable = "modules/interaction" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },

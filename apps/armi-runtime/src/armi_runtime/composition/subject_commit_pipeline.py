@@ -32,6 +32,7 @@ from armi_cognition.api import (
 from armi_context.api import ContextProjectionInvalidationPort
 from armi_data_rights.api import DataRightsSubjectCommitGate
 from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
+from armi_experience.api import ExperienceCommitPort
 from armi_expression.api import (
     CreatorReplyDraft,
     ExpressionCommitPort,
@@ -167,6 +168,7 @@ class SubjectCommitPipeline:
         capability_read: CapabilityReadPort,
         codex_commit: CodexCommitPort,
         cognition_commit: CognitionSubjectCommitPort,
+        experience_commit: ExperienceCommitPort,
         context_projections: ContextProjectionInvalidationPort,
         data_rights: DataRightsSubjectCommitGate,
         evidence: EvidenceWritePort,
@@ -213,6 +215,7 @@ class SubjectCommitPipeline:
             capability_read,
             codex_commit,
             cognition_commit,
+            experience_commit,
             context_projections,
             data_rights,
             evidence,
@@ -843,6 +846,7 @@ def build_subject_commit_pipeline(
     capability_read: CapabilityReadPort,
     codex_commit: CodexCommitPort,
     cognition_commit: CognitionSubjectCommitPort,
+    experience_commit: ExperienceCommitPort,
     context_projections: ContextProjectionInvalidationPort,
     data_rights: DataRightsSubjectCommitGate,
     evidence: EvidenceWritePort,
@@ -883,6 +887,7 @@ def build_subject_commit_pipeline(
         capability_read=capability_read,
         codex_commit=codex_commit,
         cognition_commit=cognition_commit,
+        experience_commit=experience_commit,
         context_projections=context_projections,
         data_rights=data_rights,
         evidence=evidence,

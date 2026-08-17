@@ -15,6 +15,7 @@ from armi_codex.api import CodexTaskSourceReadPort
 from armi_context.api import ContextCognitionReadPort
 from armi_data_rights.api import DataRightsParticipant
 from armi_evidence.api import EvidenceReadPort
+from armi_experience.api import ExperienceReadPort
 from armi_interaction.api import InteractionCognitionReadPort
 from armi_kernel.application import DurableWorkPort
 from armi_material.api import (
@@ -68,7 +69,6 @@ from .api import (
     CognitionArtifactCatalogPort,
     CognitionContextLifecyclePort,
     CognitionExactLifeQueryPort,
-    CognitionLifeRecordPort,
     CognitionModelAdapterFactory,
     CognitionOperationReadPort,
     CognitionOwnerPort,
@@ -126,15 +126,13 @@ def bootstrap_cognition_owner() -> CognitionOwnerPort:
     return PostgreSQLCognitionSubjectCommit()
 
 
-def bootstrap_cognition_context() -> CognitionContextLifecyclePort:
-    return PostgreSQLCognitionContextLifecycle()
+def bootstrap_cognition_context(
+    *, experiences: ExperienceReadPort
+) -> CognitionContextLifecyclePort:
+    return PostgreSQLCognitionContextLifecycle(experiences)
 
 
 def bootstrap_cognition_operation() -> CognitionOperationReadPort:
-    return PostgreSQLCognitionSubjectCommit()
-
-
-def bootstrap_cognition_life_records() -> CognitionLifeRecordPort:
     return PostgreSQLCognitionSubjectCommit()
 
 
@@ -323,7 +321,6 @@ __all__ = (
     "bootstrap_cognition_context",
     "bootstrap_cognition_data_rights",
     "bootstrap_cognition_exact_life_query",
-    "bootstrap_cognition_life_records",
     "bootstrap_cognition_model",
     "bootstrap_cognition_operation",
     "bootstrap_cognition_owner",

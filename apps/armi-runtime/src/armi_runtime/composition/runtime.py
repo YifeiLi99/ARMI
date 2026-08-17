@@ -32,6 +32,7 @@ from armi_context.api import ContextViolation
 from armi_data_rights.api import CreatorExportViolation, DataRightsViolation
 from armi_effect.api import EffectViolation
 from armi_effect.bootstrap import bootstrap_effect_operation_read
+from armi_experience.bootstrap import bootstrap_experience_owner
 from armi_expression.api import ResponseViolation
 from armi_interaction.api import (
     CreatorInputCommand,
@@ -410,8 +411,11 @@ async def _serve(
             )
             evidence_module = compose_evidence_module()
             await evidence_module.open()
+            experience_owner = bootstrap_experience_owner()
             cognition_owner = bootstrap_cognition_owner()
-            cognition_context = bootstrap_cognition_context()
+            cognition_context = bootstrap_cognition_context(
+                experiences=experience_owner
+            )
             opportunity_owner = bootstrap_opportunity_owner()
             opportunity_sleep = bootstrap_opportunity_sleep()
             web_context = bootstrap_web_context_read()
@@ -459,7 +463,7 @@ async def _serve(
                 relationship_read=relationship_module.read,
                 subject_state_read=subject_state_module.read,
                 visibility=data_rights_core.visibility,
-                cognition=cognition_owner,
+                experiences=experience_owner,
             )
             await life_record_query.open()
             opportunity_admission = compose_opportunity_admission()
@@ -724,6 +728,7 @@ async def _serve(
                     expression_module.commit,
                 ),
                 cognition_commit=cognition_owner,
+                experience_commit=experience_owner,
                 context_projections=context_projection_invalidation,
                 data_rights=data_rights_module.subject_commit,
                 evidence=evidence_module.write,

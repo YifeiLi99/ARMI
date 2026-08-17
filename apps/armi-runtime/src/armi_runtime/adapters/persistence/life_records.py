@@ -13,8 +13,8 @@ from uuid import UUID
 
 import rfc8785
 from armi_activity.api import ActivityReadPort
-from armi_cognition.api import CognitionLifeRecordPort
 from armi_data_rights.api import DataRightsVisibilityPort
+from armi_experience.api import ExperienceLifeRecordPort
 from armi_kernel.application import (
     LifeRecordActor,
     LifeRecordItem,
@@ -136,8 +136,8 @@ class PostgreSQLLifeRecordQuery:
     __slots__ = (
         "_activities",
         "_codec",
-        "_cognition",
         "_creator_party_id",
+        "_experiences",
         "_factory",
         "_materials",
         "_memories",
@@ -161,11 +161,11 @@ class PostgreSQLLifeRecordQuery:
         relationships: RelationshipReadPort,
         subject_state: SubjectStateReadPort,
         visibility: DataRightsVisibilityPort,
-        cognition: CognitionLifeRecordPort,
+        experiences: ExperienceLifeRecordPort,
     ) -> None:
         self._creator_party_id = creator_party_id
         self._subject_id = subject_id
-        self._cognition = cognition
+        self._experiences = experiences
         self._activities = activities
         self._factory = factory
         self._materials = materials
@@ -261,8 +261,8 @@ class PostgreSQLLifeRecordQuery:
                     if request.record_kind in {None, LifeRecordKind("activity")}
                     else ()
                 )
-                cognition_rows = (
-                    await self._cognition.life_record_branch(
+                experience_rows = (
+                    await self._experiences.life_record_branch(
                         connection,
                         subject_id=subject_id,
                         query_text=request.query_text,
@@ -283,7 +283,7 @@ class PostgreSQLLifeRecordQuery:
                         item.occurred_at,
                         None,
                     )
-                    for item in cognition_rows
+                    for item in experience_rows
                 ]
                 hidden_experiences = await self._visibility.hidden_targets(
                     connection,

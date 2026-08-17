@@ -62,7 +62,6 @@ from armi_cognition.api import (
     CognitionCandidateParser,
     CognitionContextLifecyclePort,
     CognitionExactLifeQueryPort,
-    CognitionLifeRecordPort,
     CognitionModelPort,
     CognitionOperationReadPort,
     CognitionRuntimeStatePort,
@@ -127,6 +126,7 @@ from armi_evidence.bootstrap import (
     EvidenceModule,
     bootstrap_evidence,
 )
+from armi_experience.api import ExperienceCommitPort, ExperienceLifeRecordPort
 from armi_expression.api import (
     ExpressionCommitPort,
     ExpressionEffectLinkPort,
@@ -699,7 +699,7 @@ def compose_life_record_query(
     relationship_read: RelationshipReadPort,
     subject_state_read: SubjectStateReadPort,
     visibility: DataRightsVisibilityPort,
-    cognition: CognitionLifeRecordPort,
+    experiences: ExperienceLifeRecordPort,
 ) -> PostgreSQLLifeRecordQuery:
     """Resolve the shared read-only exact-life and memory projection."""
 
@@ -715,7 +715,7 @@ def compose_life_record_query(
         relationships=relationship_read,
         subject_state=subject_state_read,
         visibility=visibility,
-        cognition=cognition,
+        experiences=experiences,
     )
 
 
@@ -1453,6 +1453,7 @@ def compose_subject_commit_pipeline(
     capability_read: CapabilityReadPort,
     codex_commit: CodexCommitPort,
     cognition_commit: CognitionSubjectCommitPort,
+    experience_commit: ExperienceCommitPort,
     context_projections: ContextProjectionInvalidationPort,
     data_rights: DataRightsSubjectCommitGate,
     evidence: EvidenceWritePort,
@@ -1504,6 +1505,7 @@ def compose_subject_commit_pipeline(
         capability_read=capability_read,
         codex_commit=codex_commit,
         cognition_commit=cognition_commit,
+        experience_commit=experience_commit,
         context_projections=context_projections,
         data_rights=data_rights,
         evidence=evidence,

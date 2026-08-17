@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 
 from armi_cognition.api import CognitionSubjectCommitPort
+from armi_experience.api import ExperienceCommitPort
 
 _ROOT = Path(__file__).resolve().parents[2]
 _RUNTIME_COMMIT = (
@@ -83,7 +84,14 @@ def test_cognition_subject_commit_port_is_replaceable_by_public_fake() -> None:
         async def existing_application(self, transaction, *, validation_id):
             return None
 
-        async def record_experience(self, transaction, draft):
+        async def note_accepted_experience(
+            self,
+            transaction,
+            *,
+            subject_id,
+            generation_id,
+            experience_id,
+        ):
             return None
 
         async def record_application(self, transaction, draft):
@@ -105,3 +113,11 @@ def test_cognition_subject_commit_port_is_replaceable_by_public_fake() -> None:
 
     fake = FakeCognition()
     assert isinstance(fake, CognitionSubjectCommitPort)
+
+
+def test_experience_commit_port_is_replaceable_by_public_fake() -> None:
+    class FakeExperience:
+        async def record(self, transaction, draft):
+            return None
+
+    assert isinstance(FakeExperience(), ExperienceCommitPort)

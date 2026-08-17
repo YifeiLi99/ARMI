@@ -35,6 +35,10 @@ from armi_evidence.bootstrap import (
     bootstrap_evidence_data_rights,
     bootstrap_evidence_recovery,
 )
+from armi_experience.bootstrap import (
+    bootstrap_experience_data_rights,
+    bootstrap_experience_recovery,
+)
 from armi_expression.bootstrap import (
     bootstrap_expression_data_rights,
     bootstrap_expression_recovery,
@@ -109,6 +113,7 @@ _DATA_RIGHTS_ORDER = (
     "perception",
     "evidence",
     "opportunity",
+    "experience",
     "cognition",
     "memory",
     "relationship",
@@ -141,6 +146,7 @@ _RECOVERY_ORDER = (
     "perception",
     "evidence",
     "cognition",
+    "experience",
     "opportunity",
     "expression",
     "capability",
@@ -163,6 +169,7 @@ def compose_runtime_owner_roster(
         "perception": bootstrap_perception_recovery(),
         "evidence": bootstrap_evidence_recovery(),
         "opportunity": bootstrap_opportunity_recovery(),
+        "experience": bootstrap_experience_recovery(),
         "cognition": bootstrap_cognition_recovery(),
         "memory": bootstrap_memory_recovery(),
         "relationship": bootstrap_relationship_recovery(),
@@ -185,6 +192,7 @@ def compose_runtime_owner_roster(
         "perception": bootstrap_perception_data_rights(),
         "evidence": bootstrap_evidence_data_rights(),
         "opportunity": bootstrap_opportunity_data_rights(),
+        "experience": bootstrap_experience_data_rights(),
         "cognition": bootstrap_cognition_data_rights(),
         "memory": bootstrap_memory_data_rights(),
         "relationship": bootstrap_relationship_data_rights(),

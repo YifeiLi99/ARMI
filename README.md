@@ -24,7 +24,7 @@ ARMI 以真实人类的心理、生活和社会行为作为参照，但承认自
 
 ARMI 目前是运行在单机上的模块化单体。Python workspace 包含稳定内核、Runtime/Admin 共用的 PostgreSQL catalog 合同、普通 Runtime、隔离的管理 MCP，以及独立 QQ 适配器和 NapCat 渠道驱动；Creator 工作台是由 Runtime 同源托管的 React 静态应用。PostgreSQL 是唯一权威关系数据库，文件制品只保存不适合直接进入关系表的大正文或执行产物。
 
-二十个业务领域均为独立 workspace distribution。生产与跨模块测试只通过各模块 `api.py` 的冻结 DTO/Protocol 协作；业务 SQL 由表 owner 独占，Runtime 只在共享 PostgreSQL UoW 中协调顺序、CAS、durable work 与审计。Kernel 和 Runtime Foundation 保持业务中性，不维护业务 owner、表名或 Creator 投影版本枚举。
+二十一个业务领域均为独立 workspace distribution。生产与跨模块测试只通过各模块 `api.py` 的冻结 DTO/Protocol 协作；业务 SQL 由表 owner 独占，Runtime 只在共享 PostgreSQL UoW 中协调顺序、CAS、durable work 与审计。Kernel 和 Runtime Foundation 保持业务中性，不维护业务 owner、表名或 Creator 投影版本枚举。
 
 当前代码已经覆盖 Creator 对话与多场合、Self/Mind/Prompt、主观记忆、关系与生活资料、自主机会与 Activity、睡眠维护、主动联系、内置其他人交流、本地导出与数据权利，以及经授权的 Creator→Codex 委托。QQ/NapCat 统一适配器支持好友私聊和白名单群的文字收发，并保留 QQ 已明确给出的内置表情、商城表情与图片子类。内置表情和有效商城摘要在本地解释；其他图片经过真实格式、尺寸和动画帧检查后，按表情、平台特殊图或普通图片选择一次视觉理解。语音走豆包语音大模型录音文件识别标准版的 `400` 模型，视频仍作为完整文件交给方舟视频模型，PDF、文本及常见 Office 文件沿用各自通路。正式回复仍只发送文字。渠道默认关闭；群临时私聊不接纳。代码存在不等于某个环境已经配置并启用；模型、网页、Codex 和其他外部能力仍取决于该环境的绑定、凭据与授权。
 

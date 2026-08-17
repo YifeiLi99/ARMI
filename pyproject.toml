@@ -43,6 +43,7 @@ members = [
     "modules/web-observation",
     "modules/codex",
     "modules/data-rights",
+    "modules/experience",
     "modules/cognition",
     "modules/perception",
     "apps/armi-runtime",

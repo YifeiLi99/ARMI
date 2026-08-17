@@ -198,7 +198,6 @@ from armi_runtime.composition.postgresql_test import (
     bootstrap_codex_read_ports,
     bootstrap_codex_timeline_projection,
     bootstrap_cognition_change_set_codec,
-    bootstrap_cognition_life_records,
     bootstrap_cognition_operation,
     bootstrap_cognition_subject_commit,
     bootstrap_data_rights_core,
@@ -206,6 +205,7 @@ from armi_runtime.composition.postgresql_test import (
     bootstrap_effect_grant_cancellation,
     bootstrap_effect_operation_read,
     bootstrap_evidence,
+    bootstrap_experience_owner,
     bootstrap_expression,
     bootstrap_expression_action_ports,
     bootstrap_expression_effect_registration,
@@ -2310,7 +2310,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 relationships=relationship_module.read,
                 subject_state=bootstrap_subject_state().read,
                 visibility=bootstrap_data_rights_core().visibility,
-                cognition=bootstrap_cognition_life_records(),
+                experiences=bootstrap_experience_owner(),
             )
             await life_records.open()
             try:
@@ -5941,6 +5941,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     expression_module.commit,
                 ),
                 cognition_commit=bootstrap_cognition_subject_commit(),
+                experience_commit=bootstrap_experience_owner(),
                 context_projections=_ContextProjectionInvalidation(),
                 data_rights=data_rights_core.seal(),
                 evidence=evidence_module.write,

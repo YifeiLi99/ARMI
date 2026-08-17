@@ -544,44 +544,6 @@ class CognitionOperationReadPort(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
-class CognitionLifeRecordItem:
-    experience_id: UUID
-    summary: str
-    source_kind: str
-    occurred_at: datetime
-
-
-@runtime_checkable
-class CognitionLifeRecordPort(Protocol):
-    async def life_record_branch(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        subject_id: UUID,
-        query_text: str | None,
-        before: tuple[datetime, str, UUID] | None,
-        limit: int,
-    ) -> tuple[CognitionLifeRecordItem, ...]: ...
-
-
-@dataclass(frozen=True, slots=True)
-class CognitionExperienceDraft:
-    experience_id: UUID
-    subject_id: UUID
-    generation_id: UUID
-    subject_commit_id: UUID
-    episode_id: UUID
-    proposal_ref: str
-    experience_kind: str
-    fact_class: CandidateFactClass
-    first_person_gist: str
-    scene_id: UUID | None
-    occurred_at: datetime
-    source_perspective: str
-    uncertainty: str | None
-
-
-@dataclass(frozen=True, slots=True)
 class CognitionApplicationDraft:
     application_id: CandidateApplicationId
     validation_id: UUID
@@ -625,8 +587,13 @@ class CognitionSubjectCommitPort(Protocol):
         self, transaction: PostgreSQLTransaction, *, validation_id: UUID
     ) -> CognitionApplicationSnapshot | None: ...
 
-    async def record_experience(
-        self, transaction: PostgreSQLTransaction, draft: CognitionExperienceDraft
+    async def note_accepted_experience(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        generation_id: UUID,
+        experience_id: UUID,
     ) -> None: ...
 
     async def record_application(
@@ -654,7 +621,6 @@ class CognitionSubjectCommitPort(Protocol):
 class CognitionOwnerPort(
     CognitionSubjectCommitPort,
     CognitionOperationReadPort,
-    CognitionLifeRecordPort,
     Protocol,
 ):
     """Complete shared read/commit surface of the active Cognition repository."""
@@ -748,9 +714,6 @@ __all__ = (
     "CognitionExactLifeQueryPort",
     "CognitionExactLifeQuerySnapshot",
     "CognitionExperienceContextItem",
-    "CognitionExperienceDraft",
-    "CognitionLifeRecordItem",
-    "CognitionLifeRecordPort",
     "CognitionModelAdapterFactory",
     "CognitionModelPort",
     "CognitionOperationReadPort",

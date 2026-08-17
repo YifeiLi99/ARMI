@@ -15,20 +15,14 @@ from armi_data_rights.api import (
     DataRightsExportScope,
     DataRightsExportSegment,
     DataRightsOwnerIdentity,
-    DataRightsTargetRef,
     DataRightsTupleRecordStream,
 )
 from armi_kernel.application import ArtifactId
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("cognition")
-_VERSION = DataRightsContributionVersion(1)
+_VERSION = DataRightsContributionVersion(2)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
-    (
-        "accepted_experiences",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.accepted_experiences AS source ORDER BY to_jsonb(source)::text""",
-    ),
     (
         "cognitive_attempts",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
@@ -109,9 +103,6 @@ class PostgreSQLCognitionDataRightsParticipant:
         transaction: PostgreSQLTransaction,
         request: DataRightsDiscoveryRequest,
     ) -> DataRightsDiscoveryContribution:
-        experience_ids = tuple(
-            item.ref for item in request.related_refs if item.kind == "experience"
-        )
         usage_rows = await (
             await transaction.execute(
                 """WITH refs AS (
@@ -150,10 +141,6 @@ class PostgreSQLCognitionDataRightsParticipant:
         ).fetchall()
         return DataRightsDiscoveryContribution(
             _OWNER,
-            targets=tuple(
-                DataRightsTargetRef("experience", ref, "tombstone")
-                for ref in experience_ids
-            ),
             artifact_usages=tuple(
                 DataRightsArtifactUsage(ArtifactId(row[0]), int(row[1]), int(row[2]))
                 for row in usage_rows

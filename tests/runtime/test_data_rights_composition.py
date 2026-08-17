@@ -26,7 +26,7 @@ def _business(data_rights: DataRightsParticipant) -> tuple[DataRightsParticipant
 
 
 class DataRightsCompositionTests(unittest.TestCase):
-    def test_fixed_roster_contains_twenty_business_and_two_technical_owners(
+    def test_fixed_roster_contains_twenty_one_business_and_two_technical_owners(
         self,
     ) -> None:
         participants = compose_data_rights_participants(
@@ -34,7 +34,7 @@ class DataRightsCompositionTests(unittest.TestCase):
             catalog=cast(ArtifactCatalogPort, object()),
         )
 
-        self.assertEqual(len(participants), 22)
+        self.assertEqual(len(participants), 23)
         self.assertEqual(
             tuple(item.owner_identity.value for item in participants),
             (
@@ -42,6 +42,7 @@ class DataRightsCompositionTests(unittest.TestCase):
                 "perception",
                 "evidence",
                 "opportunity",
+                "experience",
                 "cognition",
                 "memory",
                 "relationship",

@@ -362,6 +362,17 @@ DISTRIBUTIONS = (
         ),
     ),
     Distribution(
+        name="armi-experience",
+        module="armi_experience",
+        project_dir=Path("modules/experience"),
+        layers=(),
+        dependencies=(
+            "armi-data-rights==0.0.0",
+            "armi-kernel==0.0.0",
+            "armi-runtime-foundation==0.0.0",
+        ),
+    ),
+    Distribution(
         name="armi-cognition",
         module="armi_cognition",
         project_dir=Path("modules/cognition"),
@@ -373,6 +384,7 @@ DISTRIBUTIONS = (
             "armi-codex==0.0.0",
             "armi-context==0.0.0",
             "armi-evidence==0.0.0",
+            "armi-experience==0.0.0",
             "armi-expression==0.0.0",
             "armi-interaction==0.0.0",
             "armi-kernel==0.0.0",
@@ -419,6 +431,7 @@ DISTRIBUTIONS = (
             "armi-artifact-store==0.0.0",
             "armi-capability==0.0.0",
             "armi-cognition==0.0.0",
+            "armi-experience==0.0.0",
             "armi-codex==0.0.0",
             "armi-context==0.0.0",
             "armi-data-rights==0.0.0",
@@ -492,6 +505,7 @@ DATA_RIGHTS_PARTICIPANT_DISTRIBUTIONS = frozenset(
         "armi-context",
         "armi-effect",
         "armi-evidence",
+        "armi-experience",
         "armi-expression",
         "armi-interaction",
         "armi-material",
@@ -1112,6 +1126,7 @@ def _check_import(
                 "armi-context",
                 "armi-effect",
                 "armi-evidence",
+                "armi-experience",
                 "armi-expression",
                 "armi-interaction",
                 "armi-kernel",
@@ -1204,6 +1219,7 @@ def _check_import(
                 "armi-cognition",
                 "armi-context",
                 "armi-evidence",
+                "armi-experience",
                 "armi-expression",
                 "armi-interaction",
                 "armi-kernel",
@@ -1361,6 +1377,9 @@ def _check_import(
         ),
         "armi-cognition": frozenset(
             {"armi_cognition", "armi_cognition.api", "armi_cognition.bootstrap"}
+        ),
+        "armi-experience": frozenset(
+            {"armi_experience", "armi_experience.api", "armi_experience.bootstrap"}
         ),
         "armi-expression": frozenset(
             {"armi_expression", "armi_expression.api", "armi_expression.bootstrap"}
@@ -1860,6 +1879,12 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         "armi_cognition.api": root / "modules/cognition/src/armi_cognition/api.py",
         "armi_cognition.bootstrap": root
         / "modules/cognition/src/armi_cognition/bootstrap.py",
+        "armi_experience": root
+        / "modules/experience/src/armi_experience/__init__.py",
+        "armi_experience.api": root
+        / "modules/experience/src/armi_experience/api.py",
+        "armi_experience.bootstrap": root
+        / "modules/experience/src/armi_experience/bootstrap.py",
         "armi_expression": root / "modules/expression/src/armi_expression/__init__.py",
         "armi_expression.api": root / "modules/expression/src/armi_expression/api.py",
         "armi_expression.bootstrap": root
@@ -2360,6 +2385,7 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
     forbidden_kernel_tokens = (
         "armi_activity",
         "armi_cognition",
+        "armi_experience",
         "armi_context",
         "armi_effect",
         "armi_interaction",
@@ -2525,6 +2551,7 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
     singleton_calls = {
         "Artifact Catalog": "artifact_catalog = bootstrap_artifact_catalog()",
         "Cognition owner": "cognition_owner = bootstrap_cognition_owner()",
+        "Experience owner": "experience_owner = bootstrap_experience_owner()",
         "Effect owner": "effect_owner = bootstrap_effect_operation_read()",
         "Attention owner": "opportunity_owner = bootstrap_opportunity_owner()",
         "owner participant roster": "owner_roster = compose_runtime_owner_roster(",

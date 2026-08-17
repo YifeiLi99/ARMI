@@ -35,7 +35,6 @@ from armi_cognition.api import (
     CognitionApplicationDraft,
     CognitionEpisodeStatus,
     CognitionExactLifeQueryIntentDraft,
-    CognitionExperienceDraft,
     CognitionSubjectCommitPort,
     SubjectChangeSet,
 )
@@ -50,6 +49,12 @@ from armi_evidence.api import (
     EvidenceViolation,
     EvidenceWritePort,
     ExperienceEvidenceLink,
+)
+from armi_experience.api import (
+    AcceptedExperienceDraft,
+    ExperienceCommitPort,
+    ExperienceKind,
+    ExperienceSourcePerspective,
 )
 from armi_expression.api import (
     ExpressionCommitContext,
@@ -283,6 +288,7 @@ class PostgreSQLSubjectCommitRepository:
         "_data_rights",
         "_evidence",
         "_evidence_read",
+        "_experience_commit",
         "_expression_commit",
         "_interaction_commit",
         "_material_commit",
@@ -303,6 +309,7 @@ class PostgreSQLSubjectCommitRepository:
         capability_read: CapabilityReadPort,
         codex_commit: CodexCommitPort,
         cognition_commit: CognitionSubjectCommitPort,
+        experience_commit: ExperienceCommitPort,
         context_projections: ContextProjectionInvalidationPort,
         data_rights: DataRightsSubjectCommitGate,
         evidence: EvidenceWritePort,
@@ -325,6 +332,7 @@ class PostgreSQLSubjectCommitRepository:
         self._capability_read = capability_read
         self._codex_commit = codex_commit
         self._cognition_commit = cognition_commit
+        self._experience_commit = experience_commit
         self._context_projections = context_projections
         self._data_rights = data_rights
         self._evidence = evidence
@@ -815,27 +823,34 @@ class PostgreSQLSubjectCommitRepository:
                 raise SubjectCommitViolation("SUBJECT-EXPERIENCE-BASIS") from None
             try:
                 experience_kind, source_perspective = {
-                    "consider_creator_input": ("creator_input", "creator_claim"),
-                    "consider_web_evidence": ("web_observation", "web_claim"),
+                    "consider_creator_input": (
+                        ExperienceKind.CREATOR_INPUT,
+                        ExperienceSourcePerspective.CREATOR_CLAIM,
+                    ),
+                    "consider_web_evidence": (
+                        ExperienceKind.WEB_OBSERVATION,
+                        ExperienceSourcePerspective.WEB_CLAIM,
+                    ),
                     "consider_codex_result": (
-                        "codex_observation",
-                        "codex_observation",
+                        ExperienceKind.CODEX_OBSERVATION,
+                        ExperienceSourcePerspective.CODEX_OBSERVATION,
                     ),
                     "consider_other_human_input": (
-                        "other_human_input",
-                        "other_human_claim",
+                        ExperienceKind.OTHER_HUMAN_INPUT,
+                        ExperienceSourcePerspective.OTHER_HUMAN_CLAIM,
                     ),
                 }[snapshot.opportunity_purpose]
             except KeyError:
                 raise SubjectCommitViolation("SUBJECT-EXPERIENCE-SOURCE") from None
-            await self._cognition_commit.record_experience(
+            if snapshot.scene_id is None:
+                raise SubjectCommitViolation("SUBJECT-EXPERIENCE-SCENE")
+            await self._experience_commit.record(
                 unit_of_work.transaction,
-                CognitionExperienceDraft(
-                    experience_id=experience_id.value,
+                AcceptedExperienceDraft(
+                    experience_id=experience_id,
                     subject_id=snapshot.subject_id,
-                    generation_id=snapshot.generation_id,
                     subject_commit_id=commit_id.value,
-                    episode_id=snapshot.episode_id,
+                    cognitive_episode_id=snapshot.episode_id,
                     proposal_ref=experience.proposal_ref,
                     experience_kind=experience_kind,
                     fact_class=experience.fact_class,
@@ -845,6 +860,12 @@ class PostgreSQLSubjectCommitRepository:
                     source_perspective=source_perspective,
                     uncertainty=experience.uncertainty,
                 ),
+            )
+            await self._cognition_commit.note_accepted_experience(
+                unit_of_work.transaction,
+                subject_id=snapshot.subject_id,
+                generation_id=snapshot.generation_id,
+                experience_id=experience_id.value,
             )
             for ordinal, context_item_id in enumerate(proof.basis_context_ids, 1):
                 await self._evidence.link_experience(

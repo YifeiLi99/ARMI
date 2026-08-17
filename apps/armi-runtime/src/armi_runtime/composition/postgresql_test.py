@@ -24,7 +24,6 @@ from armi_codex.bootstrap import (
 )
 from armi_cognition.bootstrap import (
     bootstrap_cognition_change_set_codec,
-    bootstrap_cognition_life_records,
     bootstrap_cognition_operation,
     bootstrap_cognition_subject_commit,
     build_candidate_schema,
@@ -47,6 +46,7 @@ from armi_effect.bootstrap import (
     compose_response_admission_repository,
 )
 from armi_evidence.bootstrap import bootstrap_evidence
+from armi_experience.bootstrap import bootstrap_experience_owner
 from armi_expression.bootstrap import (
     bootstrap_expression,
     bootstrap_expression_action_ports,
@@ -129,7 +129,6 @@ __all__ = (
     "bootstrap_codex_read_ports",
     "bootstrap_codex_timeline_projection",
     "bootstrap_cognition_change_set_codec",
-    "bootstrap_cognition_life_records",
     "bootstrap_cognition_operation",
     "bootstrap_cognition_subject_commit",
     "bootstrap_data_rights_core",
@@ -137,6 +136,7 @@ __all__ = (
     "bootstrap_effect_grant_cancellation",
     "bootstrap_effect_operation_read",
     "bootstrap_evidence",
+    "bootstrap_experience_owner",
     "bootstrap_expression",
     "bootstrap_expression_action_ports",
     "bootstrap_expression_effect_registration",

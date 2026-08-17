@@ -22,8 +22,6 @@ from .api import (
     CognitionCommitSnapshot,
     CognitionEpisodeStatus,
     CognitionExactLifeQueryIntentDraft,
-    CognitionExperienceDraft,
-    CognitionLifeRecordItem,
     CognitionOperationSnapshot,
 )
 
@@ -65,44 +63,6 @@ class PostgreSQLCognitionSubjectCommit:
             )
         ).fetchone()
         return 0 if row is None else int(row[0])
-
-    async def life_record_branch(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        subject_id: UUID,
-        query_text: str | None,
-        before: tuple[datetime, str, UUID] | None,
-        limit: int,
-    ) -> tuple[CognitionLifeRecordItem, ...]:
-        rows = await (
-            await transaction.execute(
-                """
-                SELECT experience_id, first_person_gist, source_perspective, accepted_at
-                FROM armi.accepted_experiences
-                WHERE subject_id = %s
-                  AND (%s::text IS NULL OR first_person_gist ILIKE '%%' || %s::text || '%%')
-                  AND (%s::timestamptz IS NULL OR
-                       (accepted_at, 'conversation'::text, experience_id)
-                           < (%s::timestamptz,%s::text,%s::uuid))
-                ORDER BY accepted_at DESC, experience_id DESC LIMIT %s
-                """,
-                (
-                    subject_id,
-                    query_text,
-                    query_text,
-                    None if before is None else before[0],
-                    None if before is None else before[0],
-                    None if before is None else before[1],
-                    None if before is None else before[2],
-                    limit,
-                ),
-            )
-        ).fetchall()
-        return tuple(
-            CognitionLifeRecordItem(row[0], str(row[1]), str(row[2]), row[3])
-            for row in rows
-        )
 
     async def opportunity_for_episode(
         self,
@@ -258,37 +218,14 @@ class PostgreSQLCognitionSubjectCommit:
             row[4],
         )
 
-    async def record_experience(
-        self, transaction: PostgreSQLTransaction, draft: CognitionExperienceDraft
+    async def note_accepted_experience(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        generation_id: UUID,
+        experience_id: UUID,
     ) -> None:
-        await transaction.execute(
-            """
-            INSERT INTO armi.accepted_experiences (
-                experience_id, subject_id, subject_commit_id, cognitive_episode_id,
-                proposal_ref, experience_kind, fact_class, first_person_gist,
-                scene_id, occurred_at, learned_at, source_perspective,
-                uncertainty, privacy_scope
-            ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, 'private'
-            )
-            """,
-            (
-                draft.experience_id,
-                draft.subject_id,
-                draft.subject_commit_id,
-                draft.episode_id,
-                draft.proposal_ref,
-                draft.experience_kind,
-                draft.fact_class.value,
-                draft.first_person_gist,
-                draft.scene_id,
-                draft.occurred_at,
-                draft.occurred_at,
-                draft.source_perspective,
-                draft.uncertainty,
-            ),
-        )
         await transaction.execute(
             """
             INSERT INTO armi.cognition_maintenance_cursors (
@@ -306,7 +243,7 @@ class PostgreSQLCognitionSubjectCommit:
                     EXCLUDED.dirty_since),
                 updated_at=statement_timestamp()
             """,
-            (draft.subject_id, draft.generation_id, draft.experience_id),
+            (subject_id, generation_id, experience_id),
         )
 
     async def record_application(

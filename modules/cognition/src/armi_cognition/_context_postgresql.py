@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import cast
 from uuid import UUID, uuid7
 
+from armi_experience.api import AcceptedExperienceSnapshot, ExperienceReadPort
 from armi_kernel.application import CandidateViolation
 from armi_kernel.contracts import Digest, TraceId
 from armi_runtime_foundation import PostgreSQLTransaction
@@ -19,6 +20,11 @@ from .api import (
 
 
 class PostgreSQLCognitionContextLifecycle:
+    __slots__ = ("_experiences",)
+
+    def __init__(self, experiences: ExperienceReadPort) -> None:
+        self._experiences = experiences
+
     async def create_context_episode(
         self, transaction: PostgreSQLTransaction, draft: CognitionContextEpisodeDraft
     ) -> bool:
@@ -59,19 +65,22 @@ class PostgreSQLCognitionContextLifecycle:
             )
             cursor = await (
                 await transaction.execute(
-                    """SELECT cursor.dirty_since,processed.accepted_at,
-                              cursor.processed_through_experience_id
-                       FROM armi.cognition_maintenance_cursors AS cursor
-                       LEFT JOIN armi.accepted_experiences AS processed
-                         ON processed.experience_id=
-                            cursor.processed_through_experience_id
-                       WHERE cursor.subject_id=%s AND cursor.life_generation_id=%s
-                         AND cursor.dirty_since IS NOT NULL
-                       FOR UPDATE OF cursor""",
+                    """SELECT dirty_since,processed_through_experience_id
+                       FROM armi.cognition_maintenance_cursors
+                       WHERE subject_id=%s AND life_generation_id=%s
+                         AND dirty_since IS NOT NULL
+                       FOR UPDATE""",
                     (draft.subject_id, draft.generation_id),
                 )
             ).fetchone()
             if cursor is not None:
+                sources = await self._experiences.accepted_after(
+                    transaction,
+                    subject_id=draft.subject_id,
+                    after_experience_id=cast(UUID | None, cursor[1]),
+                    since=cast(datetime, cursor[0]),
+                    limit=64,
+                )
                 batch_id = uuid7()
                 await transaction.execute(
                     """INSERT INTO armi.cognition_maintenance_batches (
@@ -86,33 +95,18 @@ class PostgreSQLCognitionContextLifecycle:
                         draft.base_subject_version,
                     ),
                 )
-                await transaction.execute(
-                    """INSERT INTO armi.cognition_maintenance_batch_sources (
-                           maintenance_batch_id,experience_id,ordinal)
-                       SELECT %s,experience_id,
-                              row_number() OVER (
-                                ORDER BY accepted_at,experience_id)::smallint
-                       FROM (
-                         SELECT experience_id,accepted_at
-                         FROM armi.accepted_experiences
-                         WHERE subject_id=%s AND (
-                           (%s::uuid IS NULL AND accepted_at >= %s)
-                           OR
-                           (%s::uuid IS NOT NULL
-                            AND (accepted_at,experience_id) > (%s,%s))
-                         )
-                         ORDER BY accepted_at,experience_id LIMIT 64
-                       ) AS source""",
-                    (
-                        batch_id,
-                        draft.subject_id,
-                        cursor[2],
-                        cursor[0],
-                        cursor[2],
-                        cursor[1],
-                        cursor[2],
-                    ),
-                )
+                if sources:
+                    await transaction.execute(
+                        """INSERT INTO armi.cognition_maintenance_batch_sources (
+                               maintenance_batch_id,experience_id,ordinal)
+                           SELECT %s,source.experience_id,source.ordinal::smallint
+                           FROM unnest(%s::uuid[]) WITH ORDINALITY
+                             AS source(experience_id,ordinal)""",
+                        (
+                            batch_id,
+                            [item.experience_id.value for item in sources],
+                        ),
+                    )
         return row is not None
 
     async def context_episode(
@@ -144,44 +138,36 @@ class PostgreSQLCognitionContextLifecycle:
         if purpose == "maintain_subjective_memory":
             source_rows = await (
                 await transaction.execute(
-                    """SELECT experience.experience_id,source.ordinal,
-                              experience.fact_class,experience.first_person_gist,
-                              experience.occurred_at,experience.accepted_at,
-                              experience.source_perspective,experience.uncertainty
+                    """SELECT source.experience_id,source.ordinal
                        FROM armi.cognition_maintenance_batches AS batch
                        JOIN armi.cognition_maintenance_batch_sources AS source
                          ON source.maintenance_batch_id=batch.maintenance_batch_id
-                       JOIN armi.accepted_experiences AS experience
-                         ON experience.experience_id=source.experience_id
                        WHERE batch.subject_id=%s AND batch.status='running'
                        ORDER BY source.ordinal""",
                     (row[2],),
                 )
             ).fetchall()
-            experiences = _experience_context(source_rows, maintenance_source=True)
+            snapshots = await self._experiences.by_ids(
+                transaction,
+                subject_id=cast(UUID, row[2]),
+                experience_ids=tuple(cast(UUID, item[0]) for item in source_rows),
+            )
+            experiences = _experience_context(
+                snapshots,
+                ordinals=tuple(cast(int, item[1]) for item in source_rows),
+                maintenance_source=True,
+            )
         elif purpose in {"consider_creator_input", "consider_life_query_result"}:
-            source_rows = await (
-                await transaction.execute(
-                    """SELECT recent.experience_id,recent.ordinal,recent.fact_class,
-                              recent.first_person_gist,recent.occurred_at,
-                              recent.accepted_at,recent.source_perspective,
-                              recent.uncertainty
-                       FROM (
-                         SELECT experience_id,
-                                row_number() OVER (
-                                  ORDER BY accepted_at DESC,experience_id DESC
-                                ) AS ordinal,
-                                fact_class,first_person_gist,occurred_at,accepted_at,
-                                source_perspective,uncertainty
-                         FROM armi.accepted_experiences
-                         WHERE subject_id=%s
-                         ORDER BY accepted_at DESC,experience_id DESC LIMIT 8
-                       ) AS recent
-                       ORDER BY recent.accepted_at,recent.experience_id""",
-                    (row[2],),
-                )
-            ).fetchall()
-            experiences = _experience_context(source_rows, maintenance_source=False)
+            snapshots = await self._experiences.recent(
+                transaction,
+                subject_id=cast(UUID, row[2]),
+                limit=8,
+            )
+            experiences = _experience_context(
+                snapshots,
+                ordinals=tuple(range(len(snapshots), 0, -1)),
+                maintenance_source=False,
+            )
         return _snapshot(row, life, experiences)
 
     async def mark_context_prepared(
@@ -276,21 +262,24 @@ def _snapshot(
 
 
 def _experience_context(
-    rows: Sequence[tuple[object, ...]], *, maintenance_source: bool
+    snapshots: Sequence[AcceptedExperienceSnapshot],
+    *,
+    ordinals: tuple[int, ...],
+    maintenance_source: bool,
 ) -> tuple[CognitionExperienceContextItem, ...]:
     return tuple(
         CognitionExperienceContextItem(
-            experience_id=cast(UUID, row[0]),
-            ordinal=cast(int, row[1]),
-            fact_class=str(row[2]),
-            first_person_gist=str(row[3]),
-            occurred_at=cast(datetime, row[4]),
-            accepted_at=cast(datetime, row[5]),
-            source_perspective=str(row[6]),
-            uncertainty=None if row[7] is None else str(row[7]),
+            experience_id=snapshot.experience_id.value,
+            ordinal=ordinal,
+            fact_class=snapshot.fact_class.value,
+            first_person_gist=snapshot.first_person_gist,
+            occurred_at=snapshot.occurred_at,
+            accepted_at=snapshot.accepted_at,
+            source_perspective=snapshot.source_perspective.value,
+            uncertainty=snapshot.uncertainty,
             maintenance_source=maintenance_source,
         )
-        for row in rows
+        for snapshot, ordinal in zip(snapshots, ordinals, strict=True)
     )
 
 
