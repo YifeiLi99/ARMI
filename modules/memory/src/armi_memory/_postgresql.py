@@ -649,8 +649,8 @@ class PostgreSQLMemoryOwner:
                    JOIN armi.subjective_memory_revisions AS revision
                      ON revision.memory_revision_id=memory.current_revision_id
                    WHERE revision.accessibility IN ('available','faded')
-                     AND (%s IS NULL OR memory.subject_id=%s)
-                     AND (%s IS NULL OR memory.life_generation_id=%s)
+                     AND (%s::uuid IS NULL OR memory.subject_id=%s)
+                     AND (%s::uuid IS NULL OR memory.life_generation_id=%s)
                    ORDER BY memory.memory_id""",
                 (subject_id, subject_id, generation_id, generation_id),
             )

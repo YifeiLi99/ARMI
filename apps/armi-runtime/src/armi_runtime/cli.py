@@ -47,6 +47,9 @@ from armi_runtime.composition.runtime import run_runtime
 from armi_runtime.composition.runtime_capacity import run_runtime_capacity_baseline
 from armi_runtime.composition.runtime_errors import RuntimeViolation
 from armi_runtime.composition.runtime_process import RuntimeProcessManager
+from armi_runtime.composition.semantic_recall_process import (
+    SemanticRecallProcessManager,
+)
 from armi_runtime.interfaces.browser_sessions import BrowserSessionViolation
 
 EXIT_INVOCATION_REJECTED = 2
@@ -165,6 +168,15 @@ def _parser() -> argparse.ArgumentParser:
     )
     bootstrap_birth = bootstrap_command.add_parser("birth")
     bootstrap_birth.add_argument("--environment-root", type=Path, required=True)
+    semantic_recall = command.add_parser("semantic-recall")
+    semantic_recall_command = semantic_recall.add_subparsers(
+        dest="semantic_recall_command", required=True
+    )
+    semantic_install = semantic_recall_command.add_parser("install")
+    semantic_install.add_argument("--environment-root", type=Path, required=True)
+    semantic_install.add_argument("--approved-official-direct", action="store_true")
+    semantic_status = semantic_recall_command.add_parser("status")
+    semantic_status.add_argument("--environment-root", type=Path, required=True)
     return parser
 
 
@@ -241,7 +253,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         configured_root = os.environ.get("ARMI_ENVIRONMENT_ROOT")
         environment_root = Path(configured_root) if configured_root else Path.cwd()
     credential_scope: dict[str, str]
-    if args.command == "config":
+    if args.command in {"config", "semantic-recall"}:
         credential_scope = {}
     elif args.command == "db" and args.database_command == "status":
         credential_scope = {"database.status": "database.runtime"}
@@ -307,6 +319,31 @@ def main(argv: Sequence[str] | None = None) -> int:
             "schema_version": prepared.effective.config.schema_version,
             "config": prepared.effective.redacted_view(),
         }
+        print(
+            json.dumps(
+                result,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+        return 0
+    if args.command == "semantic-recall":
+        manager = SemanticRecallProcessManager(
+            prepared.root,
+            enabled=prepared.effective.config.model.semantic_recall_enabled,
+        )
+        try:
+            result = (
+                manager.install(
+                    approved_official_direct=bool(args.approved_official_direct)
+                )
+                if args.semantic_recall_command == "install"
+                else manager.status()
+            )
+        except RuntimeViolation as error:
+            _safe_failure(error)
+            return 3
         print(
             json.dumps(
                 result,
@@ -442,15 +479,24 @@ def main(argv: Sequence[str] | None = None) -> int:
             prepared.root,
             str(prepared.effective.config.environment.environment_id),
         )
+        semantic_recall = SemanticRecallProcessManager(
+            prepared.root,
+            enabled=prepared.effective.config.model.semantic_recall_enabled,
+        )
         try:
             if args.command == "start":
-                result = (
-                    process.start()
-                    if args.creator_web_resources is None
-                    else process.start(
-                        creator_web_resources=args.creator_web_resources,
+                semantic_status = semantic_recall.start()
+                try:
+                    result = (
+                        process.start()
+                        if args.creator_web_resources is None
+                        else process.start(
+                            creator_web_resources=args.creator_web_resources,
+                        )
                     )
-                )
+                except Exception:
+                    semantic_recall.stop()
+                    raise
                 channel_start_status = "attention"
                 try:
                     channel_result = NapCatProcessManager(prepared).start()
@@ -473,6 +519,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     **result,
                     "channels": {"qq": channel_health},
                     "channel_start": {"qq": channel_start_status},
+                    "semantic_recall": semantic_status,
                 }
             elif args.command == "status":
                 result = {
@@ -480,9 +527,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "channels": {
                         "qq": NapCatProcessManager(prepared).status().safe_view()
                     },
+                    "semantic_recall": semantic_recall.status(),
                 }
             else:
                 result = process.stop()
+                result = {**result, "semantic_recall": semantic_recall.stop()}
         except RuntimeViolation as error:
             _safe_failure(error)
             return 3

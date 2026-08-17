@@ -8,6 +8,8 @@ import pytest
 from armi_context._embedding import (
     EMBEDDING_BINDING_ID,
     EMBEDDING_MODEL_ID,
+    EMBEDDING_MODEL_REVISION,
+    EMBEDDING_MODEL_SHA256,
     LIFE_MATERIAL_CHUNK_CHARS,
     LIFE_MATERIAL_CHUNK_OVERLAP,
     chunk_life_material,
@@ -29,24 +31,28 @@ MODEL_BINDINGS = ROOT / "configs/model-bindings.yaml"
 _ResultT = TypeVar("_ResultT")
 
 
-def test_embedding_binding_is_fixed_and_uses_independent_purpose() -> None:
+def test_embedding_binding_is_fixed_and_local() -> None:
     binding = load_embedding_binding(MODEL_BINDINGS)
     assert binding.model_binding == EMBEDDING_BINDING_ID
     assert binding.model_id == EMBEDDING_MODEL_ID
+    assert binding.model_revision == EMBEDDING_MODEL_REVISION
+    assert binding.model_sha256 == EMBEDDING_MODEL_SHA256
     assert binding.dimensions == 1024
-    assert binding.credential_locator == "model.ark_api_key"
-    assert binding.credential_purpose == "model.embedding"
+    assert binding.provider == "local_llama_cpp"
+    assert binding.pooling == "last"
+    assert binding.normalization == "l2"
+    assert binding.document_batch_size == 8
 
 
 def test_life_material_chunking_is_deterministic_with_fixed_overlap() -> None:
     text = "x" * 2900
     chunks = chunk_life_material(text)
-    assert tuple(map(len, chunks)) == (1500, 1500, 200)
+    assert tuple(map(len, chunks)) == (800, 800, 800, 740)
     assert (
         chunks[0][-LIFE_MATERIAL_CHUNK_OVERLAP:]
         == chunks[1][:LIFE_MATERIAL_CHUNK_OVERLAP]
     )
-    assert LIFE_MATERIAL_CHUNK_CHARS == 1500
+    assert LIFE_MATERIAL_CHUNK_CHARS == 800
     assert chunk_life_material(text) == chunks
 
 

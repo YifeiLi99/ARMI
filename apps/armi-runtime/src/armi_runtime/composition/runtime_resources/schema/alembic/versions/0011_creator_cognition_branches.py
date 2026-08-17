@@ -250,9 +250,11 @@ def upgrade() -> None:
           ));
 
         ALTER TABLE armi.maintenance_phase_results
-          ADD COLUMN issue_target text CHECK (
-            issue_target IS NULL OR issue_target IN ('self','mind','prompt')
-          );
+          ADD COLUMN issue_target text,
+          ADD CONSTRAINT maintenance_phase_results_issue_target_value_check
+            CHECK (
+              issue_target IS NULL OR issue_target IN ('self','mind','prompt')
+            );
 
         UPDATE armi.maintenance_phase_results
           SET issue_target='self' WHERE outcome='issue_found';

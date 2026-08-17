@@ -1879,10 +1879,8 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         "armi_cognition.api": root / "modules/cognition/src/armi_cognition/api.py",
         "armi_cognition.bootstrap": root
         / "modules/cognition/src/armi_cognition/bootstrap.py",
-        "armi_experience": root
-        / "modules/experience/src/armi_experience/__init__.py",
-        "armi_experience.api": root
-        / "modules/experience/src/armi_experience/api.py",
+        "armi_experience": root / "modules/experience/src/armi_experience/__init__.py",
+        "armi_experience.api": root / "modules/experience/src/armi_experience/api.py",
         "armi_experience.bootstrap": root
         / "modules/experience/src/armi_experience/bootstrap.py",
         "armi_expression": root / "modules/expression/src/armi_expression/__init__.py",
@@ -2676,19 +2674,20 @@ def check_repository(root: Path) -> list[Violation]:
         "/schema/alembic/versions/0007_mood_owner.py",
         "/schema/alembic/versions/0009_remove_shared_action_operations.py",
         "/schema/alembic/versions/0011_creator_cognition_branches.py",
+        "/schema/alembic/versions/0012_local_hybrid_semantic_recall.py",
     )
     unexpected_frozen_accesses = tuple(
         access
         for access in foreign_accesses
         if not any(access.path.endswith(path) for path in frozen_revision_paths)
     )
-    if len(foreign_accesses) != 29:
+    if len(foreign_accesses) != 30:
         violations.append(
             Violation(
                 "ARC-SQL-OWNER-BUDGET",
                 _relative(registry_path, root),
                 1,
-                "foreign SQL must be limited to the 29 frozen revision accesses: "
+                "foreign SQL must be limited to the 30 frozen revision accesses: "
                 f"raw={len(foreign_accesses)}",
             )
         )

@@ -89,6 +89,8 @@ uv sync --frozen
 uv run armi config check --environment-root C:\path\to\environment
 uv run armi db install --environment-root C:\path\to\environment
 uv run armi bootstrap birth --environment-root C:\path\to\environment
+uv run armi semantic-recall install --approved-official-direct --environment-root C:\path\to\environment
+uv run armi semantic-recall status --environment-root C:\path\to\environment
 uv run armi start --environment-root C:\path\to\environment
 uv run armi status --environment-root C:\path\to\environment
 uv run armi channel qq status --environment-root C:\path\to\environment
@@ -99,7 +101,7 @@ uv run armi creator send --environment-root C:\path\to\environment --message "�
 uv run armi stop --environment-root C:\path\to\environment
 ```
 
-`armi stop` 只停止权威 Runtime，不终止交互式 QQ/NapCat；渠道掉线也不会持续自动重启。重新运行 `armi start` 或 `armi channel qq start` 会先检查健康状态，健康实例不会被重复拉起。`armi channel qq open` 从当前 NapCat 安装读取 WebUI 地址，把 WebUI 登录凭据复制到 Windows 剪贴板并打开默认浏览器；命令输出和 URL 都不包含凭据。显式增加 `--auto-login` 会把 token 作为浏览器 URL 查询参数交给 NapCat 自动登录，不再复制剪贴板；命令输出仍保持脱敏，但 token 可能进入浏览器、进程、引用来源或本机访问日志，调用该选项即表示操作者接受这项风险。Creator“运行与维护”页继续只提供无密钥的本机 NapCat 管理页入口，不授予浏览器宿主进程控制权。
+语义召回默认关闭。显式安装命令只从固定的 Qwen 与 llama.cpp 官方地址下载一次并校验固定摘要；启用后的运行期只访问随机回环端口，不会联网换版本或回退云 embedding。`armi start` 会先启动并检查本地 embedding 服务，启用但未安装时明确失败；`armi stop` 在权威 Runtime 退出后回收该服务和显存。它仍不终止交互式 QQ/NapCat，渠道掉线也不会持续自动重启。重新运行 `armi start` 或 `armi channel qq start` 会先检查健康状态，健康实例不会被重复拉起。`armi channel qq open` 从当前 NapCat 安装读取 WebUI 地址，把 WebUI 登录凭据复制到 Windows 剪贴板并打开默认浏览器；命令输出和 URL 都不包含凭据。显式增加 `--auto-login` 会把 token 作为浏览器 URL 查询参数交给 NapCat 自动登录，不再复制剪贴板；命令输出仍保持脱敏，但 token 可能进入浏览器、进程、引用来源或本机访问日志，调用该选项即表示操作者接受这项风险。Creator“运行与维护”页继续只提供无密钥的本机 NapCat 管理页入口，不授予浏览器宿主进程控制权。
 
 自动化 Creator 对话不需要驱动浏览器。运行中的环境可通过 `armi creator send` 把输入送入与工作台相同的正式 Creator intake；重复调用需要自行传入稳定的 `--idempotency-key`。消息也可通过 `--message-file <path>` 读取，或用 `--message-file -` 从标准输入读取。Codex 管理会话可使用 Admin MCP 的 `inject_creator_input`，两条入口最终进入同一 Runtime intake，不直接写数据库。
 

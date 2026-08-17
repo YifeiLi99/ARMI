@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Final, cast
+from typing import Final, cast
 from uuid import UUID
 
 from armi_activity.api import (
@@ -76,12 +76,12 @@ from armi_cognition.bootstrap import (
     bootstrap_cognition_model,
 )
 from armi_context.api import (
-    EMBEDDING_DIMENSIONS,
     ContextCognitionReadPort,
     ContextEmbeddingRuntimePort,
     ContextProjectionInvalidationPort,
     ContextRuntimePort,
     EmbeddingBinding,
+    load_embedding_binding,
 )
 from armi_context.bootstrap import (
     ContextCandidateReadPorts,
@@ -158,7 +158,6 @@ from armi_interaction.bootstrap import (
     bootstrap_interaction_birth,
     bootstrap_interaction_identity,
 )
-from armi_kernel import load_yaml_file
 from armi_kernel.application import (
     CreatorProjectionNotifier,
     CredentialPort,
@@ -252,12 +251,12 @@ from armi_runtime.adapters.model.external_content import (
     VolcengineArkExternalContentRecognizer,
     load_external_recognition_binding,
 )
+from armi_runtime.adapters.model.local_embedding import (
+    LocalLlamaCppEmbeddingAdapter,
+)
 from armi_runtime.adapters.model.volcengine_ark import (
     CandidateParser,
     VolcengineArkModelAdapter,
-)
-from armi_runtime.adapters.model.volcengine_embedding import (
-    VolcengineArkEmbeddingAdapter,
 )
 from armi_runtime.adapters.persistence.birth import (
     ContinuityState,
@@ -307,6 +306,8 @@ from .exact_life_query_pipeline import (
     build_exact_life_query_pipeline,
 )
 from .owner_roster import RuntimeOwnerRoster
+from .runtime_errors import RuntimeViolation
+from .semantic_recall_process import SemanticRecallProcessManager
 from .subject_commit_pipeline import (
     SubjectCommitPipeline,
     build_subject_commit_pipeline,
@@ -318,9 +319,6 @@ MIGRATOR_LOCATOR_NAME: Final = "database.migrator"
 MODEL_LOCATOR_NAME: Final = "model.ark_api_key"
 SPEECH_LOCATOR_NAME: Final = "speech.volc_credentials"
 CODEX_LOCATOR_NAME: Final = "codex.auth_json"
-
-_EMBEDDING_BINDING_ID: Final = "armi.embedding.volcengine-ark-doubao-vision-250615-v1"
-_EMBEDDING_MODEL_ID: Final = "doubao-embedding-vision-250615"
 
 _REASON_BY_CODE: Final = {
     "DB-CONNECTION-UNAVAILABLE": "RUNTIME_DATABASE_UNAVAILABLE",
@@ -348,37 +346,18 @@ _REASON_BY_CODE: Final = {
 
 
 def _load_embedding_binding() -> EmbeddingBinding:
+    return load_embedding_binding(runtime_config_path("model-bindings.yaml"))
+
+
+def _compose_embedding(prepared: PreparedEnvironment) -> LocalLlamaCppEmbeddingAdapter:
     try:
-        value = cast(
-            dict[str, Any],
-            load_yaml_file(runtime_config_path("model-bindings.yaml"))["embedding"],
-        )
-    except OSError, KeyError, TypeError, ValueError:
-        raise ModelViolation("MODEL-BINDING-MANIFEST") from None
-    expected = {
-        "provider": "volcengine_ark",
-        "api_base": "https://ark.cn-beijing.volces.com/api/v3",
-        "model_id": _EMBEDDING_MODEL_ID,
-        "model_binding": _EMBEDDING_BINDING_ID,
-        "version_policy": "fixed_model_id",
-        "dimensions": EMBEDDING_DIMENSIONS,
-        "timeout_seconds": 60,
-        "credential_identity": "armi.model.ark-api-key.v1",
-        "credential_locator": "model.ark_api_key",
-        "credential_purpose": "model.embedding",
-    }
-    if value != expected:
-        raise ModelViolation("MODEL-BINDING-MANIFEST")
-    return EmbeddingBinding(
-        provider=value["provider"],
-        api_base=value["api_base"],
-        model_id=value["model_id"],
-        model_binding=value["model_binding"],
-        dimensions=value["dimensions"],
-        timeout_seconds=value["timeout_seconds"],
-        credential_identity=value["credential_identity"],
-        credential_locator=value["credential_locator"],
-        credential_purpose=value["credential_purpose"],
+        endpoint = SemanticRecallProcessManager(prepared.root).endpoint()
+    except RuntimeViolation:
+        raise ModelViolation("MODEL-EMBEDDING-CONNECTION") from None
+    return LocalLlamaCppEmbeddingAdapter(
+        binding=_load_embedding_binding(),
+        base_url=endpoint.base_url,
+        api_key=endpoint.api_key,
     )
 
 
@@ -1147,11 +1126,6 @@ def compose_context_pipeline(
 ) -> ContextRuntimePort:
     """Resolve the Runtime credential for the active S023 selector and worker."""
 
-    embedding_locator = (
-        prepared.effective.config.secret_locators.get(MODEL_LOCATOR_NAME)
-        if prepared.effective.config.model.semantic_recall_enabled
-        else None
-    )
     config = prepared.effective.config
     selection = RuntimeCognitionCycleSelector(
         factory=unit_of_work_factory,
@@ -1199,12 +1173,8 @@ def compose_context_pipeline(
         wakeups=wakeups,
         diagnostic=diagnostic,
         embedding=(
-            VolcengineArkEmbeddingAdapter(
-                binding=_load_embedding_binding(),
-                credential_port=prepared.credential_port,
-                locator=embedding_locator,
-            )
-            if embedding_locator is not None
+            _compose_embedding(prepared)
+            if config.model.semantic_recall_enabled
             else None
         ),
     )
@@ -1217,11 +1187,6 @@ def compose_context_embedding_pipeline(
     memory_projection: MemoryProjectionPort,
     material_projection: MaterialProjectionPort,
 ) -> ContextEmbeddingRuntimePort:
-    embedding_locator = prepared.effective.config.secret_locators.get(
-        MODEL_LOCATOR_NAME
-    )
-    if embedding_locator is None:
-        raise ModelViolation("MODEL-CREDENTIAL")
     config = prepared.effective.config
     return bootstrap_context_embedding(
         factory=unit_of_work_factory,
@@ -1229,11 +1194,7 @@ def compose_context_embedding_pipeline(
             prepared.data_root / "artifacts",
             max_object_bytes=config.artifacts.max_object_bytes,
         ),
-        adapter=VolcengineArkEmbeddingAdapter(
-            binding=_load_embedding_binding(),
-            credential_port=prepared.credential_port,
-            locator=embedding_locator,
-        ),
+        adapter=_compose_embedding(prepared),
         work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
         memories=memory_projection,
         materials=material_projection,

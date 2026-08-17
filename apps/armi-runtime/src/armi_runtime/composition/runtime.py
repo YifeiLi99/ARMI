@@ -826,10 +826,7 @@ async def _serve(
                         level=logging.WARNING,
                         result_code="CODEX_UNAVAILABLE",
                     )
-            if (
-                config.model.semantic_recall_enabled
-                and "model.ark_api_key" in config.secret_locators
-            ):
+            if config.model.semantic_recall_enabled:
                 try:
                     context_embedding_pipeline = compose_context_embedding_pipeline(
                         prepared,

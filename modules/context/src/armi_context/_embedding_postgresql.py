@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from itertools import pairwise
 from typing import cast
 from uuid import UUID, uuid7
 
@@ -19,14 +18,21 @@ from armi_material.api import MaterialProjectionPort
 from armi_memory.api import MemoryProjectionPort
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
 
+from ._embedding import (
+    EMBEDDING_BINDING_ID,
+    EMBEDDING_MODEL_ID,
+    LIFE_MATERIAL_CHUNK_OVERLAP,
+    RECALL_CANDIDATE_LIMIT,
+    RECALL_MATERIAL_LIMIT,
+    RECALL_MEMORY_LIMIT,
+    RECALL_MIN_LEXICAL_SIMILARITY,
+    RECALL_MIN_SIMILARITY,
+    RECALL_RRF_K,
+)
 from ._postgresql import ContextMaterialSource
 from .api import ContextProjectionSourceRef, EmbeddingResponse, RecallStatus
 
 _WORK_KIND = "context.embedding.project"
-_EMBEDDING_BINDING_ID = "armi.embedding.volcengine-ark-doubao-vision-250615-v1"
-_RECALL_MIN_SIMILARITY = 0.60
-_RECALL_MEMORY_LIMIT = 4
-_RECALL_MATERIAL_LIMIT = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,8 +49,30 @@ class EmbeddingProjectionSource:
 @dataclass(frozen=True, slots=True)
 class RecalledContext:
     status: RecallStatus
-    memories: tuple[tuple[UUID, int, str, float], ...]
-    materials: tuple[tuple[UUID, int, str, float], ...]
+    memories: tuple[RecalledItem, ...]
+    materials: tuple[RecalledItem, ...]
+    dense_available: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class RecalledItem:
+    source_ref: UUID
+    source_version: int
+    text: str
+    rank: int
+    dense_similarity: float | None
+    lexical_similarity: float | None
+
+
+type _CandidateKey = tuple[str, UUID, int, int]
+
+
+@dataclass(slots=True)
+class _RecallCandidate:
+    text: str
+    rrf: float = 0.0
+    dense: float | None = None
+    lexical: float | None = None
 
 
 class PostgreSQLContextEmbeddingRepository:
@@ -111,7 +139,7 @@ class PostgreSQLContextEmbeddingRepository:
         if row is None:
             return False
         digest = Digest.from_bytes(
-            f"{row[2]}:{row[3]}:{row[4]}:{_EMBEDDING_BINDING_ID}".encode()
+            f"{row[2]}:{row[3]}:{row[4]}:{EMBEDDING_BINDING_ID}".encode()
         )
         now = Instant(row[5])
         await unit_of_work.work.enqueue(
@@ -119,7 +147,7 @@ class PostgreSQLContextEmbeddingRepository:
                 WorkId(uuid7()),
                 _WORK_KIND,
                 WorkOwner(str(row[2]), row[3]),
-                IdempotencyKey(f"embedding:{row[4]}:{_EMBEDDING_BINDING_ID}"),
+                IdempotencyKey(f"embedding:{row[4]}:{EMBEDDING_BINDING_ID}"),
                 digest,
                 15,
                 now,
@@ -140,7 +168,44 @@ class PostgreSQLContextEmbeddingRepository:
                 """SELECT DISTINCT source_kind,source_ref,source_version
                    FROM armi.context_embedding_projections
                    WHERE model_binding=%s""",
-                (_EMBEDDING_BINDING_ID,),
+                (EMBEDDING_BINDING_ID,),
+            )
+        ).fetchall()
+        return {(str(row[0]), row[1], int(row[2])) for row in rows}
+
+    async def _projected_requested_versions(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        memory_keys: tuple[tuple[UUID, int], ...],
+        material_keys: tuple[tuple[UUID, int], ...],
+    ) -> set[tuple[str, UUID, int]]:
+        rows = await (
+            await transaction.execute(
+                """WITH requested AS (
+                     SELECT 'subjective_memory'::text AS source_kind,
+                            source_ref,source_version
+                     FROM unnest(%s::uuid[],%s::bigint[])
+                       AS source(source_ref,source_version)
+                     UNION ALL
+                     SELECT 'life_material'::text AS source_kind,
+                            source_ref,source_version
+                     FROM unnest(%s::uuid[],%s::bigint[])
+                       AS source(source_ref,source_version)
+                   )
+                   SELECT DISTINCT projection.source_kind,
+                                   projection.source_ref,
+                                   projection.source_version
+                   FROM armi.context_embedding_projections AS projection
+                   JOIN requested USING (source_kind,source_ref,source_version)
+                   WHERE projection.model_binding=%s""",
+                (
+                    [item[0] for item in memory_keys],
+                    [item[1] for item in memory_keys],
+                    [item[0] for item in material_keys],
+                    [item[1] for item in material_keys],
+                    EMBEDDING_BINDING_ID,
+                ),
             )
         ).fetchall()
         return {(str(row[0]), row[1], int(row[2])) for row in rows}
@@ -217,7 +282,7 @@ class PostgreSQLContextEmbeddingRepository:
                 source.source_ref,
                 source.source_version,
                 chunk_ordinal,
-                _EMBEDDING_BINDING_ID,
+                EMBEDDING_BINDING_ID,
             ),
         )
         await connection.execute(
@@ -236,8 +301,8 @@ class PostgreSQLContextEmbeddingRepository:
                 source.source_ref,
                 source.source_version,
                 chunk_ordinal,
-                _EMBEDDING_BINDING_ID,
-                "doubao-embedding-vision-250615",
+                EMBEDDING_BINDING_ID,
+                EMBEDDING_MODEL_ID,
                 Digest.from_bytes(text.encode()).value,
             ),
         )
@@ -263,7 +328,8 @@ class PostgreSQLContextEmbeddingRepository:
         attempt_id: UUID,
         source: EmbeddingProjectionSource,
         chunk_ordinal: int,
-        text: str,
+        display_text: str,
+        retrieval_text: str,
         response: EmbeddingResponse,
     ) -> UUID:
         connection = unit_of_work.transaction
@@ -283,8 +349,9 @@ class PostgreSQLContextEmbeddingRepository:
             INSERT INTO armi.context_embedding_projections (
               context_embedding_projection_id, context_embedding_attempt_id,
               subject_id, life_generation_id, source_kind, source_ref,
-              source_version, chunk_ordinal, chunk_text, model_binding, embedding)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+              source_version, chunk_ordinal, chunk_text, retrieval_text,
+              model_binding, embedding)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
                     %s::armi_extensions.vector)
             ON CONFLICT (source_kind, source_ref, source_version,
                          chunk_ordinal, model_binding) DO NOTHING
@@ -298,8 +365,9 @@ class PostgreSQLContextEmbeddingRepository:
                 source.source_ref,
                 source.source_version,
                 chunk_ordinal,
-                text,
-                _EMBEDDING_BINDING_ID,
+                display_text,
+                retrieval_text,
+                EMBEDDING_BINDING_ID,
                 vector,
             ),
         )
@@ -327,7 +395,8 @@ class PostgreSQLContextEmbeddingRepository:
         *,
         subject_id: UUID,
         life_generation_id: UUID,
-        query_vector: tuple[float, ...],
+        query_text: str,
+        query_vector: tuple[float, ...] | None,
     ) -> RecalledContext:
         transaction = unit_of_work.transaction
         memories = await self._memories.projection_sources(
@@ -346,60 +415,230 @@ class PostgreSQLContextEmbeddingRepository:
         current_materials = {
             (source.material_id, source.head_version): source for source in materials
         }
-        vector = "[" + ",".join(format(item, ".17g") for item in query_vector) + "]"
-        rows = await (
-            await transaction.execute(
-                """SELECT source_kind,source_ref,source_version,chunk_ordinal,
-                          chunk_text,
-                          1-(embedding OPERATOR(armi_extensions.<=>)
-                             %s::armi_extensions.vector) AS similarity
-                   FROM armi.context_embedding_projections
-                   WHERE subject_id=%s AND life_generation_id=%s
-                     AND model_binding=%s
-                     AND 1-(embedding OPERATOR(armi_extensions.<=>)
-                             %s::armi_extensions.vector)>=%s
-                   ORDER BY similarity DESC,source_kind,source_ref,chunk_ordinal
-                   LIMIT 128""",
-                (
-                    vector,
-                    subject_id,
-                    life_generation_id,
-                    _EMBEDDING_BINDING_ID,
-                    vector,
-                    _RECALL_MIN_SIMILARITY,
-                ),
-            )
-        ).fetchall()
-        projected = await self._projected_source_versions(transaction)
-        memory_values: list[tuple[UUID, int, str, float]] = []
-        material_chunks: dict[UUID, list[tuple[int, str, float, int]]] = {}
-        for kind, source_ref, version, ordinal, text, similarity in rows:
-            key = (source_ref, int(version))
-            if kind == "subjective_memory" and key in current_memories:
-                if len(memory_values) < _RECALL_MEMORY_LIMIT:
-                    memory_values.append(
-                        (source_ref, int(version), str(text), float(similarity))
-                    )
-            elif kind == "life_material" and key in current_materials:
-                material_chunks.setdefault(source_ref, []).append(
-                    (int(ordinal), str(text), float(similarity), int(version))
-                )
-        material_values: list[tuple[UUID, int, str, float]] = []
-        ordered_materials = sorted(
-            material_chunks.items(),
-            key=lambda item: max(chunk[2] for chunk in item[1]),
-            reverse=True,
+        memory_keys = tuple(current_memories)
+        material_keys = tuple(current_materials)
+        allowed_parameters = (
+            [item[0] for item in memory_keys],
+            [item[1] for item in memory_keys],
+            [item[0] for item in material_keys],
+            [item[1] for item in material_keys],
         )
-        for source_ref, chunks in ordered_materials[:_RECALL_MATERIAL_LIMIT]:
-            best = max(chunks, key=lambda item: item[2])
-            adjacent = sorted(
-                (item for item in chunks if abs(item[0] - best[0]) <= 1),
-                key=lambda item: item[0],
+        dense_rows: list[tuple[object, ...]] = []
+        if query_vector is not None:
+            vector = "[" + ",".join(format(item, ".17g") for item in query_vector) + "]"
+            dense_rows = list(
+                await (
+                    await transaction.execute(
+                        """WITH allowed AS (
+                             SELECT 'subjective_memory'::text AS source_kind,
+                                    source_ref,source_version
+                             FROM unnest(%s::uuid[],%s::bigint[])
+                               AS source(source_ref,source_version)
+                             UNION ALL
+                             SELECT 'life_material'::text AS source_kind,
+                                    source_ref,source_version
+                             FROM unnest(%s::uuid[],%s::bigint[])
+                               AS source(source_ref,source_version)
+                           ), parameters AS (
+                             SELECT %s::armi_extensions.vector AS query_vector
+                           )
+                           SELECT projection.source_kind,projection.source_ref,
+                                  projection.source_version,
+                                  projection.chunk_ordinal,projection.chunk_text,
+                                  1-(projection.embedding
+                                     OPERATOR(armi_extensions.<=>)
+                                     parameters.query_vector) AS score
+                           FROM armi.context_embedding_projections AS projection
+                           JOIN allowed USING (source_kind,source_ref,source_version)
+                           CROSS JOIN parameters
+                           WHERE projection.subject_id=%s
+                             AND projection.life_generation_id=%s
+                             AND projection.model_binding=%s
+                           ORDER BY projection.embedding
+                                      OPERATOR(armi_extensions.<=>)
+                                      parameters.query_vector,
+                                    projection.source_kind,
+                                    projection.source_ref,
+                                    projection.chunk_ordinal
+                           LIMIT %s""",
+                        (
+                            *allowed_parameters,
+                            vector,
+                            subject_id,
+                            life_generation_id,
+                            EMBEDDING_BINDING_ID,
+                            RECALL_CANDIDATE_LIMIT,
+                        ),
+                    )
+                ).fetchall()
             )
-            merged = adjacent[0][1]
-            for previous, current in pairwise(adjacent):
-                merged += current[1][min(150, len(previous[1]), len(current[1])) :]
-            material_values.append((source_ref, best[3], merged, best[2]))
+            dense_rows = [
+                row
+                for row in dense_rows
+                if float(cast(float, row[5])) >= RECALL_MIN_SIMILARITY
+            ]
+        await transaction.execute(
+            "SELECT set_config('pg_trgm.word_similarity_threshold',%s,true)",
+            (str(RECALL_MIN_LEXICAL_SIMILARITY),),
+        )
+        lexical_rows = list(
+            await (
+                await transaction.execute(
+                    """WITH allowed AS (
+                         SELECT 'subjective_memory'::text AS source_kind,
+                                source_ref,source_version
+                         FROM unnest(%s::uuid[],%s::bigint[])
+                           AS source(source_ref,source_version)
+                         UNION ALL
+                         SELECT 'life_material'::text AS source_kind,
+                                source_ref,source_version
+                         FROM unnest(%s::uuid[],%s::bigint[])
+                           AS source(source_ref,source_version)
+                       )
+                       SELECT projection.source_kind,projection.source_ref,
+                              projection.source_version,projection.chunk_ordinal,
+                              projection.chunk_text,
+                              armi_extensions.word_similarity(
+                                %s,projection.retrieval_text)
+                                AS score
+                       FROM armi.context_embedding_projections AS projection
+                       JOIN allowed USING (source_kind,source_ref,source_version)
+                       WHERE projection.subject_id=%s
+                         AND projection.life_generation_id=%s
+                         AND projection.model_binding=%s
+                         AND (
+                           projection.retrieval_text
+                             OPERATOR(armi_extensions.%%>) %s
+                           OR position(lower(%s)
+                              in lower(projection.retrieval_text))>0
+                         )
+                         AND (
+                           armi_extensions.word_similarity(
+                             %s,projection.retrieval_text)>=%s
+                           OR position(lower(%s)
+                              in lower(projection.retrieval_text))>0
+                         )
+                       ORDER BY
+                         (position(lower(%s)
+                           in lower(projection.retrieval_text))>0) DESC,
+                         score DESC,projection.source_kind,
+                         projection.source_ref,projection.chunk_ordinal
+                       LIMIT %s""",
+                    (
+                        *allowed_parameters,
+                        query_text,
+                        subject_id,
+                        life_generation_id,
+                        EMBEDDING_BINDING_ID,
+                        query_text,
+                        query_text,
+                        query_text,
+                        RECALL_MIN_LEXICAL_SIMILARITY,
+                        query_text,
+                        query_text,
+                        RECALL_CANDIDATE_LIMIT,
+                    ),
+                )
+            ).fetchall()
+        )
+        projected = await self._projected_requested_versions(
+            transaction,
+            memory_keys=memory_keys,
+            material_keys=material_keys,
+        )
+        candidates: dict[_CandidateKey, _RecallCandidate] = {}
+        for signal, rows in (("dense", dense_rows), ("lexical", lexical_rows)):
+            for rank, row in enumerate(rows, 1):
+                kind, source_ref, version, ordinal, text, score = row
+                key: _CandidateKey = (
+                    str(kind),
+                    cast(UUID, source_ref),
+                    cast(int, version),
+                    cast(int, ordinal),
+                )
+                value = candidates.setdefault(key, _RecallCandidate(str(text)))
+                if signal == "dense":
+                    value.dense = float(cast(float, score))
+                else:
+                    value.lexical = float(cast(float, score))
+                value.rrf += 1.0 / (RECALL_RRF_K + rank)
+        ordered = sorted(
+            candidates.items(),
+            key=lambda item: (
+                -item[1].rrf,
+                item[0][0],
+                item[0][1].hex,
+                item[0][3],
+            ),
+        )
+        memory_values: list[RecalledItem] = []
+        material_best: dict[UUID, tuple[_CandidateKey, _RecallCandidate, int]] = {}
+        for final_rank, (candidate_key, value) in enumerate(ordered, 1):
+            kind, source_ref, version, ordinal = candidate_key
+            source_key = (source_ref, version)
+            if kind == "subjective_memory" and source_key in current_memories:
+                if len(memory_values) < RECALL_MEMORY_LIMIT:
+                    memory_values.append(
+                        RecalledItem(
+                            source_ref,
+                            version,
+                            value.text,
+                            final_rank,
+                            value.dense,
+                            value.lexical,
+                        )
+                    )
+            elif kind == "life_material" and source_key in current_materials:
+                material_best.setdefault(
+                    source_ref,
+                    ((kind, source_ref, version, ordinal), value, final_rank),
+                )
+        material_values: list[RecalledItem] = []
+        for source_ref, (best_key, value, final_rank) in list(material_best.items())[
+            :RECALL_MATERIAL_LIMIT
+        ]:
+            _kind, _ref, version, ordinal = best_key
+            adjacent_rows = await (
+                await transaction.execute(
+                    """SELECT chunk_ordinal,chunk_text
+                       FROM armi.context_embedding_projections
+                       WHERE source_kind='life_material' AND source_ref=%s
+                         AND source_version=%s AND model_binding=%s
+                         AND chunk_ordinal BETWEEN %s AND %s
+                       ORDER BY chunk_ordinal""",
+                    (
+                        source_ref,
+                        version,
+                        EMBEDDING_BINDING_ID,
+                        max(0, ordinal - 1),
+                        ordinal + 1,
+                    ),
+                )
+            ).fetchall()
+            merged = ""
+            previous = ""
+            for _adjacent_ordinal, adjacent_text in adjacent_rows:
+                current = str(adjacent_text)
+                if not merged:
+                    merged = current
+                elif (
+                    previous[-LIFE_MATERIAL_CHUNK_OVERLAP:]
+                    == current[:LIFE_MATERIAL_CHUNK_OVERLAP]
+                ):
+                    merged += current[LIFE_MATERIAL_CHUNK_OVERLAP:]
+                else:
+                    merged += f"\n\n{current}"
+                previous = current
+            material_values.append(
+                RecalledItem(
+                    source_ref,
+                    version,
+                    merged,
+                    final_rank,
+                    value.dense,
+                    value.lexical,
+                )
+            )
         missing_projection = any(
             ("subjective_memory", source.memory_id, source.head_version)
             not in projected
@@ -408,17 +647,22 @@ class PostgreSQLContextEmbeddingRepository:
             ("life_material", source.material_id, source.head_version) not in projected
             for source in materials
         )
+        dense_available = query_vector is not None
         if not memory_values and not material_values:
             status = (
                 RecallStatus.PARTIAL
-                if missing_projection
+                if missing_projection or not dense_available
                 else RecallStatus.NO_RELEVANT_RESULT
             )
         else:
             status = (
-                RecallStatus.PARTIAL if missing_projection else RecallStatus.COMPLETE
+                RecallStatus.PARTIAL
+                if missing_projection or not dense_available
+                else RecallStatus.COMPLETE
             )
-        return RecalledContext(status, tuple(memory_values), tuple(material_values))
+        return RecalledContext(
+            status, tuple(memory_values), tuple(material_values), dense_available
+        )
 
 
 class PostgreSQLContextProjectionInvalidation:
@@ -440,4 +684,5 @@ __all__ = (
     "PostgreSQLContextEmbeddingRepository",
     "PostgreSQLContextProjectionInvalidation",
     "RecalledContext",
+    "RecalledItem",
 )

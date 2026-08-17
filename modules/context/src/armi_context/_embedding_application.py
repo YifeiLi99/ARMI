@@ -30,7 +30,11 @@ from armi_runtime_foundation import (
     RuntimeTransactionFailure,
 )
 
-from ._embedding import chunk_life_material
+from ._embedding import (
+    DOCUMENT_BATCH_SIZE,
+    chunk_life_material,
+    material_retrieval_text,
+)
 from ._embedding_postgresql import (
     EmbeddingProjectionSource,
     PostgreSQLContextEmbeddingRepository,
@@ -112,36 +116,48 @@ class ContextEmbeddingPipeline:
             await self._fail_work(lease, "MODEL-EMBEDDING-INPUT")
             return True
         last_projection: UUID | None = None
-        for ordinal, text in enumerate(chunks):
-            lease = await self._work.renew(lease, lease_seconds=30)
-            async with self._factory.unit_of_work() as unit_of_work:
-                attempt_id = await self._repository.prepare_attempt(
-                    unit_of_work, source, ordinal, text
-                )
-            async with self._factory.unit_of_work() as unit_of_work:
-                await self._repository.mark_dispatched(unit_of_work, attempt_id)
+        for batch_start in range(0, len(chunks), DOCUMENT_BATCH_SIZE):
+            batch = chunks[batch_start : batch_start + DOCUMENT_BATCH_SIZE]
+            attempts: list[UUID] = []
+            for offset, (_display_text, retrieval_text) in enumerate(batch):
+                lease = await self._work.renew(lease, lease_seconds=30)
+                ordinal = batch_start + offset
+                async with self._factory.unit_of_work() as unit_of_work:
+                    attempt_id = await self._repository.prepare_attempt(
+                        unit_of_work, source, ordinal, retrieval_text
+                    )
+                    await self._repository.mark_dispatched(unit_of_work, attempt_id)
+                attempts.append(attempt_id)
             try:
-                response = await self._adapter.embed(text)
+                responses = await self._adapter.embed_documents(
+                    tuple(item[1] for item in batch)
+                )
             except ModelViolation as error:
                 async with self._factory.unit_of_work() as unit_of_work:
-                    await self._repository.settle_failure(
-                        unit_of_work, attempt_id, error.code
-                    )
+                    for attempt_id in attempts:
+                        await self._repository.settle_failure(
+                            unit_of_work, attempt_id, error.code
+                        )
                 await self._fail_work(
                     lease,
                     error.code,
                     retry=records[0].attempt_count < records[0].draft.max_attempts,
                 )
                 return True
-            async with self._factory.unit_of_work() as unit_of_work:
-                last_projection = await self._repository.settle_success(
-                    unit_of_work,
-                    attempt_id=attempt_id,
-                    source=source,
-                    chunk_ordinal=ordinal,
-                    text=text,
-                    response=response,
-                )
+            for offset, (attempt_id, response) in enumerate(
+                zip(attempts, responses, strict=True)
+            ):
+                display_text, retrieval_text = batch[offset]
+                async with self._factory.unit_of_work() as unit_of_work:
+                    last_projection = await self._repository.settle_success(
+                        unit_of_work,
+                        attempt_id=attempt_id,
+                        source=source,
+                        chunk_ordinal=batch_start + offset,
+                        display_text=display_text,
+                        retrieval_text=retrieval_text,
+                        response=response,
+                    )
         assert last_projection is not None
         async with self._factory.unit_of_work() as unit_of_work:
             await unit_of_work.work.complete(
@@ -164,9 +180,9 @@ class ContextEmbeddingPipeline:
 
     async def _source_chunks(
         self, source: EmbeddingProjectionSource
-    ) -> tuple[str, ...]:
+    ) -> tuple[tuple[str, str], ...]:
         if source.memory_text is not None:
-            return (source.memory_text,)
+            return ((source.memory_text, f"Memory: {source.memory_text}"),)
         material = source.material_source
         if (
             material is None
@@ -185,7 +201,13 @@ class ContextEmbeddingPipeline:
             )
         except ValueError, UnicodeError:
             raise ArtifactViolation("ART-INTEGRITY") from None
-        return chunk_life_material(f"{material.title}\n{body}")
+        return tuple(
+            (
+                chunk,
+                material_retrieval_text(material.title, material.material_kind, chunk),
+            )
+            for chunk in chunk_life_material(body)
+        )
 
     async def _fail_work(
         self,

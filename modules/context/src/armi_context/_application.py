@@ -58,7 +58,7 @@ from armi_sleep.api import SleepReadPort
 from armi_subject_state.api import SubjectStateReadPort
 
 from ._compiler import CONTEXT_POLICY_VERSION, DeterministicContextCompiler
-from ._embedding import RecallStatus
+from ._embedding import QUERY_MAX_CHARS
 from ._embedding_postgresql import PostgreSQLContextEmbeddingRepository, RecalledContext
 from ._postgresql import (
     ContextArtifactSource,
@@ -82,6 +82,7 @@ from .api import (
     ContextViolation,
     ContextWakeupPort,
     EmbeddingPort,
+    RecallStatus,
 )
 
 CONTEXT_PREPARE = "cognition.context.prepare"
@@ -453,20 +454,26 @@ class ContextPipeline:
         profile = context_profile(snapshot.purpose)
         if not profile.retrieval_kinds:
             return None
-        if self._embedding is None:
-            return RecalledContext(RecallStatus.UNAVAILABLE, (), ())
         try:
-            query = query_bytes.decode("utf-8", errors="strict")[:1500]
-            response = await self._embedding.embed(query)
+            query = _semantic_recall_query(query_bytes)
+            if not query:
+                return RecalledContext(RecallStatus.UNAVAILABLE, (), (), False)
+            vector = None
+            if self._embedding is not None:
+                try:
+                    vector = (await self._embedding.embed_query(query)).vector
+                except ModelViolation:
+                    vector = None
             async with self._factory.unit_of_work(read_only=True) as unit_of_work:
                 return await self._embedding_repository.recall(
                     unit_of_work,
                     subject_id=snapshot.subject_id,
                     life_generation_id=snapshot.life_generation_id,
-                    query_vector=response.vector,
+                    query_text=query,
+                    query_vector=vector,
                 )
-        except UnicodeDecodeError, ModelViolation, RuntimeTransactionFailure:
-            return RecalledContext(RecallStatus.UNAVAILABLE, (), ())
+        except UnicodeDecodeError, RuntimeTransactionFailure:
+            return RecalledContext(RecallStatus.UNAVAILABLE, (), (), False)
 
     async def _read_material_source(
         self,
@@ -770,26 +777,23 @@ def _context_request(
     if recalled_context is not None:
         accessible_memories = tuple(
             (
-                memory_id,
-                version,
+                item.source_ref,
+                item.source_version,
                 rfc8785.dumps(
                     {
-                        "summary": summary,
+                        "summary": item.text,
                         "accessibility": "recalled",
-                        "similarity": similarity,
                     }
                 ),
                 "available",
+                item.rank,
             )
-            for memory_id, version, summary, similarity in recalled_context.memories
+            for item in recalled_context.memories
         )
     if accessible_memories:
-        for (
-            memory_id,
-            version,
-            payload,
-            accessibility,
-        ) in accessible_memories:
+        for memory_value in accessible_memories:
+            memory_id, version, payload, accessibility = memory_value[:4]
+            recall_rank = memory_value[4] if len(memory_value) == 5 else None
             items.append(
                 _candidate(
                     profile,
@@ -800,7 +804,11 @@ def _context_request(
                     "private",
                     payload.decode("utf-8"),
                     requested_required=False,
-                    relevance=85 if accessibility == "available" else 70,
+                    relevance=(
+                        max(70, 94 - (int(recall_rank) - 1) * 4)
+                        if recall_rank is not None
+                        else (85 if accessibility == "available" else 70)
+                    ),
                 )
             )
     elif recalled_context is None and "current_memory" not in profile.forbidden_kinds:
@@ -872,20 +880,22 @@ def _context_request(
                 )
             )
     if recalled_context is not None and "current_material" in profile.retrieval_kinds:
-        for material_id, version, chunk, similarity in recalled_context.materials:
+        for recalled_item in recalled_context.materials:
             items.append(
                 _candidate(
                     profile,
                     ContextSection.MATERIAL,
                     "current_material",
-                    ContextSourceIdentity("life_material", material_id, version),
+                    ContextSourceIdentity(
+                        "life_material",
+                        recalled_item.source_ref,
+                        recalled_item.source_version,
+                    ),
                     ContextTrustClass.SUBJECTIVE_STATE,
                     "private",
-                    rfc8785.dumps({"chunk": chunk, "similarity": similarity}).decode(
-                        "utf-8"
-                    ),
+                    rfc8785.dumps({"chunk": recalled_item.text}).decode("utf-8"),
                     requested_required=False,
-                    relevance=max(0, min(100, round(similarity * 100))),
+                    relevance=max(70, 94 - (recalled_item.rank - 1) * 4),
                 )
             )
         items.append(
@@ -902,6 +912,8 @@ def _context_request(
                         "signal": (
                             "recall_unavailable"
                             if recalled_context.status is RecallStatus.UNAVAILABLE
+                            else "dense_unavailable"
+                            if not recalled_context.dense_available
                             else None
                         ),
                     }
@@ -1428,6 +1440,56 @@ def _capability_catalog_bytes(
         )
     except UnicodeDecodeError, json.JSONDecodeError, TypeError:
         raise ContextViolation("CTX-CAPABILITY-CATALOG") from None
+
+
+_RECALL_TEXT_KEYS = frozenset(
+    {
+        "body",
+        "content",
+        "description",
+        "gist",
+        "goal",
+        "kind",
+        "message",
+        "objective",
+        "query",
+        "reason",
+        "summary",
+        "text",
+        "title",
+        "topic",
+        "trigger",
+    }
+)
+
+
+def _semantic_recall_query(value: bytes) -> str:
+    text = value.decode("utf-8", errors="strict").strip()
+    if not text:
+        return ""
+    try:
+        document: object = json.loads(text)
+    except json.JSONDecodeError:
+        return text[:QUERY_MAX_CHARS]
+    parts: list[str] = []
+
+    def visit(item: object, key: str | None = None) -> None:
+        if sum(len(part) for part in parts) >= QUERY_MAX_CHARS:
+            return
+        if isinstance(item, dict):
+            for nested_key, nested_value in cast(dict[object, object], item).items():
+                if isinstance(nested_key, str):
+                    visit(nested_value, nested_key.lower())
+        elif isinstance(item, list):
+            for nested_value in cast(list[object], item):
+                visit(nested_value, key)
+        elif key in _RECALL_TEXT_KEYS and isinstance(item, (str, int, float)):
+            candidate = str(item).strip()
+            if candidate and candidate not in parts:
+                parts.append(candidate)
+
+    visit(document)
+    return "\n".join(parts)[:QUERY_MAX_CHARS]
 
 
 def _artifact_audit(

@@ -1170,6 +1170,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 schema_root / "alembic/versions/0009_remove_shared_action_operations.py"
             ).unlink()
             (schema_root / "alembic/versions/0010_generic_recovery_metrics.py").unlink()
+            (schema_root / "alembic/versions/0011_creator_cognition_branches.py").unlink()
+            (
+                schema_root
+                / "alembic/versions/0012_local_hybrid_semantic_recall.py"
+            ).unlink()
             installed = PostgreSQLSchemaGateway(resource_root=schema_root).install(
                 fixture.migrator_dsn,
                 environment_id=fixture.environment_id,
@@ -1179,7 +1184,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(migrated.current_revision, "0010")
+        self.assertEqual(migrated.current_revision, "0012")
         with psycopg.connect(fixture.runtime_dsn) as connection:
             shape = connection.execute(
                 """
@@ -1262,6 +1267,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 schema_root / "alembic/versions/0009_remove_shared_action_operations.py"
             ).unlink()
             (schema_root / "alembic/versions/0010_generic_recovery_metrics.py").unlink()
+            (schema_root / "alembic/versions/0011_creator_cognition_branches.py").unlink()
+            (
+                schema_root
+                / "alembic/versions/0012_local_hybrid_semantic_recall.py"
+            ).unlink()
             installed = PostgreSQLSchemaGateway(resource_root=schema_root).install(
                 fixture.migrator_dsn,
                 environment_id=fixture.environment_id,
@@ -1291,7 +1301,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(migrated.current_revision, "0010")
+        self.assertEqual(migrated.current_revision, "0012")
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             activation = connection.execute(
                 """
@@ -1347,6 +1357,96 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
         self.assertEqual(unknown.exception.code, "DB-SCHEMA-HISTORY")
 
+    def test_local_semantic_recall_migration_preserves_attempt_history(self) -> None:
+        fixture = self.create_database()
+        source = Path(
+            "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
+        )
+        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
+            schema_root = Path(temporary) / "schema"
+            shutil.copytree(source, schema_root)
+            (
+                schema_root
+                / "alembic/versions/0012_local_hybrid_semantic_recall.py"
+            ).unlink()
+            installed = PostgreSQLSchemaGateway(resource_root=schema_root).install(
+                fixture.migrator_dsn,
+                environment_id=fixture.environment_id,
+            )
+        self.assertEqual(installed.current_revision, "0011")
+        attempt_id = _uuid7()
+        projection_id = _uuid7()
+        with psycopg.connect(fixture.provisioner_dsn, autocommit=True) as connection:
+            connection.execute("SET session_replication_role = replica")
+            connection.execute(
+                """
+                INSERT INTO armi.context_embedding_attempts (
+                  context_embedding_attempt_id,subject_id,life_generation_id,
+                  source_kind,source_ref,source_version,chunk_ordinal,
+                  model_binding,provider_model,input_digest,status,settled_at
+                ) VALUES (
+                  %s,%s,%s,'subjective_memory',%s,1,0,
+                  'armi.embedding.volcengine-ark-doubao-vision-250615-v1',
+                  'doubao-embedding-vision-250615',%s,'succeeded',clock_timestamp()
+                )
+                """,
+                (
+                    attempt_id,
+                    _uuid7(),
+                    _uuid7(),
+                    _uuid7(),
+                    "sha256:" + "a" * 64,
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO armi.context_embedding_projections (
+                  context_embedding_projection_id,context_embedding_attempt_id,
+                  subject_id,life_generation_id,source_kind,source_ref,
+                  source_version,chunk_ordinal,chunk_text,model_binding,embedding
+                ) VALUES (
+                  %s,%s,%s,%s,'subjective_memory',%s,1,0,'legacy projection',
+                  'armi.embedding.volcengine-ark-doubao-vision-250615-v1',
+                  %s::armi_extensions.vector
+                )
+                """,
+                (
+                    projection_id,
+                    attempt_id,
+                    _uuid7(),
+                    _uuid7(),
+                    _uuid7(),
+                    "[" + ",".join("0" for _ in range(1024)) + "]",
+                ),
+            )
+            connection.execute("SET session_replication_role = origin")
+
+        migrated = PostgreSQLSchemaGateway().migrate(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+        self.assertEqual(migrated.current_revision, "0012")
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            shape = connection.execute(
+                """
+                SELECT
+                  (SELECT count(*) FROM armi.context_embedding_attempts
+                   WHERE context_embedding_attempt_id=%s),
+                  (SELECT count(*) FROM armi.context_embedding_projections),
+                  EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema='armi'
+                      AND table_name='context_embedding_projections'
+                      AND column_name='retrieval_text' AND is_nullable='NO'
+                  ),
+                  to_regclass(
+                    'armi.context_embedding_projections_retrieval_trgm_idx'
+                  ) IS NOT NULL
+                """,
+                (attempt_id,),
+            ).fetchone()
+        self.assertEqual(shape, (1, 0, True, True))
+
     def test_pending_alembic_revision_requires_explicit_apply(self) -> None:
         fixture = self.create_database()
         installed = PostgreSQLSchemaGateway().install(
@@ -1359,10 +1459,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             schema_root = Path(temporary) / "schema"
             shutil.copytree(source, schema_root)
-            (schema_root / "alembic/versions/0011_probe.py").write_text(
+            (schema_root / "alembic/versions/0013_probe.py").write_text(
                 "from alembic import op\n"
-                "revision = '0011'\n"
-                "down_revision = '0010'\n"
+                "revision = '0013'\n"
+                "down_revision = '0012'\n"
                 "branch_labels = None\n"
                 "depends_on = None\n"
                 "def upgrade(): op.execute('CREATE TABLE armi.revision_probe (id bigint PRIMARY KEY)')\n"
@@ -1417,8 +1517,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(migrated.status, "current")
             self.assertEqual(migrated.table_count, installed.table_count + 1)
-            self.assertEqual(migrated.current_revision, "0011")
-            self.assertEqual(migrated.head_revision, "0011")
+            self.assertEqual(migrated.current_revision, "0013")
+            self.assertEqual(migrated.head_revision, "0013")
             self.assertEqual(
                 gateway.migrate(
                     fixture.migrator_dsn,
@@ -1439,10 +1539,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             schema_root = Path(temporary) / "schema"
             shutil.copytree(source, schema_root)
-            (schema_root / "alembic/versions/0011_failing_probe.py").write_text(
+            (schema_root / "alembic/versions/0013_failing_probe.py").write_text(
                 "from alembic import op\n"
-                "revision = '0011'\n"
-                "down_revision = '0010'\n"
+                "revision = '0013'\n"
+                "down_revision = '0012'\n"
                 "branch_labels = None\n"
                 "depends_on = None\n"
                 "def upgrade():\n"
@@ -1467,7 +1567,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "SELECT version_num FROM armi.alembic_version"
                 ).fetchall()
             self.assertEqual(table, (None,))
-            self.assertEqual(history, [("0010",)])
+            self.assertEqual(history, [("0012",)])
 
     def test_p0_clean_environment_cli_start_restart_and_capacity(self) -> None:
         fixture = self.create_database()

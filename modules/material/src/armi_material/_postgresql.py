@@ -275,8 +275,8 @@ class PostgreSQLMaterialOwner:
                    JOIN armi.life_material_revisions AS revision
                      ON revision.life_material_revision_id=material.current_revision_id
                    WHERE material.deleted_at IS NULL AND revision.revision_kind<>'deleted'
-                     AND (%s IS NULL OR material.subject_id=%s)
-                     AND (%s IS NULL OR material.life_generation_id=%s)
+                     AND (%s::uuid IS NULL OR material.subject_id=%s)
+                     AND (%s::uuid IS NULL OR material.life_generation_id=%s)
                    ORDER BY material.life_material_id""",
                 (subject_id, subject_id, generation_id, generation_id),
             )

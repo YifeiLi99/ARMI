@@ -7,9 +7,11 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Protocol, runtime_checkable
+from pathlib import Path
+from typing import Protocol, cast, runtime_checkable
 from uuid import UUID
 
+from armi_kernel import load_yaml_file
 from armi_kernel.application import (
     ArtifactId,
     ArtifactRef,
@@ -252,6 +254,17 @@ class ContextCompiler(Protocol):
 
 
 EMBEDDING_DIMENSIONS = 1024
+EMBEDDING_BINDING_ID = "armi.embedding.qwen3-0_6b-q8_0-local-1024.v1"
+EMBEDDING_MODEL_ID = "Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0"
+EMBEDDING_MODEL_REVISION = "370f27d7550e0def9b39c1f16d3fbaa13aa67728"
+EMBEDDING_MODEL_SHA256 = (
+    "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439"
+)
+EMBEDDING_QUERY_INSTRUCTION = (
+    "Instruct: Given the current cognitive context, retrieve personally relevant "
+    "memories and life materials that help understand or respond to it.\nQuery:"
+)
+EMBEDDING_QUERY_MAX_CHARS = 700
 
 
 class RecallStatus(StrEnum):
@@ -264,14 +277,19 @@ class RecallStatus(StrEnum):
 @dataclass(frozen=True, slots=True)
 class EmbeddingBinding:
     provider: str
-    api_base: str
     model_id: str
+    model_revision: str
+    model_sha256: str
     model_binding: str
     dimensions: int
     timeout_seconds: int
-    credential_identity: str
-    credential_locator: str
-    credential_purpose: str
+    pooling: str
+    normalization: str
+    query_instruction: str
+    dense_min_similarity: float
+    lexical_min_similarity: float
+    fusion_rrf_k: int
+    document_batch_size: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -287,7 +305,53 @@ class EmbeddingResponse:
 
 @runtime_checkable
 class EmbeddingPort(Protocol):
-    async def embed(self, text: str) -> EmbeddingResponse: ...
+    async def embed_query(self, text: str) -> EmbeddingResponse: ...
+
+    async def embed_documents(
+        self, texts: tuple[str, ...]
+    ) -> tuple[EmbeddingResponse, ...]: ...
+
+
+def load_embedding_binding(path: Path) -> EmbeddingBinding:
+    try:
+        value = cast(dict[str, object], load_yaml_file(path)["embedding"])
+    except OSError, KeyError, TypeError, ValueError:
+        raise ModelViolation("MODEL-BINDING-MANIFEST") from None
+    expected = {
+        "provider": "local_llama_cpp",
+        "model_id": EMBEDDING_MODEL_ID,
+        "model_revision": EMBEDDING_MODEL_REVISION,
+        "model_sha256": EMBEDDING_MODEL_SHA256,
+        "model_binding": EMBEDDING_BINDING_ID,
+        "version_policy": "fixed_revision_and_sha256",
+        "dimensions": EMBEDDING_DIMENSIONS,
+        "timeout_seconds": 10,
+        "pooling": "last",
+        "normalization": "l2",
+        "query_instruction": EMBEDDING_QUERY_INSTRUCTION,
+        "dense_min_similarity": 0.30,
+        "lexical_min_similarity": 0.30,
+        "fusion_rrf_k": 60,
+        "document_batch_size": 8,
+    }
+    if value != expected:
+        raise ModelViolation("MODEL-BINDING-MANIFEST")
+    return EmbeddingBinding(
+        provider=cast(str, value["provider"]),
+        model_id=cast(str, value["model_id"]),
+        model_revision=cast(str, value["model_revision"]),
+        model_sha256=cast(str, value["model_sha256"]),
+        model_binding=cast(str, value["model_binding"]),
+        dimensions=cast(int, value["dimensions"]),
+        timeout_seconds=cast(int, value["timeout_seconds"]),
+        pooling=cast(str, value["pooling"]),
+        normalization=cast(str, value["normalization"]),
+        query_instruction=cast(str, value["query_instruction"]),
+        dense_min_similarity=cast(float, value["dense_min_similarity"]),
+        lexical_min_similarity=cast(float, value["lexical_min_similarity"]),
+        fusion_rrf_k=cast(int, value["fusion_rrf_k"]),
+        document_batch_size=cast(int, value["document_batch_size"]),
+    )
 
 
 @runtime_checkable
@@ -500,7 +564,13 @@ def _require_token(value: object) -> None:
 
 
 __all__ = (
+    "EMBEDDING_BINDING_ID",
     "EMBEDDING_DIMENSIONS",
+    "EMBEDDING_MODEL_ID",
+    "EMBEDDING_MODEL_REVISION",
+    "EMBEDDING_MODEL_SHA256",
+    "EMBEDDING_QUERY_INSTRUCTION",
+    "EMBEDDING_QUERY_MAX_CHARS",
     "CognitiveEpisodeId",
     "CompiledContext",
     "ContextArtifactCatalogPort",
@@ -535,4 +605,5 @@ __all__ = (
     "EmbeddingPort",
     "EmbeddingResponse",
     "RecallStatus",
+    "load_embedding_binding",
 )
