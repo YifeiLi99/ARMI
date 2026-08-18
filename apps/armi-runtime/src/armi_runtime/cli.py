@@ -175,6 +175,8 @@ def _parser() -> argparse.ArgumentParser:
     semantic_install = semantic_recall_command.add_parser("install")
     semantic_install.add_argument("--environment-root", type=Path, required=True)
     semantic_install.add_argument("--approved-official-direct", action="store_true")
+    semantic_calibrate = semantic_recall_command.add_parser("calibrate")
+    semantic_calibrate.add_argument("--environment-root", type=Path, required=True)
     semantic_status = semantic_recall_command.add_parser("status")
     semantic_status.add_argument("--environment-root", type=Path, required=True)
     return parser
@@ -334,13 +336,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             enabled=prepared.effective.config.model.semantic_recall_enabled,
         )
         try:
-            result = (
-                manager.install(
+            if args.semantic_recall_command == "install":
+                result = manager.install(
                     approved_official_direct=bool(args.approved_official_direct)
                 )
-                if args.semantic_recall_command == "install"
-                else manager.status()
-            )
+            elif args.semantic_recall_command == "calibrate":
+                runtime_status = RuntimeProcessManager(
+                    prepared.root,
+                    str(prepared.effective.config.environment.environment_id),
+                ).status()
+                if runtime_status["status"] != "stopped":
+                    raise RuntimeViolation(
+                        "SEMANTIC-RECALL-CALIBRATION-BUSY",
+                        "Runtime must be stopped before semantic recall calibration",
+                    )
+                result = manager.calibrate()
+            else:
+                result = manager.status()
         except RuntimeViolation as error:
             _safe_failure(error)
             return 3

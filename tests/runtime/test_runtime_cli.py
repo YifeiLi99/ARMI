@@ -52,6 +52,40 @@ def make_environment(
 
 
 class RuntimeCliTests(unittest.TestCase):
+    def test_semantic_recall_calibrate_requires_stopped_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            make_environment(root)
+            output = io.StringIO()
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch(
+                    "armi_runtime.cli.RuntimeProcessManager"
+                ) as runtime_process_manager,
+                patch(
+                    "armi_runtime.cli.SemanticRecallProcessManager"
+                ) as semantic_manager,
+                redirect_stdout(output),
+            ):
+                runtime_process_manager.return_value.status.return_value = {
+                    "status": "stopped"
+                }
+                semantic_manager.return_value.calibrate.return_value = {
+                    "gpu_layers": 28
+                }
+                exit_code = main(
+                    (
+                        "semantic-recall",
+                        "calibrate",
+                        "--environment-root",
+                        str(root.resolve()),
+                    )
+                )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(json.loads(output.getvalue()), {"gpu_layers": 28})
+        semantic_manager.return_value.calibrate.assert_called_once_with()
+
     def test_unknown_armi_environment_returns_safe_configuration_error(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

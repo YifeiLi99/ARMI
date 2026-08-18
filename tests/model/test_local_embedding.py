@@ -126,3 +126,51 @@ async def test_document_embedding_does_not_add_query_instruction(
 
     assert inputs == [["记忆一", "材料二"]]
     assert len(responses) == 2
+
+
+@pytest.mark.asyncio
+async def test_local_embedding_reuses_and_closes_loopback_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created = 0
+    closed = 0
+
+    class Response:
+        def __init__(self) -> None:
+            self.headers: dict[str, str] = {}
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {
+                "data": [{"index": 0, "embedding": [0.03125] * 1024}],
+                "usage": {"prompt_tokens": 7},
+            }
+
+    class Client:
+        def __init__(self, **_options: Any) -> None:
+            nonlocal created
+            created += 1
+
+        async def post(self, _url: str, **_options: Any) -> Response:
+            return Response()
+
+        async def aclose(self) -> None:
+            nonlocal closed
+            closed += 1
+
+    monkeypatch.setattr(local_embedding.httpx, "AsyncClient", Client)
+    binding = load_embedding_binding(ROOT / "configs/model-bindings.yaml")
+    adapter = LocalLlamaCppEmbeddingAdapter(
+        binding=binding,
+        base_url="http://127.0.0.1:45000/v1",
+        api_key="temporary-token",
+    )
+
+    await adapter.embed_query("第一次查询")
+    await adapter.embed_query("第二次查询")
+    await adapter.close()
+
+    assert created == 1
+    assert closed == 1

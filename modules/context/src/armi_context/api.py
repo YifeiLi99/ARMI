@@ -311,6 +311,8 @@ class EmbeddingPort(Protocol):
         self, texts: tuple[str, ...]
     ) -> tuple[EmbeddingResponse, ...]: ...
 
+    async def close(self) -> None: ...
+
 
 def load_embedding_binding(path: Path) -> EmbeddingBinding:
     try:

@@ -78,6 +78,7 @@ class ContextEmbeddingPipeline:
 
     async def close(self) -> None:
         self._stop.set()
+        await self._adapter.close()
 
     def stop(self) -> None:
         self._stop.set()

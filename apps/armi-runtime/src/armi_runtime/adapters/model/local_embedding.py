@@ -16,7 +16,7 @@ from armi_kernel.application import ModelViolation
 
 
 class LocalLlamaCppEmbeddingAdapter:
-    __slots__ = ("_api_key", "_base_url", "_binding")
+    __slots__ = ("_api_key", "_base_url", "_binding", "_client")
 
     def __init__(
         self,
@@ -37,6 +37,7 @@ class LocalLlamaCppEmbeddingAdapter:
         self._binding = binding
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
+        self._client: httpx.AsyncClient | None = None
 
     @property
     def binding(self) -> EmbeddingBinding:
@@ -72,21 +73,27 @@ class LocalLlamaCppEmbeddingAdapter:
             raise ModelViolation("MODEL-EMBEDDING-INPUT")
         return await self._embed(tuple(text.strip() for text in texts))
 
+    async def close(self) -> None:
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
+
     async def _embed(self, texts: tuple[str, ...]) -> tuple[EmbeddingResponse, ...]:
         try:
-            async with httpx.AsyncClient(
-                timeout=self._binding.timeout_seconds,
-                trust_env=False,
-            ) as client:
-                response = await client.post(
-                    f"{self._base_url}/embeddings",
-                    headers={"authorization": f"Bearer {self._api_key}"},
-                    json={
-                        "model": self._binding.model_id,
-                        "input": list(texts),
-                        "encoding_format": "float",
-                    },
+            if self._client is None:
+                self._client = httpx.AsyncClient(
+                    timeout=self._binding.timeout_seconds,
+                    trust_env=False,
                 )
+            response = await self._client.post(
+                f"{self._base_url}/embeddings",
+                headers={"authorization": f"Bearer {self._api_key}"},
+                json={
+                    "model": self._binding.model_id,
+                    "input": list(texts),
+                    "encoding_format": "float",
+                },
+            )
             response.raise_for_status()
             value: object = response.json()
         except httpx.TimeoutException:
