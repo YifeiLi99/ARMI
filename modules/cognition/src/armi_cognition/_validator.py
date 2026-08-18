@@ -69,7 +69,12 @@ from armi_memory.api import (
     MemorySourceKind,
 )
 from armi_mood.api import (
+    VAD,
+    AffectiveEvent,
     CandidateMoodDraft,
+    EmotionComponent,
+    EmotionFamily,
+    MoodCandidateKind,
     MoodCognitionPort,
 )
 from armi_prompt.api import (
@@ -230,6 +235,7 @@ from ._model_contract import (
     FormalNoActionPayload,
     MemoryChangeProposal,
     MindState,
+    MoodEventCommand,
     MoodState,
     RuntimeBoundCreatorReplyPayload,
     SelfState,
@@ -244,6 +250,7 @@ from ._other_human_contract import (
 )
 from ._owners import CandidateOwner
 from ._reflection_contract import (
+    MoodHomeBaseTarget,
     OwnerReflectionCandidate,
     parse_owner_reflection,
 )
@@ -506,6 +513,7 @@ class CandidateValidationContext:
                 MaintenancePhase.SELF_CHECK,
                 MaintenancePhase.REFLECT_SELF,
                 MaintenancePhase.REFLECT_MIND,
+                MaintenancePhase.REFLECT_MOOD,
                 MaintenancePhase.REFLECT_PROMPT,
             }
         ):
@@ -599,6 +607,7 @@ class DeterministicCandidateValidator:
         reflection_purpose = self._context.purpose in {
             "reflect_self",
             "reflect_mind",
+            "reflect_mood",
             "reflect_prompt",
         }
         try:
@@ -939,20 +948,37 @@ class DeterministicCandidateValidator:
                 component = cast(ComponentChangeProposal, proposal)
                 failure = _component_failure(component, proposal_bases, component_state)
                 if failure is None:
-                    next_bytes = rfc8785.dumps(
-                        cast(Any, component.payload.next_state.model_dump(mode="json"))
-                    )
-                    accepted[proposal.proposal_ref] = self._mood_cognition.bind(
-                        CandidateMoodDraft(
-                            proposal.proposal_ref,
-                            proposal.atomic_group_ref,
-                            tuple(basis.ordinal for basis in proposal_bases),
-                            CandidateFactClass(component.payload.fact_class),
-                            component.payload.expected_version,
-                            next_bytes,
+                    command = component.payload.next_state
+                    if not isinstance(command, MoodEventCommand):
+                        failure = "CANDIDATE-MOOD-COMMAND"
+                    else:
+                        accepted[proposal.proposal_ref] = self._mood_cognition.bind(
+                            CandidateMoodDraft(
+                                proposal.proposal_ref,
+                                proposal.atomic_group_ref,
+                                tuple(basis.ordinal for basis in proposal_bases),
+                                CandidateFactClass(component.payload.fact_class),
+                                component.payload.expected_version,
+                                MoodCandidateKind.EVENT,
+                                AffectiveEvent(
+                                    command.importance,
+                                    tuple(
+                                        EmotionComponent(
+                                            EmotionFamily(item.family),
+                                            item.nuance,
+                                            VAD(
+                                                item.vad.valence,
+                                                item.vad.arousal,
+                                                item.vad.dominance,
+                                            ),
+                                            item.intensity,
+                                        )
+                                        for item in command.components
+                                    ),
+                                ),
+                            )
                         )
-                    )
-                    continue
+                        continue
             if failure is None and owner is CandidateOwner.CAPABILITY:
                 capability = proposal
                 failure = _capability_failure(
@@ -2086,6 +2112,7 @@ class DeterministicCandidateValidator:
         target, phase = {
             "reflect_self": ("self", MaintenancePhase.REFLECT_SELF),
             "reflect_mind": ("mind", MaintenancePhase.REFLECT_MIND),
+            "reflect_mood": ("mood", MaintenancePhase.REFLECT_MOOD),
             "reflect_prompt": ("prompt", MaintenancePhase.REFLECT_PROMPT),
         }.get(context.purpose, (None, None))
         if (
@@ -2122,7 +2149,7 @@ class DeterministicCandidateValidator:
             if phase_basis not in cited:
                 return _rejected("CANDIDATE-REFLECTION-BASIS")
             owner_draft: CandidateOwnerDraft
-            if target in {"self", "mind"}:
+            if target in {"self", "mind", "mood"}:
                 owner = CandidateOwner(target)
                 current = next(
                     (
@@ -2149,24 +2176,43 @@ class DeterministicCandidateValidator:
                 ):
                     return _rejected("CANDIDATE-REFLECTION-VERSION")
                 next_state = candidate.next_state
-                if not isinstance(next_state, (SelfState, MindState)):
-                    return _rejected("CANDIDATE-REFLECTION-CONTRACT")
-                next_bytes = rfc8785.dumps(
-                    cast(Any, next_state.model_dump(mode="json"))
-                )
-                if next_bytes == current[1]:
-                    return _rejected("CANDIDATE-REFLECTION-NOOP")
-                owner_draft = self._subject_state_cognition.bind(
-                    CandidateSubjectStateDraft(
-                        "proposal:1",
-                        "group:1",
-                        tuple(item.ordinal for item in cited),
-                        CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
-                        SubjectStateKind(target),
-                        cast(int, candidate.expected_version),
-                        next_bytes,
+                if target == "mood":
+                    if not isinstance(next_state, MoodHomeBaseTarget):
+                        return _rejected("CANDIDATE-REFLECTION-CONTRACT")
+                    owner_draft = self._mood_cognition.bind(
+                        CandidateMoodDraft(
+                            "proposal:1",
+                            "group:1",
+                            tuple(item.ordinal for item in cited),
+                            CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
+                            cast(int, candidate.expected_version),
+                            MoodCandidateKind.HOME_BASE_REFLECTION,
+                            target_home_base=VAD(
+                                next_state.valence,
+                                next_state.arousal,
+                                next_state.dominance,
+                            ),
+                        )
                     )
-                )
+                else:
+                    if not isinstance(next_state, (SelfState, MindState)):
+                        return _rejected("CANDIDATE-REFLECTION-CONTRACT")
+                    next_bytes = rfc8785.dumps(
+                        cast(Any, next_state.model_dump(mode="json"))
+                    )
+                    if next_bytes == current[1]:
+                        return _rejected("CANDIDATE-REFLECTION-NOOP")
+                    owner_draft = self._subject_state_cognition.bind(
+                        CandidateSubjectStateDraft(
+                            "proposal:1",
+                            "group:1",
+                            tuple(item.ordinal for item in cited),
+                            CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
+                            SubjectStateKind(target),
+                            cast(int, candidate.expected_version),
+                            next_bytes,
+                        )
+                    )
             else:
                 current_prompt = context.current_subject_prompt
                 if (
@@ -2715,26 +2761,26 @@ def _bind_affective_event(
     if not set(basis_refs).issubset(allowed_refs):
         return None, "CANDIDATE-MOOD-BASIS"
     try:
-        current_state = MoodState.model_validate_json(current[1], strict=True)
-        current_value = current_state.model_dump(mode="python")
-        emotions = tuple(
-            dict.fromkeys(
-                (*signal.emotions, *cast(list[str], current_value["emotions"]))
-            )
-        )[:16]
-        mood = current_value["mood"]
-        if signal.intensity in {"medium", "high"} and signal.mood_tendency is not None:
-            mood = signal.mood_tendency
-        next_value = {
-            "schema_version": "armi.mood.v1",
-            "emotions": emotions,
-            "mood": mood,
-        }
-        next_state = MoodState.model_validate(next_value, strict=True)
-    except ValidationError, TypeError:
+        MoodState.model_validate_json(current[1], strict=True)
+    except ValidationError:
         return None, "CANDIDATE-MOOD-STATE"
-    if next_state == current_state:
-        return None, None
+    event_command = {
+        "schema_version": "armi.mood-event.v2",
+        "importance": signal.importance,
+        "components": tuple(
+            {
+                "family": item.family,
+                "nuance": item.nuance,
+                "vad": {
+                    "valence": item.valence,
+                    "arousal": item.arousal,
+                    "dominance": item.dominance,
+                },
+                "intensity": item.intensity,
+            }
+            for item in signal.components
+        ),
+    }
     return (
         {
             "proposal_ref": proposal_ref,
@@ -2745,7 +2791,7 @@ def _bind_affective_event(
                 "fact_class": "subjective_understanding",
                 "owner": "mood",
                 "expected_version": current[0],
-                "next_state": next_state.model_dump(mode="python"),
+                "next_state": event_command,
             },
         },
         None,
@@ -2993,10 +3039,13 @@ def _expand_dialogue_candidate(
                 proposal_no += 1
         self_change = getattr(decision, "self_change", None)
         mind_change = getattr(decision, "mind_change", None)
+        if mind_change is not None and any(
+            getattr(mind_change, field, None) is not None
+            for field in ("emotions", "mood")
+        ):
+            return None, None, "CANDIDATE-MOOD-EVENT-REQUIRED"
         component_inputs: tuple[
-            tuple[
-                CandidateOwner, Any, type[SelfState] | type[MindState] | type[MoodState]
-            ],
+            tuple[CandidateOwner, Any, type[SelfState] | type[MindState]],
             ...,
         ] = (
             (CandidateOwner.SELF, self_change, SelfState),
@@ -3016,17 +3065,6 @@ def _expand_dialogue_candidate(
                 )
                 else None,
                 MindState,
-            ),
-            (
-                CandidateOwner.MOOD,
-                mind_change
-                if mind_change is not None
-                and any(
-                    getattr(mind_change, field, None) is not None
-                    for field in ("emotions", "mood")
-                )
-                else None,
-                MoodState,
             ),
         )
         for owner, change, state_type in component_inputs:
@@ -3395,7 +3433,7 @@ def _bind_dialogue_component_change(
     *,
     owner: CandidateOwner,
     change: Any,
-    state_type: type[SelfState] | type[MindState] | type[MoodState],
+    state_type: type[SelfState] | type[MindState],
     proposal_ref: str,
     evidence_ref: str,
     bases: tuple[CandidateBasis, ...],
@@ -3443,7 +3481,7 @@ def _bind_dialogue_component_change(
                 "motivations",
             )
             if owner is CandidateOwner.MIND
-            else ("emotions", "mood")
+            else ()
         )
         for field_name in field_names:
             replacement = getattr(change, field_name, None)
@@ -4518,7 +4556,8 @@ def _component_failure(
         "armi.self.v1": CandidateOwner.SELF,
         "armi.mind.v1": CandidateOwner.MIND,
         "armi.mind.v2": CandidateOwner.MIND,
-        "armi.mood.v1": CandidateOwner.MOOD,
+        "armi.mood.v2": CandidateOwner.MOOD,
+        "armi.mood-event.v2": CandidateOwner.MOOD,
         "armi.life-mode.v1": CandidateOwner.LIFE_MODE,
     }.get(str(next_state.get("schema_version")))
     if schema_owner is not owner:
@@ -4529,7 +4568,12 @@ def _component_failure(
         )
     except UnicodeDecodeError, json.JSONDecodeError, TypeError:
         return "CANDIDATE-COMPONENT-STATE"
-    if current_schema != next_state.get("schema_version"):
+    if owner is CandidateOwner.MOOD and next_state.get("schema_version") == (
+        "armi.mood-event.v2"
+    ):
+        if current_schema != "armi.mood.v2":
+            return "CANDIDATE-COMPONENT-STATE"
+    elif current_schema != next_state.get("schema_version"):
         return "CANDIDATE-COMPONENT-STATE"
     next_bytes = rfc8785.dumps(cast(Any, next_state))
     if next_bytes == current_bytes:

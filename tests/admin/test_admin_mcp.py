@@ -434,9 +434,13 @@ class AdminProtocolTests(unittest.TestCase):
                     "component_kind": "mood",
                     "expected_component_version": 1,
                     "replacement": {
-                        "schema_version": "armi.mood.v1",
-                        "emotions": ("平静",),
-                        "mood": "专注",
+                        "schema_version": "armi.mood.v2",
+                        "dynamics_version": "exponential.v1",
+                        "home_base": {
+                            "valence": 10,
+                            "arousal": 0,
+                            "dominance": 5,
+                        },
                     },
                 },
             }

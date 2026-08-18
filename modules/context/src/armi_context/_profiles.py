@@ -203,6 +203,11 @@ _PROFILES = {
         required=frozenset({"current_maintenance_phase", "mind"}),
         forbidden=_PRIVATE_RECALL,
     ),
+    "reflect_mood": _profile(
+        "reflect_mood",
+        required=frozenset({"current_maintenance_phase", "mood"}),
+        forbidden=_PRIVATE_RECALL,
+    ),
     "reflect_prompt": _profile(
         "reflect_prompt",
         required=frozenset({"current_maintenance_phase", "self", "mind"}),

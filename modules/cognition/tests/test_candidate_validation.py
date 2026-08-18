@@ -69,6 +69,7 @@ from armi_memory.api import (
     MemoryRevisionKind,
     MemorySourceKind,
 )
+from armi_mood.api import EmotionFamily, MoodCandidateKind
 from armi_relationship.api import (
     RelationshipBoundary,
     RelationshipBoundaryAction,
@@ -286,7 +287,11 @@ def _mind_state(*, thoughts: list[str] | None = None) -> dict[str, object]:
 
 
 def _mood_state() -> dict[str, object]:
-    return {"schema_version": "armi.mood.v1", "emotions": [], "mood": None}
+    return {
+        "schema_version": "armi.mood.v2",
+        "dynamics_version": "exponential.v1",
+        "home_base": {"valence": 0, "arousal": 0, "dominance": 0},
+    }
 
 
 def _life_mode_state() -> dict[str, object]:
@@ -887,6 +892,7 @@ def _maintenance_fixture(
         MaintenancePhase.SELF_CHECK: "perform_subject_self_check",
         MaintenancePhase.REFLECT_SELF: "reflect_self",
         MaintenancePhase.REFLECT_MIND: "reflect_mind",
+        MaintenancePhase.REFLECT_MOOD: "reflect_mood",
         MaintenancePhase.REFLECT_PROMPT: "reflect_prompt",
     }[phase]
     maintenance = replace(
@@ -2520,8 +2526,6 @@ def test_compact_dialogue_binds_grounded_self_and_mind_growth() -> None:
         },
         "mind_change": {
             "understanding": {"values": ["这是我此刻作出的自主选择"]},
-            "emotions": {"values": ["认真而期待"]},
-            "mood": {"value": "期待"},
         },
     }
 
@@ -2548,23 +2552,9 @@ def test_compact_dialogue_binds_grounded_self_and_mind_growth() -> None:
         **_mind_state(),
         "understanding": ["这是我此刻作出的自主选择"],
     }
-    mood_drafts = tuple(
-        bootstrap_mood_cognition().decode(item.canonical_payload)
-        for item in result.change_set.owner_drafts
-        if item.owner == "mood"
-    )
-    assert len(mood_drafts) == 1
-    assert mood_drafts[0].basis_ordinals == (2, 10)
-    assert json.loads(mood_drafts[0].canonical_next_state) == {
-        **_mood_state(),
-        "emotions": ["认真而期待"],
-        "mood": "期待",
-    }
     reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
     assert _subject_states(reparsed) == _subject_states(result.change_set)
-    assert tuple(
-        item for item in reparsed.owner_drafts if item.owner == "mood"
-    ) == tuple(item for item in result.change_set.owner_drafts if item.owner == "mood")
+    assert not any(item.owner == "mood" for item in reparsed.owner_drafts)
 
 
 def test_creator_aggregate_applies_event_signal_without_authoring_full_mood() -> None:
@@ -2591,7 +2581,7 @@ def test_creator_aggregate_applies_event_signal_without_authoring_full_mood() ->
         ),
     )
     candidate = {
-        "schema_version": "armi.creator-dialogue-aggregate.v1",
+        "schema_version": "armi.creator-dialogue-aggregate.v2",
         "outcome": "complete",
         "response": {"kind": "reply", "content": "我记住了。"},
         "appraisal": {
@@ -2601,11 +2591,17 @@ def test_creator_aggregate_applies_event_signal_without_authoring_full_mood() ->
                 "memory_summary": "Creator 希望我记住这件事。",
             },
             "affect": {
-                "valence": "positive",
-                "activation": "medium",
-                "intensity": "medium",
-                "emotions": ["认真", "被信任"],
-                "mood_tendency": "温暖",
+                "importance": 70,
+                "components": [
+                    {
+                        "family": "gratitude",
+                        "nuance": "被信任后的感激",
+                        "valence": 70,
+                        "arousal": 30,
+                        "dominance": 20,
+                        "intensity": 65,
+                    }
+                ],
                 "basis_refs": ["ctx:2"],
             },
         },
@@ -2624,25 +2620,31 @@ def test_creator_aggregate_applies_event_signal_without_authoring_full_mood() ->
         for item in result.change_set.owner_drafts
         if item.owner == "mood"
     )
-    assert json.loads(mood.canonical_next_state) == {
-        **_mood_state(),
-        "emotions": ["认真", "被信任"],
-        "mood": "温暖",
-    }
+    assert mood.kind is MoodCandidateKind.EVENT
+    assert mood.event is not None
+    assert mood.event.importance == 70
+    assert mood.event.components[0].family is EmotionFamily.GRATITUDE
+    assert mood.event.components[0].nuance == "被信任后的感激"
 
 
-def test_low_intensity_affect_preserves_long_term_mood() -> None:
+def test_low_intensity_affect_is_an_event_not_a_home_base_replacement() -> None:
     context, bases = _fixture()
     candidate = {
-        "schema_version": "armi.creator-dialogue-aggregate.v1",
+        "schema_version": "armi.creator-dialogue-aggregate.v2",
         "outcome": "internal_only",
         "appraisal": {
             "affect": {
-                "valence": "negative",
-                "activation": "low",
-                "intensity": "low",
-                "emotions": ["遗憾"],
-                "mood_tendency": "低落",
+                "importance": 20,
+                "components": [
+                    {
+                        "family": "sadness",
+                        "nuance": "轻微遗憾",
+                        "valence": -30,
+                        "arousal": -20,
+                        "dominance": -10,
+                        "intensity": 15,
+                    }
+                ],
                 "basis_refs": ["ctx:2"],
             }
         },
@@ -2659,7 +2661,9 @@ def test_low_intensity_affect_preserves_long_term_mood() -> None:
         for item in result.change_set.owner_drafts
         if item.owner == "mood"
     )
-    assert json.loads(mood.canonical_next_state)["mood"] is None
+    assert mood.kind is MoodCandidateKind.EVENT
+    assert mood.target_home_base is None
+    assert mood.event is not None and mood.event.components[0].intensity == 15
 
 
 def test_decline_can_still_commit_a_real_internal_experience() -> None:
@@ -2677,7 +2681,7 @@ def test_decline_can_still_commit_a_real_internal_experience() -> None:
         ),
     )
     candidate = {
-        "schema_version": "armi.creator-dialogue-aggregate.v1",
+        "schema_version": "armi.creator-dialogue-aggregate.v2",
         "outcome": "complete",
         "response": {"kind": "decline"},
         "appraisal": {

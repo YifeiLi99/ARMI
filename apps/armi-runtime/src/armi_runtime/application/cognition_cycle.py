@@ -181,6 +181,7 @@ class RuntimeCognitionCycleSelector:
                     MaintenancePhase.SELF_CHECK: "perform_subject_self_check",
                     MaintenancePhase.REFLECT_SELF: "reflect_self",
                     MaintenancePhase.REFLECT_MIND: "reflect_mind",
+                    MaintenancePhase.REFLECT_MOOD: "reflect_mood",
                     MaintenancePhase.REFLECT_PROMPT: "reflect_prompt",
                 }.get(maintenance.phase)
             )

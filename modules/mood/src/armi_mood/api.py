@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
+from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
@@ -23,6 +25,92 @@ class MoodViolation(RuntimeError):
         return f"{self.code}: mood operation failed"
 
 
+class EmotionFamily(StrEnum):
+    JOY = "joy"
+    CONTENTMENT = "contentment"
+    INTEREST = "interest"
+    HOPE = "hope"
+    RELIEF = "relief"
+    AFFECTION = "affection"
+    GRATITUDE = "gratitude"
+    PRIDE = "pride"
+    SURPRISE = "surprise"
+    SADNESS = "sadness"
+    FEAR = "fear"
+    ANXIETY = "anxiety"
+    ANGER = "anger"
+    FRUSTRATION = "frustration"
+    DISGUST = "disgust"
+    SHAME = "shame"
+    GUILT = "guilt"
+    JEALOUSY = "jealousy"
+    BOREDOM = "boredom"
+    CONFUSION = "confusion"
+
+
+class MoodCandidateKind(StrEnum):
+    EVENT = "event"
+    HOME_BASE_REFLECTION = "home_base_reflection"
+
+
+@dataclass(frozen=True, slots=True)
+class VAD:
+    valence: int
+    arousal: int
+    dominance: int
+
+    def __post_init__(self) -> None:
+        if any(
+            type(value) is not int or not -100 <= value <= 100
+            for value in (self.valence, self.arousal, self.dominance)
+        ):
+            raise MoodViolation("MOOD-VAD")
+
+
+@dataclass(frozen=True, slots=True)
+class EmotionComponent:
+    family: EmotionFamily
+    nuance: str
+    vad: VAD
+    intensity: int
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.family) is not EmotionFamily
+            or type(self.nuance) is not str
+            or not self.nuance.strip()
+            or self.nuance != self.nuance.strip()
+            or "\x00" in self.nuance
+            or len(self.nuance) > 64
+            or type(self.intensity) is not int
+            or not 5 <= self.intensity <= 100
+            or self.intensity % 5
+            or any(value % 5 for value in self.vad_values)
+        ):
+            raise MoodViolation("MOOD-COMPONENT")
+
+    @property
+    def vad_values(self) -> tuple[int, int, int]:
+        return (self.vad.valence, self.vad.arousal, self.vad.dominance)
+
+
+@dataclass(frozen=True, slots=True)
+class AffectiveEvent:
+    importance: int
+    components: tuple[EmotionComponent, ...]
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.importance) is not int
+            or not 5 <= self.importance <= 100
+            or self.importance % 5
+            or type(self.components) is not tuple
+            or not 1 <= len(self.components) <= 3
+            or any(type(item) is not EmotionComponent for item in self.components)
+        ):
+            raise MoodViolation("MOOD-EVENT")
+
+
 @dataclass(frozen=True, slots=True)
 class CandidateMoodDraft:
     proposal_ref: str
@@ -30,7 +118,9 @@ class CandidateMoodDraft:
     basis_ordinals: tuple[int, ...]
     fact_class: CandidateFactClass
     expected_version: int
-    canonical_next_state: bytes
+    kind: MoodCandidateKind
+    event: AffectiveEvent | None = None
+    target_home_base: VAD | None = None
 
     def __post_init__(self) -> None:
         from ._domain import validate_candidate
@@ -39,10 +129,37 @@ class CandidateMoodDraft:
 
 
 @dataclass(frozen=True, slots=True)
+class MoodState:
+    dynamics_version: str
+    home_base: VAD
+
+
+@dataclass(frozen=True, slots=True)
 class MoodHead:
     current_revision_id: UUID
     version: int
     canonical_state: bytes
+
+
+@dataclass(frozen=True, slots=True)
+class EffectiveEmotion:
+    family: EmotionFamily
+    nuance: str
+    intensity: int
+
+
+@dataclass(frozen=True, slots=True)
+class MoodSnapshot:
+    current_revision_id: UUID
+    version: int
+    as_of: datetime
+    home_base: VAD
+    current: VAD
+    active_emotions: tuple[EffectiveEmotion, ...]
+
+    @property
+    def current_vad(self) -> VAD:
+        return self.current
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +183,10 @@ class MoodReadPort(Protocol):
     async def current(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID
     ) -> MoodHead: ...
+
+    async def snapshot(
+        self, transaction: PostgreSQLTransaction, *, subject_id: UUID
+    ) -> MoodSnapshot: ...
 
     async def current_head_count(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID
@@ -162,15 +283,23 @@ class MoodAdminCorrectionPort(Protocol):
 
 
 __all__ = (
+    "VAD",
+    "AffectiveEvent",
     "CandidateMoodDraft",
+    "EffectiveEmotion",
+    "EmotionComponent",
+    "EmotionFamily",
     "MoodAdminComponent",
     "MoodAdminCorrectionPort",
     "MoodAdminReadPort",
     "MoodBirthPort",
+    "MoodCandidateKind",
     "MoodCognitionPort",
     "MoodCommitPort",
     "MoodCorrectionHead",
     "MoodHead",
     "MoodReadPort",
+    "MoodSnapshot",
+    "MoodState",
     "MoodViolation",
 )

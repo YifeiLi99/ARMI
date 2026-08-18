@@ -28,7 +28,7 @@ purpose_profiles:
     output_token_limit: 1024
   appraise_creator_input:
     profile: creator_appraisal
-    response_contract_version: armi.creator-appraisal-candidate.v1
+    response_contract_version: armi.creator-appraisal-candidate.v2
     output_token_limit: 768
   consider_codex_result:
     profile: codex_result
@@ -44,7 +44,7 @@ purpose_profiles:
     output_token_limit: 1024
   appraise_life_query_result:
     profile: creator_appraisal
-    response_contract_version: armi.creator-appraisal-candidate.v1
+    response_contract_version: armi.creator-appraisal-candidate.v2
     output_token_limit: 768
   consider_creator_outreach:
     profile: creator_outreach
@@ -90,6 +90,10 @@ purpose_profiles:
     profile: reflect_mind
     response_contract_version: armi.owner-reflection-candidate.v1
     output_token_limit: 2048
+  reflect_mood:
+    profile: reflect_mood
+    response_contract_version: armi.owner-reflection-candidate.v1
+    output_token_limit: 1024
   reflect_prompt:
     profile: reflect_prompt
     response_contract_version: armi.owner-reflection-candidate.v1

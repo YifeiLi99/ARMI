@@ -329,10 +329,50 @@ class MindState(_StrictModel):
     motivations: tuple[Summary, ...] = Field(max_length=16)
 
 
+class MoodVAD(_StrictModel):
+    valence: Annotated[int, Field(ge=-100, le=100)]
+    arousal: Annotated[int, Field(ge=-100, le=100)]
+    dominance: Annotated[int, Field(ge=-100, le=100)]
+
+
 class MoodState(_StrictModel):
-    schema_version: Literal["armi.mood.v1"]
-    emotions: tuple[Summary, ...] = Field(max_length=16)
-    mood: Annotated[str, StringConstraints(min_length=1, max_length=128)] | None
+    schema_version: Literal["armi.mood.v2"]
+    dynamics_version: Literal["exponential.v1"]
+    home_base: MoodVAD
+
+
+class MoodEventComponent(_StrictModel):
+    family: Literal[
+        "joy",
+        "contentment",
+        "interest",
+        "hope",
+        "relief",
+        "affection",
+        "gratitude",
+        "pride",
+        "surprise",
+        "sadness",
+        "fear",
+        "anxiety",
+        "anger",
+        "frustration",
+        "disgust",
+        "shame",
+        "guilt",
+        "jealousy",
+        "boredom",
+        "confusion",
+    ]
+    nuance: Annotated[str, StringConstraints(min_length=1, max_length=64)]
+    vad: MoodVAD
+    intensity: Annotated[int, Field(ge=5, le=100, multiple_of=5)]
+
+
+class MoodEventCommand(_StrictModel):
+    schema_version: Literal["armi.mood-event.v2"]
+    importance: Annotated[int, Field(ge=5, le=100, multiple_of=5)]
+    components: tuple[MoodEventComponent, ...] = Field(min_length=1, max_length=3)
 
 
 class LifeModeState(_StrictModel):
@@ -355,7 +395,14 @@ class ComponentChangePayload(_StrictModel):
     fact_class: FactClass
     owner: Literal["self", "mind", "mood", "life_mode"]
     expected_version: Annotated[int, Field(gt=0)]
-    next_state: SelfState | LegacyMindState | MindState | MoodState | LifeModeState
+    next_state: (
+        SelfState
+        | LegacyMindState
+        | MindState
+        | MoodState
+        | MoodEventCommand
+        | LifeModeState
+    )
 
 
 class MemoryChangePayload(_StrictModel):
@@ -1373,6 +1420,11 @@ def load_active_binding(
                 "profile": "reflect_mind",
                 "response_contract_version": "armi.owner-reflection-candidate.v1",
                 "output_token_limit": 2048,
+            },
+            "reflect_mood": {
+                "profile": "reflect_mood",
+                "response_contract_version": "armi.owner-reflection-candidate.v1",
+                "output_token_limit": 1024,
             },
             "reflect_prompt": {
                 "profile": "reflect_prompt",

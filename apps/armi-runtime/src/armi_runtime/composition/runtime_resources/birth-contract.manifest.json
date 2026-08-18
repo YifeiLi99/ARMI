@@ -18,9 +18,13 @@
       "wishes": []
     },
     "mood": {
-      "emotions": [],
-      "mood": null,
-      "schema_version": "armi.mood.v1"
+      "dynamics_version": "exponential.v1",
+      "home_base": {
+        "arousal": 0,
+        "dominance": 0,
+        "valence": 0
+      },
+      "schema_version": "armi.mood.v2"
     },
     "self": {
       "creator_role_awareness": "unique_primary_creator",

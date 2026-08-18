@@ -24,6 +24,8 @@ REFLECT_SELF_INSTRUCTIONS = """\
 你只负责 Self Owner 的专项反思。可报告无需变化，或基于冻结资料提交一个完整 SelfState 候选及其当前 expected_version。不得修改 Mind、Mood、Prompt、记忆、关系、活动或对外表达。只输出给定 JSON Schema。"""
 REFLECT_MIND_INSTRUCTIONS = """\
 你只负责 Mind Owner 的专项反思。可报告无需变化，或基于冻结资料提交一个完整 MindState 候选及其当前 expected_version。不得修改 Self、Mood、Prompt、记忆、关系、活动或对外表达。只输出给定 JSON Schema。"""
+REFLECT_MOOD_INSTRUCTIONS = """\
+你只负责 Mood Owner 的长期基线反思。可报告无需变化；只有冻结资料中存在足够长期情绪事件证据时，才可提出 home_base 的目标 VAD 及当前 expected_version。不得生成短期情绪、删除事件，或修改 Self、Mind、Prompt、记忆、关系、活动和对外表达。数值必须是 -100 到 100 之间的 5 的倍数；最终调整幅度由 Mood Owner 限制。只输出给定 JSON Schema。"""
 REFLECT_PROMPT_INSTRUCTIONS = """\
 你只负责主体 Prompt Owner 的专项反思。可报告无需变化，或基于冻结资料提交 cognition_method、expression_method、reflection_method 三项完整候选及当前 expected_version。不得修改 Self、Mind、Mood、记忆、关系、活动或对外表达。只输出给定 JSON Schema。"""
 
@@ -36,13 +38,21 @@ class _StrictModel(BaseModel):
         return OWNER_REFLECTION_CANDIDATE_VERSION
 
 
+class MoodHomeBaseTarget(_StrictModel):
+    valence: Annotated[int, Field(ge=-100, le=100, multiple_of=5)]
+    arousal: Annotated[int, Field(ge=-100, le=100, multiple_of=5)]
+    dominance: Annotated[int, Field(ge=-100, le=100, multiple_of=5)]
+
+
 class OwnerReflectionCandidate(_StrictModel):
     kind: Literal["no_change", "update"]
-    target: Literal["self", "mind", "prompt"]
+    target: Literal["self", "mind", "mood", "prompt"]
     summary: Annotated[str, StringConstraints(min_length=1, max_length=512)]
     basis_refs: tuple[ContextRef, ...] = Field(default=(), max_length=8)
     expected_version: int | None = Field(default=None, ge=0)
-    next_state: SelfState | MindState | DialogueSubjectPromptChange | None = None
+    next_state: (
+        SelfState | MindState | MoodHomeBaseTarget | DialogueSubjectPromptChange | None
+    ) = None
 
     @model_validator(mode="after")
     def validate_shape(self) -> OwnerReflectionCandidate:
@@ -56,11 +66,12 @@ class OwnerReflectionCandidate(_StrictModel):
         expected_type = {
             "self": SelfState,
             "mind": MindState,
+            "mood": MoodHomeBaseTarget,
             "prompt": DialogueSubjectPromptChange,
         }[self.target]
         if not isinstance(self.next_state, expected_type):
             raise ValueError("reflection target and next state do not match")
-        if self.target in {"self", "mind"} and self.expected_version == 0:
+        if self.target in {"self", "mind", "mood"} and self.expected_version == 0:
             raise ValueError("component reflection version must be positive")
         return self
 
@@ -86,8 +97,10 @@ def parse_owner_reflection(
 __all__ = (
     "OWNER_REFLECTION_CANDIDATE_VERSION",
     "REFLECT_MIND_INSTRUCTIONS",
+    "REFLECT_MOOD_INSTRUCTIONS",
     "REFLECT_PROMPT_INSTRUCTIONS",
     "REFLECT_SELF_INSTRUCTIONS",
+    "MoodHomeBaseTarget",
     "OwnerReflectionCandidate",
     "owner_reflection_schema",
     "parse_owner_reflection",

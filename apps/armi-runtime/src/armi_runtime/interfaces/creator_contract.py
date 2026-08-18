@@ -521,6 +521,7 @@ type MaintenancePhaseValue = Literal[
     "self_check",
     "reflect_self",
     "reflect_mind",
+    "reflect_mood",
     "reflect_prompt",
     "life_quiet",
     "resume_check",

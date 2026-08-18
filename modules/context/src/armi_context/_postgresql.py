@@ -208,7 +208,7 @@ class PostgreSQLContextRepository:
         components = await self._subject_state.current_heads(
             tx, subject_id=episode.subject_id
         )
-        mood = await self._mood.current(tx, subject_id=episode.subject_id)
+        mood = await self._mood.snapshot(tx, subject_id=episode.subject_id)
         component_payloads = tuple(
             (
                 item.kind.value,
@@ -219,7 +219,34 @@ class PostgreSQLContextRepository:
             for item in components
         )
         component_payloads += (
-            ("mood", mood.current_revision_id, mood.version, mood.canonical_state),
+            (
+                "mood",
+                mood.current_revision_id,
+                mood.version,
+                rfc8785.dumps(
+                    {
+                        "schema_version": "armi.mood-snapshot.v1",
+                        "home_base": {
+                            "valence": mood.home_base.valence,
+                            "arousal": mood.home_base.arousal,
+                            "dominance": mood.home_base.dominance,
+                        },
+                        "current": {
+                            "valence": mood.current.valence,
+                            "arousal": mood.current.arousal,
+                            "dominance": mood.current.dominance,
+                        },
+                        "active_emotions": [
+                            {
+                                "family": item.family.value,
+                                "nuance": item.nuance,
+                                "intensity": item.intensity,
+                            }
+                            for item in mood.active_emotions
+                        ],
+                    }
+                ),
+            ),
         )
         memory_rows = await self._memories.maintenance_context(
             tx,
@@ -256,6 +283,7 @@ class PostgreSQLContextRepository:
                 "perform_subject_self_check",
                 "reflect_self",
                 "reflect_mind",
+                "reflect_mood",
                 "reflect_prompt",
             }
             else episode.context_party_id,
@@ -265,6 +293,7 @@ class PostgreSQLContextRepository:
                 "perform_subject_self_check",
                 "reflect_self",
                 "reflect_mind",
+                "reflect_mood",
                 "reflect_prompt",
             }
             else ("other_human_social" if other_human else "creator_social"),

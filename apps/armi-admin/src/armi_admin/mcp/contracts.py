@@ -224,26 +224,16 @@ class MindState(_ComponentState):
         return values
 
 
+class MoodVAD(_StrictModel):
+    valence: int = Field(ge=-100, le=100)
+    arousal: int = Field(ge=-100, le=100)
+    dominance: int = Field(ge=-100, le=100)
+
+
 class MoodState(_ComponentState):
-    schema_version: Literal["armi.mood.v1"]
-    emotions: tuple[str, ...] = Field(max_length=16)
-    mood: str | None = Field(default=None, max_length=128)
-
-    @field_validator("emotions")
-    @classmethod
-    def _text_list(cls, values: tuple[str, ...]) -> tuple[str, ...]:
-        if any(
-            "\x00" in value or not value.strip() or len(value) > 512 for value in values
-        ):
-            raise ValueError("ADMIN-CORRECTION-COMPONENT-PAYLOAD")
-        return values
-
-    @field_validator("mood")
-    @classmethod
-    def _mood(cls, value: str | None) -> str | None:
-        if value is not None and ("\x00" in value or not value.strip()):
-            raise ValueError("ADMIN-CORRECTION-COMPONENT-PAYLOAD")
-        return value
+    schema_version: Literal["armi.mood.v2"]
+    dynamics_version: Literal["exponential.v1"]
+    home_base: MoodVAD
 
 
 class LifeModeState(_ComponentState):
@@ -269,7 +259,7 @@ class ReplaceSubjectComponentSpec(_StrictModel):
         expected = {
             "self": "armi.self.v1",
             "mind": "armi.mind.v2",
-            "mood": "armi.mood.v1",
+            "mood": "armi.mood.v2",
             "life_mode": "armi.life-mode.v1",
         }[self.component_kind]
         if self.replacement.schema_version != expected:

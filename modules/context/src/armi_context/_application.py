@@ -1120,6 +1120,7 @@ def _context_request(
                     "perform_subject_self_check",
                     "reflect_self",
                     "reflect_mind",
+                    "reflect_mood",
                     "reflect_prompt",
                 },
                 relevance=100,
@@ -1131,6 +1132,7 @@ def _context_request(
                 "perform_subject_self_check",
                 "reflect_self",
                 "reflect_mind",
+                "reflect_mood",
                 "reflect_prompt",
             }
             else _unavailable(profile, ContextSection.LIFE_MODE, "maintenance_phase"),

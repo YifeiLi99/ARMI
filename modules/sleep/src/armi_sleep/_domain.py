@@ -28,6 +28,7 @@ class MaintenancePhase(StrEnum):
     SELF_CHECK = "self_check"
     REFLECT_SELF = "reflect_self"
     REFLECT_MIND = "reflect_mind"
+    REFLECT_MOOD = "reflect_mood"
     REFLECT_PROMPT = "reflect_prompt"
     LIFE_QUIET = "life_quiet"
     RESUME_CHECK = "resume_check"
@@ -62,7 +63,8 @@ _NEXT_PHASE = {
     MaintenancePhase.MEMORY_MAINTENANCE: MaintenancePhase.SELF_CHECK,
     MaintenancePhase.SELF_CHECK: MaintenancePhase.REFLECT_SELF,
     MaintenancePhase.REFLECT_SELF: MaintenancePhase.REFLECT_MIND,
-    MaintenancePhase.REFLECT_MIND: MaintenancePhase.REFLECT_PROMPT,
+    MaintenancePhase.REFLECT_MIND: MaintenancePhase.REFLECT_MOOD,
+    MaintenancePhase.REFLECT_MOOD: MaintenancePhase.REFLECT_PROMPT,
     MaintenancePhase.REFLECT_PROMPT: MaintenancePhase.LIFE_QUIET,
     MaintenancePhase.LIFE_QUIET: MaintenancePhase.RESUME_CHECK,
     MaintenancePhase.RESUME_CHECK: MaintenancePhase.COMPLETED,

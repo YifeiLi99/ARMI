@@ -22,6 +22,12 @@ _OWNER = DataRightsOwnerIdentity("mood")
 _VERSION = DataRightsContributionVersion(1)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
+        "mood_affective_events",
+        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
+           FROM armi.mood_affective_events AS source
+           ORDER BY to_jsonb(source)::text""",
+    ),
+    (
         "mood_heads",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
            FROM armi.mood_heads AS source ORDER BY to_jsonb(source)::text""",

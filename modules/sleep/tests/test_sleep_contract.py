@@ -136,6 +136,7 @@ def test_maintenance_lifecycle_is_ordered_interruptible_and_terminal() -> None:
         MaintenancePhase.SELF_CHECK,
         MaintenancePhase.REFLECT_SELF,
         MaintenancePhase.REFLECT_MIND,
+        MaintenancePhase.REFLECT_MOOD,
         MaintenancePhase.REFLECT_PROMPT,
         MaintenancePhase.LIFE_QUIET,
     ):

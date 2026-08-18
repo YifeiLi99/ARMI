@@ -41,7 +41,7 @@ def test_schema_resources_use_one_linear_alembic_history() -> None:
     assert not (RESOURCE / "migrations").exists()
     assert not list(RESOURCE.glob("**/manifest.json"))
     script = _script()
-    assert script.get_heads() == ["0015"]
+    assert script.get_heads() == ["0016"]
     revisions = list(script.walk_revisions(base="base", head="heads"))
     assert [revision.revision for revision in reversed(revisions)] == [
         "0000",
@@ -60,6 +60,7 @@ def test_schema_resources_use_one_linear_alembic_history() -> None:
         "0013",
         "0014",
         "0015",
+        "0016",
     ]
 
 
@@ -105,6 +106,12 @@ def test_active_cognition_contracts_have_a_forward_schema_revision() -> None:
     assert "processed_through_experience_id" in branches
     assert "late_response_artifact_id" in branches
     assert "reflect_self','reflect_mind','reflect_prompt" in branches
+    mood_v2 = (
+        RESOURCE / "alembic/versions/0016_mood_v2.py"
+    ).read_text(encoding="utf-8")
+    assert "armi.creator-appraisal-candidate.v2" in mood_v2
+    assert "armi.creator-dialogue-aggregate.v2" in mood_v2
+    assert "reflect_mood" in mood_v2
 
 
 def test_gateway_exposes_install_status_and_explicit_migration() -> None:

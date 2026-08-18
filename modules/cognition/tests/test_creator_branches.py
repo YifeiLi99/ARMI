@@ -61,14 +61,14 @@ def test_appraisal_memory_requires_explicit_remember_shape() -> None:
 def test_aggregate_shape_is_determined_by_available_branches() -> None:
     response = parse_creator_response({"kind": "reply", "content": "我知道了。"})
     aggregate = CreatorDialogueAggregate(
-        schema_version="armi.creator-dialogue-aggregate.v1",
+        schema_version="armi.creator-dialogue-aggregate.v2",
         outcome="response_only",
         response=response,
     )
     assert aggregate.appraisal is None
     with pytest.raises(ValidationError):
         CreatorDialogueAggregate(
-            schema_version="armi.creator-dialogue-aggregate.v1",
+            schema_version="armi.creator-dialogue-aggregate.v2",
             outcome="complete",
             response=response,
         )

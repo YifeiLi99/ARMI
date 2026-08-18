@@ -91,6 +91,7 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "prompt_revisions": TableOwnership("prompt"),
     "mood_heads": TableOwnership("mood"),
     "mood_revisions": TableOwnership("mood"),
+    "mood_affective_events": TableOwnership("mood"),
     # Life facts.
     "memory_relations": TableOwnership("memory"),
     "subjective_memories": TableOwnership("memory"),

@@ -93,6 +93,7 @@ from ._other_human_contract import (
 )
 from ._reflection_contract import (
     REFLECT_MIND_INSTRUCTIONS,
+    REFLECT_MOOD_INSTRUCTIONS,
     REFLECT_PROMPT_INSTRUCTIONS,
     REFLECT_SELF_INSTRUCTIONS,
     owner_reflection_schema,
@@ -278,6 +279,9 @@ class ModelPipeline:
         )
         reflect_mind_binding = load_purpose_binding(
             "reflect_mind", binding_path, expected_dialogue_version=dialogue_version
+        )
+        reflect_mood_binding = load_purpose_binding(
+            "reflect_mood", binding_path, expected_dialogue_version=dialogue_version
         )
         reflect_prompt_binding = load_purpose_binding(
             "reflect_prompt", binding_path, expected_dialogue_version=dialogue_version
@@ -539,6 +543,13 @@ class ModelPipeline:
                 candidate_schema=owner_reflection_schema(),
                 candidate_parser=parse_reflection,
                 instructions=REFLECT_MIND_INSTRUCTIONS,
+                schema_name="armi_owner_reflection_candidate_v1",
+            ),
+            "reflect_mood": build_adapter(
+                binding=reflect_mood_binding,
+                candidate_schema=owner_reflection_schema(),
+                candidate_parser=parse_reflection,
+                instructions=REFLECT_MOOD_INSTRUCTIONS,
                 schema_name="armi_owner_reflection_candidate_v1",
             ),
             "reflect_prompt": build_adapter(

@@ -32,8 +32,8 @@ from ._dialogue_contract import (
 from ._strict_model_json import strict_model_value
 
 CREATOR_RESPONSE_CANDIDATE_VERSION = "armi.creator-response-candidate.v1"
-CREATOR_APPRAISAL_CANDIDATE_VERSION = "armi.creator-appraisal-candidate.v1"
-CREATOR_DIALOGUE_AGGREGATE_VERSION = "armi.creator-dialogue-aggregate.v1"
+CREATOR_APPRAISAL_CANDIDATE_VERSION = "armi.creator-appraisal-candidate.v2"
+CREATOR_DIALOGUE_AGGREGATE_VERSION = "armi.creator-dialogue-aggregate.v2"
 
 CREATOR_RESPONSE_INSTRUCTIONS = """\
 你只负责本轮对 Creator 的表达与明确行动决定。根据冻结资料独立决定回复、拒绝、沉默、延后、追问、精确生活查询或公共网页研究。
@@ -43,7 +43,7 @@ CREATOR_RESPONSE_INSTRUCTIONS = """\
 CREATOR_APPRAISAL_INSTRUCTIONS = """\
 你只负责判断本轮输入是否真正成为 ARMI 的主观经历，以及它带来的有限情绪、关系或承诺事件。你与表达分支并行，不能假设 ARMI 将说什么。
 不得生成对外回复、查询、委托、资料动作、完整 MoodState、Self、Mind、主体 Prompt，也不得淡化、遗忘或改写既有记忆。只有 Creator 在当前输入中明确要求“记住”时，remember 才能为 true 并提供 memory_summary。
-情绪只返回本轮事件信号；最终 Mood 由 Runtime 的 Mood Owner 演算。只输出给定 JSON Schema，不输出额外文字。"""
+情绪只返回本轮事件信号。每个真实情绪用固定 family、简短 nuance、VAD 三轴和强度表示；importance 表示当前事件对 ARMI 的主观重要性。所有数值按 5 的倍数填写。没有真实情绪变化时省略 affect；最终 Mood、持续时间与衰减只由 Mood Owner 演算。只输出给定 JSON Schema，不输出额外文字。"""
 
 
 class _StrictModel(BaseModel):
@@ -178,24 +178,51 @@ class CreatorAppraisalExperience(_StrictModel):
         )
 
 
+EmotionFamilyValue = Literal[
+    "joy",
+    "contentment",
+    "interest",
+    "hope",
+    "relief",
+    "affection",
+    "gratitude",
+    "pride",
+    "surprise",
+    "sadness",
+    "fear",
+    "anxiety",
+    "anger",
+    "frustration",
+    "disgust",
+    "shame",
+    "guilt",
+    "jealousy",
+    "boredom",
+    "confusion",
+]
+
+
+class AffectiveEmotionComponent(_StrictModel):
+    family: EmotionFamilyValue
+    nuance: Annotated[str, StringConstraints(min_length=1, max_length=64)]
+    valence: Annotated[int, Field(ge=-100, le=100, multiple_of=5)]
+    arousal: Annotated[int, Field(ge=-100, le=100, multiple_of=5)]
+    dominance: Annotated[int, Field(ge=-100, le=100, multiple_of=5)]
+    intensity: Annotated[int, Field(ge=5, le=100, multiple_of=5)]
+
+
 class AffectiveEventSignal(_StrictModel):
-    valence: Literal["negative", "neutral", "positive", "mixed"]
-    activation: Literal["low", "medium", "high"]
-    intensity: Literal["low", "medium", "high"]
-    emotions: tuple[Summary, ...] = Field(max_length=3)
-    mood_tendency: Summary | None = None
+    importance: Annotated[int, Field(ge=5, le=100, multiple_of=5)]
+    components: tuple[AffectiveEmotionComponent, ...] = Field(
+        min_length=1, max_length=3
+    )
     basis_refs: tuple[ContextRef, ...] = Field(min_length=1, max_length=8)
 
     @model_validator(mode="after")
     def validate_signal(self) -> AffectiveEventSignal:
-        if len(self.emotions) != len(set(self.emotions)):
-            raise ValueError("affective emotions contain duplicates")
-        if (
-            self.valence == "neutral"
-            and not self.emotions
-            and self.mood_tendency is not None
-        ):
-            raise ValueError("neutral empty signal cannot replace mood")
+        identities = tuple((item.family, item.nuance) for item in self.components)
+        if len(identities) != len(set(identities)):
+            raise ValueError("affective components contain duplicates")
         return self
 
 
@@ -226,7 +253,7 @@ class CreatorAppraisalCandidate(_StrictModel):
 
 
 class CreatorDialogueAggregate(_StrictModel):
-    schema_version: Literal["armi.creator-dialogue-aggregate.v1"]
+    schema_version: Literal["armi.creator-dialogue-aggregate.v2"]
     outcome: Literal["complete", "response_only", "internal_only"]
     response: CreatorResponseCandidate | None = None
     appraisal: CreatorAppraisalCandidate | None = None
@@ -305,6 +332,7 @@ __all__ = (
     "CREATOR_DIALOGUE_AGGREGATE_VERSION",
     "CREATOR_RESPONSE_CANDIDATE_VERSION",
     "CREATOR_RESPONSE_INSTRUCTIONS",
+    "AffectiveEmotionComponent",
     "AffectiveEventSignal",
     "CreatorAppraisalCandidate",
     "CreatorDialogueAggregate",
