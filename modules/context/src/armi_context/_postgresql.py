@@ -225,7 +225,8 @@ class PostgreSQLContextRepository:
                 mood.version,
                 rfc8785.dumps(
                     {
-                        "schema_version": "armi.mood-snapshot.v1",
+                        "schema_version": "armi.mood-snapshot.v2",
+                        "as_of": mood.as_of.isoformat(),
                         "home_base": {
                             "valence": mood.home_base.valence,
                             "arousal": mood.home_base.arousal,
@@ -243,6 +244,22 @@ class PostgreSQLContextRepository:
                                 "intensity": item.intensity,
                             }
                             for item in mood.active_emotions
+                        ],
+                        "active_episodes": [
+                            {
+                                "episode_id": str(item.episode_id),
+                                "gist": item.gist,
+                                "event_phase": item.phase.value,
+                                "intensity": item.intensity,
+                            }
+                            for item in mood.active_episodes
+                        ],
+                        "action_tendencies": [
+                            {
+                                "tendency": item.tendency.value,
+                                "intensity": item.intensity,
+                            }
+                            for item in mood.action_tendencies
                         ],
                     }
                 ),

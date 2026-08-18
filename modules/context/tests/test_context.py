@@ -11,6 +11,8 @@ import pytest
 import rfc8785
 from armi_context._application import (
     ContextPipeline,
+    _active_mood_episodes,
+    _active_mood_gists,
     _context_request,
     _recent_scene_artifact_contract,
 )
@@ -24,6 +26,40 @@ from armi_context._postgresql import (
 from armi_context.api import ContextItemDisposition, ContextViolation
 from armi_interaction.api import InteractionContextTurn
 from armi_kernel.contracts import Digest, TraceId
+
+
+def test_mood_projection_exposes_referenceable_episodes_and_bounded_recall_bias() -> None:
+    source_id = uuid7()
+    episode_ids = (uuid7(), uuid7(), uuid7())
+    mood = rfc8785.dumps(
+        {
+            "schema_version": "armi.mood-snapshot.v2",
+            "home_base": {"valence": 0, "arousal": 0, "dominance": 0},
+            "current": {"valence": 10, "arousal": 20, "dominance": 0},
+            "active_emotions": [],
+            "active_episodes": [
+                {
+                    "episode_id": str(episode_id),
+                    "gist": gist,
+                    "event_phase": "ongoing",
+                    "intensity": intensity,
+                }
+                for episode_id, gist, intensity in zip(
+                    episode_ids,
+                    ("甲" * 64, "乙" * 64, "低强度事件"),
+                    (80, 60, 19),
+                    strict=True,
+                )
+            ],
+            "action_tendencies": [{"tendency": "explore", "intensity": 70}],
+        }
+    )
+    payloads = (("mood", source_id, 3, mood),)
+    episodes = _active_mood_episodes(payloads)
+    gists = _active_mood_gists(payloads)
+    assert tuple(item[0] for item in episodes) == episode_ids
+    assert len(gists) == 2
+    assert sum(map(len, gists)) == 128
 
 
 def _snapshot(

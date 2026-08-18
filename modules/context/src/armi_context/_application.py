@@ -456,6 +456,9 @@ class ContextPipeline:
             return None
         try:
             query = _semantic_recall_query(query_bytes)
+            mood_gists = _active_mood_gists(snapshot.component_payloads)
+            if mood_gists:
+                query = "\n".join((query, *mood_gists)).strip()
             if not query:
                 return RecalledContext(RecallStatus.UNAVAILABLE, (), (), False)
             vector = None
@@ -717,6 +720,23 @@ def _context_request(
                 relevance=90,
             )
         )
+        if kind == "mood":
+            for episode_id, episode_payload, intensity in _active_mood_episodes(
+                payload
+            ):
+                items.append(
+                    _candidate(
+                        profile,
+                        ContextSection.MOOD,
+                        "active_affective_episode",
+                        ContextSourceIdentity("mood_episode", episode_id, version),
+                        ContextTrustClass.SUBJECTIVE_STATE,
+                        "private",
+                        episode_payload,
+                        requested_required=False,
+                        relevance=max(70, min(99, intensity)),
+                    )
+                )
     if snapshot.scene_id is not None:
         items.append(
             _item(
@@ -1462,6 +1482,80 @@ _RECALL_TEXT_KEYS = frozenset(
         "trigger",
     }
 )
+
+
+def _active_mood_episodes(
+    component_payloads: tuple[tuple[str, UUID, int, bytes], ...] | bytes,
+) -> tuple[tuple[UUID, str, int], ...]:
+    payloads = (
+        (component_payloads,)
+        if isinstance(component_payloads, bytes)
+        else tuple(
+            payload
+            for kind, _source_id, _version, payload in component_payloads
+            if kind == "mood"
+        )
+    )
+    if not payloads:
+        return ()
+    try:
+        document = json.loads(payloads[-1])
+        if not isinstance(document, dict) or document.get("schema_version") != (
+            "armi.mood-snapshot.v2"
+        ):
+            return ()
+        raw_episodes = document.get("active_episodes")
+        if not isinstance(raw_episodes, list):
+            return ()
+        result: list[tuple[UUID, str, int]] = []
+        for raw in raw_episodes[:5]:
+            if not isinstance(raw, dict):
+                return ()
+            episode_id = UUID(str(raw["episode_id"]))
+            gist = str(raw["gist"])
+            phase = str(raw["event_phase"])
+            intensity = int(raw["intensity"])
+            if (
+                episode_id.version != 7
+                or not gist.strip()
+                or len(gist) > 64
+                or phase not in {"anticipated", "ongoing", "realized", "averted"}
+                or not 0 <= intensity <= 100
+            ):
+                return ()
+            result.append(
+                (
+                    episode_id,
+                    rfc8785.dumps(
+                        {
+                            "schema_version": "armi.active-affective-episode.v1",
+                            "gist": gist,
+                            "event_phase": phase,
+                            "intensity": intensity,
+                        }
+                    ).decode("utf-8"),
+                    intensity,
+                )
+            )
+        return tuple(result)
+    except KeyError, TypeError, ValueError, json.JSONDecodeError, UnicodeDecodeError:
+        return ()
+
+
+def _active_mood_gists(
+    component_payloads: tuple[tuple[str, UUID, int, bytes], ...],
+) -> tuple[str, ...]:
+    remaining = 160
+    result: list[str] = []
+    for _episode_id, payload, intensity in _active_mood_episodes(component_payloads):
+        if intensity < 20 or len(result) == 2 or remaining <= 0:
+            continue
+        gist = str(cast(dict[str, object], json.loads(payload))["gist"])
+        piece = gist[:remaining]
+        if piece:
+            result.append(piece)
+            remaining -= len(piece)
+    return tuple(result)
 
 
 def _semantic_recall_query(value: bytes) -> str:
