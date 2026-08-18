@@ -25,7 +25,7 @@ REFLECT_SELF_INSTRUCTIONS = """\
 REFLECT_MIND_INSTRUCTIONS = """\
 你只负责 Mind Owner 的专项反思。可报告无需变化，或基于冻结资料提交一个完整 MindState 候选及其当前 expected_version。不得修改 Self、Mood、Prompt、记忆、关系、活动或对外表达。只输出给定 JSON Schema。"""
 REFLECT_MOOD_INSTRUCTIONS = """\
-你只负责 Mood Owner 的长期基线反思。可报告无需变化；只有冻结资料中存在足够长期情绪事件证据时，才可提出 home_base 的目标 VAD 及当前 expected_version。不得生成短期情绪、删除事件，或修改 Self、Mind、Prompt、记忆、关系、活动和对外表达。数值必须是 -100 到 100 之间的 5 的倍数；最终调整幅度由 Mood Owner 限制。只输出给定 JSON Schema。"""
+你只负责请求 Mood Owner 执行长期基线反思，不能填写 home_base、情绪、VAD 或任何动力学参数。冻结资料存在心情状态时可提交空的 MoodReflectionRequest 及当前 expected_version；证据门槛、时间采样、目标和每轴调整全部由 Mood Owner 确定。不得删除事件，或修改 Self、Mind、Prompt、记忆、关系、活动和对外表达。只输出给定 JSON Schema。"""
 REFLECT_PROMPT_INSTRUCTIONS = """\
 你只负责主体 Prompt Owner 的专项反思。可报告无需变化，或基于冻结资料提交 cognition_method、expression_method、reflection_method 三项完整候选及当前 expected_version。不得修改 Self、Mind、Mood、记忆、关系、活动或对外表达。只输出给定 JSON Schema。"""
 
@@ -38,10 +38,8 @@ class _StrictModel(BaseModel):
         return OWNER_REFLECTION_CANDIDATE_VERSION
 
 
-class MoodHomeBaseTarget(_StrictModel):
-    valence: Annotated[int, Field(ge=-100, le=100, multiple_of=5)]
-    arousal: Annotated[int, Field(ge=-100, le=100, multiple_of=5)]
-    dominance: Annotated[int, Field(ge=-100, le=100, multiple_of=5)]
+class MoodReflectionRequest(_StrictModel):
+    pass
 
 
 class OwnerReflectionCandidate(_StrictModel):
@@ -51,7 +49,11 @@ class OwnerReflectionCandidate(_StrictModel):
     basis_refs: tuple[ContextRef, ...] = Field(default=(), max_length=8)
     expected_version: int | None = Field(default=None, ge=0)
     next_state: (
-        SelfState | MindState | MoodHomeBaseTarget | DialogueSubjectPromptChange | None
+        SelfState
+        | MindState
+        | MoodReflectionRequest
+        | DialogueSubjectPromptChange
+        | None
     ) = None
 
     @model_validator(mode="after")
@@ -66,7 +68,7 @@ class OwnerReflectionCandidate(_StrictModel):
         expected_type = {
             "self": SelfState,
             "mind": MindState,
-            "mood": MoodHomeBaseTarget,
+            "mood": MoodReflectionRequest,
             "prompt": DialogueSubjectPromptChange,
         }[self.target]
         if not isinstance(self.next_state, expected_type):
@@ -100,7 +102,7 @@ __all__ = (
     "REFLECT_MOOD_INSTRUCTIONS",
     "REFLECT_PROMPT_INSTRUCTIONS",
     "REFLECT_SELF_INSTRUCTIONS",
-    "MoodHomeBaseTarget",
+    "MoodReflectionRequest",
     "OwnerReflectionCandidate",
     "owner_reflection_schema",
     "parse_owner_reflection",

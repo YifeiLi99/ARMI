@@ -28,7 +28,7 @@ purpose_profiles:
     output_token_limit: 1024
   appraise_creator_input:
     profile: creator_appraisal
-    response_contract_version: armi.creator-appraisal-candidate.v2
+    response_contract_version: armi.creator-appraisal-candidate.v3
     output_token_limit: 768
   consider_codex_result:
     profile: codex_result
@@ -44,7 +44,7 @@ purpose_profiles:
     output_token_limit: 1024
   appraise_life_query_result:
     profile: creator_appraisal
-    response_contract_version: armi.creator-appraisal-candidate.v2
+    response_contract_version: armi.creator-appraisal-candidate.v3
     output_token_limit: 768
   consider_creator_outreach:
     profile: creator_outreach
@@ -52,19 +52,19 @@ purpose_profiles:
     output_token_limit: 512
   consider_other_human_input:
     profile: other_human_dialogue
-    response_contract_version: armi.other-human-dialogue-candidate.v4
+    response_contract_version: armi.other-human-dialogue-candidate.v5
     output_token_limit: 1024
   consider_autonomous_life:
     profile: autonomous_activity
-    response_contract_version: armi.autonomous-activity-candidate.v1
+    response_contract_version: armi.autonomous-activity-candidate.v2
     output_token_limit: 1024
   consider_activity_attention:
     profile: activity_attention
-    response_contract_version: armi.activity-attention-candidate.v2
+    response_contract_version: armi.activity-attention-candidate.v3
     output_token_limit: 1024
   consider_activity_internal_work:
     profile: activity_internal_work
-    response_contract_version: armi.activity-internal-work-candidate.v1
+    response_contract_version: armi.activity-internal-work-candidate.v2
     output_token_limit: 4096
   consider_sleep:
     profile: sleep_decision

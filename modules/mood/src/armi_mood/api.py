@@ -49,8 +49,50 @@ class EmotionFamily(StrEnum):
 
 
 class MoodCandidateKind(StrEnum):
-    EVENT = "event"
+    APPRAISAL = "appraisal"
     HOME_BASE_REFLECTION = "home_base_reflection"
+
+
+class AppraisalTransition(StrEnum):
+    NEW = "new"
+    REINFORCE = "reinforce"
+    REAPPRAISE = "reappraise"
+    RESOLVE = "resolve"
+
+
+class AppraisalEventPhase(StrEnum):
+    ANTICIPATED = "anticipated"
+    ONGOING = "ongoing"
+    REALIZED = "realized"
+    AVERTED = "averted"
+
+
+class AppraisalAgency(StrEnum):
+    SELF = "self"
+    OTHER = "other"
+    SHARED = "shared"
+    CIRCUMSTANCE = "circumstance"
+    UNKNOWN = "unknown"
+
+
+class AppraisalSelfScope(StrEnum):
+    NONE = "none"
+    ACTION = "action"
+    GLOBAL = "global"
+
+
+class ActionTendency(StrEnum):
+    APPROACH = "approach"
+    CONNECT = "connect"
+    EXPLORE = "explore"
+    PROTECT = "protect"
+    CONFRONT = "confront"
+    WITHDRAW = "withdraw"
+    REJECT = "reject"
+    REPAIR = "repair"
+    CLARIFY = "clarify"
+    DISENGAGE = "disengage"
+    PAUSE = "pause"
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,6 +154,92 @@ class AffectiveEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class AppraisalVector:
+    suddenness: int
+    predictability: int
+    outcome_certainty: int
+    self_relevance: int
+    relationship_relevance: int
+    social_order_relevance: int
+    urgency: int
+    effort: int
+    intentionality: int
+    control: int
+    power: int
+    adjustment: int
+    ego_involvement: int
+    intrinsic_pleasantness: int
+    goal_conduciveness: int
+    self_compatibility: int
+    norm_compatibility: int
+    agency: AppraisalAgency
+    self_scope: AppraisalSelfScope
+
+    def __post_init__(self) -> None:
+        unsigned = (
+            self.suddenness,
+            self.predictability,
+            self.outcome_certainty,
+            self.self_relevance,
+            self.relationship_relevance,
+            self.social_order_relevance,
+            self.urgency,
+            self.effort,
+            self.intentionality,
+            self.control,
+            self.power,
+            self.adjustment,
+            self.ego_involvement,
+        )
+        signed = (
+            self.intrinsic_pleasantness,
+            self.goal_conduciveness,
+            self.self_compatibility,
+            self.norm_compatibility,
+        )
+        if (
+            any(type(value) is not int or not 0 <= value <= 4 for value in unsigned)
+            or any(type(value) is not int or not -4 <= value <= 4 for value in signed)
+            or type(self.agency) is not AppraisalAgency
+            or type(self.self_scope) is not AppraisalSelfScope
+        ):
+            raise MoodViolation("MOOD-APPRAISAL")
+
+
+@dataclass(frozen=True, slots=True)
+class AppraisalEvent:
+    transition: AppraisalTransition
+    previous_episode_id: UUID | None
+    phase: AppraisalEventPhase
+    gist: str
+    appraisal: AppraisalVector
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.transition) is not AppraisalTransition
+            or type(self.phase) is not AppraisalEventPhase
+            or type(self.gist) is not str
+            or not self.gist.strip()
+            or self.gist != self.gist.strip()
+            or "\x00" in self.gist
+            or len(self.gist) > 64
+            or type(self.appraisal) is not AppraisalVector
+            or (
+                self.transition is AppraisalTransition.NEW
+                and self.previous_episode_id is not None
+            )
+            or (
+                self.transition is not AppraisalTransition.NEW
+                and (
+                    type(self.previous_episode_id) is not UUID
+                    or self.previous_episode_id.version != 7
+                )
+            )
+        ):
+            raise MoodViolation("MOOD-APPRAISAL")
+
+
+@dataclass(frozen=True, slots=True)
 class CandidateMoodDraft:
     proposal_ref: str
     atomic_group_ref: str
@@ -119,8 +247,7 @@ class CandidateMoodDraft:
     fact_class: CandidateFactClass
     expected_version: int
     kind: MoodCandidateKind
-    event: AffectiveEvent | None = None
-    target_home_base: VAD | None = None
+    appraisal: AppraisalEvent | None = None
 
     def __post_init__(self) -> None:
         from ._domain import validate_candidate
@@ -131,6 +258,7 @@ class CandidateMoodDraft:
 @dataclass(frozen=True, slots=True)
 class MoodState:
     dynamics_version: str
+    derivation_version: str
     home_base: VAD
 
 
@@ -149,6 +277,20 @@ class EffectiveEmotion:
 
 
 @dataclass(frozen=True, slots=True)
+class ActiveAffectiveEpisode:
+    episode_id: UUID
+    gist: str
+    phase: AppraisalEventPhase
+    intensity: int
+
+
+@dataclass(frozen=True, slots=True)
+class EffectiveActionTendency:
+    tendency: ActionTendency
+    intensity: int
+
+
+@dataclass(frozen=True, slots=True)
 class MoodSnapshot:
     current_revision_id: UUID
     version: int
@@ -156,6 +298,8 @@ class MoodSnapshot:
     home_base: VAD
     current: VAD
     active_emotions: tuple[EffectiveEmotion, ...]
+    active_episodes: tuple[ActiveAffectiveEpisode, ...] = ()
+    action_tendencies: tuple[EffectiveActionTendency, ...] = ()
 
     @property
     def current_vad(self) -> VAD:
@@ -284,8 +428,17 @@ class MoodAdminCorrectionPort(Protocol):
 
 __all__ = (
     "VAD",
+    "ActionTendency",
+    "ActiveAffectiveEpisode",
     "AffectiveEvent",
+    "AppraisalAgency",
+    "AppraisalEvent",
+    "AppraisalEventPhase",
+    "AppraisalSelfScope",
+    "AppraisalTransition",
+    "AppraisalVector",
     "CandidateMoodDraft",
+    "EffectiveActionTendency",
     "EffectiveEmotion",
     "EmotionComponent",
     "EmotionFamily",

@@ -13,7 +13,10 @@ from pydantic import (
     field_validator,
 )
 
-AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION = "armi.autonomous-activity-candidate.v1"
+from ._creator_branch_contract import AppraisalEventSignalV1
+from ._strict_model_json import strict_model_value
+
+AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION = "armi.autonomous-activity-candidate.v2"
 
 
 class _StrictModel(BaseModel):
@@ -28,6 +31,7 @@ class StartActivityDecision(_StrictModel):
     kind: Literal["start_activity"]
     goal: Annotated[str, StringConstraints(min_length=1, max_length=2048)]
     next_step: Annotated[str, StringConstraints(min_length=1, max_length=1024)]
+    appraisal: AppraisalEventSignalV1 | None = None
 
     @field_validator("goal")
     @classmethod
@@ -42,6 +46,7 @@ class StartActivityDecision(_StrictModel):
 
 class AutonomousTerminalDecision(_StrictModel):
     kind: Literal["no_activity", "defer", "need_information"]
+    appraisal: AppraisalEventSignalV1 | None = None
 
 
 AutonomousActivityCandidate = Annotated[
@@ -68,7 +73,7 @@ def autonomous_activity_candidate_schema() -> dict[str, Any]:
 
 
 def parse_autonomous_activity_candidate(value: object) -> AutonomousActivityCandidate:
-    return _ADAPTER.validate_python(value, strict=True)
+    return _ADAPTER.validate_python(strict_model_value(value), strict=True)
 
 
 __all__ = (

@@ -10,7 +10,10 @@ from pydantic import (
     TypeAdapter,
 )
 
-ACTIVITY_ATTENTION_CANDIDATE_VERSION = "armi.activity-attention-candidate.v2"
+from ._creator_branch_contract import AppraisalEventSignalV1
+from ._strict_model_json import strict_model_value
+
+ACTIVITY_ATTENTION_CANDIDATE_VERSION = "armi.activity-attention-candidate.v3"
 
 
 class _StrictModel(BaseModel):
@@ -23,6 +26,7 @@ class _StrictModel(BaseModel):
 
 class AttentionSimpleDecision(_StrictModel):
     kind: Literal["engage", "resume", "no_action", "defer", "need_information"]
+    appraisal: AppraisalEventSignalV1 | None = None
 
 
 ActivityAttentionCandidate = AttentionSimpleDecision
@@ -34,7 +38,7 @@ def activity_attention_candidate_schema() -> dict[str, Any]:
 
 
 def parse_activity_attention_candidate(value: object) -> ActivityAttentionCandidate:
-    return _ADAPTER.validate_python(value, strict=True)
+    return _ADAPTER.validate_python(strict_model_value(value), strict=True)
 
 
 __all__ = (

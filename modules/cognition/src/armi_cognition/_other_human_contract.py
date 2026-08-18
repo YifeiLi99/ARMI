@@ -16,6 +16,7 @@ from pydantic import (
     model_validator,
 )
 
+from ._creator_branch_contract import AppraisalEventSignalV1
 from ._strict_model_json import strict_model_value
 
 HISTORICAL_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION = (
@@ -27,7 +28,7 @@ HISTORICAL_ACTIVE_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION = (
 HISTORICAL_COMPACT_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION = (
     "armi.other-human-dialogue-candidate.v3"
 )
-OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION = "armi.other-human-dialogue-candidate.v4"
+OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION = "armi.other-human-dialogue-candidate.v5"
 
 Summary = Annotated[str, StringConstraints(min_length=1, max_length=512)]
 ContextRef = Annotated[
@@ -145,6 +146,7 @@ class OtherHumanRelationshipChange(_StrictModel):
 class _OtherHumanSocialDecision(_StrictModel):
     experience: OtherHumanExperience | None = None
     relationship_change: OtherHumanRelationshipChange | None = None
+    appraisal: AppraisalEventSignalV1 | None = None
 
     @model_validator(mode="after")
     def validate_relationship_basis(self) -> _OtherHumanSocialDecision:
@@ -217,6 +219,7 @@ OTHER_HUMAN_DIALOGUE_INSTRUCTIONS = """\
 群会话。仅当本轮真实形成经历时填写 experience;关系变化必须基于 experience,只属于当前精确
 对方,首次形成关系时包含 interpretation。明确拒绝才可收紧边界,承诺不授予权限。
 首次为当前对方形成 relationship_change 时必须同时提供 interpretation。
+若本轮事件意义发生变化,可填写 appraisal;只能评价事件,不能直接填写情绪、VAD、强度、重要性或持续时间。
 """
 
 
@@ -288,6 +291,10 @@ def parse_other_human_dialogue_candidate_value(
         )
         if value is not None
     }
+    if candidate.appraisal is not None:
+        referenced.update(candidate.appraisal.basis_refs)
+        if candidate.appraisal.episode_ref is not None:
+            referenced.add(candidate.appraisal.episode_ref)
     if not referenced.issubset(allowed_context_refs):
         raise ModelViolation("MODEL-RESPONSE-CONTEXT-REF")
     return candidate

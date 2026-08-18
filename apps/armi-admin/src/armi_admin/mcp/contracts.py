@@ -231,8 +231,9 @@ class MoodVAD(_StrictModel):
 
 
 class MoodState(_ComponentState):
-    schema_version: Literal["armi.mood.v2"]
-    dynamics_version: Literal["exponential.v1"]
+    schema_version: Literal["armi.mood.v3"]
+    dynamics_version: Literal["recency-reappraisal.v1"]
+    derivation_version: Literal["cpm-fuzzy.v1"]
     home_base: MoodVAD
 
 
@@ -259,7 +260,7 @@ class ReplaceSubjectComponentSpec(_StrictModel):
         expected = {
             "self": "armi.self.v1",
             "mind": "armi.mind.v2",
-            "mood": "armi.mood.v2",
+            "mood": "armi.mood.v3",
             "life_mode": "armi.life-mode.v1",
         }[self.component_kind]
         if self.replacement.schema_version != expected:

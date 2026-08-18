@@ -69,11 +69,13 @@ from armi_memory.api import (
     MemorySourceKind,
 )
 from armi_mood.api import (
-    VAD,
-    AffectiveEvent,
+    AppraisalAgency,
+    AppraisalEvent,
+    AppraisalEventPhase,
+    AppraisalSelfScope,
+    AppraisalTransition,
+    AppraisalVector,
     CandidateMoodDraft,
-    EmotionComponent,
-    EmotionFamily,
     MoodCandidateKind,
     MoodCognitionPort,
 )
@@ -138,7 +140,7 @@ from ._autonomous_activity_contract import (
 )
 from ._creator_branch_contract import (
     CREATOR_DIALOGUE_AGGREGATE_VERSION,
-    AffectiveEventSignal,
+    AppraisalEventSignalV1,
     CreatorDialogueAggregate,
 )
 from ._dialogue_contract import (
@@ -235,7 +237,7 @@ from ._model_contract import (
     FormalNoActionPayload,
     MemoryChangeProposal,
     MindState,
-    MoodEventCommand,
+    MoodAppraisalCommand,
     MoodState,
     RuntimeBoundCreatorReplyPayload,
     SelfState,
@@ -250,7 +252,7 @@ from ._other_human_contract import (
 )
 from ._owners import CandidateOwner
 from ._reflection_contract import (
-    MoodHomeBaseTarget,
+    MoodReflectionRequest,
     OwnerReflectionCandidate,
     parse_owner_reflection,
 )
@@ -949,36 +951,26 @@ class DeterministicCandidateValidator:
                 failure = _component_failure(component, proposal_bases, component_state)
                 if failure is None:
                     command = component.payload.next_state
-                    if not isinstance(command, MoodEventCommand):
+                    if not isinstance(command, MoodAppraisalCommand):
                         failure = "CANDIDATE-MOOD-COMMAND"
                     else:
-                        accepted[proposal.proposal_ref] = self._mood_cognition.bind(
-                            CandidateMoodDraft(
-                                proposal.proposal_ref,
-                                proposal.atomic_group_ref,
-                                tuple(basis.ordinal for basis in proposal_bases),
-                                CandidateFactClass(component.payload.fact_class),
-                                component.payload.expected_version,
-                                MoodCandidateKind.EVENT,
-                                AffectiveEvent(
-                                    command.importance,
-                                    tuple(
-                                        EmotionComponent(
-                                            EmotionFamily(item.family),
-                                            item.nuance,
-                                            VAD(
-                                                item.vad.valence,
-                                                item.vad.arousal,
-                                                item.vad.dominance,
-                                            ),
-                                            item.intensity,
-                                        )
-                                        for item in command.components
-                                    ),
-                                ),
+                        try:
+                            appraisal = _mood_appraisal_from_command(command)
+                        except TypeError, ValueError:
+                            failure = "CANDIDATE-MOOD-COMMAND"
+                        else:
+                            accepted[proposal.proposal_ref] = self._mood_cognition.bind(
+                                CandidateMoodDraft(
+                                    proposal.proposal_ref,
+                                    proposal.atomic_group_ref,
+                                    tuple(basis.ordinal for basis in proposal_bases),
+                                    CandidateFactClass(component.payload.fact_class),
+                                    component.payload.expected_version,
+                                    MoodCandidateKind.APPRAISAL,
+                                    appraisal,
+                                )
                             )
-                        )
-                        continue
+                            continue
             if failure is None and owner is CandidateOwner.CAPABILITY:
                 capability = proposal
                 failure = _capability_failure(
@@ -1549,6 +1541,18 @@ class DeterministicCandidateValidator:
             if relationship is None:
                 return _rejected(relationship_error or "CANDIDATE-RELATIONSHIP-CONTEXT")
             proposal_no += 1
+        mood_draft: CandidateOwnerDraft | None = None
+        if candidate.appraisal is not None:
+            mood_draft, mood_error = _bind_appraisal_draft(
+                candidate.appraisal,
+                proposal_ref=f"proposal:{proposal_no}",
+                bases=bases,
+                context=self._context,
+                cognition=self._mood_cognition,
+            )
+            if mood_draft is None:
+                return _rejected(mood_error or "CANDIDATE-MOOD-CONTEXT")
+            proposal_no += 1
         action_choices: tuple[
             OtherHumanReplyDraft | OtherHumanEndConversationDraft | FormalNoActionDraft,
             ...,
@@ -1575,7 +1579,9 @@ class DeterministicCandidateValidator:
         elif candidate.kind == "silence":
             disposition = (
                 CandidateDisposition.CHANGE
-                if experience is not None or relationship is not None
+                if experience is not None
+                or relationship is not None
+                or mood_draft is not None
                 else CandidateDisposition.NO_ACTION
             )
             action_choices = (
@@ -1590,7 +1596,9 @@ class DeterministicCandidateValidator:
         elif candidate.kind == "defer":
             disposition = (
                 CandidateDisposition.CHANGE
-                if experience is not None or relationship is not None
+                if experience is not None
+                or relationship is not None
+                or mood_draft is not None
                 else CandidateDisposition.DEFER
             )
         else:
@@ -1624,11 +1632,17 @@ class DeterministicCandidateValidator:
             "action_choices": [_action_wire(item) for item in action_choices],
             "web_research_requests": [],
             "codex_delegations": [],
-            "owner_drafts": (
-                []
-                if relationship is None
-                else [_owner_draft_wire(self._bind_relationship(relationship))]
-            ),
+            "owner_drafts": [
+                _owner_draft_wire(item)
+                for item in (
+                    *(
+                        ()
+                        if relationship is None
+                        else (self._bind_relationship(relationship),)
+                    ),
+                    *((mood_draft,) if mood_draft is not None else ()),
+                )
+            ],
             "exact_life_queries": [],
             "rejections": [],
         }
@@ -1650,7 +1664,12 @@ class DeterministicCandidateValidator:
             web_research_requests=(),
             rejections=(),
             owner_drafts=(
-                () if relationship is None else (self._bind_relationship(relationship),)
+                *(
+                    ()
+                    if relationship is None
+                    else (self._bind_relationship(relationship),)
+                ),
+                *((mood_draft,) if mood_draft is not None else ()),
             ),
         )
         return CandidateValidationResult(
@@ -1659,7 +1678,8 @@ class DeterministicCandidateValidator:
             change_set,
             len(action_choices)
             + (1 if experience is not None else 0)
-            + (1 if relationship is not None else 0),
+            + (1 if relationship is not None else 0)
+            + (1 if mood_draft is not None else 0),
             0,
             None,
         )
@@ -1709,9 +1729,21 @@ class DeterministicCandidateValidator:
                     ActivityStatus.READY,
                 ),
             )
-        owner_drafts = tuple(
+        owner_drafts = list(
             self._activity_cognition.bind_create(item) for item in activities
         )
+        if candidate.appraisal is not None:
+            mood_draft, mood_error = _bind_appraisal_draft(
+                candidate.appraisal,
+                proposal_ref="proposal:2" if activities else "proposal:1",
+                bases=bases,
+                context=self._context,
+                cognition=self._mood_cognition,
+            )
+            if mood_draft is None:
+                return _rejected(mood_error or "CANDIDATE-MOOD-CONTEXT")
+            owner_drafts.append(mood_draft)
+            disposition = CandidateDisposition.CHANGE
         value = {
             "schema_version": ACTIVE_CHANGE_SET_VERSION,
             "subject_id": str(self._context.subject_id),
@@ -1752,13 +1784,13 @@ class DeterministicCandidateValidator:
             (),
             (),
             (),
-            owner_drafts=owner_drafts,
+            owner_drafts=tuple(owner_drafts),
         )
         return CandidateValidationResult(
             CandidateValidationId(uuid7()),
             CandidateValidationStatus.ACCEPTED,
             change_set,
-            len(activities),
+            len(owner_drafts),
             0,
             None,
         )
@@ -1910,7 +1942,19 @@ class DeterministicCandidateValidator:
             if kind is ActivityAttentionDecisionKind.DEFER
             else CandidateDisposition.NEED_INFORMATION
         )
-        owner_draft = self._activity_cognition.bind_decision(decision)
+        owner_drafts = [self._activity_cognition.bind_decision(decision)]
+        if candidate.appraisal is not None:
+            mood_draft, mood_error = _bind_appraisal_draft(
+                candidate.appraisal,
+                proposal_ref="proposal:2",
+                bases=bases,
+                context=context,
+                cognition=self._mood_cognition,
+            )
+            if mood_draft is None:
+                return _rejected(mood_error or "CANDIDATE-MOOD-CONTEXT")
+            owner_drafts.append(mood_draft)
+            disposition = CandidateDisposition.CHANGE
         value = {
             "schema_version": ACTIVE_CHANGE_SET_VERSION,
             "subject_id": str(context.subject_id),
@@ -1929,7 +1973,7 @@ class DeterministicCandidateValidator:
             "action_choices": [],
             "web_research_requests": [],
             "codex_delegations": [],
-            "owner_drafts": [_owner_draft_wire(owner_draft)],
+            "owner_drafts": [_owner_draft_wire(item) for item in owner_drafts],
             "exact_life_queries": [],
             "rejections": [],
         }
@@ -1951,13 +1995,13 @@ class DeterministicCandidateValidator:
             (),
             (),
             (),
-            owner_drafts=(owner_draft,),
+            owner_drafts=tuple(owner_drafts),
         )
         return CandidateValidationResult(
             CandidateValidationId(uuid7()),
             CandidateValidationStatus.ACCEPTED,
             change_set,
-            1,
+            len(owner_drafts),
             0,
             None,
         )
@@ -2052,6 +2096,17 @@ class DeterministicCandidateValidator:
         owner_drafts = [self._activity_cognition.bind_decision(decision)]
         if material is not None:
             owner_drafts.append(self._material_cognition.bind(material))
+        if candidate.appraisal is not None:
+            mood_draft, mood_error = _bind_appraisal_draft(
+                candidate.appraisal,
+                proposal_ref="proposal:3",
+                bases=bases,
+                context=context,
+                cognition=self._mood_cognition,
+            )
+            if mood_draft is None:
+                return _rejected(mood_error or "CANDIDATE-MOOD-CONTEXT")
+            owner_drafts.append(mood_draft)
         value = {
             "schema_version": ACTIVE_CHANGE_SET_VERSION,
             "subject_id": str(context.subject_id),
@@ -2097,7 +2152,7 @@ class DeterministicCandidateValidator:
             CandidateValidationId(uuid7()),
             CandidateValidationStatus.ACCEPTED,
             change_set,
-            1 if material is None else 2,
+            len(owner_drafts),
             0,
             None,
         )
@@ -2177,7 +2232,7 @@ class DeterministicCandidateValidator:
                     return _rejected("CANDIDATE-REFLECTION-VERSION")
                 next_state = candidate.next_state
                 if target == "mood":
-                    if not isinstance(next_state, MoodHomeBaseTarget):
+                    if not isinstance(next_state, MoodReflectionRequest):
                         return _rejected("CANDIDATE-REFLECTION-CONTRACT")
                     owner_draft = self._mood_cognition.bind(
                         CandidateMoodDraft(
@@ -2187,11 +2242,6 @@ class DeterministicCandidateValidator:
                             CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
                             cast(int, candidate.expected_version),
                             MoodCandidateKind.HOME_BASE_REFLECTION,
-                            target_home_base=VAD(
-                                next_state.valence,
-                                next_state.arousal,
-                                next_state.dominance,
-                            ),
                         )
                     )
                 else:
@@ -2678,9 +2728,9 @@ def _expand_creator_dialogue_aggregate(
                 }
             )
             proposal_no += 1
-    if appraisal.affect is not None:
-        mood_change, mood_error = _bind_affective_event(
-            appraisal.affect,
+    if appraisal.appraisal is not None:
+        mood_change, mood_error = _bind_appraisal_event(
+            appraisal.appraisal,
             proposal_ref=f"proposal:{proposal_no}",
             bases=bases,
             context=context,
@@ -2729,8 +2779,44 @@ def _expand_creator_dialogue_aggregate(
     return candidate, replace(bound, relationship=relationship), None
 
 
-def _bind_affective_event(
-    signal: AffectiveEventSignal,
+def _mood_appraisal_from_command(command: MoodAppraisalCommand) -> AppraisalEvent:
+    previous_id = (
+        None
+        if command.previous_episode_id is None
+        else UUID(command.previous_episode_id)
+    )
+    vector = command.appraisal
+    return AppraisalEvent(
+        AppraisalTransition(command.transition),
+        previous_id,
+        AppraisalEventPhase(command.event_phase),
+        command.gist,
+        AppraisalVector(
+            vector.suddenness,
+            vector.predictability,
+            vector.outcome_certainty,
+            vector.self_relevance,
+            vector.relationship_relevance,
+            vector.social_order_relevance,
+            vector.urgency,
+            vector.effort,
+            vector.intentionality,
+            vector.control,
+            vector.power,
+            vector.adjustment,
+            vector.ego_involvement,
+            vector.intrinsic_pleasantness,
+            vector.goal_conduciveness,
+            vector.self_compatibility,
+            vector.norm_compatibility,
+            AppraisalAgency(vector.agency),
+            AppraisalSelfScope(vector.self_scope),
+        ),
+    )
+
+
+def _bind_appraisal_event(
+    signal: AppraisalEventSignalV1,
     *,
     proposal_ref: str,
     bases: tuple[CandidateBasis, ...],
@@ -2756,7 +2842,30 @@ def _bind_affective_event(
     )
     if current is None or mood_basis is None:
         return None, "CANDIDATE-MOOD-CONTEXT"
-    basis_refs = tuple(dict.fromkeys((*signal.basis_refs, f"ctx:{mood_basis.ordinal}")))
+    episode_basis = None
+    if signal.episode_ref is not None:
+        episode_ordinal = int(signal.episode_ref.partition(":")[2])
+        episode_basis = next(
+            (
+                item
+                for item in bases
+                if item.ordinal == episode_ordinal
+                and item.item_kind == "active_affective_episode"
+                and item.source_ref is not None
+            ),
+            None,
+        )
+        if episode_basis is None:
+            return None, "CANDIDATE-MOOD-EPISODE"
+    basis_refs = tuple(
+        dict.fromkeys(
+            (
+                *signal.basis_refs,
+                *((signal.episode_ref,) if signal.episode_ref is not None else ()),
+                f"ctx:{mood_basis.ordinal}",
+            )
+        )
+    )
     allowed_refs = {f"ctx:{item.ordinal}" for item in bases}
     if not set(basis_refs).issubset(allowed_refs):
         return None, "CANDIDATE-MOOD-BASIS"
@@ -2765,21 +2874,14 @@ def _bind_affective_event(
     except ValidationError:
         return None, "CANDIDATE-MOOD-STATE"
     event_command = {
-        "schema_version": "armi.mood-event.v2",
-        "importance": signal.importance,
-        "components": tuple(
-            {
-                "family": item.family,
-                "nuance": item.nuance,
-                "vad": {
-                    "valence": item.valence,
-                    "arousal": item.arousal,
-                    "dominance": item.dominance,
-                },
-                "intensity": item.intensity,
-            }
-            for item in signal.components
+        "schema_version": "armi.mood-appraisal.v1",
+        "transition": signal.transition,
+        "previous_episode_id": (
+            None if episode_basis is None else str(episode_basis.source_ref)
         ),
+        "event_phase": signal.event_phase,
+        "gist": signal.gist,
+        "appraisal": signal.appraisal.model_dump(mode="json"),
     }
     return (
         {
@@ -2796,6 +2898,47 @@ def _bind_affective_event(
         },
         None,
     )
+
+
+def _bind_appraisal_draft(
+    signal: AppraisalEventSignalV1,
+    *,
+    proposal_ref: str,
+    bases: tuple[CandidateBasis, ...],
+    context: CandidateValidationContext,
+    cognition: MoodCognitionPort,
+) -> tuple[CandidateOwnerDraft | None, str | None]:
+    proposal, error = _bind_appraisal_event(
+        signal,
+        proposal_ref=proposal_ref,
+        bases=bases,
+        context=context,
+    )
+    if proposal is None or error is not None:
+        return None, error or "CANDIDATE-MOOD-COMMAND"
+    try:
+        payload = cast(dict[str, object], proposal["payload"])
+        command = MoodAppraisalCommand.model_validate(
+            payload["next_state"], strict=True
+        )
+        basis_refs = cast(tuple[str, ...], proposal["basis_refs"])
+        ordinals = tuple(int(ref.partition(":")[2]) for ref in basis_refs)
+        return (
+            cognition.bind(
+                CandidateMoodDraft(
+                    proposal_ref,
+                    cast(str, proposal["atomic_group_ref"]),
+                    ordinals,
+                    CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
+                    cast(int, payload["expected_version"]),
+                    MoodCandidateKind.APPRAISAL,
+                    _mood_appraisal_from_command(command),
+                )
+            ),
+            None,
+        )
+    except KeyError, TypeError, ValueError, ValidationError:
+        return None, "CANDIDATE-MOOD-COMMAND"
 
 
 def _expand_dialogue_candidate(
@@ -4556,8 +4699,8 @@ def _component_failure(
         "armi.self.v1": CandidateOwner.SELF,
         "armi.mind.v1": CandidateOwner.MIND,
         "armi.mind.v2": CandidateOwner.MIND,
-        "armi.mood.v2": CandidateOwner.MOOD,
-        "armi.mood-event.v2": CandidateOwner.MOOD,
+        "armi.mood.v3": CandidateOwner.MOOD,
+        "armi.mood-appraisal.v1": CandidateOwner.MOOD,
         "armi.life-mode.v1": CandidateOwner.LIFE_MODE,
     }.get(str(next_state.get("schema_version")))
     if schema_owner is not owner:
@@ -4569,9 +4712,9 @@ def _component_failure(
     except UnicodeDecodeError, json.JSONDecodeError, TypeError:
         return "CANDIDATE-COMPONENT-STATE"
     if owner is CandidateOwner.MOOD and next_state.get("schema_version") == (
-        "armi.mood-event.v2"
+        "armi.mood-appraisal.v1"
     ):
-        if current_schema != "armi.mood.v2":
+        if current_schema != "armi.mood.v3":
             return "CANDIDATE-COMPONENT-STATE"
     elif current_schema != next_state.get("schema_version"):
         return "CANDIDATE-COMPONENT-STATE"

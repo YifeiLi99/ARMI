@@ -434,8 +434,9 @@ class AdminProtocolTests(unittest.TestCase):
                     "component_kind": "mood",
                     "expected_component_version": 1,
                     "replacement": {
-                        "schema_version": "armi.mood.v2",
-                        "dynamics_version": "exponential.v1",
+                        "schema_version": "armi.mood.v3",
+                        "dynamics_version": "recency-reappraisal.v1",
+                        "derivation_version": "cpm-fuzzy.v1",
                         "home_base": {
                             "valence": 10,
                             "arousal": 0,

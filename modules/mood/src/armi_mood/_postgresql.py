@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, datetime, time, timedelta
+from statistics import median
 from typing import cast
 from uuid import UUID, uuid7
 
@@ -13,16 +14,23 @@ from ._application import MoodApplication
 from ._domain import (
     StoredAffectiveEvent,
     StoredEmotionComponent,
+    appraisal_to_wire,
     clamp_home_base,
     component_to_wire,
+    derive_appraisal,
+    derive_effective_snapshot,
     derive_effective_state,
-    half_life_seconds,
     initial_state,
+    parse_appraisal,
     parse_component,
     parse_state_bytes,
     state_to_bytes,
 )
 from .api import (
+    VAD,
+    AppraisalEvent,
+    AppraisalEventPhase,
+    AppraisalTransition,
     CandidateMoodDraft,
     MoodCandidateKind,
     MoodHead,
@@ -77,34 +85,11 @@ class PostgreSQLMoodOwner:
         if clock is None:
             raise MoodViolation("MOOD-CLOCK")
         as_of = clock[0]
-        rows = await (
-            await transaction.execute(
-                """SELECT occurred_at, components
-                   FROM armi.mood_affective_events
-                   WHERE subject_id=%s
-                     AND occurred_at >= %s - interval '7 days'
-                   ORDER BY occurred_at, mood_affective_event_id""",
-                (subject_id, as_of),
-            )
-        ).fetchall()
-        events: list[StoredAffectiveEvent] = []
-        try:
-            for occurred_at, raw_components in rows:
-                components: list[StoredEmotionComponent] = []
-                for raw in cast(list[object], raw_components):
-                    item = cast(dict[str, object], raw)
-                    half_life = item.get("half_life_seconds")
-                    if type(half_life) is not int:
-                        raise ValueError
-                    semantic = {key: value for key, value in item.items() if key != "half_life_seconds"}
-                    components.append(
-                        StoredEmotionComponent(parse_component(semantic), half_life)
-                    )
-                events.append(StoredAffectiveEvent(occurred_at, tuple(components)))
-        except (MoodViolation, TypeError, ValueError):
-            raise MoodViolation("MOOD-EVENT-STORAGE") from None
-        current, active = derive_effective_state(
-            state.home_base, tuple(events), as_of=as_of
+        events = await self._load_events(
+            transaction, subject_id=subject_id, as_of=as_of
+        )
+        current, active, episodes, tendencies = derive_effective_snapshot(
+            state.home_base, events, as_of=as_of
         )
         return MoodSnapshot(
             head.current_revision_id,
@@ -113,7 +98,78 @@ class PostgreSQLMoodOwner:
             state.home_base,
             current,
             active,
+            episodes,
+            tendencies,
         )
+
+    async def _load_events(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        as_of: datetime,
+        days: int = 7,
+    ) -> tuple[StoredAffectiveEvent, ...]:
+        legacy_rows = await (
+            await transaction.execute(
+                """SELECT occurred_at, components
+                   FROM armi.mood_affective_events
+                   WHERE subject_id=%s AND occurred_at <= %s
+                     AND occurred_at >= %s - (%s * interval '1 day')
+                   ORDER BY occurred_at, mood_affective_event_id""",
+                (subject_id, as_of, as_of, days),
+            )
+        ).fetchall()
+        appraisal_rows = await (
+            await transaction.execute(
+                """SELECT mood_episode_id,transition,event_phase,gist,
+                          derived_components,occurred_at
+                   FROM armi.mood_appraisal_events
+                   WHERE subject_id=%s AND occurred_at <= %s
+                     AND occurred_at >= %s - (%s * interval '1 day')
+                   ORDER BY occurred_at,mood_appraisal_event_id""",
+                (subject_id, as_of, as_of, days),
+            )
+        ).fetchall()
+        events: list[StoredAffectiveEvent] = []
+        try:
+            for occurred_at, raw_components in legacy_rows:
+                events.append(
+                    StoredAffectiveEvent(
+                        occurred_at, self._stored_components(raw_components)
+                    )
+                )
+            for episode_id, transition, phase, gist, raw_components, occurred_at in (
+                appraisal_rows
+            ):
+                events.append(
+                    StoredAffectiveEvent(
+                        occurred_at,
+                        self._stored_components(raw_components),
+                        episode_id,
+                        AppraisalTransition(transition),
+                        AppraisalEventPhase(phase),
+                        str(gist),
+                    )
+                )
+        except (MoodViolation, TypeError, ValueError):
+            raise MoodViolation("MOOD-EVENT-STORAGE") from None
+        events.sort(key=lambda item: item.occurred_at)
+        return tuple(events)
+
+    @staticmethod
+    def _stored_components(raw_components: object) -> tuple[StoredEmotionComponent, ...]:
+        components: list[StoredEmotionComponent] = []
+        for raw in cast(list[object], raw_components):
+            item = cast(dict[str, object], raw)
+            half_life = item.get("half_life_seconds")
+            if type(half_life) is not int:
+                raise ValueError
+            semantic = {
+                key: value for key, value in item.items() if key != "half_life_seconds"
+            }
+            components.append(StoredEmotionComponent(parse_component(semantic), half_life))
+        return tuple(components)
 
     async def current_head_count(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID
@@ -174,13 +230,15 @@ class PostgreSQLMoodOwner:
         state = parse_state_bytes(rfc8785.dumps(head[2]))
         next_state = state
         if draft.kind is MoodCandidateKind.HOME_BASE_REFLECTION:
-            await self._require_reflection_evidence(transaction, subject_id=subject_id)
-            if draft.target_home_base is None:
-                raise MoodViolation("MOOD-CANDIDATE")
-            home_base = clamp_home_base(state.home_base, draft.target_home_base)
+            target = await self._reflection_target(
+                transaction, subject_id=subject_id, home_base=state.home_base
+            )
+            home_base = clamp_home_base(state.home_base, target)
             if home_base == state.home_base:
-                raise MoodViolation("MOOD-REFLECTION-NOOP")
-            next_state = MoodState(state.dynamics_version, home_base)
+                return False
+            next_state = MoodState(
+                state.dynamics_version, state.derivation_version, home_base
+            )
 
         revision_id = uuid7()
         version = draft.expected_version + 1
@@ -201,8 +259,8 @@ class PostgreSQLMoodOwner:
                 state_to_bytes(next_state).decode("utf-8"),
             ),
         )
-        if draft.kind is MoodCandidateKind.EVENT:
-            await self._insert_event(
+        if draft.kind is MoodCandidateKind.APPRAISAL:
+            await self._insert_appraisal(
                 transaction,
                 subject_id=subject_id,
                 revision_id=revision_id,
@@ -221,7 +279,7 @@ class PostgreSQLMoodOwner:
             raise MoodViolation("MOOD-HEAD-STALE")
         return True
 
-    async def _insert_event(
+    async def _insert_appraisal(
         self,
         transaction: PostgreSQLTransaction,
         *,
@@ -229,35 +287,79 @@ class PostgreSQLMoodOwner:
         revision_id: UUID,
         draft: CandidateMoodDraft,
     ) -> None:
-        event = draft.event
+        event = draft.appraisal
         if event is None:
             raise MoodViolation("MOOD-CANDIDATE")
+        predecessor_id: UUID | None = None
+        previous: AppraisalEvent | None = None
+        if event.transition is AppraisalTransition.NEW:
+            episode_id = uuid7()
+        else:
+            if event.previous_episode_id is None:
+                raise MoodViolation("MOOD-APPRAISAL-PREDECESSOR")
+            row = await (
+                await transaction.execute(
+                    """SELECT mood_appraisal_event_id,appraisal_payload,transition
+                       FROM armi.mood_appraisal_events
+                       WHERE subject_id=%s AND mood_episode_id=%s
+                       ORDER BY occurred_at DESC,mood_appraisal_event_id DESC
+                       LIMIT 1 FOR UPDATE""",
+                    (subject_id, event.previous_episode_id),
+                )
+            ).fetchone()
+            if row is None or row[2] == AppraisalTransition.RESOLVE.value:
+                raise MoodViolation("MOOD-APPRAISAL-PREDECESSOR")
+            predecessor_id = row[0]
+            previous = parse_appraisal(cast(object, row[1]))
+            episode_id = event.previous_episode_id
+        derived = derive_appraisal(event, previous=previous)
+        if not derived.components and event.transition is not AppraisalTransition.RESOLVE:
+            raise MoodViolation("MOOD-APPRAISAL-NO-AFFECT")
         components = [
             component_to_wire(
-                item,
-                half_life_seconds=half_life_seconds(
-                    importance=event.importance, intensity=item.intensity
-                ),
+                item.component, half_life_seconds=item.half_life_seconds
             )
-            for item in event.components
+            for item in derived.components
         ]
         await transaction.execute(
-            """INSERT INTO armi.mood_affective_events
-               (mood_affective_event_id,subject_id,mood_revision_id,
-                importance,components,privacy_scope)
-               VALUES (%s,%s,%s,%s,%s::jsonb,'private')""",
+            """INSERT INTO armi.mood_appraisal_events
+               (mood_appraisal_event_id,subject_id,mood_revision_id,mood_episode_id,
+                previous_appraisal_event_id,transition,event_phase,gist,
+                basis_ordinals,appraisal_payload,importance,derived_vad,
+                derived_components,
+                derivation_version,dynamics_version,privacy_scope)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s::jsonb,%s::jsonb,
+                       'cpm-fuzzy.v1','recency-reappraisal.v1','private')""",
             (
                 uuid7(),
                 subject_id,
                 revision_id,
-                event.importance,
+                episode_id,
+                predecessor_id,
+                event.transition.value,
+                event.phase.value,
+                event.gist,
+                list(draft.basis_ordinals),
+                rfc8785.dumps(appraisal_to_wire(event)).decode("utf-8"),
+                derived.importance,
+                rfc8785.dumps(
+                    {
+                        "valence": derived.target.valence,
+                        "arousal": derived.target.arousal,
+                        "dominance": derived.target.dominance,
+                    }
+                ).decode("utf-8"),
                 rfc8785.dumps(components).decode("utf-8"),
             ),
         )
 
-    async def _require_reflection_evidence(
-        self, transaction: PostgreSQLTransaction, *, subject_id: UUID
-    ) -> None:
+    async def _reflection_target(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        home_base: VAD,
+    ) -> VAD:
         last_change = await (
             await transaction.execute(
                 """SELECT current.created_at
@@ -273,11 +375,11 @@ class PostgreSQLMoodOwner:
             )
         ).fetchone()
         if last_change is None:
-            raise MoodViolation("MOOD-REFLECTION-EVIDENCE")
+            return home_base
         row = await (
             await transaction.execute(
                 """SELECT count(*),min(occurred_at),max(occurred_at)
-                   FROM armi.mood_affective_events
+                   FROM armi.mood_appraisal_events
                    WHERE subject_id=%s AND occurred_at >= %s
                      AND occurred_at >= statement_timestamp() - interval '30 days'""",
                 (subject_id, last_change[0]),
@@ -290,7 +392,47 @@ class PostgreSQLMoodOwner:
             or row[2] is None
             or row[2] - row[1] < timedelta(days=7)
         ):
-            raise MoodViolation("MOOD-REFLECTION-EVIDENCE")
+            return home_base
+        clock = await (
+            await transaction.execute("SELECT statement_timestamp()")
+        ).fetchone()
+        if clock is None:
+            raise MoodViolation("MOOD-CLOCK")
+        now = cast(datetime, clock[0]).astimezone(UTC)
+        lower = max(cast(datetime, last_change[0]).astimezone(UTC), now - timedelta(days=30))
+        first_day = datetime.combine(lower.date() + timedelta(days=1), time(), UTC)
+        final_day = datetime.combine(now.date(), time(), UTC)
+        days: list[datetime] = []
+        cursor = first_day
+        while cursor + timedelta(days=1) <= final_day:
+            days.append(cursor)
+            cursor += timedelta(days=1)
+        if len(days) < 7:
+            return home_base
+        daily: list[VAD] = []
+        for day in days:
+            samples: list[VAD] = []
+            for hour in (0, 6, 12, 18):
+                as_of = day + timedelta(hours=hour)
+                events = await self._load_events(
+                    transaction, subject_id=subject_id, as_of=as_of
+                )
+                current, _active = derive_effective_state(
+                    home_base, events, as_of=as_of
+                )
+                samples.append(current)
+            daily.append(
+                VAD(
+                    round(sum(item.valence for item in samples) / len(samples)),
+                    round(sum(item.arousal for item in samples) / len(samples)),
+                    round(sum(item.dominance for item in samples) / len(samples)),
+                )
+            )
+        return VAD(
+            round(median(item.valence for item in daily)),
+            round(median(item.arousal for item in daily)),
+            round(median(item.dominance for item in daily)),
+        )
 
     async def initialize(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID

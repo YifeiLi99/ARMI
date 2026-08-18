@@ -419,7 +419,7 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     assert dialogue.profile == "creator_response"
     assert appraisal.profile == "creator_appraisal"
     assert dialogue.response_contract_version == "armi.creator-response-candidate.v1"
-    assert appraisal.response_contract_version == "armi.creator-appraisal-candidate.v2"
+    assert appraisal.response_contract_version == "armi.creator-appraisal-candidate.v3"
     assert dialogue.output_token_limit == 1024
     assert appraisal.output_token_limit == 768
 

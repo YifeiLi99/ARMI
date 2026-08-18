@@ -32,7 +32,7 @@ from ._dialogue_contract import (
 from ._strict_model_json import strict_model_value
 
 CREATOR_RESPONSE_CANDIDATE_VERSION = "armi.creator-response-candidate.v1"
-CREATOR_APPRAISAL_CANDIDATE_VERSION = "armi.creator-appraisal-candidate.v2"
+CREATOR_APPRAISAL_CANDIDATE_VERSION = "armi.creator-appraisal-candidate.v3"
 CREATOR_DIALOGUE_AGGREGATE_VERSION = "armi.creator-dialogue-aggregate.v2"
 
 CREATOR_RESPONSE_INSTRUCTIONS = """\
@@ -41,9 +41,9 @@ CREATOR_RESPONSE_INSTRUCTIONS = """\
 只输出给定 JSON Schema，不解释 Schema，不输出额外文字。"""
 
 CREATOR_APPRAISAL_INSTRUCTIONS = """\
-你只负责判断本轮输入是否真正成为 ARMI 的主观经历，以及它带来的有限情绪、关系或承诺事件。你与表达分支并行，不能假设 ARMI 将说什么。
+你只负责判断本轮输入是否真正成为 ARMI 的主观经历，以及事件对 ARMI 意味着什么、关系或承诺是否变化。你与表达分支并行，不能假设 ARMI 将说什么。
 不得生成对外回复、查询、委托、资料动作、完整 MoodState、Self、Mind、主体 Prompt，也不得淡化、遗忘或改写既有记忆。只有 Creator 在当前输入中明确要求“记住”时，remember 才能为 true 并提供 memory_summary。
-情绪只返回本轮事件信号。每个真实情绪用固定 family、简短 nuance、VAD 三轴和强度表示；importance 表示当前事件对 ARMI 的主观重要性。所有数值按 5 的倍数填写。没有真实情绪变化时省略 affect；最终 Mood、持续时间与衰减只由 Mood Owner 演算。只输出给定 JSON Schema，不输出额外文字。"""
+只能评价事件意义，不能填写情绪名称、VAD、强度、重要性、持续时间或半衰期。新事件使用 new 且 episode_ref 为空；reinforce、reappraise、resolve 必须引用冻结资料中的 active_affective_episode。没有新的事件评价时省略 appraisal；情绪激发、轨迹、心境和行动倾向只由 Mood Owner 演算。只输出给定 JSON Schema，不输出额外文字。"""
 
 
 class _StrictModel(BaseModel):
@@ -178,57 +178,46 @@ class CreatorAppraisalExperience(_StrictModel):
         )
 
 
-EmotionFamilyValue = Literal[
-    "joy",
-    "contentment",
-    "interest",
-    "hope",
-    "relief",
-    "affection",
-    "gratitude",
-    "pride",
-    "surprise",
-    "sadness",
-    "fear",
-    "anxiety",
-    "anger",
-    "frustration",
-    "disgust",
-    "shame",
-    "guilt",
-    "jealousy",
-    "boredom",
-    "confusion",
-]
+class AppraisalVectorSignal(_StrictModel):
+    suddenness: Annotated[int, Field(ge=0, le=4)]
+    predictability: Annotated[int, Field(ge=0, le=4)]
+    outcome_certainty: Annotated[int, Field(ge=0, le=4)]
+    self_relevance: Annotated[int, Field(ge=0, le=4)]
+    relationship_relevance: Annotated[int, Field(ge=0, le=4)]
+    social_order_relevance: Annotated[int, Field(ge=0, le=4)]
+    urgency: Annotated[int, Field(ge=0, le=4)]
+    effort: Annotated[int, Field(ge=0, le=4)]
+    intentionality: Annotated[int, Field(ge=0, le=4)]
+    control: Annotated[int, Field(ge=0, le=4)]
+    power: Annotated[int, Field(ge=0, le=4)]
+    adjustment: Annotated[int, Field(ge=0, le=4)]
+    ego_involvement: Annotated[int, Field(ge=0, le=4)]
+    intrinsic_pleasantness: Annotated[int, Field(ge=-4, le=4)]
+    goal_conduciveness: Annotated[int, Field(ge=-4, le=4)]
+    self_compatibility: Annotated[int, Field(ge=-4, le=4)]
+    norm_compatibility: Annotated[int, Field(ge=-4, le=4)]
+    agency: Literal["self", "other", "shared", "circumstance", "unknown"]
+    self_scope: Literal["none", "action", "global"]
 
 
-class AffectiveEmotionComponent(_StrictModel):
-    family: EmotionFamilyValue
-    nuance: Annotated[str, StringConstraints(min_length=1, max_length=64)]
-    valence: Annotated[int, Field(ge=-100, le=100, multiple_of=5)]
-    arousal: Annotated[int, Field(ge=-100, le=100, multiple_of=5)]
-    dominance: Annotated[int, Field(ge=-100, le=100, multiple_of=5)]
-    intensity: Annotated[int, Field(ge=5, le=100, multiple_of=5)]
-
-
-class AffectiveEventSignal(_StrictModel):
-    importance: Annotated[int, Field(ge=5, le=100, multiple_of=5)]
-    components: tuple[AffectiveEmotionComponent, ...] = Field(
-        min_length=1, max_length=3
-    )
+class AppraisalEventSignalV1(_StrictModel):
+    transition: Literal["new", "reinforce", "reappraise", "resolve"]
+    episode_ref: ContextRef | None = None
+    event_phase: Literal["anticipated", "ongoing", "realized", "averted"]
+    gist: Annotated[str, StringConstraints(min_length=1, max_length=64)]
+    appraisal: AppraisalVectorSignal
     basis_refs: tuple[ContextRef, ...] = Field(min_length=1, max_length=8)
 
     @model_validator(mode="after")
-    def validate_signal(self) -> AffectiveEventSignal:
-        identities = tuple((item.family, item.nuance) for item in self.components)
-        if len(identities) != len(set(identities)):
-            raise ValueError("affective components contain duplicates")
+    def validate_signal(self) -> AppraisalEventSignalV1:
+        if (self.transition == "new") != (self.episode_ref is None):
+            raise ValueError("appraisal transition and episode reference do not match")
         return self
 
 
 class CreatorAppraisalCandidate(_StrictModel):
     experience: CreatorAppraisalExperience | None = None
-    affect: AffectiveEventSignal | None = None
+    appraisal: AppraisalEventSignalV1 | None = None
     relationship_events: tuple[DialogueCompactChange, ...] = Field(
         default=(), max_length=4
     )
@@ -245,7 +234,7 @@ class CreatorAppraisalCandidate(_StrictModel):
             raise ValueError("relationship events require an experience")
         if (
             self.experience is None
-            and self.affect is None
+            and self.appraisal is None
             and not self.relationship_events
         ):
             raise ValueError("appraisal is empty")
@@ -311,8 +300,12 @@ def parse_creator_appraisal(
         strict_model_value(value), strict=True
     )
     refs: set[str] = (
-        set(candidate.affect.basis_refs) if candidate.affect is not None else set()
+        set(candidate.appraisal.basis_refs)
+        if candidate.appraisal is not None
+        else set()
     )
+    if candidate.appraisal is not None and candidate.appraisal.episode_ref is not None:
+        refs.add(candidate.appraisal.episode_ref)
     for change in candidate.relationship_events:
         refs.update(
             ref for ref in (change.target_ref, change.related_ref) if ref is not None
@@ -332,8 +325,8 @@ __all__ = (
     "CREATOR_DIALOGUE_AGGREGATE_VERSION",
     "CREATOR_RESPONSE_CANDIDATE_VERSION",
     "CREATOR_RESPONSE_INSTRUCTIONS",
-    "AffectiveEmotionComponent",
-    "AffectiveEventSignal",
+    "AppraisalEventSignalV1",
+    "AppraisalVectorSignal",
     "CreatorAppraisalCandidate",
     "CreatorDialogueAggregate",
     "CreatorResponseCandidate",

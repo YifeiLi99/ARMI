@@ -35,6 +35,7 @@ from armi_kernel.application import (
     ModelInvocationResult,
     ModelRequest,
     ModelResultStatus,
+    ModelUsage,
     ModelViolation,
     WorkLease,
     WorkRecord,
@@ -93,7 +94,6 @@ from ._other_human_contract import (
 )
 from ._reflection_contract import (
     REFLECT_MIND_INSTRUCTIONS,
-    REFLECT_MOOD_INSTRUCTIONS,
     REFLECT_PROMPT_INSTRUCTIONS,
     REFLECT_SELF_INSTRUCTIONS,
     owner_reflection_schema,
@@ -138,6 +138,61 @@ class _BranchCall:
     adapter: CognitionModelPort
     request: ModelRequest
     attempt_id: ModelAttemptId
+
+
+class _DeterministicMoodReflectionAdapter:
+    """Create a calculation request without asking a model for home-base values."""
+
+    def __init__(self, binding: ModelBinding) -> None:
+        self._binding = binding
+
+    @property
+    def binding(self) -> ModelBinding:
+        return self._binding
+
+    async def tokenize(self, canonical_request: bytes) -> int:
+        return max(1, len(canonical_request) // 4)
+
+    async def invoke(self, request: ModelRequest) -> ModelInvocationResult:
+        try:
+            raw = cast(dict[str, object], json.loads(request.canonical_bytes))
+            compiled = cast(dict[str, object], raw["compiled_context"])
+            refs = cast(list[dict[str, object]], raw["included_context_refs"])
+            mood_ref = next(
+                str(item["ref"]) for item in refs if item["item_kind"] == "mood"
+            )
+            phase_ref = next(
+                str(item["ref"])
+                for item in refs
+                if item["item_kind"] == "current_maintenance_phase"
+            )
+            mood_item = next(
+                item
+                for layer in cast(list[dict[str, object]], compiled["layers"])
+                for item in cast(list[dict[str, object]], layer["items"])
+                if item["item_kind"] == "mood"
+            )
+            source = cast(dict[str, object], mood_item["source"])
+            expected_version = int(source["version"])
+            response = rfc8785.dumps(
+                {
+                    "kind": "update",
+                    "target": "mood",
+                    "summary": "按固定时间采样规则检查长期心情基线",
+                    "basis_refs": [phase_ref, mood_ref],
+                    "expected_version": expected_version,
+                    "next_state": {},
+                }
+            )
+        except (KeyError, StopIteration, TypeError, ValueError, json.JSONDecodeError):
+            raise ModelViolation("MODEL-CONTEXT") from None
+        return ModelInvocationResult(
+            ModelResultStatus.SUCCEEDED,
+            "local-mood-reflection",
+            self._binding.model_id,
+            response,
+            ModelUsage(max(1, len(request.canonical_bytes) // 4), 1, 0, 0),
+        )
 
 
 class _LocalWakeups:
@@ -545,12 +600,8 @@ class ModelPipeline:
                 instructions=REFLECT_MIND_INSTRUCTIONS,
                 schema_name="armi_owner_reflection_candidate_v1",
             ),
-            "reflect_mood": build_adapter(
-                binding=reflect_mood_binding,
-                candidate_schema=owner_reflection_schema(),
-                candidate_parser=parse_reflection,
-                instructions=REFLECT_MOOD_INSTRUCTIONS,
-                schema_name="armi_owner_reflection_candidate_v1",
+            "reflect_mood": _DeterministicMoodReflectionAdapter(
+                reflect_mood_binding
             ),
             "reflect_prompt": build_adapter(
                 binding=reflect_prompt_binding,
