@@ -67,8 +67,13 @@ class RuntimeProcessManagerTests(unittest.TestCase):
             self.assertIs(options["stdin"], subprocess.DEVNULL)
             self.assertIs(options["stdout"], subprocess.DEVNULL)
             self.assertIs(options["stderr"], subprocess.DEVNULL)
+            self.assertNotIn("ALL_PROXY", options["env"])
             if os.name == "nt":
                 self.assertEqual(Path(command[0]).name, "pythonw.exe")
+                self.assertEqual(options["env"]["SYSTEMROOT"], os.environ["SYSTEMROOT"])
+                self.assertEqual(
+                    options["env"]["USERPROFILE"], os.environ["USERPROFILE"]
+                )
                 self.assertTrue(options["creationflags"] & subprocess.DETACHED_PROCESS)
                 self.assertTrue(
                     options["creationflags"] & subprocess.CREATE_NEW_PROCESS_GROUP

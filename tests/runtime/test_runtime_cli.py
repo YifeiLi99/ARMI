@@ -15,6 +15,7 @@ from armi_kernel.application import BirthResult
 from armi_kernel.contracts import Digest
 from armi_runtime.cli import main
 from armi_runtime.composition.environment import prepare_environment
+from armi_runtime.composition.runtime_errors import RuntimeViolation
 
 ENVIRONMENT_ID = "01980f7d-7b8f-7e2a-8a11-2ab8e1234567"
 
@@ -232,6 +233,43 @@ class RuntimeCliTests(unittest.TestCase):
         manager_type.return_value.start.assert_called_once_with(
             creator_web_resources=resources.resolve()
         )
+
+    def test_background_start_continues_when_semantic_recall_is_unavailable(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            make_environment(root)
+            output = io.StringIO()
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch("armi_runtime.cli.RuntimeProcessManager") as manager_type,
+                patch("armi_runtime.cli.SemanticRecallProcessManager") as semantic_type,
+                redirect_stdout(output),
+            ):
+                semantic_type.return_value.start.side_effect = RuntimeViolation(
+                    "SEMANTIC-RECALL-START",
+                    "private GPU failure",
+                )
+                manager_type.return_value.start.return_value = {
+                    "status": "started",
+                    "pid": 1234,
+                    "runtime": {"runtime_state": "ready"},
+                }
+                exit_code = main(("start", "--environment-root", str(root.resolve())))
+
+        self.assertEqual(exit_code, 0)
+        result = json.loads(output.getvalue())
+        self.assertEqual(result["status"], "started")
+        self.assertEqual(
+            result["semantic_recall"],
+            {
+                "status": "unavailable",
+                "reason_code": "SEMANTIC-RECALL-START",
+            },
+        )
+        self.assertNotIn("private GPU failure", output.getvalue())
+        manager_type.return_value.start.assert_called_once_with()
 
     def test_background_status_defaults_to_current_environment_root(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

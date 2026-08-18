@@ -361,6 +361,15 @@ def _compose_embedding(prepared: PreparedEnvironment) -> LocalLlamaCppEmbeddingA
     )
 
 
+def _compose_optional_embedding(
+    prepared: PreparedEnvironment,
+) -> LocalLlamaCppEmbeddingAdapter | None:
+    try:
+        return _compose_embedding(prepared)
+    except ModelViolation:
+        return None
+
+
 def _with_connection(
     prepared: PreparedEnvironment,
     *,
@@ -1173,7 +1182,7 @@ def compose_context_pipeline(
         wakeups=wakeups,
         diagnostic=diagnostic,
         embedding=(
-            _compose_embedding(prepared)
+            _compose_optional_embedding(prepared)
             if config.model.semantic_recall_enabled
             else None
         ),

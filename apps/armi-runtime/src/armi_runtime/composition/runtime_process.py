@@ -29,6 +29,38 @@ _MAX_RESPONSE = 1024 * 1024
 _START_TIMEOUT_SECONDS = 30.0
 _STOP_TIMEOUT_SECONDS = 30.0
 _STILL_ACTIVE = 259
+_BACKGROUND_ENVIRONMENT_NAMES = frozenset(
+    {
+        "ALLUSERSPROFILE",
+        "APPDATA",
+        "COMMONPROGRAMFILES",
+        "COMMONPROGRAMFILES(X86)",
+        "COMMONPROGRAMW6432",
+        "COMPUTERNAME",
+        "COMSPEC",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "LOCALAPPDATA",
+        "NUMBER_OF_PROCESSORS",
+        "OS",
+        "PATH",
+        "PATHEXT",
+        "PROCESSOR_ARCHITECTURE",
+        "PROGRAMDATA",
+        "PROGRAMFILES",
+        "PROGRAMFILES(X86)",
+        "PROGRAMW6432",
+        "PUBLIC",
+        "SYSTEMDRIVE",
+        "SYSTEMROOT",
+        "TEMP",
+        "TMP",
+        "USERDOMAIN",
+        "USERNAME",
+        "USERPROFILE",
+        "WINDIR",
+    }
+)
 
 
 def _background_python() -> str:
@@ -237,9 +269,9 @@ class RuntimeProcessManager:
                     os.fspath(resolved_creator_resources),
                 )
             environment = {
-                name: os.environ[name]
-                for name in ("PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP")
-                if name in os.environ
+                name: value
+                for name, value in os.environ.items()
+                if name.upper() in _BACKGROUND_ENVIRONMENT_NAMES
             }
             options: dict[str, Any] = {
                 "cwd": self._environment_root,

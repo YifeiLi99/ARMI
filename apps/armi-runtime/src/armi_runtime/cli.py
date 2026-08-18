@@ -497,7 +497,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         try:
             if args.command == "start":
-                semantic_status = semantic_recall.start()
+                try:
+                    semantic_status = semantic_recall.start()
+                except RuntimeViolation as error:
+                    semantic_status = {
+                        "status": "unavailable",
+                        "reason_code": error.code,
+                    }
                 try:
                     result = (
                         process.start()
