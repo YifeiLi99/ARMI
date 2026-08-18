@@ -266,7 +266,7 @@ EMBEDDING_QUERY_INSTRUCTION = (
 )
 EMBEDDING_QUERY_MAX_CHARS = 700
 SEMANTIC_RECALL_PROFILE_ID = (
-    "armi.semantic-recall.hybrid-hnsw-gist-exact-rerank.v2"
+    "armi.semantic-recall.hybrid-hnsw-gist-exact-rerank.v3"
 )
 
 

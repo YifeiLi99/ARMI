@@ -464,14 +464,13 @@ class ContextPipeline:
                     vector = (await self._embedding.embed_query(query)).vector
                 except ModelViolation:
                     vector = None
-            async with self._factory.unit_of_work(read_only=True) as unit_of_work:
-                return await self._embedding_repository.recall(
-                    unit_of_work,
-                    subject_id=snapshot.subject_id,
-                    life_generation_id=snapshot.life_generation_id,
-                    query_text=query,
-                    query_vector=vector,
-                )
+            return await self._embedding_repository.recall_parallel(
+                self._factory,
+                subject_id=snapshot.subject_id,
+                life_generation_id=snapshot.life_generation_id,
+                query_text=query,
+                query_vector=vector,
+            )
         except UnicodeDecodeError, RuntimeTransactionFailure:
             return RecalledContext(RecallStatus.UNAVAILABLE, (), (), False)
 

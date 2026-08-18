@@ -11,10 +11,14 @@ import math
 import selectors
 import time
 from pathlib import Path
+from typing import Any
 
+import psycopg
 from armi_context.api import load_embedding_binding
+from armi_kernel.application import CredentialPurpose
 from armi_runtime.adapters.model.local_embedding import LocalLlamaCppEmbeddingAdapter
 from armi_runtime.composition.config_assets import runtime_config_path
+from armi_runtime.composition.environment import prepare_environment
 from armi_runtime.composition.semantic_recall_process import (
     SemanticRecallProcessManager,
 )
@@ -233,6 +237,63 @@ def _cosine(left: tuple[float, ...], right: tuple[float, ...]) -> float:
     )
 
 
+def _database_conninfo(environment_root: Path) -> str:
+    prepared = prepare_environment(
+        environment_root,
+        credential_scope={"database.benchmark": "database.runtime"},
+    )
+    locator = prepared.effective.config.secret_locators["database.runtime"]
+    with prepared.credential_port.resolve(
+        locator, CredentialPurpose("database.benchmark")
+    ) as handle:
+        return handle.consume(lambda value: bytes(value).decode("utf-8"))
+
+
+def _hybrid_ranking(
+    connection: psycopg.Connection[Any],
+    query: str,
+    vector: tuple[float, ...],
+    documents: list[tuple[float, ...]],
+    texts: tuple[str, ...],
+    *,
+    dense_threshold: float,
+    lexical_threshold: float,
+    rrf_k: int,
+) -> list[int]:
+    lexical_rows = connection.execute(
+        """SELECT ordinal-1,
+                  armi_extensions.word_similarity(%s,retrieval_text),
+                  position(lower(%s) in lower(retrieval_text))>0
+           FROM unnest(%s::text[]) WITH ORDINALITY
+             AS source(retrieval_text,ordinal)""",
+        (query, query, list(texts)),
+    ).fetchall()
+    dense_rows = tuple(
+        (index, _cosine(vector, document))
+        for index, document in enumerate(documents)
+    )
+    dense = [
+        int(row[0])
+        for row in sorted(
+            dense_rows, key=lambda row: (-float(row[1]), int(row[0]))
+        )
+        if float(row[1]) >= dense_threshold
+    ][:32]
+    lexical = [
+        int(row[0])
+        for row in sorted(
+            lexical_rows,
+            key=lambda row: (-bool(row[2]), -float(row[1]), int(row[0])),
+        )
+        if float(row[1]) >= lexical_threshold or bool(row[2])
+    ][:32]
+    scores: dict[int, float] = {}
+    for channel in (dense, lexical):
+        for rank, document_id in enumerate(channel, 1):
+            scores[document_id] = scores.get(document_id, 0.0) + 1 / (rrf_k + rank)
+    return sorted(scores, key=lambda item: (-scores[item], item))
+
+
 async def _evaluate(environment_root: Path) -> dict[str, object]:
     endpoint = SemanticRecallProcessManager(environment_root).endpoint()
     adapter = LocalLlamaCppEmbeddingAdapter(
@@ -248,26 +309,58 @@ async def _evaluate(environment_root: Path) -> dict[str, object]:
             for response in await adapter.embed_documents(texts[offset : offset + 8])
         )
     positive_rankings: list[tuple[int, list[tuple[int, float]]]] = []
+    hybrid_positive: list[tuple[int, list[int]]] = []
+    hybrid_negative_recalls = 0
     query_latencies_ms: list[float] = []
-    for expected, (_document, queries) in enumerate(_CASES):
-        for query in _positive_queries(queries):
+    with psycopg.connect(_database_conninfo(environment_root)) as connection:
+        for expected, (_document, queries) in enumerate(_CASES):
+            for query in _positive_queries(queries):
+                started = time.perf_counter()
+                vector = (await adapter.embed_query(query)).vector
+                query_latencies_ms.append((time.perf_counter() - started) * 1000)
+                ranked = sorted(
+                    (
+                        (index, _cosine(vector, document))
+                        for index, document in enumerate(documents)
+                    ),
+                    key=lambda item: (-item[1], item[0]),
+                )
+                positive_rankings.append((expected, ranked))
+                hybrid_positive.append(
+                    (
+                        expected,
+                        _hybrid_ranking(
+                            connection,
+                            query,
+                            vector,
+                            documents,
+                            texts,
+                            dense_threshold=adapter.binding.dense_min_similarity,
+                            lexical_threshold=adapter.binding.lexical_min_similarity,
+                            rrf_k=adapter.binding.fusion_rrf_k,
+                        ),
+                    )
+                )
+        negative_maxima: list[float] = []
+        for query in _NEGATIVES:
             started = time.perf_counter()
             vector = (await adapter.embed_query(query)).vector
             query_latencies_ms.append((time.perf_counter() - started) * 1000)
-            ranked = sorted(
-                (
-                    (index, _cosine(vector, document))
-                    for index, document in enumerate(documents)
-                ),
-                key=lambda item: (-item[1], item[0]),
+            negative_maxima.append(
+                max(_cosine(vector, document) for document in documents)
             )
-            positive_rankings.append((expected, ranked))
-    negative_maxima: list[float] = []
-    for query in _NEGATIVES:
-        started = time.perf_counter()
-        vector = (await adapter.embed_query(query)).vector
-        query_latencies_ms.append((time.perf_counter() - started) * 1000)
-        negative_maxima.append(max(_cosine(vector, document) for document in documents))
+            hybrid_negative_recalls += bool(
+                _hybrid_ranking(
+                    connection,
+                    query,
+                    vector,
+                    documents,
+                    texts,
+                    dense_threshold=adapter.binding.dense_min_similarity,
+                    lexical_threshold=adapter.binding.lexical_min_similarity,
+                    rrf_k=adapter.binding.fusion_rrf_k,
+                )
+            )
     grid: list[dict[str, float]] = []
     for threshold in (0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60):
         hits = sum(
@@ -298,6 +391,14 @@ async def _evaluate(environment_root: Path) -> dict[str, object]:
             item["threshold"],
         ),
     )
+    hybrid_top1 = sum(
+        bool(ranked) and ranked[0] == expected
+        for expected, ranked in hybrid_positive
+    ) / len(hybrid_positive)
+    hybrid_recall_at_6 = sum(
+        expected in ranked[:6] for expected, ranked in hybrid_positive
+    ) / len(hybrid_positive)
+    hybrid_false_recall = hybrid_negative_recalls / len(_NEGATIVES)
     return {
         "positive_samples": len(positive_rankings),
         "negative_samples": len(_NEGATIVES),
@@ -308,9 +409,17 @@ async def _evaluate(environment_root: Path) -> dict[str, object]:
             sorted(query_latencies_ms)[math.ceil(len(query_latencies_ms) * 0.95) - 1],
             2,
         ),
+        "hybrid": {
+            "top1": round(hybrid_top1, 4),
+            "recall_at_6": round(hybrid_recall_at_6, 4),
+            "negative_false_recall_rate": round(hybrid_false_recall, 4),
+        },
         "passed": selected["threshold"] == adapter.binding.dense_min_similarity
         and selected["recall_at_6"] >= 0.9333
         and selected["top1"] >= 0.9167,
+        "hybrid_passed": hybrid_recall_at_6 >= 0.9333
+        and hybrid_top1 >= 0.9167
+        and hybrid_false_recall <= 0.1,
     }
 
 
@@ -323,7 +432,7 @@ def main() -> int:
         loop_factory=lambda: asyncio.SelectorEventLoop(selectors.SelectSelector()),
     )
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
-    return 0 if result["passed"] else 1
+    return 0 if result["passed"] and result["hybrid_passed"] else 1
 
 
 if __name__ == "__main__":

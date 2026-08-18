@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import cast
@@ -27,7 +28,11 @@ from armi_memory.api import (
     MemoryProjectionHead,
     MemoryProjectionPort,
 )
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWork,
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    PostgreSQLTransaction,
+)
 
 from ._embedding import (
     EMBEDDING_BINDING_ID,
@@ -520,73 +525,118 @@ class PostgreSQLContextEmbeddingRepository:
             (error_code, attempt_id),
         )
 
-    async def recall(
+    async def recall_parallel(
         self,
-        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        factory: PostgreSQLRuntimeUnitOfWorkFactory,
         *,
         subject_id: UUID,
         life_generation_id: UUID,
         query_text: str,
         query_vector: tuple[float, ...] | None,
     ) -> RecalledContext:
-        transaction = unit_of_work.transaction
-        dense_rows: list[tuple[object, ...]] = []
-        if query_vector is not None:
-            vector = "[" + ",".join(format(item, ".17g") for item in query_vector) + "]"
-            await transaction.execute(
-                "SELECT set_config('hnsw.ef_search',%s,true)",
-                (str(RECALL_HNSW_EF_SEARCH),),
+        async def dense() -> list[tuple[object, ...]]:
+            if query_vector is None:
+                return []
+            async with factory.unit_of_work(read_only=True) as unit_of_work:
+                return await self._dense_candidate_rows(
+                    unit_of_work.transaction,
+                    subject_id=subject_id,
+                    life_generation_id=life_generation_id,
+                    query_vector=query_vector,
+                )
+
+        async def lexical() -> list[tuple[object, ...]]:
+            async with factory.unit_of_work(read_only=True) as unit_of_work:
+                return await self._lexical_candidate_rows(
+                    unit_of_work.transaction,
+                    subject_id=subject_id,
+                    life_generation_id=life_generation_id,
+                    query_text=query_text,
+                )
+
+        dense_rows, lexical_rows = await asyncio.gather(dense(), lexical())
+        async with factory.unit_of_work(read_only=True) as unit_of_work:
+            return await self.recall(
+                unit_of_work,
+                subject_id=subject_id,
+                life_generation_id=life_generation_id,
+                query_text=query_text,
+                query_vector=query_vector,
+                _candidate_rows=(dense_rows, lexical_rows),
             )
-            await transaction.execute(
-                "SELECT set_config('hnsw.iterative_scan','relaxed_order',true)"
-            )
-            dense_rows = list(
-                await (
-                    await transaction.execute(
-                        """WITH parameters AS (
-                             SELECT %s::armi_extensions.vector(1024) AS query_vector
-                           ), nearest AS MATERIALIZED (
-                             SELECT projection.*
-                             FROM armi.context_embedding_projections AS projection
-                             CROSS JOIN parameters
-                             WHERE projection.subject_id=%s
-                               AND projection.life_generation_id=%s
-                               AND projection.model_binding=%s
-                             ORDER BY
-                               projection.embedding::armi_extensions.halfvec(1024)
+
+    async def _dense_candidate_rows(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        life_generation_id: UUID,
+        query_vector: tuple[float, ...],
+    ) -> list[tuple[object, ...]]:
+        vector = "[" + ",".join(format(item, ".17g") for item in query_vector) + "]"
+        await transaction.execute(
+            "SELECT set_config('hnsw.ef_search',%s,true)",
+            (str(RECALL_HNSW_EF_SEARCH),),
+        )
+        await transaction.execute(
+            "SELECT set_config('hnsw.iterative_scan','relaxed_order',true)"
+        )
+        rows = list(
+            await (
+                await transaction.execute(
+                    """WITH parameters AS (
+                         SELECT %s::armi_extensions.vector(1024) AS query_vector
+                       ), nearest AS MATERIALIZED (
+                         SELECT projection.*
+                         FROM armi.context_embedding_projections AS projection
+                         CROSS JOIN parameters
+                         WHERE projection.subject_id=%s
+                           AND projection.life_generation_id=%s
+                           AND projection.model_binding=%s
+                         ORDER BY
+                           projection.embedding::armi_extensions.halfvec(1024)
+                             OPERATOR(armi_extensions.<=>)
+                           parameters.query_vector::armi_extensions.halfvec(1024)
+                         LIMIT %s
+                       )
+                       SELECT nearest.source_kind,nearest.source_ref,
+                              nearest.source_version,
+                              nearest.chunk_ordinal,nearest.chunk_text,
+                              1-(nearest.embedding
                                  OPERATOR(armi_extensions.<=>)
-                               parameters.query_vector::armi_extensions.halfvec(1024)
-                             LIMIT %s
-                           )
-                           SELECT nearest.source_kind,nearest.source_ref,
-                                  nearest.source_version,
-                                  nearest.chunk_ordinal,nearest.chunk_text,
-                                  1-(nearest.embedding
-                                     OPERATOR(armi_extensions.<=>)
-                                     parameters.query_vector) AS score
-                           FROM nearest
-                           CROSS JOIN parameters
-                           ORDER BY nearest.embedding
-                                      OPERATOR(armi_extensions.<=>)
-                                      parameters.query_vector,
-                                    nearest.source_kind,nearest.source_ref,
-                                    nearest.chunk_ordinal""",
-                        (
-                            vector,
-                            subject_id,
-                            life_generation_id,
-                            EMBEDDING_BINDING_ID,
-                            RECALL_DENSE_ANN_LIMIT,
-                        ),
-                    )
-                ).fetchall()
-            )
-            dense_rows = [
-                row
-                for row in dense_rows
-                if float(cast(float, row[5])) >= RECALL_MIN_SIMILARITY
-            ]
-        lexical_rows = list(
+                                 parameters.query_vector) AS score
+                       FROM nearest
+                       CROSS JOIN parameters
+                       ORDER BY nearest.embedding
+                                  OPERATOR(armi_extensions.<=>)
+                                  parameters.query_vector,
+                                nearest.source_kind,nearest.source_ref,
+                                nearest.chunk_ordinal""",
+                    (
+                        vector,
+                        subject_id,
+                        life_generation_id,
+                        EMBEDDING_BINDING_ID,
+                        RECALL_DENSE_ANN_LIMIT,
+                    ),
+                )
+            ).fetchall()
+        )
+        return [
+            row
+            for row in rows
+            if float(cast(float, row[5])) >= RECALL_MIN_SIMILARITY
+        ]
+
+    async def _lexical_candidate_rows(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        life_generation_id: UUID,
+        query_text: str,
+    ) -> list[tuple[object, ...]]:
+        rows = list(
             await (
                 await transaction.execute(
                     """WITH nearest AS MATERIALIZED (
@@ -627,12 +677,46 @@ class PostgreSQLContextEmbeddingRepository:
                 )
             ).fetchall()
         )
-        lexical_rows = [
+        return [
             row
-            for row in lexical_rows
+            for row in rows
             if float(cast(float, row[5])) >= RECALL_MIN_LEXICAL_SIMILARITY
             or bool(row[6])
         ]
+
+    async def recall(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        subject_id: UUID,
+        life_generation_id: UUID,
+        query_text: str,
+        query_vector: tuple[float, ...] | None,
+        _candidate_rows: tuple[
+            list[tuple[object, ...]], list[tuple[object, ...]]
+        ]
+        | None = None,
+    ) -> RecalledContext:
+        transaction = unit_of_work.transaction
+        if _candidate_rows is None:
+            dense_rows = (
+                []
+                if query_vector is None
+                else await self._dense_candidate_rows(
+                    transaction,
+                    subject_id=subject_id,
+                    life_generation_id=life_generation_id,
+                    query_vector=query_vector,
+                )
+            )
+            lexical_rows = await self._lexical_candidate_rows(
+                transaction,
+                subject_id=subject_id,
+                life_generation_id=life_generation_id,
+                query_text=query_text,
+            )
+        else:
+            dense_rows, lexical_rows = _candidate_rows
         memory_refs: list[MemoryCandidateSourceRef] = []
         material_refs: list[MaterialCandidateSourceRef] = []
         seen_sources: set[tuple[str, UUID, int]] = set()

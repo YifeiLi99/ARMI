@@ -13,6 +13,7 @@ import socket
 import subprocess
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -188,12 +189,17 @@ def _ann_top32(
     return tuple(int(row[0]) for row in rows)
 
 
-def _pipeline_once(
-    connection: psycopg.Connection[Any], target: int, vector: str
-) -> tuple[float, float, float, float]:
+def _timed_dense(
+    connection: psycopg.Connection[Any], vector: str
+) -> tuple[tuple[int, ...], float]:
     started = time.perf_counter()
     dense = _ann_top32(connection, vector, 256)
-    dense_ms = (time.perf_counter() - started) * 1000
+    return dense, (time.perf_counter() - started) * 1000
+
+
+def _timed_lexical(
+    connection: psycopg.Connection[Any], target: int
+) -> tuple[tuple[int, ...], float]:
     started = time.perf_counter()
     lexical = tuple(
         int(row[0])
@@ -217,12 +223,26 @@ def _pipeline_once(
             ),
         ).fetchall()
     )
-    lexical_ms = (time.perf_counter() - started) * 1000
+    return lexical, (time.perf_counter() - started) * 1000
+
+
+def _pipeline_once(
+    merge_connection: psycopg.Connection[Any],
+    dense_connection: psycopg.Connection[Any],
+    lexical_connection: psycopg.Connection[Any],
+    executor: ThreadPoolExecutor,
+    target: int,
+    vector: str,
+) -> tuple[float, float, float, float]:
+    dense_future = executor.submit(_timed_dense, dense_connection, vector)
+    lexical_future = executor.submit(_timed_lexical, lexical_connection, target)
+    dense, dense_ms = dense_future.result()
+    lexical, lexical_ms = lexical_future.result()
     candidates = tuple(dict.fromkeys((*dense, *lexical)))
     started = time.perf_counter()
     current = {
         int(row[0])
-        for row in connection.execute(
+        for row in merge_connection.execute(
             """SELECT source_ref FROM bench.owners
                WHERE source_ref=ANY(%s) AND is_current""",
             (list(candidates),),
@@ -248,6 +268,7 @@ def _pipeline_once(
 
 def _benchmark(
     connection: psycopg.Connection[Any],
+    dsn: str,
     rows: int,
     queries: int,
     gist_siglen: int,
@@ -272,8 +293,6 @@ def _benchmark(
             hits += len(expected & actual)
             total += len(expected)
         ann_recall[str(ef_search)] = round(hits / total, 6)
-    for target in sample_ids[:5]:
-        _pipeline_once(connection, target, vectors[target])
     latencies: list[float] = []
     channel_latencies: dict[str, list[float]] = {
         "dense": [],
@@ -281,12 +300,33 @@ def _benchmark(
         "owner": [],
         "rrf": [],
     }
-    for target in sample_ids:
-        started = time.perf_counter()
-        segments = _pipeline_once(connection, target, vectors[target])
-        latencies.append((time.perf_counter() - started) * 1000)
-        for name, value in zip(channel_latencies, segments, strict=True):
-            channel_latencies[name].append(value)
+    with (
+        psycopg.connect(dsn) as dense_connection,
+        psycopg.connect(dsn) as lexical_connection,
+        ThreadPoolExecutor(max_workers=2) as executor,
+    ):
+        for target in sample_ids[:5]:
+            _pipeline_once(
+                connection,
+                dense_connection,
+                lexical_connection,
+                executor,
+                target,
+                vectors[target],
+            )
+        for target in sample_ids:
+            started = time.perf_counter()
+            segments = _pipeline_once(
+                connection,
+                dense_connection,
+                lexical_connection,
+                executor,
+                target,
+                vectors[target],
+            )
+            latencies.append((time.perf_counter() - started) * 1000)
+            for name, value in zip(channel_latencies, segments, strict=True):
+                channel_latencies[name].append(value)
     sizes = connection.execute(
         """SELECT pg_table_size('bench.projections'),
                   pg_indexes_size('bench.projections'),
@@ -394,7 +434,7 @@ def main() -> int:
                 connection.execute("ANALYZE bench.projections")
                 connection.commit()
                 result = _benchmark(
-                    connection, args.rows, args.queries, args.gist_siglen
+                    connection, dsn, args.rows, args.queries, args.gist_siglen
                 )
             stats = _run(
                 [

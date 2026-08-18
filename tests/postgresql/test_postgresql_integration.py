@@ -1184,6 +1184,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 schema_root
                 / "alembic/versions/0014_embedding_coverage_accounting.py"
             ).unlink()
+            (schema_root / "alembic/versions/0015_wider_lexical_gist.py").unlink()
             installed = PostgreSQLSchemaGateway(resource_root=schema_root).install(
                 fixture.migrator_dsn,
                 environment_id=fixture.environment_id,
@@ -1193,7 +1194,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(migrated.current_revision, "0014")
+        self.assertEqual(migrated.current_revision, "0015")
         with psycopg.connect(fixture.runtime_dsn) as connection:
             shape = connection.execute(
                 """
@@ -1289,6 +1290,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 schema_root
                 / "alembic/versions/0014_embedding_coverage_accounting.py"
             ).unlink()
+            (schema_root / "alembic/versions/0015_wider_lexical_gist.py").unlink()
             installed = PostgreSQLSchemaGateway(resource_root=schema_root).install(
                 fixture.migrator_dsn,
                 environment_id=fixture.environment_id,
@@ -1318,7 +1320,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(migrated.current_revision, "0014")
+        self.assertEqual(migrated.current_revision, "0015")
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             activation = connection.execute(
                 """
@@ -1394,6 +1396,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 schema_root
                 / "alembic/versions/0014_embedding_coverage_accounting.py"
             ).unlink()
+            (schema_root / "alembic/versions/0015_wider_lexical_gist.py").unlink()
             installed = PostgreSQLSchemaGateway(resource_root=schema_root).install(
                 fixture.migrator_dsn,
                 environment_id=fixture.environment_id,
@@ -1450,7 +1453,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(migrated.current_revision, "0014")
+        self.assertEqual(migrated.current_revision, "0015")
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             shape = connection.execute(
                 """
@@ -1480,11 +1483,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                       AND table_name='context_embedding_coverage'
                       AND column_name='pending_work_count'
                       AND is_nullable='NO'
-                  )
+                  ),
+                  pg_get_indexdef(
+                    'armi.context_embedding_projections_retrieval_gist_idx'
+                      ::regclass
+                  ) LIKE '%%siglen=''256''%%'
                 """,
                 (attempt_id,),
             ).fetchone()
-        self.assertEqual(shape, (1, 0, True, True, True, True, True, True))
+        self.assertEqual(shape, (1, 0, True, True, True, True, True, True, True))
 
     def test_scalable_semantic_recall_executes_dense_and_lexical_paths(self) -> None:
         fixture = self.create_database()
@@ -1620,10 +1627,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             schema_root = Path(temporary) / "schema"
             shutil.copytree(source, schema_root)
-            (schema_root / "alembic/versions/0015_probe.py").write_text(
+            (schema_root / "alembic/versions/0016_probe.py").write_text(
                 "from alembic import op\n"
-                "revision = '0015'\n"
-                "down_revision = '0014'\n"
+                "revision = '0016'\n"
+                "down_revision = '0015'\n"
                 "branch_labels = None\n"
                 "depends_on = None\n"
                 "def upgrade(): op.execute('CREATE TABLE armi.revision_probe (id bigint PRIMARY KEY)')\n"
@@ -1678,8 +1685,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(migrated.status, "current")
             self.assertEqual(migrated.table_count, installed.table_count + 1)
-            self.assertEqual(migrated.current_revision, "0015")
-            self.assertEqual(migrated.head_revision, "0015")
+            self.assertEqual(migrated.current_revision, "0016")
+            self.assertEqual(migrated.head_revision, "0016")
             self.assertEqual(
                 gateway.migrate(
                     fixture.migrator_dsn,
@@ -1700,10 +1707,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             schema_root = Path(temporary) / "schema"
             shutil.copytree(source, schema_root)
-            (schema_root / "alembic/versions/0015_failing_probe.py").write_text(
+            (schema_root / "alembic/versions/0016_failing_probe.py").write_text(
                 "from alembic import op\n"
-                "revision = '0015'\n"
-                "down_revision = '0014'\n"
+                "revision = '0016'\n"
+                "down_revision = '0015'\n"
                 "branch_labels = None\n"
                 "depends_on = None\n"
                 "def upgrade():\n"
@@ -1728,7 +1735,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "SELECT version_num FROM armi.alembic_version"
                 ).fetchall()
             self.assertEqual(table, (None,))
-            self.assertEqual(history, [("0014",)])
+            self.assertEqual(history, [("0015",)])
 
     def test_p0_clean_environment_cli_start_restart_and_capacity(self) -> None:
         fixture = self.create_database()
@@ -7179,7 +7186,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 restored = connection.execute(
                     "SELECT version_num FROM armi.alembic_version"
                 ).fetchall()
-            self.assertEqual(restored, [("0014",)])
+            self.assertEqual(restored, [("0015",)])
 
             second_quarantine = root / "second-quarantine"
             second_quarantine.mkdir()
