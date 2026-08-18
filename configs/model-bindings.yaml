@@ -107,6 +107,12 @@ embedding:
   pooling: last
   normalization: l2
   query_instruction: "Instruct: Given the current cognitive context, retrieve personally relevant memories and life materials that help understand or respond to it.\nQuery:"
+  retrieval_profile: armi.semantic-recall.hybrid-hnsw-gist-exact-rerank.v1
+  dense_ann_candidates: 256
+  dense_final_candidates: 32
+  hnsw_ef_search: 256
+  lexical_candidates: 128
+  lexical_final_candidates: 32
   dense_min_similarity: 0.30
   lexical_min_similarity: 0.30
   fusion_rrf_k: 60

@@ -111,6 +111,7 @@ class ContextEmbeddingPipeline:
                         "context_embedding_source", records[0].draft.owner.reference
                     ),
                 )
+                await self._repository.note_projection_work_settled(unit_of_work)
             return True
         chunks = await self._source_chunks(source)
         if not chunks:
@@ -150,7 +151,7 @@ class ContextEmbeddingPipeline:
             ):
                 display_text, retrieval_text = batch[offset]
                 async with self._factory.unit_of_work() as unit_of_work:
-                    last_projection = await self._repository.settle_success(
+                    projection = await self._repository.settle_success(
                         unit_of_work,
                         attempt_id=attempt_id,
                         source=source,
@@ -159,11 +160,30 @@ class ContextEmbeddingPipeline:
                         retrieval_text=retrieval_text,
                         response=response,
                     )
+                    if projection is None:
+                        for pending_attempt in attempts[offset + 1 :]:
+                            await self._repository.settle_failure(
+                                unit_of_work,
+                                pending_attempt,
+                                "MODEL-EMBEDDING-SOURCE-STALE",
+                            )
+                        await unit_of_work.work.complete(
+                            lease,
+                            WorkResultRef(
+                                "context_embedding_source", source.source_ref
+                            ),
+                        )
+                        await self._repository.note_projection_work_settled(
+                            unit_of_work
+                        )
+                        return True
+                    last_projection = projection
         assert last_projection is not None
         async with self._factory.unit_of_work() as unit_of_work:
             await unit_of_work.work.complete(
                 lease, WorkResultRef("context_embedding_projection", last_projection)
             )
+            await self._repository.note_projection_work_settled(unit_of_work)
         return True
 
     async def run_worker(self) -> None:
@@ -226,6 +246,7 @@ class ContextEmbeddingPipeline:
             return
         async with self._factory.unit_of_work() as unit_of_work:
             await unit_of_work.work.fail(lease, error_code=code)
+            await self._repository.note_projection_work_settled(unit_of_work)
 
 
 __all__ = ("ContextEmbeddingPipeline",)

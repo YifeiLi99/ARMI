@@ -89,6 +89,7 @@ from armi_context.bootstrap import (
     bootstrap_context_candidate_read,
     bootstrap_context_embedding,
     bootstrap_context_projection_invalidation,
+    inspect_context_embedding_storage,
 )
 from armi_data_rights.api import (
     DataRightsCognitionGate,
@@ -449,6 +450,31 @@ def inspect_operator_schema(prepared: PreparedEnvironment) -> SchemaStatus:
         purpose="database.status",
         operation="status",
     )
+
+
+def inspect_semantic_recall_storage(
+    prepared: PreparedEnvironment,
+) -> dict[str, object]:
+    """Read the bounded projection/index health used by semantic-recall status."""
+
+    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
+    if locator is None:
+        return {"database_status": "unavailable"}
+    try:
+        with prepared.credential_port.resolve(
+            locator, CredentialPurpose("database.status")
+        ) as handle:
+
+            def invoke(value: memoryview) -> dict[str, object]:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    return {"database_status": "unavailable"}
+                return inspect_context_embedding_storage(conninfo)
+
+            return handle.consume(invoke)
+    except ConfigurationViolation:
+        return {"database_status": "unavailable"}
 
 
 def install_operator_schema(prepared: PreparedEnvironment) -> SchemaStatus:
@@ -1764,6 +1790,7 @@ __all__ = (
     "inspect_operator_schema",
     "inspect_runtime_continuity",
     "inspect_runtime_schema",
+    "inspect_semantic_recall_storage",
     "install_operator_schema",
     "migrate_operator_schema",
     "runtime_database_reason",

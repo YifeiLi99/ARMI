@@ -23,6 +23,7 @@ from armi_runtime.composition.creator_session import (
 from armi_runtime.composition.database import (
     DatabaseViolation,
     inspect_operator_schema,
+    inspect_semantic_recall_storage,
     install_operator_schema,
     migrate_operator_schema,
 )
@@ -255,7 +256,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         configured_root = os.environ.get("ARMI_ENVIRONMENT_ROOT")
         environment_root = Path(configured_root) if configured_root else Path.cwd()
     credential_scope: dict[str, str]
-    if args.command in {"config", "semantic-recall"}:
+    if args.command == "semantic-recall":
+        credential_scope = (
+            {"database.status": "database.runtime"}
+            if args.semantic_recall_command == "status"
+            else {}
+        )
+    elif args.command == "config":
         credential_scope = {}
     elif args.command == "db" and args.database_command == "status":
         credential_scope = {"database.status": "database.runtime"}
@@ -352,7 +359,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     )
                 result = manager.calibrate()
             else:
-                result = manager.status()
+                result = {
+                    **manager.status(),
+                    **inspect_semantic_recall_storage(prepared),
+                }
         except RuntimeViolation as error:
             _safe_failure(error)
             return 3

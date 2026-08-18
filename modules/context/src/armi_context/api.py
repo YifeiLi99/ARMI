@@ -265,6 +265,9 @@ EMBEDDING_QUERY_INSTRUCTION = (
     "memories and life materials that help understand or respond to it.\nQuery:"
 )
 EMBEDDING_QUERY_MAX_CHARS = 700
+SEMANTIC_RECALL_PROFILE_ID = (
+    "armi.semantic-recall.hybrid-hnsw-gist-exact-rerank.v1"
+)
 
 
 class RecallStatus(StrEnum):
@@ -286,6 +289,12 @@ class EmbeddingBinding:
     pooling: str
     normalization: str
     query_instruction: str
+    retrieval_profile: str
+    dense_ann_candidates: int
+    dense_final_candidates: int
+    hnsw_ef_search: int
+    lexical_candidates: int
+    lexical_final_candidates: int
     dense_min_similarity: float
     lexical_min_similarity: float
     fusion_rrf_k: int
@@ -331,6 +340,12 @@ def load_embedding_binding(path: Path) -> EmbeddingBinding:
         "pooling": "last",
         "normalization": "l2",
         "query_instruction": EMBEDDING_QUERY_INSTRUCTION,
+        "retrieval_profile": SEMANTIC_RECALL_PROFILE_ID,
+        "dense_ann_candidates": 256,
+        "dense_final_candidates": 32,
+        "hnsw_ef_search": 256,
+        "lexical_candidates": 128,
+        "lexical_final_candidates": 32,
         "dense_min_similarity": 0.30,
         "lexical_min_similarity": 0.30,
         "fusion_rrf_k": 60,
@@ -349,6 +364,12 @@ def load_embedding_binding(path: Path) -> EmbeddingBinding:
         pooling=cast(str, value["pooling"]),
         normalization=cast(str, value["normalization"]),
         query_instruction=cast(str, value["query_instruction"]),
+        retrieval_profile=cast(str, value["retrieval_profile"]),
+        dense_ann_candidates=cast(int, value["dense_ann_candidates"]),
+        dense_final_candidates=cast(int, value["dense_final_candidates"]),
+        hnsw_ef_search=cast(int, value["hnsw_ef_search"]),
+        lexical_candidates=cast(int, value["lexical_candidates"]),
+        lexical_final_candidates=cast(int, value["lexical_final_candidates"]),
         dense_min_similarity=cast(float, value["dense_min_similarity"]),
         lexical_min_similarity=cast(float, value["lexical_min_similarity"]),
         fusion_rrf_k=cast(int, value["fusion_rrf_k"]),
@@ -573,6 +594,7 @@ __all__ = (
     "EMBEDDING_MODEL_SHA256",
     "EMBEDDING_QUERY_INSTRUCTION",
     "EMBEDDING_QUERY_MAX_CHARS",
+    "SEMANTIC_RECALL_PROFILE_ID",
     "CognitiveEpisodeId",
     "CompiledContext",
     "ContextArtifactCatalogPort",

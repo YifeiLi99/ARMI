@@ -31,6 +31,7 @@ from .api import (
     MaterialCandidateSourceRef,
     MaterialLifeRecordItem,
     MaterialOpportunitySource,
+    MaterialProjectionHead,
     MaterialProjectionSource,
     MaterialViolation,
 )
@@ -261,6 +262,101 @@ class PostgreSQLMaterialOwner:
             )
         except ArtifactViolation, TypeError, ValueError, UnicodeError:
             raise MaterialViolation("MATERIAL-QUERY-UNAVAILABLE") from None
+
+    async def projection_head_page(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        after_material_id: UUID | None,
+        limit: int = 256,
+    ) -> tuple[MaterialProjectionHead, ...]:
+        rows = await (
+            await transaction.execute(
+                """SELECT material.subject_id,material.life_generation_id,
+                          material.life_material_id,material.head_version
+                   FROM armi.life_materials AS material
+                   JOIN armi.life_material_revisions AS revision
+                     ON revision.life_material_revision_id=material.current_revision_id
+                   WHERE material.deleted_at IS NULL
+                     AND revision.revision_kind<>'deleted'
+                     AND (%s::uuid IS NULL OR material.life_material_id>%s)
+                   ORDER BY material.life_material_id LIMIT %s""",
+                (after_material_id, after_material_id, limit),
+            )
+        ).fetchall()
+        return tuple(
+            MaterialProjectionHead(row[0], row[1], row[2], int(row[3]))
+            for row in rows
+        )
+
+    async def filter_current_projection_heads(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        generation_id: UUID,
+        sources: tuple[MaterialCandidateSourceRef, ...],
+    ) -> tuple[MaterialCandidateSourceRef, ...]:
+        if not sources:
+            return ()
+        rows = await (
+            await transaction.execute(
+                """WITH requested AS (
+                     SELECT material_id,head_version,ordinal
+                     FROM unnest(%s::uuid[],%s::bigint[]) WITH ORDINALITY
+                       AS source(material_id,head_version,ordinal)
+                   )
+                   SELECT requested.material_id,requested.head_version
+                   FROM requested
+                   JOIN armi.life_materials AS material
+                     ON material.life_material_id=requested.material_id
+                    AND material.head_version=requested.head_version
+                   JOIN armi.life_material_revisions AS revision
+                     ON revision.life_material_revision_id=material.current_revision_id
+                   WHERE material.subject_id=%s
+                     AND material.life_generation_id=%s
+                     AND material.deleted_at IS NULL
+                     AND revision.revision_kind<>'deleted'
+                   ORDER BY requested.ordinal""",
+                (
+                    [source.material_id for source in sources],
+                    [source.head_version for source in sources],
+                    subject_id,
+                    generation_id,
+                ),
+            )
+        ).fetchall()
+        return tuple(MaterialCandidateSourceRef(row[0], int(row[1])) for row in rows)
+
+    async def lock_current_projection_head(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        generation_id: UUID,
+        source: MaterialCandidateSourceRef,
+    ) -> bool:
+        row = await (
+            await transaction.execute(
+                """SELECT material.life_material_id
+                   FROM armi.life_materials AS material
+                   JOIN armi.life_material_revisions AS revision
+                     ON revision.life_material_revision_id=material.current_revision_id
+                   WHERE material.life_material_id=%s AND material.head_version=%s
+                     AND material.subject_id=%s
+                     AND material.life_generation_id=%s
+                     AND material.deleted_at IS NULL
+                     AND revision.revision_kind<>'deleted'
+                   FOR SHARE OF material""",
+                (
+                    source.material_id,
+                    source.head_version,
+                    subject_id,
+                    generation_id,
+                ),
+            )
+        ).fetchone()
+        return row is not None
 
     async def projection_sources(
         self,

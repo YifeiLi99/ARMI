@@ -370,6 +370,14 @@ class MaterialProjectionSource:
     artifact: ArtifactRef
 
 
+@dataclass(frozen=True, slots=True)
+class MaterialProjectionHead:
+    subject_id: UUID
+    generation_id: UUID
+    material_id: UUID
+    head_version: int
+
+
 @runtime_checkable
 class MaterialReadPort(Protocol):
     async def candidate_sources(
@@ -463,6 +471,32 @@ class MaterialCommitPort(Protocol):
 
 @runtime_checkable
 class MaterialProjectionPort(Protocol):
+    async def projection_head_page(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        after_material_id: UUID | None,
+        limit: int = 256,
+    ) -> tuple[MaterialProjectionHead, ...]: ...
+
+    async def filter_current_projection_heads(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        generation_id: UUID,
+        sources: tuple[MaterialCandidateSourceRef, ...],
+    ) -> tuple[MaterialCandidateSourceRef, ...]: ...
+
+    async def lock_current_projection_head(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        generation_id: UUID,
+        source: MaterialCandidateSourceRef,
+    ) -> bool: ...
+
     async def projection_sources(
         self,
         transaction: PostgreSQLTransaction,
@@ -497,6 +531,7 @@ __all__ = (
     "MaterialContextItem",
     "MaterialLifeRecordItem",
     "MaterialOpportunitySource",
+    "MaterialProjectionHead",
     "MaterialProjectionPort",
     "MaterialProjectionSource",
     "MaterialReadPort",

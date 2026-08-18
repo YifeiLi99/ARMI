@@ -40,7 +40,10 @@ from ._application import ContextPipeline
 from ._candidate_read import PostgreSQLContextCandidateRead
 from ._data_rights import PostgreSQLContextDataRightsParticipant
 from ._embedding_application import ContextEmbeddingPipeline
-from ._embedding_postgresql import PostgreSQLContextProjectionInvalidation
+from ._embedding_postgresql import (
+    PostgreSQLContextProjectionInvalidation,
+    inspect_embedding_storage,
+)
 from .api import (
     ContextArtifactCatalogPort,
     ContextCognitionReadPort,
@@ -139,6 +142,10 @@ def bootstrap_context_embedding(
     )
 
 
+def inspect_context_embedding_storage(conninfo: str) -> dict[str, object]:
+    return inspect_embedding_storage(conninfo)
+
+
 def bootstrap_context_projection_invalidation() -> ContextProjectionInvalidationPort:
     return PostgreSQLContextProjectionInvalidation()
 
@@ -171,4 +178,5 @@ __all__ = (
     "bootstrap_context_embedding",
     "bootstrap_context_projection_invalidation",
     "bootstrap_context_recovery",
+    "inspect_context_embedding_storage",
 )

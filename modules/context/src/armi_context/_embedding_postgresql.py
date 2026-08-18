@@ -7,15 +7,26 @@ from datetime import datetime, timedelta
 from typing import cast
 from uuid import UUID, uuid7
 
+import psycopg
 from armi_kernel.application import (
     WorkDraft,
     WorkId,
     WorkOwner,
     WorkPayloadRef,
+    WorkStatus,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId, TraceId
-from armi_material.api import MaterialProjectionPort
-from armi_memory.api import MemoryProjectionPort
+from armi_material.api import (
+    MaterialCandidateSourceRef,
+    MaterialProjectionHead,
+    MaterialProjectionPort,
+    MaterialViolation,
+)
+from armi_memory.api import (
+    MemoryCandidateSourceRef,
+    MemoryProjectionHead,
+    MemoryProjectionPort,
+)
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
 
 from ._embedding import (
@@ -23,16 +34,21 @@ from ._embedding import (
     EMBEDDING_MODEL_ID,
     LIFE_MATERIAL_CHUNK_OVERLAP,
     RECALL_CANDIDATE_LIMIT,
+    RECALL_DENSE_ANN_LIMIT,
+    RECALL_HNSW_EF_SEARCH,
+    RECALL_LEXICAL_CANDIDATE_LIMIT,
     RECALL_MATERIAL_LIMIT,
     RECALL_MEMORY_LIMIT,
     RECALL_MIN_LEXICAL_SIMILARITY,
     RECALL_MIN_SIMILARITY,
     RECALL_RRF_K,
+    SEMANTIC_RECALL_PROFILE_ID,
 )
 from ._postgresql import ContextMaterialSource
 from .api import ContextProjectionSourceRef, EmbeddingResponse, RecallStatus
 
 _WORK_KIND = "context.embedding.project"
+_RECONCILIATION_PAGE_SIZE = 256
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,129 +102,221 @@ class PostgreSQLContextEmbeddingRepository:
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
     ) -> bool:
-        connection = unit_of_work.transaction
-        projected = await self._projected_source_versions(connection)
-        materials = await self._materials.projection_sources(unit_of_work.transaction)
-        material = next(
-            (
-                source
-                for source in materials
-                if ("life_material", source.material_id, source.head_version)
-                not in projected
-            ),
-            None,
-        )
-        row: tuple[UUID, UUID, str, UUID, int, datetime] | None = None
-        if material is not None:
-            timestamp = await (
-                await connection.execute("SELECT statement_timestamp()")
-            ).fetchone()
-            if timestamp is not None:
-                row = (
-                    material.subject_id,
-                    material.generation_id,
-                    "life_material",
-                    material.material_id,
-                    material.head_version,
-                    cast(datetime, timestamp[0]),
-                )
-        memories = await self._memories.projection_sources(unit_of_work.transaction)
-        memory = next(
-            (
-                source
-                for source in memories
-                if ("subjective_memory", source.memory_id, source.head_version)
-                not in projected
-            ),
-            None,
-        )
-        if memory is not None:
-            timestamp = await (
-                await connection.execute("SELECT statement_timestamp()")
-            ).fetchone()
-            if timestamp is None:
-                return False
-            row = (
-                memory.subject_id,
-                memory.generation_id,
-                "subjective_memory",
-                memory.memory_id,
-                memory.head_version,
-                cast(datetime, timestamp[0]),
-            )
-        if row is None:
-            return False
-        digest = Digest.from_bytes(
-            f"{row[2]}:{row[3]}:{row[4]}:{EMBEDDING_BINDING_ID}".encode()
-        )
-        now = Instant(row[5])
-        await unit_of_work.work.enqueue(
-            WorkDraft(
-                WorkId(uuid7()),
-                _WORK_KIND,
-                WorkOwner(str(row[2]), row[3]),
-                IdempotencyKey(f"embedding:{row[4]}:{EMBEDDING_BINDING_ID}"),
-                digest,
-                15,
-                now,
-                Instant(row[5] + timedelta(seconds=3600)),
-                3,
-                TraceId(row[3].hex),
-                SubjectId(row[0]),
-                WorkPayloadRef(str(row[2]), row[3]),
-            )
-        )
-        return True
-
-    async def _projected_source_versions(
-        self, transaction: PostgreSQLTransaction
-    ) -> set[tuple[str, UUID, int]]:
-        rows = await (
+        transaction = unit_of_work.transaction
+        row = await (
             await transaction.execute(
-                """SELECT DISTINCT source_kind,source_ref,source_version
-                   FROM armi.context_embedding_projections
-                   WHERE model_binding=%s""",
+                """SELECT coverage_state,epoch,scanning_epoch,source_kind,
+                          after_source_ref
+                   FROM armi.context_embedding_coverage
+                   WHERE model_binding=%s FOR UPDATE""",
                 (EMBEDDING_BINDING_ID,),
             )
-        ).fetchall()
-        return {(str(row[0]), row[1], int(row[2])) for row in rows}
+        ).fetchone()
+        if row is None:
+            return False
+        state, epoch, scanning_epoch, source_kind, after_source_ref = row
+        if str(state) == "complete":
+            return False
+        if str(state) == "dirty":
+            scanning_epoch = int(epoch)
+            source_kind = "life_material"
+            after_source_ref = None
+            await transaction.execute(
+                """UPDATE armi.context_embedding_coverage
+                   SET coverage_state='reconciling',scanning_epoch=epoch,
+                       source_kind='life_material',after_source_ref=NULL,
+                       scan_found_missing=false,pending_work_count=0,
+                       updated_at=statement_timestamp()
+                   WHERE model_binding=%s AND coverage_state='dirty'""",
+                (EMBEDDING_BINDING_ID,),
+            )
+        if str(source_kind) == "life_material":
+            heads = await self._materials.projection_head_page(
+                transaction,
+                after_material_id=cast(UUID | None, after_source_ref),
+                limit=_RECONCILIATION_PAGE_SIZE,
+            )
+            if heads:
+                found_missing, actionable_count = await self._enqueue_missing_heads(
+                    unit_of_work, "life_material", heads
+                )
+                await transaction.execute(
+                    """UPDATE armi.context_embedding_coverage
+                       SET after_source_ref=%s,
+                           scan_found_missing=scan_found_missing OR %s,
+                           pending_work_count=pending_work_count+%s,
+                           updated_at=statement_timestamp()
+                       WHERE model_binding=%s AND coverage_state='reconciling'
+                         AND scanning_epoch=%s""",
+                    (
+                        heads[-1].material_id,
+                        found_missing,
+                        actionable_count,
+                        EMBEDDING_BINDING_ID,
+                        scanning_epoch,
+                    ),
+                )
+                return actionable_count > 0 or not found_missing
+            await transaction.execute(
+                """UPDATE armi.context_embedding_coverage
+                   SET source_kind='subjective_memory',after_source_ref=NULL,
+                       updated_at=statement_timestamp()
+                   WHERE model_binding=%s AND coverage_state='reconciling'
+                     AND scanning_epoch=%s""",
+                (EMBEDDING_BINDING_ID, scanning_epoch),
+            )
+            return True
+        heads = await self._memories.projection_head_page(
+            transaction,
+            after_memory_id=cast(UUID | None, after_source_ref),
+            limit=_RECONCILIATION_PAGE_SIZE,
+        )
+        if heads:
+            found_missing, actionable_count = await self._enqueue_missing_heads(
+                unit_of_work, "subjective_memory", heads
+            )
+            await transaction.execute(
+                """UPDATE armi.context_embedding_coverage
+                   SET after_source_ref=%s,
+                       scan_found_missing=scan_found_missing OR %s,
+                       pending_work_count=pending_work_count+%s,
+                       updated_at=statement_timestamp()
+                   WHERE model_binding=%s AND coverage_state='reconciling'
+                     AND scanning_epoch=%s""",
+                (
+                    heads[-1].memory_id,
+                    found_missing,
+                    actionable_count,
+                    EMBEDDING_BINDING_ID,
+                    scanning_epoch,
+                ),
+            )
+            return actionable_count > 0 or not found_missing
+        coverage = await (
+            await transaction.execute(
+                """SELECT scan_found_missing,pending_work_count
+                   FROM armi.context_embedding_coverage
+                   WHERE model_binding=%s AND coverage_state='reconciling'
+                     AND epoch=%s AND scanning_epoch=%s""",
+                (EMBEDDING_BINDING_ID, scanning_epoch, scanning_epoch),
+            )
+        ).fetchone()
+        if coverage is None:
+            return False
+        if not bool(coverage[0]):
+            await transaction.execute(
+                """UPDATE armi.context_embedding_coverage
+                   SET coverage_state='complete',scanning_epoch=NULL,
+                       scan_found_missing=false,source_kind=NULL,
+                       after_source_ref=NULL,updated_at=statement_timestamp()
+                   WHERE model_binding=%s AND coverage_state='reconciling'
+                     AND epoch=%s AND scanning_epoch=%s""",
+                (EMBEDDING_BINDING_ID, scanning_epoch, scanning_epoch),
+            )
+            return True
+        if int(coverage[1]) > 0:
+            return False
+        await transaction.execute(
+            """UPDATE armi.context_embedding_coverage
+                   SET coverage_state='dirty',scanning_epoch=NULL,
+                   scan_found_missing=false,pending_work_count=0,source_kind=NULL,
+                   after_source_ref=NULL,updated_at=statement_timestamp()
+               WHERE model_binding=%s AND coverage_state='reconciling'
+                 AND epoch=%s AND scanning_epoch=%s""",
+            (EMBEDDING_BINDING_ID, scanning_epoch, scanning_epoch),
+        )
+        return False
 
-    async def _projected_requested_versions(
+    async def _enqueue_missing_heads(
         self,
-        transaction: PostgreSQLTransaction,
-        *,
-        memory_keys: tuple[tuple[UUID, int], ...],
-        material_keys: tuple[tuple[UUID, int], ...],
-    ) -> set[tuple[str, UUID, int]]:
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        source_kind: str,
+        heads: tuple[MaterialProjectionHead, ...] | tuple[MemoryProjectionHead, ...],
+    ) -> tuple[bool, int]:
+        transaction = unit_of_work.transaction
         rows = await (
             await transaction.execute(
                 """WITH requested AS (
-                     SELECT 'subjective_memory'::text AS source_kind,
-                            source_ref,source_version
-                     FROM unnest(%s::uuid[],%s::bigint[])
-                       AS source(source_ref,source_version)
-                     UNION ALL
-                     SELECT 'life_material'::text AS source_kind,
-                            source_ref,source_version
+                     SELECT source_ref,source_version
                      FROM unnest(%s::uuid[],%s::bigint[])
                        AS source(source_ref,source_version)
                    )
-                   SELECT DISTINCT projection.source_kind,
-                                   projection.source_ref,
-                                   projection.source_version
-                   FROM armi.context_embedding_projections AS projection
-                   JOIN requested USING (source_kind,source_ref,source_version)
-                   WHERE projection.model_binding=%s""",
+                   SELECT requested.source_ref,requested.source_version
+                   FROM requested
+                   WHERE NOT EXISTS (
+                     SELECT 1 FROM armi.context_embedding_projections AS projection
+                     WHERE projection.source_kind=%s
+                       AND projection.source_ref=requested.source_ref
+                       AND projection.source_version=requested.source_version
+                       AND projection.chunk_ordinal=0
+                       AND projection.model_binding=%s
+                   )""",
                 (
-                    [item[0] for item in memory_keys],
-                    [item[1] for item in memory_keys],
-                    [item[0] for item in material_keys],
-                    [item[1] for item in material_keys],
+                    [
+                        head.material_id
+                        if isinstance(head, MaterialProjectionHead)
+                        else head.memory_id
+                        for head in heads
+                    ],
+                    [head.head_version for head in heads],
+                    source_kind,
                     EMBEDDING_BINDING_ID,
                 ),
             )
         ).fetchall()
-        return {(str(row[0]), row[1], int(row[2])) for row in rows}
+        missing = {(row[0], int(row[1])) for row in rows}
+        timestamp = await (
+            await transaction.execute("SELECT statement_timestamp()")
+        ).fetchone()
+        if timestamp is None:
+            return bool(missing), 0
+        created_at = cast(datetime, timestamp[0])
+        now = Instant(created_at)
+        actionable_count = 0
+        for head in heads:
+            source_ref = (
+                head.material_id
+                if isinstance(head, MaterialProjectionHead)
+                else head.memory_id
+            )
+            if (source_ref, head.head_version) not in missing:
+                continue
+            digest = Digest.from_bytes(
+                f"{source_kind}:{source_ref}:{head.head_version}:"
+                f"{EMBEDDING_BINDING_ID}".encode()
+            )
+            record = await unit_of_work.work.enqueue(
+                WorkDraft(
+                    WorkId(uuid7()),
+                    _WORK_KIND,
+                    WorkOwner(source_kind, source_ref),
+                    IdempotencyKey(
+                        f"embedding:{head.head_version}:{EMBEDDING_BINDING_ID}"
+                    ),
+                    digest,
+                    15,
+                    now,
+                    Instant(created_at + timedelta(seconds=3600)),
+                    3,
+                    TraceId(source_ref.hex),
+                    SubjectId(head.subject_id),
+                    WorkPayloadRef(source_kind, source_ref),
+                )
+            )
+            if record.status in {WorkStatus.READY, WorkStatus.LEASED}:
+                actionable_count += 1
+        return bool(missing), actionable_count
+
+    async def note_projection_work_settled(
+        self, unit_of_work: PostgreSQLRuntimeUnitOfWork
+    ) -> None:
+        await unit_of_work.transaction.execute(
+            """UPDATE armi.context_embedding_coverage
+               SET pending_work_count=greatest(pending_work_count-1,0),
+                   updated_at=statement_timestamp()
+               WHERE model_binding=%s""",
+            (EMBEDDING_BINDING_ID,),
+        )
 
     async def load_source(
         self,
@@ -331,8 +439,31 @@ class PostgreSQLContextEmbeddingRepository:
         display_text: str,
         retrieval_text: str,
         response: EmbeddingResponse,
-    ) -> UUID:
+    ) -> UUID | None:
         connection = unit_of_work.transaction
+        if source.source_kind == "subjective_memory":
+            current = await self._memories.lock_current_projection_head(
+                connection,
+                subject_id=source.subject_id,
+                generation_id=source.life_generation_id,
+                source=MemoryCandidateSourceRef(
+                    source.source_ref, source.source_version
+                ),
+            )
+        else:
+            current = await self._materials.lock_current_projection_head(
+                connection,
+                subject_id=source.subject_id,
+                generation_id=source.life_generation_id,
+                source=MaterialCandidateSourceRef(
+                    source.source_ref, source.source_version
+                ),
+            )
+        if not current:
+            await self.settle_failure(
+                unit_of_work, attempt_id, "MODEL-EMBEDDING-SOURCE-STALE"
+            )
+            return None
         projection_id = uuid7()
         vector = "[" + ",".join(format(item, ".17g") for item in response.vector) + "]"
         await connection.execute(
@@ -399,75 +530,53 @@ class PostgreSQLContextEmbeddingRepository:
         query_vector: tuple[float, ...] | None,
     ) -> RecalledContext:
         transaction = unit_of_work.transaction
-        memories = await self._memories.projection_sources(
-            transaction,
-            subject_id=subject_id,
-            generation_id=life_generation_id,
-        )
-        materials = await self._materials.projection_sources(
-            transaction,
-            subject_id=subject_id,
-            generation_id=life_generation_id,
-        )
-        current_memories = {
-            (source.memory_id, source.head_version): source for source in memories
-        }
-        current_materials = {
-            (source.material_id, source.head_version): source for source in materials
-        }
-        memory_keys = tuple(current_memories)
-        material_keys = tuple(current_materials)
-        allowed_parameters = (
-            [item[0] for item in memory_keys],
-            [item[1] for item in memory_keys],
-            [item[0] for item in material_keys],
-            [item[1] for item in material_keys],
-        )
         dense_rows: list[tuple[object, ...]] = []
         if query_vector is not None:
             vector = "[" + ",".join(format(item, ".17g") for item in query_vector) + "]"
+            await transaction.execute(
+                "SELECT set_config('hnsw.ef_search',%s,true)",
+                (str(RECALL_HNSW_EF_SEARCH),),
+            )
+            await transaction.execute(
+                "SELECT set_config('hnsw.iterative_scan','relaxed_order',true)"
+            )
             dense_rows = list(
                 await (
                     await transaction.execute(
-                        """WITH allowed AS (
-                             SELECT 'subjective_memory'::text AS source_kind,
-                                    source_ref,source_version
-                             FROM unnest(%s::uuid[],%s::bigint[])
-                               AS source(source_ref,source_version)
-                             UNION ALL
-                             SELECT 'life_material'::text AS source_kind,
-                                    source_ref,source_version
-                             FROM unnest(%s::uuid[],%s::bigint[])
-                               AS source(source_ref,source_version)
-                           ), parameters AS (
-                             SELECT %s::armi_extensions.vector AS query_vector
+                        """WITH parameters AS (
+                             SELECT %s::armi_extensions.vector(1024) AS query_vector
+                           ), nearest AS MATERIALIZED (
+                             SELECT projection.*
+                             FROM armi.context_embedding_projections AS projection
+                             CROSS JOIN parameters
+                             WHERE projection.subject_id=%s
+                               AND projection.life_generation_id=%s
+                               AND projection.model_binding=%s
+                             ORDER BY
+                               projection.embedding::armi_extensions.halfvec(1024)
+                                 OPERATOR(armi_extensions.<=>)
+                               parameters.query_vector::armi_extensions.halfvec(1024)
+                             LIMIT %s
                            )
-                           SELECT projection.source_kind,projection.source_ref,
-                                  projection.source_version,
-                                  projection.chunk_ordinal,projection.chunk_text,
-                                  1-(projection.embedding
+                           SELECT nearest.source_kind,nearest.source_ref,
+                                  nearest.source_version,
+                                  nearest.chunk_ordinal,nearest.chunk_text,
+                                  1-(nearest.embedding
                                      OPERATOR(armi_extensions.<=>)
                                      parameters.query_vector) AS score
-                           FROM armi.context_embedding_projections AS projection
-                           JOIN allowed USING (source_kind,source_ref,source_version)
+                           FROM nearest
                            CROSS JOIN parameters
-                           WHERE projection.subject_id=%s
-                             AND projection.life_generation_id=%s
-                             AND projection.model_binding=%s
-                           ORDER BY projection.embedding
+                           ORDER BY nearest.embedding
                                       OPERATOR(armi_extensions.<=>)
                                       parameters.query_vector,
-                                    projection.source_kind,
-                                    projection.source_ref,
-                                    projection.chunk_ordinal
-                           LIMIT %s""",
+                                    nearest.source_kind,nearest.source_ref,
+                                    nearest.chunk_ordinal""",
                         (
-                            *allowed_parameters,
                             vector,
                             subject_id,
                             life_generation_id,
                             EMBEDDING_BINDING_ID,
-                            RECALL_CANDIDATE_LIMIT,
+                            RECALL_DENSE_ANN_LIMIT,
                         ),
                     )
                 ).fetchall()
@@ -477,79 +586,101 @@ class PostgreSQLContextEmbeddingRepository:
                 for row in dense_rows
                 if float(cast(float, row[5])) >= RECALL_MIN_SIMILARITY
             ]
-        await transaction.execute(
-            "SELECT set_config('pg_trgm.word_similarity_threshold',%s,true)",
-            (str(RECALL_MIN_LEXICAL_SIMILARITY),),
-        )
         lexical_rows = list(
             await (
                 await transaction.execute(
-                    """WITH allowed AS (
-                         SELECT 'subjective_memory'::text AS source_kind,
-                                source_ref,source_version
-                         FROM unnest(%s::uuid[],%s::bigint[])
-                           AS source(source_ref,source_version)
-                         UNION ALL
-                         SELECT 'life_material'::text AS source_kind,
-                                source_ref,source_version
-                         FROM unnest(%s::uuid[],%s::bigint[])
-                           AS source(source_ref,source_version)
-                       )
-                       SELECT projection.source_kind,projection.source_ref,
-                              projection.source_version,projection.chunk_ordinal,
-                              projection.chunk_text,
-                              armi_extensions.word_similarity(
-                                %s,projection.retrieval_text)
-                                AS score
-                       FROM armi.context_embedding_projections AS projection
-                       JOIN allowed USING (source_kind,source_ref,source_version)
-                       WHERE projection.subject_id=%s
-                         AND projection.life_generation_id=%s
-                         AND projection.model_binding=%s
-                         AND (
+                    """WITH nearest AS MATERIALIZED (
+                         SELECT projection.*
+                         FROM armi.context_embedding_projections AS projection
+                         WHERE projection.subject_id=%s
+                           AND projection.life_generation_id=%s
+                           AND projection.model_binding=%s
+                         ORDER BY %s
+                           OPERATOR(armi_extensions.<<->)
                            projection.retrieval_text
-                             OPERATOR(armi_extensions.%%>) %s
-                           OR position(lower(%s)
-                              in lower(projection.retrieval_text))>0
-                         )
-                         AND (
-                           armi_extensions.word_similarity(
-                             %s,projection.retrieval_text)>=%s
-                           OR position(lower(%s)
-                              in lower(projection.retrieval_text))>0
-                         )
+                         LIMIT %s
+                       )
+                       SELECT nearest.source_kind,nearest.source_ref,
+                              nearest.source_version,nearest.chunk_ordinal,
+                              nearest.chunk_text,
+                              armi_extensions.word_similarity(
+                                %s,nearest.retrieval_text)
+                                AS score,
+                              position(lower(%s)
+                                in lower(nearest.retrieval_text))>0 AS contains
+                       FROM nearest
                        ORDER BY
                          (position(lower(%s)
-                           in lower(projection.retrieval_text))>0) DESC,
-                         score DESC,projection.source_kind,
-                         projection.source_ref,projection.chunk_ordinal
-                       LIMIT %s""",
+                           in lower(nearest.retrieval_text))>0) DESC,
+                         score DESC,nearest.source_kind,
+                         nearest.source_ref,nearest.chunk_ordinal""",
                     (
-                        *allowed_parameters,
-                        query_text,
                         subject_id,
                         life_generation_id,
                         EMBEDDING_BINDING_ID,
                         query_text,
+                        RECALL_LEXICAL_CANDIDATE_LIMIT,
                         query_text,
                         query_text,
-                        RECALL_MIN_LEXICAL_SIMILARITY,
                         query_text,
-                        query_text,
-                        RECALL_CANDIDATE_LIMIT,
                     ),
                 )
             ).fetchall()
         )
-        projected = await self._projected_requested_versions(
+        lexical_rows = [
+            row
+            for row in lexical_rows
+            if float(cast(float, row[5])) >= RECALL_MIN_LEXICAL_SIMILARITY
+            or bool(row[6])
+        ]
+        memory_refs: list[MemoryCandidateSourceRef] = []
+        material_refs: list[MaterialCandidateSourceRef] = []
+        seen_sources: set[tuple[str, UUID, int]] = set()
+        for row in (*dense_rows, *lexical_rows):
+            source_key = (str(row[0]), cast(UUID, row[1]), cast(int, row[2]))
+            if source_key in seen_sources:
+                continue
+            seen_sources.add(source_key)
+            if source_key[0] == "subjective_memory":
+                memory_refs.append(MemoryCandidateSourceRef(source_key[1], source_key[2]))
+            elif source_key[0] == "life_material":
+                material_refs.append(
+                    MaterialCandidateSourceRef(source_key[1], source_key[2])
+                )
+        current_memory_refs = await self._memories.filter_current_projection_heads(
             transaction,
-            memory_keys=memory_keys,
-            material_keys=material_keys,
+            subject_id=subject_id,
+            generation_id=life_generation_id,
+            sources=tuple(memory_refs),
         )
+        current_material_refs = await self._materials.filter_current_projection_heads(
+            transaction,
+            subject_id=subject_id,
+            generation_id=life_generation_id,
+            sources=tuple(material_refs),
+        )
+        current_memories = {
+            (source.memory_id, source.head_version) for source in current_memory_refs
+        }
+        current_materials = {
+            (source.material_id, source.head_version) for source in current_material_refs
+        }
         candidates: dict[_CandidateKey, _RecallCandidate] = {}
         for signal, rows in (("dense", dense_rows), ("lexical", lexical_rows)):
-            for rank, row in enumerate(rows, 1):
-                kind, source_ref, version, ordinal, text, score = row
+            valid_rows = [
+                row
+                for row in rows
+                if (
+                    (cast(UUID, row[1]), cast(int, row[2]))
+                    in (
+                        current_memories
+                        if str(row[0]) == "subjective_memory"
+                        else current_materials
+                    )
+                )
+            ][:RECALL_CANDIDATE_LIMIT]
+            for rank, row in enumerate(valid_rows, 1):
+                kind, source_ref, version, ordinal, text, score, *_ = row
                 key: _CandidateKey = (
                     str(kind),
                     cast(UUID, source_ref),
@@ -575,8 +706,7 @@ class PostgreSQLContextEmbeddingRepository:
         material_best: dict[UUID, tuple[_CandidateKey, _RecallCandidate, int]] = {}
         for final_rank, (candidate_key, value) in enumerate(ordered, 1):
             kind, source_ref, version, ordinal = candidate_key
-            source_key = (source_ref, version)
-            if kind == "subjective_memory" and source_key in current_memories:
+            if kind == "subjective_memory":
                 if len(memory_values) < RECALL_MEMORY_LIMIT:
                     memory_values.append(
                         RecalledItem(
@@ -588,28 +718,41 @@ class PostgreSQLContextEmbeddingRepository:
                             value.lexical,
                         )
                     )
-            elif kind == "life_material" and source_key in current_materials:
+            elif kind == "life_material":
                 material_best.setdefault(
                     source_ref,
                     ((kind, source_ref, version, ordinal), value, final_rank),
                 )
         material_values: list[RecalledItem] = []
-        for source_ref, (best_key, value, final_rank) in list(material_best.items())[
-            :RECALL_MATERIAL_LIMIT
-        ]:
+        material_validation_failed = False
+        for source_ref, (best_key, value, final_rank) in material_best.items():
+            if len(material_values) >= RECALL_MATERIAL_LIMIT:
+                break
             _kind, _ref, version, ordinal = best_key
+            try:
+                material_source = await self._materials.load_source(
+                    transaction, source_ref
+                )
+            except MaterialViolation:
+                material_source = None
+            if material_source is None or material_source.head_version != version:
+                material_validation_failed = True
+                continue
             adjacent_rows = await (
                 await transaction.execute(
                     """SELECT chunk_ordinal,chunk_text
                        FROM armi.context_embedding_projections
                        WHERE source_kind='life_material' AND source_ref=%s
                          AND source_version=%s AND model_binding=%s
+                         AND subject_id=%s AND life_generation_id=%s
                          AND chunk_ordinal BETWEEN %s AND %s
                        ORDER BY chunk_ordinal""",
                     (
                         source_ref,
                         version,
                         EMBEDDING_BINDING_ID,
+                        subject_id,
+                        life_generation_id,
                         max(0, ordinal - 1),
                         ordinal + 1,
                     ),
@@ -639,13 +782,17 @@ class PostgreSQLContextEmbeddingRepository:
                     value.lexical,
                 )
             )
-        missing_projection = any(
-            ("subjective_memory", source.memory_id, source.head_version)
-            not in projected
-            for source in memories
-        ) or any(
-            ("life_material", source.material_id, source.head_version) not in projected
-            for source in materials
+        coverage = await (
+            await transaction.execute(
+                """SELECT coverage_state FROM armi.context_embedding_coverage
+                   WHERE model_binding=%s""",
+                (EMBEDDING_BINDING_ID,),
+            )
+        ).fetchone()
+        missing_projection = (
+            coverage is None
+            or str(coverage[0]) != "complete"
+            or material_validation_failed
         )
         dense_available = query_vector is not None
         if not memory_values and not material_values:
@@ -677,12 +824,64 @@ class PostgreSQLContextProjectionInvalidation:
                    WHERE source_kind=%s AND source_ref=%s""",
                 (source.source_kind, source.source_ref),
             )
+        if sources:
+            await transaction.execute(
+                """UPDATE armi.context_embedding_coverage
+                   SET coverage_state='dirty',epoch=epoch+1,
+                       scanning_epoch=NULL,scan_found_missing=false,
+                       pending_work_count=0,
+                       source_kind=NULL,after_source_ref=NULL,
+                       updated_at=statement_timestamp()
+                   WHERE model_binding=%s""",
+                (EMBEDDING_BINDING_ID,),
+            )
 
 
+def inspect_embedding_storage(conninfo: str) -> dict[str, object]:
+    try:
+        with psycopg.connect(conninfo) as connection:
+            row = connection.execute(
+                """SELECT
+                     (SELECT count(*)
+                      FROM armi.context_embedding_projections
+                      WHERE model_binding=%s),
+                     (SELECT coverage_state
+                      FROM armi.context_embedding_coverage
+                      WHERE model_binding=%s),
+                     to_regclass(
+                       'armi.context_embedding_projections_embedding_hnsw_idx'
+                     ) IS NOT NULL,
+                     to_regclass(
+                       'armi.context_embedding_projections_retrieval_gist_idx'
+                     ) IS NOT NULL""",
+                (EMBEDDING_BINDING_ID, EMBEDDING_BINDING_ID),
+            ).fetchone()
+    except psycopg.Error:
+        return {"database_status": "unavailable"}
+    if row is None:
+        return {"database_status": "unavailable"}
+    count = int(row[0])
+    capacity_status = (
+        "expansion_observation"
+        if count > 100_000
+        else "benchmark_recommended"
+        if count >= 80_000
+        else "normal"
+    )
+    return {
+        "database_status": "ready",
+        "projection_count": count,
+        "coverage_state": row[1],
+        "retrieval_profile": SEMANTIC_RECALL_PROFILE_ID,
+        "dense_index_ready": bool(row[2]),
+        "lexical_index_ready": bool(row[3]),
+        "capacity_status": capacity_status,
+    }
 __all__ = (
     "EmbeddingProjectionSource",
     "PostgreSQLContextEmbeddingRepository",
     "PostgreSQLContextProjectionInvalidation",
     "RecalledContext",
     "RecalledItem",
+    "inspect_embedding_storage",
 )

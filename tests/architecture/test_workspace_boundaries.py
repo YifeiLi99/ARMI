@@ -148,7 +148,7 @@ class WorkspaceBoundaryTests(unittest.TestCase):
             if "/runtime_resources/schema/baseline/" not in item.path
             and "/runtime_resources/schema/alembic/versions/" not in item.path
         )
-        self.assertEqual(len(accesses), 29)
+        self.assertEqual(len(accesses), 31)
         self.assertEqual(len(production), 0)
         self.assertFalse(
             tuple(

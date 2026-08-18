@@ -60,6 +60,7 @@ from armi_capability.api import (
 )
 from armi_codex.api import CreatorCodexTaskCommand
 from armi_cognition.api import CognitionSchemaDocument
+from armi_context.api import EMBEDDING_BINDING_ID
 from armi_effect.api import EffectStatus
 from armi_expression.api import CreatorReplyDraft, ResponseAdmissionStatus
 from armi_interaction.api import (
@@ -1175,6 +1176,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 schema_root
                 / "alembic/versions/0012_local_hybrid_semantic_recall.py"
             ).unlink()
+            (
+                schema_root
+                / "alembic/versions/0013_scalable_semantic_recall.py"
+            ).unlink()
+            (
+                schema_root
+                / "alembic/versions/0014_embedding_coverage_accounting.py"
+            ).unlink()
             installed = PostgreSQLSchemaGateway(resource_root=schema_root).install(
                 fixture.migrator_dsn,
                 environment_id=fixture.environment_id,
@@ -1184,7 +1193,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(migrated.current_revision, "0012")
+        self.assertEqual(migrated.current_revision, "0014")
         with psycopg.connect(fixture.runtime_dsn) as connection:
             shape = connection.execute(
                 """
@@ -1272,6 +1281,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 schema_root
                 / "alembic/versions/0012_local_hybrid_semantic_recall.py"
             ).unlink()
+            (
+                schema_root
+                / "alembic/versions/0013_scalable_semantic_recall.py"
+            ).unlink()
+            (
+                schema_root
+                / "alembic/versions/0014_embedding_coverage_accounting.py"
+            ).unlink()
             installed = PostgreSQLSchemaGateway(resource_root=schema_root).install(
                 fixture.migrator_dsn,
                 environment_id=fixture.environment_id,
@@ -1301,7 +1318,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(migrated.current_revision, "0012")
+        self.assertEqual(migrated.current_revision, "0014")
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             activation = connection.execute(
                 """
@@ -1369,6 +1386,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 schema_root
                 / "alembic/versions/0012_local_hybrid_semantic_recall.py"
             ).unlink()
+            (
+                schema_root
+                / "alembic/versions/0013_scalable_semantic_recall.py"
+            ).unlink()
+            (
+                schema_root
+                / "alembic/versions/0014_embedding_coverage_accounting.py"
+            ).unlink()
             installed = PostgreSQLSchemaGateway(resource_root=schema_root).install(
                 fixture.migrator_dsn,
                 environment_id=fixture.environment_id,
@@ -1425,7 +1450,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.migrator_dsn,
             environment_id=fixture.environment_id,
         )
-        self.assertEqual(migrated.current_revision, "0012")
+        self.assertEqual(migrated.current_revision, "0014")
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             shape = connection.execute(
                 """
@@ -1441,11 +1466,147 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                   ),
                   to_regclass(
                     'armi.context_embedding_projections_retrieval_trgm_idx'
-                  ) IS NOT NULL
+                  ) IS NULL,
+                  to_regclass(
+                    'armi.context_embedding_projections_retrieval_gist_idx'
+                  ) IS NOT NULL,
+                  to_regclass(
+                    'armi.context_embedding_projections_embedding_hnsw_idx'
+                  ) IS NOT NULL,
+                  to_regclass('armi.context_embedding_coverage') IS NOT NULL,
+                  EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema='armi'
+                      AND table_name='context_embedding_coverage'
+                      AND column_name='pending_work_count'
+                      AND is_nullable='NO'
+                  )
                 """,
                 (attempt_id,),
             ).fetchone()
-        self.assertEqual(shape, (1, 0, True, True))
+        self.assertEqual(shape, (1, 0, True, True, True, True, True, True))
+
+    def test_scalable_semantic_recall_executes_dense_and_lexical_paths(self) -> None:
+        fixture = self.create_database()
+        self._install_current(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+        subject_id = _uuid7()
+        generation_id = _uuid7()
+        memory_id = _uuid7()
+        attempt_id = _uuid7()
+        vector = "[1," + ",".join("0" for _ in range(1023)) + "]"
+        with psycopg.connect(fixture.provisioner_dsn, autocommit=True) as connection:
+            connection.execute("SET session_replication_role = replica")
+            connection.execute(
+                """INSERT INTO armi.context_embedding_attempts (
+                     context_embedding_attempt_id,subject_id,life_generation_id,
+                     source_kind,source_ref,source_version,chunk_ordinal,
+                     model_binding,provider_model,input_digest,status,settled_at)
+                   VALUES (%s,%s,%s,'subjective_memory',%s,1,0,%s,
+                     'Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0',%s,'succeeded',
+                     statement_timestamp())""",
+                (
+                    attempt_id,
+                    subject_id,
+                    generation_id,
+                    memory_id,
+                    EMBEDDING_BINDING_ID,
+                    "sha256:" + "a" * 64,
+                ),
+            )
+            connection.execute(
+                """INSERT INTO armi.context_embedding_projections (
+                     context_embedding_projection_id,context_embedding_attempt_id,
+                     subject_id,life_generation_id,source_kind,source_ref,
+                     source_version,chunk_ordinal,chunk_text,retrieval_text,
+                     model_binding,embedding)
+                   VALUES (%s,%s,%s,%s,'subjective_memory',%s,1,0,%s,%s,%s,
+                           %s::armi_extensions.vector)""",
+                (
+                    _uuid7(),
+                    attempt_id,
+                    subject_id,
+                    generation_id,
+                    memory_id,
+                    "记得给编号 A-204 的蓝色设备做保养",
+                    "Memory: 记得给编号 A-204 的蓝色设备做保养",
+                    EMBEDDING_BINDING_ID,
+                    vector,
+                ),
+            )
+            connection.execute(
+                """UPDATE armi.context_embedding_coverage
+                   SET coverage_state='complete'
+                   WHERE model_binding=%s""",
+                (EMBEDDING_BINDING_ID,),
+            )
+            connection.execute("SET enable_seqscan = off")
+            dense_plan = "\n".join(
+                row[0]
+                for row in connection.execute(
+                    """EXPLAIN SELECT context_embedding_projection_id
+                       FROM armi.context_embedding_projections
+                       ORDER BY embedding::armi_extensions.halfvec(1024)
+                         OPERATOR(armi_extensions.<=>)
+                         %s::armi_extensions.halfvec(1024)
+                       LIMIT 256""",
+                    (vector,),
+                ).fetchall()
+            )
+            lexical_plan = "\n".join(
+                row[0]
+                for row in connection.execute(
+                    """EXPLAIN SELECT context_embedding_projection_id
+                       FROM armi.context_embedding_projections
+                       ORDER BY %s OPERATOR(armi_extensions.<<->) retrieval_text
+                       LIMIT 128""",
+                    ("A-204 蓝色设备",),
+                ).fetchall()
+            )
+            dense_result = connection.execute(
+                """SELECT source_ref,
+                          1-(embedding OPERATOR(armi_extensions.<=>)
+                             %s::armi_extensions.vector(1024)) AS score
+                   FROM armi.context_embedding_projections
+                   WHERE subject_id=%s AND life_generation_id=%s
+                     AND model_binding=%s
+                   ORDER BY embedding::armi_extensions.halfvec(1024)
+                     OPERATOR(armi_extensions.<=>)
+                     %s::armi_extensions.halfvec(1024)
+                   LIMIT 256""",
+                (
+                    vector,
+                    subject_id,
+                    generation_id,
+                    EMBEDDING_BINDING_ID,
+                    vector,
+                ),
+            ).fetchone()
+            lexical_result = connection.execute(
+                """SELECT source_ref,
+                          armi_extensions.word_similarity(%s,retrieval_text)
+                   FROM armi.context_embedding_projections
+                   WHERE subject_id=%s AND life_generation_id=%s
+                     AND model_binding=%s
+                   ORDER BY %s OPERATOR(armi_extensions.<<->) retrieval_text
+                   LIMIT 128""",
+                (
+                    "A-204 蓝色设备",
+                    subject_id,
+                    generation_id,
+                    EMBEDDING_BINDING_ID,
+                    "A-204 蓝色设备",
+                ),
+            ).fetchone()
+            connection.execute("SET session_replication_role = origin")
+        self.assertIn("context_embedding_projections_embedding_hnsw_idx", dense_plan)
+        self.assertIn("context_embedding_projections_retrieval_gist_idx", lexical_plan)
+        self.assertEqual(cast(tuple[Any, ...], dense_result)[0], memory_id)
+        self.assertGreater(float(cast(tuple[Any, ...], dense_result)[1]), 0.99)
+        self.assertEqual(cast(tuple[Any, ...], lexical_result)[0], memory_id)
+        self.assertGreater(float(cast(tuple[Any, ...], lexical_result)[1]), 0.3)
 
     def test_pending_alembic_revision_requires_explicit_apply(self) -> None:
         fixture = self.create_database()
@@ -1459,10 +1620,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             schema_root = Path(temporary) / "schema"
             shutil.copytree(source, schema_root)
-            (schema_root / "alembic/versions/0013_probe.py").write_text(
+            (schema_root / "alembic/versions/0015_probe.py").write_text(
                 "from alembic import op\n"
-                "revision = '0013'\n"
-                "down_revision = '0012'\n"
+                "revision = '0015'\n"
+                "down_revision = '0014'\n"
                 "branch_labels = None\n"
                 "depends_on = None\n"
                 "def upgrade(): op.execute('CREATE TABLE armi.revision_probe (id bigint PRIMARY KEY)')\n"
@@ -1517,8 +1678,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(migrated.status, "current")
             self.assertEqual(migrated.table_count, installed.table_count + 1)
-            self.assertEqual(migrated.current_revision, "0013")
-            self.assertEqual(migrated.head_revision, "0013")
+            self.assertEqual(migrated.current_revision, "0015")
+            self.assertEqual(migrated.head_revision, "0015")
             self.assertEqual(
                 gateway.migrate(
                     fixture.migrator_dsn,
@@ -1539,10 +1700,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             schema_root = Path(temporary) / "schema"
             shutil.copytree(source, schema_root)
-            (schema_root / "alembic/versions/0013_failing_probe.py").write_text(
+            (schema_root / "alembic/versions/0015_failing_probe.py").write_text(
                 "from alembic import op\n"
-                "revision = '0013'\n"
-                "down_revision = '0012'\n"
+                "revision = '0015'\n"
+                "down_revision = '0014'\n"
                 "branch_labels = None\n"
                 "depends_on = None\n"
                 "def upgrade():\n"
@@ -1567,7 +1728,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "SELECT version_num FROM armi.alembic_version"
                 ).fetchall()
             self.assertEqual(table, (None,))
-            self.assertEqual(history, [("0012",)])
+            self.assertEqual(history, [("0014",)])
 
     def test_p0_clean_environment_cli_start_restart_and_capacity(self) -> None:
         fixture = self.create_database()
@@ -7018,7 +7179,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 restored = connection.execute(
                     "SELECT version_num FROM armi.alembic_version"
                 ).fetchall()
-            self.assertEqual(restored, [("0010",)])
+            self.assertEqual(restored, [("0014",)])
 
             second_quarantine = root / "second-quarantine"
             second_quarantine.mkdir()

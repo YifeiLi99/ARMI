@@ -37,6 +37,7 @@ from .api import (
     MemoryContextItem,
     MemoryExperienceSource,
     MemoryLifeRecordItem,
+    MemoryProjectionHead,
     MemoryProjectionSource,
     MemoryRelationKind,
     MemoryRevisionKind,
@@ -633,6 +634,96 @@ class PostgreSQLMemoryOwner:
             )
         ).fetchall()
         return tuple(row[0] for row in rows)
+
+    async def projection_head_page(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        after_memory_id: UUID | None,
+        limit: int = 256,
+    ) -> tuple[MemoryProjectionHead, ...]:
+        rows = await (
+            await transaction.execute(
+                """SELECT memory.subject_id,memory.life_generation_id,
+                          memory.memory_id,memory.head_version
+                   FROM armi.subjective_memories AS memory
+                   JOIN armi.subjective_memory_revisions AS revision
+                     ON revision.memory_revision_id=memory.current_revision_id
+                   WHERE revision.accessibility IN ('available','faded')
+                     AND (%s::uuid IS NULL OR memory.memory_id>%s)
+                   ORDER BY memory.memory_id LIMIT %s""",
+                (after_memory_id, after_memory_id, limit),
+            )
+        ).fetchall()
+        return tuple(
+            MemoryProjectionHead(row[0], row[1], row[2], int(row[3])) for row in rows
+        )
+
+    async def filter_current_projection_heads(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        generation_id: UUID,
+        sources: tuple[MemoryCandidateSourceRef, ...],
+    ) -> tuple[MemoryCandidateSourceRef, ...]:
+        if not sources:
+            return ()
+        rows = await (
+            await transaction.execute(
+                """WITH requested AS (
+                     SELECT memory_id,head_version,ordinal
+                     FROM unnest(%s::uuid[],%s::bigint[]) WITH ORDINALITY
+                       AS source(memory_id,head_version,ordinal)
+                   )
+                   SELECT requested.memory_id,requested.head_version
+                   FROM requested
+                   JOIN armi.subjective_memories AS memory
+                     ON memory.memory_id=requested.memory_id
+                    AND memory.head_version=requested.head_version
+                   JOIN armi.subjective_memory_revisions AS revision
+                     ON revision.memory_revision_id=memory.current_revision_id
+                   WHERE memory.subject_id=%s
+                     AND memory.life_generation_id=%s
+                     AND revision.accessibility IN ('available','faded')
+                   ORDER BY requested.ordinal""",
+                (
+                    [source.memory_id for source in sources],
+                    [source.head_version for source in sources],
+                    subject_id,
+                    generation_id,
+                ),
+            )
+        ).fetchall()
+        return tuple(MemoryCandidateSourceRef(row[0], int(row[1])) for row in rows)
+
+    async def lock_current_projection_head(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        generation_id: UUID,
+        source: MemoryCandidateSourceRef,
+    ) -> bool:
+        row = await (
+            await transaction.execute(
+                """SELECT memory.memory_id
+                   FROM armi.subjective_memories AS memory
+                   JOIN armi.subjective_memory_revisions AS revision
+                     ON revision.memory_revision_id=memory.current_revision_id
+                   WHERE memory.memory_id=%s AND memory.head_version=%s
+                     AND memory.subject_id=%s AND memory.life_generation_id=%s
+                     AND revision.accessibility IN ('available','faded')
+                   FOR SHARE OF memory""",
+                (
+                    source.memory_id,
+                    source.head_version,
+                    subject_id,
+                    generation_id,
+                ),
+            )
+        ).fetchone()
+        return row is not None
 
     async def projection_sources(
         self,

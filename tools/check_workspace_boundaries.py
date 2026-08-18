@@ -2675,19 +2675,20 @@ def check_repository(root: Path) -> list[Violation]:
         "/schema/alembic/versions/0009_remove_shared_action_operations.py",
         "/schema/alembic/versions/0011_creator_cognition_branches.py",
         "/schema/alembic/versions/0012_local_hybrid_semantic_recall.py",
+        "/schema/alembic/versions/0013_scalable_semantic_recall.py",
     )
     unexpected_frozen_accesses = tuple(
         access
         for access in foreign_accesses
         if not any(access.path.endswith(path) for path in frozen_revision_paths)
     )
-    if len(foreign_accesses) != 30:
+    if len(foreign_accesses) != 31:
         violations.append(
             Violation(
                 "ARC-SQL-OWNER-BUDGET",
                 _relative(registry_path, root),
                 1,
-                "foreign SQL must be limited to the 30 frozen revision accesses: "
+                "foreign SQL must be limited to the 31 frozen revision accesses: "
                 f"raw={len(foreign_accesses)}",
             )
         )

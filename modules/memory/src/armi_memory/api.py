@@ -311,6 +311,14 @@ class MemoryProjectionSource:
 
 
 @dataclass(frozen=True, slots=True)
+class MemoryProjectionHead:
+    subject_id: UUID
+    generation_id: UUID
+    memory_id: UUID
+    head_version: int
+
+
+@dataclass(frozen=True, slots=True)
 class MemoryCandidateSourceRef:
     memory_id: UUID
     head_version: int
@@ -429,6 +437,32 @@ class MemoryCommitPort(Protocol):
 
 @runtime_checkable
 class MemoryProjectionPort(Protocol):
+    async def projection_head_page(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        after_memory_id: UUID | None,
+        limit: int = 256,
+    ) -> tuple[MemoryProjectionHead, ...]: ...
+
+    async def filter_current_projection_heads(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        generation_id: UUID,
+        sources: tuple[MemoryCandidateSourceRef, ...],
+    ) -> tuple[MemoryCandidateSourceRef, ...]: ...
+
+    async def lock_current_projection_head(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        generation_id: UUID,
+        source: MemoryCandidateSourceRef,
+    ) -> bool: ...
+
     async def projection_sources(
         self,
         transaction: PostgreSQLTransaction,
@@ -483,6 +517,7 @@ __all__ = (
     "MemoryExperienceSource",
     "MemoryFormationRequest",
     "MemoryLifeRecordItem",
+    "MemoryProjectionHead",
     "MemoryProjectionPort",
     "MemoryProjectionSource",
     "MemoryReadPort",
