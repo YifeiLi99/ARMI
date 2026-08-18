@@ -5,6 +5,7 @@ requires-python = "==3.14.*"
 [manifest]
 members = [
     "armi-activity",
+    "armi-adapter-esp32-display",
     "armi-adapter-qq",
     "armi-admin",
     "armi-artifact-store",
@@ -105,6 +106,23 @@ requires-dist = [
     { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
     { name = "psycopg-pool", specifier = "==3.3.1" },
     { name = "rfc8785", specifier = "==0.1.4" },
+]
+
+[[package]]
+name = "armi-adapter-esp32-display"
+version = "0.0.0"
+source = { editable = "packages/armi-adapter-esp32-display" }
+dependencies = [
+    { name = "armi-kernel" },
+    { name = "armi-mood" },
+    { name = "pyserial" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "armi-kernel", editable = "packages/armi-kernel" },
+    { name = "armi-mood", editable = "modules/mood" },
+    { name = "pyserial", specifier = "==3.5" },
 ]
 
 [[package]]
@@ -711,6 +729,7 @@ source = { editable = "apps/armi-runtime" }
 dependencies = [
     { name = "alembic" },
     { name = "armi-activity" },
+    { name = "armi-adapter-esp32-display" },
     { name = "armi-adapter-qq" },
     { name = "armi-artifact-store" },
     { name = "armi-attention" },
@@ -751,6 +770,7 @@ dependencies = [
 requires-dist = [
     { name = "alembic", specifier = "==1.18.5" },
     { name = "armi-activity", editable = "modules/activity" },
+    { name = "armi-adapter-esp32-display", editable = "packages/armi-adapter-esp32-display" },
     { name = "armi-adapter-qq", editable = "packages/armi-adapter-qq" },
     { name = "armi-artifact-store", editable = "packages/armi-artifact-store" },
     { name = "armi-attention", editable = "modules/attention" },
@@ -1747,6 +1767,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/fc/2b/1f3cded5822fd49c02f40544cbb5f58c7cfd6b1694869fd476cb6170ee97/pywin32-312-cp314-cp314-win32.whl", hash = "sha256:a77a90fbb6881238d2ca9c6fd797b25817f3768fe78d214a90137ff055a75f5b", size = 6468928, upload-time = "2026-06-04T07:49:43.188Z" },
     { url = "https://files.pythonhosted.org/packages/21/82/3bf86d2e2808902013132e1ce905a7da0da53790f3836c64bf44d55e24f3/pywin32-312-cp314-cp314-win_amd64.whl", hash = "sha256:a4dd3a848290ef724347b19f301045831d8e802fa4464f491b98b1e0a081432e", size = 7024157, upload-time = "2026-06-04T07:49:45.34Z" },
     { url = "https://files.pythonhosted.org/packages/a4/0e/73f6d6800b4f27655abd9e9f6aaeaefcddb2b946e4674efa2bab184a7f7b/pywin32-312-cp314-cp314-win_arm64.whl", hash = "sha256:9fce94568364e0155e6dfb781ac5d95903be8baf28670632beab1b523f300daa", size = 6839598, upload-time = "2026-06-04T07:49:47.613Z" },
+]
+
+[[package]]
+name = "pyserial"
+version = "3.5"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/1e/7d/ae3f0a63f41e4d2f6cb66a5b57197850f919f59e558159a4dd3a818f5082/pyserial-3.5.tar.gz", hash = "sha256:3c77e014170dfffbd816e6ffc205e9842efb10be9f58ec16d3e8675b4925cddb" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/07/bc/587a445451b253b285629263eb51c2d8e9bcea4fc97826266d186f96f558/pyserial-3.5-py2.py3-none-any.whl", hash = "sha256:c4451db6ba391ca6ca299fb3ec7bae67a5c55dde170964c7a14ceefec02f2cf0" },
 ]
 
 [[package]]

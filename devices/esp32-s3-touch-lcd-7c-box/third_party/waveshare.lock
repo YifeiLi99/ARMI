@@ -1,0 +1,4 @@
+source=https://github.com/waveshareteam/ESP32-S3-Touch-LCD-7C
+commit=98618ce7e3154cd2f77051288e144008632bbd85
+license=Apache-2.0
+reference=example/esp-idf/10_LVGL_CODEC

@@ -5,6 +5,7 @@ requires-python = ">=3.14,<3.15"
 dependencies = [
     "alembic==1.18.5",
     "armi-adapter-qq==0.0.0",
+    "armi-adapter-esp32-display==0.0.0",
     "armi-artifact-store==0.0.0",
     "armi-capability==0.0.0",
     "armi-cognition==0.0.0",
@@ -47,6 +48,7 @@ armi-codex-runner = "armi_runtime.codex_runner_cli:main"
 
 [tool.uv.sources]
 armi-adapter-qq = { workspace = true }
+armi-adapter-esp32-display = { workspace = true }
 armi-artifact-store = { workspace = true }
 armi-capability = { workspace = true }
 armi-cognition = { workspace = true }

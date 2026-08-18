@@ -11,6 +11,7 @@ from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
 
+from armi_adapter_esp32_display import MoodDisplayViolation, probe_device
 from armi_kernel.application import BirthViolation
 
 from armi_runtime.composition.bootstrap import execute_birth
@@ -100,6 +101,14 @@ def _parser() -> argparse.ArgumentParser:
                     "automatically; this can expose it in browser or process history"
                 ),
             )
+    device = command.add_parser("device")
+    device_command = device.add_subparsers(dest="device_command", required=True)
+    mood_display = device_command.add_parser("mood-display")
+    mood_display_command = mood_display.add_subparsers(
+        dest="mood_display_command", required=True
+    )
+    mood_display_probe = mood_display_command.add_parser("probe")
+    mood_display_probe.add_argument("--port", required=True)
     database = command.add_parser("db")
     database_command = database.add_subparsers(dest="database_command", required=True)
     database_status = database_command.add_parser("status")
@@ -228,6 +237,34 @@ def _creator_message(args: argparse.Namespace) -> str:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.command == "device":
+        try:
+            result = probe_device(str(args.port))
+        except (MoodDisplayViolation, OSError) as error:
+            code = getattr(error, "code", "MOOD-DISPLAY-UNAVAILABLE")
+            print(
+                json.dumps(
+                    {"status": "unavailable", "code": code},
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+                file=sys.stderr,
+            )
+            return 3
+        print(
+            json.dumps(
+                {
+                    "status": "available",
+                    "device_id": result.device_id,
+                    "firmware_version": result.firmware_version,
+                    "protocol_version": result.protocol_version,
+                    "boot_id": result.boot_id,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+        return 0
     if args.command == "recovery" and args.recovery_command in {"verify", "drill"}:
         try:
             if args.recovery_command == "verify":

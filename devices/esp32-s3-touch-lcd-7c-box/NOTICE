@@ -1,0 +1,15 @@
+ARMI Mood Display firmware
+
+Board-level RGB timing and pin assignments were independently adapted from the
+Waveshare ESP32-S3-Touch-LCD-7C engineering examples at commit
+98618ce7e3154cd2f77051288e144008632bbd85.
+
+Copyright (c) Waveshare team.
+Licensed under the Apache License, Version 2.0.
+Source: https://github.com/waveshareteam/ESP32-S3-Touch-LCD-7C
+
+ESP-IDF is Copyright (c) Espressif Systems (Shanghai) CO LTD and distributed
+under the Apache License, Version 2.0.
+
+No Waveshare source file is copied into this directory. The source reference is
+retained so pin assignments and timing can be audited against the board sample.

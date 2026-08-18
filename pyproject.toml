@@ -24,6 +24,7 @@ members = [
     "packages/armi-postgresql-contract",
     "packages/armi-channel-napcat",
     "packages/armi-adapter-qq",
+    "packages/armi-adapter-esp32-display",
     "packages/armi-runtime-foundation",
     "modules/capability",
     "modules/relationship",

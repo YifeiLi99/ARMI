@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import UUID
 
+from armi_adapter_esp32_display import ProbeResult
 from armi_kernel.application import BirthResult
 from armi_kernel.contracts import Digest
 from armi_runtime.cli import main
@@ -53,6 +54,26 @@ def make_environment(
 
 
 class RuntimeCliTests(unittest.TestCase):
+    def test_mood_display_probe_uses_device_without_environment(self) -> None:
+        output = io.StringIO()
+        with (
+            patch(
+                "armi_runtime.cli.probe_device",
+                return_value=ProbeResult(
+                    "mood-window-1",
+                    "0.1.0",
+                    "armi.mood-display.v1",
+                    "boot-1",
+                ),
+            ) as probe,
+            redirect_stdout(output),
+        ):
+            exit_code = main(("device", "mood-display", "probe", "--port", "COM7"))
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(json.loads(output.getvalue())["device_id"], "mood-window-1")
+        probe.assert_called_once_with("COM7")
+
     def test_semantic_recall_calibrate_requires_stopped_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

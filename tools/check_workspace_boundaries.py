@@ -97,6 +97,17 @@ DISTRIBUTIONS = (
         ),
     ),
     Distribution(
+        name="armi-adapter-esp32-display",
+        module="armi_adapter_esp32_display",
+        project_dir=Path("packages/armi-adapter-esp32-display"),
+        layers=(),
+        dependencies=(
+            "armi-kernel==0.0.0",
+            "armi-mood==0.0.0",
+            "pyserial==3.5",
+        ),
+    ),
+    Distribution(
         name="armi-runtime-foundation",
         module="armi_runtime_foundation",
         project_dir=Path("packages/armi-runtime-foundation"),
@@ -428,6 +439,7 @@ DISTRIBUTIONS = (
         dependencies=(
             "alembic==1.18.5",
             "armi-adapter-qq==0.0.0",
+            "armi-adapter-esp32-display==0.0.0",
             "armi-artifact-store==0.0.0",
             "armi-capability==0.0.0",
             "armi-cognition==0.0.0",
@@ -1815,6 +1827,8 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         / "packages/armi-channel-napcat/src/armi_channel_napcat/__init__.py",
         "armi_adapter_qq": root
         / "packages/armi-adapter-qq/src/armi_adapter_qq/__init__.py",
+        "armi_adapter_esp32_display": root
+        / "packages/armi-adapter-esp32-display/src/armi_adapter_esp32_display/__init__.py",
         "armi_runtime_foundation": root
         / "packages/armi-runtime-foundation/src/armi_runtime_foundation/__init__.py",
         "armi_capability": root / "modules/capability/src/armi_capability/__init__.py",

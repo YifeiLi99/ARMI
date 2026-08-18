@@ -15,6 +15,11 @@ from uuid import uuid7
 
 import uvicorn
 from armi_activity.api import ActivityViolation
+from armi_adapter_esp32_display import (
+    MoodDisplayAdapter,
+    MoodDisplayViolation,
+    load_mood_display_config,
+)
 from armi_artifact_store.bootstrap import bootstrap_artifact_catalog
 from armi_attention.api import LifeViolation
 from armi_attention.bootstrap import (
@@ -190,6 +195,12 @@ async def _serve(
     creator_web_resources: Path | None,
 ) -> int:
     config = prepared.effective.config
+    try:
+        mood_display_config = load_mood_display_config(prepared.root)
+    except MoodDisplayViolation as error:
+        raise RuntimeViolation(
+            error.code, "mood display configuration is invalid"
+        ) from error
     instance_uuid = uuid7()
     instance_id = str(instance_uuid)
     lifecycle = LifecycleController(
@@ -239,6 +250,7 @@ async def _serve(
     sleep_module = None
     subject_state_module = None
     mood_module = None
+    mood_display: MoodDisplayAdapter | None = None
     prompt_module = None
     creator_events: CreatorEventBroker | None = None
     creator_input = None
@@ -294,6 +306,24 @@ async def _serve(
                 authority_admission=authority.require_writable,
             )
             await runtime_unit_of_work_factory.open()
+            if mood_display_config is not None and mood_display_config.enabled:
+                display_subject_id = authority.require_writable().subject_id
+
+                async def read_mood_display_snapshot():
+                    if runtime_unit_of_work_factory is None or mood_module is None:
+                        raise RuntimeViolation(
+                            "MOOD-DISPLAY-RUNTIME", "mood display is unavailable"
+                        )
+                    async with runtime_unit_of_work_factory.unit_of_work(
+                        read_only=True
+                    ) as unit:
+                        return await mood_module.read.snapshot(
+                            unit.transaction, subject_id=display_subject_id
+                        )
+
+                mood_display = MoodDisplayAdapter(
+                    mood_display_config, read_mood_display_snapshot
+                )
             artifact_catalog = bootstrap_artifact_catalog()
             effect_owner = bootstrap_effect_operation_read()
             interaction_identity = compose_interaction_identity()
@@ -1119,6 +1149,11 @@ async def _serve(
             supervisor.start(
                 observation_driver.run(),
                 name="runtime-observability",
+            )
+        if mood_display is not None:
+            supervisor.start(
+                mood_display.run(),
+                name="mood-display-adapter",
             )
         if context_pipeline is not None:
             supervisor.start(
