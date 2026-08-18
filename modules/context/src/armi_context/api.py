@@ -266,7 +266,7 @@ EMBEDDING_QUERY_INSTRUCTION = (
 )
 EMBEDDING_QUERY_MAX_CHARS = 700
 SEMANTIC_RECALL_PROFILE_ID = (
-    "armi.semantic-recall.hybrid-hnsw-gist-exact-rerank.v1"
+    "armi.semantic-recall.hybrid-hnsw-gist-exact-rerank.v2"
 )
 
 
@@ -346,7 +346,7 @@ def load_embedding_binding(path: Path) -> EmbeddingBinding:
         "hnsw_ef_search": 256,
         "lexical_candidates": 128,
         "lexical_final_candidates": 32,
-        "dense_min_similarity": 0.30,
+        "dense_min_similarity": 0.40,
         "lexical_min_similarity": 0.30,
         "fusion_rrf_k": 60,
         "document_batch_size": 8,

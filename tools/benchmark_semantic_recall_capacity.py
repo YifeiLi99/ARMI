@@ -128,19 +128,19 @@ def _insert_rows(
     return time.perf_counter() - started
 
 
-def _build_indexes(connection: psycopg.Connection[Any]) -> float:
+def _build_indexes(connection: psycopg.Connection[Any], gist_siglen: int) -> float:
     connection.execute("SET maintenance_work_mem='1GB'")
     connection.execute("SET max_parallel_maintenance_workers=7")
     started = time.perf_counter()
     connection.execute(
-        """CREATE INDEX projections_embedding_hnsw_idx
+        f"""CREATE INDEX projections_embedding_hnsw_idx
              ON bench.projections USING hnsw (
                (embedding::armi_extensions.halfvec(1024))
                  armi_extensions.halfvec_cosine_ops
              ) WITH (m=16,ef_construction=128);
            CREATE INDEX projections_retrieval_gist_idx
              ON bench.projections USING gist (
-               retrieval_text armi_extensions.gist_trgm_ops(siglen=64)
+               retrieval_text armi_extensions.gist_trgm_ops(siglen={gist_siglen})
              );"""
     )
     connection.commit()
@@ -247,7 +247,10 @@ def _pipeline_once(
 
 
 def _benchmark(
-    connection: psycopg.Connection[Any], rows: int, queries: int
+    connection: psycopg.Connection[Any],
+    rows: int,
+    queries: int,
+    gist_siglen: int,
 ) -> dict[str, object]:
     sample_ids = _sample_ids(rows, queries)
     vectors = {
@@ -295,6 +298,7 @@ def _benchmark(
     return {
         "rows": rows,
         "queries": queries,
+        "gist_siglen": gist_siglen,
         "ann_recall_at_32": ann_recall,
         "database_pipeline_ms": {
             "median": round(sorted(latencies)[len(latencies) // 2], 3),
@@ -319,6 +323,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--rows", type=int, default=100_000)
     parser.add_argument("--queries", type=int, default=30)
+    parser.add_argument("--gist-siglen", type=int, choices=(64, 128, 256), default=64)
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     args = parser.parse_args()
     if args.rows < 10_000 or args.queries < 10:
@@ -385,10 +390,12 @@ def main() -> int:
                 _create_schema(connection)
                 connection.commit()
                 insert_seconds = _insert_rows(connection, 1, args.rows)
-                index_seconds = _build_indexes(connection)
+                index_seconds = _build_indexes(connection, args.gist_siglen)
                 connection.execute("ANALYZE bench.projections")
                 connection.commit()
-                result = _benchmark(connection, args.rows, args.queries)
+                result = _benchmark(
+                    connection, args.rows, args.queries, args.gist_siglen
+                )
             stats = _run(
                 [
                     "docker",

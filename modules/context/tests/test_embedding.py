@@ -43,13 +43,14 @@ def test_embedding_binding_is_fixed_and_local() -> None:
     assert binding.normalization == "l2"
     assert binding.document_batch_size == 8
     assert binding.retrieval_profile == (
-        "armi.semantic-recall.hybrid-hnsw-gist-exact-rerank.v1"
+        "armi.semantic-recall.hybrid-hnsw-gist-exact-rerank.v2"
     )
     assert binding.dense_ann_candidates == 256
     assert binding.dense_final_candidates == 32
     assert binding.hnsw_ef_search == 256
     assert binding.lexical_candidates == 128
     assert binding.lexical_final_candidates == 32
+    assert binding.dense_min_similarity == 0.40
 
 
 def test_life_material_chunking_is_deterministic_with_fixed_overlap() -> None:
