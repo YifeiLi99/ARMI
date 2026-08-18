@@ -9,6 +9,7 @@ import asyncio
 import json
 import math
 import selectors
+import time
 from pathlib import Path
 
 from armi_context.api import load_embedding_binding
@@ -99,9 +100,89 @@ _CASES = (
         "会议室预订名称是 Nebula，门禁临时码 6048。",
         ("会议室预订名", "Nebula 的门禁码", "6048 用在哪里"),
     ),
+    (
+        "外婆的助听器电池型号是 A312，每周日晚上检查余量。",
+        ("外婆助听器用什么电池", "A312 是哪件设备的", "周日晚上要检查什么"),
+    ),
+    (
+        "工作室打印机叫 CloudInk，彩色墨盒编号 C-881。",
+        ("工作室打印机叫什么", "C-881 是什么耗材", "CloudInk 的彩色墨盒编号"),
+    ),
+    (
+        "给陈医生复诊的日期是十二月六日，带上最近三次血压记录。",
+        ("什么时候去找陈医生复诊", "复诊要带哪些记录", "十二月六日有什么安排"),
+    ),
+    (
+        "阳台薄荷每天早晨浇水，连续阴雨天暂停。",
+        ("薄荷什么时候浇水", "什么天气不用浇薄荷", "阳台香草的养护习惯"),
+    ),
+    (
+        "摄影硬盘的卷标是 NightHarbor，恢复密钥纸放在灰色文件夹。",
+        ("摄影硬盘叫什么", "NightHarbor 的恢复密钥在哪", "灰色文件夹放了什么"),
+    ),
+    (
+        "小顾喝拿铁只要燕麦奶，不加肉桂粉。",
+        ("小顾的拿铁用什么奶", "谁不在咖啡里加肉桂", "给小顾点咖啡要避开什么"),
+    ),
+    (
+        "租用储物柜编号 B-042，合同到期日是 2028-03-31。",
+        ("储物柜编号是多少", "B-042 的合同何时到期", "2028年三月底到期的是什么"),
+    ),
+    (
+        "周五例会使用链接别名 orbit-sync，会议提前五分钟进入。",
+        ("周五例会链接别名", "orbit-sync 是什么", "例会应该提前多久进入"),
+    ),
+    (
+        "给雪球买的猫砂必须无香，颗粒直径不超过两毫米。",
+        ("雪球的猫砂能不能有香味", "猫砂颗粒尺寸要求", "给哪只猫买无香猫砂"),
+    ),
+    (
+        "厨房净水器滤芯型号 RF-9，累计九个月更换一次。",
+        ("净水器滤芯型号", "RF-9 多久换一次", "九个月要更换哪件东西"),
+    ),
+    (
+        "夏季电费自动扣款卡尾号 2841，每月预留八百元。",
+        ("电费从哪张卡扣", "2841 对应什么付款", "夏天每月要预留多少电费"),
+    ),
+    (
+        "阿岚的英文名拼作 Arlen，不是 Allen。",
+        ("阿岚英文名怎么拼", "Arlen 指的是谁", "哪个英文拼法是错的"),
+    ),
+    (
+        "蓝门诊所的停车入口在北侧，导航搜索 Gate-N2。",
+        ("蓝门诊所从哪边停车", "Gate-N2 用来导航到哪里", "诊所停车导航词"),
+    ),
+    (
+        "项目账本只在每月最后一个工作日归档，文件名以 ledger-z 开头。",
+        ("项目账本什么时候归档", "账本文件名前缀", "ledger-z 是什么文件"),
+    ),
+    (
+        "客厅投影仪的 HDMI 2 接游戏机，HDMI 1 留给电视盒。",
+        ("游戏机接投影仪哪个口", "HDMI 1 接什么", "电视盒使用哪个接口"),
+    ),
+    (
+        "雨伞维修取件码是 RAIN-530，取件点晚上九点关门。",
+        ("雨伞维修取件码", "RAIN-530 去哪里用", "取件点几点关门"),
+    ),
+    (
+        "爷爷的围棋课在文化馆三楼 307 室，每隔周六上课。",
+        ("爷爷在哪里上围棋课", "307 室是什么课程", "围棋课多久一次"),
+    ),
+    (
+        "烘焙用电子秤校准砝码是五百克，编号 WT-500C。",
+        ("电子秤用多重砝码校准", "WT-500C 是什么", "烘焙秤校准编号"),
+    ),
+    (
+        "露营炉只能使用丁烷罐，仓库里那箱丙烷罐不要拿。",
+        ("露营炉用哪种燃料", "哪箱燃气不能拿", "为什么不要带丙烷罐"),
+    ),
+    (
+        "送给苏老师的书要寄到东湖校区收发室，备注编号 T-19。",
+        ("苏老师的书寄到哪里", "T-19 是什么备注", "东湖校区收发室要收什么"),
+    ),
 )
 
-_NEGATIVES = (
+_NEGATIVE_TOPICS = (
     "今天国际金价是多少",
     "解释量子色动力学",
     "推荐一款最新手机",
@@ -112,6 +193,37 @@ _NEGATIVES = (
     "查询上海实时降雨",
     "介绍古罗马元老院",
     "计算木星逃逸速度",
+    "说明拜占庭税制",
+    "分析深海热泉生态",
+    "介绍量子霍尔效应",
+    "比较两种火箭燃料",
+    "讲解珊瑚白化原因",
+    "推导傅里叶变换",
+    "介绍玛雅历法",
+    "解释恒星核聚变",
+    "说明冰川地貌形成",
+    "设计一座公共图书馆",
+)
+
+
+def _positive_queries(queries: tuple[str, str, str]) -> tuple[str, ...]:
+    return (
+        *queries,
+        f"你还记得{queries[0]}吗",
+        f"帮我回想一下：{queries[1]}",
+    )
+
+
+_NEGATIVES = tuple(
+    variant
+    for topic in _NEGATIVE_TOPICS
+    for variant in (
+        topic,
+        f"请简单{topic}",
+        f"我想了解：{topic}",
+        f"能不能详细{topic}",
+        f"关于这个问题，请{topic}",
+    )
 )
 
 
@@ -136,9 +248,12 @@ async def _evaluate(environment_root: Path) -> dict[str, object]:
             for response in await adapter.embed_documents(texts[offset : offset + 8])
         )
     positive_rankings: list[tuple[int, list[tuple[int, float]]]] = []
+    query_latencies_ms: list[float] = []
     for expected, (_document, queries) in enumerate(_CASES):
-        for query in queries:
+        for query in _positive_queries(queries):
+            started = time.perf_counter()
             vector = (await adapter.embed_query(query)).vector
+            query_latencies_ms.append((time.perf_counter() - started) * 1000)
             ranked = sorted(
                 (
                     (index, _cosine(vector, document))
@@ -149,7 +264,9 @@ async def _evaluate(environment_root: Path) -> dict[str, object]:
             positive_rankings.append((expected, ranked))
     negative_maxima: list[float] = []
     for query in _NEGATIVES:
+        started = time.perf_counter()
         vector = (await adapter.embed_query(query)).vector
+        query_latencies_ms.append((time.perf_counter() - started) * 1000)
         negative_maxima.append(max(_cosine(vector, document) for document in documents))
     grid: list[dict[str, float]] = []
     for threshold in (0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60):
@@ -157,10 +274,17 @@ async def _evaluate(environment_root: Path) -> dict[str, object]:
             expected in [index for index, score in ranked if score >= threshold][:6]
             for expected, ranked in positive_rankings
         )
+        top1_hits = sum(
+            bool(ranked)
+            and ranked[0][0] == expected
+            and ranked[0][1] >= threshold
+            for expected, ranked in positive_rankings
+        )
         false_recalls = sum(score >= threshold for score in negative_maxima)
         grid.append(
             {
                 "threshold": threshold,
+                "top1": round(top1_hits / len(positive_rankings), 4),
                 "recall_at_6": round(hits / len(positive_rankings), 4),
                 "negative_false_recall_rate": round(false_recalls / len(_NEGATIVES), 4),
             }
@@ -168,7 +292,11 @@ async def _evaluate(environment_root: Path) -> dict[str, object]:
     eligible = [item for item in grid if item["negative_false_recall_rate"] <= 0.1]
     selected = max(
         eligible,
-        key=lambda item: (item["recall_at_6"], item["threshold"]),
+        key=lambda item: (
+            item["recall_at_6"],
+            item["top1"],
+            item["threshold"],
+        ),
     )
     return {
         "positive_samples": len(positive_rankings),
@@ -176,8 +304,13 @@ async def _evaluate(environment_root: Path) -> dict[str, object]:
         "binding_dense_threshold": adapter.binding.dense_min_similarity,
         "selected": selected,
         "grid": grid,
+        "query_embedding_p95_ms": round(
+            sorted(query_latencies_ms)[math.ceil(len(query_latencies_ms) * 0.95) - 1],
+            2,
+        ),
         "passed": selected["threshold"] == adapter.binding.dense_min_similarity
-        and selected["recall_at_6"] >= 0.9,
+        and selected["recall_at_6"] >= 0.9333
+        and selected["top1"] >= 0.9167,
     }
 
 
