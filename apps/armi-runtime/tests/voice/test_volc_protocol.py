@@ -201,3 +201,31 @@ async def test_tts_reuses_prepared_connection_for_multiple_sessions(
     assert socket.events.count(102) == 2
     assert socket.events.count(2) == 1
     assert socket.closed is True
+
+
+@pytest.mark.asyncio
+async def test_tts_propagates_text_stream_failure_without_waiting_for_session_end(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    socket = FakeTtsSocket()
+
+    async def connect(*_: object, **__: object):
+        return socket
+
+    monkeypatch.setattr(
+        volc_module.importlib,
+        "import_module",
+        lambda _: SimpleNamespace(connect=connect),
+    )
+    tts = VolcStreamingTts(VolcCredentials("app", "token"))
+
+    async def failing_fragments():
+        yield "已经发出的片段"
+        raise LiveVoiceViolation("VOICE-FAST-PROTOCOL", "bad trailing output")
+
+    async def consume() -> None:
+        async for _ in tts.synthesize(failing_fragments()):
+            pass
+
+    with pytest.raises(LiveVoiceViolation, match="bad trailing output"):
+        await asyncio.wait_for(consume(), timeout=1)

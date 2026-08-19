@@ -11,7 +11,7 @@ from armi_live_voice.api import (
     RecognitionEvent,
     VoiceContext,
 )
-from armi_live_voice.service import LiveVoiceService
+from armi_live_voice.service import LiveVoiceService, _stream_speak_fragments
 
 
 class FakeAudio:
@@ -42,6 +42,12 @@ class FakeAsr:
 
 
 class FakeModel:
+    def __init__(self, log: list[str]) -> None:
+        self.log = log
+
+    async def prepare(self) -> None:
+        self.log.append("model_ready")
+
     async def generate(
         self, context: VoiceContext, transcript: str
     ) -> AsyncIterator[str]:
@@ -107,7 +113,7 @@ async def test_fast_speech_is_registered_before_audio_and_appraisal_is_async() -
     service = LiveVoiceService(
         audio=FakeAudio(log),
         asr=FakeAsr(),
-        model=FakeModel(),
+        model=FakeModel(log),
         tts=FakeTts(log),
         context=FakeContext(),
         inputs=FakeInputs(),
@@ -117,6 +123,35 @@ async def test_fast_speech_is_registered_before_audio_and_appraisal_is_async() -
     await service.start()
     await asyncio.wait_for(successors.appraised.wait(), timeout=1)
     await service.stop()
-    assert log[0] == "tts_ready"
-    assert log[1:4] == ["registered", "synthesized", "played"]
+    assert set(log[:2]) == {"model_ready", "tts_ready"}
+    synthesized = log.index("synthesized")
+    assert log[2:synthesized] == ["registered", "registered"]
+    assert log[synthesized : synthesized + 2] == ["synthesized", "played"]
     assert log.count("sealed") == 1
+
+
+@pytest.mark.asyncio
+async def test_streaming_speech_accepts_only_trailing_whitespace_after_body() -> None:
+    async def remaining() -> AsyncIterator[str]:
+        yield "协力。\n"
+        yield " "
+
+    fragments = [
+        fragment async for fragment in _stream_speak_fragments("齐心", remaining())
+    ]
+
+    assert "".join(fragments) == "齐心协力。"
+
+
+@pytest.mark.asyncio
+async def test_streaming_speech_emits_first_model_delta_without_chunk_wait() -> None:
+    release = asyncio.Event()
+
+    async def remaining() -> AsyncIterator[str]:
+        yield "齐"
+        await release.wait()
+
+    fragments = _stream_speak_fragments("", remaining())
+
+    assert await asyncio.wait_for(anext(fragments), timeout=0.02) == "齐"
+    await fragments.aclose()

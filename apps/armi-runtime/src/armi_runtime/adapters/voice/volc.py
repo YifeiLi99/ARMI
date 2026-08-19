@@ -353,8 +353,22 @@ class VolcStreamingTts:
                 feeder = asyncio.create_task(feed_text())
                 try:
                     while True:
+                        receiver = asyncio.create_task(socket.recv())
+                        waiting = {receiver}
+                        if not feeder.done():
+                            waiting.add(feeder)
+                        done, _ = await asyncio.wait(
+                            waiting, return_when=asyncio.FIRST_COMPLETED
+                        )
+                        if feeder in done and not feeder.cancelled():
+                            feeder_error = feeder.exception()
+                            if feeder_error is not None:
+                                receiver.cancel()
+                                with contextlib.suppress(asyncio.CancelledError):
+                                    await receiver
+                                raise feeder_error
                         response = decode_message(
-                            await socket.recv(), event_has_session=True
+                            await receiver, event_has_session=True
                         )
                         _raise_provider_error(response, "TTS")
                         if response.event == _TTS_RESPONSE:

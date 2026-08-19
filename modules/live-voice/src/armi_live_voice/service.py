@@ -91,8 +91,9 @@ class LiveVoiceService:
 
     async def _run(self) -> None:
         try:
-            context, _ = await asyncio.gather(
+            context, _, _ = await asyncio.gather(
                 self._context.compile(),
+                self._model.prepare(),
                 self._tts.prepare(),
             )
             self._machine.transition(LiveVoiceSessionState.LISTENING)
@@ -225,6 +226,8 @@ async def _stream_speak_fragments(
     producer = asyncio.create_task(produce())
     buffer = ""
     total = 0
+    text_ended = False
+    first_fragment = True
     breaks = frozenset("。\uff01\uff1f!?\uff1b;\uff0c,、\uff1a:")
     try:
         while True:
@@ -239,18 +242,34 @@ async def _stream_speak_fragments(
                 if tail:
                     yield tail
                 return
+            if text_ended:
+                if item.strip():
+                    raise LiveVoiceViolation(
+                        "VOICE-FAST-PROTOCOL", "SPEAK text is invalid"
+                    )
+                continue
             buffer += item
             total += len(item)
-            if total > 160 or "\n" in buffer:
+            if "\n" in buffer:
+                body, trailing = buffer.split("\n", 1)
+                if trailing.strip():
+                    raise LiveVoiceViolation(
+                        "VOICE-FAST-PROTOCOL", "SPEAK text is invalid"
+                    )
+                buffer = body
+                text_ended = True
+            if total > 160:
                 raise LiveVoiceViolation("VOICE-FAST-PROTOCOL", "SPEAK text is invalid")
             if buffer and (
-                len(buffer) >= 48
+                first_fragment
+                or len(buffer) >= 48
                 or (len(buffer) >= 12 and buffer[-1] in breaks)
                 or item == ""
             ):
                 fragment = buffer.strip()
                 buffer = ""
                 if fragment:
+                    first_fragment = False
                     yield fragment
     finally:
         producer.cancel()

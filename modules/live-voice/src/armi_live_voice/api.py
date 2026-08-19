@@ -303,6 +303,7 @@ class StreamingAsrPort(Protocol):
 
 @runtime_checkable
 class StreamingFastModelPort(Protocol):
+    async def prepare(self) -> None: ...
     def generate(
         self, context: VoiceContext, transcript: str
     ) -> AsyncIterator[str]: ...
