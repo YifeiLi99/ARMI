@@ -101,6 +101,47 @@ class CreatorInputCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class CreatorVoiceInputCommand:
+    """A final local live-voice transcript awaiting a fast-route decision."""
+
+    scene_key: str
+    transcript: str
+    idempotency_key: IdempotencyKey
+    trace_id: TraceId
+
+    def __post_init__(self) -> None:
+        CreatorInputCommand(
+            scene_key=self.scene_key,
+            message=self.transcript,
+            idempotency_key=self.idempotency_key,
+            trace_id=self.trace_id,
+        )
+
+    @property
+    def transcript_bytes(self) -> bytes:
+        return self.transcript.encode("utf-8", errors="strict")
+
+
+@dataclass(frozen=True, slots=True)
+class CreatorVoiceInputAcceptance:
+    interaction_id: CreatorInteractionId
+    evidence_id: EvidenceId
+    request_digest: Digest
+    content_digest: Digest
+    newly_accepted: bool = field(compare=False)
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.interaction_id) is not CreatorInteractionId
+            or type(self.evidence_id) is not EvidenceId
+            or type(self.request_digest) is not Digest
+            or type(self.content_digest) is not Digest
+            or type(self.newly_accepted) is not bool
+        ):
+            raise CreatorInputViolation("CON-INPUT-ACCEPTANCE")
+
+
+@dataclass(frozen=True, slots=True)
 class CreatorInputAcceptance:
     interaction_id: CreatorInteractionId
     evidence_id: EvidenceId
@@ -316,6 +357,24 @@ class CreatorInputAcceptancePort(Protocol):
 
 
 @runtime_checkable
+class CreatorVoiceInputAcceptancePort(Protocol):
+    async def accept_voice(
+        self, command: CreatorVoiceInputCommand
+    ) -> CreatorVoiceInputAcceptance:
+        """Accept one final transcript without admitting the normal reply yet."""
+        ...
+
+
+@runtime_checkable
+class CreatorVoiceInputSuccessorPort(Protocol):
+    async def release_voice_slow(
+        self, acceptance: CreatorVoiceInputAcceptance
+    ) -> OpportunityId:
+        """Admit the normal cognition successor for the same accepted evidence."""
+        ...
+
+
+@runtime_checkable
 class CreatorOperationQueryPort(Protocol):
     async def get(self, opportunity_id: OpportunityId) -> CreatorOperation:
         """Return one authorized operation projection from authoritative facts."""
@@ -333,5 +392,9 @@ __all__ = (
     "CreatorOperation",
     "CreatorOperationPhase",
     "CreatorOperationQueryPort",
+    "CreatorVoiceInputAcceptance",
+    "CreatorVoiceInputAcceptancePort",
+    "CreatorVoiceInputCommand",
+    "CreatorVoiceInputSuccessorPort",
     "OpportunityId",
 )

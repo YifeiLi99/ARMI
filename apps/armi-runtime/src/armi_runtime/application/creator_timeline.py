@@ -56,6 +56,7 @@ class CreatorTimelineProjectionAssembler(InteractionCreatorTimelineProjectionPor
         interaction_id: UUID,
         purpose: str,
         content_digest: Digest,
+        modality: str,
     ) -> InteractionCreatorTimelineProjection:
         transaction = unit_of_work.transaction
         if purpose == "codex_task_request":
@@ -86,17 +87,18 @@ class CreatorTimelineProjectionAssembler(InteractionCreatorTimelineProjectionPor
             evidence_id=evidence_id.value,
             purpose=opportunity_purpose,
         )
-        if opportunity_id is None:
+        if opportunity_id is None and modality != "live_voice":
             raise RuntimeError("CREATOR-TIMELINE-SOURCE")
-        opportunity = await self._opportunity_read.context_snapshot(
-            transaction, opportunity_id=opportunity_id.value
-        )
+        operation_ref = None
+        if opportunity_id is not None:
+            opportunity = await self._opportunity_read.context_snapshot(
+                transaction, opportunity_id=opportunity_id.value
+            )
+            operation_ref = opportunity.root_opportunity_id
         artifact = await self._catalog.get(
             unit_of_work, ArtifactId(evidence.artifact_id)
         )
-        return InteractionCreatorTimelineProjection(
-            opportunity.root_opportunity_id, artifact, purpose
-        )
+        return InteractionCreatorTimelineProjection(operation_ref, artifact, purpose)
 
     async def subject_commit(
         self,

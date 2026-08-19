@@ -173,6 +173,7 @@ class SceneTimelineItem:
     operation_ref: UUID | None = None
     effect_ref: UUID | None = None
     message: str | None = None
+    modality: str = "text"
 
     def __post_init__(self) -> None:
         if type(self.timeline_item_id) is not TimelineItemId:
@@ -191,9 +192,15 @@ class SceneTimelineItem:
             _require_uuid7(self.operation_ref, "CON-SCENE-OPERATION")
         if self.effect_ref is not None:
             _require_uuid7(self.effect_ref, "CON-SCENE-EFFECT")
-        if (self.source_kind in {"creator_input", "subject_commit"}) != (
-            self.operation_ref is not None
-        ):
+        if self.modality not in {"text", "media_file", "live_voice"}:
+            raise SceneQueryViolation("CON-SCENE-MODALITY")
+        operation_required = self.source_kind in {"creator_input", "subject_commit"}
+        operation_optional = (
+            self.source_kind == "creator_input" and self.modality == "live_voice"
+        )
+        if operation_required and not operation_optional and self.operation_ref is None:
+            raise SceneQueryViolation("CON-SCENE-OPERATION")
+        if not operation_required and self.operation_ref is not None:
             raise SceneQueryViolation("CON-SCENE-OPERATION")
         if (self.source_kind == "creator_response") != (self.effect_ref is not None):
             raise SceneQueryViolation("CON-SCENE-EFFECT")

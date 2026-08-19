@@ -27,6 +27,7 @@ from ._creator_contract import (
     CreatorInputContext,
     CreatorInputViolation,
     CreatorInteractionId,
+    CreatorVoiceInputAcceptance,
     OpportunityId,
 )
 
@@ -161,6 +162,45 @@ class CreatorInputRepository:
             newly_accepted=False,
         )
 
+    async def existing_voice(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        context: CreatorInputContext,
+        idempotency_key: str,
+        request_digest: Digest,
+    ) -> CreatorVoiceInputAcceptance | None:
+        row = await (
+            await unit_of_work.transaction.execute(
+                """
+                SELECT interaction_id,request_digest,
+                       COALESCE(cognition_content_digest,content_digest)
+                FROM armi.party_input_interactions
+                WHERE source_party_id=%s AND scene_id=%s
+                  AND purpose='creator_message' AND modality='live_voice'
+                  AND idempotency_key=%s
+                """,
+                (context.creator_party_id, context.scene_id, idempotency_key),
+            )
+        ).fetchone()
+        if row is None:
+            return None
+        if str(row[1]) != request_digest.value:
+            raise CreatorInputViolation("IDEMPOTENCY-MISMATCH")
+        evidence_id = await self._evidence_read.find_by_interaction(
+            unit_of_work.transaction,
+            interaction_id=row[0],
+        )
+        if evidence_id is None:
+            raise CreatorInputViolation("DB-INPUT-STATE")
+        return CreatorVoiceInputAcceptance(
+            CreatorInteractionId(row[0]),
+            evidence_id,
+            Digest(str(row[1])),
+            Digest(str(row[2])),
+            False,
+        )
+
     async def create(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
@@ -275,6 +315,113 @@ class CreatorInputRepository:
             content_digest,
             True,
         )
+
+    async def create_voice(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        context: CreatorInputContext,
+        idempotency_key: str,
+        request_digest: Digest,
+        content_digest: Digest,
+        artifact_id: UUID,
+        trace_id: str,
+    ) -> CreatorVoiceInputAcceptance:
+        """Persist voice evidence once; a later route owns successor admission."""
+
+        connection = unit_of_work.transaction
+        interaction_id = uuid7()
+        evidence_id = uuid7()
+        timeline_item_id = uuid7()
+        await connection.execute(
+            """
+            INSERT INTO armi.party_input_interactions (
+                interaction_id,subject_id,scene_id,source_party_id,purpose,
+                idempotency_key,request_digest,content_digest,trace_id,modality)
+            VALUES (%s,%s,%s,%s,'creator_message',%s,%s,%s,%s,'live_voice')
+            """,
+            (
+                interaction_id,
+                context.subject_id,
+                context.scene_id,
+                context.creator_party_id,
+                idempotency_key,
+                request_digest.value,
+                content_digest.value,
+                trace_id,
+            ),
+        )
+        await self._evidence.accept(
+            unit_of_work,
+            EvidenceDraft(
+                evidence_id=EvidenceId(evidence_id),
+                subject_id=context.subject_id,
+                scene_id=context.scene_id,
+                context_party_id=context.creator_party_id,
+                artifact_id=artifact_id,
+                source_kind=EvidenceSourceKind.CREATOR_INPUT,
+                privacy_scope=EvidencePrivacyScope.CREATOR_VISIBLE,
+                interaction_id=interaction_id,
+            ),
+        )
+        await connection.execute(
+            """
+            INSERT INTO armi.scene_timeline_items (
+                timeline_item_id,scene_id,source_kind,source_ref,
+                source_event_no,result_status,occurred_at)
+            VALUES (%s,%s,'creator_input',%s,1,'accepted',statement_timestamp())
+            """,
+            (timeline_item_id, context.scene_id, interaction_id),
+        )
+        boundary = await connection.execute(
+            """
+            UPDATE armi.interaction_scenes
+            SET recent_context_boundary=%s,scene_version=scene_version+1
+            WHERE scene_id=%s AND current_status='open' AND closed_at IS NULL
+              AND recent_context_boundary IS DISTINCT FROM %s
+            """,
+            (timeline_item_id, context.scene_id, timeline_item_id),
+        )
+        if boundary.rowcount != 1:
+            raise CreatorInputViolation("SCOPE-SCENE-NOT-VISIBLE")
+        return CreatorVoiceInputAcceptance(
+            CreatorInteractionId(interaction_id),
+            EvidenceId(evidence_id),
+            request_digest,
+            content_digest,
+            True,
+        )
+
+    async def admit_voice_slow(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        acceptance: CreatorVoiceInputAcceptance,
+    ) -> OpportunityId:
+        row = await (
+            await unit_of_work.transaction.execute(
+                """
+                SELECT subject_id,scene_id,source_party_id
+                FROM armi.party_input_interactions
+                WHERE interaction_id=%s AND modality='live_voice'
+                """,
+                (acceptance.interaction_id.value,),
+            )
+        ).fetchone()
+        if row is None:
+            raise CreatorInputViolation("DB-INPUT-STATE")
+        admitted = await self._opportunity.admit_external_evidence(
+            unit_of_work.transaction,
+            ExternalEvidenceOpportunityDraft(
+                evidence_id=acceptance.evidence_id.value,
+                subject_id=row[0],
+                scene_id=row[1],
+                context_party_id=row[2],
+                purpose=OpportunityPurpose.CONSIDER_CREATOR_INPUT,
+            ),
+        )
+        if admitted.opportunity_id is None:
+            raise CreatorInputViolation("DB-INPUT-STATE")
+        return OpportunityId(admitted.opportunity_id)
 
     async def find_codex_task_input(
         self,

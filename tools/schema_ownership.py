@@ -60,6 +60,12 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "party_input_interactions": TableOwnership("interaction"),
     "scene_participants": TableOwnership("interaction"),
     "scene_timeline_items": TableOwnership("interaction"),
+    # Local real-time voice custody.
+    "live_voice_sessions": TableOwnership("live-voice"),
+    "live_voice_turns": TableOwnership("live-voice"),
+    "live_voice_text_fragments": TableOwnership("live-voice"),
+    "live_voice_provider_attempts": TableOwnership("live-voice"),
+    "live_voice_playback_attempts": TableOwnership("live-voice"),
     # Perception and evidence.
     "external_content_recognition_attempts": TableOwnership("perception"),
     "experience_evidence_links": TableOwnership("evidence"),
@@ -92,6 +98,7 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "mood_heads": TableOwnership("mood"),
     "mood_revisions": TableOwnership("mood"),
     "mood_affective_events": TableOwnership("mood"),
+    "mood_appraisal_events": TableOwnership("mood"),
     # Life facts.
     "memory_relations": TableOwnership("memory"),
     "subjective_memories": TableOwnership("memory"),

@@ -173,6 +173,41 @@ class CreatorConfig(_FrozenModel):
     session_ttl_seconds: PositiveInt = 28_800
 
 
+class VoiceDeviceConfig(_FrozenModel):
+    host_api: str
+    name: str
+
+    @field_validator("host_api", "name")
+    @classmethod
+    def validate_device_identity(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized or len(normalized) > 512:
+            raise ValueError("voice device identity is invalid")
+        return normalized
+
+
+class VoiceConfig(_FrozenModel):
+    enabled: bool = False
+    input_device: VoiceDeviceConfig | None = None
+    output_device: VoiceDeviceConfig | None = None
+    endpoint_silence_ms: Annotated[int, Field(ge=200, le=2000)] = 350
+    sample_rate_hz: Literal[16000] = 16000
+    channels: Literal[1] = 1
+    sample_width_bytes: Literal[2] = 2
+    frame_duration_ms: Literal[20] = 20
+    queue_max_frames: Annotated[int, Field(ge=10, le=500)] = 100
+    asr_resource_id: str = "volc.bigasr.sauc.duration"
+    llm_model: str = "doubao-seed-2-0-lite-260428"
+    tts_resource_id: str = "seed-tts-2.0"
+    tts_voice_type: str = "zh_female_vv_uranus_bigtts"
+
+    @model_validator(mode="after")
+    def validate_enabled_devices(self) -> Self:
+        if self.enabled and (self.input_device is None or self.output_device is None):
+            raise ValueError("enabled voice requires exact input and output devices")
+        return self
+
+
 class ArtifactsConfig(_FrozenModel):
     max_object_bytes: PositiveInt = 104_857_600
     orphan_grace_seconds: PositiveInt = 86_400
@@ -233,6 +268,7 @@ class RuntimeConfig(_FrozenModel):
     web: WebConfig = WebConfig()
     codex: CodexConfig = CodexConfig()
     creator: CreatorConfig
+    voice: VoiceConfig = VoiceConfig()
     artifacts: ArtifactsConfig = ArtifactsConfig()
     diagnostics: DiagnosticsConfig = DiagnosticsConfig()
     observability: ObservabilityConfig = ObservabilityConfig()
@@ -289,6 +325,8 @@ __all__ = (
     "RuntimeLeaseConfig",
     "SchedulerConfig",
     "Uuid7",
+    "VoiceConfig",
+    "VoiceDeviceConfig",
     "WebConfig",
     "WorkConfig",
 )

@@ -31,6 +31,10 @@ from ._creator_contract import (
     CreatorOperation,
     CreatorOperationPhase,
     CreatorOperationQueryPort,
+    CreatorVoiceInputAcceptance,
+    CreatorVoiceInputAcceptancePort,
+    CreatorVoiceInputCommand,
+    CreatorVoiceInputSuccessorPort,
     OpportunityId,
 )
 from ._external_contract import (
@@ -285,7 +289,7 @@ class InteractionOtherHumanReadPort(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class InteractionCreatorTimelineProjection:
-    operation_ref: UUID
+    operation_ref: UUID | None
     artifact: ArtifactRef
     purpose: str
 
@@ -299,6 +303,7 @@ class InteractionCreatorTimelineProjectionPort(Protocol):
         interaction_id: UUID,
         purpose: str,
         content_digest: Digest,
+        modality: str,
     ) -> InteractionCreatorTimelineProjection: ...
 
     async def subject_commit(
@@ -420,6 +425,8 @@ class InteractionBirthContinuity:
 @runtime_checkable
 class CreatorInteractionPort(
     CreatorInputAcceptancePort,
+    CreatorVoiceInputAcceptancePort,
+    CreatorVoiceInputSuccessorPort,
     Protocol,
 ): ...
 
@@ -684,6 +691,10 @@ __all__ = (
     "CreatorScenePort",
     "CreatorSceneStatusCommand",
     "CreatorSceneView",
+    "CreatorVoiceInputAcceptance",
+    "CreatorVoiceInputAcceptancePort",
+    "CreatorVoiceInputCommand",
+    "CreatorVoiceInputSuccessorPort",
     "ExternalAccountKey",
     "ExternalChannel",
     "ExternalContentPartSnapshot",

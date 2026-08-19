@@ -40,6 +40,9 @@ from ._creator_contract import (
     CreatorInputAcceptancePort,
     CreatorInputCommand,
     CreatorInputViolation,
+    CreatorVoiceInputAcceptance,
+    CreatorVoiceInputCommand,
+    OpportunityId,
 )
 from ._creator_postgresql import (
     CreatorInputContext,
@@ -185,6 +188,131 @@ class EvidenceAcceptanceTransaction(CreatorInputAcceptancePort):
             self._wakeups.notify(_OPPORTUNITY_AVAILABLE)
             await self._notify(command.scene_key)
         return acceptance
+
+    async def accept_voice(
+        self, command: CreatorVoiceInputCommand
+    ) -> CreatorVoiceInputAcceptance:
+        """Accept a transcript while reserving normal response admission for WAIT."""
+
+        context = await self._read_context(command.scene_key)
+        try:
+            staged = await self._storage.stage(
+                _one_chunk(command.transcript_bytes),
+                ArtifactPolicy(
+                    media_type="text/plain",
+                    logical_kind="creator.input.live_voice.transcript",
+                    producer_kind="creator",
+                    producer_trace_id=command.trace_id,
+                    privacy_scope=ArtifactPrivacyScope.CREATOR_VISIBLE,
+                ),
+            )
+        except ArtifactViolation, OSError:
+            raise CreatorInputViolation("ART-INPUT-PUBLISH") from None
+        request_digest = self._request_digest(context, staged.content_digest)
+        try:
+            async with self._uow_factory.unit_of_work(read_only=True) as unit:
+                existing = await self._repository.existing_voice(
+                    unit,
+                    context=context,
+                    idempotency_key=command.idempotency_key.value,
+                    request_digest=request_digest,
+                )
+        except RuntimeTransactionFailure:
+            await self._storage.discard(staged)
+            raise CreatorInputViolation("DB-INPUT-UNAVAILABLE") from None
+        if existing is not None:
+            await self._storage.discard(staged)
+            return existing
+        try:
+            published = await self._storage.publish(staged)
+            async with self._uow_factory.unit_of_work() as unit:
+                await self._repository.lock_scene(unit, scene_id=context.scene_id)
+                current = await self._repository.context(
+                    unit,
+                    scene_key=command.scene_key,
+                    creator_party_id=self._creator_party_id,
+                )
+                if current != context:
+                    raise CreatorInputViolation("SCOPE-SCENE-NOT-VISIBLE")
+                existing = await self._repository.existing_voice(
+                    unit,
+                    context=context,
+                    idempotency_key=command.idempotency_key.value,
+                    request_digest=request_digest,
+                )
+                if existing is not None:
+                    return existing
+                if await self._data_rights.blocks_new_interaction(
+                    unit, self._creator_party_id
+                ):
+                    raise CreatorInputViolation("SCOPE-DATA-RIGHTS-BLOCKED")
+                registration = await self._catalog.register(
+                    unit,
+                    ArtifactId(uuid7()),
+                    published,
+                )
+                if registration.inserted:
+                    await unit.audit.append(
+                        self._artifact_audit(
+                            unit,
+                            registration.ref.artifact_id.value,
+                            registration.ref.content_digest,
+                            CreatorInputCommand(
+                                command.scene_key,
+                                command.transcript,
+                                command.idempotency_key,
+                                command.trace_id,
+                            ),
+                        )
+                    )
+                acceptance = await self._repository.create_voice(
+                    unit,
+                    context=context,
+                    idempotency_key=command.idempotency_key.value,
+                    request_digest=request_digest,
+                    content_digest=registration.ref.content_digest,
+                    artifact_id=registration.ref.artifact_id.value,
+                    trace_id=command.trace_id.value,
+                )
+                await unit.audit.append(
+                    AuditDraft(
+                        audit_event_id=AuditEventId(uuid7()),
+                        actor=AuditReference("creator", context.creator_party_id),
+                        purpose=Purpose("creator.input"),
+                        operation="creator.voice_input.accepted",
+                        target=AuditReference(
+                            "creator_input", acceptance.interaction_id.value
+                        ),
+                        result_status=AuditResultStatus.ACCEPTED,
+                        trace_id=command.trace_id,
+                        sensitivity=AuditSensitivity.PRIVATE,
+                        subject_id=SubjectId(context.subject_id),
+                        request=AuditReference(
+                            "creator_input", acceptance.interaction_id.value
+                        ),
+                    )
+                )
+        except CreatorInputViolation:
+            raise
+        except RuntimeTransactionFailure, AuditViolation:
+            raise CreatorInputViolation("DB-INPUT-UNAVAILABLE") from None
+        except ArtifactViolation:
+            raise CreatorInputViolation("ART-INPUT-CATALOG") from None
+        await self._notify(command.scene_key)
+        return acceptance
+
+    async def release_voice_slow(
+        self, acceptance: CreatorVoiceInputAcceptance
+    ) -> OpportunityId:
+        try:
+            async with self._uow_factory.unit_of_work() as unit:
+                opportunity_id = await self._repository.admit_voice_slow(
+                    unit, acceptance
+                )
+        except RuntimeTransactionFailure:
+            raise CreatorInputViolation("DB-INPUT-UNAVAILABLE") from None
+        self._wakeups.notify(_OPPORTUNITY_AVAILABLE)
+        return opportunity_id
 
     async def open(self) -> None:
         return None

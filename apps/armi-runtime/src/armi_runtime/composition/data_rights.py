@@ -188,6 +188,7 @@ def compose_data_rights_participants(
     expected = (
         "interaction",
         "perception",
+        "live-voice",
         "evidence",
         "opportunity",
         "experience",

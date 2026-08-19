@@ -7,7 +7,7 @@ import hashlib
 import hmac
 import json
 from datetime import datetime
-from typing import Any, cast
+from typing import Any, Literal, cast
 from uuid import UUID
 
 import rfc8785
@@ -254,7 +254,8 @@ class PostgreSQLSceneTimelineQuery:
                                CASE WHEN item.source_kind = 'party_response'
                                     THEN 'creator_response' ELSE item.source_kind END,
                                item.source_ref, item.result_status, item.occurred_at,
-                               interaction.purpose, interaction.content_digest
+                               interaction.purpose, interaction.content_digest,
+                               COALESCE(interaction.modality,'text')
                         FROM armi.scene_timeline_items AS item
                         LEFT JOIN armi.party_input_interactions AS interaction
                           ON item.source_kind = 'creator_input'
@@ -289,10 +290,12 @@ class PostgreSQLSceneTimelineQuery:
                             interaction_id=source_ref,
                             purpose=str(row[5]),
                             content_digest=Digest(str(row[6])),
+                            modality=str(row[7]),
                         )
-                        operations[item_id] = projection.operation_ref
+                        if projection.operation_ref is not None:
+                            operations[item_id] = projection.operation_ref
                         messages[item_id] = await self._read_message(
-                            projection.artifact, projection.purpose
+                            projection.artifact, projection.purpose, str(row[7])
                         )
                     elif source_kind == "subject_commit":
                         operations[item_id] = await self._projections.subject_commit(
@@ -317,6 +320,10 @@ class PostgreSQLSceneTimelineQuery:
                 operation_ref=operations.get(cast(UUID, row[0])),
                 effect_ref=effects.get(cast(UUID, row[0])),
                 message=messages.get(cast(UUID, row[0])),
+                modality=cast(
+                    Literal["text", "media_file", "live_voice"],
+                    "text" if row[7] is None else str(row[7]),
+                ),
             )
             for row in reversed(visible)
         )
@@ -336,7 +343,7 @@ class PostgreSQLSceneTimelineQuery:
             next_cursor=next_cursor,
         )
 
-    async def _read_message(self, ref: ArtifactRef, purpose: str) -> str:
+    async def _read_message(self, ref: ArtifactRef, purpose: str, modality: str) -> str:
         if ref.integrity_status is not ArtifactIntegrityStatus.VERIFIED:
             raise SceneQueryViolation("SCENE-QUERY-UNAVAILABLE")
         try:
@@ -344,9 +351,14 @@ class PostgreSQLSceneTimelineQuery:
             async with await self._storage.open_verified(ref) as stream:
                 value = await stream.read()
             if purpose == "creator_message":
+                logical_kind = (
+                    "creator.input.live_voice.transcript"
+                    if modality == "live_voice"
+                    else "creator.input.text"
+                )
                 if (
                     ref.media_type != "text/plain"
-                    or ref.logical_kind != "creator.input.text"
+                    or ref.logical_kind != logical_kind
                     or ref.privacy_scope is not ArtifactPrivacyScope.CREATOR_VISIBLE
                 ):
                     raise ValueError

@@ -13,12 +13,24 @@ from armi_interaction.api import (
     CreatorInteractionId,
     CreatorOperation,
     CreatorOperationPhase,
+    CreatorVoiceInputCommand,
     OpportunityId,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, TraceId
 
 
 class CreatorInputContractTests(unittest.TestCase):
+    def test_live_voice_command_preserves_exact_final_transcript(self) -> None:
+        command = CreatorVoiceInputCommand(
+            "creator-voice-local",
+            "你今天开心吗?",
+            IdempotencyKey("voice-session-turn-1"),
+            TraceId("1" * 32),
+        )
+
+        self.assertEqual(command.transcript, "你今天开心吗?")
+        self.assertEqual(command.transcript_bytes, "你今天开心吗?".encode())
+
     def test_command_preserves_exact_utf8_and_acceptance_is_stable(self) -> None:
         command = CreatorInputCommand(
             scene_key="default",
