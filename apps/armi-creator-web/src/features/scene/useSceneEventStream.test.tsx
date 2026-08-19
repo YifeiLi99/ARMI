@@ -80,6 +80,35 @@ it("hands 401 to the authentication owner without reconnecting", async () => {
   expect(consumeMock).toHaveBeenCalledTimes(1);
 });
 
+it("does not restart an active stream when the owner callback identity changes", async () => {
+  consumeMock.mockImplementation(
+    async (
+      _token: string,
+      _sceneKey: string,
+      _lastEventId: string | undefined,
+      signal: AbortSignal,
+      onConnected: () => void,
+    ) => {
+      onConnected();
+      await new Promise<void>((resolve) =>
+        signal.addEventListener("abort", () => resolve(), { once: true }),
+      );
+    },
+  );
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  const first = vi.fn();
+  const second = vi.fn();
+
+  const view = render(<StreamHarness client={client} onUnauthorized={first} />);
+  await waitFor(() => expect(consumeMock).toHaveBeenCalledOnce());
+  view.rerender(<StreamHarness client={client} onUnauthorized={second} />);
+  await act(async () => Promise.resolve());
+
+  expect(consumeMock).toHaveBeenCalledTimes(1);
+});
+
 it.each([
   ["network", new TypeError("network")],
   ["server", new EventStreamFailure("http", 503)],

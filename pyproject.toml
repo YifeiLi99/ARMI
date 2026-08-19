@@ -57,6 +57,7 @@ members = [
 addopts = ["--strict-config", "--strict-markers", "--import-mode=importlib"]
 asyncio_mode = "strict"
 markers = [
+    "creator_system: requires wheel, isolated PostgreSQL, and pinned Chromium",
     "postgresql: requires the isolated PostgreSQL integration environment",
 ]
 norecursedirs = [".*", "build", "dist", "CVS", "_darcs", "{arch}", "*.egg", "node_modules", "venv", "src"]

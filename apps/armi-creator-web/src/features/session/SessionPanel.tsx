@@ -33,7 +33,11 @@ import { PromptPanel } from "../prompt/PromptPanel";
 import { TimelinePanel } from "../scene/TimelinePanel";
 import { SceneSelector } from "../scene/SceneSelector";
 import { SubjectSummaryPanel } from "../subject/SubjectSummaryPanel";
-import { PageHeader, WorkspaceNavigation } from "../../app/WorkspaceNavigation";
+import {
+  MobileNavigationButton,
+  PageHeader,
+  WorkspaceNavigation,
+} from "../../app/WorkspaceNavigation";
 import type { WorkspacePage } from "../../app/WorkspaceNavigation";
 
 type ViewState =
@@ -217,6 +221,9 @@ export function SessionPanel() {
       <section className="workspace-main">
         <div className="workspace-toolbar">
           <div className="environment-context">
+            <MobileNavigationButton
+              onOpen={() => setMobileNavigationOpen(true)}
+            />
             <span className="status-dot" aria-hidden="true" />
             <span>{view.session.environment_id}</span>
             <span className="context-separator">/</span>
@@ -230,10 +237,7 @@ export function SessionPanel() {
           </div>
         </div>
         {activePage === "conversation" ? null : (
-          <PageHeader
-            page={activePage}
-            onOpenMobile={() => setMobileNavigationOpen(true)}
-          />
+          <PageHeader page={activePage} />
         )}
         <div
           className={`page-content${

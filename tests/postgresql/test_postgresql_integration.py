@@ -18,7 +18,7 @@ import tempfile
 import time
 import unittest
 from collections.abc import AsyncIterator
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout, suppress
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -253,6 +253,7 @@ from armi_web_observation.api import (
     WebObservationRequestId,
     WebObservationResultStatus,
 )
+from playwright.sync_api import sync_playwright
 from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
@@ -666,6 +667,246 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 environment_id=fixture.environment_id,
             )
         self.assertEqual(repeated.exception.code, "DB-SCHEMA-EXISTS")
+
+    @pytest.mark.creator_system
+    def test_creator_system_browser(self) -> None:
+        entry_point = Path(os.environ["ARMI_CREATOR_SYSTEM_ENTRY_POINT"])
+        creator_resources = Path(os.environ["ARMI_CREATOR_SYSTEM_RESOURCES"])
+        chromium = Path(os.environ["ARMI_CREATOR_SYSTEM_CHROMIUM"])
+        fixture = self.create_database()
+
+        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
+            environment_root = Path(temporary).resolve()
+            data_root = environment_root / "data"
+            secrets_root = environment_root / "secrets"
+            bootstrap_root = environment_root / "bootstrap"
+            for path in (data_root, secrets_root, bootstrap_root):
+                path.mkdir()
+            runtime_secret = secrets_root / "runtime"
+            runtime_secret.write_text(
+                fixture.runtime_dsn, encoding="utf-8", newline="\n"
+            )
+            migrator_secret = secrets_root / "migrator"
+            migrator_secret.write_text(
+                fixture.migrator_dsn, encoding="utf-8", newline="\n"
+            )
+            creator_bearer = "creator-v1." + secrets.token_urlsafe(32)
+            creator_secret = secrets_root / "creator"
+            creator_secret.write_text(creator_bearer, encoding="utf-8", newline="\n")
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+                listener.bind(("127.0.0.1", 0))
+                runtime_port = int(listener.getsockname()[1])
+            (environment_root / "environment.yaml").write_text(
+                "\n".join(
+                    (
+                        "environment:",
+                        f"  environment_id: {fixture.environment_id}",
+                        f'  data_root: "{data_root.as_posix()}"',
+                        "creator:",
+                        f"  port: {runtime_port}",
+                        "secret_locators:",
+                        f"  database.runtime: file:{runtime_secret.as_posix()}",
+                        f"  database.migrator: file:{migrator_secret.as_posix()}",
+                        f"  creator.bearer: file:{creator_secret.as_posix()}",
+                    )
+                ),
+                encoding="utf-8",
+                newline="\n",
+            )
+            (bootstrap_root / "birth-manifest.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": "armi.birth-manifest.v1",
+                        "environment_id": str(fixture.environment_id),
+                        "birth_request_id": str(_uuid7()),
+                        "creator_party_id": str(_uuid7()),
+                        "idempotency_key": "creator-system-birth",
+                        "personality_anchor": {
+                            "schema_version": "armi.personality-anchor.v1",
+                            "voice_style": "约 16 岁少女口吻",
+                            "traits": ["连续", "自主"],
+                        },
+                    },
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+            clean_environment = {
+                key: value
+                for key, value in os.environ.items()
+                if not key.startswith("ARMI_")
+            }
+
+            def invoke(*arguments: str) -> dict[str, Any]:
+                completed = subprocess.run(
+                    (str(entry_point), *arguments),
+                    cwd=Path.cwd(),
+                    env=clean_environment,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=60,
+                )
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                self.assertNotIn(fixture.runtime_dsn, completed.stdout)
+                self.assertNotIn(fixture.migrator_dsn, completed.stdout)
+                self.assertNotIn(creator_bearer, completed.stdout)
+                return cast(dict[str, Any], json.loads(completed.stdout))
+
+            root_argument = ("--environment-root", str(environment_root))
+            self.assertEqual(
+                invoke("config", "check", *root_argument)["status"], "pass"
+            )
+            self.assertEqual(
+                invoke("db", "install", *root_argument)["status"], "current"
+            )
+            born = invoke("bootstrap", "birth", *root_argument)
+            self.assertEqual(born["status"], "applied")
+            identity_query = """
+                SELECT subject.subject_id, generation.life_generation_id
+                FROM armi.subjects AS subject
+                JOIN armi.life_generations AS generation
+                  ON generation.subject_id = subject.subject_id
+                 AND generation.status = 'active'
+                WHERE subject.singleton_key = 1
+            """
+            with psycopg.connect(fixture.runtime_dsn) as database:
+                initial_identity = database.execute(identity_query).fetchone()
+            self.assertIsNotNone(initial_identity)
+
+            message = "Creator System 唯一输入正文"
+            browser_token = ""
+            manager = RuntimeProcessManager(
+                environment_root, str(fixture.environment_id)
+            )
+            try:
+                self.assertEqual(
+                    invoke(
+                        "start",
+                        *root_argument,
+                        "--creator-web-resources",
+                        str(creator_resources),
+                    )["status"],
+                    "started",
+                )
+                origin = f"http://127.0.0.1:{runtime_port}"
+                with sync_playwright() as playwright:
+                    browser = playwright.chromium.launch(
+                        executable_path=str(chromium), headless=True
+                    )
+                    try:
+                        page = browser.new_page(viewport={"width": 1280, "height": 800})
+                        requests: list[tuple[str, str]] = []
+                        page.on(
+                            "request",
+                            lambda request: requests.append(
+                                (request.method, request.url)
+                            ),
+                        )
+                        response = page.goto(
+                            f"{origin}/ui/", wait_until="domcontentloaded"
+                        )
+                        assert response is not None
+                        self.assertEqual(response.status, 200)
+                        page.locator(".authenticated-view").wait_for()
+                        with page.expect_response(
+                            lambda item: (
+                                item.request.method == "POST"
+                                and item.url.endswith("/v1/scenes/default/messages")
+                            )
+                        ) as accepted_response:
+                            page.get_by_label("输入内容").fill(message)
+                            page.get_by_role("button", name="提交输入").click()
+                        accepted = cast(dict[str, Any], accepted_response.value.json())
+                        self.assertEqual(accepted_response.value.status, 202)
+                        page.get_by_text("消息已发送", exact=True).wait_for()
+                        page.get_by_role("button", name="详情", exact=True).click()
+                        page.locator("dd:visible").filter(
+                            has_text=accepted["result_ref"]
+                        ).wait_for()
+                        page.wait_for_function(
+                            "() => performance.getEntriesByType('resource')"
+                            ".filter(item => item.name.includes("
+                            "'/v1/scenes/default/timeline')).length >= 2"
+                        )
+                        browser_token = page.evaluate(
+                            "() => JSON.parse(sessionStorage.getItem("
+                            "'armi.browser-session.v1')).token"
+                        )
+                        page.reload(wait_until="domcontentloaded")
+                        page.locator(".authenticated-view").wait_for()
+                        self.assertTrue(
+                            any(
+                                url.endswith("/v1/scenes/default/events")
+                                for _, url in requests
+                            )
+                        )
+                        self.assertTrue(
+                            any(
+                                "/v1/scenes/default/timeline" in url
+                                for _, url in requests
+                            )
+                        )
+                        self.assertFalse(
+                            any(not url.startswith(origin) for _, url in requests)
+                        )
+                        page.close()
+                        browser.close()
+                        self.assertEqual(
+                            invoke("stop", *root_argument)["status"], "stopped"
+                        )
+                        self.assertEqual(
+                            invoke(
+                                "start",
+                                *root_argument,
+                                "--creator-web-resources",
+                                str(creator_resources),
+                            )["status"],
+                            "started",
+                        )
+                        browser = playwright.chromium.launch(
+                            executable_path=str(chromium), headless=True
+                        )
+                        page = browser.new_page(viewport={"width": 1280, "height": 800})
+                        page.goto(f"{origin}/ui/", wait_until="domcontentloaded")
+                        page.locator(".authenticated-view").wait_for()
+                    finally:
+                        browser.close()
+                self.assertEqual(invoke("stop", *root_argument)["status"], "stopped")
+            finally:
+                with suppress(Exception):
+                    manager.stop()
+
+            with psycopg.connect(fixture.runtime_dsn) as database:
+                final_identity = database.execute(identity_query).fetchone()
+                counts = database.execute(
+                    """
+                    SELECT
+                      (SELECT count(*) FROM armi.party_input_interactions),
+                      (SELECT count(*) FROM armi.external_evidence),
+                      (SELECT count(*) FROM armi.opportunities
+                       WHERE evidence_id IS NOT NULL),
+                      (SELECT count(*) FROM armi.scene_timeline_items
+                       WHERE source_kind = 'creator_input')
+                    """
+                ).fetchone()
+            self.assertEqual(final_identity, initial_identity)
+            self.assertEqual(counts, (1, 1, 1, 1))
+            log_text = "\n".join(
+                path.read_text(encoding="utf-8")
+                for path in (data_root / "logs").glob("runtime-*.jsonl")
+            )
+            self.assertNotIn(fixture.runtime_dsn, log_text)
+            self.assertNotIn(fixture.migrator_dsn, log_text)
+            self.assertNotIn(creator_bearer, log_text)
+            self.assertNotIn(browser_token, log_text)
+            self.assertNotIn(message, log_text)
 
     def test_external_messages_share_people_but_separate_conversations(
         self,

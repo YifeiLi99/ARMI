@@ -341,6 +341,9 @@ describe("Creator local connection shell", () => {
     expect(
       screen.getByRole("navigation", { name: "Creator 功能" }),
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "打开导航" }),
+    ).toBeInTheDocument();
     expect(screen.queryByText("权威版本")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "主体状态" }));
     expect(await screen.findByText("权威版本")).toBeVisible();

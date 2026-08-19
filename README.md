@@ -116,13 +116,20 @@ uv run armi stop --environment-root C:\path\to\environment
 
 离线全量灾备与隔离恢复演练使用 `armi recovery create`、`armi recovery verify` 和 `armi recovery drill --apply`。备份保存 custom-format 数据库 dump、全部 retained+verified artifact、schema head 与 Runtime 权威身份；恢复到隔离数据库后通过正式 owner recovery roster 检查业务一致性。它与 Creator JSONL 数据导出是不同协议。
 
-日常开发从改动相关的最小检查开始；仓库快速质量入口为：
+日常开发从改动相关的最小检查开始。仓库提供三层确定性门禁：
 
 ```powershell
+# Fast：锁文件、格式、lint、严格类型、非 PostgreSQL 测试、架构、安全和前端检查
 .\tools\quality.ps1
+
+# Release：Fast + Creator/Python 构建 + 32 个 wheel 的隔离安装与 CLI smoke
+.\tools\quality.ps1 -Release
+
+# System：Release + 隔离 PostgreSQL + 固定 Chromium + 真实 Creator 全链路
+.\tools\quality.ps1 -System
 ```
 
-需要真实 PostgreSQL、浏览器、付费模型或完整发布门禁时，应根据本次风险显式选择对应入口，不能把未运行的环境验证写成已经通过。
+`System` 只使用随机回环端口、临时数据库、临时环境根、构建 wheel 和固定本机 Chromium，结束后清理 Runtime、浏览器与 PostgreSQL 容器。真实模型、网页搜索、语音、摄像头、QQ 真机和付费 Provider 仍属于独立 live gate；未运行时不能计入 `System` 通过，也不能把 `blocked` 写成测试失败或测试通过。`-Gate WHEEL-INSTALL`、`PG-INTEGRATION`、`BROWSER-CONTRACT`、`CREATOR-SYSTEM` 可用于定向定位，且不能与 `-Release` 或 `-System` 混用。
 
 ## 研究与许可
 

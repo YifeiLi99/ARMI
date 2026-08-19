@@ -30,6 +30,8 @@ GATE_ORDER = (
     "BUILD-PY",
     "WHEEL-INSTALL",
     "PG-INTEGRATION",
+    "BROWSER-CONTRACT",
+    "CREATOR-SYSTEM",
 )
 FAST_GATE_ORDER = (
     "QLT-LOCKED",
@@ -45,7 +47,12 @@ FAST_GATE_ORDER = (
     "WEB-TEST",
 )
 RELEASE_GATE_ORDER = (*FAST_GATE_ORDER, "BUILD-WEB", "BUILD-PY", "WHEEL-INSTALL")
-SYSTEM_GATE_ORDER = (*RELEASE_GATE_ORDER, "PG-INTEGRATION")
+SYSTEM_GATE_ORDER = (
+    *RELEASE_GATE_ORDER,
+    "PG-INTEGRATION",
+    "BROWSER-CONTRACT",
+    "CREATOR-SYSTEM",
+)
 
 
 @dataclass(frozen=True)
@@ -149,6 +156,8 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
     quality_root = root / ".tmp/quality"
     python_dist = quality_root / "python-dist"
     wheel_venv = quality_root / "wheel-venv"
+    chromium = tool_root / "installs/playwright/chromium-1228/chrome-win64/chrome.exe"
+    creator_resources = root / "apps/armi-runtime/build/creator-web-resources"
 
     def validate_python_build() -> tuple[bool, str]:
         artifacts = sorted(
@@ -382,6 +391,44 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
             (venv_python, root / "tools/run_postgresql_integration.py"),
             blocked_exit_codes=(2,),
         ),
+        "BROWSER-CONTRACT": Gate(
+            "BROWSER-CONTRACT",
+            py(
+                "-B",
+                "tools/verify_creator_browser.py",
+                "--root",
+                str(root),
+                "--tool-root",
+                str(tool_root),
+            ),
+            root,
+            (venv_python, chromium, root / "tools/verify_creator_browser.py"),
+            blocked_exit_codes=(2,),
+        ),
+        "CREATOR-SYSTEM": Gate(
+            "CREATOR-SYSTEM",
+            py(
+                "-B",
+                "tools/run_postgresql_integration.py",
+                "--root",
+                str(root),
+                "--creator-system-entry-point",
+                str(wheel_venv / "Scripts/armi.exe"),
+                "--creator-system-resources",
+                str(creator_resources),
+                "--creator-system-chromium",
+                str(chromium),
+            ),
+            root,
+            (
+                venv_python,
+                chromium,
+                wheel_venv / "Scripts/armi.exe",
+                creator_resources / "manifest.json",
+                root / "tools/run_postgresql_integration.py",
+            ),
+            blocked_exit_codes=(2,),
+        ),
     }
 
 
@@ -429,7 +476,8 @@ def main() -> int:
             for line in result.output.splitlines():
                 print(f"  {line}")
     exit_code = aggregate_exit_code(results)
-    print(f"QUALITY\t{'pass' if exit_code == 0 else 'fail'}\texit={exit_code}")
+    status = "pass" if exit_code == 0 else "blocked" if exit_code == 2 else "fail"
+    print(f"QUALITY\t{status}\texit={exit_code}")
     return exit_code
 
 

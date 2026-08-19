@@ -49,6 +49,8 @@ export function useSceneEventStream({
   onUnauthorized,
   registerAbort,
 }: SceneEventStreamOptions): LiveUpdateState {
+  const onUnauthorizedRef = useRef(onUnauthorized);
+  onUnauthorizedRef.current = onUnauthorized;
   const [state, setState] = useState<LiveUpdateState>("connecting");
   const lastEventId = useRef<string | undefined>(undefined);
 
@@ -219,7 +221,7 @@ export function useSceneEventStream({
           }
           if (error instanceof EventStreamFailure && error.status === 401) {
             controller.abort();
-            onUnauthorized();
+            onUnauthorizedRef.current();
             return;
           }
           if (error instanceof EventStreamFailure && error.status === 409) {
@@ -253,15 +255,7 @@ export function useSceneEventStream({
       controller.abort();
       registerAbort(null);
     };
-  }, [
-    enabled,
-    onUnauthorized,
-    queryClient,
-    queryKey,
-    registerAbort,
-    sceneKey,
-    token,
-  ]);
+  }, [enabled, queryClient, queryKey, registerAbort, sceneKey, token]);
 
   useEffect(() => {
     if (!enabled || state !== "disconnected") {

@@ -303,28 +303,27 @@ export function WorkspaceNavigation({
   );
 }
 
-export function PageHeader({
-  page,
-  onOpenMobile,
-}: {
-  page: WorkspacePage;
-  onOpenMobile: () => void;
-}) {
+export function PageHeader({ page }: { page: WorkspacePage }) {
   const meta = pageMeta[page];
   return (
     <header className="page-header">
-      <button
-        className="icon-button mobile-menu-button"
-        type="button"
-        aria-label="打开导航"
-        onClick={onOpenMobile}
-      >
-        <Icon name="sidebar" />
-      </button>
       <div>
         <h1>{meta.title}</h1>
         <p>{meta.description}</p>
       </div>
     </header>
+  );
+}
+
+export function MobileNavigationButton({ onOpen }: { onOpen: () => void }) {
+  return (
+    <button
+      className="icon-button mobile-menu-button"
+      type="button"
+      aria-label="打开导航"
+      onClick={onOpen}
+    >
+      <Icon name="sidebar" />
+    </button>
   );
 }

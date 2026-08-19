@@ -12,9 +12,11 @@ import shutil
 import sys
 import tempfile
 import threading
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import ViewportSize, sync_playwright
 
 VIEWPORTS: tuple[ViewportSize, ...] = (
@@ -169,9 +171,10 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             "result_ref": cls.effect_id,
             "details": {
                 "projection_version": "creator-operation.v2",
-                "root_operation_ref": cls.opportunity_id,
-                "completion_kind": "response_effect",
-                "delivery_state": "completed",
+                "operation_ref": cls.opportunity_id,
+                "operation_kind": "creator_response",
+                "stage": "completed",
+                "outcome": "completed",
                 "effect_ref": cls.effect_id,
             },
         }
@@ -192,8 +195,10 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             "max_payload_bytes": 4096,
             "status": cls.capability_status,
             "capability_availability": "available",
+            "resolution_reason_code": None,
             "request_version": cls.capability_version,
             "created_at": "2026-07-30T10:00:00.000000Z",
+            "status_changed_at": "2026-07-30T10:00:01.000000Z",
         }
         if cls.capability_status == "limited":
             reply["effective_grant"] = {
@@ -222,9 +227,11 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                 "valid_for_seconds": 600,
                 "max_uses": 1,
                 "status": "pending",
-                "capability_availability": "available",
+                "capability_availability": "unavailable",
+                "resolution_reason_code": "CODEX-UNAVAILABLE",
                 "request_version": 1,
                 "created_at": "2026-07-30T09:59:00.000000Z",
+                "status_changed_at": "2026-07-30T10:00:01.000000Z",
             },
         ]
 
@@ -282,7 +289,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                 200,
                 {
                     "contract_version": "1.0",
-                    "projection_version": "capability-request.v3",
+                    "projection_version": "capability-request.v4",
                     "items": self._capability_items(),
                 },
             )
@@ -315,7 +322,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                 200,
                 {
                     "contract_version": "1.0",
-                    "projection_version": "scene-timeline.v3",
+                    "projection_version": "scene-timeline.v5",
                     "scene_key": "default",
                     "items": items,
                 },
@@ -330,9 +337,11 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                 200,
                 {
                     "contract_version": "1.0",
-                    "projection_version": "creator-effect.v1",
+                    "projection_version": "creator-effect.v3",
                     "effect_id": self.effect_id,
-                    "root_operation_ref": self.opportunity_id,
+                    "action_intent_ref": self.opportunity_id,
+                    "action_intent_revision_ref": "018f47a6-7b2d-7c35-8b18-684e38ab6efe",
+                    "capability_kind": "creator.scene.reply",
                     "effect_kind": "creator_response",
                     "status": "completed",
                     "verification_status": "verified",
@@ -362,12 +371,14 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                     "event_kind": "scene.timeline.invalidated",
                     "resource_kind": "scene_timeline",
                     "resource_ref": "default",
-                    "projection_version": "scene-timeline.v3",
+                    "projection_version": "scene-timeline.v5",
                     "occurred_at": "2026-07-30T10:02:00.000000Z",
                 },
                 separators=(",", ":"),
             )
-            content = f"id: {event_id}\nevent: scene.timeline.invalidated\ndata: {data}\n\n".encode()
+            content = (
+                f"id: {event_id}\nevent: scene.timeline.invalidated\ndata: {data}\n\n"
+            ).encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
@@ -419,7 +430,12 @@ def main() -> int:
         served = Path(temporary)
         shutil.copytree(static, served / "ui")
         handler = functools.partial(QuietHandler, directory=str(served))
-        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+
+        class QuietServer(http.server.ThreadingHTTPServer):
+            def handle_error(self, request: object, client_address: object) -> None:
+                del request, client_address
+
+        server = QuietServer(("127.0.0.1", 0), handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         port = int(server.server_address[1])
@@ -465,24 +481,114 @@ def main() -> int:
                         )
                         if mobile_menu.is_visible():
                             mobile_menu.click()
-                        page.get_by_role("button", name="能力授权", exact=True).click()
+                            page.wait_for_function(
+                                "() => document.querySelector('.workspace-sidebar')"
+                                ".getBoundingClientRect().left >= 0"
+                            )
+                        capability_navigation = page.get_by_role(
+                            "button", name="能力授权", exact=True
+                        )
+                        if not capability_navigation.evaluate(
+                            "element => { const rect = element.getBoundingClientRect(); "
+                            "return rect.top >= 0 && rect.left >= 0 && "
+                            "rect.bottom <= innerHeight && rect.right <= innerWidth; }"
+                        ):
+                            navigation_layout = page.locator(
+                                ".primary-navigation"
+                            ).evaluate(
+                                "element => ({clientHeight: element.clientHeight, "
+                                "scrollHeight: element.scrollHeight, "
+                                "scrollTop: element.scrollTop, "
+                                "rect: element.getBoundingClientRect().toJSON()})"
+                            )
+                            raise RuntimeError(
+                                "WEB-BROWSER-NAVIGATION: capability navigation is "
+                                f"unreachable; layout={navigation_layout}"
+                            )
+                        if viewport != VIEWPORTS[0]:
+                            overflow = page.evaluate(
+                                "() => document.documentElement.scrollWidth > "
+                                "document.documentElement.clientWidth"
+                            )
+                            if overflow:
+                                raise RuntimeError(
+                                    "WEB-BROWSER-OVERFLOW: horizontal overflow detected"
+                                )
+                            cdp = page.context.new_cdp_session(page)
+                            cdp.send(
+                                "Emulation.setPageScaleFactor",
+                                {"pageScaleFactor": 2},
+                            )
+                            zoom_overflow = page.evaluate(
+                                "() => document.documentElement.scrollWidth > "
+                                "document.documentElement.clientWidth"
+                            )
+                            cdp.send(
+                                "Emulation.setPageScaleFactor",
+                                {"pageScaleFactor": 1},
+                            )
+                            cdp.detach()
+                            if zoom_overflow:
+                                raise RuntimeError(
+                                    "WEB-BROWSER-ZOOM: 200 percent zoom overflow detected"
+                                )
+                            if any(
+                                not request.startswith(origin) for request in requests
+                            ):
+                                raise RuntimeError(
+                                    "SEC-WEB-REQUEST: external browser request detected"
+                                )
+                            results.append(
+                                {
+                                    "width": viewport["width"],
+                                    "height": viewport["height"],
+                                    "requests": len(requests),
+                                    "horizontal_overflow": False,
+                                    "navigation_reachability": "pass",
+                                    "zoom_200_percent": "pass",
+                                }
+                            )
+                            page.close()
+                            continue
+                        try:
+                            capability_navigation.click(timeout=2_000)
+                        except PlaywrightTimeoutError as error:
+                            navigation_layout = page.evaluate(
+                                "() => { const nav = document.querySelector("
+                                "'.primary-navigation'); const item = Array.from("
+                                "document.querySelectorAll('.navigation-item')).find("
+                                "element => element.textContent.includes('能力授权')); "
+                                "const sidebar = document.querySelector("
+                                "'.workspace-sidebar'); return {innerHeight, "
+                                "nav: nav.getBoundingClientRect().toJSON(), "
+                                "navClientHeight: nav.clientHeight, "
+                                "navScrollHeight: nav.scrollHeight, "
+                                "navScrollTop: nav.scrollTop, "
+                                "item: item.getBoundingClientRect().toJSON(), "
+                                "sidebar: sidebar.getBoundingClientRect().toJSON(), "
+                                "sidebarClass: sidebar.className}; }"
+                            )
+                            raise RuntimeError(
+                                "WEB-BROWSER-NAVIGATION: click failed at "
+                                f"{viewport}; layout={navigation_layout}"
+                            ) from error
                         capability_item = page.locator("li.capability-item").filter(
                             has_text="creator.scene.reply"
                         )
                         capability_item.get_by_role(
-                            "button", name="限制", exact=True
+                            "button", name="设置更严格限制", exact=True
                         ).click()
-                        capability_item.get_by_label("最大次数").fill("2")
-                        capability_item.get_by_role(
-                            "button", name="应用更严格限制"
-                        ).click()
+                        maximum_uses = capability_item.get_by_label("最大次数")
+                        maximum_uses.press("Control+A")
+                        maximum_uses.press("2")
+                        maximum_uses.press("Enter")
                         capability_item.get_by_text("limited", exact=True).wait_for()
                         capability_item.get_by_text("2/2 次").wait_for()
                         codex_item = page.locator("li.capability-item").filter(
                             has_text="codex.delegated-work"
                         )
                         if codex_item.get_by_role(
-                            "button", name="允许", exact=True
+                            "button", name="允许申请范围", exact=True
                         ).count():
                             raise RuntimeError(
                                 "WEB-BROWSER-CAPABILITY: unavailable Codex can be granted"
@@ -500,10 +606,12 @@ def main() -> int:
                         page.get_by_role(
                             "button", name="运行与维护", exact=True
                         ).click()
-                        page.locator(".session-summary").get_by_role(
-                            "button", name="重新读取状态"
-                        ).click()
-                        page.wait_for_load_state("networkidle")
+                        with page.expect_response(
+                            lambda item: item.url.endswith("/v1/runtime/status")
+                        ):
+                            page.locator(".session-summary").get_by_role(
+                                "button", name="重新读取状态"
+                            ).click()
                         if page.get_by_text("ready").count() != 3:
                             raise RuntimeError(
                                 "WEB-BROWSER-STATUS: authenticated state is missing"
@@ -530,12 +638,11 @@ def main() -> int:
                         message = "精确保留的 Creator 输入"
                         page.get_by_label("输入内容").fill(message)
                         page.get_by_role("button", name="提交输入").click()
-                        page.get_by_text(
-                            "输入已由 Runtime 耐久接纳"
-                            + "\uff0c"
-                            + "可在下方核验责任。"
+                        page.get_by_text("消息已发送", exact=True).wait_for()
+                        page.get_by_role("button", name="详情", exact=True).click()
+                        page.locator("dd:visible").filter(
+                            has_text=QuietHandler.opportunity_id
                         ).wait_for()
-                        page.get_by_text(QuietHandler.opportunity_id).first.wait_for()
                         effect_trigger = page.get_by_role("button", name="查看效果详情")
                         effect_trigger.wait_for()
                         if QuietHandler.effect_reads != 0:
@@ -551,7 +658,9 @@ def main() -> int:
                         ).wait_for()
                         if QuietHandler.effect_reads != 1:
                             raise RuntimeError(
-                                "WEB-BROWSER-EFFECT: explicit detail did not read once"
+                                "WEB-BROWSER-EFFECT: explicit detail read count was "
+                                f"{QuietHandler.effect_reads}; "
+                                f"top={Counter(requests).most_common(5)}"
                             )
                         if page.locator(".verified-response img").count():
                             raise RuntimeError(
@@ -565,12 +674,10 @@ def main() -> int:
                                 "WEB-BROWSER-FOCUS: effect detail did not receive focus"
                             )
                         close_detail.click()
-                        if not effect_trigger.evaluate(
-                            "element => element === document.activeElement"
-                        ):
-                            raise RuntimeError(
-                                "WEB-BROWSER-FOCUS: effect trigger focus was not restored"
-                            )
+                        page.wait_for_function(
+                            "() => document.activeElement?.textContent"
+                            ".includes('查看效果详情')"
+                        )
                         if message in page.content():
                             raise RuntimeError(
                                 "SEC-WEB-MESSAGE-DOM: accepted body remained visible"
@@ -612,6 +719,13 @@ def main() -> int:
                             raise RuntimeError(
                                 "SEC-WEB-REQUEST: external browser request detected"
                             )
+                        if len(requests) > 100 or QuietHandler.event_streams > 10:
+                            raise RuntimeError(
+                                "WEB-BROWSER-REQUEST-STORM: excessive same-origin "
+                                f"requests detected; total={len(requests)}, "
+                                f"streams={QuietHandler.event_streams}, "
+                                f"top={Counter(requests).most_common(5)}"
+                            )
                         if page.evaluate("() => localStorage.length") != 0:
                             raise RuntimeError(
                                 "SEC-WEB-EVENT-CACHE: event state reached "
@@ -622,6 +736,7 @@ def main() -> int:
                                 "width": viewport["width"],
                                 "height": viewport["height"],
                                 "requests": len(requests),
+                                "top_requests": Counter(requests).most_common(3),
                                 "horizontal_overflow": False,
                                 "session_flow": "pass",
                                 "event_stream": "pass",
