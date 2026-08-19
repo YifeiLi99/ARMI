@@ -6,7 +6,7 @@ find_package(cJSON CONFIG REQUIRED)
 add_executable(
     mood_display_host_tests
     test_mood_display.c
-    ../main/mood_animation.c
+    ../main/mood_text.c
     ../main/mood_offline.c
     ../main/mood_protocol.c
 )

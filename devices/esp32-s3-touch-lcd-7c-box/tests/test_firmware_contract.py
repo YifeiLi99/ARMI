@@ -41,40 +41,21 @@ def test_all_twenty_emotions_and_device_states_have_firmware_names() -> None:
         assert f'"{private_name}"' not in protocol
 
 
-def test_online_faces_use_expression_specific_frame_animation_and_color() -> None:
-    animation = (ROOT / "main" / "mood_animation.c").read_text(encoding="utf-8")
+def test_faces_are_rendered_as_ascii_text_and_keep_projected_color() -> None:
+    text = (ROOT / "main" / "mood_text.c").read_text(encoding="utf-8")
     face = (ROOT / "main" / "mood_face.c").read_text(encoding="utf-8")
     component = (ROOT / "main" / "CMakeLists.txt").read_text(encoding="utf-8")
 
-    for enum_name in (
-        "MOOD_FACE_JOY",
-        "MOOD_FACE_CONTENTMENT",
-        "MOOD_FACE_INTEREST",
-        "MOOD_FACE_HOPE",
-        "MOOD_FACE_RELIEF",
-        "MOOD_FACE_AFFECTION",
-        "MOOD_FACE_GRATITUDE",
-        "MOOD_FACE_PRIDE",
-        "MOOD_FACE_SURPRISE",
-        "MOOD_FACE_SADNESS",
-        "MOOD_FACE_FEAR",
-        "MOOD_FACE_ANXIETY",
-        "MOOD_FACE_ANGER",
-        "MOOD_FACE_FRUSTRATION",
-        "MOOD_FACE_DISGUST",
-        "MOOD_FACE_SHAME",
-        "MOOD_FACE_GUILT",
-        "MOOD_FACE_JEALOUSY",
-        "MOOD_FACE_BOREDOM",
-        "MOOD_FACE_CONFUSION",
-    ):
-        assert enum_name in animation
-    assert "FRAME_MS 80U" in animation
-    assert "color_lift" in animation
-    assert "cheek_opacity" in animation
-    assert "MOOD_ACCENT_QUESTION" in animation
+    assert text.count("/* ") == 22
+    assert '"(^o^)"' in text
+    assert '"(>_<)"' in text
+    assert '"(o_O)?"' in text
+    assert "mood_text_expression" in text
+    assert "color_lift" in text
     assert "lift_rgb" in face
     assert "lv_color_black" in face
-    assert "PIXEL_SCALE 4" in face
-    assert "lv_canvas_init_layer" in face
-    assert '"mood_animation.c"' in component
+    assert "lv_label_set_text_static" in face
+    assert "lv_font_montserrat_48" in face
+    assert "lv_canvas" not in face
+    assert '"mood_text.c"' in component
+    assert not (ROOT / "main" / "mood_animation.c").exists()
