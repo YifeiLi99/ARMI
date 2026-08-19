@@ -687,6 +687,57 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/voice/start": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Start Live Voice */
+    post: operations["startLiveVoice"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/voice/status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Live Voice Status */
+    get: operations["getLiveVoiceStatus"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/voice/stop": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Stop Live Voice */
+    post: operations["stopLiveVoice"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2191,6 +2242,49 @@ export interface components {
        */
       status: "alive";
     };
+    /** LiveVoiceStatusResponse */
+    LiveVoiceStatusResponse: {
+      /** Asr Ready */
+      asr_ready: boolean;
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      /** Enabled */
+      enabled: boolean;
+      /** Input Device */
+      input_device: string | null;
+      /** Llm Ready */
+      llm_ready: boolean;
+      /** Observed At */
+      observed_at: string;
+      /** Output Device */
+      output_device: string | null;
+      /**
+       * Projection Version
+       * @constant
+       */
+      projection_version: "creator-live-voice-status.v1";
+      /** Reason Codes */
+      reason_codes: components["schemas"]["ReasonCode"][];
+      /**
+       * State
+       * @enum {string}
+       */
+      state:
+        | "disabled"
+        | "idle"
+        | "starting"
+        | "listening"
+        | "recognizing"
+        | "thinking"
+        | "speaking"
+        | "waiting_slow"
+        | "unavailable";
+      /** Tts Ready */
+      tts_ready: boolean;
+    };
     /** @enum {string} */
     MaintenancePhaseValue:
       | "preparing"
@@ -2705,6 +2799,12 @@ export interface components {
       effect_ref?: string | null;
       /** Message */
       message?: string | null;
+      /**
+       * Modality
+       * @default text
+       * @enum {string}
+       */
+      modality: "text" | "media_file" | "live_voice";
       /** Occurred At */
       occurred_at: string;
       /** Operation Ref */
@@ -5587,6 +5687,66 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["UnavailableOutcomeResponse"];
+        };
+      };
+    };
+  };
+  startLiveVoice: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LiveVoiceStatusResponse"];
+        };
+      };
+    };
+  };
+  getLiveVoiceStatus: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LiveVoiceStatusResponse"];
+        };
+      };
+    };
+  };
+  stopLiveVoice: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LiveVoiceStatusResponse"];
         };
       };
     };

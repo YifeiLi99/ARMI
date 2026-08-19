@@ -15,7 +15,15 @@ from typing import Any, cast
 
 _MAX_REQUEST = 64 * 1024
 _MAX_RESPONSE = 1024 * 1024
-_COMMANDS = {"status", "drain", "stop", "input", "clock", "fault"}
+_COMMANDS = {
+    "status",
+    "drain",
+    "stop",
+    "input",
+    "voice",
+    "clock",
+    "fault",
+}
 _FAULTS = {
     "artifact_after_publish_before_commit",
     "subject_before_cas",
@@ -85,6 +93,7 @@ class RuntimeAdminControlServer:
         "_server",
         "_test_clock_seconds",
         "_token",
+        "_voice",
     )
 
     def __init__(
@@ -98,6 +107,7 @@ class RuntimeAdminControlServer:
         on_drain: Callable[[], None],
         on_stop: Callable[[], None],
         on_input: Callable[[str, str], Awaitable[dict[str, Any]]] | None,
+        on_voice: Callable[[str], Awaitable[dict[str, Any]]] | None = None,
     ) -> None:
         self._run_root = run_root
         self._manifest = run_root / "runtime-control.manifest.json"
@@ -109,6 +119,7 @@ class RuntimeAdminControlServer:
         self._on_drain = on_drain
         self._on_stop = on_stop
         self._input = on_input
+        self._voice = on_voice
         self._server: asyncio.AbstractServer | None = None
         self._token = ""
         self._test_clock_seconds = 0
@@ -250,6 +261,14 @@ class RuntimeAdminControlServer:
             result = await self._input(
                 str(arguments["message"]), str(arguments["idempotency_key"])
             )
+        elif command == "voice":
+            if (
+                self._voice is None
+                or set(arguments) != {"action"}
+                or arguments["action"] not in {"status", "start", "stop"}
+            ):
+                raise RuntimeAdminControlError("ADMIN-CONTROL-VOICE")
+            result = await self._voice(str(arguments["action"]))
         elif command == "clock":
             if set(arguments) != {"seconds"} or type(arguments["seconds"]) is not int:
                 raise RuntimeAdminControlError("ADMIN-CONTROL-CLOCK")

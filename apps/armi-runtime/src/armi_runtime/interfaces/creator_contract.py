@@ -121,6 +121,7 @@ class SceneTimelineItemResponse(_StrictWireModel):
     operation_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
     effect_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
     message: Annotated[str, Field(min_length=1, max_length=65536)] | None = None
+    modality: Literal["text", "media_file", "live_voice"] = "text"
 
 
 class SceneTimelinePageResponse(_StrictWireModel):
@@ -686,6 +687,30 @@ class QQChannelHealthResponse(_StrictWireModel):
         ]
         | None
     )
+    observed_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+    reason_codes: Annotated[list[ReasonCode], Field(max_length=16)]
+
+
+class LiveVoiceStatusResponse(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    projection_version: Literal["creator-live-voice-status.v1"]
+    state: Literal[
+        "disabled",
+        "idle",
+        "starting",
+        "listening",
+        "recognizing",
+        "thinking",
+        "speaking",
+        "waiting_slow",
+        "unavailable",
+    ]
+    enabled: bool
+    input_device: str | None
+    output_device: str | None
+    asr_ready: bool
+    llm_ready: bool
+    tts_ready: bool
     observed_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
     reason_codes: Annotated[list[ReasonCode], Field(max_length=16)]
 
@@ -1334,6 +1359,33 @@ def build_creator_openapi() -> dict[str, object]:
         dependencies=[Security(bearer)],
     )
     async def qq_channel_health() -> QQChannelHealthResponse:
+        raise NotImplementedError
+
+    @app.get(
+        "/v1/voice/status",
+        operation_id="getLiveVoiceStatus",
+        response_model=LiveVoiceStatusResponse,
+        dependencies=[Security(bearer)],
+    )
+    async def live_voice_status() -> LiveVoiceStatusResponse:
+        raise NotImplementedError
+
+    @app.post(
+        "/v1/voice/start",
+        operation_id="startLiveVoice",
+        response_model=LiveVoiceStatusResponse,
+        dependencies=[Security(bearer)],
+    )
+    async def start_live_voice() -> LiveVoiceStatusResponse:
+        raise NotImplementedError
+
+    @app.post(
+        "/v1/voice/stop",
+        operation_id="stopLiveVoice",
+        response_model=LiveVoiceStatusResponse,
+        dependencies=[Security(bearer)],
+    )
+    async def stop_live_voice() -> LiveVoiceStatusResponse:
         raise NotImplementedError
 
     @app.get(
@@ -2122,6 +2174,9 @@ def build_creator_openapi() -> dict[str, object]:
         current_browser_session,
         runtime_status,
         qq_channel_health,
+        live_voice_status,
+        start_live_voice,
+        stop_live_voice,
         subject_summary,
         get_creator_prompt,
         revise_creator_prompt,
@@ -2293,6 +2348,7 @@ __all__ = (
     "LifeRecordItemResponse",
     "LifeRecordPageResponse",
     "LiveResponse",
+    "LiveVoiceStatusResponse",
     "OperationOutcomeResponse",
     "OtherHumanPartyRecordPageResponse",
     "OtherHumanPartyRecordResponse",

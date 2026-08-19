@@ -416,6 +416,12 @@ class RuntimeProcessManager:
             **cast(dict[str, Any], response["result"]),
         }
 
+    def voice(self, action: str) -> dict[str, Any]:
+        if action not in {"status", "start", "stop"}:
+            raise ValueError("unsupported voice action")
+        response = self._send_control("voice", {"action": action})
+        return cast(dict[str, Any], response["result"])
+
     def _send_control(
         self,
         command: str,

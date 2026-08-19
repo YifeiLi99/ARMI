@@ -3876,6 +3876,102 @@
         "title": "LiveResponse",
         "type": "object"
       },
+      "LiveVoiceStatusResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "asr_ready": {
+            "title": "Asr Ready",
+            "type": "boolean"
+          },
+          "contract_version": {
+            "const": "1.0",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "input_device": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Device"
+          },
+          "llm_ready": {
+            "title": "Llm Ready",
+            "type": "boolean"
+          },
+          "observed_at": {
+            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
+            "title": "Observed At",
+            "type": "string"
+          },
+          "output_device": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Device"
+          },
+          "projection_version": {
+            "const": "creator-live-voice-status.v1",
+            "title": "Projection Version",
+            "type": "string"
+          },
+          "reason_codes": {
+            "items": {
+              "$ref": "#/components/schemas/ReasonCode"
+            },
+            "maxItems": 16,
+            "title": "Reason Codes",
+            "type": "array"
+          },
+          "state": {
+            "enum": [
+              "disabled",
+              "idle",
+              "starting",
+              "listening",
+              "recognizing",
+              "thinking",
+              "speaking",
+              "waiting_slow",
+              "unavailable"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "tts_ready": {
+            "title": "Tts Ready",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "contract_version",
+          "projection_version",
+          "state",
+          "enabled",
+          "input_device",
+          "output_device",
+          "asr_ready",
+          "llm_ready",
+          "tts_ready",
+          "observed_at",
+          "reason_codes"
+        ],
+        "title": "LiveVoiceStatusResponse",
+        "type": "object"
+      },
       "MaintenancePhaseValue": {
         "enum": [
           "preparing",
@@ -5080,6 +5176,16 @@
               }
             ],
             "title": "Message"
+          },
+          "modality": {
+            "default": "text",
+            "enum": [
+              "text",
+              "media_file",
+              "live_voice"
+            ],
+            "title": "Modality",
+            "type": "string"
           },
           "occurred_at": {
             "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
@@ -9065,6 +9171,75 @@
           }
         ],
         "summary": "Subject Summary"
+      }
+    },
+    "/v1/voice/start": {
+      "post": {
+        "operationId": "startLiveVoice",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveVoiceStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "Start Live Voice"
+      }
+    },
+    "/v1/voice/status": {
+      "get": {
+        "operationId": "getLiveVoiceStatus",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveVoiceStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "Live Voice Status"
+      }
+    },
+    "/v1/voice/stop": {
+      "post": {
+        "operationId": "stopLiveVoice",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveVoiceStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "Stop Live Voice"
       }
     }
   }

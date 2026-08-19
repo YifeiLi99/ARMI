@@ -14,6 +14,7 @@ from pathlib import Path
 from armi_adapter_esp32_display import MoodDisplayViolation, probe_device
 from armi_kernel.application import BirthViolation
 
+from armi_runtime.adapters.voice.wasapi import WasapiRawAudio
 from armi_runtime.composition.bootstrap import execute_birth
 from armi_runtime.composition.configuration import ConfigurationViolation
 from armi_runtime.composition.creator_session import (
@@ -101,6 +102,11 @@ def _parser() -> argparse.ArgumentParser:
                     "automatically; this can expose it in browser or process history"
                 ),
             )
+    voice = command.add_parser("voice")
+    voice_command = voice.add_subparsers(dest="voice_command", required=True)
+    for voice_action in ("devices", "status", "start", "stop"):
+        voice_action_parser = voice_command.add_parser(voice_action)
+        voice_action_parser.add_argument("--environment-root", type=Path)
     device = command.add_parser("device")
     device_command = device.add_subparsers(dest="device_command", required=True)
     mood_display = device_command.add_parser("mood-display")
@@ -237,6 +243,33 @@ def _creator_message(args: argparse.Namespace) -> str:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.command == "voice" and args.voice_command == "devices":
+        try:
+            devices = WasapiRawAudio.devices()
+            result = {
+                "status": "available",
+                "devices": [
+                    {
+                        "host_api": item.host_api,
+                        "name": item.name,
+                        "input_channels": item.input_channels,
+                        "output_channels": item.output_channels,
+                        "default_sample_rate": item.default_sample_rate,
+                    }
+                    for item in devices
+                ],
+            }
+        except Exception as error:
+            result = {
+                "status": "unavailable",
+                "reason_code": getattr(error, "code", "VOICE-AUDIO-UNAVAILABLE"),
+            }
+        print(
+            json.dumps(
+                result, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            )
+        )
+        return 0 if result["status"] == "available" else 3
     if args.command == "device":
         try:
             result = probe_device(str(args.port))
@@ -334,7 +367,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         credential_scope = {
             QQ_NAPCAT_ACCESS_TOKEN_PURPOSE: QQ_NAPCAT_ACCESS_TOKEN_LOCATOR,
         }
-    elif args.command in {"stop", "capacity", "creator"}:
+    elif args.command in {"stop", "capacity", "creator", "voice"}:
         credential_scope = {}
     else:
         credential_scope = {
@@ -533,6 +566,25 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         )
         return 0
+    if args.command == "voice":
+        process = RuntimeProcessManager(
+            prepared.root,
+            str(prepared.effective.config.environment.environment_id),
+        )
+        try:
+            result = process.voice(args.voice_command)
+        except RuntimeViolation as error:
+            _safe_failure(error)
+            return 3
+        print(
+            json.dumps(
+                result,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+        return 0 if result.get("state") not in {"unavailable", "failed"} else 3
     if args.command in {"start", "status", "stop"}:
         process = RuntimeProcessManager(
             prepared.root,

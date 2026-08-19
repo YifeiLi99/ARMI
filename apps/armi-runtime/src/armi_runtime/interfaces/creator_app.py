@@ -187,6 +187,7 @@ from .creator_contract import (
     LifeRecordKindValue,
     LifeRecordPageResponse,
     LiveResponse,
+    LiveVoiceStatusResponse,
     OtherHumanPartyRecordPageResponse,
     OtherHumanPartyRecordResponse,
     OtherHumanSceneRecordPageResponse,
@@ -241,6 +242,7 @@ AsyncCallback = Callable[[], Awaitable[None]]
 ReadinessProvider = Callable[[], Readiness]
 RuntimeStatusProvider = Callable[[], RuntimeStatusResponse]
 QQChannelHealthProvider = Callable[[], Awaitable[QQChannelHealthResponse]]
+LiveVoiceControlProvider = Callable[[str], Awaitable[LiveVoiceStatusResponse]]
 SubjectSummaryProvider = Callable[[], Awaitable[SubjectSummary]]
 SecurityEvent = Callable[[str], None]
 
@@ -1494,6 +1496,7 @@ def create_runtime_app(
     codex_task_admission: CreatorCodexTaskAdmissionPort[CreatorInputAcceptance]
     | None = None,
     on_security_event: SecurityEvent | None = None,
+    live_voice_control: LiveVoiceControlProvider | None = None,
 ) -> FastAPI:
     """Create the fixed Runtime app without implementation discovery."""
 
@@ -1682,6 +1685,46 @@ def create_runtime_app(
                 content=_rejected(error.code),
             )
         return JSONResponse(content=(await qq_channel_health()).model_dump(mode="json"))
+
+    async def _voice_control(request: Request, action: str) -> JSONResponse:
+        if (
+            browser_sessions is None
+            or live_voice_control is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            return JSONResponse(
+                status_code=403 if browser_sessions is not None else 503,
+                content=(
+                    _rejected("AUTH_BROWSER_BOUNDARY")
+                    if browser_sessions is not None and live_voice_control is not None
+                    else _unavailable("DEPENDENCY_LIVE_VOICE_UNAVAILABLE")
+                ),
+            )
+        token = _bearer(request)
+        try:
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            browser_sessions.verify(token)
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_rejected(error.code),
+            )
+        return JSONResponse(
+            content=(await live_voice_control(action)).model_dump(mode="json")
+        )
+
+    @app.get("/v1/voice/status")
+    async def get_live_voice_status(request: Request) -> JSONResponse:
+        return await _voice_control(request, "status")
+
+    @app.post("/v1/voice/start")
+    async def start_live_voice(request: Request) -> JSONResponse:
+        return await _voice_control(request, "start")
+
+    @app.post("/v1/voice/stop")
+    async def stop_live_voice(request: Request) -> JSONResponse:
+        return await _voice_control(request, "stop")
 
     @app.get("/v1/subject/summary")
     async def get_subject_summary(request: Request) -> JSONResponse:
@@ -3568,6 +3611,9 @@ def create_runtime_app(
                         str(item.effect_ref) if item.effect_ref is not None else None
                     ),
                     message=item.message,
+                    modality=cast(
+                        Literal["text", "media_file", "live_voice"], item.modality
+                    ),
                 )
                 for item in page.items
             ],
@@ -4456,6 +4502,9 @@ def create_runtime_app(
         current_browser_session,
         get_runtime_status,
         get_qq_channel_health,
+        get_live_voice_status,
+        start_live_voice,
+        stop_live_voice,
         get_subject_summary,
         creator_redirect,
         creator_index,

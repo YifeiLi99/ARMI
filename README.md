@@ -24,9 +24,9 @@ ARMI 以真实人类的心理、生活和社会行为作为参照，但承认自
 
 ARMI 目前是运行在单机上的模块化单体。Python workspace 包含稳定内核、Runtime/Admin 共用的 PostgreSQL catalog 合同、普通 Runtime、隔离的管理 MCP，以及独立 QQ 适配器和 NapCat 渠道驱动；Creator 工作台是由 Runtime 同源托管的 React 静态应用。PostgreSQL 是唯一权威关系数据库，文件制品只保存不适合直接进入关系表的大正文或执行产物。
 
-二十一个业务领域均为独立 workspace distribution。生产与跨模块测试只通过各模块 `api.py` 的冻结 DTO/Protocol 协作；业务 SQL 由表 owner 独占，Runtime 只在共享 PostgreSQL UoW 中协调顺序、CAS、durable work 与审计。Kernel 和 Runtime Foundation 保持业务中性，不维护业务 owner、表名或 Creator 投影版本枚举。
+二十二个业务领域均为独立 workspace distribution，其中 `armi-live-voice` 独占本机实时语音会话、轮次与 Provider attempt。生产与跨模块测试只通过各模块 `api.py` 的冻结 DTO/Protocol 协作；业务 SQL 由表 owner 独占，Runtime 只在共享 PostgreSQL UoW 中协调顺序、CAS、durable work 与审计。Kernel 和 Runtime Foundation 保持业务中性，不维护业务 owner、表名或 Creator 投影版本枚举。
 
-当前代码已经覆盖 Creator 对话与多场合、Self/Mind/Prompt、主观记忆、关系与生活资料、自主机会与 Activity、睡眠维护、主动联系、内置其他人交流、本地导出与数据权利，以及经授权的 Creator→Codex 委托。QQ/NapCat 统一适配器支持好友私聊和白名单群的文字收发，并保留 QQ 已明确给出的内置表情、商城表情与图片子类。内置表情和有效商城摘要在本地解释；其他图片经过真实格式、尺寸和动画帧检查后，按表情、平台特殊图或普通图片选择一次视觉理解。语音走豆包语音大模型录音文件识别标准版的 `400` 模型，视频仍作为完整文件交给方舟视频模型，PDF、文本及常见 Office 文件沿用各自通路。正式回复仍只发送文字。渠道默认关闭；群临时私聊不接纳。代码存在不等于某个环境已经配置并启用；模型、网页、Codex 和其他外部能力仍取决于该环境的绑定、凭据与授权。
+当前代码已经覆盖 Creator 对话与多场合、Self/Mind/Prompt、主观记忆、关系与生活资料、自主机会与 Activity、睡眠维护、主动联系、内置其他人交流、本地导出与数据权利，以及经授权的 Creator→Codex 委托。QQ/NapCat 统一适配器支持好友私聊和白名单群的文字收发，并保留 QQ 已明确给出的内置表情、商城表情与图片子类。内置表情和有效商城摘要在本地解释；其他图片经过真实格式、尺寸和动画帧检查后，按表情、平台特殊图或普通图片选择一次视觉理解。QQ 录音走豆包语音大模型录音文件识别标准版的 `400` 模型，它不是实时语音。独立的本机实时语音模块使用 USB Audio、流式 ASR、紧凑快模型和流式 TTS，默认关闭，只有精确配置设备并显式开始后才接纳 `live_voice` Creator 输入；浏览器不取得麦克风权限。视频仍作为完整文件交给方舟视频模型，PDF、文本及常见 Office 文件沿用各自通路。正式 QQ 回复仍只发送文字。代码存在不等于环境已经配置、设备已经连接或服务权限已经通过真实握手。
 
 Creator 输入及其精确生命查询结果使用两条热分支：Runtime 只冻结并编译一次 Context，再分别生成“响应与动作”和“经历与评估”Prompt，两次模型调用并发执行且互相看不到输出。响应分支只决定表达、查询和明确动作；评估分支只提交 Experience、事件级情绪信号、关系或承诺事件，且只有 Creator 明确要求“记住”时才能追加即时记忆。Runtime 按固定顺序汇合两个结果，由各状态 Owner 校验后只执行一次 Subject Commit；单支失败不伪造另一支的结果。接受 Experience 后只登记维护积压，记忆整理与 Self、Mind、Prompt 专项反思在空闲或睡眠窗口按依赖顺序运行。
 
@@ -98,6 +98,10 @@ uv run armi channel qq status --environment-root C:\path\to\environment
 uv run armi channel qq start --environment-root C:\path\to\environment
 uv run armi channel qq open --environment-root C:\path\to\environment
 uv run armi channel qq open --auto-login --environment-root C:\path\to\environment
+uv run armi voice devices --environment-root C:\path\to\environment
+uv run armi voice status --environment-root C:\path\to\environment
+uv run armi voice start --environment-root C:\path\to\environment
+uv run armi voice stop --environment-root C:\path\to\environment
 uv run armi creator send --environment-root C:\path\to\environment --message "你好"
 uv run armi stop --environment-root C:\path\to\environment
 ```

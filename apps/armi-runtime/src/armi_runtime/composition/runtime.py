@@ -10,6 +10,7 @@ import selectors
 import signal
 import threading
 from collections.abc import Generator
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid7
 
@@ -58,6 +59,7 @@ from armi_kernel.application import (
     SubjectCommitViolation,
 )
 from armi_kernel.contracts import IdempotencyKey, TraceId
+from armi_live_voice.api import LiveVoiceRuntimePort
 from armi_memory.api import MemoryViolation
 from armi_prompt.api import CreatorPromptViolation
 from armi_relationship.api import RelationshipViolation
@@ -76,6 +78,7 @@ from armi_runtime.adapters.persistence.runtime_observability import (
 from armi_runtime.adapters.persistence.unit_of_work import (
     PostgreSQLUnitOfWorkFactory,
 )
+from armi_runtime.adapters.voice.wasapi import WasapiRawAudio
 from armi_runtime.application.action_lifecycle import RuntimeCodexGrantActivation
 from armi_runtime.application.cognition_cycle import RuntimeCognitionState
 from armi_runtime.application.creator_timeline import CreatorTimelineProjectionAssembler
@@ -88,6 +91,7 @@ from armi_runtime.interfaces.browser_sessions import (
 )
 from armi_runtime.interfaces.creator_app import create_runtime_app
 from armi_runtime.interfaces.creator_contract import (
+    LiveVoiceStatusResponse,
     QQChannelHealthResponse,
     RuntimeStatusResponse,
 )
@@ -276,6 +280,7 @@ async def _serve(
     codex_pipeline: CodexRuntimePort | None = None
     admin_control: RuntimeAdminControlServer | None = None
     work_wakeups = WorkWakeupBus()
+    live_voice_service: LiveVoiceRuntimePort | None = None
 
     def inject_admin_fault(name: str) -> None:
         if admin_control is not None:
@@ -1421,6 +1426,78 @@ async def _serve(
             reason_codes=list(health.reason_codes),
         )
 
+    async def live_voice_control(action: str) -> LiveVoiceStatusResponse:
+        voice_config = config.voice
+        voice_service = live_voice_service
+        reasons: list[str] = []
+        state = "disabled"
+        input_label = None
+        output_label = None
+        if voice_config.input_device is not None:
+            input_label = (
+                f"{voice_config.input_device.host_api} / "
+                f"{voice_config.input_device.name}"
+            )
+        if voice_config.output_device is not None:
+            output_label = (
+                f"{voice_config.output_device.host_api} / "
+                f"{voice_config.output_device.name}"
+            )
+        if voice_config.enabled:
+            try:
+                devices = WasapiRawAudio.devices()
+                input_config = voice_config.input_device
+                output_config = voice_config.output_device
+                input_found = input_config is not None and any(
+                    item.host_api == input_config.host_api
+                    and item.name == input_config.name
+                    and item.input_channels > 0
+                    for item in devices
+                )
+                output_found = output_config is not None and any(
+                    item.host_api == output_config.host_api
+                    and item.name == output_config.name
+                    and item.output_channels > 0
+                    for item in devices
+                )
+                if not input_found:
+                    reasons.append("VOICE_INPUT_DEVICE_UNAVAILABLE")
+                if not output_found:
+                    reasons.append("VOICE_OUTPUT_DEVICE_UNAVAILABLE")
+            except Exception:
+                reasons.append("VOICE_AUDIO_UNAVAILABLE")
+            if voice_service is None:
+                reasons.append("VOICE_PIPELINE_UNAVAILABLE")
+            if reasons:
+                state = "unavailable"
+            else:
+                assert voice_service is not None
+                if action == "start":
+                    await voice_service.start()
+                elif action == "stop":
+                    await voice_service.stop()
+                state = voice_service.status().value
+        return LiveVoiceStatusResponse(
+            contract_version="1.0",
+            projection_version="creator-live-voice-status.v1",
+            state=state,
+            enabled=voice_config.enabled,
+            input_device=input_label,
+            output_device=output_label,
+            asr_ready=voice_service is not None and not reasons,
+            llm_ready=voice_service is not None and not reasons,
+            tts_ready=voice_service is not None and not reasons,
+            observed_at=(
+                datetime.now(UTC)
+                .isoformat(timespec="microseconds")
+                .replace("+00:00", "Z")
+            ),
+            reason_codes=reasons,
+        )
+
+    async def admin_voice(action: str) -> dict[str, object]:
+        return (await live_voice_control(action)).model_dump(mode="json")
+
     def security_event(event: str) -> None:
         diagnostic.emit(event, result_code="CREATOR_SECURITY_EVENT")
 
@@ -1488,6 +1565,7 @@ async def _serve(
         readiness=lambda: lifecycle.snapshot().readiness,
         runtime_status=runtime_status,
         qq_channel_health=qq_health_status,
+        live_voice_control=live_voice_control,
         assets=assets,
         browser_sessions=browser_sessions,
         creator_scenes=creator_scenes,
@@ -1570,6 +1648,7 @@ async def _serve(
             on_drain=admin_drain,
             on_stop=admin_stop,
             on_input=admin_input if creator_input is not None else None,
+            on_voice=admin_voice,
         )
     try:
         await server.serve()

@@ -6,6 +6,7 @@ export type BrowserSessionEstablished =
   components["schemas"]["BrowserSessionResponse"];
 export type RuntimeStatus = components["schemas"]["RuntimeStatusResponse"];
 export type QQChannelHealth = components["schemas"]["QQChannelHealthResponse"];
+export type LiveVoiceStatus = components["schemas"]["LiveVoiceStatusResponse"];
 export type SceneTimelinePage =
   components["schemas"]["SceneTimelinePageResponse"];
 export type CreatorScene = components["schemas"]["CreatorSceneResponse"];
@@ -206,6 +207,30 @@ export async function getQQChannelHealth(
     credentials: "omit",
     headers: { Authorization: `Bearer ${token}` },
     ...(signal === undefined ? {} : { signal }),
+  });
+  return requireJson(response);
+}
+
+export async function getLiveVoiceStatus(
+  token: string,
+  signal?: AbortSignal,
+): Promise<LiveVoiceStatus> {
+  const response = await fetch("/v1/voice/status", {
+    credentials: "omit",
+    headers: { Authorization: `Bearer ${token}` },
+    ...(signal === undefined ? {} : { signal }),
+  });
+  return requireJson(response);
+}
+
+export async function setLiveVoiceRunning(
+  token: string,
+  running: boolean,
+): Promise<LiveVoiceStatus> {
+  const response = await fetch(`/v1/voice/${running ? "start" : "stop"}`, {
+    method: "POST",
+    credentials: "omit",
+    headers: { Authorization: `Bearer ${token}` },
   });
   return requireJson(response);
 }

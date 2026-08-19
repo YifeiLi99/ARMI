@@ -18,6 +18,7 @@ import { MessageComposer } from "../scene/MessageComposer";
 import { ActivityPanel } from "../activity/ActivityPanel";
 import { MaintenancePanel } from "../maintenance/MaintenancePanel";
 import { QQChannelHealthCard } from "../maintenance/QQChannelHealthCard";
+import { LiveVoiceCard } from "../maintenance/LiveVoiceCard";
 import { MaterialPanel } from "../material/MaterialPanel";
 import { MemoryPanel } from "../memory/MemoryPanel";
 import { RelationshipPanel } from "../relationship/RelationshipPanel";
@@ -357,10 +358,16 @@ export function SessionPanel() {
                 onUnauthorized={unauthorized}
               />
               {activePage === "maintenance" ? (
-                <QQChannelHealthCard
-                  token={view.stored.token}
-                  onUnauthorized={unauthorized}
-                />
+                <>
+                  <LiveVoiceCard
+                    token={view.stored.token}
+                    onUnauthorized={unauthorized}
+                  />
+                  <QQChannelHealthCard
+                    token={view.stored.token}
+                    onUnauthorized={unauthorized}
+                  />
+                </>
               ) : null}
             </div>
           </div>
