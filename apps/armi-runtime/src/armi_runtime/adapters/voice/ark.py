@@ -13,7 +13,7 @@ class ArkResponsesFastModel:
         self,
         api_key: str,
         *,
-        model: str = "doubao-seed-2-0-lite-260428",
+        model: str = "doubao-seed-2-0-mini-260428",
         base_url: str = "https://ark.cn-beijing.volces.com/api/v3",
     ) -> None:
         if not api_key:
@@ -31,9 +31,9 @@ class ArkResponsesFastModel:
         instruction = (
             context.prompt
             + "\n\n你正在进行本机实时语音快答。只允许使用以下首行协议之一\uff1a\n"
-            "SPEAK\\n<一至两句、最多160字>\n"
-            "WAIT\\n<最多24字的自然垫话>\n"
-            "SILENT\\n\n"
+            "SPEAK\n<一至两句、最多160字>\n"
+            "WAIT\n<最多24字的自然垫话>\n"
+            "SILENT\n\n"
             "不要使用工具\uff0c不要输出解释或 Markdown。"
         )
         try:

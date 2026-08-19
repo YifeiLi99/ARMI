@@ -84,13 +84,17 @@ class LiveVoiceService:
         task.cancel()
         with suppress(asyncio.CancelledError):
             await task
+        await self._tts.close()
         self._task = None
         if self._machine.state is not LiveVoiceSessionState.IDLE:
             self._machine.transition(LiveVoiceSessionState.IDLE)
 
     async def _run(self) -> None:
         try:
-            context = await self._context.compile()
+            context, _ = await asyncio.gather(
+                self._context.compile(),
+                self._tts.prepare(),
+            )
             self._machine.transition(LiveVoiceSessionState.LISTENING)
             self._ready.set()
             while not self._stop.is_set():

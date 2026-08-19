@@ -213,6 +213,7 @@ class VolcStreamingAsr:
                 "show_utterances": True,
                 "result_type": "full",
                 "stream_mode": 2,
+                "enable_nonstream": False,
                 "end_window_size": self._endpoint_silence_ms,
             },
         }
@@ -226,17 +227,59 @@ class VolcStreamingAsr:
                 await socket.send(encode_asr_full_request(request))
                 first = decode_message(await socket.recv())
                 _raise_provider_error(first, "ASR")
-                sequence = 2
-                async for frame in frames:
-                    await socket.send(encode_asr_audio(frame, sequence))
-                    sequence += 1
-                    response = decode_message(await socket.recv())
-                    _raise_provider_error(response, "ASR")
-                    event = _recognition_event(json_payload(response))
-                    if event is not None:
-                        yield event
-                        if event.utterance_ended:
+
+                async def send_audio() -> None:
+                    iterator = frames.__aiter__()
+                    try:
+                        current = await anext(iterator)
+                    except StopAsyncIteration:
+                        raise LiveVoiceViolation(
+                            "VOICE-ASR-AUDIO", "ASR audio stream is empty"
+                        ) from None
+                    sequence = 2
+                    while True:
+                        try:
+                            following = await anext(iterator)
+                        except StopAsyncIteration:
+                            await socket.send(
+                                encode_asr_audio(current, sequence, last=True)
+                            )
                             return
+                        await socket.send(encode_asr_audio(current, sequence))
+                        current = following
+                        sequence += 1
+
+                # Sending microphone frames and receiving partials are independent
+                # directions of the same WebSocket stream. Serial round trips here
+                # turn a 20 ms audio cadence into provider-network latency per frame.
+                sender = asyncio.create_task(send_audio())
+                try:
+                    while True:
+                        receiver = asyncio.create_task(socket.recv())
+                        waiting = {receiver}
+                        if not sender.done():
+                            waiting.add(sender)
+                        done, _ = await asyncio.wait(
+                            waiting, return_when=asyncio.FIRST_COMPLETED
+                        )
+                        if sender in done and not sender.cancelled():
+                            sender_error = sender.exception()
+                            if sender_error is not None:
+                                receiver.cancel()
+                                with contextlib.suppress(asyncio.CancelledError):
+                                    await receiver
+                                raise sender_error
+                        response = decode_message(await receiver)
+                        _raise_provider_error(response, "ASR")
+                        event = _recognition_event(json_payload(response))
+                        if event is not None:
+                            yield event
+                            if event.utterance_ended:
+                                return
+                finally:
+                    sender.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await sender
         except LiveVoiceViolation:
             raise
         except Exception as error:
@@ -258,26 +301,22 @@ class VolcStreamingTts:
         self._resource_id = resource_id
         self._voice_type = voice_type
         self._endpoint = endpoint
+        self._socket: Any | None = None
+        self._connection_lock = asyncio.Lock()
+
+    async def prepare(self) -> None:
+        async with self._connection_lock:
+            await self._ensure_connection()
+
+    async def close(self) -> None:
+        async with self._connection_lock:
+            await self._close_connection()
 
     async def synthesize(self, fragments: AsyncIterator[str]) -> AsyncIterator[bytes]:
-        connect = importlib.import_module("websockets.asyncio.client").connect
-
-        headers = {
-            "X-Api-App-Key": self._credentials.app_id,
-            "X-Api-Access-Key": self._credentials.access_token,
-            "X-Api-Resource-Id": self._resource_id,
-            "X-Api-Connect-Id": str(uuid4()),
-        }
         session_id = str(uuid4())
         try:
-            async with connect(
-                self._endpoint,
-                additional_headers=headers,
-                max_size=2**22,
-                open_timeout=5,
-            ) as socket:
-                await socket.send(encode_event(_START_CONNECTION, {}))
-                await _expect_event(socket, _CONNECTION_STARTED, session=True)
+            async with self._connection_lock:
+                socket = await self._ensure_connection()
                 start = {
                     "event": _START_SESSION,
                     "req_params": {
@@ -332,13 +371,51 @@ class VolcStreamingTts:
                     feeder.cancel()
                     with contextlib.suppress(asyncio.CancelledError):
                         await feeder
-                await socket.send(encode_event(_FINISH_CONNECTION, {}))
         except LiveVoiceViolation:
+            await self._invalidate_connection()
             raise
         except Exception as error:
+            await self._invalidate_connection()
             raise LiveVoiceViolation(
                 "VOICE-TTS-FAILED", "streaming TTS failed"
             ) from error
+
+    async def _ensure_connection(self) -> Any:
+        if self._socket is not None:
+            return self._socket
+        connect = importlib.import_module("websockets.asyncio.client").connect
+        headers = {
+            "X-Api-App-Key": self._credentials.app_id,
+            "X-Api-Access-Key": self._credentials.access_token,
+            "X-Api-Resource-Id": self._resource_id,
+            "X-Api-Connect-Id": str(uuid4()),
+        }
+        socket = await connect(
+            self._endpoint,
+            additional_headers=headers,
+            max_size=2**22,
+            open_timeout=5,
+        )
+        try:
+            await socket.send(encode_event(_START_CONNECTION, {}))
+            await _expect_event(socket, _CONNECTION_STARTED, session=True)
+        except BaseException:
+            await socket.close()
+            raise
+        self._socket = socket
+        return socket
+
+    async def _invalidate_connection(self) -> None:
+        async with self._connection_lock:
+            await self._close_connection()
+
+    async def _close_connection(self) -> None:
+        socket, self._socket = self._socket, None
+        if socket is None:
+            return
+        with contextlib.suppress(Exception):
+            await socket.send(encode_event(_FINISH_CONNECTION, {}))
+        await socket.close()
 
 
 async def _expect_event(socket: Any, expected: int, *, session: bool) -> None:

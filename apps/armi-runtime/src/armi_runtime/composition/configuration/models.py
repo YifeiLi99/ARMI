@@ -197,7 +197,7 @@ class VoiceConfig(_FrozenModel):
     frame_duration_ms: Literal[20] = 20
     queue_max_frames: Annotated[int, Field(ge=10, le=500)] = 100
     asr_resource_id: str = "volc.bigasr.sauc.duration"
-    llm_model: str = "doubao-seed-2-0-lite-260428"
+    llm_model: str = "doubao-seed-2-0-mini-260428"
     tts_resource_id: str = "seed-tts-2.0"
     tts_voice_type: str = "zh_female_vv_uranus_bigtts"
 

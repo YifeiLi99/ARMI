@@ -55,6 +55,12 @@ class FakeTts:
     def __init__(self, log: list[str]) -> None:
         self.log = log
 
+    async def prepare(self) -> None:
+        self.log.append("tts_ready")
+
+    async def close(self) -> None:
+        return None
+
     async def synthesize(self, fragments: AsyncIterator[str]) -> AsyncIterator[bytes]:
         assert "".join([item async for item in fragments]) == "现在是下午三点。"
         self.log.append("synthesized")
@@ -111,5 +117,6 @@ async def test_fast_speech_is_registered_before_audio_and_appraisal_is_async() -
     await service.start()
     await asyncio.wait_for(successors.appraised.wait(), timeout=1)
     await service.stop()
-    assert log[:3] == ["registered", "synthesized", "played"]
+    assert log[0] == "tts_ready"
+    assert log[1:4] == ["registered", "synthesized", "played"]
     assert log.count("sealed") == 1
