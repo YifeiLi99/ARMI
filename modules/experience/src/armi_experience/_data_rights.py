@@ -1,5 +1,7 @@
 """Data-rights participant owned by the Experience module."""
 
+from typing import LiteralString
+
 from armi_data_rights.api import (
     DataRightsApplyContribution,
     DataRightsApplyRequest,
@@ -17,7 +19,7 @@ from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("experience")
 _VERSION = DataRightsContributionVersion(1)
-_SEGMENTS = (
+_SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
         "accepted_experiences",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')

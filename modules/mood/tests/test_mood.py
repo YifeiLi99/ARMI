@@ -149,9 +149,7 @@ def _semantic_event(
             coping,
             standards,
         ),
-        None
-        if transition is AppraisalTransition.NEW
-        else AppraisalTrajectory.IMPROVED,
+        None if transition is AppraisalTransition.NEW else AppraisalTrajectory.IMPROVED,
     )
 
 
@@ -395,9 +393,7 @@ def test_semantic_agency_and_persistence_distinguish_anger_and_frustration() -> 
     frustration = _semantic_event(
         concerns=concern,
         quality=AppraisalQuality.UNPLEASANT,
-        demand=AppraisalDemand(
-            AppraisalUrgency.SOON, AppraisalDemandLevel.EXTREME
-        ),
+        demand=AppraisalDemand(AppraisalUrgency.SOON, AppraisalDemandLevel.EXTREME),
         causality=AppraisalCausality(
             AppraisalAgency.CIRCUMSTANCE,
             AppraisalIntentionality.NOT_APPLICABLE,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import tomllib
@@ -153,6 +154,32 @@ class QualityGateTests(unittest.TestCase):
             project["tool"]["pytest"]["ini_options"]["testpaths"],
             ["tests", "modules", "apps", "packages"],
         )
+
+    def test_every_distribution_source_is_in_all_static_and_test_scopes(self) -> None:
+        workspace = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        members = workspace["tool"]["uv"]["workspace"]["members"]
+        testpaths = tomllib.loads(
+            (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        )["tool"]["pytest"]["ini_options"]["testpaths"]
+        pyright_config = json.loads(
+            (ROOT / "pyrightconfig.json").read_text(encoding="utf-8")
+        )
+
+        strict = set(pyright_config["strict"])
+        included = set(pyright_config["include"])
+        test_scopes = set(testpaths)
+        for member in members:
+            source = f"{member}/src"
+            self.assertIn(source, strict, f"strict Pyright misses {source}")
+            self.assertTrue(
+                any(
+                    member == scope or member.startswith(f"{scope}/")
+                    for scope in included
+                ),
+                f"Pyright include misses {member}",
+            )
+            top_level = member.split("/", 1)[0]
+            self.assertIn(top_level, test_scopes, f"pytest misses {member}")
 
     def test_build_inventory_follows_workspace_members(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

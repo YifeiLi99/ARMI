@@ -215,7 +215,7 @@ def parse_component(value: object) -> EmotionComponent:
             parse_vad(raw["vad"]),
             cast(int, raw["intensity"]),
         )
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         raise MoodViolation("MOOD-COMPONENT") from None
 
 
@@ -310,7 +310,7 @@ def parse_appraisal(value: object) -> AppraisalEvent:
             cast(str, raw["gist"]),
             appraisal,
         )
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         raise MoodViolation("MOOD-APPRAISAL") from None
 
 
@@ -320,7 +320,9 @@ def semantic_appraisal_to_wire(value: SemanticAppraisalEvent) -> dict[str, objec
         "schema_version": "armi.mood-appraisal.v2",
         "transition": value.transition.value,
         "previous_episode_id": (
-            None if value.previous_episode_id is None else str(value.previous_episode_id)
+            None
+            if value.previous_episode_id is None
+            else str(value.previous_episode_id)
         ),
         "event_phase": value.phase.value,
         "gist": value.gist,
@@ -432,9 +434,7 @@ def parse_semantic_appraisal(value: object) -> SemanticAppraisalEvent:
         concerns = tuple(
             AppraisalConcern(
                 AppraisalConcernTarget(cast(dict[str, object], item)["target"]),
-                AppraisalSignificance(
-                    cast(dict[str, object], item)["significance"]
-                ),
+                AppraisalSignificance(cast(dict[str, object], item)["significance"]),
                 AppraisalDirection(cast(dict[str, object], item)["direction"]),
             )
             for item in cast(list[object], concerns_value)
@@ -468,9 +468,7 @@ def parse_semantic_appraisal(value: object) -> SemanticAppraisalEvent:
                 AppraisalExpectedness(cast(str, appraisal["expectedness"])),
                 AppraisalCertainty(cast(str, appraisal["outcome_certainty"])),
                 AppraisalQuality(cast(str, appraisal["intrinsic_quality"])),
-                AppraisalSelfInvolvement(
-                    cast(str, appraisal["self_involvement"])
-                ),
+                AppraisalSelfInvolvement(cast(str, appraisal["self_involvement"])),
                 None
                 if demand is None
                 else AppraisalDemand(
@@ -481,34 +479,26 @@ def parse_semantic_appraisal(value: object) -> SemanticAppraisalEvent:
                 if causality is None
                 else AppraisalCausality(
                     AppraisalAgency(cast(str, causality["agency"])),
-                    AppraisalIntentionality(
-                        cast(str, causality["intentionality"])
-                    ),
+                    AppraisalIntentionality(cast(str, causality["intentionality"])),
                 ),
                 None
                 if coping is None
                 else AppraisalCoping(
-                    AppraisalResponseAccess(
-                        cast(str, coping["response_access"])
-                    ),
+                    AppraisalResponseAccess(cast(str, coping["response_access"])),
                     AppraisalPowerBalance(cast(str, coping["power_balance"])),
                     AppraisalAdjustment(cast(str, coping["adjustment"])),
                 ),
                 None
                 if standards is None
                 else AppraisalStandards(
-                    AppraisalCompatibility(
-                        cast(str, standards["self_compatibility"])
-                    ),
-                    AppraisalCompatibility(
-                        cast(str, standards["norm_compatibility"])
-                    ),
+                    AppraisalCompatibility(cast(str, standards["self_compatibility"])),
+                    AppraisalCompatibility(cast(str, standards["norm_compatibility"])),
                     AppraisalSelfScope(cast(str, standards["self_scope"])),
                 ),
             ),
             None if trajectory is None else AppraisalTrajectory(cast(str, trajectory)),
         )
-    except (KeyError, TypeError, ValueError):
+    except KeyError, TypeError, ValueError:
         raise MoodViolation("MOOD-APPRAISAL") from None
 
 
@@ -637,9 +627,7 @@ def derive_appraisal(
     ongoing = _phase(event.phase, AppraisalEventPhase.ONGOING)
     self_agent = _agency(value.agency, AppraisalAgency.SELF)
     other_agent = _agency(value.agency, AppraisalAgency.OTHER)
-    social_agent = _agency(
-        value.agency, AppraisalAgency.OTHER, AppraisalAgency.SHARED
-    )
+    social_agent = _agency(value.agency, AppraisalAgency.OTHER, AppraisalAgency.SHARED)
     low_capacity = 1.0 - max(control, power, adjustment)
     signatures: dict[EmotionFamily, tuple[float, ...]] = {
         EmotionFamily.JOY: (relevance, _positive(goal), realized, certainty),
@@ -913,20 +901,12 @@ def semantic_features(value: SemanticAppraisal) -> SemanticFeatures:
         None if demand is None else _URGENCY[demand.urgency],
         None if demand is None else _DEMAND[demand.effort],
         AppraisalAgency.UNKNOWN if causality is None else causality.agency,
-        None
-        if causality is None
-        else _INTENTIONALITY[causality.intentionality],
-        None
-        if coping is None
-        else _RESPONSE_ACCESS[coping.response_access],
+        None if causality is None else _INTENTIONALITY[causality.intentionality],
+        None if coping is None else _RESPONSE_ACCESS[coping.response_access],
         None if coping is None else _POWER[coping.power_balance],
         None if coping is None else _ADJUSTMENT[coping.adjustment],
-        ()
-        if standards is None
-        else _COMPATIBILITY[standards.self_compatibility],
-        ()
-        if standards is None
-        else _COMPATIBILITY[standards.norm_compatibility],
+        () if standards is None else _COMPATIBILITY[standards.self_compatibility],
+        () if standards is None else _COMPATIBILITY[standards.norm_compatibility],
         _INVOLVEMENT[value.self_involvement],
         AppraisalSelfScope.NONE if standards is None else standards.self_scope,
     )
@@ -1054,9 +1034,7 @@ def derive_semantic_appraisal(
     previous: AppraisalEvent | SemanticAppraisalEvent | None = None,
 ) -> DerivedAppraisal:
     features = semantic_features(event.appraisal)
-    relevance = max(
-        (item.relevance or 0.0 for item in features.concerns), default=0.0
-    )
+    relevance = max((item.relevance or 0.0 for item in features.concerns), default=0.0)
     sudden = features.suddenness or 0.0
     unexpected = (
         0.0 if features.predictability is None else 1.0 - features.predictability
@@ -1082,8 +1060,7 @@ def derive_semantic_appraisal(
     goal = (
         0.0
         if not goal_denominator
-        else sum(value * weight for value, weight in weighted_goals)
-        / goal_denominator
+        else sum(value * weight for value, weight in weighted_goals) / goal_denominator
     )
     pleasantness = _pole_mean(features.pleasantness_poles)
     self_compatibility = _pole_mean(features.self_poles)
@@ -1300,7 +1277,9 @@ def derive_semantic_appraisal(
                     EmotionFamily.RELIEF,
                     score(
                         _previous_negative_goal(previous, concern.target),
-                        max(float(event.phase is AppraisalEventPhase.AVERTED), positive),
+                        max(
+                            float(event.phase is AppraisalEventPhase.AVERTED), positive
+                        ),
                         concern_relevance,
                     ),
                     concern_goal,
@@ -1372,11 +1351,7 @@ def derive_semantic_appraisal(
             _pole_impact(features.self_poles),
             _pole_impact(features.norm_poles),
         )
-        salience = (
-            0.55 * family_relevance
-            + 0.25 * component_impact
-            + 0.20 * activation
-        )
+        salience = 0.55 * family_relevance + 0.25 * component_impact + 0.20 * activation
         intensity = _round_to_five(100 * salience * family_score)
         normalized_importance = (importance - 5) / 95
         normalized_intensity = (intensity - 5) / 95
@@ -1554,21 +1529,21 @@ def derive_effective_snapshot(
         active.append(EffectiveEmotion(family, strongest[1].nuance, strength))
     active.sort(key=lambda item: (-item.intensity, item.family.value))
     active = active[:3]
-    episode_strengths: dict[UUID, list[tuple[float, datetime, str, AppraisalEventPhase]]] = (
-        defaultdict(list)
-    )
+    episode_strengths: dict[
+        UUID, list[tuple[float, datetime, str, AppraisalEventPhase]]
+    ] = defaultdict(list)
     for intensity, _component, occurred_at, episode_id, gist, phase in weighted:
         if episode_id is not None:
-            episode_strengths[episode_id].append(
-                (intensity, occurred_at, gist, phase)
-            )
+            episode_strengths[episode_id].append((intensity, occurred_at, gist, phase))
     episodes: list[ActiveAffectiveEpisode] = []
     for episode_id, items in episode_strengths.items():
         strength = min(100, round(sum(item[0] for item in items)))
         if strength < 5:
             continue
         latest = max(items, key=lambda item: item[1])
-        episodes.append(ActiveAffectiveEpisode(episode_id, latest[2], latest[3], strength))
+        episodes.append(
+            ActiveAffectiveEpisode(episode_id, latest[2], latest[3], strength)
+        )
     episodes.sort(key=lambda item: (-item.intensity, str(item.episode_id)))
     tendency_strengths: dict[ActionTendency, int] = defaultdict(int)
     for emotion in active:

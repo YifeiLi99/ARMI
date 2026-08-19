@@ -285,8 +285,7 @@ class PostgreSQLMaterialOwner:
             )
         ).fetchall()
         return tuple(
-            MaterialProjectionHead(row[0], row[1], row[2], int(row[3]))
-            for row in rows
+            MaterialProjectionHead(row[0], row[1], row[2], int(row[3])) for row in rows
         )
 
     async def filter_current_projection_heads(

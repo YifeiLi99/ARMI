@@ -188,7 +188,9 @@ class _HistoricalScoredOtherHumanSocialDecision(_StrictModel):
         return self
 
 
-class _HistoricalScoredOtherHumanReplyDecision(_HistoricalScoredOtherHumanSocialDecision):
+class _HistoricalScoredOtherHumanReplyDecision(
+    _HistoricalScoredOtherHumanSocialDecision
+):
     kind: Literal["reply"]
     content: Annotated[str, StringConstraints(min_length=1, max_length=65536)]
 
@@ -204,10 +206,8 @@ HistoricalScoredOtherHumanDialogueCandidate = Annotated[
     | _HistoricalScoredOtherHumanTerminalDecision,
     Field(discriminator="kind"),
 ]
-_HISTORICAL_SCORED_ADAPTER: TypeAdapter[
-    HistoricalScoredOtherHumanDialogueCandidate
-] = TypeAdapter(
-    HistoricalScoredOtherHumanDialogueCandidate
+_HISTORICAL_SCORED_ADAPTER: TypeAdapter[HistoricalScoredOtherHumanDialogueCandidate] = (
+    TypeAdapter(HistoricalScoredOtherHumanDialogueCandidate)
 )
 
 

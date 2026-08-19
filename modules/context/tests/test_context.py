@@ -28,7 +28,9 @@ from armi_interaction.api import InteractionContextTurn
 from armi_kernel.contracts import Digest, TraceId
 
 
-def test_mood_projection_exposes_referenceable_episodes_and_bounded_recall_bias() -> None:
+def test_mood_projection_exposes_referenceable_episodes_and_bounded_recall_bias() -> (
+    None
+):
     source_id = uuid7()
     episode_ids = (uuid7(), uuid7(), uuid7())
     mood = rfc8785.dumps(

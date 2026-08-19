@@ -8,7 +8,7 @@ import time
 from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
-from typing import Protocol
+from typing import Protocol, TypeVar, cast
 from uuid import uuid4
 
 from armi_mood.api import MoodSnapshot
@@ -20,19 +20,28 @@ from .wire import decode_frame, encode_ping, encode_pong, encode_state, parse_he
 
 class SerialPort(Protocol):
     def read_until(self, expected: bytes = b"\n", size: int | None = None) -> bytes: ...
-    def write(self, data: bytes) -> int: ...
+    def write(self, data: bytes, /) -> int | None: ...
     def close(self) -> None: ...
 
 
 SerialFactory = Callable[[str], SerialPort]
 SnapshotProvider = Callable[[], Awaitable[MoodSnapshot]]
+ResultT = TypeVar("ResultT")
 
 
 def _open_serial(port: str) -> SerialPort:
     import serial
 
-    return serial.Serial(
-        port=port, baudrate=115200, bytesize=8, parity="N", stopbits=1, timeout=1
+    return cast(
+        SerialPort,
+        serial.Serial(
+            port=port,
+            baudrate=115200,
+            bytesize=8,
+            parity="N",
+            stopbits=1,
+            timeout=1,
+        ),
     )
 
 
@@ -92,7 +101,9 @@ class MoodDisplayAdapter:
         with self._status_lock:
             self._status = value
 
-    async def _serial_call(self, operation, /, *args):
+    async def _serial_call(
+        self, operation: Callable[..., ResultT], /, *args: object
+    ) -> ResultT:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._serial_executor, operation, *args)
 

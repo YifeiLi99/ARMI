@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, LiteralString, Never, cast
 from uuid import uuid7
 
 import pytest
@@ -20,11 +20,19 @@ from armi_experience.api import (
     ExperienceViolation,
 )
 from armi_kernel.application import CandidateFactClass, ExperienceId
+from armi_runtime_foundation import (
+    PostgreSQLParameters,
+    PostgreSQLResult,
+)
 
 
 class _Result:
     def __init__(self, rows: tuple[tuple[object, ...], ...] = ()) -> None:
         self._rows = rows
+
+    @property
+    def rowcount(self) -> int:
+        return len(self._rows)
 
     async def fetchall(self) -> tuple[tuple[object, ...], ...]:
         return self._rows
@@ -36,13 +44,17 @@ class _Result:
 class _Transaction:
     def __init__(self, *results: _Result) -> None:
         self.results = list(results)
-        self.calls: list[tuple[str, object | None]] = []
+        self.calls: list[tuple[str, PostgreSQLParameters]] = []
 
     async def execute(
-        self, statement: str, params: object | None = None
-    ) -> _Result:
-        self.calls.append((statement, params))
-        return self.results.pop(0) if self.results else _Result()
+        self,
+        statement: LiteralString,
+        parameters: PostgreSQLParameters = (),
+        /,
+    ) -> PostgreSQLResult[tuple[Never, ...]]:
+        self.calls.append((statement, parameters))
+        result = self.results.pop(0) if self.results else _Result()
+        return cast(PostgreSQLResult[tuple[Never, ...]], result)
 
 
 def _draft() -> AcceptedExperienceDraft:

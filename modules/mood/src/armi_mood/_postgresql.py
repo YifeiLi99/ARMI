@@ -143,9 +143,14 @@ class PostgreSQLMoodOwner:
                         occurred_at, self._stored_components(raw_components)
                     )
                 )
-            for episode_id, transition, phase, gist, raw_components, occurred_at in (
-                appraisal_rows
-            ):
+            for (
+                episode_id,
+                transition,
+                phase,
+                gist,
+                raw_components,
+                occurred_at,
+            ) in appraisal_rows:
                 events.append(
                     StoredAffectiveEvent(
                         occurred_at,
@@ -156,13 +161,15 @@ class PostgreSQLMoodOwner:
                         str(gist),
                     )
                 )
-        except (MoodViolation, TypeError, ValueError):
+        except MoodViolation, TypeError, ValueError:
             raise MoodViolation("MOOD-EVENT-STORAGE") from None
         events.sort(key=lambda item: item.occurred_at)
         return tuple(events)
 
     @staticmethod
-    def _stored_components(raw_components: object) -> tuple[StoredEmotionComponent, ...]:
+    def _stored_components(
+        raw_components: object,
+    ) -> tuple[StoredEmotionComponent, ...]:
         components: list[StoredEmotionComponent] = []
         for raw in cast(list[object], raw_components):
             item = cast(dict[str, object], raw)
@@ -172,7 +179,9 @@ class PostgreSQLMoodOwner:
             semantic = {
                 key: value for key, value in item.items() if key != "half_life_seconds"
             }
-            components.append(StoredEmotionComponent(parse_component(semantic), half_life))
+            components.append(
+                StoredEmotionComponent(parse_component(semantic), half_life)
+            )
         return tuple(components)
 
     async def current_head_count(
@@ -378,9 +387,7 @@ class PostgreSQLMoodOwner:
         }:
             raise MoodViolation("MOOD-APPRAISAL-NO-AFFECT")
         components = [
-            component_to_wire(
-                item.component, half_life_seconds=item.half_life_seconds
-            )
+            component_to_wire(item.component, half_life_seconds=item.half_life_seconds)
             for item in derived.components
         ]
         await transaction.execute(
@@ -464,7 +471,9 @@ class PostgreSQLMoodOwner:
         if clock is None:
             raise MoodViolation("MOOD-CLOCK")
         now = cast(datetime, clock[0]).astimezone(UTC)
-        lower = max(cast(datetime, last_change[0]).astimezone(UTC), now - timedelta(days=30))
+        lower = max(
+            cast(datetime, last_change[0]).astimezone(UTC), now - timedelta(days=30)
+        )
         first_day = datetime.combine(lower.date() + timedelta(days=1), time(), UTC)
         final_day = datetime.combine(now.date(), time(), UTC)
         days: list[datetime] = []

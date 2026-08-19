@@ -269,14 +269,11 @@ def _hybrid_ranking(
         (query, query, list(texts)),
     ).fetchall()
     dense_rows = tuple(
-        (index, _cosine(vector, document))
-        for index, document in enumerate(documents)
+        (index, _cosine(vector, document)) for index, document in enumerate(documents)
     )
     dense = [
         int(row[0])
-        for row in sorted(
-            dense_rows, key=lambda row: (-float(row[1]), int(row[0]))
-        )
+        for row in sorted(dense_rows, key=lambda row: (-float(row[1]), int(row[0])))
         if float(row[1]) >= dense_threshold
     ][:32]
     lexical = [
@@ -368,9 +365,7 @@ async def _evaluate(environment_root: Path) -> dict[str, object]:
             for expected, ranked in positive_rankings
         )
         top1_hits = sum(
-            bool(ranked)
-            and ranked[0][0] == expected
-            and ranked[0][1] >= threshold
+            bool(ranked) and ranked[0][0] == expected and ranked[0][1] >= threshold
             for expected, ranked in positive_rankings
         )
         false_recalls = sum(score >= threshold for score in negative_maxima)
@@ -392,8 +387,7 @@ async def _evaluate(environment_root: Path) -> dict[str, object]:
         ),
     )
     hybrid_top1 = sum(
-        bool(ranked) and ranked[0] == expected
-        for expected, ranked in hybrid_positive
+        bool(ranked) and ranked[0] == expected for expected, ranked in hybrid_positive
     ) / len(hybrid_positive)
     hybrid_recall_at_6 = sum(
         expected in ranked[:6] for expected, ranked in hybrid_positive

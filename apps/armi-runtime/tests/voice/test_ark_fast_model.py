@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 from armi_live_voice.api import VoiceContext
@@ -25,10 +26,11 @@ class FakeResponses:
 @pytest.mark.asyncio
 async def test_fast_model_uses_real_protocol_newlines_and_low_latency_options() -> None:
     adapter = object.__new__(ArkResponsesFastModel)
+    uninitialized = cast(Any, adapter)
     responses = FakeResponses()
-    adapter._client = SimpleNamespace(responses=responses)
-    adapter._model = "test-fast"
-    adapter._prepare_lock = asyncio.Lock()
+    uninitialized._client = SimpleNamespace(responses=responses)
+    uninitialized._model = "test-fast"
+    uninitialized._prepare_lock = asyncio.Lock()
 
     await adapter.prepare()
 

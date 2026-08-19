@@ -29,9 +29,7 @@ class _Transaction:
         self.results = list(results)
         self.calls: list[tuple[str, object | None]] = []
 
-    async def execute(
-        self, statement: str, params: object | None = None
-    ) -> _Result:
+    async def execute(self, statement: str, params: object | None = None) -> _Result:
         self.calls.append((statement, params))
         return self.results.pop(0) if self.results else _Result()
 
@@ -94,8 +92,12 @@ def _episode_row(purpose: str) -> tuple[object, ...]:
 
 def test_creator_context_reads_recent_eight_through_experience_port() -> None:
     ids = (uuid7(), uuid7())
-    experiences = _Experiences(tuple(_snapshot(value, index) for index, value in enumerate(ids)))
-    transaction = _Transaction(_Result((_episode_row("consider_creator_input"),)), _Result())
+    experiences = _Experiences(
+        tuple(_snapshot(value, index) for index, value in enumerate(ids))
+    )
+    transaction = _Transaction(
+        _Result((_episode_row("consider_creator_input"),)), _Result()
+    )
 
     result = asyncio.run(
         PostgreSQLCognitionContextLifecycle(experiences).context_episode(  # type: ignore[arg-type]
@@ -113,7 +115,9 @@ def test_creator_context_reads_recent_eight_through_experience_port() -> None:
 
 def test_maintenance_context_keeps_batch_ownership_in_cognition() -> None:
     ids = (uuid7(), uuid7())
-    experiences = _Experiences(tuple(_snapshot(value, index) for index, value in enumerate(ids)))
+    experiences = _Experiences(
+        tuple(_snapshot(value, index) for index, value in enumerate(ids))
+    )
     transaction = _Transaction(
         _Result((_episode_row("maintain_subjective_memory"),)),
         _Result(),

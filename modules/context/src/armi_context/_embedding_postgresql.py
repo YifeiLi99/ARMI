@@ -623,9 +623,7 @@ class PostgreSQLContextEmbeddingRepository:
             ).fetchall()
         )
         return [
-            row
-            for row in rows
-            if float(cast(float, row[5])) >= RECALL_MIN_SIMILARITY
+            row for row in rows if float(cast(float, row[5])) >= RECALL_MIN_SIMILARITY
         ]
 
     async def _lexical_candidate_rows(
@@ -692,9 +690,7 @@ class PostgreSQLContextEmbeddingRepository:
         life_generation_id: UUID,
         query_text: str,
         query_vector: tuple[float, ...] | None,
-        _candidate_rows: tuple[
-            list[tuple[object, ...]], list[tuple[object, ...]]
-        ]
+        _candidate_rows: tuple[list[tuple[object, ...]], list[tuple[object, ...]]]
         | None = None,
     ) -> RecalledContext:
         transaction = unit_of_work.transaction
@@ -726,7 +722,9 @@ class PostgreSQLContextEmbeddingRepository:
                 continue
             seen_sources.add(source_key)
             if source_key[0] == "subjective_memory":
-                memory_refs.append(MemoryCandidateSourceRef(source_key[1], source_key[2]))
+                memory_refs.append(
+                    MemoryCandidateSourceRef(source_key[1], source_key[2])
+                )
             elif source_key[0] == "life_material":
                 material_refs.append(
                     MaterialCandidateSourceRef(source_key[1], source_key[2])
@@ -747,7 +745,8 @@ class PostgreSQLContextEmbeddingRepository:
             (source.memory_id, source.head_version) for source in current_memory_refs
         }
         current_materials = {
-            (source.material_id, source.head_version) for source in current_material_refs
+            (source.material_id, source.head_version)
+            for source in current_material_refs
         }
         candidates: dict[_CandidateKey, _RecallCandidate] = {}
         for signal, rows in (("dense", dense_rows), ("lexical", lexical_rows)):
@@ -961,6 +960,8 @@ def inspect_embedding_storage(conninfo: str) -> dict[str, object]:
         "lexical_index_ready": bool(row[3]),
         "capacity_status": capacity_status,
     }
+
+
 __all__ = (
     "EmbeddingProjectionSource",
     "PostgreSQLContextEmbeddingRepository",

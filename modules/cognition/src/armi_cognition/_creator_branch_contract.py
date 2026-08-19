@@ -301,9 +301,9 @@ class AppraisalEventSignalV2(_StrictModel):
     episode_ref: ContextRef | None = None
     event_phase: Literal["anticipated", "ongoing", "realized", "averted"]
     gist: Annotated[str, StringConstraints(min_length=1, max_length=64)]
-    change_from_previous: Literal[
-        "improved", "unchanged", "worsened", "mixed", "unknown"
-    ] | None = None
+    change_from_previous: (
+        Literal["improved", "unchanged", "worsened", "mixed", "unknown"] | None
+    ) = None
     appraisal: AppraisalSemanticSignal
     basis_refs: tuple[ContextRef, ...] = Field(min_length=1, max_length=8)
 

@@ -1499,27 +1499,30 @@ def _active_mood_episodes(
     if not payloads:
         return ()
     try:
-        document = json.loads(payloads[-1])
-        if not isinstance(document, dict) or document.get("schema_version") != (
-            "armi.mood-snapshot.v2"
-        ):
+        decoded = json.loads(payloads[-1])
+        if not isinstance(decoded, dict):
+            return ()
+        document = cast(dict[str, object], decoded)
+        if document.get("schema_version") != ("armi.mood-snapshot.v2"):
             return ()
         raw_episodes = document.get("active_episodes")
         if not isinstance(raw_episodes, list):
             return ()
         result: list[tuple[UUID, str, int]] = []
-        for raw in raw_episodes[:5]:
-            if not isinstance(raw, dict):
+        for decoded_episode in cast(list[object], raw_episodes)[:5]:
+            if not isinstance(decoded_episode, dict):
                 return ()
+            raw = cast(dict[str, object], decoded_episode)
             episode_id = UUID(str(raw["episode_id"]))
             gist = str(raw["gist"])
             phase = str(raw["event_phase"])
-            intensity = int(raw["intensity"])
+            intensity = raw["intensity"]
             if (
                 episode_id.version != 7
                 or not gist.strip()
                 or len(gist) > 64
                 or phase not in {"anticipated", "ongoing", "realized", "averted"}
+                or type(intensity) is not int
                 or not 0 <= intensity <= 100
             ):
                 return ()

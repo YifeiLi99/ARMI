@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
+from typing import cast
 from uuid import uuid7
 
 import pytest
@@ -151,7 +152,7 @@ async def test_streaming_speech_emits_first_model_delta_without_chunk_wait() -> 
         yield "齐"
         await release.wait()
 
-    fragments = _stream_speak_fragments("", remaining())
+    fragments = cast(AsyncGenerator[str], _stream_speak_fragments("", remaining()))
 
     assert await asyncio.wait_for(anext(fragments), timeout=0.02) == "齐"
     await fragments.aclose()

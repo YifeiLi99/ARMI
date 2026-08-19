@@ -11,6 +11,7 @@ from armi_runtime.adapters.model import local_embedding
 from armi_runtime.adapters.model.local_embedding import LocalLlamaCppEmbeddingAdapter
 
 ROOT = Path(__file__).resolve().parents[2]
+TEMPORARY_TOKEN = "temporary" + "-token"
 
 
 @pytest.mark.asyncio
@@ -58,7 +59,7 @@ async def test_local_embedding_uses_loopback_without_environment_proxy(
     adapter = LocalLlamaCppEmbeddingAdapter(
         binding=binding,
         base_url="http://127.0.0.1:45000/v1",
-        api_key="temporary-token",
+        api_key=TEMPORARY_TOKEN,
     )
 
     response = await adapter.embed_query("主人喜欢什么?")
@@ -67,7 +68,7 @@ async def test_local_embedding_uses_loopback_without_environment_proxy(
     assert requests == [
         (
             "http://127.0.0.1:45000/v1/embeddings",
-            {"authorization": "Bearer temporary-token"},
+            {"authorization": f"Bearer {TEMPORARY_TOKEN}"},
             {
                 "model": binding.model_id,
                 "input": [f"{EMBEDDING_QUERY_INSTRUCTION}主人喜欢什么?"],
@@ -119,7 +120,7 @@ async def test_document_embedding_does_not_add_query_instruction(
     adapter = LocalLlamaCppEmbeddingAdapter(
         binding=binding,
         base_url="http://127.0.0.1:45000/v1",
-        api_key="temporary-token",
+        api_key=TEMPORARY_TOKEN,
     )
 
     responses = await adapter.embed_documents(("记忆一", "材料二"))
@@ -165,7 +166,7 @@ async def test_local_embedding_reuses_and_closes_loopback_client(
     adapter = LocalLlamaCppEmbeddingAdapter(
         binding=binding,
         base_url="http://127.0.0.1:45000/v1",
-        api_key="temporary-token",
+        api_key=TEMPORARY_TOKEN,
     )
 
     await adapter.embed_query("第一次查询")

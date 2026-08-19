@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, cast
 
 _CATALOG_QUERIES: tuple[tuple[str, str], ...] = (
     (
@@ -190,14 +190,14 @@ def database_catalog_payload(
         "SELECT pg_catalog.set_config('search_path', 'pg_catalog', false)"
     )
     try:
-        evidence = [
+        evidence: list[dict[str, object]] = [
             {"kind": kind, "rows": _rows(connection.execute(query).fetchall())}
             for kind, query in _CATALOG_QUERIES
         ]
         if normalize_column_ordinals:
             columns = next(item for item in evidence if item["kind"] == "columns")
             ordinals: dict[str, int] = {}
-            for row in columns["rows"]:
+            for row in cast(list[list[object]], columns["rows"]):
                 table_name = str(row[0])
                 ordinal = ordinals.get(table_name, 0) + 1
                 ordinals[table_name] = ordinal

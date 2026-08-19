@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import psycopg
+from psycopg import sql
 
 _IMAGE = "pgvector/pgvector:0.8.6-pg18-trixie"
 _MODEL_BINDING = "armi.embedding.qwen3-0_6b-q8_0-local-1024.v1"
@@ -88,9 +89,7 @@ def _create_schema(connection: psycopg.Connection[Any]) -> None:
     )
 
 
-def _insert_rows(
-    connection: psycopg.Connection[Any], start: int, stop: int
-) -> float:
+def _insert_rows(connection: psycopg.Connection[Any], start: int, stop: int) -> float:
     started = time.perf_counter()
     connection.execute(
         """INSERT INTO bench.owners (source_ref,is_current)
@@ -134,7 +133,7 @@ def _build_indexes(connection: psycopg.Connection[Any], gist_siglen: int) -> flo
     connection.execute("SET max_parallel_maintenance_workers=7")
     started = time.perf_counter()
     connection.execute(
-        f"""CREATE INDEX projections_embedding_hnsw_idx
+        sql.SQL("""CREATE INDEX projections_embedding_hnsw_idx
              ON bench.projections USING hnsw (
                (embedding::armi_extensions.halfvec(1024))
                  armi_extensions.halfvec_cosine_ops
@@ -142,7 +141,7 @@ def _build_indexes(connection: psycopg.Connection[Any], gist_siglen: int) -> flo
            CREATE INDEX projections_retrieval_gist_idx
              ON bench.projections USING gist (
                retrieval_text armi_extensions.gist_trgm_ops(siglen={gist_siglen})
-             );"""
+             );""").format(gist_siglen=sql.Literal(gist_siglen))
     )
     connection.commit()
     return time.perf_counter() - started
@@ -152,9 +151,7 @@ def _sample_ids(rows: int, count: int) -> list[int]:
     return [1 + (offset * 104729) % rows for offset in range(count)]
 
 
-def _exact_top32(
-    connection: psycopg.Connection[Any], vector: str
-) -> tuple[int, ...]:
+def _exact_top32(connection: psycopg.Connection[Any], vector: str) -> tuple[int, ...]:
     rows = connection.execute(
         """SELECT projection_id FROM bench.projections
            ORDER BY embedding OPERATOR(armi_extensions.<=>)
@@ -168,10 +165,10 @@ def _exact_top32(
 def _ann_top32(
     connection: psycopg.Connection[Any], vector: str, ef_search: int
 ) -> tuple[int, ...]:
-    connection.execute("SELECT set_config('hnsw.ef_search',%s,false)", (str(ef_search),))
     connection.execute(
-        "SELECT set_config('hnsw.iterative_scan','relaxed_order',false)"
+        "SELECT set_config('hnsw.ef_search',%s,false)", (str(ef_search),)
     )
+    connection.execute("SELECT set_config('hnsw.iterative_scan','relaxed_order',false)")
     rows = connection.execute(
         """WITH nearest AS MATERIALIZED (
              SELECT projection_id,embedding FROM bench.projections
@@ -258,7 +255,7 @@ def _pipeline_once(
         current,
         key=lambda item: (
             -(1 / (60 + dense_rank[item]) if item in dense_rank else 0)
-            -(1 / (60 + lexical_rank[item]) if item in lexical_rank else 0),
+            - (1 / (60 + lexical_rank[item]) if item in lexical_rank else 0),
             item,
         ),
     )[:6]
@@ -364,7 +361,9 @@ def main() -> int:
     parser.add_argument("--rows", type=int, default=100_000)
     parser.add_argument("--queries", type=int, default=30)
     parser.add_argument("--gist-siglen", type=int, choices=(64, 128, 256), default=64)
-    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
+    parser.add_argument(
+        "--root", type=Path, default=Path(__file__).resolve().parents[1]
+    )
     args = parser.parse_args()
     if args.rows < 10_000 or args.queries < 10:
         raise SystemExit("rows must be >=10000 and queries must be >=10")
@@ -378,7 +377,9 @@ def main() -> int:
     temporary_root = root / ".tmp"
     temporary_root.mkdir(exist_ok=True)
     started = False
-    with tempfile.TemporaryDirectory(prefix="semantic-benchmark-", dir=temporary_root) as temporary:
+    with tempfile.TemporaryDirectory(
+        prefix="semantic-benchmark-", dir=temporary_root
+    ) as temporary:
         environment_file = Path(temporary) / "container.env"
         environment_file.write_text(
             "\n".join(

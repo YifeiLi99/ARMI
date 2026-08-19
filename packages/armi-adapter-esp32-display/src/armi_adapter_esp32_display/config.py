@@ -20,13 +20,16 @@ def load_mood_display_config(environment_root: Path) -> MoodDisplayConfig | None
         raw = cast(object, load_yaml_file(path))
     except (OSError, UnicodeError, ValueError) as error:
         raise MoodDisplayViolation("MOOD-DISPLAY-CONFIG") from error
-    if not isinstance(raw, dict) or set(raw) != _FIELDS:
+    if not isinstance(raw, dict):
         raise MoodDisplayViolation("MOOD-DISPLAY-CONFIG")
-    if raw.get("schema_version") != "armi.mood-display-config.v1":
+    document = cast(dict[str, object], raw)
+    if frozenset(document) != _FIELDS:
         raise MoodDisplayViolation("MOOD-DISPLAY-CONFIG")
-    enabled = raw.get("enabled")
-    port = raw.get("port")
-    expected = raw.get("expected_device_id")
+    if document.get("schema_version") != "armi.mood-display-config.v1":
+        raise MoodDisplayViolation("MOOD-DISPLAY-CONFIG")
+    enabled = document.get("enabled")
+    port = document.get("port")
+    expected = document.get("expected_device_id")
     if type(enabled) is not bool or not isinstance(port, str) or not port.strip():
         raise MoodDisplayViolation("MOOD-DISPLAY-CONFIG")
     if not isinstance(expected, str) or not expected.strip() or len(expected) > 64:

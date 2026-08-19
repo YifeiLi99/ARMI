@@ -47,8 +47,10 @@
   "strict": [
     "packages/armi-kernel/src",
     "packages/armi-artifact-store/src",
+    "packages/armi-postgresql-contract/src",
     "packages/armi-channel-napcat/src",
     "packages/armi-adapter-qq/src",
+    "packages/armi-adapter-esp32-display/src",
     "packages/armi-runtime-foundation/src",
     "modules/capability/src",
     "modules/relationship/src",

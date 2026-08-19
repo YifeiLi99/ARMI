@@ -265,9 +265,7 @@ EMBEDDING_QUERY_INSTRUCTION = (
     "memories and life materials that help understand or respond to it.\nQuery:"
 )
 EMBEDDING_QUERY_MAX_CHARS = 700
-SEMANTIC_RECALL_PROFILE_ID = (
-    "armi.semantic-recall.hybrid-hnsw-gist-exact-rerank.v3"
-)
+SEMANTIC_RECALL_PROFILE_ID = "armi.semantic-recall.hybrid-hnsw-gist-exact-rerank.v3"
 
 
 class RecallStatus(StrEnum):

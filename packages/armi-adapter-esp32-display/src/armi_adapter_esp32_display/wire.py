@@ -59,9 +59,12 @@ def decode_frame(frame: bytes) -> dict[str, Any]:
         value = cast(object, json.loads(frame.decode("utf-8", errors="strict")))
     except (UnicodeError, json.JSONDecodeError) as error:
         raise MoodDisplayViolation("MOOD-DISPLAY-FRAME") from error
-    if not isinstance(value, dict) or value.get("protocol_version") != PROTOCOL_VERSION:
+    if not isinstance(value, dict):
         raise MoodDisplayViolation("MOOD-DISPLAY-PROTOCOL")
-    return cast(dict[str, Any], value)
+    document = cast(dict[str, Any], value)
+    if document.get("protocol_version") != PROTOCOL_VERSION:
+        raise MoodDisplayViolation("MOOD-DISPLAY-PROTOCOL")
+    return document
 
 
 def parse_hello(frame: bytes) -> ProbeResult:
