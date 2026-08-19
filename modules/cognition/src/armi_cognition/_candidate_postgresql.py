@@ -249,7 +249,7 @@ class PostgreSQLCandidateValidationRepository:
                         episode.scene_id,
                         episode.context_party_id,
                         aggregate.aggregate_artifact_id,
-                        'armi.creator-dialogue-aggregate.v2',
+                        'armi.creator-dialogue-aggregate.v3',
                         episode.trace_id,
                         episode.purpose,
                         episode.opportunity_id

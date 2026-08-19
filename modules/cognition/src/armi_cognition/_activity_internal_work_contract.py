@@ -7,10 +7,10 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
 
-from ._creator_branch_contract import AppraisalEventSignalV1
+from ._creator_branch_contract import AppraisalEventSignalV2
 from ._strict_model_json import strict_model_value
 
-ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION = "armi.activity-internal-work-candidate.v2"
+ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION = "armi.activity-internal-work-candidate.v3"
 
 _METADATA_KEY = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 _CONTEXT_REF = re.compile(r"^ctx:[1-9][0-9]{0,2}$", re.ASCII)
@@ -90,7 +90,7 @@ class InternalWorkProgressDecision(_StrictModel):
     progress_summary: str
     next_step: str
     material_change: InternalWorkMaterialChange | None = None
-    appraisal: AppraisalEventSignalV1 | None = None
+    appraisal: AppraisalEventSignalV2 | None = None
 
     @field_validator("progress_summary")
     @classmethod
@@ -108,7 +108,7 @@ class InternalWorkCompleteDecision(_StrictModel):
     progress_summary: str
     terminal_reason: str
     material_change: InternalWorkMaterialChange | None = None
-    appraisal: AppraisalEventSignalV1 | None = None
+    appraisal: AppraisalEventSignalV2 | None = None
 
     @field_validator("progress_summary")
     @classmethod
@@ -127,7 +127,7 @@ class InternalWorkNeedInformationDecision(_StrictModel):
     next_step: str
     information_needed: str
     resumption_cue: str
-    appraisal: AppraisalEventSignalV1 | None = None
+    appraisal: AppraisalEventSignalV2 | None = None
 
     @field_validator("progress_summary", "information_needed", "resumption_cue")
     @classmethod
@@ -144,7 +144,7 @@ class InternalWorkAbandonDecision(_StrictModel):
     kind: Literal["abandon"]
     progress_summary: str
     terminal_reason: str
-    appraisal: AppraisalEventSignalV1 | None = None
+    appraisal: AppraisalEventSignalV2 | None = None
 
     @field_validator("progress_summary")
     @classmethod
@@ -163,7 +163,7 @@ class InternalWorkNoResultDecision(_StrictModel):
     next_step: str
     resumption_cue: str
     review_after_seconds: int = Field(ge=60, le=86_400)
-    appraisal: AppraisalEventSignalV1 | None = None
+    appraisal: AppraisalEventSignalV2 | None = None
 
     @field_validator("reason", "resumption_cue")
     @classmethod

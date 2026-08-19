@@ -69,7 +69,11 @@ from armi_memory.api import (
     MemoryRevisionKind,
     MemorySourceKind,
 )
-from armi_mood.api import AppraisalAgency, MoodCandidateKind
+from armi_mood.api import (
+    AppraisalAgency,
+    MoodCandidateKind,
+    SemanticAppraisalEvent,
+)
 from armi_relationship.api import (
     RelationshipBoundary,
     RelationshipBoundaryAction,
@@ -290,7 +294,7 @@ def _mood_state() -> dict[str, object]:
     return {
         "schema_version": "armi.mood.v3",
         "dynamics_version": "recency-reappraisal.v1",
-        "derivation_version": "cpm-fuzzy.v1",
+        "derivation_version": "cpm-fuzzy.v2",
         "home_base": {"valence": 0, "arousal": 0, "dominance": 0},
     }
 
@@ -301,25 +305,24 @@ def _appraisal_signal(*, basis_ref: str = "ctx:2") -> dict[str, object]:
         "event_phase": "ongoing",
         "gist": "这一步让我更接近想理解的事情",
         "appraisal": {
-            "suddenness": 1,
-            "predictability": 3,
-            "outcome_certainty": 2,
-            "self_relevance": 4,
-            "relationship_relevance": 0,
-            "social_order_relevance": 0,
-            "urgency": 1,
-            "effort": 2,
-            "intentionality": 4,
-            "control": 3,
-            "power": 2,
-            "adjustment": 3,
-            "ego_involvement": 1,
-            "intrinsic_pleasantness": 2,
-            "goal_conduciveness": 3,
-            "self_compatibility": 3,
-            "norm_compatibility": 2,
-            "agency": "self",
-            "self_scope": "none",
+            "concerns": [
+                {
+                    "target": "self_goal",
+                    "significance": "core",
+                    "direction": "progress",
+                }
+            ],
+            "expectedness": "somewhat_unexpected",
+            "outcome_certainty": "uncertain",
+            "intrinsic_quality": "pleasant",
+            "self_involvement": "limited",
+            "demand": {"urgency": "can_wait", "effort": "substantial"},
+            "causality": {"agency": "self", "intentionality": "deliberate"},
+            "coping": {
+                "response_access": "direct",
+                "power_balance": "balanced",
+                "adjustment": "manageable",
+            },
         },
         "basis_refs": [basis_ref],
     }
@@ -2620,7 +2623,7 @@ def test_creator_aggregate_applies_event_signal_without_authoring_full_mood() ->
         ),
     )
     candidate = {
-        "schema_version": "armi.creator-dialogue-aggregate.v2",
+        "schema_version": "armi.creator-dialogue-aggregate.v3",
         "outcome": "complete",
         "response": {"kind": "reply", "content": "我记住了。"},
         "appraisal": {
@@ -2634,25 +2637,21 @@ def test_creator_aggregate_applies_event_signal_without_authoring_full_mood() ->
                 "event_phase": "realized",
                 "gist": "Creator 的信任对我很重要",
                 "appraisal": {
-                    "suddenness": 1,
-                    "predictability": 2,
-                    "outcome_certainty": 4,
-                    "self_relevance": 4,
-                    "relationship_relevance": 4,
-                    "social_order_relevance": 0,
-                    "urgency": 0,
-                    "effort": 0,
-                    "intentionality": 4,
-                    "control": 3,
-                    "power": 2,
-                    "adjustment": 4,
-                    "ego_involvement": 1,
-                    "intrinsic_pleasantness": 3,
-                    "goal_conduciveness": 4,
-                    "self_compatibility": 3,
-                    "norm_compatibility": 3,
-                    "agency": "other",
-                    "self_scope": "none",
+                    "concerns": [
+                        {
+                            "target": "relationship",
+                            "significance": "core",
+                            "direction": "fulfilled",
+                        }
+                    ],
+                    "expectedness": "somewhat_unexpected",
+                    "outcome_certainty": "settled",
+                    "intrinsic_quality": "pleasant",
+                    "self_involvement": "limited",
+                    "causality": {
+                        "agency": "other",
+                        "intentionality": "deliberate",
+                    },
                 },
                 "basis_refs": ["ctx:2"],
             },
@@ -2673,15 +2672,16 @@ def test_creator_aggregate_applies_event_signal_without_authoring_full_mood() ->
         if item.owner == "mood"
     )
     assert mood.kind is MoodCandidateKind.APPRAISAL
-    assert mood.appraisal is not None
+    assert isinstance(mood.appraisal, SemanticAppraisalEvent)
     assert mood.appraisal.gist == "Creator 的信任对我很重要"
-    assert mood.appraisal.appraisal.agency is AppraisalAgency.OTHER
+    assert mood.appraisal.appraisal.causality is not None
+    assert mood.appraisal.appraisal.causality.agency is AppraisalAgency.OTHER
 
 
 def test_low_intensity_affect_is_an_event_not_a_home_base_replacement() -> None:
     context, bases = _fixture()
     candidate = {
-        "schema_version": "armi.creator-dialogue-aggregate.v2",
+        "schema_version": "armi.creator-dialogue-aggregate.v3",
         "outcome": "internal_only",
         "appraisal": {
             "appraisal": {
@@ -2689,25 +2689,21 @@ def test_low_intensity_affect_is_an_event_not_a_home_base_replacement() -> None:
                 "event_phase": "realized",
                 "gist": "这个结果有一点违背我的目标",
                 "appraisal": {
-                    "suddenness": 0,
-                    "predictability": 4,
-                    "outcome_certainty": 4,
-                    "self_relevance": 2,
-                    "relationship_relevance": 0,
-                    "social_order_relevance": 0,
-                    "urgency": 0,
-                    "effort": 0,
-                    "intentionality": 0,
-                    "control": 1,
-                    "power": 1,
-                    "adjustment": 1,
-                    "ego_involvement": 0,
-                    "intrinsic_pleasantness": -1,
-                    "goal_conduciveness": -1,
-                    "self_compatibility": 0,
-                    "norm_compatibility": 0,
-                    "agency": "circumstance",
-                    "self_scope": "none",
+                    "concerns": [
+                        {
+                            "target": "self_goal",
+                            "significance": "peripheral",
+                            "direction": "setback",
+                        }
+                    ],
+                    "expectedness": "expected",
+                    "outcome_certainty": "settled",
+                    "intrinsic_quality": "unpleasant",
+                    "self_involvement": "none",
+                    "causality": {
+                        "agency": "circumstance",
+                        "intentionality": "not_applicable",
+                    },
                 },
                 "basis_refs": ["ctx:2"],
             }
@@ -2726,8 +2722,8 @@ def test_low_intensity_affect_is_an_event_not_a_home_base_replacement() -> None:
         if item.owner == "mood"
     )
     assert mood.kind is MoodCandidateKind.APPRAISAL
-    assert mood.appraisal is not None
-    assert mood.appraisal.appraisal.goal_conduciveness == -1
+    assert isinstance(mood.appraisal, SemanticAppraisalEvent)
+    assert mood.appraisal.appraisal.concerns[0].direction.value == "setback"
 
 
 def test_decline_can_still_commit_a_real_internal_experience() -> None:
@@ -2745,7 +2741,7 @@ def test_decline_can_still_commit_a_real_internal_experience() -> None:
         ),
     )
     candidate = {
-        "schema_version": "armi.creator-dialogue-aggregate.v2",
+        "schema_version": "armi.creator-dialogue-aggregate.v3",
         "outcome": "complete",
         "response": {"kind": "decline"},
         "appraisal": {

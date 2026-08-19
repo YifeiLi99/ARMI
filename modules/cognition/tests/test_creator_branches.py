@@ -58,17 +58,69 @@ def test_appraisal_memory_requires_explicit_remember_shape() -> None:
         )
 
 
+def test_current_appraisal_contract_rejects_model_authored_numbers() -> None:
+    with pytest.raises(ValidationError):
+        parse_creator_appraisal(
+            {
+                "appraisal": {
+                    "transition": "new",
+                    "event_phase": "realized",
+                    "gist": "这件事推进了我的目标",
+                    "appraisal": {
+                        "suddenness": 2,
+                        "goal_conduciveness": 4,
+                    },
+                    "basis_refs": ["ctx:1"],
+                }
+            },
+            allowed_context_refs=frozenset({"ctx:1"}),
+        )
+
+
+def test_semantic_appraisal_rejects_inconsistent_optional_standard_group() -> None:
+    with pytest.raises(ValidationError):
+        parse_creator_appraisal(
+            {
+                "appraisal": {
+                    "transition": "new",
+                    "event_phase": "realized",
+                    "gist": "我做错了一件具体的事",
+                    "appraisal": {
+                        "concerns": [
+                            {
+                                "target": "self_goal",
+                                "significance": "core",
+                                "direction": "setback",
+                            }
+                        ],
+                        "expectedness": "expected",
+                        "outcome_certainty": "settled",
+                        "intrinsic_quality": "unpleasant",
+                        "self_involvement": "important",
+                        "standards": {
+                            "self_compatibility": "violation",
+                            "norm_compatibility": "aligned",
+                            "self_scope": "none",
+                        },
+                    },
+                    "basis_refs": ["ctx:1"],
+                }
+            },
+            allowed_context_refs=frozenset({"ctx:1"}),
+        )
+
+
 def test_aggregate_shape_is_determined_by_available_branches() -> None:
     response = parse_creator_response({"kind": "reply", "content": "我知道了。"})
     aggregate = CreatorDialogueAggregate(
-        schema_version="armi.creator-dialogue-aggregate.v2",
+        schema_version="armi.creator-dialogue-aggregate.v3",
         outcome="response_only",
         response=response,
     )
     assert aggregate.appraisal is None
     with pytest.raises(ValidationError):
         CreatorDialogueAggregate(
-            schema_version="armi.creator-dialogue-aggregate.v2",
+            schema_version="armi.creator-dialogue-aggregate.v3",
             outcome="complete",
             response=response,
         )

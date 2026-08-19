@@ -32,8 +32,8 @@ from ._dialogue_contract import (
 from ._strict_model_json import strict_model_value
 
 CREATOR_RESPONSE_CANDIDATE_VERSION = "armi.creator-response-candidate.v1"
-CREATOR_APPRAISAL_CANDIDATE_VERSION = "armi.creator-appraisal-candidate.v3"
-CREATOR_DIALOGUE_AGGREGATE_VERSION = "armi.creator-dialogue-aggregate.v2"
+CREATOR_APPRAISAL_CANDIDATE_VERSION = "armi.creator-appraisal-candidate.v4"
+CREATOR_DIALOGUE_AGGREGATE_VERSION = "armi.creator-dialogue-aggregate.v3"
 
 CREATOR_RESPONSE_INSTRUCTIONS = """\
 你只负责本轮对 Creator 的表达与明确行动决定。根据冻结资料独立决定回复、拒绝、沉默、延后、追问、精确生活查询或公共网页研究。
@@ -43,7 +43,7 @@ CREATOR_RESPONSE_INSTRUCTIONS = """\
 CREATOR_APPRAISAL_INSTRUCTIONS = """\
 你只负责判断本轮输入是否真正成为 ARMI 的主观经历，以及事件对 ARMI 意味着什么、关系或承诺是否变化。你与表达分支并行，不能假设 ARMI 将说什么。
 不得生成对外回复、查询、委托、资料动作、完整 MoodState、Self、Mind、主体 Prompt，也不得淡化、遗忘或改写既有记忆。只有 Creator 在当前输入中明确要求“记住”时，remember 才能为 true 并提供 memory_summary。
-只能评价事件意义，不能填写情绪名称、VAD、强度、重要性、持续时间或半衰期。新事件使用 new 且 episode_ref 为空；reinforce、reappraise、resolve 必须引用冻结资料中的 active_affective_episode。没有新的事件评价时省略 appraisal；情绪激发、轨迹、心境和行动倾向只由 Mood Owner 演算。只输出给定 JSON Schema，不输出额外文字。"""
+只能用 Schema 给出的语义标签评价事件意义，不能填写任何评价分数、情绪名称、VAD、强度、重要性、持续时间或半衰期。mixed 表示同时存在相反意义，unknown 只表示冻结资料不足；不适用的 demand、causality、coping、standards 整组省略。新事件使用 new，episode_ref 与 change_from_previous 为空；reinforce、reappraise、resolve 必须引用冻结资料中的 active_affective_episode，并填写相对变化。没有新的事件评价时省略 appraisal；情绪激发、轨迹、心境和行动倾向只由 Mood Owner 演算。只输出给定 JSON Schema，不输出额外文字。"""
 
 
 class _StrictModel(BaseModel):
@@ -215,9 +215,111 @@ class AppraisalEventSignalV1(_StrictModel):
         return self
 
 
+class AppraisalConcernSignal(_StrictModel):
+    target: Literal["self_goal", "relationship", "social_order"]
+    significance: Literal["peripheral", "direct", "core", "unknown"]
+    direction: Literal[
+        "major_setback",
+        "setback",
+        "unchanged",
+        "progress",
+        "fulfilled",
+        "mixed",
+        "unknown",
+    ]
+
+
+class AppraisalDemandSignal(_StrictModel):
+    urgency: Literal["none", "can_wait", "soon", "immediate", "unknown"]
+    effort: Literal["none", "light", "substantial", "extreme", "unknown"]
+
+
+class AppraisalCausalitySignal(_StrictModel):
+    agency: Literal["self", "other", "shared", "circumstance", "unknown"]
+    intentionality: Literal[
+        "accidental", "unclear", "deliberate", "not_applicable", "unknown"
+    ]
+
+
+class AppraisalCopingSignal(_StrictModel):
+    response_access: Literal["none", "indirect", "direct", "resolved", "unknown"]
+    power_balance: Literal[
+        "overmatched", "limited", "balanced", "advantaged", "unknown"
+    ]
+    adjustment: Literal["blocked", "difficult", "manageable", "easy", "unknown"]
+
+
+class AppraisalStandardsSignal(_StrictModel):
+    self_compatibility: Literal[
+        "violation", "tension", "aligned", "mixed", "not_applicable", "unknown"
+    ]
+    norm_compatibility: Literal[
+        "violation", "tension", "aligned", "mixed", "not_applicable", "unknown"
+    ]
+    self_scope: Literal["none", "action", "global"]
+
+    @model_validator(mode="after")
+    def validate_scope(self) -> AppraisalStandardsSignal:
+        conflict = self.self_compatibility in {"violation", "tension", "mixed"}
+        if conflict != (self.self_scope != "none"):
+            raise ValueError("self compatibility and scope do not match")
+        return self
+
+
+class AppraisalSemanticSignal(_StrictModel):
+    concerns: tuple[AppraisalConcernSignal, ...] = Field(min_length=1, max_length=3)
+    expectedness: Literal[
+        "expected", "somewhat_unexpected", "expectation_broken", "unknown"
+    ]
+    outcome_certainty: Literal["open", "uncertain", "likely", "settled", "unknown"]
+    intrinsic_quality: Literal[
+        "strongly_aversive",
+        "unpleasant",
+        "neutral",
+        "pleasant",
+        "strongly_pleasant",
+        "mixed",
+        "unknown",
+    ]
+    self_involvement: Literal[
+        "none", "limited", "important", "identity_level", "unknown"
+    ]
+    demand: AppraisalDemandSignal | None = None
+    causality: AppraisalCausalitySignal | None = None
+    coping: AppraisalCopingSignal | None = None
+    standards: AppraisalStandardsSignal | None = None
+
+    @model_validator(mode="after")
+    def validate_concerns(self) -> AppraisalSemanticSignal:
+        if len({item.target for item in self.concerns}) != len(self.concerns):
+            raise ValueError("appraisal concern targets must be unique")
+        return self
+
+
+class AppraisalEventSignalV2(_StrictModel):
+    transition: Literal["new", "reinforce", "reappraise", "resolve"]
+    episode_ref: ContextRef | None = None
+    event_phase: Literal["anticipated", "ongoing", "realized", "averted"]
+    gist: Annotated[str, StringConstraints(min_length=1, max_length=64)]
+    change_from_previous: Literal[
+        "improved", "unchanged", "worsened", "mixed", "unknown"
+    ] | None = None
+    appraisal: AppraisalSemanticSignal
+    basis_refs: tuple[ContextRef, ...] = Field(min_length=1, max_length=8)
+
+    @model_validator(mode="after")
+    def validate_signal(self) -> AppraisalEventSignalV2:
+        is_new = self.transition == "new"
+        if is_new != (self.episode_ref is None):
+            raise ValueError("appraisal transition and episode reference do not match")
+        if is_new != (self.change_from_previous is None):
+            raise ValueError("appraisal transition and trajectory do not match")
+        return self
+
+
 class CreatorAppraisalCandidate(_StrictModel):
     experience: CreatorAppraisalExperience | None = None
-    appraisal: AppraisalEventSignalV1 | None = None
+    appraisal: AppraisalEventSignalV2 | None = None
     relationship_events: tuple[DialogueCompactChange, ...] = Field(
         default=(), max_length=4
     )
@@ -242,7 +344,7 @@ class CreatorAppraisalCandidate(_StrictModel):
 
 
 class CreatorDialogueAggregate(_StrictModel):
-    schema_version: Literal["armi.creator-dialogue-aggregate.v2"]
+    schema_version: Literal["armi.creator-dialogue-aggregate.v3"]
     outcome: Literal["complete", "response_only", "internal_only"]
     response: CreatorResponseCandidate | None = None
     appraisal: CreatorAppraisalCandidate | None = None
@@ -326,6 +428,8 @@ __all__ = (
     "CREATOR_RESPONSE_CANDIDATE_VERSION",
     "CREATOR_RESPONSE_INSTRUCTIONS",
     "AppraisalEventSignalV1",
+    "AppraisalEventSignalV2",
+    "AppraisalSemanticSignal",
     "AppraisalVectorSignal",
     "CreatorAppraisalCandidate",
     "CreatorDialogueAggregate",

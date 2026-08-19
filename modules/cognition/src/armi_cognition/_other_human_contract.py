@@ -16,7 +16,7 @@ from pydantic import (
     model_validator,
 )
 
-from ._creator_branch_contract import AppraisalEventSignalV1
+from ._creator_branch_contract import AppraisalEventSignalV1, AppraisalEventSignalV2
 from ._strict_model_json import strict_model_value
 
 HISTORICAL_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION = (
@@ -28,7 +28,10 @@ HISTORICAL_ACTIVE_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION = (
 HISTORICAL_COMPACT_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION = (
     "armi.other-human-dialogue-candidate.v3"
 )
-OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION = "armi.other-human-dialogue-candidate.v5"
+HISTORICAL_SCORED_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION = (
+    "armi.other-human-dialogue-candidate.v5"
+)
+OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION = "armi.other-human-dialogue-candidate.v6"
 
 Summary = Annotated[str, StringConstraints(min_length=1, max_length=512)]
 ContextRef = Annotated[
@@ -146,7 +149,7 @@ class OtherHumanRelationshipChange(_StrictModel):
 class _OtherHumanSocialDecision(_StrictModel):
     experience: OtherHumanExperience | None = None
     relationship_change: OtherHumanRelationshipChange | None = None
-    appraisal: AppraisalEventSignalV1 | None = None
+    appraisal: AppraisalEventSignalV2 | None = None
 
     @model_validator(mode="after")
     def validate_relationship_basis(self) -> _OtherHumanSocialDecision:
@@ -173,25 +176,38 @@ _ADAPTER: TypeAdapter[OtherHumanDialogueCandidate] = TypeAdapter(
 )
 
 
-class _HistoricalActiveOtherHumanReplyDecision(OtherHumanReplyDecision):
-    @property
-    def schema_version(self) -> str:
-        return HISTORICAL_ACTIVE_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION
+class _HistoricalScoredOtherHumanSocialDecision(_StrictModel):
+    experience: OtherHumanExperience | None = None
+    relationship_change: OtherHumanRelationshipChange | None = None
+    appraisal: AppraisalEventSignalV1 | None = None
+
+    @model_validator(mode="after")
+    def validate_relationship_basis(self) -> _HistoricalScoredOtherHumanSocialDecision:
+        if self.relationship_change is not None and self.experience is None:
+            raise ValueError("relationship change requires an experience")
+        return self
 
 
-class _HistoricalActiveOtherHumanTerminalDecision(OtherHumanTerminalDecision):
-    @property
-    def schema_version(self) -> str:
-        return HISTORICAL_ACTIVE_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION
+class _HistoricalScoredOtherHumanReplyDecision(_HistoricalScoredOtherHumanSocialDecision):
+    kind: Literal["reply"]
+    content: Annotated[str, StringConstraints(min_length=1, max_length=65536)]
 
 
-HistoricalActiveOtherHumanDialogueCandidate = Annotated[
-    _HistoricalActiveOtherHumanReplyDecision
-    | _HistoricalActiveOtherHumanTerminalDecision,
+class _HistoricalScoredOtherHumanTerminalDecision(
+    _HistoricalScoredOtherHumanSocialDecision
+):
+    kind: Literal["silence", "defer", "end_conversation"]
+
+
+HistoricalScoredOtherHumanDialogueCandidate = Annotated[
+    _HistoricalScoredOtherHumanReplyDecision
+    | _HistoricalScoredOtherHumanTerminalDecision,
     Field(discriminator="kind"),
 ]
-_HISTORICAL_ACTIVE_ADAPTER: TypeAdapter[HistoricalActiveOtherHumanDialogueCandidate] = (
-    TypeAdapter(HistoricalActiveOtherHumanDialogueCandidate)
+_HISTORICAL_SCORED_ADAPTER: TypeAdapter[
+    HistoricalScoredOtherHumanDialogueCandidate
+] = TypeAdapter(
+    HistoricalScoredOtherHumanDialogueCandidate
 )
 
 
@@ -219,7 +235,7 @@ OTHER_HUMAN_DIALOGUE_INSTRUCTIONS = """\
 群会话。仅当本轮真实形成经历时填写 experience;关系变化必须基于 experience,只属于当前精确
 对方,首次形成关系时包含 interpretation。明确拒绝才可收紧边界,承诺不授予权限。
 首次为当前对方形成 relationship_change 时必须同时提供 interpretation。
-若本轮事件意义发生变化,可填写 appraisal;只能评价事件,不能直接填写情绪、VAD、强度、重要性或持续时间。
+若本轮事件意义发生变化,可填写 appraisal;只用 Schema 给出的语义标签评价,不能填写评价分数、情绪、VAD、强度、重要性或持续时间。unknown 只表示资料不足,不适用的可选评价组省略。
 """
 
 
@@ -256,15 +272,17 @@ def parse_other_human_dialogue_candidate_value(
                 )
             else:
                 candidate = OtherHumanTerminalDecision(kind=historical.kind)
-        elif (
-            expected_version == HISTORICAL_ACTIVE_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION
-        ):
-            candidate = _HISTORICAL_ACTIVE_ADAPTER.validate_python(raw, strict=True)
-        elif expected_version in (
-            OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
-            HISTORICAL_COMPACT_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
-        ):
+        elif expected_version == OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION:
             candidate = _ADAPTER.validate_python(raw, strict=True)
+        elif expected_version in (
+            HISTORICAL_ACTIVE_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+            HISTORICAL_COMPACT_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+            HISTORICAL_SCORED_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+        ):
+            historical_scored = _HISTORICAL_SCORED_ADAPTER.validate_python(
+                raw, strict=True
+            )
+            candidate = cast(OtherHumanDialogueCandidate, historical_scored)
         else:
             raise ValueError("unsupported other-human candidate version")
     except ValidationError, ValueError:
@@ -305,10 +323,12 @@ def candidate_schema(
 ) -> dict[str, object]:
     if version == OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION:
         return cast(dict[str, object], _ADAPTER.json_schema())
-    if version == HISTORICAL_COMPACT_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION:
-        return cast(dict[str, object], _ADAPTER.json_schema())
-    if version == HISTORICAL_ACTIVE_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION:
-        return cast(dict[str, object], _HISTORICAL_ACTIVE_ADAPTER.json_schema())
+    if version in {
+        HISTORICAL_ACTIVE_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+        HISTORICAL_COMPACT_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+        HISTORICAL_SCORED_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+    }:
+        return cast(dict[str, object], _HISTORICAL_SCORED_ADAPTER.json_schema())
     if version == HISTORICAL_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION:
         return cast(dict[str, object], _HISTORICAL_ADAPTER.json_schema())
     raise ModelViolation("MODEL-BINDING")
@@ -317,6 +337,7 @@ def candidate_schema(
 __all__ = (
     "HISTORICAL_ACTIVE_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION",
     "HISTORICAL_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION",
+    "HISTORICAL_SCORED_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION",
     "OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION",
     "OTHER_HUMAN_DIALOGUE_INSTRUCTIONS",
     "OtherHumanCommitmentChange",

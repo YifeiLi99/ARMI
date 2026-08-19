@@ -32,6 +32,7 @@ from armi_cognition._model_contract import (
 )
 from armi_cognition._other_human_contract import (
     HISTORICAL_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+    HISTORICAL_SCORED_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
     OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
     OTHER_HUMAN_DIALOGUE_INSTRUCTIONS,
 )
@@ -121,6 +122,23 @@ def test_other_human_social_contract_versions_relationship_context_refs() -> Non
     )
     assert getattr(historical, "content", None) == "historical"
     assert "relationship_change" in historical.model_dump(mode="json")
+
+
+def test_other_human_v5_keeps_the_frozen_numeric_appraisal_schema() -> None:
+    historical = json.dumps(
+        other_human_contract_module.candidate_schema(
+            HISTORICAL_SCORED_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION
+        )
+    )
+    current = json.dumps(
+        other_human_contract_module.candidate_schema(
+            OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION
+        )
+    )
+    assert "suddenness" in historical
+    assert "concerns" not in historical
+    assert "concerns" in current
+    assert "suddenness" not in current
 
 
 def test_autonomous_activity_contract_is_compact_strict_and_byte_bounded() -> None:
@@ -419,7 +437,7 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     assert dialogue.profile == "creator_response"
     assert appraisal.profile == "creator_appraisal"
     assert dialogue.response_contract_version == "armi.creator-response-candidate.v1"
-    assert appraisal.response_contract_version == "armi.creator-appraisal-candidate.v3"
+    assert appraisal.response_contract_version == "armi.creator-appraisal-candidate.v4"
     assert dialogue.output_token_limit == 1024
     assert appraisal.output_token_limit == 768
 
@@ -438,7 +456,7 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
         "system",
         "user",
     ]
-    assert "我现在很平静。" in request["messages"][1]["content"]
+    assert "当前核心感受(愉悦=0,唤醒=0,掌控=0)" in request["messages"][1]["content"]
     assert request["messages"][2]["content"] == "Hello"
     assert "任务:回应 Creator" in request["messages"][0]["content"]
     assert "ctx:1" not in request["messages"][0]["content"]

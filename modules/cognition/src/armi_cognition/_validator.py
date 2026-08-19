@@ -69,15 +69,37 @@ from armi_memory.api import (
     MemorySourceKind,
 )
 from armi_mood.api import (
+    AppraisalAdjustment,
     AppraisalAgency,
+    AppraisalCausality,
+    AppraisalCertainty,
+    AppraisalCompatibility,
+    AppraisalConcern,
+    AppraisalConcernTarget,
+    AppraisalCoping,
+    AppraisalDemand,
+    AppraisalDemandLevel,
+    AppraisalDirection,
     AppraisalEvent,
     AppraisalEventPhase,
+    AppraisalExpectedness,
+    AppraisalIntentionality,
+    AppraisalPowerBalance,
+    AppraisalQuality,
+    AppraisalResponseAccess,
+    AppraisalSelfInvolvement,
     AppraisalSelfScope,
+    AppraisalSignificance,
+    AppraisalStandards,
+    AppraisalTrajectory,
     AppraisalTransition,
+    AppraisalUrgency,
     AppraisalVector,
     CandidateMoodDraft,
     MoodCandidateKind,
     MoodCognitionPort,
+    SemanticAppraisal,
+    SemanticAppraisalEvent,
 )
 from armi_prompt.api import (
     CandidatePromptDraft,
@@ -141,6 +163,7 @@ from ._autonomous_activity_contract import (
 from ._creator_branch_contract import (
     CREATOR_DIALOGUE_AGGREGATE_VERSION,
     AppraisalEventSignalV1,
+    AppraisalEventSignalV2,
     CreatorDialogueAggregate,
 )
 from ._dialogue_contract import (
@@ -238,6 +261,7 @@ from ._model_contract import (
     MemoryChangeProposal,
     MindState,
     MoodAppraisalCommand,
+    MoodSemanticAppraisalCommand,
     MoodState,
     RuntimeBoundCreatorReplyPayload,
     SelfState,
@@ -951,11 +975,17 @@ class DeterministicCandidateValidator:
                 failure = _component_failure(component, proposal_bases, component_state)
                 if failure is None:
                     command = component.payload.next_state
-                    if not isinstance(command, MoodAppraisalCommand):
+                    if not isinstance(
+                        command, (MoodAppraisalCommand, MoodSemanticAppraisalCommand)
+                    ):
                         failure = "CANDIDATE-MOOD-COMMAND"
                     else:
                         try:
-                            appraisal = _mood_appraisal_from_command(command)
+                            appraisal = (
+                                _mood_semantic_appraisal_from_command(command)
+                                if isinstance(command, MoodSemanticAppraisalCommand)
+                                else _mood_appraisal_from_command(command)
+                            )
                         except TypeError, ValueError:
                             failure = "CANDIDATE-MOOD-COMMAND"
                         else:
@@ -2815,8 +2845,68 @@ def _mood_appraisal_from_command(command: MoodAppraisalCommand) -> AppraisalEven
     )
 
 
+def _mood_semantic_appraisal_from_command(
+    command: MoodSemanticAppraisalCommand,
+) -> SemanticAppraisalEvent:
+    previous_id = (
+        None
+        if command.previous_episode_id is None
+        else UUID(command.previous_episode_id)
+    )
+    value = command.appraisal
+    return SemanticAppraisalEvent(
+        AppraisalTransition(command.transition),
+        previous_id,
+        AppraisalEventPhase(command.event_phase),
+        command.gist,
+        SemanticAppraisal(
+            tuple(
+                AppraisalConcern(
+                    AppraisalConcernTarget(item.target),
+                    AppraisalSignificance(item.significance),
+                    AppraisalDirection(item.direction),
+                )
+                for item in value.concerns
+            ),
+            AppraisalExpectedness(value.expectedness),
+            AppraisalCertainty(value.outcome_certainty),
+            AppraisalQuality(value.intrinsic_quality),
+            AppraisalSelfInvolvement(value.self_involvement),
+            None
+            if value.demand is None
+            else AppraisalDemand(
+                AppraisalUrgency(value.demand.urgency),
+                AppraisalDemandLevel(value.demand.effort),
+            ),
+            None
+            if value.causality is None
+            else AppraisalCausality(
+                AppraisalAgency(value.causality.agency),
+                AppraisalIntentionality(value.causality.intentionality),
+            ),
+            None
+            if value.coping is None
+            else AppraisalCoping(
+                AppraisalResponseAccess(value.coping.response_access),
+                AppraisalPowerBalance(value.coping.power_balance),
+                AppraisalAdjustment(value.coping.adjustment),
+            ),
+            None
+            if value.standards is None
+            else AppraisalStandards(
+                AppraisalCompatibility(value.standards.self_compatibility),
+                AppraisalCompatibility(value.standards.norm_compatibility),
+                AppraisalSelfScope(value.standards.self_scope),
+            ),
+        ),
+        None
+        if command.change_from_previous is None
+        else AppraisalTrajectory(command.change_from_previous),
+    )
+
+
 def _bind_appraisal_event(
-    signal: AppraisalEventSignalV1,
+    signal: AppraisalEventSignalV1 | AppraisalEventSignalV2,
     *,
     proposal_ref: str,
     bases: tuple[CandidateBasis, ...],
@@ -2874,15 +2964,21 @@ def _bind_appraisal_event(
     except ValidationError:
         return None, "CANDIDATE-MOOD-STATE"
     event_command = {
-        "schema_version": "armi.mood-appraisal.v1",
+        "schema_version": (
+            "armi.mood-appraisal.v2"
+            if type(signal) is AppraisalEventSignalV2
+            else "armi.mood-appraisal.v1"
+        ),
         "transition": signal.transition,
         "previous_episode_id": (
             None if episode_basis is None else str(episode_basis.source_ref)
         ),
         "event_phase": signal.event_phase,
         "gist": signal.gist,
-        "appraisal": signal.appraisal.model_dump(mode="json"),
+        "appraisal": signal.appraisal.model_dump(mode="python"),
     }
+    if type(signal) is AppraisalEventSignalV2:
+        event_command["change_from_previous"] = signal.change_from_previous
     return (
         {
             "proposal_ref": proposal_ref,
@@ -2901,7 +2997,7 @@ def _bind_appraisal_event(
 
 
 def _bind_appraisal_draft(
-    signal: AppraisalEventSignalV1,
+    signal: AppraisalEventSignalV1 | AppraisalEventSignalV2,
     *,
     proposal_ref: str,
     bases: tuple[CandidateBasis, ...],
@@ -2918,8 +3014,11 @@ def _bind_appraisal_draft(
         return None, error or "CANDIDATE-MOOD-COMMAND"
     try:
         payload = cast(dict[str, object], proposal["payload"])
-        command = MoodAppraisalCommand.model_validate(
-            payload["next_state"], strict=True
+        command_value = payload["next_state"]
+        command = (
+            MoodSemanticAppraisalCommand.model_validate(command_value, strict=True)
+            if type(signal) is AppraisalEventSignalV2
+            else MoodAppraisalCommand.model_validate(command_value, strict=True)
         )
         basis_refs = cast(tuple[str, ...], proposal["basis_refs"])
         ordinals = tuple(int(ref.partition(":")[2]) for ref in basis_refs)
@@ -2932,7 +3031,9 @@ def _bind_appraisal_draft(
                     CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
                     cast(int, payload["expected_version"]),
                     MoodCandidateKind.APPRAISAL,
-                    _mood_appraisal_from_command(command),
+                    _mood_semantic_appraisal_from_command(command)
+                    if isinstance(command, MoodSemanticAppraisalCommand)
+                    else _mood_appraisal_from_command(command),
                 )
             ),
             None,
@@ -4701,6 +4802,7 @@ def _component_failure(
         "armi.mind.v2": CandidateOwner.MIND,
         "armi.mood.v3": CandidateOwner.MOOD,
         "armi.mood-appraisal.v1": CandidateOwner.MOOD,
+        "armi.mood-appraisal.v2": CandidateOwner.MOOD,
         "armi.life-mode.v1": CandidateOwner.LIFE_MODE,
     }.get(str(next_state.get("schema_version")))
     if schema_owner is not owner:
@@ -4711,9 +4813,10 @@ def _component_failure(
         )
     except UnicodeDecodeError, json.JSONDecodeError, TypeError:
         return "CANDIDATE-COMPONENT-STATE"
-    if owner is CandidateOwner.MOOD and next_state.get("schema_version") == (
-        "armi.mood-appraisal.v1"
-    ):
+    if owner is CandidateOwner.MOOD and next_state.get("schema_version") in {
+        "armi.mood-appraisal.v1",
+        "armi.mood-appraisal.v2",
+    }:
         if current_schema != "armi.mood.v3":
             return "CANDIDATE-COMPONENT-STATE"
     elif current_schema != next_state.get("schema_version"):
