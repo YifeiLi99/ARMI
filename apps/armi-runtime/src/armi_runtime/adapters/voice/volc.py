@@ -277,7 +277,7 @@ class VolcStreamingTts:
                 open_timeout=5,
             ) as socket:
                 await socket.send(encode_event(_START_CONNECTION, {}))
-                await _expect_event(socket, _CONNECTION_STARTED, session=False)
+                await _expect_event(socket, _CONNECTION_STARTED, session=True)
                 start = {
                     "event": _START_SESSION,
                     "req_params": {

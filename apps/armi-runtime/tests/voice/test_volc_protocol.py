@@ -38,6 +38,24 @@ def test_event_packet_round_trips_session_and_json() -> None:
     assert json_payload(message) == {"req_params": {"text": "hi"}}
 
 
+def test_server_connection_event_carries_connection_id() -> None:
+    connection_id = b"connection-1"
+    payload = b"{}"
+    wire = (
+        bytes((0x11, 0x94, 0x10, 0x00))
+        + struct.pack(">iI", 50, len(connection_id))
+        + connection_id
+        + struct.pack(">I", len(payload))
+        + payload
+    )
+
+    message = decode_message(wire, event_has_session=True)
+
+    assert message.event == 50
+    assert message.session_id == "connection-1"
+    assert message.payload == payload
+
+
 def test_decoder_rejects_truncated_payload() -> None:
     with pytest.raises(LiveVoiceViolation, match="truncated"):
         decode_message(bytes((0x11, 0x90, 0x10, 0, 0, 0, 0, 5, 1)))
