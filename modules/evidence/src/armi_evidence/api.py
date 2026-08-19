@@ -45,6 +45,7 @@ class EvidenceSourceKind(StrEnum):
     WEB_SEARCH = "web_search"
     CODEX_TASK_SOURCE = "codex_task_source"
     CODEX_RESULT = "codex_result"
+    VISUAL_OBSERVATION = "visual_observation"
 
 
 class EvidencePrivacyScope(StrEnum):
@@ -56,7 +57,7 @@ class EvidencePrivacyScope(StrEnum):
 class EvidenceDraft:
     evidence_id: EvidenceId
     subject_id: UUID
-    scene_id: UUID
+    scene_id: UUID | None
     context_party_id: UUID | None
     artifact_id: UUID
     source_kind: EvidenceSourceKind
@@ -66,6 +67,7 @@ class EvidenceDraft:
     observation_attempt_id: UUID | None = None
     codex_task_source_id: UUID | None = None
     codex_verification_id: UUID | None = None
+    visual_observation_id: UUID | None = None
 
     def __post_init__(self) -> None:
         if type(self.evidence_id) is not EvidenceId:
@@ -75,7 +77,8 @@ class EvidenceDraft:
         if type(self.privacy_scope) is not EvidencePrivacyScope:
             raise EvidenceViolation("EVIDENCE-PRIVACY")
         _require_uuid7(self.subject_id, "EVIDENCE-SUBJECT")
-        _require_uuid7(self.scene_id, "EVIDENCE-SCENE")
+        if self.scene_id is not None:
+            _require_uuid7(self.scene_id, "EVIDENCE-SCENE")
         if self.context_party_id is not None:
             _require_uuid7(self.context_party_id, "EVIDENCE-PARTY")
         _require_uuid7(self.artifact_id, "EVIDENCE-ARTIFACT")
@@ -85,19 +88,47 @@ class EvidenceDraft:
             self.observation_attempt_id,
             self.codex_task_source_id,
             self.codex_verification_id,
+            self.visual_observation_id,
         )
         for identity in identities:
             if identity is not None:
                 _require_uuid7(identity, "EVIDENCE-SOURCE-ID")
         expected = {
-            EvidenceSourceKind.CREATOR_INPUT: (True, False, False, False, False),
-            EvidenceSourceKind.OTHER_HUMAN_INPUT: (True, False, False, False, False),
-            EvidenceSourceKind.WEB_SEARCH: (False, True, True, False, False),
-            EvidenceSourceKind.CODEX_TASK_SOURCE: (False, False, False, True, False),
-            EvidenceSourceKind.CODEX_RESULT: (False, False, False, False, True),
+            EvidenceSourceKind.CREATOR_INPUT: (True, False, False, False, False, False),
+            EvidenceSourceKind.OTHER_HUMAN_INPUT: (
+                True,
+                False,
+                False,
+                False,
+                False,
+                False,
+            ),
+            EvidenceSourceKind.WEB_SEARCH: (False, True, True, False, False, False),
+            EvidenceSourceKind.CODEX_TASK_SOURCE: (
+                False,
+                False,
+                False,
+                True,
+                False,
+                False,
+            ),
+            EvidenceSourceKind.CODEX_RESULT: (False, False, False, False, True, False),
+            EvidenceSourceKind.VISUAL_OBSERVATION: (
+                False,
+                False,
+                False,
+                False,
+                False,
+                True,
+            ),
         }[self.source_kind]
         if tuple(value is not None for value in identities) != expected:
             raise EvidenceViolation("EVIDENCE-SOURCE-SHAPE")
+        if self.source_kind is EvidenceSourceKind.VISUAL_OBSERVATION:
+            if self.scene_id is not None or self.context_party_id is not None:
+                raise EvidenceViolation("EVIDENCE-SOURCE-SHAPE")
+            if self.privacy_scope is not EvidencePrivacyScope.PRIVATE:
+                raise EvidenceViolation("EVIDENCE-PRIVACY")
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,12 +154,13 @@ class EvidenceSnapshot:
     interaction_id: UUID | None
     artifact_id: UUID
     source_kind: EvidenceSourceKind
-    scene_id: UUID
+    scene_id: UUID | None
     context_party_id: UUID | None
     web_observation_request_id: UUID | None
     observation_attempt_id: UUID | None
     codex_task_source_id: UUID | None
     codex_verification_id: UUID | None
+    visual_observation_id: UUID | None
 
 
 @runtime_checkable

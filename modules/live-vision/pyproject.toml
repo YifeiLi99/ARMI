@@ -1,0 +1,26 @@
+[project]
+name = "armi-live-vision"
+version = "0.0.0"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+    "armi-artifact-store==0.0.0",
+    "armi-attention==0.0.0",
+    "armi-data-rights==0.0.0",
+    "armi-evidence==0.0.0",
+    "armi-kernel==0.0.0",
+    "armi-perception==0.0.0",
+    "armi-runtime-foundation==0.0.0",
+]
+
+[tool.uv.sources]
+armi-artifact-store = { workspace = true }
+armi-attention = { workspace = true }
+armi-data-rights = { workspace = true }
+armi-evidence = { workspace = true }
+armi-kernel = { workspace = true }
+armi-perception = { workspace = true }
+armi-runtime-foundation = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.11.33,<0.12"]
+build-backend = "uv_build"

@@ -140,6 +140,14 @@ _PROFILES = {
         required=frozenset({"current_scene", "current_evidence"}),
         retrieval=frozenset({"current_memory", "current_material"}),
     ),
+    "consider_visual_observation": _profile(
+        "consider_visual_observation",
+        required=frozenset({"current_evidence"}),
+        retrieval=frozenset({"current_memory", "current_material"}),
+        forbidden=frozenset(
+            {"current_scene", "current_relationship", "creator_prompt"}
+        ),
+    ),
     "consider_codex_task": _profile(
         "consider_codex_task",
         required=frozenset(

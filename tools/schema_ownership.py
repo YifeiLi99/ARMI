@@ -66,8 +66,13 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "live_voice_text_fragments": TableOwnership("live-voice"),
     "live_voice_provider_attempts": TableOwnership("live-voice"),
     "live_voice_playback_attempts": TableOwnership("live-voice"),
+    # Persistent local camera observation custody.
+    "live_vision_sessions": TableOwnership("live-vision"),
+    "live_vision_observations": TableOwnership("live-vision"),
+    "live_vision_observation_frames": TableOwnership("live-vision"),
     # Perception and evidence.
     "external_content_recognition_attempts": TableOwnership("perception"),
+    "visual_recognition_attempts": TableOwnership("perception"),
     "experience_evidence_links": TableOwnership("evidence"),
     "external_evidence": TableOwnership("evidence"),
     # Attention and context.

@@ -190,6 +190,107 @@ class ExternalContentRecognitionPort(Protocol):
     ) -> ExternalContentRecognitionResult: ...
 
 
+class VisualChangeClass(StrEnum):
+    NONE = "none"
+    MINOR = "minor"
+    NOTABLE = "notable"
+    UNCERTAIN = "uncertain"
+
+
+@dataclass(frozen=True, slots=True)
+class VisualRecognitionInput:
+    content: bytes
+    captured_at: Instant
+
+    def __post_init__(self) -> None:
+        if type(self.content) is not bytes or not self.content:
+            raise ValueError("visual recognition input is empty")
+
+
+@dataclass(frozen=True, slots=True)
+class VisualRecognitionRequest:
+    observation_id: UUID
+    trigger: str
+    frames: tuple[VisualRecognitionInput, ...]
+    previous_summary: str | None
+    trace_id: TraceId
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.observation_id) is not UUID
+            or self.observation_id.version != 7
+            or self.trigger
+            not in {"initial", "scene_change", "periodic_refresh", "manual"}
+            or not 1 <= len(self.frames) <= 4
+            or any(type(frame) is not VisualRecognitionInput for frame in self.frames)
+            or type(self.trace_id) is not TraceId
+        ):
+            raise ValueError("visual recognition request is invalid")
+
+
+@dataclass(frozen=True, slots=True)
+class VisualRecognitionResult:
+    status: ExternalContentRecognitionStatus
+    scene_summary: str | None
+    visible_change: str | None
+    change_class: VisualChangeClass | None
+    uncertainties: tuple[str, ...]
+    provider: str
+    model_id: str
+    response_model_id: str | None
+    provider_request_id: str | None
+    input_tokens: int | None
+    output_tokens: int | None
+    raw_response: bytes | None
+    error_code: str | None
+
+    def __post_init__(self) -> None:
+        succeeded = self.status is ExternalContentRecognitionStatus.SUCCEEDED
+        if succeeded != all(
+            value is not None
+            for value in (self.scene_summary, self.visible_change, self.change_class)
+        ):
+            raise ValueError("visual recognition result shape is invalid")
+        if succeeded and (self.error_code is not None or self.raw_response is None):
+            raise ValueError("successful visual recognition has no receipt")
+        if not succeeded and not self.error_code:
+            raise ValueError("failed visual recognition has no error")
+
+
+@runtime_checkable
+class VisualRecognitionPort(Protocol):
+    async def recognize_visual(
+        self, request: VisualRecognitionRequest
+    ) -> VisualRecognitionResult: ...
+
+
+@runtime_checkable
+class VisualRecognitionAttemptPort(Protocol):
+    async def begin(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        attempt_id: UUID,
+        observation_id: UUID,
+        request_artifact_id: UUID,
+        provider: str,
+        model_id: str,
+    ) -> None: ...
+
+    async def settle(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        attempt_id: UUID,
+        status: str,
+        response_artifact_id: UUID | None,
+        provider_request_id: str | None,
+        input_tokens: int | None,
+        output_tokens: int | None,
+        error_code: str | None,
+    ) -> None: ...
+
+
 @runtime_checkable
 class PerceptionArtifactCatalogPort(Protocol):
     async def register(
@@ -198,6 +299,12 @@ class PerceptionArtifactCatalogPort(Protocol):
         artifact_id: ArtifactId,
         published: PublishedArtifact,
     ) -> ArtifactRegistration: ...
+
+    async def mark_deleted(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        artifact_id: ArtifactId,
+    ) -> bool: ...
 
 
 @runtime_checkable
@@ -266,4 +373,10 @@ __all__ = (
     "PerceptionDurableWorkPort",
     "PerceptionWakeupPort",
     "PerceptionWorkerPort",
+    "VisualChangeClass",
+    "VisualRecognitionAttemptPort",
+    "VisualRecognitionInput",
+    "VisualRecognitionPort",
+    "VisualRecognitionRequest",
+    "VisualRecognitionResult",
 )

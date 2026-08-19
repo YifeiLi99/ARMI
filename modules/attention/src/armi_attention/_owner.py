@@ -460,9 +460,11 @@ class PostgreSQLOpportunityOwner:
                     opportunity_id, evidence_id, subject_id, scene_id,
                     context_party_id, purpose, source_kind, source_ref,
                     source_version, eligibility_status, current_disposition,
-                    root_opportunity_id, reconsideration_no)
+                    root_opportunity_id, reconsideration_no, expires_at)
                 VALUES (%s,%s,%s,%s,%s,%s,'external_evidence',%s,1,
-                        'eligible','open',%s,0)
+                        'eligible','open',%s,0,
+                        CASE WHEN %s='consider_visual_observation'
+                             THEN statement_timestamp()+interval '5 minutes' END)
                 ON CONFLICT (
                     subject_id, source_kind, source_ref, source_version,
                     purpose, reconsideration_no
@@ -478,6 +480,7 @@ class PostgreSQLOpportunityOwner:
                     draft.purpose.value,
                     draft.evidence_id,
                     opportunity_id,
+                    draft.purpose.value,
                 ),
             )
         ).fetchone()

@@ -839,10 +839,17 @@ class PostgreSQLSubjectCommitRepository:
                         ExperienceKind.OTHER_HUMAN_INPUT,
                         ExperienceSourcePerspective.OTHER_HUMAN_CLAIM,
                     ),
+                    "consider_visual_observation": (
+                        ExperienceKind.VISUAL_OBSERVATION,
+                        ExperienceSourcePerspective.VISUAL_MODEL_OBSERVATION,
+                    ),
                 }[snapshot.opportunity_purpose]
             except KeyError:
                 raise SubjectCommitViolation("SUBJECT-EXPERIENCE-SOURCE") from None
-            if snapshot.scene_id is None:
+            if (
+                snapshot.scene_id is None
+                and snapshot.opportunity_purpose != "consider_visual_observation"
+            ):
                 raise SubjectCommitViolation("SUBJECT-EXPERIENCE-SCENE")
             await self._experience_commit.record(
                 unit_of_work.transaction,

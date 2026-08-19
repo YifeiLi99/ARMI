@@ -284,6 +284,11 @@ from ._sleep_contract import (
     SLEEP_DECISION_CANDIDATE_VERSION,
     SleepDecisionCandidate,
 )
+from ._visual_observation_contract import (
+    AcceptVisualExperience,
+    IgnoreVisualObservation,
+    parse_visual_observation_candidate,
+)
 from .api import (
     CandidateExactLifeQueryDraft,
     CandidateValidationResult,
@@ -643,6 +648,8 @@ class DeterministicCandidateValidator:
                     allowed_context_refs=frozenset(basis_by_ref),
                 )
                 if reflection_purpose
+                else parse_visual_observation_candidate(json.loads(candidate_bytes))
+                if self._context.purpose == "consider_visual_observation"
                 else parse_candidate(
                     candidate_bytes,
                     allowed_context_refs=frozenset(basis_by_ref),
@@ -696,6 +703,11 @@ class DeterministicCandidateValidator:
                 parsed_candidate,
                 bases=bases,
             )
+        if isinstance(
+            parsed_candidate,
+            (AcceptVisualExperience, IgnoreVisualObservation),
+        ):
+            return self._validate_visual_observation(parsed_candidate, bases=bases)
         if isinstance(
             parsed_candidate,
             (OtherHumanReplyDecision, OtherHumanTerminalDecision),
@@ -1505,6 +1517,112 @@ class DeterministicCandidateValidator:
             change_set,
             len(accepted),
             len(rejected),
+            None,
+        )
+
+    def _validate_visual_observation(
+        self,
+        candidate: AcceptVisualExperience | IgnoreVisualObservation,
+        *,
+        bases: tuple[CandidateBasis, ...],
+    ) -> CandidateValidationResult:
+        if (
+            self._context.purpose != "consider_visual_observation"
+            or self._context.opportunity_id is None
+            or self._context.scene_id is not None
+            or self._context.creator_party_id is not None
+            or self._context.other_party_id is not None
+        ):
+            return _rejected("CANDIDATE-VISUAL-CONTEXT")
+        evidence = next(
+            (
+                item
+                for item in bases
+                if item.item_kind == "current_evidence"
+                and item.trust_class == "external_claim"
+                and item.privacy_scope == "private"
+                and item.source_ref is not None
+            ),
+            None,
+        )
+        if evidence is None:
+            return _rejected("CANDIDATE-VISUAL-BASIS")
+        experience = (
+            CandidateExperienceDraft(
+                "proposal:1",
+                "group:1",
+                (evidence.ordinal,),
+                CandidateFactClass(candidate.experience.fact_class),
+                candidate.experience.first_person_gist,
+                candidate.experience.uncertainty,
+                "private",
+            )
+            if isinstance(candidate, AcceptVisualExperience)
+            else None
+        )
+        mood_draft: CandidateOwnerDraft | None = None
+        if candidate.appraisal is not None:
+            mood_draft, mood_error = _bind_appraisal_draft(
+                candidate.appraisal,
+                proposal_ref="proposal:2" if experience is not None else "proposal:1",
+                bases=bases,
+                context=self._context,
+                cognition=self._mood_cognition,
+            )
+            if mood_draft is None:
+                return _rejected(mood_error or "CANDIDATE-MOOD-CONTEXT")
+        disposition = (
+            CandidateDisposition.CHANGE
+            if experience is not None or mood_draft is not None
+            else CandidateDisposition.NO_ACTION
+        )
+        owner_drafts = () if mood_draft is None else (mood_draft,)
+        value: dict[str, object] = {
+            "schema_version": ACTIVE_CHANGE_SET_VERSION,
+            "subject_id": str(self._context.subject_id),
+            "generation_id": str(self._context.generation_id),
+            "episode_id": str(self._context.episode_id),
+            "model_attempt_id": str(self._context.model_attempt_id),
+            "base": {
+                "subject_version": self._context.base_subject_version,
+                "state_epoch": self._context.base_state_epoch,
+                "bundle_activation_id": str(self._context.bundle_activation_id),
+                "context_digest": self._context.context_digest.value,
+            },
+            "disposition": disposition.value,
+            "experiences": [] if experience is None else [_experience_wire(experience)],
+            "capability_requests": [],
+            "action_choices": [],
+            "web_research_requests": [],
+            "codex_delegations": [],
+            "owner_drafts": [_owner_draft_wire(item) for item in owner_drafts],
+            "exact_life_queries": [],
+            "rejections": [],
+        }
+        change_set = SubjectChangeSet(
+            canonical_bytes=rfc8785.dumps(cast(Any, value)),
+            subject_id=self._context.subject_id,
+            generation_id=self._context.generation_id,
+            episode_id=self._context.episode_id,
+            model_attempt_id=self._context.model_attempt_id,
+            base_subject_version=self._context.base_subject_version,
+            base_state_epoch=self._context.base_state_epoch,
+            bundle_activation_id=self._context.bundle_activation_id,
+            context_digest=self._context.context_digest,
+            disposition=disposition,
+            experiences=() if experience is None else (experience,),
+            capability_requests=(),
+            action_choices=(),
+            web_research_requests=(),
+            rejections=(),
+            owner_drafts=owner_drafts,
+        )
+        return CandidateValidationResult(
+            CandidateValidationId(uuid7()),
+            CandidateValidationStatus.ACCEPTED,
+            change_set,
+            (1 if experience is not None else 0) + (1 if mood_draft is not None else 0),
+            0,
             None,
         )
 

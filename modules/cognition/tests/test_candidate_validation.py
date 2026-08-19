@@ -402,6 +402,59 @@ def _fixture():
     return context, bases
 
 
+def test_visual_observation_only_accepts_private_experience_and_optional_mood() -> None:
+    context, bases = _fixture()
+    visual = replace(
+        context,
+        purpose="consider_visual_observation",
+        scene_id=None,
+        creator_party_id=None,
+        opportunity_id=uuid7(),
+    )
+    candidate = {
+        "kind": "experience",
+        "experience": {
+            "first_person_gist": "我从摄像头画面里看到桌面上多了一只杯子",
+            "fact_class": "inference",
+            "uncertainty": "视觉模型可能误判了物体类别",
+        },
+        "appraisal": _appraisal_signal(),
+    }
+
+    result = DeterministicCandidateValidator(visual).validate(
+        rfc8785.dumps(cast(Any, candidate)), bases=bases
+    )
+
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    assert result.change_set.action_choices == ()
+    assert result.change_set.capability_requests == ()
+    assert result.change_set.experiences[0].fact_class is CandidateFactClass.INFERENCE
+    assert result.change_set.experiences[0].privacy_scope == "private"
+    assert tuple(item.owner for item in result.change_set.owner_drafts) == ("mood",)
+
+
+def test_visual_observation_ignore_produces_no_action_without_side_effects() -> None:
+    context, bases = _fixture()
+    visual = replace(
+        context,
+        purpose="consider_visual_observation",
+        scene_id=None,
+        creator_party_id=None,
+        opportunity_id=uuid7(),
+    )
+
+    result = DeterministicCandidateValidator(visual).validate(
+        b'{"kind":"ignore"}', bases=bases
+    )
+
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    assert result.change_set.disposition.value == "no_action"
+    assert result.change_set.experiences == ()
+    assert result.change_set.owner_drafts == ()
+
+
 @pytest.mark.parametrize(
     ("candidate", "disposition", "draft_type"),
     [
@@ -1298,7 +1351,9 @@ def test_autonomous_start_binds_activity_authority_without_scene() -> None:
     assert activity.status.value == "ready"
     assert activity.basis_ordinals == (4,)
     mood = next(item for item in result.change_set.owner_drafts if item.owner == "mood")
-    assert bootstrap_mood_cognition().decode(mood.canonical_payload).appraisal is not None
+    assert (
+        bootstrap_mood_cognition().decode(mood.canonical_payload).appraisal is not None
+    )
     assert b"armi.subject-change-set.v29" in result.change_set.canonical_bytes
     assert str(opportunity_id).encode() not in result.change_set.canonical_bytes
 

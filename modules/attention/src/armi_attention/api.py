@@ -57,28 +57,31 @@ class OpportunityPurpose(StrEnum):
     CONSIDER_WEB_EVIDENCE = "consider_web_evidence"
     CONSIDER_CODEX_TASK = "consider_codex_task"
     CONSIDER_CODEX_RESULT = "consider_codex_result"
+    CONSIDER_VISUAL_OBSERVATION = "consider_visual_observation"
 
 
 @dataclass(frozen=True, slots=True)
 class ExternalEvidenceOpportunityDraft:
     evidence_id: UUID
     subject_id: UUID
-    scene_id: UUID
-    context_party_id: UUID
+    scene_id: UUID | None
+    context_party_id: UUID | None
     purpose: OpportunityPurpose
 
     def __post_init__(self) -> None:
+        required = [self.evidence_id, self.subject_id]
+        optional = [self.scene_id, self.context_party_id]
         if any(
-            type(value) is not UUID or value.version != 7
-            for value in (
-                self.evidence_id,
-                self.subject_id,
-                self.scene_id,
-                self.context_party_id,
-            )
+            type(value) is not UUID or value.version != 7 for value in required
+        ) or any(
+            value is not None and (type(value) is not UUID or value.version != 7)
+            for value in optional
         ):
             raise LifeViolation("LIFE-ADMISSION-ID")
         if type(self.purpose) is not OpportunityPurpose:
+            raise LifeViolation("LIFE-ADMISSION-PURPOSE")
+        visual = self.purpose is OpportunityPurpose.CONSIDER_VISUAL_OBSERVATION
+        if visual != (self.scene_id is None and self.context_party_id is None):
             raise LifeViolation("LIFE-ADMISSION-PURPOSE")
 
 

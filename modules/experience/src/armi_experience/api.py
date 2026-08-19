@@ -33,6 +33,7 @@ class ExperienceKind(StrEnum):
     WEB_OBSERVATION = "web_observation"
     CODEX_OBSERVATION = "codex_observation"
     OTHER_HUMAN_INPUT = "other_human_input"
+    VISUAL_OBSERVATION = "visual_observation"
 
 
 class ExperienceSourcePerspective(StrEnum):
@@ -40,6 +41,7 @@ class ExperienceSourcePerspective(StrEnum):
     WEB_CLAIM = "web_claim"
     CODEX_OBSERVATION = "codex_observation"
     OTHER_HUMAN_CLAIM = "other_human_claim"
+    VISUAL_MODEL_OBSERVATION = "visual_model_observation"
 
 
 def _uuid7(value: object) -> bool:
@@ -62,7 +64,7 @@ class AcceptedExperienceDraft:
     experience_kind: ExperienceKind
     fact_class: CandidateFactClass
     first_person_gist: str
-    scene_id: UUID
+    scene_id: UUID | None
     occurred_at: datetime
     source_perspective: ExperienceSourcePerspective
     uncertainty: str | None
@@ -77,6 +79,9 @@ class AcceptedExperienceDraft:
             ExperienceKind.OTHER_HUMAN_INPUT: (
                 ExperienceSourcePerspective.OTHER_HUMAN_CLAIM
             ),
+            ExperienceKind.VISUAL_OBSERVATION: (
+                ExperienceSourcePerspective.VISUAL_MODEL_OBSERVATION
+            ),
         }
         if (
             type(self.experience_id) is not ExperienceId
@@ -87,12 +92,24 @@ class AcceptedExperienceDraft:
             or type(self.experience_kind) is not ExperienceKind
             or type(self.fact_class) is not CandidateFactClass
             or not _text(self.first_person_gist, 1024)
-            or not _uuid7(self.scene_id)
+            or (self.scene_id is not None and not _uuid7(self.scene_id))
             or type(self.occurred_at) is not datetime
             or self.occurred_at.tzinfo is None
             or type(self.source_perspective) is not ExperienceSourcePerspective
             or expected_source.get(self.experience_kind) is not self.source_perspective
             or not _text(self.uncertainty, 512, optional=True)
+            or (
+                self.experience_kind is ExperienceKind.VISUAL_OBSERVATION
+                and (
+                    self.scene_id is not None
+                    or self.fact_class
+                    not in {
+                        CandidateFactClass.EXTERNAL_CLAIM,
+                        CandidateFactClass.INFERENCE,
+                        CandidateFactClass.UNKNOWN,
+                    }
+                )
+            )
         ):
             raise ExperienceViolation("EXPERIENCE-DRAFT")
 

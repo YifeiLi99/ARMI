@@ -74,6 +74,8 @@ from ._model_contract import (
     SLEEP_DECISION_CANDIDATE_VERSION,
     SLEEP_DECISION_INSTRUCTIONS,
     SUBJECT_SELF_CHECK_INSTRUCTIONS,
+    VISUAL_OBSERVATION_CANDIDATE_VERSION,
+    VISUAL_OBSERVATION_INSTRUCTIONS,
     WEB_DIALOGUE_CANDIDATE_VERSION,
     build_request_bytes,
     candidate_schema,
@@ -173,7 +175,10 @@ class _DeterministicMoodReflectionAdapter:
                 if item["item_kind"] == "mood"
             )
             source = cast(dict[str, object], mood_item["source"])
-            expected_version = int(source["version"])
+            version_value = source["version"]
+            if not isinstance(version_value, int):
+                raise ModelViolation("MODEL-CONTEXT")
+            expected_version = version_value
             response = rfc8785.dumps(
                 {
                     "kind": "update",
@@ -184,7 +189,7 @@ class _DeterministicMoodReflectionAdapter:
                     "next_state": {},
                 }
             )
-        except (KeyError, StopIteration, TypeError, ValueError, json.JSONDecodeError):
+        except KeyError, StopIteration, TypeError, ValueError, json.JSONDecodeError:
             raise ModelViolation("MODEL-CONTEXT") from None
         return ModelInvocationResult(
             ModelResultStatus.SUCCEEDED,
@@ -329,6 +334,11 @@ class ModelPipeline:
             binding_path,
             expected_dialogue_version=dialogue_version,
         )
+        visual_observation_binding = load_purpose_binding(
+            "consider_visual_observation",
+            binding_path,
+            expected_dialogue_version=dialogue_version,
+        )
         reflect_self_binding = load_purpose_binding(
             "reflect_self", binding_path, expected_dialogue_version=dialogue_version
         )
@@ -461,6 +471,17 @@ class ModelPipeline:
                 expected_version=MAINTENANCE_WORK_CANDIDATE_VERSION,
             )
 
+        def parse_visual_observation(
+            value: bytes,
+            *,
+            allowed_context_refs: frozenset[str],
+        ):
+            return parse_candidate(
+                value,
+                allowed_context_refs=allowed_context_refs,
+                expected_version=VISUAL_OBSERVATION_CANDIDATE_VERSION,
+            )
+
         def parse_reflection(
             value: bytes,
             *,
@@ -501,6 +522,13 @@ class ModelPipeline:
                     web_evidence_binding.response_contract_version
                 ),
                 candidate_parser=parse_candidate,
+            ),
+            "consider_visual_observation": build_adapter(
+                binding=visual_observation_binding,
+                candidate_schema=candidate_schema(VISUAL_OBSERVATION_CANDIDATE_VERSION),
+                candidate_parser=parse_visual_observation,
+                instructions=VISUAL_OBSERVATION_INSTRUCTIONS,
+                schema_name="armi_visual_observation_candidate_v1",
             ),
             "consider_codex_task": build_adapter(
                 binding=codex_task_binding,
@@ -600,9 +628,7 @@ class ModelPipeline:
                 instructions=REFLECT_MIND_INSTRUCTIONS,
                 schema_name="armi_owner_reflection_candidate_v1",
             ),
-            "reflect_mood": _DeterministicMoodReflectionAdapter(
-                reflect_mood_binding
-            ),
+            "reflect_mood": _DeterministicMoodReflectionAdapter(reflect_mood_binding),
             "reflect_prompt": build_adapter(
                 binding=reflect_prompt_binding,
                 candidate_schema=owner_reflection_schema(),
