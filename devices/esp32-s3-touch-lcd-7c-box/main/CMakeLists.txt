@@ -3,4 +3,5 @@ idf_component_register(
          "mood_face.c" "board_display.c"
     INCLUDE_DIRS "."
     REQUIRES esp_lcd esp_timer usb json
+    EMBED_FILES "mood_text_assets.bin"
 )

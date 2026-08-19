@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
@@ -41,21 +42,51 @@ def test_all_twenty_emotions_and_device_states_have_firmware_names() -> None:
         assert f'"{private_name}"' not in protocol
 
 
-def test_faces_are_rendered_as_ascii_text_and_keep_projected_color() -> None:
+def test_faces_are_rendered_as_unicode_text_assets_and_keep_projected_color() -> None:
     text = (ROOT / "main" / "mood_text.c").read_text(encoding="utf-8")
+    catalog = (ROOT / "main" / "mood_text_catalog.inc").read_text(encoding="utf-8")
+    asset_data = (ROOT / "main" / "mood_text_assets.bin").read_bytes()
     face = (ROOT / "main" / "mood_face.c").read_text(encoding="utf-8")
     component = (ROOT / "main" / "CMakeLists.txt").read_text(encoding="utf-8")
 
-    assert text.count("/* ") == 22
-    assert '"(^o^)"' in text
-    assert '"(>_<)"' in text
-    assert '"(o_O)?"' in text
+    entries = re.findall(r'^\{"(.+)", (\d+)U, (\d+)U, (\d+)U\}', catalog, re.MULTILINE)
+    assert len(entries) == 22
+    assert all(not expression.isascii() for expression, *_ in entries)
+    assert max(len(expression) for expression, *_ in entries) >= 12
+    expected_offset = 0
+    for expression, offset, width, height in entries:
+        assert expression
+        assert int(offset) == expected_offset
+        assert 0 < int(width) <= 720
+        assert 0 < int(height) <= 160
+        expected_offset += int(width) * int(height)
+    assert expected_offset == len(asset_data)
     assert "mood_text_expression" in text
     assert "color_lift" in text
     assert "lift_rgb" in face
     assert "lv_color_black" in face
-    assert "lv_label_set_text_static" in face
-    assert "lv_font_montserrat_48" in face
+    assert "LV_COLOR_FORMAT_A8" in face
+    assert "lv_image_set_src" in face
+    assert "lv_obj_set_style_image_recolor" in face
+    assert "lv_label" not in face
     assert "lv_canvas" not in face
     assert '"mood_text.c"' in component
+    assert 'EMBED_FILES "mood_text_assets.bin"' in component
     assert not (ROOT / "main" / "mood_animation.c").exists()
+
+
+def test_generator_and_desktop_preview_use_the_firmware_catalog() -> None:
+    catalog = (ROOT / "main" / "mood_text_catalog.inc").read_text(encoding="utf-8")
+    expressions = re.findall(r'^\{"(.+)",', catalog, re.MULTILINE)
+    generator = (ROOT / "tools" / "generate_kaomoji_assets.py").read_text(
+        encoding="utf-8"
+    )
+    preview = (ROOT.parents[1] / "tools" / "mood_display_preview.py").read_text(
+        encoding="utf-8"
+    )
+
+    for expression in expressions:
+        assert f'"{expression}"' in generator
+        assert f'"{expression}"' in preview
+    assert "unexpected Noto Sans SC source font digest" in generator
+    assert "expression contains unsupported glyphs" in generator

@@ -48,15 +48,18 @@ static void test_protocol_state(void)
     assert(strcmp(result.reject_code, "invalid_state") == 0);
 }
 
-static void test_every_face_has_a_unique_ascii_expression(void)
+static void test_every_face_has_a_unique_unicode_asset(void)
 {
+    uint32_t previous_end = 0;
     for (mood_face_t face = MOOD_FACE_JOY; face <= MOOD_FACE_OFFLINE; face++) {
-        const char *expression = mood_text_expression(face);
+        const mood_text_asset_t *asset = mood_text_asset(face);
+        const char *expression = asset->text;
         assert(expression[0] != '\0');
-        for (const unsigned char *byte = (const unsigned char *)expression;
-             *byte != '\0'; byte++) {
-            assert(*byte >= 0x20U && *byte <= 0x7eU);
-        }
+        assert(asset->width > 0 && asset->width <= 720);
+        assert(asset->height > 0 && asset->height <= 160);
+        assert(asset->asset_offset == previous_end);
+        previous_end = asset->asset_offset +
+                       (uint32_t)asset->width * asset->height;
         for (mood_face_t previous = MOOD_FACE_JOY; previous < face; previous++) {
             assert(strcmp(expression, mood_text_expression(previous)) != 0);
         }
@@ -73,7 +76,7 @@ static void test_transition_and_energy_only_change_text_appearance(void)
     mood_text_frame(MOOD_FACE_SURPRISE, 10, 0, &first);
     mood_text_frame(MOOD_FACE_SURPRISE, 10, 800, &low);
     mood_text_frame(MOOD_FACE_SURPRISE, 100, 800, &high);
-    assert(strcmp(first.text, low.text) == 0);
+    assert(first.asset == low.asset);
     assert(first.opacity < 255);
     assert(low.opacity == 255);
     assert(high.color_lift > low.color_lift);
@@ -87,7 +90,7 @@ int main(void)
 {
     test_offline_state();
     test_protocol_state();
-    test_every_face_has_a_unique_ascii_expression();
+    test_every_face_has_a_unique_unicode_asset();
     test_transition_and_energy_only_change_text_appearance();
     return 0;
 }

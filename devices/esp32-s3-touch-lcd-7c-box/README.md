@@ -10,7 +10,9 @@ idf.py -p COMx flash monitor
 
 串口协议为 `armi.mood-display.v2` JSON Lines，115200 8N1，单帧最多 512 字节。设备启动发送 `hello`；有效 `state` 应答 `ack/applied`。30 秒未收到有效状态后进入灰色闭眼离线脸。v2 将 Mood 的二十个情绪族一一映射到 `face_01` 至 `face_20` 的不透明显示编号；中性和离线是额外设备状态，不冒充情绪。串口仍不发送情绪名称。
 
-固件用 LVGL 文字标签直接显示颜文字，不再绘制眼睛、嘴或装饰图形。二十个情绪族、中性和离线各自映射到一条固定且互不重复的 ASCII 颜文字，因而只依赖内置 Montserrat ASCII 字形，不需要位图或 Emoji 字体。背景永久保持纯黑；每个情绪族继续使用主机投影的固定颜色，`energy` 只调节轻微颜色呼吸，不改变文字。切换后的前 320 ms 淡入，离线颜文字保持暗灰色静止。
+固件直接显示 Unicode 颜文字，不再绘制眼睛、嘴或装饰图形。二十个情绪族、中性和离线各自映射到一条固定且互不重复的现代颜文字；构建中嵌入的是由 Noto Sans SC 生成的最小 A8 抗锯齿文字资产，不携带完整字体，生成器会拒绝来源摘要不符、缺字或超出 720×160 显示边界的结果。背景永久保持纯黑；每个情绪族继续使用主机投影的固定颜色，`energy` 只调节轻微颜色呼吸，不改变文字。切换后的前 320 ms 淡入，离线颜文字保持暗灰色静止。
+
+重新生成文字资产时，使用 `tools/generate_kaomoji_assets.py --font <NotoSansSC-VF.ttf>`。生成器固定核对源字体摘要；来源和许可记录见 `NOTICE`。
 
 板级 RGB 引脚和时序核对自 Waveshare Apache-2.0 示例固定提交 `98618ce7e3154cd2f77051288e144008632bbd85`。板卡到货前尚未完成烧录、背光和实际显示验收。
 
@@ -20,4 +22,4 @@ idf.py -p COMx flash monitor
 .\tools\start_mood_display_preview.ps1
 ```
 
-`host_tests/` 含协议解析、30 秒离线状态机、ASCII 颜文字映射和显示参数的 C 测试；它需要宿主提供 CMake、C 编译器和 cJSON CMake package。当前仍须在装有 ESP-IDF 5.5.3 的环境执行目标板完整编译。
+`host_tests/` 含协议解析、30 秒离线状态机、Unicode 颜文字资产映射和显示参数的 C 测试；它需要宿主提供 CMake、C 编译器和 cJSON CMake package。当前仍须在装有 ESP-IDF 5.5.3 的环境执行目标板完整编译。

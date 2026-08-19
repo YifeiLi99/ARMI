@@ -2,30 +2,14 @@
 
 #define FRAME_MS 80U
 
-static const char *const EXPRESSIONS[] = {
-    "(^o^)",   /* joy */
-    "(-v-)",   /* contentment */
-    "(o.o)",   /* interest */
-    "(^_^)",   /* hope */
-    "(-.-)",   /* relief */
-    "(<3_<3)", /* affection */
-    "(^.^)",   /* gratitude */
-    "(-w-)",   /* pride */
-    "(O_O)",   /* surprise */
-    "(T_T)",   /* sadness */
-    "(O~O)",   /* fear */
-    "(@_@)",   /* anxiety */
-    "(>_<)",   /* anger */
-    "(>~<)",   /* frustration */
-    "(-_-;)",  /* disgust */
-    "(//_//)", /* shame */
-    "(;_;)",   /* guilt */
-    "(<_<)",   /* jealousy */
-    "(-_-)",   /* boredom */
-    "(o_O)?",  /* confusion */
-    "(._.)",   /* neutral */
-    "(- -)",   /* offline */
+static const mood_text_asset_t ASSETS[] = {
+#include "mood_text_catalog.inc"
 };
+
+_Static_assert(
+    sizeof(ASSETS) / sizeof(ASSETS[0]) == MOOD_FACE_OFFLINE + 1,
+    "kaomoji catalog must cover every mood display state"
+);
 
 static uint8_t triangle(uint32_t frame, uint32_t period, uint8_t amplitude)
 {
@@ -35,12 +19,17 @@ static uint8_t triangle(uint32_t frame, uint32_t period, uint8_t amplitude)
     return (uint8_t)(value * amplitude / half);
 }
 
-const char *mood_text_expression(mood_face_t face)
+const mood_text_asset_t *mood_text_asset(mood_face_t face)
 {
     if (face < MOOD_FACE_JOY || face > MOOD_FACE_OFFLINE) {
-        return EXPRESSIONS[MOOD_FACE_NEUTRAL];
+        return &ASSETS[MOOD_FACE_NEUTRAL];
     }
-    return EXPRESSIONS[face];
+    return &ASSETS[face];
+}
+
+const char *mood_text_expression(mood_face_t face)
+{
+    return mood_text_asset(face)->text;
 }
 
 void mood_text_frame(
@@ -50,7 +39,7 @@ void mood_text_frame(
     mood_text_frame_t *target
 )
 {
-    target->text = mood_text_expression(face);
+    target->asset = mood_text_asset(face);
     if (face == MOOD_FACE_OFFLINE) {
         target->color_lift = 0;
         target->opacity = 180;
