@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -117,6 +118,120 @@ class RuntimeProcessManagerTests(unittest.TestCase):
             self.assertFalse(
                 (root / "run" / "admin-control" / "runtime-control.token").exists()
             )
+
+    def test_start_timeout_terminates_child_and_cleans_control_material(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manager = RuntimeProcessManager(root, "environment-1")
+            process = Mock(pid=1234)
+            process.poll.return_value = None
+            process.wait.return_value = 0
+            with (
+                patch.object(
+                    RuntimeProcessManager,
+                    "status",
+                    return_value={"status": "stopped", "pid": None},
+                ),
+                patch(
+                    "armi_runtime.composition.runtime_process.subprocess.Popen",
+                    return_value=process,
+                ),
+                patch(
+                    "armi_runtime.composition.runtime_process._START_TIMEOUT_SECONDS",
+                    0.0,
+                ),
+                self.assertRaises(RuntimeViolation) as raised,
+            ):
+                manager.start()
+
+            self.assertEqual(raised.exception.code, "CLI-RUNTIME-START-TIMEOUT")
+            process.terminate.assert_called_once_with()
+            process.wait.assert_called_once_with(timeout=5.0)
+            process.kill.assert_not_called()
+            self.assertFalse((root / "run" / "runtime-process.json").exists())
+            self.assertFalse(
+                (root / "run" / "admin-control" / "runtime-control.token").exists()
+            )
+
+    def test_start_timeout_kills_child_that_ignores_termination(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manager = RuntimeProcessManager(root, "environment-1")
+            process = Mock(pid=1234)
+            process.poll.return_value = None
+            process.wait.side_effect = (
+                subprocess.TimeoutExpired("runtime", 5.0),
+                0,
+            )
+            with (
+                patch.object(
+                    RuntimeProcessManager,
+                    "status",
+                    return_value={"status": "stopped", "pid": None},
+                ),
+                patch(
+                    "armi_runtime.composition.runtime_process.subprocess.Popen",
+                    return_value=process,
+                ),
+                patch(
+                    "armi_runtime.composition.runtime_process._START_TIMEOUT_SECONDS",
+                    0.0,
+                ),
+                self.assertRaises(RuntimeViolation) as raised,
+            ):
+                manager.start()
+
+            self.assertEqual(raised.exception.code, "CLI-RUNTIME-START-TIMEOUT")
+            process.terminate.assert_called_once_with()
+            process.kill.assert_called_once_with()
+            self.assertEqual(process.wait.call_count, 2)
+            self.assertFalse((root / "run" / "runtime-process.json").exists())
+
+    def test_start_timeout_reaps_a_real_never_ready_child(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manager = RuntimeProcessManager(root, "environment-1")
+            real_popen = subprocess.Popen
+            child: subprocess.Popen[bytes] | None = None
+
+            def launch(*_args: object, **_kwargs: object) -> subprocess.Popen[bytes]:
+                nonlocal child
+                child = real_popen(
+                    (sys.executable, "-c", "import time; time.sleep(30)"),
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                return child
+
+            try:
+                with (
+                    patch.object(
+                        RuntimeProcessManager,
+                        "status",
+                        return_value={"status": "stopped", "pid": None},
+                    ),
+                    patch(
+                        "armi_runtime.composition.runtime_process.subprocess.Popen",
+                        side_effect=launch,
+                    ),
+                    patch(
+                        "armi_runtime.composition.runtime_process._START_TIMEOUT_SECONDS",
+                        0.0,
+                    ),
+                    self.assertRaises(RuntimeViolation) as raised,
+                ):
+                    manager.start()
+            finally:
+                if child is not None and child.poll() is None:
+                    child.kill()
+                    child.wait(timeout=5)
+
+            self.assertEqual(raised.exception.code, "CLI-RUNTIME-START-TIMEOUT")
+            self.assertIsNotNone(child)
+            assert child is not None
+            self.assertIsNotNone(child.poll())
+            self.assertFalse((root / "run" / "runtime-process.json").exists())
 
     def test_stop_drains_before_stopping(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -28,6 +28,7 @@ _MAX_REQUEST = 64 * 1024
 _MAX_RESPONSE = 1024 * 1024
 _START_TIMEOUT_SECONDS = 30.0
 _STOP_TIMEOUT_SECONDS = 30.0
+_START_CLEANUP_TIMEOUT_SECONDS = 5.0
 _STILL_ACTIVE = 259
 _BACKGROUND_ENVIRONMENT_NAMES = frozenset(
     {
@@ -138,6 +139,34 @@ def _pid_is_alive(pid: int) -> bool:
         return exit_code.value == _STILL_ACTIVE
     finally:
         kernel32.CloseHandle(handle)
+
+
+def _terminate_started_process(process: subprocess.Popen[Any]) -> None:
+    """Stop the exact child created by a start attempt before discarding its state."""
+
+    if process.poll() is not None:
+        return
+    try:
+        process.terminate()
+        process.wait(timeout=_START_CLEANUP_TIMEOUT_SECONDS)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    except OSError as exc:
+        if process.poll() is not None:
+            return
+        raise RuntimeViolation(
+            "CLI-RUNTIME-START-CLEANUP",
+            "timed-out runtime process could not be terminated",
+        ) from exc
+    try:
+        process.kill()
+        process.wait(timeout=_START_CLEANUP_TIMEOUT_SECONDS)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise RuntimeViolation(
+            "CLI-RUNTIME-START-CLEANUP",
+            "timed-out runtime process could not be terminated",
+        ) from exc
 
 
 def _lock_file(handle: BinaryIO) -> None:
@@ -320,6 +349,8 @@ class RuntimeProcessManager:
                         "runtime exited before becoming controllable",
                     )
                 time.sleep(0.05)
+            _terminate_started_process(process)
+            self._clear_stale_files()
             raise RuntimeViolation(
                 "CLI-RUNTIME-START-TIMEOUT",
                 "runtime did not become controllable before the startup deadline",

@@ -18,7 +18,7 @@ import tempfile
 import time
 import unittest
 from collections.abc import AsyncIterator
-from contextlib import redirect_stderr, redirect_stdout, suppress
+from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -880,8 +880,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         browser.close()
                 self.assertEqual(invoke("stop", *root_argument)["status"], "stopped")
             finally:
-                with suppress(Exception):
-                    manager.stop()
+                manager.stop()
 
             with psycopg.connect(fixture.runtime_dsn) as database:
                 final_identity = database.execute(identity_query).fetchone()
