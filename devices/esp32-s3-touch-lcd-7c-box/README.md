@@ -14,4 +14,10 @@ idf.py -p COMx flash monitor
 
 板级 RGB 引脚和时序核对自 Waveshare Apache-2.0 示例固定提交 `98618ce7e3154cd2f77051288e144008632bbd85`。板卡到货前尚未完成烧录、背光和实际显示验收。
 
+没有板卡时，可从仓库根目录启动独立桌面预览器。它以 800×480 画布复现当前动画参数，可切换表情、活跃度、彩色/黑白模式和自动轮播，不连接 Runtime 或串口：
+
+```powershell
+.\tools\start_mood_display_preview.ps1
+```
+
 `host_tests/` 含协议解析、30 秒离线状态机和逐帧动画参数的 C 测试；它需要宿主提供 CMake、C 编译器和 cJSON CMake package。当前仍须在装有 ESP-IDF 5.5.3 的环境执行目标板完整编译。
