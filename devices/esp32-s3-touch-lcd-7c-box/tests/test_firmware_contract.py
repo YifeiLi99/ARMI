@@ -41,3 +41,28 @@ def test_all_ten_wire_faces_have_firmware_names() -> None:
         "offline",
     ):
         assert f'"{face}"' in protocol
+
+
+def test_online_faces_use_expression_specific_frame_animation_and_color() -> None:
+    animation = (ROOT / "main" / "mood_animation.c").read_text(encoding="utf-8")
+    face = (ROOT / "main" / "mood_face.c").read_text(encoding="utf-8")
+    component = (ROOT / "main" / "CMakeLists.txt").read_text(encoding="utf-8")
+
+    for enum_name in (
+        "MOOD_FACE_HAPPY",
+        "MOOD_FACE_EXCITED",
+        "MOOD_FACE_CALM",
+        "MOOD_FACE_SAD",
+        "MOOD_FACE_ANXIOUS",
+        "MOOD_FACE_ANGRY",
+        "MOOD_FACE_DISGUSTED",
+        "MOOD_FACE_EMBARRASSED",
+    ):
+        assert enum_name in animation
+    assert "FRAME_MS 80U" in animation
+    assert "background_lift" in animation
+    assert "cheek_opacity" in animation
+    assert "accent_visible" in animation
+    assert "lift_rgb" in face
+    assert "mouth_cutout" in face
+    assert '"mood_animation.c"' in component
