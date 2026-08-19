@@ -17,6 +17,7 @@ dependencies = [
     "armi-effect==0.0.0",
     "armi-expression==0.0.0",
     "armi-interaction==0.0.0",
+    "armi-live-voice==0.0.0",
     "armi-kernel==0.0.0",
     "armi-attention==0.0.0",
     "armi-perception==0.0.0",
@@ -39,6 +40,8 @@ dependencies = [
     "psycopg-pool==3.3.1",
     "pydantic==2.13.4",
     "rfc8785==0.1.4",
+    "sounddevice==0.5.5",
+    "websockets==17.0",
     "uvicorn==0.51.0",
 ]
 
@@ -73,6 +76,7 @@ armi-web-observation = { workspace = true }
 armi-mood = { workspace = true }
 armi-prompt = { workspace = true }
 armi-interaction = { workspace = true }
+armi-live-voice = { workspace = true }
 armi-perception = { workspace = true }
 
 [build-system]
