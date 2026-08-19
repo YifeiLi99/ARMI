@@ -436,7 +436,7 @@ class AdminProtocolTests(unittest.TestCase):
                     "replacement": {
                         "schema_version": "armi.mood.v3",
                         "dynamics_version": "recency-reappraisal.v1",
-                        "derivation_version": "cpm-fuzzy.v1",
+                        "derivation_version": "cpm-fuzzy.v2",
                         "home_base": {
                             "valence": 10,
                             "arousal": 0,

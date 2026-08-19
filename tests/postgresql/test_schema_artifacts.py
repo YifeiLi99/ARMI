@@ -41,7 +41,7 @@ def test_schema_resources_use_one_linear_alembic_history() -> None:
     assert not (RESOURCE / "migrations").exists()
     assert not list(RESOURCE.glob("**/manifest.json"))
     script = _script()
-    assert script.get_heads() == ["0017"]
+    assert script.get_heads() == ["0018"]
     revisions = list(script.walk_revisions(base="base", head="heads"))
     assert [revision.revision for revision in reversed(revisions)] == [
         "0000",
@@ -62,6 +62,7 @@ def test_schema_resources_use_one_linear_alembic_history() -> None:
         "0015",
         "0016",
         "0017",
+        "0018",
     ]
 
 
@@ -125,6 +126,20 @@ def test_active_cognition_contracts_have_a_forward_schema_revision() -> None:
     ):
         assert contract in mood_v3
     assert "CREATE TABLE armi.mood_appraisal_events" in mood_v3
+    mood_v31 = (
+        RESOURCE / "alembic/versions/0018_mood_semantic_appraisal.py"
+    ).read_text(encoding="utf-8")
+    for contract in (
+        "armi.creator-appraisal-candidate.v4",
+        "armi.creator-dialogue-aggregate.v3",
+        "armi.other-human-dialogue-candidate.v6",
+        "armi.autonomous-activity-candidate.v3",
+        "armi.activity-attention-candidate.v4",
+        "armi.activity-internal-work-candidate.v3",
+    ):
+        assert contract in mood_v31
+    assert "semantic-anchors.v1" in mood_v31
+    assert "derived_appraisal_payload" in mood_v31
 
 
 def test_gateway_exposes_install_status_and_explicit_migration() -> None:

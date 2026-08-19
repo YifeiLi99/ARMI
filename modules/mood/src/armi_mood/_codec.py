@@ -8,11 +8,17 @@ from typing import Any, cast
 import rfc8785
 from armi_kernel.application import CandidateFactClass, CandidateOwnerDraft
 
-from ._domain import appraisal_to_wire, parse_appraisal
+from ._domain import (
+    appraisal_to_wire,
+    parse_appraisal_any,
+    semantic_appraisal_to_wire,
+)
 from .api import (
+    AppraisalEvent,
     CandidateMoodDraft,
     MoodCandidateKind,
     MoodViolation,
+    SemanticAppraisalEvent,
 )
 
 _COMMON_KEYS = {
@@ -31,7 +37,15 @@ def encode(value: CandidateMoodDraft) -> bytes:
     if value.kind is MoodCandidateKind.APPRAISAL:
         if value.appraisal is None:
             raise MoodViolation("MOOD-CODEC")
-        command = appraisal_to_wire(value.appraisal)
+        command = (
+            appraisal_to_wire(value.appraisal)
+            if type(value.appraisal) is AppraisalEvent
+            else semantic_appraisal_to_wire(value.appraisal)
+            if type(value.appraisal) is SemanticAppraisalEvent
+            else None
+        )
+        if command is None:
+            raise MoodViolation("MOOD-CODEC")
     else:
         if value.appraisal is not None:
             raise MoodViolation("MOOD-CODEC")
@@ -40,7 +54,7 @@ def encode(value: CandidateMoodDraft) -> bytes:
         cast(
             Any,
             {
-                "schema_version": "armi.mood-candidate.v3",
+                "schema_version": "armi.mood-candidate.v4",
                 "proposal_ref": value.proposal_ref,
                 "atomic_group_ref": value.atomic_group_ref,
                 "basis_ordinals": list(value.basis_ordinals),
@@ -59,11 +73,12 @@ def decode(payload: bytes) -> CandidateMoodDraft:
         if type(raw_value) is not dict:
             raise ValueError
         raw = cast(dict[str, object], raw_value)
-        ordinals = raw["basis_ordinals"]
-        command = raw["command"]
+        ordinals: object = raw["basis_ordinals"]
+        command: object = raw["command"]
         if (
             set(raw) != _COMMON_KEYS | {"command"}
-            or raw["schema_version"] != "armi.mood-candidate.v3"
+            or raw["schema_version"]
+            not in {"armi.mood-candidate.v3", "armi.mood-candidate.v4"}
             or rfc8785.dumps(cast(Any, raw)) != payload
             or type(ordinals) is not list
             or any(type(item) is not int for item in cast(list[object], ordinals))
@@ -75,21 +90,21 @@ def decode(payload: bytes) -> CandidateMoodDraft:
             or (command is not None and type(command) is not dict)
         ):
             raise ValueError
-        kind = MoodCandidateKind(cast(str, raw["kind"]))
+        kind = MoodCandidateKind(raw["kind"])
         appraisal = None
         if kind is MoodCandidateKind.APPRAISAL:
-            if type(command) is not dict:
+            if command is None:
                 raise ValueError
-            appraisal = parse_appraisal(command)
+            appraisal = parse_appraisal_any(cast(dict[str, object], command))
         else:
             if command is not None:
                 raise ValueError
         return CandidateMoodDraft(
-            cast(str, raw["proposal_ref"]),
-            cast(str, raw["atomic_group_ref"]),
+            raw["proposal_ref"],
+            raw["atomic_group_ref"],
             tuple(cast(list[int], ordinals)),
-            CandidateFactClass(cast(str, raw["fact_class"])),
-            cast(int, raw["expected_version"]),
+            CandidateFactClass(raw["fact_class"]),
+            raw["expected_version"],
             kind,
             appraisal,
         )

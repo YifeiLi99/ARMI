@@ -81,6 +81,127 @@ class AppraisalSelfScope(StrEnum):
     GLOBAL = "global"
 
 
+class AppraisalConcernTarget(StrEnum):
+    SELF_GOAL = "self_goal"
+    RELATIONSHIP = "relationship"
+    SOCIAL_ORDER = "social_order"
+
+
+class AppraisalSignificance(StrEnum):
+    PERIPHERAL = "peripheral"
+    DIRECT = "direct"
+    CORE = "core"
+    UNKNOWN = "unknown"
+
+
+class AppraisalDirection(StrEnum):
+    MAJOR_SETBACK = "major_setback"
+    SETBACK = "setback"
+    UNCHANGED = "unchanged"
+    PROGRESS = "progress"
+    FULFILLED = "fulfilled"
+    MIXED = "mixed"
+    UNKNOWN = "unknown"
+
+
+class AppraisalExpectedness(StrEnum):
+    EXPECTED = "expected"
+    SOMEWHAT_UNEXPECTED = "somewhat_unexpected"
+    EXPECTATION_BROKEN = "expectation_broken"
+    UNKNOWN = "unknown"
+
+
+class AppraisalCertainty(StrEnum):
+    OPEN = "open"
+    UNCERTAIN = "uncertain"
+    LIKELY = "likely"
+    SETTLED = "settled"
+    UNKNOWN = "unknown"
+
+
+class AppraisalQuality(StrEnum):
+    STRONGLY_AVERSIVE = "strongly_aversive"
+    UNPLEASANT = "unpleasant"
+    NEUTRAL = "neutral"
+    PLEASANT = "pleasant"
+    STRONGLY_PLEASANT = "strongly_pleasant"
+    MIXED = "mixed"
+    UNKNOWN = "unknown"
+
+
+class AppraisalDemandLevel(StrEnum):
+    NONE = "none"
+    LIGHT = "light"
+    SUBSTANTIAL = "substantial"
+    EXTREME = "extreme"
+    UNKNOWN = "unknown"
+
+
+class AppraisalUrgency(StrEnum):
+    NONE = "none"
+    CAN_WAIT = "can_wait"
+    SOON = "soon"
+    IMMEDIATE = "immediate"
+    UNKNOWN = "unknown"
+
+
+class AppraisalIntentionality(StrEnum):
+    ACCIDENTAL = "accidental"
+    UNCLEAR = "unclear"
+    DELIBERATE = "deliberate"
+    NOT_APPLICABLE = "not_applicable"
+    UNKNOWN = "unknown"
+
+
+class AppraisalResponseAccess(StrEnum):
+    NONE = "none"
+    INDIRECT = "indirect"
+    DIRECT = "direct"
+    RESOLVED = "resolved"
+    UNKNOWN = "unknown"
+
+
+class AppraisalPowerBalance(StrEnum):
+    OVERMATCHED = "overmatched"
+    LIMITED = "limited"
+    BALANCED = "balanced"
+    ADVANTAGED = "advantaged"
+    UNKNOWN = "unknown"
+
+
+class AppraisalAdjustment(StrEnum):
+    BLOCKED = "blocked"
+    DIFFICULT = "difficult"
+    MANAGEABLE = "manageable"
+    EASY = "easy"
+    UNKNOWN = "unknown"
+
+
+class AppraisalCompatibility(StrEnum):
+    VIOLATION = "violation"
+    TENSION = "tension"
+    ALIGNED = "aligned"
+    MIXED = "mixed"
+    NOT_APPLICABLE = "not_applicable"
+    UNKNOWN = "unknown"
+
+
+class AppraisalSelfInvolvement(StrEnum):
+    NONE = "none"
+    LIMITED = "limited"
+    IMPORTANT = "important"
+    IDENTITY_LEVEL = "identity_level"
+    UNKNOWN = "unknown"
+
+
+class AppraisalTrajectory(StrEnum):
+    IMPROVED = "improved"
+    UNCHANGED = "unchanged"
+    WORSENED = "worsened"
+    MIXED = "mixed"
+    UNKNOWN = "unknown"
+
+
 class ActionTendency(StrEnum):
     APPROACH = "approach"
     CONNECT = "connect"
@@ -240,6 +361,158 @@ class AppraisalEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class AppraisalConcern:
+    target: AppraisalConcernTarget
+    significance: AppraisalSignificance
+    direction: AppraisalDirection
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.target) is not AppraisalConcernTarget
+            or type(self.significance) is not AppraisalSignificance
+            or type(self.direction) is not AppraisalDirection
+        ):
+            raise MoodViolation("MOOD-APPRAISAL")
+
+
+@dataclass(frozen=True, slots=True)
+class AppraisalDemand:
+    urgency: AppraisalUrgency
+    effort: AppraisalDemandLevel
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.urgency) is not AppraisalUrgency
+            or type(self.effort) is not AppraisalDemandLevel
+        ):
+            raise MoodViolation("MOOD-APPRAISAL")
+
+
+@dataclass(frozen=True, slots=True)
+class AppraisalCausality:
+    agency: AppraisalAgency
+    intentionality: AppraisalIntentionality
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.agency) is not AppraisalAgency
+            or type(self.intentionality) is not AppraisalIntentionality
+        ):
+            raise MoodViolation("MOOD-APPRAISAL")
+
+
+@dataclass(frozen=True, slots=True)
+class AppraisalCoping:
+    response_access: AppraisalResponseAccess
+    power_balance: AppraisalPowerBalance
+    adjustment: AppraisalAdjustment
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.response_access) is not AppraisalResponseAccess
+            or type(self.power_balance) is not AppraisalPowerBalance
+            or type(self.adjustment) is not AppraisalAdjustment
+        ):
+            raise MoodViolation("MOOD-APPRAISAL")
+
+
+@dataclass(frozen=True, slots=True)
+class AppraisalStandards:
+    self_compatibility: AppraisalCompatibility
+    norm_compatibility: AppraisalCompatibility
+    self_scope: AppraisalSelfScope
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.self_compatibility) is not AppraisalCompatibility
+            or type(self.norm_compatibility) is not AppraisalCompatibility
+            or type(self.self_scope) is not AppraisalSelfScope
+        ):
+            raise MoodViolation("MOOD-APPRAISAL")
+        conflict = self.self_compatibility in {
+            AppraisalCompatibility.VIOLATION,
+            AppraisalCompatibility.TENSION,
+            AppraisalCompatibility.MIXED,
+        }
+        if conflict != (self.self_scope is not AppraisalSelfScope.NONE):
+            raise MoodViolation("MOOD-APPRAISAL")
+
+
+@dataclass(frozen=True, slots=True)
+class SemanticAppraisal:
+    concerns: tuple[AppraisalConcern, ...]
+    expectedness: AppraisalExpectedness
+    outcome_certainty: AppraisalCertainty
+    intrinsic_quality: AppraisalQuality
+    self_involvement: AppraisalSelfInvolvement
+    demand: AppraisalDemand | None = None
+    causality: AppraisalCausality | None = None
+    coping: AppraisalCoping | None = None
+    standards: AppraisalStandards | None = None
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.concerns) is not tuple
+            or not 1 <= len(self.concerns) <= 3
+            or any(type(item) is not AppraisalConcern for item in self.concerns)
+            or len({item.target for item in self.concerns}) != len(self.concerns)
+            or type(self.expectedness) is not AppraisalExpectedness
+            or type(self.outcome_certainty) is not AppraisalCertainty
+            or type(self.intrinsic_quality) is not AppraisalQuality
+            or type(self.self_involvement) is not AppraisalSelfInvolvement
+            or (self.demand is not None and type(self.demand) is not AppraisalDemand)
+            or (
+                self.causality is not None
+                and type(self.causality) is not AppraisalCausality
+            )
+            or (self.coping is not None and type(self.coping) is not AppraisalCoping)
+            or (
+                self.standards is not None
+                and type(self.standards) is not AppraisalStandards
+            )
+        ):
+            raise MoodViolation("MOOD-APPRAISAL")
+
+
+@dataclass(frozen=True, slots=True)
+class SemanticAppraisalEvent:
+    transition: AppraisalTransition
+    previous_episode_id: UUID | None
+    phase: AppraisalEventPhase
+    gist: str
+    appraisal: SemanticAppraisal
+    change_from_previous: AppraisalTrajectory | None = None
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.transition) is not AppraisalTransition
+            or type(self.phase) is not AppraisalEventPhase
+            or type(self.gist) is not str
+            or not self.gist.strip()
+            or self.gist != self.gist.strip()
+            or "\x00" in self.gist
+            or len(self.gist) > 64
+            or type(self.appraisal) is not SemanticAppraisal
+            or (self.transition is AppraisalTransition.NEW)
+            != (self.previous_episode_id is None)
+            or (
+                self.previous_episode_id is not None
+                and (
+                    type(self.previous_episode_id) is not UUID
+                    or self.previous_episode_id.version != 7
+                )
+            )
+            or (self.transition is AppraisalTransition.NEW)
+            != (self.change_from_previous is None)
+            or (
+                self.change_from_previous is not None
+                and type(self.change_from_previous) is not AppraisalTrajectory
+            )
+        ):
+            raise MoodViolation("MOOD-APPRAISAL")
+
+
+@dataclass(frozen=True, slots=True)
 class CandidateMoodDraft:
     proposal_ref: str
     atomic_group_ref: str
@@ -247,7 +520,7 @@ class CandidateMoodDraft:
     fact_class: CandidateFactClass
     expected_version: int
     kind: MoodCandidateKind
-    appraisal: AppraisalEvent | None = None
+    appraisal: AppraisalEvent | SemanticAppraisalEvent | None = None
 
     def __post_init__(self) -> None:
         from ._domain import validate_candidate
@@ -431,11 +704,31 @@ __all__ = (
     "ActionTendency",
     "ActiveAffectiveEpisode",
     "AffectiveEvent",
+    "AppraisalAdjustment",
     "AppraisalAgency",
+    "AppraisalCausality",
+    "AppraisalCertainty",
+    "AppraisalCompatibility",
+    "AppraisalConcern",
+    "AppraisalConcernTarget",
+    "AppraisalCoping",
+    "AppraisalDemand",
+    "AppraisalDemandLevel",
+    "AppraisalDirection",
     "AppraisalEvent",
     "AppraisalEventPhase",
+    "AppraisalExpectedness",
+    "AppraisalIntentionality",
+    "AppraisalPowerBalance",
+    "AppraisalQuality",
+    "AppraisalResponseAccess",
+    "AppraisalSelfInvolvement",
     "AppraisalSelfScope",
+    "AppraisalSignificance",
+    "AppraisalStandards",
+    "AppraisalTrajectory",
     "AppraisalTransition",
+    "AppraisalUrgency",
     "AppraisalVector",
     "CandidateMoodDraft",
     "EffectiveActionTendency",
@@ -455,4 +748,6 @@ __all__ = (
     "MoodSnapshot",
     "MoodState",
     "MoodViolation",
+    "SemanticAppraisal",
+    "SemanticAppraisalEvent",
 )

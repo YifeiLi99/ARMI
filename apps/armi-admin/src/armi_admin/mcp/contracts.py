@@ -233,7 +233,7 @@ class MoodVAD(_StrictModel):
 class MoodState(_ComponentState):
     schema_version: Literal["armi.mood.v3"]
     dynamics_version: Literal["recency-reappraisal.v1"]
-    derivation_version: Literal["cpm-fuzzy.v1"]
+    derivation_version: Literal["cpm-fuzzy.v1", "cpm-fuzzy.v2"]
     home_base: MoodVAD
 
 

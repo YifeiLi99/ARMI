@@ -18,11 +18,31 @@ from .api import (
     VAD,
     ActionTendency,
     ActiveAffectiveEpisode,
+    AppraisalAdjustment,
     AppraisalAgency,
+    AppraisalCausality,
+    AppraisalCertainty,
+    AppraisalCompatibility,
+    AppraisalConcern,
+    AppraisalConcernTarget,
+    AppraisalCoping,
+    AppraisalDemand,
+    AppraisalDemandLevel,
+    AppraisalDirection,
     AppraisalEvent,
     AppraisalEventPhase,
+    AppraisalExpectedness,
+    AppraisalIntentionality,
+    AppraisalPowerBalance,
+    AppraisalQuality,
+    AppraisalResponseAccess,
+    AppraisalSelfInvolvement,
     AppraisalSelfScope,
+    AppraisalSignificance,
+    AppraisalStandards,
+    AppraisalTrajectory,
     AppraisalTransition,
+    AppraisalUrgency,
     AppraisalVector,
     CandidateMoodDraft,
     EffectiveActionTendency,
@@ -32,12 +52,15 @@ from .api import (
     MoodCandidateKind,
     MoodState,
     MoodViolation,
+    SemanticAppraisal,
+    SemanticAppraisalEvent,
 )
 
 _REF = re.compile(r"^proposal:[1-9][0-9]{0,2}$", re.ASCII)
 _GROUP = re.compile(r"^group:[1-9][0-9]{0,2}$", re.ASCII)
 _DYNAMICS_VERSION = "recency-reappraisal.v1"
-_DERIVATION_VERSION = "cpm-fuzzy.v1"
+_DERIVATION_VERSION = "cpm-fuzzy.v2"
+_HISTORICAL_DERIVATION_VERSION = "cpm-fuzzy.v1"
 _BASE_WEIGHT = 30.0
 
 
@@ -62,6 +85,33 @@ class DerivedAppraisal:
     target: VAD
     importance: int
     components: tuple[StoredEmotionComponent, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class SemanticConcernFeature:
+    target: AppraisalConcernTarget
+    relevance: float | None
+    poles: tuple[tuple[float, float], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class SemanticFeatures:
+    concerns: tuple[SemanticConcernFeature, ...]
+    suddenness: float | None
+    predictability: float | None
+    certainty: float | None
+    pleasantness_poles: tuple[tuple[float, float], ...]
+    urgency: float | None
+    effort: float | None
+    agency: AppraisalAgency
+    intentionality: float | None
+    control: float | None
+    power: float | None
+    adjustment: float | None
+    self_poles: tuple[tuple[float, float], ...]
+    norm_poles: tuple[tuple[float, float], ...]
+    ego: float | None
+    self_scope: AppraisalSelfScope
 
 
 def initial_state() -> MoodState:
@@ -90,12 +140,13 @@ def parse_state(value: object) -> MoodState:
         != {"schema_version", "dynamics_version", "derivation_version", "home_base"}
         or raw["schema_version"] != "armi.mood.v3"
         or raw["dynamics_version"] != _DYNAMICS_VERSION
-        or raw["derivation_version"] != _DERIVATION_VERSION
+        or raw["derivation_version"]
+        not in {_HISTORICAL_DERIVATION_VERSION, _DERIVATION_VERSION}
     ):
         raise MoodViolation("MOOD-STATE")
     return MoodState(
         _DYNAMICS_VERSION,
-        _DERIVATION_VERSION,
+        cast(str, raw["derivation_version"]),
         parse_vad(raw["home_base"], step=None),
     )
 
@@ -192,7 +243,7 @@ _APPRAISAL_SIGNED = (
 
 
 def appraisal_to_wire(value: AppraisalEvent) -> dict[str, object]:
-    vector = {
+    vector: dict[str, object] = {
         name: cast(int, getattr(value.appraisal, name))
         for name in (*_APPRAISAL_UNSIGNED, *_APPRAISAL_SIGNED)
     }
@@ -261,6 +312,216 @@ def parse_appraisal(value: object) -> AppraisalEvent:
         )
     except (TypeError, ValueError):
         raise MoodViolation("MOOD-APPRAISAL") from None
+
+
+def semantic_appraisal_to_wire(value: SemanticAppraisalEvent) -> dict[str, object]:
+    appraisal = value.appraisal
+    return {
+        "schema_version": "armi.mood-appraisal.v2",
+        "transition": value.transition.value,
+        "previous_episode_id": (
+            None if value.previous_episode_id is None else str(value.previous_episode_id)
+        ),
+        "event_phase": value.phase.value,
+        "gist": value.gist,
+        "change_from_previous": (
+            None
+            if value.change_from_previous is None
+            else value.change_from_previous.value
+        ),
+        "appraisal": {
+            "concerns": [
+                {
+                    "target": item.target.value,
+                    "significance": item.significance.value,
+                    "direction": item.direction.value,
+                }
+                for item in appraisal.concerns
+            ],
+            "expectedness": appraisal.expectedness.value,
+            "outcome_certainty": appraisal.outcome_certainty.value,
+            "intrinsic_quality": appraisal.intrinsic_quality.value,
+            "self_involvement": appraisal.self_involvement.value,
+            "demand": (
+                None
+                if appraisal.demand is None
+                else {
+                    "urgency": appraisal.demand.urgency.value,
+                    "effort": appraisal.demand.effort.value,
+                }
+            ),
+            "causality": (
+                None
+                if appraisal.causality is None
+                else {
+                    "agency": appraisal.causality.agency.value,
+                    "intentionality": appraisal.causality.intentionality.value,
+                }
+            ),
+            "coping": (
+                None
+                if appraisal.coping is None
+                else {
+                    "response_access": appraisal.coping.response_access.value,
+                    "power_balance": appraisal.coping.power_balance.value,
+                    "adjustment": appraisal.coping.adjustment.value,
+                }
+            ),
+            "standards": (
+                None
+                if appraisal.standards is None
+                else {
+                    "self_compatibility": (
+                        appraisal.standards.self_compatibility.value
+                    ),
+                    "norm_compatibility": (
+                        appraisal.standards.norm_compatibility.value
+                    ),
+                    "self_scope": appraisal.standards.self_scope.value,
+                }
+            ),
+        },
+    }
+
+
+def _optional_mapping(value: object, keys: set[str]) -> dict[str, object] | None:
+    if value is None:
+        return None
+    if type(value) is not dict or set(cast(dict[str, object], value)) != keys:
+        raise MoodViolation("MOOD-APPRAISAL")
+    return cast(dict[str, object], value)
+
+
+def parse_semantic_appraisal(value: object) -> SemanticAppraisalEvent:
+    if type(value) is not dict:
+        raise MoodViolation("MOOD-APPRAISAL")
+    raw = cast(dict[str, object], value)
+    appraisal_value = raw.get("appraisal")
+    if (
+        set(raw)
+        != {
+            "schema_version",
+            "transition",
+            "previous_episode_id",
+            "event_phase",
+            "gist",
+            "change_from_previous",
+            "appraisal",
+        }
+        or raw.get("schema_version") != "armi.mood-appraisal.v2"
+        or type(appraisal_value) is not dict
+    ):
+        raise MoodViolation("MOOD-APPRAISAL")
+    appraisal = cast(dict[str, object], appraisal_value)
+    if set(appraisal) != {
+        "concerns",
+        "expectedness",
+        "outcome_certainty",
+        "intrinsic_quality",
+        "self_involvement",
+        "demand",
+        "causality",
+        "coping",
+        "standards",
+    }:
+        raise MoodViolation("MOOD-APPRAISAL")
+    concerns_value = appraisal["concerns"]
+    if type(concerns_value) is not list:
+        raise MoodViolation("MOOD-APPRAISAL")
+    try:
+        concerns = tuple(
+            AppraisalConcern(
+                AppraisalConcernTarget(cast(dict[str, object], item)["target"]),
+                AppraisalSignificance(
+                    cast(dict[str, object], item)["significance"]
+                ),
+                AppraisalDirection(cast(dict[str, object], item)["direction"]),
+            )
+            for item in cast(list[object], concerns_value)
+            if type(item) is dict
+            and set(cast(dict[str, object], item))
+            == {"target", "significance", "direction"}
+        )
+        if len(concerns) != len(cast(list[object], concerns_value)):
+            raise ValueError
+        demand = _optional_mapping(appraisal["demand"], {"urgency", "effort"})
+        causality = _optional_mapping(
+            appraisal["causality"], {"agency", "intentionality"}
+        )
+        coping = _optional_mapping(
+            appraisal["coping"],
+            {"response_access", "power_balance", "adjustment"},
+        )
+        standards = _optional_mapping(
+            appraisal["standards"],
+            {"self_compatibility", "norm_compatibility", "self_scope"},
+        )
+        previous = raw["previous_episode_id"]
+        trajectory = raw["change_from_previous"]
+        return SemanticAppraisalEvent(
+            AppraisalTransition(cast(str, raw["transition"])),
+            None if previous is None else UUID(cast(str, previous)),
+            AppraisalEventPhase(cast(str, raw["event_phase"])),
+            cast(str, raw["gist"]),
+            SemanticAppraisal(
+                concerns,
+                AppraisalExpectedness(cast(str, appraisal["expectedness"])),
+                AppraisalCertainty(cast(str, appraisal["outcome_certainty"])),
+                AppraisalQuality(cast(str, appraisal["intrinsic_quality"])),
+                AppraisalSelfInvolvement(
+                    cast(str, appraisal["self_involvement"])
+                ),
+                None
+                if demand is None
+                else AppraisalDemand(
+                    AppraisalUrgency(cast(str, demand["urgency"])),
+                    AppraisalDemandLevel(cast(str, demand["effort"])),
+                ),
+                None
+                if causality is None
+                else AppraisalCausality(
+                    AppraisalAgency(cast(str, causality["agency"])),
+                    AppraisalIntentionality(
+                        cast(str, causality["intentionality"])
+                    ),
+                ),
+                None
+                if coping is None
+                else AppraisalCoping(
+                    AppraisalResponseAccess(
+                        cast(str, coping["response_access"])
+                    ),
+                    AppraisalPowerBalance(cast(str, coping["power_balance"])),
+                    AppraisalAdjustment(cast(str, coping["adjustment"])),
+                ),
+                None
+                if standards is None
+                else AppraisalStandards(
+                    AppraisalCompatibility(
+                        cast(str, standards["self_compatibility"])
+                    ),
+                    AppraisalCompatibility(
+                        cast(str, standards["norm_compatibility"])
+                    ),
+                    AppraisalSelfScope(cast(str, standards["self_scope"])),
+                ),
+            ),
+            None if trajectory is None else AppraisalTrajectory(cast(str, trajectory)),
+        )
+    except (KeyError, TypeError, ValueError):
+        raise MoodViolation("MOOD-APPRAISAL") from None
+
+
+def parse_appraisal_any(value: object) -> AppraisalEvent | SemanticAppraisalEvent:
+    if type(value) is not dict:
+        raise MoodViolation("MOOD-APPRAISAL")
+    raw = cast(dict[str, object], value)
+    version = raw.get("schema_version")
+    if version == "armi.mood-appraisal.v1":
+        return parse_appraisal(raw)
+    if version == "armi.mood-appraisal.v2":
+        return parse_semantic_appraisal(raw)
+    raise MoodViolation("MOOD-APPRAISAL")
 
 
 def _round_to_five(value: float) -> int:
@@ -534,6 +795,616 @@ def derive_appraisal(
     return DerivedAppraisal(target, importance, tuple(components[:3]))
 
 
+_SIGNIFICANCE = {
+    AppraisalSignificance.PERIPHERAL: 0.25,
+    AppraisalSignificance.DIRECT: 0.65,
+    AppraisalSignificance.CORE: 1.0,
+    AppraisalSignificance.UNKNOWN: None,
+}
+_DIRECTION = {
+    AppraisalDirection.MAJOR_SETBACK: ((-1.0, 1.0),),
+    AppraisalDirection.SETBACK: ((-0.65, 1.0),),
+    AppraisalDirection.UNCHANGED: ((0.0, 1.0),),
+    AppraisalDirection.PROGRESS: ((0.65, 1.0),),
+    AppraisalDirection.FULFILLED: ((1.0, 1.0),),
+    AppraisalDirection.MIXED: ((-0.5, 0.5), (0.5, 0.5)),
+    AppraisalDirection.UNKNOWN: (),
+}
+_EXPECTEDNESS = {
+    AppraisalExpectedness.EXPECTED: (0.0, 1.0),
+    AppraisalExpectedness.SOMEWHAT_UNEXPECTED: (0.4, 0.6),
+    AppraisalExpectedness.EXPECTATION_BROKEN: (1.0, 0.0),
+    AppraisalExpectedness.UNKNOWN: (None, None),
+}
+_CERTAINTY = {
+    AppraisalCertainty.OPEN: 0.10,
+    AppraisalCertainty.UNCERTAIN: 0.35,
+    AppraisalCertainty.LIKELY: 0.70,
+    AppraisalCertainty.SETTLED: 1.0,
+    AppraisalCertainty.UNKNOWN: None,
+}
+_QUALITY = {
+    AppraisalQuality.STRONGLY_AVERSIVE: ((-1.0, 1.0),),
+    AppraisalQuality.UNPLEASANT: ((-0.65, 1.0),),
+    AppraisalQuality.NEUTRAL: ((0.0, 1.0),),
+    AppraisalQuality.PLEASANT: ((0.65, 1.0),),
+    AppraisalQuality.STRONGLY_PLEASANT: ((1.0, 1.0),),
+    AppraisalQuality.MIXED: ((-0.5, 0.5), (0.5, 0.5)),
+    AppraisalQuality.UNKNOWN: (),
+}
+_URGENCY = {
+    AppraisalUrgency.NONE: 0.0,
+    AppraisalUrgency.CAN_WAIT: 0.25,
+    AppraisalUrgency.SOON: 0.65,
+    AppraisalUrgency.IMMEDIATE: 1.0,
+    AppraisalUrgency.UNKNOWN: None,
+}
+_DEMAND = {
+    AppraisalDemandLevel.NONE: 0.0,
+    AppraisalDemandLevel.LIGHT: 0.25,
+    AppraisalDemandLevel.SUBSTANTIAL: 0.65,
+    AppraisalDemandLevel.EXTREME: 1.0,
+    AppraisalDemandLevel.UNKNOWN: None,
+}
+_INTENTIONALITY = {
+    AppraisalIntentionality.ACCIDENTAL: 0.0,
+    AppraisalIntentionality.UNCLEAR: 0.5,
+    AppraisalIntentionality.DELIBERATE: 1.0,
+    AppraisalIntentionality.NOT_APPLICABLE: None,
+    AppraisalIntentionality.UNKNOWN: None,
+}
+_RESPONSE_ACCESS = {
+    AppraisalResponseAccess.NONE: 0.0,
+    AppraisalResponseAccess.INDIRECT: 0.35,
+    AppraisalResponseAccess.DIRECT: 0.70,
+    AppraisalResponseAccess.RESOLVED: 1.0,
+    AppraisalResponseAccess.UNKNOWN: None,
+}
+_POWER = {
+    AppraisalPowerBalance.OVERMATCHED: 0.0,
+    AppraisalPowerBalance.LIMITED: 0.35,
+    AppraisalPowerBalance.BALANCED: 0.65,
+    AppraisalPowerBalance.ADVANTAGED: 1.0,
+    AppraisalPowerBalance.UNKNOWN: None,
+}
+_ADJUSTMENT = {
+    AppraisalAdjustment.BLOCKED: 0.0,
+    AppraisalAdjustment.DIFFICULT: 0.35,
+    AppraisalAdjustment.MANAGEABLE: 0.70,
+    AppraisalAdjustment.EASY: 1.0,
+    AppraisalAdjustment.UNKNOWN: None,
+}
+_COMPATIBILITY = {
+    AppraisalCompatibility.VIOLATION: ((-1.0, 1.0),),
+    AppraisalCompatibility.TENSION: ((-0.5, 1.0),),
+    AppraisalCompatibility.ALIGNED: ((0.65, 1.0),),
+    AppraisalCompatibility.MIXED: ((-0.5, 0.5), (0.5, 0.5)),
+    AppraisalCompatibility.NOT_APPLICABLE: (),
+    AppraisalCompatibility.UNKNOWN: (),
+}
+_INVOLVEMENT = {
+    AppraisalSelfInvolvement.NONE: 0.0,
+    AppraisalSelfInvolvement.LIMITED: 0.35,
+    AppraisalSelfInvolvement.IMPORTANT: 0.70,
+    AppraisalSelfInvolvement.IDENTITY_LEVEL: 1.0,
+    AppraisalSelfInvolvement.UNKNOWN: None,
+}
+
+
+def semantic_features(value: SemanticAppraisal) -> SemanticFeatures:
+    standards = value.standards
+    coping = value.coping
+    causality = value.causality
+    demand = value.demand
+    suddenness, predictability = _EXPECTEDNESS[value.expectedness]
+    return SemanticFeatures(
+        tuple(
+            SemanticConcernFeature(
+                item.target,
+                _SIGNIFICANCE[item.significance],
+                _DIRECTION[item.direction],
+            )
+            for item in value.concerns
+        ),
+        suddenness,
+        predictability,
+        _CERTAINTY[value.outcome_certainty],
+        _QUALITY[value.intrinsic_quality],
+        None if demand is None else _URGENCY[demand.urgency],
+        None if demand is None else _DEMAND[demand.effort],
+        AppraisalAgency.UNKNOWN if causality is None else causality.agency,
+        None
+        if causality is None
+        else _INTENTIONALITY[causality.intentionality],
+        None
+        if coping is None
+        else _RESPONSE_ACCESS[coping.response_access],
+        None if coping is None else _POWER[coping.power_balance],
+        None if coping is None else _ADJUSTMENT[coping.adjustment],
+        ()
+        if standards is None
+        else _COMPATIBILITY[standards.self_compatibility],
+        ()
+        if standards is None
+        else _COMPATIBILITY[standards.norm_compatibility],
+        _INVOLVEMENT[value.self_involvement],
+        AppraisalSelfScope.NONE if standards is None else standards.self_scope,
+    )
+
+
+def semantic_features_to_wire(value: SemanticAppraisal) -> dict[str, object]:
+    features = semantic_features(value)
+
+    def scaled(item: float | None) -> int | None:
+        return None if item is None else round(item * 100)
+
+    def poles(items: tuple[tuple[float, float], ...]) -> list[dict[str, int]]:
+        return [
+            {"value": round(item * 100), "weight": round(weight * 100)}
+            for item, weight in items
+        ]
+
+    return {
+        "schema_version": "armi.mood-derived-appraisal.v2",
+        "concerns": [
+            {
+                "target": item.target.value,
+                "relevance": scaled(item.relevance),
+                "direction_poles": poles(item.poles),
+            }
+            for item in features.concerns
+        ],
+        "suddenness": scaled(features.suddenness),
+        "predictability": scaled(features.predictability),
+        "outcome_certainty": scaled(features.certainty),
+        "pleasantness_poles": poles(features.pleasantness_poles),
+        "urgency": scaled(features.urgency),
+        "effort": scaled(features.effort),
+        "agency": features.agency.value,
+        "intentionality": scaled(features.intentionality),
+        "control": scaled(features.control),
+        "power": scaled(features.power),
+        "adjustment": scaled(features.adjustment),
+        "self_compatibility_poles": poles(features.self_poles),
+        "norm_compatibility_poles": poles(features.norm_poles),
+        "self_involvement": scaled(features.ego),
+        "self_scope": features.self_scope.value,
+    }
+
+
+def _pole_mean(items: tuple[tuple[float, float], ...]) -> float:
+    denominator = sum(weight for _value, weight in items)
+    return (
+        0.0
+        if not denominator
+        else sum(value * weight for value, weight in items) / denominator
+    )
+
+
+def _pole_impact(items: tuple[tuple[float, float], ...]) -> float:
+    return max((abs(value) * weight for value, weight in items), default=0.0)
+
+
+def _round_axis(value: float) -> int:
+    return max(-100, min(100, round(value / 5.0) * 5))
+
+
+def _semantic_target(
+    goal: float,
+    features: SemanticFeatures,
+    *,
+    pleasantness: float,
+    self_compatibility: float,
+    norm_compatibility: float,
+    activation: float,
+) -> VAD:
+    coping = tuple(
+        (weight, item)
+        for weight, item in (
+            (0.45, features.control),
+            (0.35, features.power),
+            (0.20, features.adjustment),
+        )
+        if item is not None
+    )
+    dominance = (
+        0.0
+        if not coping
+        else sum(weight * (2 * item - 1) for weight, item in coping)
+        / sum(weight for weight, _item in coping)
+    )
+    return VAD(
+        _round_axis(
+            100
+            * (
+                0.55 * goal
+                + 0.25 * pleasantness
+                + 0.10 * self_compatibility
+                + 0.10 * norm_compatibility
+            )
+        ),
+        _round_axis(200 * activation - 100),
+        _round_axis(100 * dominance),
+    )
+
+
+def _previous_negative_goal(
+    previous: AppraisalEvent | SemanticAppraisalEvent | None,
+    target: AppraisalConcernTarget,
+) -> float:
+    if previous is None:
+        return 0.0
+    if isinstance(previous, AppraisalEvent):
+        return _negative(_normalized(previous.appraisal.goal_conduciveness))
+    features = semantic_features(previous.appraisal)
+    return max(
+        (
+            _negative(value) * weight
+            for concern in features.concerns
+            if concern.target is target
+            for value, weight in concern.poles
+        ),
+        default=0.0,
+    )
+
+
+def derive_semantic_appraisal(
+    event: SemanticAppraisalEvent,
+    *,
+    previous: AppraisalEvent | SemanticAppraisalEvent | None = None,
+) -> DerivedAppraisal:
+    features = semantic_features(event.appraisal)
+    relevance = max(
+        (item.relevance or 0.0 for item in features.concerns), default=0.0
+    )
+    sudden = features.suddenness or 0.0
+    unexpected = (
+        0.0 if features.predictability is None else 1.0 - features.predictability
+    )
+    uncertainty = 0.0 if features.certainty is None else 1.0 - features.certainty
+    urgency = features.urgency or 0.0
+    effort = features.effort or 0.0
+    activation = (
+        0.20 * sudden
+        + 0.15 * unexpected
+        + 0.20 * urgency
+        + 0.15 * uncertainty
+        + 0.15 * effort
+        + 0.15 * relevance
+    )
+    weighted_goals = [
+        (value, weight * concern.relevance)
+        for concern in features.concerns
+        if concern.relevance is not None
+        for value, weight in concern.poles
+    ]
+    goal_denominator = sum(weight for _value, weight in weighted_goals)
+    goal = (
+        0.0
+        if not goal_denominator
+        else sum(value * weight for value, weight in weighted_goals)
+        / goal_denominator
+    )
+    pleasantness = _pole_mean(features.pleasantness_poles)
+    self_compatibility = _pole_mean(features.self_poles)
+    norm_compatibility = _pole_mean(features.norm_poles)
+    target = _semantic_target(
+        goal,
+        features,
+        pleasantness=pleasantness,
+        self_compatibility=self_compatibility,
+        norm_compatibility=norm_compatibility,
+        activation=activation,
+    )
+    impact = max(
+        max(
+            (
+                abs(value) * weight
+                for concern in features.concerns
+                for value, weight in concern.poles
+            ),
+            default=0.0,
+        ),
+        _pole_impact(features.pleasantness_poles),
+        _pole_impact(features.self_poles),
+        _pole_impact(features.norm_poles),
+    )
+    importance = _round_to_five(
+        100 * (0.65 * relevance + 0.25 * impact + 0.10 * urgency)
+    )
+    realized = _phase(event.phase, AppraisalEventPhase.REALIZED)
+    prospective = _phase(
+        event.phase, AppraisalEventPhase.ANTICIPATED, AppraisalEventPhase.ONGOING
+    )
+    ongoing = _phase(event.phase, AppraisalEventPhase.ONGOING)
+    certainty = features.certainty or 0.0
+    novelty = max(sudden, unexpected)
+    control = features.control or 0.0
+    power = features.power or 0.0
+    adjustment = features.adjustment or 0.0
+    known_control = 0.0 if features.control is None else control
+    low_control = 0.0 if features.control is None else 1.0 - control
+    low_power = 0.0 if features.power is None else 1.0 - power
+    low_adjustment = 0.0 if features.adjustment is None else 1.0 - adjustment
+    low_capacity = max(low_control, low_power, low_adjustment)
+    intentionality = features.intentionality or 0.0
+    ego = features.ego or 0.0
+    self_agent = _agency(features.agency, AppraisalAgency.SELF)
+    other_agent = _agency(features.agency, AppraisalAgency.OTHER)
+    social_agent = _agency(
+        features.agency, AppraisalAgency.OTHER, AppraisalAgency.SHARED
+    )
+    scores: dict[EmotionFamily, tuple[float, float, float]] = {}
+    registration_weight = 1.0
+    registration_relevance = relevance
+
+    def register(family: EmotionFamily, score: float, component_goal: float) -> None:
+        if score < 0.5:
+            return
+        score *= registration_weight
+        current = scores.get(family)
+        if current is None or score > current[0]:
+            scores[family] = (score, component_goal, registration_relevance)
+
+    for concern in features.concerns:
+        concern_relevance = concern.relevance or 0.0
+        registration_relevance = concern_relevance
+        for concern_goal, pole_weight in concern.poles:
+            registration_weight = pole_weight
+            positive = _positive(concern_goal)
+            negative = _negative(concern_goal)
+
+            def score(*terms: float) -> float:
+                return min(terms)
+
+            register(
+                EmotionFamily.JOY,
+                score(concern_relevance, positive, realized, certainty),
+                concern_goal,
+            )
+            register(
+                EmotionFamily.CONTENTMENT,
+                score(
+                    concern_relevance,
+                    positive,
+                    realized,
+                    certainty,
+                    1.0 - urgency,
+                    1.0 - novelty,
+                ),
+                concern_goal,
+            )
+            register(
+                EmotionFamily.HOPE,
+                score(concern_relevance, positive, prospective, _mid(certainty)),
+                concern_goal,
+            )
+            if concern.target is AppraisalConcernTarget.RELATIONSHIP:
+                register(
+                    EmotionFamily.AFFECTION,
+                    score(concern_relevance, positive),
+                    concern_goal,
+                )
+                register(
+                    EmotionFamily.JEALOUSY,
+                    score(
+                        concern_relevance,
+                        negative,
+                        social_agent,
+                        prospective,
+                        ego,
+                    ),
+                    concern_goal,
+                )
+            register(
+                EmotionFamily.GRATITUDE,
+                score(
+                    concern_relevance,
+                    positive,
+                    other_agent,
+                    intentionality,
+                    realized,
+                ),
+                concern_goal,
+            )
+            if concern.target is AppraisalConcernTarget.SELF_GOAL:
+                register(
+                    EmotionFamily.PRIDE,
+                    score(
+                        concern_relevance,
+                        positive,
+                        self_agent,
+                        _positive(self_compatibility),
+                        ego,
+                    ),
+                    concern_goal,
+                )
+            register(
+                EmotionFamily.SADNESS,
+                score(
+                    concern_relevance,
+                    negative,
+                    realized,
+                    certainty,
+                    low_capacity,
+                ),
+                concern_goal,
+            )
+            register(
+                EmotionFamily.FEAR,
+                score(
+                    concern_relevance,
+                    negative,
+                    prospective,
+                    certainty,
+                    low_power,
+                    urgency,
+                ),
+                concern_goal,
+            )
+            register(
+                EmotionFamily.ANXIETY,
+                score(
+                    concern_relevance,
+                    negative,
+                    prospective,
+                    uncertainty,
+                    low_control,
+                    urgency,
+                ),
+                concern_goal,
+            )
+            register(
+                EmotionFamily.ANGER,
+                score(
+                    concern_relevance,
+                    negative,
+                    other_agent,
+                    intentionality,
+                    max(known_control, power),
+                ),
+                concern_goal,
+            )
+            register(
+                EmotionFamily.FRUSTRATION,
+                score(
+                    concern_relevance,
+                    negative,
+                    effort,
+                    max(
+                        ongoing,
+                        float(event.transition is AppraisalTransition.REINFORCE),
+                    ),
+                    _mid(control) if features.control is not None else 0.0,
+                ),
+                concern_goal,
+            )
+            register(
+                EmotionFamily.BOREDOM,
+                score(
+                    concern_relevance,
+                    ongoing,
+                    1.0 - novelty,
+                    1.0 - urgency,
+                    1.0 - effort,
+                    1.0 - abs(concern_goal),
+                ),
+                concern_goal,
+            )
+            if (
+                event.transition is AppraisalTransition.RESOLVE
+                and event.change_from_previous
+                in {AppraisalTrajectory.IMPROVED, AppraisalTrajectory.MIXED}
+            ) or event.phase is AppraisalEventPhase.AVERTED:
+                register(
+                    EmotionFamily.RELIEF,
+                    score(
+                        _previous_negative_goal(previous, concern.target),
+                        max(float(event.phase is AppraisalEventPhase.AVERTED), positive),
+                        concern_relevance,
+                    ),
+                    concern_goal,
+                )
+
+    registration_weight = 1.0
+    registration_relevance = relevance
+    register(
+        EmotionFamily.INTEREST,
+        min(relevance, novelty, max(control, adjustment)),
+        goal,
+    )
+    register(EmotionFamily.SURPRISE, min(relevance, novelty), goal)
+    register(
+        EmotionFamily.CONFUSION,
+        min(relevance, novelty, uncertainty, max(low_control, low_power)),
+        goal,
+    )
+    for pleasantness_pole, pole_weight in features.pleasantness_poles:
+        registration_weight = pole_weight
+        register(
+            EmotionFamily.DISGUST,
+            min(
+                relevance,
+                _negative(pleasantness_pole),
+                max(_negative(norm_compatibility), low_adjustment),
+            ),
+            goal,
+        )
+    for self_pole, pole_weight in features.self_poles:
+        registration_weight = pole_weight
+        register(
+            EmotionFamily.SHAME,
+            min(
+                relevance,
+                self_agent,
+                _negative(self_pole),
+                _scope(features.self_scope, AppraisalSelfScope.GLOBAL),
+                ego,
+                low_adjustment,
+            ),
+            goal,
+        )
+        register(
+            EmotionFamily.GUILT,
+            min(
+                relevance,
+                self_agent,
+                _negative(self_pole),
+                _scope(features.self_scope, AppraisalSelfScope.ACTION),
+                ego,
+                adjustment,
+            ),
+            goal,
+        )
+
+    components: list[StoredEmotionComponent] = []
+    open_episode = float(
+        event.phase in {AppraisalEventPhase.ANTICIPATED, AppraisalEventPhase.ONGOING}
+    )
+    for family, (
+        family_score,
+        component_goal,
+        family_relevance,
+    ) in scores.items():
+        component_impact = max(
+            abs(component_goal),
+            _pole_impact(features.pleasantness_poles),
+            _pole_impact(features.self_poles),
+            _pole_impact(features.norm_poles),
+        )
+        salience = (
+            0.55 * family_relevance
+            + 0.25 * component_impact
+            + 0.20 * activation
+        )
+        intensity = _round_to_five(100 * salience * family_score)
+        normalized_importance = (importance - 5) / 95
+        normalized_intensity = (intensity - 5) / 95
+        persistence = (
+            0.55 * normalized_importance
+            + 0.25 * normalized_intensity
+            + 0.20 * open_episode
+        )
+        component_target = _semantic_target(
+            component_goal,
+            features,
+            pleasantness=pleasantness,
+            self_compatibility=self_compatibility,
+            norm_compatibility=norm_compatibility,
+            activation=activation,
+        )
+        components.append(
+            StoredEmotionComponent(
+                EmotionComponent(family, event.gist, component_target, intensity),
+                round(900 * (96**persistence)),
+            )
+        )
+    components.sort(
+        key=lambda item: (-item.component.intensity, item.component.family.value)
+    )
+    return DerivedAppraisal(target, importance, tuple(components[:3]))
+
+
 def half_life_seconds(*, importance: int, intensity: int) -> int:
     normalized_importance = (importance - 5) / 95
     normalized_intensity = (intensity - 5) / 95
@@ -731,7 +1602,7 @@ def validate_candidate(value: CandidateMoodDraft) -> None:
     )
     shape_invalid = (
         value.kind is MoodCandidateKind.APPRAISAL
-        and type(value.appraisal) is not AppraisalEvent
+        and type(value.appraisal) not in {AppraisalEvent, SemanticAppraisalEvent}
     ) or (
         value.kind is MoodCandidateKind.HOME_BASE_REFLECTION
         and value.appraisal is not None
@@ -750,13 +1621,18 @@ __all__ = (
     "derive_appraisal",
     "derive_effective_snapshot",
     "derive_effective_state",
+    "derive_semantic_appraisal",
     "half_life_seconds",
     "initial_state",
     "parse_appraisal",
+    "parse_appraisal_any",
     "parse_component",
+    "parse_semantic_appraisal",
     "parse_state",
     "parse_state_bytes",
     "parse_vad",
+    "semantic_appraisal_to_wire",
+    "semantic_features_to_wire",
     "state_to_bytes",
     "state_to_wire",
     "vad_to_wire",

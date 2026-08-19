@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, time, timedelta
 from statistics import median
-from typing import cast
+from typing import Any, cast
 from uuid import UUID, uuid7
 
 import rfc8785
@@ -20,10 +20,13 @@ from ._domain import (
     derive_appraisal,
     derive_effective_snapshot,
     derive_effective_state,
+    derive_semantic_appraisal,
     initial_state,
-    parse_appraisal,
+    parse_appraisal_any,
     parse_component,
     parse_state_bytes,
+    semantic_appraisal_to_wire,
+    semantic_features_to_wire,
     state_to_bytes,
 )
 from .api import (
@@ -37,6 +40,7 @@ from .api import (
     MoodSnapshot,
     MoodState,
     MoodViolation,
+    SemanticAppraisalEvent,
 )
 
 _INITIAL = state_to_bytes(initial_state())
@@ -229,6 +233,16 @@ class PostgreSQLMoodOwner:
             raise MoodViolation("MOOD-HEAD-STALE")
         state = parse_state_bytes(rfc8785.dumps(head[2]))
         next_state = state
+        if (
+            draft.kind is MoodCandidateKind.APPRAISAL
+            and type(draft.appraisal) is SemanticAppraisalEvent
+            and not await self._semantic_appraisal_has_change(
+                transaction,
+                subject_id=subject_id,
+                event=draft.appraisal,
+            )
+        ):
+            return False
         if draft.kind is MoodCandidateKind.HOME_BASE_REFLECTION:
             target = await self._reflection_target(
                 transaction, subject_id=subject_id, home_base=state.home_base
@@ -279,6 +293,34 @@ class PostgreSQLMoodOwner:
             raise MoodViolation("MOOD-HEAD-STALE")
         return True
 
+    async def _semantic_appraisal_has_change(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        event: SemanticAppraisalEvent,
+    ) -> bool:
+        previous: AppraisalEvent | SemanticAppraisalEvent | None = None
+        if event.transition is not AppraisalTransition.NEW:
+            row = await (
+                await transaction.execute(
+                    """SELECT appraisal_payload,transition
+                       FROM armi.mood_appraisal_events
+                       WHERE subject_id=%s AND mood_episode_id=%s
+                       ORDER BY occurred_at DESC,mood_appraisal_event_id DESC
+                       LIMIT 1 FOR UPDATE""",
+                    (subject_id, event.previous_episode_id),
+                )
+            ).fetchone()
+            if row is None or row[1] == AppraisalTransition.RESOLVE.value:
+                raise MoodViolation("MOOD-APPRAISAL-PREDECESSOR")
+            previous = parse_appraisal_any(cast(object, row[0]))
+        derived = derive_semantic_appraisal(event, previous=previous)
+        return bool(derived.components) or event.transition in {
+            AppraisalTransition.REAPPRAISE,
+            AppraisalTransition.RESOLVE,
+        }
+
     async def _insert_appraisal(
         self,
         transaction: PostgreSQLTransaction,
@@ -291,7 +333,7 @@ class PostgreSQLMoodOwner:
         if event is None:
             raise MoodViolation("MOOD-CANDIDATE")
         predecessor_id: UUID | None = None
-        previous: AppraisalEvent | None = None
+        previous: AppraisalEvent | SemanticAppraisalEvent | None = None
         if event.transition is AppraisalTransition.NEW:
             episode_id = uuid7()
         else:
@@ -310,10 +352,30 @@ class PostgreSQLMoodOwner:
             if row is None or row[2] == AppraisalTransition.RESOLVE.value:
                 raise MoodViolation("MOOD-APPRAISAL-PREDECESSOR")
             predecessor_id = row[0]
-            previous = parse_appraisal(cast(object, row[1]))
+            previous = parse_appraisal_any(cast(object, row[1]))
             episode_id = event.previous_episode_id
-        derived = derive_appraisal(event, previous=previous)
-        if not derived.components and event.transition is not AppraisalTransition.RESOLVE:
+        if isinstance(event, SemanticAppraisalEvent):
+            derived = derive_semantic_appraisal(event, previous=previous)
+            raw_appraisal = semantic_appraisal_to_wire(event)
+            appraisal_mapping_version = "semantic-anchors.v1"
+            derived_appraisal = semantic_features_to_wire(event.appraisal)
+            derivation_version = "cpm-fuzzy.v2"
+        else:
+            derived = derive_appraisal(
+                event,
+                previous=previous if isinstance(previous, AppraisalEvent) else None,
+            )
+            raw_appraisal = appraisal_to_wire(event)
+            appraisal_mapping_version = "direct-scale.v1"
+            derived_appraisal = {
+                "schema_version": "armi.mood-derived-appraisal.v1",
+                "vector": raw_appraisal["appraisal"],
+            }
+            derivation_version = "cpm-fuzzy.v1"
+        if not derived.components and event.transition in {
+            AppraisalTransition.NEW,
+            AppraisalTransition.REINFORCE,
+        }:
             raise MoodViolation("MOOD-APPRAISAL-NO-AFFECT")
         components = [
             component_to_wire(
@@ -325,11 +387,11 @@ class PostgreSQLMoodOwner:
             """INSERT INTO armi.mood_appraisal_events
                (mood_appraisal_event_id,subject_id,mood_revision_id,mood_episode_id,
                 previous_appraisal_event_id,transition,event_phase,gist,
-                basis_ordinals,appraisal_payload,importance,derived_vad,
-                derived_components,
+                basis_ordinals,appraisal_payload,appraisal_mapping_version,
+                derived_appraisal_payload,importance,derived_vad,derived_components,
                 derivation_version,dynamics_version,privacy_scope)
-               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s::jsonb,%s::jsonb,
-                       'cpm-fuzzy.v1','recency-reappraisal.v1','private')""",
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s::jsonb,%s,
+                       %s::jsonb,%s::jsonb,%s,'recency-reappraisal.v1','private')""",
             (
                 uuid7(),
                 subject_id,
@@ -340,7 +402,9 @@ class PostgreSQLMoodOwner:
                 event.phase.value,
                 event.gist,
                 list(draft.basis_ordinals),
-                rfc8785.dumps(appraisal_to_wire(event)).decode("utf-8"),
+                rfc8785.dumps(cast(Any, raw_appraisal)).decode("utf-8"),
+                appraisal_mapping_version,
+                rfc8785.dumps(cast(Any, derived_appraisal)).decode("utf-8"),
                 derived.importance,
                 rfc8785.dumps(
                     {
@@ -349,7 +413,8 @@ class PostgreSQLMoodOwner:
                         "dominance": derived.target.dominance,
                     }
                 ).decode("utf-8"),
-                rfc8785.dumps(components).decode("utf-8"),
+                rfc8785.dumps(cast(Any, components)).decode("utf-8"),
+                derivation_version,
             ),
         )
 

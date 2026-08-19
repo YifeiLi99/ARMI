@@ -13,22 +13,45 @@ from armi_mood._domain import (
     derive_appraisal,
     derive_effective_snapshot,
     derive_effective_state,
+    derive_semantic_appraisal,
     parse_state,
     state_to_wire,
 )
 from armi_mood.api import (
     VAD,
+    AppraisalAdjustment,
     AppraisalAgency,
+    AppraisalCausality,
+    AppraisalCertainty,
+    AppraisalCompatibility,
+    AppraisalConcern,
+    AppraisalConcernTarget,
+    AppraisalCoping,
+    AppraisalDemand,
+    AppraisalDemandLevel,
+    AppraisalDirection,
     AppraisalEvent,
     AppraisalEventPhase,
+    AppraisalExpectedness,
+    AppraisalIntentionality,
+    AppraisalPowerBalance,
+    AppraisalQuality,
+    AppraisalResponseAccess,
+    AppraisalSelfInvolvement,
     AppraisalSelfScope,
+    AppraisalSignificance,
+    AppraisalStandards,
+    AppraisalTrajectory,
     AppraisalTransition,
+    AppraisalUrgency,
     AppraisalVector,
     CandidateMoodDraft,
     EmotionComponent,
     EmotionFamily,
     MoodCandidateKind,
     MoodViolation,
+    SemanticAppraisal,
+    SemanticAppraisalEvent,
 )
 from armi_mood.bootstrap import bootstrap_mood_cognition
 
@@ -89,6 +112,49 @@ def _candidate(**overrides: Any) -> CandidateMoodDraft:
     return CandidateMoodDraft(**values)
 
 
+def _semantic_event(
+    *,
+    concerns: tuple[AppraisalConcern, ...] | None = None,
+    expectedness: AppraisalExpectedness = AppraisalExpectedness.EXPECTED,
+    certainty: AppraisalCertainty = AppraisalCertainty.SETTLED,
+    quality: AppraisalQuality = AppraisalQuality.PLEASANT,
+    involvement: AppraisalSelfInvolvement = AppraisalSelfInvolvement.LIMITED,
+    demand: AppraisalDemand | None = None,
+    causality: AppraisalCausality | None = None,
+    coping: AppraisalCoping | None = None,
+    standards: AppraisalStandards | None = None,
+    transition: AppraisalTransition = AppraisalTransition.NEW,
+    phase: AppraisalEventPhase = AppraisalEventPhase.REALIZED,
+) -> SemanticAppraisalEvent:
+    return SemanticAppraisalEvent(
+        transition,
+        None if transition is AppraisalTransition.NEW else uuid7(),
+        phase,
+        "这件事改变了我的处境",
+        SemanticAppraisal(
+            concerns
+            or (
+                AppraisalConcern(
+                    AppraisalConcernTarget.SELF_GOAL,
+                    AppraisalSignificance.CORE,
+                    AppraisalDirection.FULFILLED,
+                ),
+            ),
+            expectedness,
+            certainty,
+            quality,
+            involvement,
+            demand,
+            causality,
+            coping,
+            standards,
+        ),
+        None
+        if transition is AppraisalTransition.NEW
+        else AppraisalTrajectory.IMPROVED,
+    )
+
+
 def _component(
     family: EmotionFamily = EmotionFamily.HOPE,
     *,
@@ -108,6 +174,275 @@ def test_mood_candidate_round_trips_are_canonical() -> None:
         assert (
             cognition.decode(cognition.bind(candidate).canonical_payload) == candidate
         )
+
+
+def test_semantic_mood_candidate_round_trips_without_model_scores() -> None:
+    cognition = bootstrap_mood_cognition()
+    candidate = _candidate(appraisal=_semantic_event())
+    payload = cognition.bind(candidate).canonical_payload
+    assert b"armi.mood-candidate.v4" in payload
+    assert b"semantic" not in payload
+    assert cognition.decode(payload) == candidate
+
+
+def test_unknown_semantics_do_not_invent_affect() -> None:
+    event = _semantic_event(
+        concerns=(
+            AppraisalConcern(
+                AppraisalConcernTarget.SELF_GOAL,
+                AppraisalSignificance.UNKNOWN,
+                AppraisalDirection.UNKNOWN,
+            ),
+        ),
+        expectedness=AppraisalExpectedness.UNKNOWN,
+        certainty=AppraisalCertainty.UNKNOWN,
+        quality=AppraisalQuality.UNKNOWN,
+        involvement=AppraisalSelfInvolvement.UNKNOWN,
+    )
+    result = derive_semantic_appraisal(event)
+    assert result.components == ()
+    assert result.target.dominance == 0
+
+
+def test_missing_coping_is_not_interpreted_as_helplessness() -> None:
+    event = _semantic_event(
+        concerns=(
+            AppraisalConcern(
+                AppraisalConcernTarget.SELF_GOAL,
+                AppraisalSignificance.CORE,
+                AppraisalDirection.MAJOR_SETBACK,
+            ),
+        ),
+        quality=AppraisalQuality.UNPLEASANT,
+        coping=None,
+    )
+    result = derive_semantic_appraisal(event)
+    assert EmotionFamily.SADNESS not in {
+        item.component.family for item in result.components
+    }
+    assert result.target.dominance == 0
+
+
+def test_mixed_concerns_keep_positive_and_negative_emotions() -> None:
+    event = _semantic_event(
+        concerns=(
+            AppraisalConcern(
+                AppraisalConcernTarget.SELF_GOAL,
+                AppraisalSignificance.CORE,
+                AppraisalDirection.FULFILLED,
+            ),
+            AppraisalConcern(
+                AppraisalConcernTarget.RELATIONSHIP,
+                AppraisalSignificance.CORE,
+                AppraisalDirection.MAJOR_SETBACK,
+            ),
+        ),
+        coping=AppraisalCoping(
+            AppraisalResponseAccess.NONE,
+            AppraisalPowerBalance.OVERMATCHED,
+            AppraisalAdjustment.BLOCKED,
+        ),
+    )
+    families = {
+        item.component.family for item in derive_semantic_appraisal(event).components
+    }
+    assert EmotionFamily.JOY in families
+    assert EmotionFamily.SADNESS in families
+
+
+def test_mixed_single_concern_forms_two_weighted_poles() -> None:
+    event = _semantic_event(
+        concerns=(
+            AppraisalConcern(
+                AppraisalConcernTarget.SELF_GOAL,
+                AppraisalSignificance.CORE,
+                AppraisalDirection.MIXED,
+            ),
+        ),
+        coping=AppraisalCoping(
+            AppraisalResponseAccess.NONE,
+            AppraisalPowerBalance.OVERMATCHED,
+            AppraisalAdjustment.BLOCKED,
+        ),
+    )
+    result = derive_semantic_appraisal(event)
+    families = {item.component.family for item in result.components}
+    assert EmotionFamily.JOY in families
+    assert EmotionFamily.SADNESS in families
+
+
+@pytest.mark.parametrize(
+    ("scope", "adjustment", "expected", "excluded"),
+    (
+        (
+            AppraisalSelfScope.ACTION,
+            AppraisalAdjustment.EASY,
+            EmotionFamily.GUILT,
+            EmotionFamily.SHAME,
+        ),
+        (
+            AppraisalSelfScope.GLOBAL,
+            AppraisalAdjustment.BLOCKED,
+            EmotionFamily.SHAME,
+            EmotionFamily.GUILT,
+        ),
+    ),
+)
+def test_semantic_self_standard_scope_distinguishes_guilt_and_shame(
+    scope: AppraisalSelfScope,
+    adjustment: AppraisalAdjustment,
+    expected: EmotionFamily,
+    excluded: EmotionFamily,
+) -> None:
+    event = _semantic_event(
+        concerns=(
+            AppraisalConcern(
+                AppraisalConcernTarget.SELF_GOAL,
+                AppraisalSignificance.CORE,
+                AppraisalDirection.MAJOR_SETBACK,
+            ),
+        ),
+        quality=AppraisalQuality.UNPLEASANT,
+        involvement=AppraisalSelfInvolvement.IDENTITY_LEVEL,
+        causality=AppraisalCausality(
+            AppraisalAgency.SELF, AppraisalIntentionality.DELIBERATE
+        ),
+        coping=AppraisalCoping(
+            AppraisalResponseAccess.DIRECT,
+            AppraisalPowerBalance.BALANCED,
+            adjustment,
+        ),
+        standards=AppraisalStandards(
+            AppraisalCompatibility.VIOLATION,
+            AppraisalCompatibility.ALIGNED,
+            scope,
+        ),
+    )
+    families = {
+        item.component.family for item in derive_semantic_appraisal(event).components
+    }
+    assert expected in families
+    assert excluded not in families
+
+
+@pytest.mark.parametrize(
+    ("certainty", "expected", "excluded"),
+    (
+        (
+            AppraisalCertainty.SETTLED,
+            EmotionFamily.FEAR,
+            EmotionFamily.ANXIETY,
+        ),
+        (
+            AppraisalCertainty.UNCERTAIN,
+            EmotionFamily.ANXIETY,
+            EmotionFamily.FEAR,
+        ),
+    ),
+)
+def test_semantic_certainty_distinguishes_fear_and_anxiety(
+    certainty: AppraisalCertainty,
+    expected: EmotionFamily,
+    excluded: EmotionFamily,
+) -> None:
+    event = _semantic_event(
+        concerns=(
+            AppraisalConcern(
+                AppraisalConcernTarget.SELF_GOAL,
+                AppraisalSignificance.CORE,
+                AppraisalDirection.MAJOR_SETBACK,
+            ),
+        ),
+        certainty=certainty,
+        quality=AppraisalQuality.UNPLEASANT,
+        demand=AppraisalDemand(
+            AppraisalUrgency.IMMEDIATE, AppraisalDemandLevel.SUBSTANTIAL
+        ),
+        coping=AppraisalCoping(
+            AppraisalResponseAccess.NONE,
+            AppraisalPowerBalance.OVERMATCHED,
+            AppraisalAdjustment.DIFFICULT,
+        ),
+        phase=AppraisalEventPhase.ANTICIPATED,
+    )
+    families = {
+        item.component.family for item in derive_semantic_appraisal(event).components
+    }
+    assert expected in families
+    assert excluded not in families
+
+
+def test_semantic_agency_and_persistence_distinguish_anger_and_frustration() -> None:
+    concern = (
+        AppraisalConcern(
+            AppraisalConcernTarget.SELF_GOAL,
+            AppraisalSignificance.CORE,
+            AppraisalDirection.MAJOR_SETBACK,
+        ),
+    )
+    anger = _semantic_event(
+        concerns=concern,
+        quality=AppraisalQuality.UNPLEASANT,
+        causality=AppraisalCausality(
+            AppraisalAgency.OTHER, AppraisalIntentionality.DELIBERATE
+        ),
+        coping=AppraisalCoping(
+            AppraisalResponseAccess.DIRECT,
+            AppraisalPowerBalance.ADVANTAGED,
+            AppraisalAdjustment.MANAGEABLE,
+        ),
+    )
+    frustration = _semantic_event(
+        concerns=concern,
+        quality=AppraisalQuality.UNPLEASANT,
+        demand=AppraisalDemand(
+            AppraisalUrgency.SOON, AppraisalDemandLevel.EXTREME
+        ),
+        causality=AppraisalCausality(
+            AppraisalAgency.CIRCUMSTANCE,
+            AppraisalIntentionality.NOT_APPLICABLE,
+        ),
+        coping=AppraisalCoping(
+            AppraisalResponseAccess.INDIRECT,
+            AppraisalPowerBalance.BALANCED,
+            AppraisalAdjustment.DIFFICULT,
+        ),
+        phase=AppraisalEventPhase.ONGOING,
+    )
+    anger_families = {
+        item.component.family for item in derive_semantic_appraisal(anger).components
+    }
+    frustration_families = {
+        item.component.family
+        for item in derive_semantic_appraisal(frustration).components
+    }
+    assert EmotionFamily.ANGER in anger_families
+    assert EmotionFamily.FRUSTRATION not in anger_families
+    assert EmotionFamily.FRUSTRATION in frustration_families
+    assert EmotionFamily.ANGER not in frustration_families
+
+
+def test_semantic_resolve_can_close_a_numeric_v1_episode() -> None:
+    previous = _event(
+        vector=_vector(goal_conduciveness=-4),
+        phase=AppraisalEventPhase.ANTICIPATED,
+    )
+    resolved = _semantic_event(
+        concerns=(
+            AppraisalConcern(
+                AppraisalConcernTarget.SELF_GOAL,
+                AppraisalSignificance.CORE,
+                AppraisalDirection.FULFILLED,
+            ),
+        ),
+        transition=AppraisalTransition.RESOLVE,
+        phase=AppraisalEventPhase.AVERTED,
+    )
+    families = {
+        item.component.family
+        for item in derive_semantic_appraisal(resolved, previous=previous).components
+    }
+    assert EmotionFamily.RELIEF in families
 
 
 _SIGNATURES: tuple[tuple[EmotionFamily, dict[str, Any], AppraisalEventPhase], ...] = (
