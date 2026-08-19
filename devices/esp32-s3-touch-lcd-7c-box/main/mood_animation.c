@@ -1,5 +1,6 @@
 #include "mood_animation.h"
 
+#include <stdbool.h>
 #include <string.h>
 
 #define FRAME_MS 80U
@@ -19,11 +20,12 @@ static int signed_swing(uint32_t frame, uint32_t period, int amplitude)
 
 static bool blink(uint32_t frame, mood_face_t face, uint8_t energy)
 {
-    if (face == MOOD_FACE_OFFLINE || face == MOOD_FACE_CALM) {
+    if (face == MOOD_FACE_OFFLINE || face == MOOD_FACE_CONTENTMENT ||
+        face == MOOD_FACE_BOREDOM) {
         return false;
     }
-    uint32_t period = face == MOOD_FACE_ANXIOUS ? 31U :
-                      face == MOOD_FACE_EXCITED ? 47U : 59U;
+    uint32_t period = (face == MOOD_FACE_FEAR || face == MOOD_FACE_ANXIETY) ? 31U :
+                      face == MOOD_FACE_SURPRISE ? 47U : 59U;
     uint32_t closed_frames = energy >= 60U ? 2U : 1U;
     return (frame + period / 2U) % period < closed_frames;
 }
@@ -31,20 +33,15 @@ static bool blink(uint32_t frame, mood_face_t face, uint8_t energy)
 static void base_frame(mood_animation_frame_t *target)
 {
     memset(target, 0, sizeof(*target));
-    target->left_eye_width = 76;
-    target->left_eye_height = 14;
-    target->left_eye_x = -120;
-    target->left_eye_y = -65;
-    target->right_eye_width = 76;
-    target->right_eye_height = 14;
-    target->right_eye_x = 120;
-    target->right_eye_y = -65;
-    target->pupil_size = 0;
-    target->pupils_visible = false;
-    target->mouth_width = 72;
-    target->mouth_height = 13;
-    target->mouth_y = 82;
-    target->cheek_y = 34;
+    target->left_eye = MOOD_EYE_DOT;
+    target->right_eye = MOOD_EYE_DOT;
+    target->mouth = MOOD_MOUTH_SMALL_SMILE;
+    target->eye_y = 40;
+    target->eye_spread = 34;
+    target->eye_scale = 100;
+    target->mouth_y = 80;
+    target->mouth_scale_x = 100;
+    target->mouth_scale_y = 100;
     target->face_opacity = 255;
 }
 
@@ -57,138 +54,226 @@ void mood_animation_frame(
 {
     base_frame(target);
     uint32_t frame = elapsed_ms / FRAME_MS;
-    int drive = 2 + (int)energy / 20;
+    int drive = 1 + (int)energy / 35;
     int breath = triangle(frame, 50U, drive);
-    target->color_lift = (uint8_t)triangle(frame, 50U, 2 + energy / 16U);
+    target->face_y = breath / 2;
+    target->color_lift = (uint8_t)triangle(frame, 50U, 2 + energy / 18U);
     target->face_opacity = elapsed_ms >= 320U ? 255U :
                            (uint8_t)(96U + elapsed_ms * 159U / 320U);
 
-    if (face == MOOD_FACE_HAPPY) {
-        target->left_eye_width = target->right_eye_width = 92 + breath;
-        target->left_eye_height = target->right_eye_height = 34 + breath;
-        target->left_eye_curve = target->right_eye_curve = -1;
-        target->mouth_width = 86 + breath * 2;
-        target->mouth_height = 42 + breath;
-        target->mouth_y = 76 - breath;
-        target->mouth_curve = 1;
-        target->cheek_opacity = (uint8_t)(55 + triangle(frame, 50U, 40));
-    } else if (face == MOOD_FACE_EXCITED) {
-        int bounce = triangle(frame, 18U, drive * 2);
-        target->left_eye_width = target->right_eye_width = 98 + bounce;
-        target->left_eye_height = target->right_eye_height = 16;
-        target->left_eye_rotation = 180;
-        target->right_eye_rotation = -180;
-        target->left_eye_y = target->right_eye_y = -65 - bounce;
-        target->mouth_width = 74 + bounce * 2;
-        target->mouth_height = 68 + bounce;
-        target->mouth_y = 78 - bounce;
-        target->mouth_curve = 2;
-        target->cheek_opacity = (uint8_t)(70 + triangle(frame, 18U, 50));
-        target->color_lift = (uint8_t)(
-            5 + triangle(frame, 18U, 4 + energy / 10U)
-        );
-    } else if (face == MOOD_FACE_CALM) {
-        target->left_eye_width = target->right_eye_width = 82 + breath;
-        target->left_eye_height = target->right_eye_height = 11;
-        target->mouth_width = 64 + breath * 2;
-        target->mouth_height = 30;
-        target->mouth_y = 80 + breath / 2;
-        target->mouth_curve = 1;
+    switch (face) {
+    case MOOD_FACE_JOY:
+        target->left_eye = target->right_eye = MOOD_EYE_CAP;
+        target->mouth = MOOD_MOUTH_OPEN_SMILE;
+        target->eye_scale = 100 + breath * 2;
+        target->mouth_scale_x = 100 + breath * 2;
+        target->mouth_y = 78 - breath / 2;
+        target->cheek_opacity = (uint8_t)(65 + triangle(frame, 50U, 45));
+        break;
+    case MOOD_FACE_CONTENTMENT:
+        target->left_eye = target->right_eye = MOOD_EYE_FLAT;
+        target->mouth = MOOD_MOUTH_SMILE;
+        target->eye_scale = 100 + breath;
+        target->mouth_scale_x = 92 + breath * 2;
+        target->mouth_y = 81 + breath / 2;
         target->color_lift = (uint8_t)triangle(frame, 75U, 5);
-    } else if (face == MOOD_FACE_SAD) {
+        break;
+    case MOOD_FACE_INTEREST:
+        target->eye_scale = 105 + breath * 2;
+        target->eye_spread = 33 - breath / 2;
+        target->accent = MOOD_ACCENT_SPARKLE;
+        target->accent_x = 151;
+        target->accent_y = 27;
+        break;
+    case MOOD_FACE_HOPE:
+        target->left_eye = target->right_eye = MOOD_EYE_RAISED;
+        target->mouth = MOOD_MOUTH_SMILE;
+        target->eye_y = 41 - breath;
+        target->face_y = -breath;
+        target->accent = MOOD_ACCENT_RISE;
+        target->accent_x = 100;
+        target->accent_y = 23 - breath;
+        break;
+    case MOOD_FACE_RELIEF: {
+        int release = triangle(frame, 62U, drive);
+        target->left_eye = target->right_eye = MOOD_EYE_SOFT;
+        target->eye_scale = 94 + release;
+        target->mouth_scale_x = 88 + release * 2;
+        target->accent = MOOD_ACCENT_EXHALE;
+        target->accent_x = 134 + release;
+        target->accent_y = 79;
+        break;
+    }
+    case MOOD_FACE_AFFECTION: {
+        int beat = triangle(frame, 20U, drive * 2);
+        target->left_eye = target->right_eye = MOOD_EYE_HEART;
+        target->mouth = MOOD_MOUTH_SMILE;
+        target->eye_scale = 94 + beat * 2;
+        target->cheek_opacity = (uint8_t)(100 + triangle(frame, 20U, 80));
+        break;
+    }
+    case MOOD_FACE_GRATITUDE:
+        target->left_eye = target->right_eye = MOOD_EYE_CAP;
+        target->eye_scale = 92 + breath;
+        target->face_y = breath;
+        target->cheek_opacity = (uint8_t)(45 + triangle(frame, 60U, 35));
+        break;
+    case MOOD_FACE_PRIDE:
+        target->left_eye = target->right_eye = MOOD_EYE_PROUD;
+        target->mouth = MOOD_MOUTH_PROUD_SMILE;
+        target->face_y = -breath / 2;
+        target->eye_scale = 100 + breath;
+        break;
+    case MOOD_FACE_SURPRISE: {
+        int pop = triangle(frame, 24U, drive * 2);
+        target->left_eye = target->right_eye = MOOD_EYE_RING;
+        target->mouth = MOOD_MOUTH_OPEN;
+        target->eye_scale = 100 + pop * 2;
+        target->mouth_scale_x = target->mouth_scale_y = 100 + pop * 2;
+        if (frame % 43U < 2U) {
+            target->face_x = signed_swing(frame, 4U, 1);
+        }
+        break;
+    }
+    case MOOD_FACE_SADNESS: {
         int drift = triangle(frame, 70U, drive);
-        target->left_eye_width = target->right_eye_width = 76;
-        target->left_eye_height = target->right_eye_height = 13;
-        target->left_eye_y = -61 + drift;
-        target->right_eye_y = -57 + drift;
-        target->left_eye_rotation = -140;
-        target->right_eye_rotation = 140;
-        target->mouth_width = 72 - drift;
-        target->mouth_height = 34;
-        target->mouth_y = 94 + drift;
-        target->mouth_curve = -1;
-        target->accent_visible = true;
-        target->accent_width = 13;
-        target->accent_height = 24 + triangle(frame, 35U, 20);
-        target->accent_x = 181;
-        target->accent_y = -17 + triangle(frame, 35U, 36);
+        target->left_eye = MOOD_EYE_SAD_LEFT;
+        target->right_eye = MOOD_EYE_SAD_RIGHT;
+        target->mouth = MOOD_MOUTH_FROWN;
+        target->eye_y = 42 + drift;
+        target->mouth_y = 84 + drift;
+        target->mouth_scale_x = 95 - drift * 2;
+        target->accent = MOOD_ACCENT_TEAR;
+        target->accent_x = 145;
+        target->accent_y = 54 + triangle(frame, 35U, 18);
         target->color_lift = 0;
-    } else if (face == MOOD_FACE_ANXIOUS) {
+        break;
+    }
+    case MOOD_FACE_FEAR: {
+        int jitter = signed_swing(frame, 6U, drive);
+        target->left_eye = target->right_eye = MOOD_EYE_RING_DOT;
+        target->mouth = MOOD_MOUTH_WAVE;
+        target->face_x = jitter;
+        target->eye_scale = 108 + triangle(frame, 12U, drive * 2);
+        target->mouth_scale_x = 90 + triangle(frame, 8U, drive * 3);
+        break;
+    }
+    case MOOD_FACE_ANXIETY: {
         int jitter = signed_swing(frame, 8U, drive);
-        target->left_eye_width = target->right_eye_width = 44;
-        target->left_eye_height = target->right_eye_height = 58 + breath;
-        target->left_eye_curve = target->right_eye_curve = 2;
-        target->left_eye_x += jitter;
-        target->right_eye_x += jitter;
-        target->mouth_width = 74 + triangle(frame, 10U, drive * 2);
-        target->mouth_height = 12 + triangle(frame, 10U, drive);
-        target->accent_visible = true;
-        target->accent_width = 16;
-        target->accent_height = 26;
-        target->accent_x = 214 + jitter;
-        target->accent_y = -92 + triangle(frame, 16U, 18);
-        target->color_lift = (uint8_t)triangle(
-            frame, 10U, 3 + energy / 12U
-        );
-    } else if (face == MOOD_FACE_ANGRY) {
-        int pulse = triangle(frame, 20U, drive * 2);
-        target->left_eye_width = target->right_eye_width = 96 + pulse;
-        target->left_eye_height = target->right_eye_height = 15;
-        target->left_eye_y = target->right_eye_y = -58 + pulse / 3;
-        target->left_eye_rotation = 210;
-        target->right_eye_rotation = -210;
-        target->mouth_width = 88 + pulse;
-        target->mouth_height = 15 + pulse / 3;
-        target->mouth_y = 91 - pulse / 3;
-        target->color_lift = (uint8_t)triangle(
-            frame, 20U, 4 + energy / 10U
-        );
-    } else if (face == MOOD_FACE_DISGUSTED) {
-        int recoil = triangle(frame, 34U, drive * 2);
-        target->left_eye_width = 72 + recoil;
-        target->left_eye_height = 32;
-        target->left_eye_curve = -1;
-        target->right_eye_height = 12;
-        target->right_eye_width = 70 - recoil;
-        target->right_eye_rotation = -120;
-        target->mouth_width = 70 - recoil;
-        target->mouth_height = 28;
-        target->mouth_x = 25 + recoil;
-        target->mouth_y = 88 + recoil / 2;
-        target->mouth_curve = -1;
+        target->mouth = MOOD_MOUTH_WAVE;
+        target->face_x = jitter;
+        target->eye_scale = 100 + breath * 2;
+        target->mouth_scale_x = 100 + triangle(frame, 10U, drive * 3);
+        target->accent = MOOD_ACCENT_SWEAT;
+        target->accent_x = 158 + jitter;
+        target->accent_y = 25 + triangle(frame, 16U, 8);
+        target->color_lift = (uint8_t)triangle(frame, 10U, 3 + energy / 14U);
+        break;
+    }
+    case MOOD_FACE_ANGER: {
+        int tension = triangle(frame, 20U, drive);
+        target->left_eye = MOOD_EYE_GREATER;
+        target->right_eye = MOOD_EYE_LESS;
+        target->mouth = MOOD_MOUTH_TEETH;
+        target->eye_y = 42 + tension / 2;
+        target->eye_scale = 100 + tension * 2;
+        target->mouth_y = 81 - tension / 2;
+        target->mouth_scale_x = 100 + tension * 2;
+        target->color_lift = (uint8_t)triangle(frame, 20U, 4 + energy / 12U);
+        if (energy >= 60U && frame % 41U < 3U) {
+            target->face_x = frame % 2U == 0U ? -1 : 1;
+        }
+        break;
+    }
+    case MOOD_FACE_FRUSTRATION: {
+        int squeeze = triangle(frame, 26U, drive);
+        target->left_eye = MOOD_EYE_GREATER;
+        target->right_eye = MOOD_EYE_LESS;
+        target->mouth = MOOD_MOUTH_WAVE;
+        target->eye_scale = 95 + squeeze * 2;
+        target->mouth_y = 83 + squeeze;
+        target->accent = MOOD_ACCENT_STRESS;
+        target->accent_x = 153;
+        target->accent_y = 25;
+        break;
+    }
+    case MOOD_FACE_DISGUST: {
+        int recoil = triangle(frame, 34U, drive);
+        target->left_eye = MOOD_EYE_HALF;
+        target->right_eye = MOOD_EYE_FLAT;
+        target->mouth = MOOD_MOUTH_SKEW_FROWN;
+        target->eye_shift_x = recoil;
+        target->mouth_y = 82 + recoil;
+        target->mouth_scale_x = 92 - recoil * 2;
         target->color_lift = (uint8_t)triangle(frame, 34U, 6);
-    } else if (face == MOOD_FACE_EMBARRASSED) {
-        int hide = triangle(frame, 42U, drive * 2);
-        target->left_eye_width = target->right_eye_width = 72;
-        target->left_eye_height = target->right_eye_height = 30 - hide / 3;
-        target->left_eye_curve = target->right_eye_curve = -1;
-        target->left_eye_y = target->right_eye_y = -58 + hide;
-        target->mouth_width = 54 + breath;
-        target->mouth_height = 12;
-        target->mouth_y = 90 + hide / 2;
-        target->cheek_opacity = (uint8_t)(120 + triangle(frame, 20U, 85));
+        break;
+    }
+    case MOOD_FACE_SHAME: {
+        int hide = triangle(frame, 42U, drive);
+        target->left_eye = target->right_eye = MOOD_EYE_CAP;
+        target->mouth = MOOD_MOUTH_FROWN;
+        target->eye_y = 42 + hide;
+        target->eye_scale = 88 - hide;
+        target->mouth_y = 81 + hide / 2;
+        target->mouth_scale_x = 82 + breath;
+        target->cheek_opacity = (uint8_t)(135 + triangle(frame, 20U, 90));
         target->color_lift = (uint8_t)triangle(frame, 42U, 8);
-    } else if (face == MOOD_FACE_OFFLINE) {
-        target->left_eye_height = target->right_eye_height = 8;
-        target->mouth_width = 64;
-        target->mouth_height = 8;
-        target->color_lift = 0;
+        break;
+    }
+    case MOOD_FACE_GUILT: {
+        int sink = triangle(frame, 65U, drive);
+        target->left_eye = MOOD_EYE_GUILT_LEFT;
+        target->right_eye = MOOD_EYE_GUILT_RIGHT;
+        target->mouth = MOOD_MOUTH_SMALL_FROWN;
+        target->face_y = 2 + sink;
+        target->eye_shift_x = -2;
+        target->mouth_scale_x = 86 - sink;
+        break;
+    }
+    case MOOD_FACE_JEALOUSY: {
+        int glance = signed_swing(frame, 46U, 4);
+        target->left_eye = target->right_eye = MOOD_EYE_RING_DOT;
+        target->mouth = MOOD_MOUTH_SKEW_FROWN;
+        target->eye_shift_x = glance;
+        target->mouth_scale_x = 92;
+        target->color_lift = (uint8_t)triangle(frame, 23U, 7);
+        break;
+    }
+    case MOOD_FACE_BOREDOM:
+        target->left_eye = target->right_eye = MOOD_EYE_FLAT;
+        target->mouth = MOOD_MOUTH_FLAT;
+        target->face_y = triangle(frame, 110U, 1);
+        target->eye_scale = 94;
+        target->color_lift = (uint8_t)triangle(frame, 100U, 2);
+        break;
+    case MOOD_FACE_CONFUSION: {
+        int wobble = signed_swing(frame, 34U, 2);
+        target->left_eye = MOOD_EYE_DOT;
+        target->right_eye = MOOD_EYE_RING;
+        target->mouth = MOOD_MOUTH_SKEW_FROWN;
+        target->eye_y = 40 + wobble;
+        target->eye_shift_x = wobble;
+        target->accent = MOOD_ACCENT_QUESTION;
+        target->accent_x = 158;
+        target->accent_y = 27 + triangle(frame, 40U, 2);
+        break;
+    }
+    case MOOD_FACE_OFFLINE:
+        target->left_eye = target->right_eye = MOOD_EYE_FLAT;
+        target->mouth = MOOD_MOUTH_NONE;
         target->face_opacity = 180;
-    } else {
-        target->left_eye_width = target->right_eye_width = 22 + breath / 2;
-        target->left_eye_height = target->right_eye_height = 26 + breath / 2;
-        target->mouth_y += breath / 2;
-        int glance = signed_swing(frame, 80U, 3);
-        target->left_eye_x += glance;
-        target->right_eye_x += glance;
+        target->color_lift = 0;
+        break;
+    case MOOD_FACE_NEUTRAL:
+    default:
+        target->eye_shift_x = signed_swing(frame, 80U, 2);
+        target->eye_scale = 100 + breath;
+        target->mouth_y = 81 + breath / 2;
         target->color_lift = (uint8_t)triangle(frame, 80U, 3);
+        break;
     }
 
     if (blink(frame, face, energy)) {
-        target->left_eye_height = 8;
-        target->right_eye_height = 8;
-        target->left_eye_curve = 0;
-        target->right_eye_curve = 0;
-        target->pupils_visible = false;
+        target->left_eye = target->right_eye = MOOD_EYE_FLAT;
     }
 }

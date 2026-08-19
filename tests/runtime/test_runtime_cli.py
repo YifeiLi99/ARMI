@@ -61,8 +61,8 @@ class RuntimeCliTests(unittest.TestCase):
                 "armi_runtime.cli.probe_device",
                 return_value=ProbeResult(
                     "mood-window-1",
-                    "0.1.0",
-                    "armi.mood-display.v1",
+                    "0.2.0",
+                    "armi.mood-display.v2",
                     "boot-1",
                 ),
             ) as probe,

@@ -9,12 +9,12 @@ def test_firmware_versions_and_wire_contract_are_pinned() -> None:
     offline = (ROOT / "main" / "mood_offline.c").read_text(encoding="utf-8")
 
     assert 'idf: "==5.5.3"' in component
-    assert '"armi.mood-display.v1"' in protocol
+    assert '"armi.mood-display.v2"' in protocol
     assert "MOOD_FRAME_MAX_BYTES 512" in protocol
     assert "30LL * 1000 * 1000" in offline
-    assert "background_rgb == 0x000000U" in (ROOT / "main" / "mood_protocol.c").read_text(
-        encoding="utf-8"
-    )
+    assert "background_rgb == 0x000000U" in (
+        ROOT / "main" / "mood_protocol.c"
+    ).read_text(encoding="utf-8")
     assert (ROOT / "host_tests" / "test_mood_display.c").is_file()
 
 
@@ -29,21 +29,16 @@ def test_v1_initializes_only_display_and_usb_serial() -> None:
     assert "usb_serial_jtag_driver_install" in sources
 
 
-def test_all_ten_wire_faces_have_firmware_names() -> None:
+def test_all_twenty_emotions_and_device_states_have_firmware_names() -> None:
     protocol = (ROOT / "main" / "mood_protocol.c").read_text(encoding="utf-8")
     for face in (
-        "happy",
-        "excited",
-        "calm",
-        "sad",
-        "anxious",
-        "angry",
-        "disgusted",
-        "embarrassed",
+        *(f"face_{index:02d}" for index in range(1, 21)),
         "neutral",
         "offline",
     ):
         assert f'"{face}"' in protocol
+    for private_name in ("joy", "sadness", "anger", "shame", "guilt"):
+        assert f'"{private_name}"' not in protocol
 
 
 def test_online_faces_use_expression_specific_frame_animation_and_color() -> None:
@@ -52,22 +47,34 @@ def test_online_faces_use_expression_specific_frame_animation_and_color() -> Non
     component = (ROOT / "main" / "CMakeLists.txt").read_text(encoding="utf-8")
 
     for enum_name in (
-        "MOOD_FACE_HAPPY",
-        "MOOD_FACE_EXCITED",
-        "MOOD_FACE_CALM",
-        "MOOD_FACE_SAD",
-        "MOOD_FACE_ANXIOUS",
-        "MOOD_FACE_ANGRY",
-        "MOOD_FACE_DISGUSTED",
-        "MOOD_FACE_EMBARRASSED",
+        "MOOD_FACE_JOY",
+        "MOOD_FACE_CONTENTMENT",
+        "MOOD_FACE_INTEREST",
+        "MOOD_FACE_HOPE",
+        "MOOD_FACE_RELIEF",
+        "MOOD_FACE_AFFECTION",
+        "MOOD_FACE_GRATITUDE",
+        "MOOD_FACE_PRIDE",
+        "MOOD_FACE_SURPRISE",
+        "MOOD_FACE_SADNESS",
+        "MOOD_FACE_FEAR",
+        "MOOD_FACE_ANXIETY",
+        "MOOD_FACE_ANGER",
+        "MOOD_FACE_FRUSTRATION",
+        "MOOD_FACE_DISGUST",
+        "MOOD_FACE_SHAME",
+        "MOOD_FACE_GUILT",
+        "MOOD_FACE_JEALOUSY",
+        "MOOD_FACE_BOREDOM",
+        "MOOD_FACE_CONFUSION",
     ):
         assert enum_name in animation
     assert "FRAME_MS 80U" in animation
     assert "color_lift" in animation
     assert "cheek_opacity" in animation
-    assert "accent_visible" in animation
+    assert "MOOD_ACCENT_QUESTION" in animation
     assert "lift_rgb" in face
     assert "lv_color_black" in face
-    assert "left_eye_cutout" in face
-    assert "mouth_cutout" in face
+    assert "PIXEL_SCALE 4" in face
+    assert "lv_canvas_init_layer" in face
     assert '"mood_animation.c"' in component

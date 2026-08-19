@@ -47,61 +47,35 @@ def _snapshot(
 
 @pytest.mark.parametrize(
     ("family", "expression"),
-    (
-        (EmotionFamily.JOY, DisplayExpression.HAPPY),
-        (EmotionFamily.AFFECTION, DisplayExpression.HAPPY),
-        (EmotionFamily.GRATITUDE, DisplayExpression.HAPPY),
-        (EmotionFamily.PRIDE, DisplayExpression.HAPPY),
-        (EmotionFamily.INTEREST, DisplayExpression.EXCITED),
-        (EmotionFamily.HOPE, DisplayExpression.EXCITED),
-        (EmotionFamily.CONTENTMENT, DisplayExpression.CALM),
-        (EmotionFamily.RELIEF, DisplayExpression.CALM),
-        (EmotionFamily.SADNESS, DisplayExpression.SAD),
-        (EmotionFamily.BOREDOM, DisplayExpression.SAD),
-        (EmotionFamily.FEAR, DisplayExpression.ANXIOUS),
-        (EmotionFamily.ANXIETY, DisplayExpression.ANXIOUS),
-        (EmotionFamily.ANGER, DisplayExpression.ANGRY),
-        (EmotionFamily.FRUSTRATION, DisplayExpression.ANGRY),
-        (EmotionFamily.DISGUST, DisplayExpression.DISGUSTED),
-        (EmotionFamily.SHAME, DisplayExpression.EMBARRASSED),
-        (EmotionFamily.GUILT, DisplayExpression.EMBARRASSED),
-        (EmotionFamily.SURPRISE, DisplayExpression.EXCITED),
-        (EmotionFamily.JEALOUSY, DisplayExpression.ANGRY),
-        (EmotionFamily.CONFUSION, DisplayExpression.NEUTRAL),
-    ),
+    tuple((family, DisplayExpression[family.name]) for family in EmotionFamily),
 )
-def test_family_mapping_covers_all_faces(
+def test_every_family_has_its_own_expression(
     family: EmotionFamily, expression: DisplayExpression
 ) -> None:
     assert map_mood_snapshot(_snapshot(family)).expression is expression
 
 
-def test_conditional_and_vad_mapping() -> None:
-    assert (
-        map_mood_snapshot(_snapshot(EmotionFamily.JOY, arousal=70)).expression
-        == "excited"
-    )
-    assert (
-        map_mood_snapshot(_snapshot(EmotionFamily.SURPRISE, valence=-10)).expression
-        == "anxious"
-    )
-    assert (
-        map_mood_snapshot(_snapshot(EmotionFamily.JEALOUSY, dominance=20)).expression
-        == "angry"
-    )
+def test_every_family_has_its_own_fixed_color() -> None:
+    colors = {
+        map_mood_snapshot(_snapshot(family)).foreground for family in EmotionFamily
+    }
+    assert len(colors) == len(EmotionFamily) == 20
+
+
+def test_neutral_and_energy_mapping() -> None:
     assert map_mood_snapshot(_snapshot()).expression == "neutral"
-    assert map_mood_snapshot(_snapshot(valence=60, arousal=-40)).expression == "calm"
     assert map_mood_snapshot(_snapshot(arousal=37)).energy == 70
 
 
 def test_wire_state_discloses_only_display_projection() -> None:
     state = map_mood_snapshot(_snapshot(EmotionFamily.JOY, arousal=20))
-    assert state.foreground == "#F6C85F"
+    assert state.foreground == "#FFD166"
     assert state.background == "#000000"
     frame = encode_state("state-1", state)
     assert len(frame) <= MAX_FRAME_BYTES
     value = decode_frame(frame)
-    assert value["expression"] == "happy"
+    assert value["expression"] == "face_01"
+    assert "joy" not in frame.decode("utf-8")
     assert "family" not in value
     assert "nuance" not in value
     assert "valence" not in value
@@ -169,7 +143,7 @@ def test_probe_reads_identity_and_closes_port() -> None:
         json.dumps(
             {
                 "type": "hello",
-                "protocol_version": "armi.mood-display.v1",
+                "protocol_version": "armi.mood-display.v2",
                 "device_id": "mood-window-1",
                 "firmware_version": "0.1.0",
                 "boot_id": "boot-1",
@@ -181,13 +155,13 @@ def test_probe_reads_identity_and_closes_port() -> None:
     serial_port = _ProbeSerial(frame)
     result = probe_device("COM7", serial_factory=lambda _port: serial_port)
     assert result.device_id == "mood-window-1"
-    assert result.protocol_version == "armi.mood-display.v1"
+    assert result.protocol_version == "armi.mood-display.v2"
     assert serial_port.closed
 
 
 def test_state_ack_timeout_reuses_same_frame_once() -> None:
     ack = (
-        b'{"protocol_version":"armi.mood-display.v1","state_id":"state-1",'
+        b'{"protocol_version":"armi.mood-display.v2","state_id":"state-1",'
         b'"status":"applied","type":"ack"}\n'
     )
     serial_port = _ScriptedSerial([b"", ack])
@@ -208,7 +182,7 @@ def test_device_identity_mismatch_is_unavailable(
     hello = (
         b'{"boot_id":"boot-1","device_id":"other-device",'
         b'"firmware_version":"0.1.0",'
-        b'"protocol_version":"armi.mood-display.v1","type":"hello"}\n'
+        b'"protocol_version":"armi.mood-display.v2","type":"hello"}\n'
     )
     serial_port = _ScriptedSerial([hello])
     adapter = MoodDisplayAdapter(
@@ -260,7 +234,7 @@ def test_reconnect_uses_bounded_backoff(monkeypatch: pytest.MonkeyPatch) -> None
 def test_heartbeat_requires_matching_pong(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("armi_adapter_esp32_display.service.uuid4", lambda: "ping-1")
     pong = (
-        b'{"ping_id":"ping-1","protocol_version":"armi.mood-display.v1",'
+        b'{"ping_id":"ping-1","protocol_version":"armi.mood-display.v2",'
         b'"type":"pong"}\n'
     )
     serial_port = _ScriptedSerial([pong])

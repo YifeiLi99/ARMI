@@ -33,8 +33,10 @@ static bool parse_color(const cJSON *value, uint32_t *target)
 static bool parse_face(const char *value, mood_face_t *face)
 {
     static const char *names[] = {
-        "happy", "excited", "calm", "sad", "anxious", "angry",
-        "disgusted", "embarrassed", "neutral", "offline",
+        "face_01", "face_02", "face_03", "face_04", "face_05", "face_06",
+        "face_07", "face_08", "face_09", "face_10", "face_11", "face_12",
+        "face_13", "face_14", "face_15", "face_16", "face_17", "face_18",
+        "face_19", "face_20", "neutral", "offline",
     };
     for (size_t index = 0; index < sizeof(names) / sizeof(names[0]); ++index) {
         if (strcmp(value, names[index]) == 0) {
@@ -121,7 +123,7 @@ size_t mood_protocol_hello(char *target, size_t capacity, const char *boot_id)
 {
     return render(target, capacity,
         "{\"boot_id\":\"%s\",\"device_id\":\"armi-mood-window-7c-1\","
-        "\"firmware_version\":\"0.1.0\",\"protocol_version\":\"%s\","
+        "\"firmware_version\":\"0.2.0\",\"protocol_version\":\"%s\","
         "\"type\":\"hello\"}\n", boot_id, MOOD_PROTOCOL_VERSION);
 }
 
