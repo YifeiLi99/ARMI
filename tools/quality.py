@@ -83,6 +83,29 @@ def aggregate_exit_code(results: Iterable[GateResult]) -> int:
     return 0
 
 
+def default_jobs() -> int:
+    return min(8, max(2, (os.cpu_count() or 1) // 3))
+
+
+def parse_jobs(value: str) -> int:
+    jobs = int(value)
+    if not 1 <= jobs <= 32:
+        raise argparse.ArgumentTypeError("jobs must be between 1 and 32")
+    return jobs
+
+
+def pytest_worker_arguments(workers: int) -> tuple[str, ...]:
+    if workers == 1:
+        return ()
+    return (
+        "-n",
+        str(workers),
+        "--dist",
+        "worksteal",
+        "--max-worker-restart=0",
+    )
+
+
 def safe_remove_output(path: Path, quality_root: Path) -> None:
     resolved = path.resolve()
     allowed = quality_root.resolve()
@@ -143,7 +166,7 @@ def workspace_distribution_names(root: Path) -> tuple[str, ...]:
     return tuple(sorted(names))
 
 
-def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
+def commands(root: Path, tool_root: Path, jobs: int) -> dict[str, Gate]:
     venv_python = root / ".venv/Scripts/python.exe"
     managed_python = (
         tool_root / "installs/python/cpython-3.14.6-windows-x86_64-none/python.exe"
@@ -265,7 +288,14 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
         ),
         "PY-TEST": Gate(
             "PY-TEST",
-            py("-B", "-m", "pytest", "-m", "not postgresql"),
+            py(
+                "-B",
+                "-m",
+                "pytest",
+                "-m",
+                "not postgresql",
+                *pytest_worker_arguments(min(8, jobs)),
+            ),
             root,
             common_python,
         ),
@@ -387,6 +417,8 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
                 "tools/run_postgresql_integration.py",
                 "--root",
                 str(root),
+                "--workers",
+                str(min(4, jobs)),
             ),
             root,
             (venv_python, root / "tools/run_postgresql_integration.py"),
@@ -441,6 +473,7 @@ def main() -> int:
         "--root", type=Path, default=Path(__file__).resolve().parents[1]
     )
     parser.add_argument("--tool-root", type=Path)
+    parser.add_argument("--jobs", type=parse_jobs, default=default_jobs())
     selection = parser.add_mutually_exclusive_group()
     selection.add_argument("--gate", action="append", choices=GATE_ORDER)
     selection.add_argument("--release", action="store_true")
@@ -458,7 +491,7 @@ def main() -> int:
             else FAST_GATE_ORDER
         )
     )
-    available = commands(root, tool_root)
+    available = commands(root, tool_root, args.jobs)
     environment = os.environ.copy()
     environment.update(
         {

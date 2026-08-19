@@ -14,6 +14,8 @@ from tools.quality import (
     Gate,
     GateResult,
     aggregate_exit_code,
+    parse_jobs,
+    pytest_worker_arguments,
     run_gate,
     workspace_distribution_names,
 )
@@ -36,6 +38,24 @@ class QualityGateTests(unittest.TestCase):
             GateResult("PY-TEST", "pass", 0, ""),
         ]
         self.assertEqual(aggregate_exit_code(results), 1)
+
+    def test_parallel_pytest_uses_bounded_work_stealing_without_restart(self) -> None:
+        self.assertEqual(pytest_worker_arguments(1), ())
+        self.assertEqual(
+            pytest_worker_arguments(4),
+            (
+                "-n",
+                "4",
+                "--dist",
+                "worksteal",
+                "--max-worker-restart=0",
+            ),
+        )
+
+    def test_jobs_are_bounded(self) -> None:
+        self.assertEqual(parse_jobs("8"), 8)
+        with self.assertRaisesRegex(Exception, "between 1 and 32"):
+            parse_jobs("33")
 
     def test_missing_tool_is_blocked(self) -> None:
         missing = ROOT / ".tmp/quality/does-not-exist.exe"

@@ -678,6 +678,7 @@ def validate_workspace_metadata(root: Path) -> list[Violation]:
                 "playwright==1.61.0",
                 "pytest==9.1.1",
                 "pytest-asyncio==1.4.0",
+                "pytest-xdist==3.8.0",
                 "ruff==0.16.0",
             ],
         ),

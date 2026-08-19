@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
 from collections.abc import Sequence
+from contextlib import ExitStack
 from pathlib import Path
 
 from isolated_postgresql import (
@@ -14,6 +16,13 @@ from isolated_postgresql import (
     PostgreSQLUnavailable,
     isolated_postgresql,
 )
+
+
+def worker_count(value: str) -> int:
+    workers = int(value)
+    if not 1 <= workers <= 4:
+        raise argparse.ArgumentTypeError("workers must be between 1 and 4")
+    return workers
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -34,18 +43,31 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--creator-system-entry-point", type=Path)
     parser.add_argument("--creator-system-resources", type=Path)
     parser.add_argument("--creator-system-chromium", type=Path)
+    parser.add_argument("--workers", type=worker_count, default=1)
     args = parser.parse_args(argv)
     root = args.root.resolve()
     client_root = (root / args.postgresql_client_root).resolve()
     try:
-        with isolated_postgresql(root) as postgresql:
+        with ExitStack() as stack:
+            active_workers = (
+                1 if args.creator_system_entry_point is not None else args.workers
+            )
+            postgresql_workers = [
+                stack.enter_context(isolated_postgresql(root))
+                for _ in range(active_workers)
+            ]
             environment = {
                 key: value
                 for key, value in os.environ.items()
                 if not key.startswith("ARMI_")
             }
             environment["S003_POSTGRESQL_CLIENT_ROOT"] = str(client_root)
-            environment["S009_ADMIN_DSN"] = postgresql.admin_dsn
+            if active_workers == 1:
+                environment["S009_ADMIN_DSN"] = postgresql_workers[0].admin_dsn
+            else:
+                environment["ARMI_TEST_POSTGRESQL_WORKER_DSNS"] = json.dumps(
+                    [postgresql.admin_dsn for postgresql in postgresql_workers]
+                )
             if args.s026_live_environment_root is not None:
                 environment["S026_LIVE_ENVIRONMENT_ROOT"] = str(
                     args.s026_live_environment_root.resolve()
@@ -75,6 +97,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                         file=sys.stderr,
                     )
                     return 2
+                assert args.creator_system_entry_point is not None
+                assert args.creator_system_resources is not None
+                assert args.creator_system_chromium is not None
                 environment["ARMI_CREATOR_SYSTEM_ENTRY_POINT"] = str(
                     args.creator_system_entry_point.resolve()
                 )
@@ -100,6 +125,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 pytest_command.extend(("-m", "creator_system"))
             else:
                 pytest_command.extend(("-m", "not creator_system"))
+                if args.workers > 1:
+                    pytest_command.extend(
+                        (
+                            "-n",
+                            str(args.workers),
+                            "--dist",
+                            "worksteal",
+                            "--max-worker-restart=0",
+                        )
+                    )
             if test_expression is not None:
                 pytest_command.extend(("-k", test_expression))
             completed = subprocess.run(

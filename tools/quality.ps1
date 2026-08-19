@@ -3,6 +3,8 @@ param(
     [string[]]$Gate,
     [switch]$Release,
     [switch]$System,
+    [ValidateRange(1, 32)]
+    [int]$Jobs = [Math]::Min(8, [Math]::Max(2, [Math]::Floor([Environment]::ProcessorCount / 3))),
     [string]$ToolRoot = (Join-Path (Split-Path -Parent $PSScriptRoot) '.armi-tools')
 )
 
@@ -35,7 +37,9 @@ $arguments = @(
     '--root',
     $root,
     '--tool-root',
-    $resolvedToolRoot
+    $resolvedToolRoot,
+    '--jobs',
+    $Jobs
 )
 foreach ($gateId in $Gate) {
     $arguments += @('--gate', $gateId)
