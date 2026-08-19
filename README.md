@@ -127,7 +127,12 @@ uv run armi stop --environment-root C:\path\to\environment
 
 # System：Release + 隔离 PostgreSQL + 固定 Chromium + 真实 Creator 全链路
 .\tools\quality.ps1 -System
+
+# 显式并发预算；1 表示完全串行，适合复现并发相关问题
+.\tools\quality.ps1 -System -Jobs 1
 ```
+
+门禁默认按逻辑处理器数自动选择并发预算，最多同时调度 8 项；Python 测试最多使用 8 个 worker，PostgreSQL 测试最多使用 4 个相互隔离的临时容器。可以用 `-Jobs 1..32` 覆盖预算，其中 `-Jobs 1` 同时关闭 pytest 多进程和门禁并行。构建、wheel 安装、浏览器合同和 Creator 系统旅程仍按真实产物依赖顺序执行，失败的前置门禁只跳过其下游，不阻止无关检查完成。
 
 `System` 只使用随机回环端口、临时数据库、临时环境根、构建 wheel 和固定本机 Chromium，结束后清理 Runtime、浏览器与 PostgreSQL 容器。真实模型、网页搜索、语音、摄像头、QQ 真机和付费 Provider 仍属于独立 live gate；未运行时不能计入 `System` 通过，也不能把 `blocked` 写成测试失败或测试通过。`-Gate WHEEL-INSTALL`、`PG-INTEGRATION`、`BROWSER-CONTRACT`、`CREATOR-SYSTEM` 可用于定向定位，且不能与 `-Release` 或 `-System` 混用。
 

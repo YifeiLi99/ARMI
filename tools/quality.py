@@ -8,8 +8,10 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import tomllib
 from collections.abc import Callable, Iterable
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -61,6 +63,7 @@ class GateResult:
     status: str
     exit_code: int
     output: str
+    duration_seconds: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -72,6 +75,13 @@ class Gate:
     prepare: Callable[[], None] | None = None
     validate: Callable[[], tuple[bool, str]] | None = None
     blocked_exit_codes: tuple[int, ...] = ()
+    workers: int = 1
+
+
+@dataclass(frozen=True)
+class ScheduleOutcome:
+    results: tuple[GateResult, ...]
+    interrupted: bool = False
 
 
 def aggregate_exit_code(results: Iterable[GateResult]) -> int:
@@ -116,10 +126,21 @@ def safe_remove_output(path: Path, quality_root: Path) -> None:
 
 
 def run_gate(gate: Gate, environment: dict[str, str]) -> GateResult:
+    started = time.perf_counter()
+
+    def finish(status: str, exit_code: int, output: str) -> GateResult:
+        return GateResult(
+            gate.gate_id,
+            status,
+            exit_code,
+            output,
+            time.perf_counter() - started,
+        )
+
     missing = [path for path in gate.required_paths if not path.is_file()]
     if missing:
         names = ", ".join(path.name for path in missing)
-        return GateResult(gate.gate_id, "blocked", 2, f"missing required tool: {names}")
+        return finish("blocked", 2, f"missing required tool: {names}")
     try:
         if gate.prepare:
             gate.prepare()
@@ -134,21 +155,153 @@ def run_gate(gate: Gate, environment: dict[str, str]) -> GateResult:
             errors="replace",
         )
     except OSError as error:
-        return GateResult(gate.gate_id, "blocked", 2, str(error))
+        return finish("blocked", 2, str(error))
     output = "\n".join(
         item.strip() for item in (completed.stdout, completed.stderr) if item.strip()
     )
     if completed.returncode in gate.blocked_exit_codes:
-        return GateResult(gate.gate_id, "blocked", completed.returncode, output)
+        return finish("blocked", completed.returncode, output)
     if completed.returncode != 0:
-        return GateResult(gate.gate_id, "fail", completed.returncode, output)
+        return finish("fail", completed.returncode, output)
     if gate.validate:
         valid, validation_output = gate.validate()
         if validation_output:
             output = "\n".join(item for item in (output, validation_output) if item)
         if not valid:
-            return GateResult(gate.gate_id, "fail", 1, output)
-    return GateResult(gate.gate_id, "pass", 0, output)
+            return finish("fail", 1, output)
+    return finish("pass", 0, output)
+
+
+_GATE_DEPENDENCIES = {
+    "BUILD-PY": ("BUILD-WEB",),
+    "WHEEL-INSTALL": ("BUILD-PY",),
+    "BROWSER-CONTRACT": ("BUILD-WEB",),
+    "CREATOR-SYSTEM": ("WHEEL-INSTALL",),
+}
+
+
+def selected_gate_dependencies(selected: Iterable[str]) -> dict[str, tuple[str, ...]]:
+    ordered = tuple(dict.fromkeys(selected))
+    selected_set = frozenset(ordered)
+    dependencies: dict[str, tuple[str, ...]] = {}
+    for gate_id in ordered:
+        declared = _GATE_DEPENDENCIES.get(gate_id, ())
+        current = tuple(item for item in declared if item in selected_set)
+        if gate_id != "QLT-LOCKED" and "QLT-LOCKED" in selected_set:
+            current = ("QLT-LOCKED", *current)
+        dependencies[gate_id] = current
+    return dependencies
+
+
+def schedule_gates(
+    selected: Iterable[str],
+    available: dict[str, Gate],
+    environment: dict[str, str],
+    *,
+    jobs: int,
+    runner: Callable[[Gate, dict[str, str]], GateResult] = run_gate,
+) -> ScheduleOutcome:
+    ordered = tuple(dict.fromkeys(selected))
+    dependencies = selected_gate_dependencies(ordered)
+    pending = set(ordered)
+    results: dict[str, GateResult] = {}
+    running: dict[Future[GateResult], str] = {}
+    interrupted = False
+    executor = ThreadPoolExecutor(max_workers=jobs, thread_name_prefix="armi-quality")
+    try:
+        while pending or running:
+            for gate_id in ordered:
+                if gate_id not in pending:
+                    continue
+                prerequisites = dependencies[gate_id]
+                if not all(item in results for item in prerequisites):
+                    continue
+                unsuccessful = tuple(
+                    item for item in prerequisites if results[item].status != "pass"
+                )
+                if unsuccessful:
+                    reason = ", ".join(
+                        f"{item}={results[item].status}" for item in unsuccessful
+                    )
+                    results[gate_id] = GateResult(
+                        gate_id,
+                        "skipped",
+                        0,
+                        f"prerequisite did not pass: {reason}",
+                    )
+                    pending.remove(gate_id)
+                    continue
+                if len(running) >= jobs:
+                    break
+                running[executor.submit(runner, available[gate_id], environment)] = (
+                    gate_id
+                )
+                pending.remove(gate_id)
+
+            if not running:
+                if pending:
+                    unresolved = ", ".join(sorted(pending))
+                    raise RuntimeError(f"quality gate dependency cycle: {unresolved}")
+                break
+
+            try:
+                completed, _ = wait(tuple(running), return_when=FIRST_COMPLETED)
+            except KeyboardInterrupt:
+                interrupted = True
+                break
+            for future in completed:
+                gate_id = running.pop(future)
+                try:
+                    results[gate_id] = future.result()
+                except KeyboardInterrupt:
+                    results[gate_id] = GateResult(
+                        gate_id,
+                        "fail",
+                        1,
+                        "quality gate was interrupted",
+                    )
+                    interrupted = True
+                except Exception as error:
+                    results[gate_id] = GateResult(
+                        gate_id,
+                        "fail",
+                        1,
+                        f"gate runner raised {type(error).__name__}: {error}",
+                    )
+            if interrupted:
+                break
+
+        if interrupted:
+            for gate_id in ordered:
+                if gate_id in pending:
+                    results[gate_id] = GateResult(
+                        gate_id,
+                        "skipped",
+                        0,
+                        "quality run was interrupted before this gate started",
+                    )
+            pending.clear()
+            wait(tuple(running))
+            for future, gate_id in running.items():
+                try:
+                    results[gate_id] = future.result()
+                except KeyboardInterrupt:
+                    results[gate_id] = GateResult(
+                        gate_id,
+                        "fail",
+                        1,
+                        "gate runner was interrupted: KeyboardInterrupt",
+                    )
+                except Exception as error:
+                    results[gate_id] = GateResult(
+                        gate_id,
+                        "fail",
+                        1,
+                        f"gate runner raised {type(error).__name__}: {error}",
+                    )
+    finally:
+        executor.shutdown(wait=True, cancel_futures=False)
+    return ScheduleOutcome(tuple(results[gate_id] for gate_id in ordered), interrupted)
 
 
 def workspace_distribution_names(root: Path) -> tuple[str, ...]:
@@ -298,6 +451,7 @@ def commands(root: Path, tool_root: Path, jobs: int) -> dict[str, Gate]:
             ),
             root,
             common_python,
+            workers=min(8, jobs),
         ),
         "ARC-SURFACE": Gate(
             "ARC-SURFACE",
@@ -423,6 +577,7 @@ def commands(root: Path, tool_root: Path, jobs: int) -> dict[str, Gate]:
             root,
             (venv_python, root / "tools/run_postgresql_integration.py"),
             blocked_exit_codes=(2,),
+            workers=min(4, jobs),
         ),
         "BROWSER-CONTRACT": Gate(
             "BROWSER-CONTRACT",
@@ -482,13 +637,15 @@ def main() -> int:
     root = args.root.resolve()
     tool_root = args.tool_root.resolve() if args.tool_root else root / ".armi-tools"
     selected = tuple(
-        args.gate
-        or (
-            SYSTEM_GATE_ORDER
-            if args.system
-            else RELEASE_GATE_ORDER
-            if args.release
-            else FAST_GATE_ORDER
+        dict.fromkeys(
+            args.gate
+            or (
+                SYSTEM_GATE_ORDER
+                if args.system
+                else RELEASE_GATE_ORDER
+                if args.release
+                else FAST_GATE_ORDER
+            )
         )
     )
     available = commands(root, tool_root, args.jobs)
@@ -501,17 +658,30 @@ def main() -> int:
             "PLAYWRIGHT_BROWSERS_PATH": str(tool_root / "installs/playwright"),
         }
     )
-    results: list[GateResult] = []
-    for gate_id in selected:
-        result = run_gate(available[gate_id], environment)
-        results.append(result)
-        print(f"{result.gate_id}\t{result.status}\texit={result.exit_code}")
+    started = time.perf_counter()
+    outcome = schedule_gates(
+        selected,
+        available,
+        environment,
+        jobs=args.jobs,
+    )
+    results = outcome.results
+    for result in results:
+        workers = available[result.gate_id].workers
+        print(
+            f"{result.gate_id}\t{result.status}\texit={result.exit_code}"
+            f"\tduration={result.duration_seconds:.2f}s\tworkers={workers}"
+        )
         if result.output:
             for line in result.output.splitlines():
                 print(f"  {line}")
-    exit_code = aggregate_exit_code(results)
+    exit_code = 1 if outcome.interrupted else aggregate_exit_code(results)
     status = "pass" if exit_code == 0 else "blocked" if exit_code == 2 else "fail"
-    print(f"QUALITY\t{status}\texit={exit_code}")
+    duration = time.perf_counter() - started
+    print(
+        f"QUALITY\t{status}\texit={exit_code}\tduration={duration:.2f}s"
+        f"\tjobs={args.jobs}"
+    )
     return exit_code
 
 

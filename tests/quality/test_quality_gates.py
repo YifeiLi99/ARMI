@@ -8,6 +8,7 @@ import tempfile
 import tomllib
 import unittest
 from pathlib import Path
+from threading import Event
 
 from tools.check_repository_hygiene import scan_paths
 from tools.quality import (
@@ -17,6 +18,8 @@ from tools.quality import (
     parse_jobs,
     pytest_worker_arguments,
     run_gate,
+    schedule_gates,
+    selected_gate_dependencies,
     workspace_distribution_names,
 )
 from tools.validate_wheel_environment import validate_wheel_environment
@@ -56,6 +59,169 @@ class QualityGateTests(unittest.TestCase):
         self.assertEqual(parse_jobs("8"), 8)
         with self.assertRaisesRegex(Exception, "between 1 and 32"):
             parse_jobs("33")
+
+    def test_selected_dependencies_do_not_add_unrequested_gates(self) -> None:
+        self.assertEqual(selected_gate_dependencies(("BUILD-PY",)), {"BUILD-PY": ()})
+        self.assertEqual(
+            selected_gate_dependencies(
+                ("QLT-LOCKED", "BUILD-WEB", "BUILD-PY", "WHEEL-INSTALL")
+            ),
+            {
+                "QLT-LOCKED": (),
+                "BUILD-WEB": ("QLT-LOCKED",),
+                "BUILD-PY": ("QLT-LOCKED", "BUILD-WEB"),
+                "WHEEL-INSTALL": ("QLT-LOCKED", "BUILD-PY"),
+            },
+        )
+
+    def test_independent_gates_overlap(self) -> None:
+        second_started = Event()
+
+        def runner(gate: Gate, environment: dict[str, str]) -> GateResult:
+            del environment
+            if gate.gate_id == "PY-FORMAT":
+                self.assertTrue(second_started.wait(2))
+            else:
+                second_started.set()
+            return GateResult(gate.gate_id, "pass", 0, "")
+
+        available = {
+            gate_id: Gate(gate_id, ("unused",), ROOT)
+            for gate_id in ("PY-FORMAT", "PY-LINT")
+        }
+        outcome = schedule_gates(
+            tuple(available),
+            available,
+            os.environ.copy(),
+            jobs=2,
+            runner=runner,
+        )
+        self.assertFalse(outcome.interrupted)
+        self.assertEqual(
+            [result.status for result in outcome.results], ["pass", "pass"]
+        )
+
+    def test_failed_prerequisite_skips_only_its_dependents(self) -> None:
+        def runner(gate: Gate, environment: dict[str, str]) -> GateResult:
+            del environment
+            status = "fail" if gate.gate_id == "QLT-LOCKED" else "pass"
+            return GateResult(gate.gate_id, status, 1 if status == "fail" else 0, "")
+
+        selected = ("QLT-LOCKED", "PY-TEST")
+        available = {gate_id: Gate(gate_id, ("unused",), ROOT) for gate_id in selected}
+        outcome = schedule_gates(
+            selected,
+            available,
+            os.environ.copy(),
+            jobs=2,
+            runner=runner,
+        )
+        self.assertEqual(
+            [result.status for result in outcome.results],
+            ["fail", "skipped"],
+        )
+        self.assertIn("QLT-LOCKED=fail", outcome.results[1].output)
+        self.assertEqual(aggregate_exit_code(outcome.results), 1)
+
+    def test_blocked_prerequisite_is_not_reported_as_failure(self) -> None:
+        def runner(gate: Gate, environment: dict[str, str]) -> GateResult:
+            del environment
+            status = "blocked" if gate.gate_id == "QLT-LOCKED" else "pass"
+            return GateResult(
+                gate.gate_id,
+                status,
+                2 if status == "blocked" else 0,
+                "",
+            )
+
+        selected = ("QLT-LOCKED", "PY-TEST")
+        available = {gate_id: Gate(gate_id, ("unused",), ROOT) for gate_id in selected}
+        outcome = schedule_gates(
+            selected,
+            available,
+            os.environ.copy(),
+            jobs=2,
+            runner=runner,
+        )
+        self.assertEqual(
+            [result.status for result in outcome.results],
+            ["blocked", "skipped"],
+        )
+        self.assertEqual(aggregate_exit_code(outcome.results), 2)
+
+    def test_independent_gate_continues_after_failure(self) -> None:
+        def runner(gate: Gate, environment: dict[str, str]) -> GateResult:
+            del environment
+            status = "fail" if gate.gate_id == "PY-FORMAT" else "pass"
+            return GateResult(gate.gate_id, status, 1 if status == "fail" else 0, "")
+
+        selected = ("PY-FORMAT", "PY-LINT")
+        available = {gate_id: Gate(gate_id, ("unused",), ROOT) for gate_id in selected}
+        outcome = schedule_gates(
+            selected,
+            available,
+            os.environ.copy(),
+            jobs=2,
+            runner=runner,
+        )
+        self.assertEqual(
+            [result.status for result in outcome.results],
+            ["fail", "pass"],
+        )
+
+    def test_one_job_is_strictly_serial(self) -> None:
+        first_finished = Event()
+
+        def runner(gate: Gate, environment: dict[str, str]) -> GateResult:
+            del environment
+            if gate.gate_id == "PY-FORMAT":
+                first_finished.set()
+            else:
+                self.assertTrue(first_finished.is_set())
+            return GateResult(gate.gate_id, "pass", 0, "")
+
+        selected = ("PY-FORMAT", "PY-LINT", "WEB-LINT")
+        available = {gate_id: Gate(gate_id, ("unused",), ROOT) for gate_id in selected}
+        outcome = schedule_gates(
+            selected,
+            available,
+            os.environ.copy(),
+            jobs=1,
+            runner=runner,
+        )
+        self.assertEqual(
+            [result.gate_id for result in outcome.results],
+            list(selected),
+        )
+
+    def test_interrupt_waits_for_running_gate_cleanup(self) -> None:
+        release = Event()
+        cleaned = Event()
+
+        def runner(gate: Gate, environment: dict[str, str]) -> GateResult:
+            del environment
+            if gate.gate_id == "PY-FORMAT":
+                release.set()
+                raise KeyboardInterrupt
+            self.assertTrue(release.wait(2))
+            cleaned.set()
+            return GateResult(gate.gate_id, "pass", 0, "")
+
+        selected = ("PY-FORMAT", "PY-LINT")
+        available = {gate_id: Gate(gate_id, ("unused",), ROOT) for gate_id in selected}
+        outcome = schedule_gates(
+            selected,
+            available,
+            os.environ.copy(),
+            jobs=2,
+            runner=runner,
+        )
+        self.assertTrue(outcome.interrupted)
+        self.assertTrue(cleaned.is_set())
+        self.assertEqual(
+            [result.status for result in outcome.results],
+            ["fail", "pass"],
+        )
 
     def test_missing_tool_is_blocked(self) -> None:
         missing = ROOT / ".tmp/quality/does-not-exist.exe"
