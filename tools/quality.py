@@ -28,17 +28,24 @@ GATE_ORDER = (
     "WEB-TEST",
     "BUILD-WEB",
     "BUILD-PY",
+    "WHEEL-INSTALL",
+    "PG-INTEGRATION",
 )
 FAST_GATE_ORDER = (
+    "QLT-LOCKED",
     "PY-FORMAT",
     "PY-LINT",
     "PY-TYPE",
     "PY-TEST",
+    "ARC-SURFACE",
+    "SEC-REPOSITORY",
     "WEB-FORMAT",
     "WEB-LINT",
     "WEB-TYPE",
     "WEB-TEST",
 )
+RELEASE_GATE_ORDER = (*FAST_GATE_ORDER, "BUILD-WEB", "BUILD-PY", "WHEEL-INSTALL")
+SYSTEM_GATE_ORDER = (*RELEASE_GATE_ORDER, "PG-INTEGRATION")
 
 
 @dataclass(frozen=True)
@@ -57,6 +64,7 @@ class Gate:
     required_paths: tuple[Path, ...] = ()
     prepare: Callable[[], None] | None = None
     validate: Callable[[], tuple[bool, str]] | None = None
+    blocked_exit_codes: tuple[int, ...] = ()
 
 
 def aggregate_exit_code(results: Iterable[GateResult]) -> int:
@@ -100,6 +108,8 @@ def run_gate(gate: Gate, environment: dict[str, str]) -> GateResult:
     output = "\n".join(
         item.strip() for item in (completed.stdout, completed.stderr) if item.strip()
     )
+    if completed.returncode in gate.blocked_exit_codes:
+        return GateResult(gate.gate_id, "blocked", completed.returncode, output)
     if completed.returncode != 0:
         return GateResult(gate.gate_id, "fail", completed.returncode, output)
     if gate.validate:
@@ -138,6 +148,7 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
     pyright = root / "tools/toolchain-node/node_modules/pyright/index.js"
     quality_root = root / ".tmp/quality"
     python_dist = quality_root / "python-dist"
+    wheel_venv = quality_root / "wheel-venv"
 
     def validate_python_build() -> tuple[bool, str]:
         artifacts = sorted(
@@ -245,7 +256,7 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
         ),
         "PY-TEST": Gate(
             "PY-TEST",
-            py("-B", "-m", "pytest"),
+            py("-B", "-m", "pytest", "-m", "not postgresql"),
             root,
             common_python,
         ),
@@ -332,6 +343,45 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
             (node, managed_python, venv_python),
             validate=validate_creator_build,
         ),
+        "WHEEL-INSTALL": Gate(
+            "WHEEL-INSTALL",
+            (
+                str(managed_python),
+                "-B",
+                "tools/verify_wheel_install.py",
+                "--root",
+                str(root),
+                "--tool-root",
+                str(tool_root),
+                "--dist",
+                str(python_dist),
+                "--venv",
+                str(wheel_venv),
+                "--dependency-environment",
+                str(root / ".venv"),
+            ),
+            root,
+            (
+                managed_python,
+                uv,
+                venv_python,
+                root / "tools/verify_wheel_install.py",
+            ),
+            prepare=lambda: safe_remove_output(wheel_venv, quality_root),
+            blocked_exit_codes=(2,),
+        ),
+        "PG-INTEGRATION": Gate(
+            "PG-INTEGRATION",
+            py(
+                "-B",
+                "tools/run_postgresql_integration.py",
+                "--root",
+                str(root),
+            ),
+            root,
+            (venv_python, root / "tools/run_postgresql_integration.py"),
+            blocked_exit_codes=(2,),
+        ),
     }
 
 
@@ -343,12 +393,23 @@ def main() -> int:
         "--root", type=Path, default=Path(__file__).resolve().parents[1]
     )
     parser.add_argument("--tool-root", type=Path)
-    parser.add_argument("--gate", action="append", choices=GATE_ORDER)
-    parser.add_argument("--release", action="store_true")
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument("--gate", action="append", choices=GATE_ORDER)
+    selection.add_argument("--release", action="store_true")
+    selection.add_argument("--system", action="store_true")
     args = parser.parse_args()
     root = args.root.resolve()
     tool_root = args.tool_root.resolve() if args.tool_root else root / ".armi-tools"
-    selected = tuple(args.gate or (GATE_ORDER if args.release else FAST_GATE_ORDER))
+    selected = tuple(
+        args.gate
+        or (
+            SYSTEM_GATE_ORDER
+            if args.system
+            else RELEASE_GATE_ORDER
+            if args.release
+            else FAST_GATE_ORDER
+        )
+    )
     available = commands(root, tool_root)
     environment = os.environ.copy()
     environment.update(

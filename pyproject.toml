@@ -56,6 +56,9 @@ members = [
 [tool.pytest.ini_options]
 addopts = ["--strict-config", "--strict-markers", "--import-mode=importlib"]
 asyncio_mode = "strict"
+markers = [
+    "postgresql: requires the isolated PostgreSQL integration environment",
+]
 norecursedirs = [".*", "build", "dist", "CVS", "_darcs", "{arch}", "*.egg", "node_modules", "venv", "src"]
 testpaths = [
     "tests",

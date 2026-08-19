@@ -2,6 +2,7 @@
 param(
     [string[]]$Gate,
     [switch]$Release,
+    [switch]$System,
     [string]$ToolRoot = (Join-Path (Split-Path -Parent $PSScriptRoot) '.armi-tools')
 )
 
@@ -13,6 +14,11 @@ if ($PSVersionTable.PSEdition -ne 'Core' -or $PSVersionTable.PSVersion.Major -lt
 }
 if (-not $IsWindows -or [Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne 'X64') {
     throw 'QLT-PLATFORM: only Windows x86_64 is supported.'
+}
+$gateSelected = $PSBoundParameters.ContainsKey('Gate')
+if (($gateSelected -and ($Release -or $System)) -or ($Release -and $System)) {
+    Write-Error 'QLT-SELECTION: -Gate, -Release, and -System are mutually exclusive.'
+    exit 1
 }
 
 $root = (Resolve-Path -LiteralPath (Split-Path -Parent $PSScriptRoot)).Path
@@ -36,6 +42,9 @@ foreach ($gateId in $Gate) {
 }
 if ($Release) {
     $arguments += '--release'
+}
+if ($System) {
+    $arguments += '--system'
 }
 
 $previousPythonIoEncoding = $env:PYTHONIOENCODING

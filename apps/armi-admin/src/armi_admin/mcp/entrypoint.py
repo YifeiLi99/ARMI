@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import argparse
 import sys
+from collections.abc import Sequence
 
 from armi_admin.application import (
     AdminConfigError,
@@ -15,9 +17,14 @@ from armi_admin.composition import bootstrap_admin
 from .server import create_admin_server
 
 
-def main() -> None:
+def _parser() -> argparse.ArgumentParser:
+    return argparse.ArgumentParser(prog="armi-admin-mcp")
+
+
+def main(argv: Sequence[str] | None = None) -> None:
     """Load one private binding and hand stdout exclusively to MCPServer."""
 
+    _parser().parse_args(argv)
     try:
         config, config_path = load_admin_config()
         credentials = AdminCredentialPort(

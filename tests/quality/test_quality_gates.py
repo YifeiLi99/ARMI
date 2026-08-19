@@ -41,6 +41,32 @@ class QualityGateTests(unittest.TestCase):
         self.assertEqual(result.status, "blocked")
         self.assertEqual(aggregate_exit_code([result]), 2)
 
+    def test_declared_environment_exit_is_blocked(self) -> None:
+        result = self.run_sample(
+            Gate(
+                "PG-INTEGRATION",
+                (str(VENV_PYTHON), "-c", "raise SystemExit(2)"),
+                ROOT,
+                (VENV_PYTHON,),
+                blocked_exit_codes=(2,),
+            )
+        )
+        self.assertEqual(result.status, "blocked")
+        self.assertEqual(aggregate_exit_code([result]), 2)
+
+    def test_regular_test_failure_is_not_reported_as_blocked(self) -> None:
+        result = self.run_sample(
+            Gate(
+                "PG-INTEGRATION",
+                (str(VENV_PYTHON), "-c", "raise SystemExit(1)"),
+                ROOT,
+                (VENV_PYTHON,),
+                blocked_exit_codes=(2,),
+            )
+        )
+        self.assertEqual(result.status, "fail")
+        self.assertEqual(aggregate_exit_code([result]), 1)
+
     def test_python_format_error_fails_gate(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             sample = Path(temporary) / "bad.py"

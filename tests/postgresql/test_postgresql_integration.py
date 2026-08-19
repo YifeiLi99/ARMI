@@ -26,6 +26,7 @@ from typing import Any, LiteralString, cast
 from uuid import UUID
 
 import psycopg
+import pytest
 import rfc8785
 from armi_activity.api import ActivityViolation
 from armi_admin.application import AdminConfig, AdminCredentialPort
@@ -473,6 +474,7 @@ class _ExternalContentRecognizer:
         )
 
 
+@pytest.mark.postgresql
 @unittest.skipUnless(_ADMIN_DSN, "isolated PostgreSQL 18.4 is not running")
 class PostgreSQLIntegrationTests(unittest.TestCase):
     databases: list[DatabaseFixture]
