@@ -375,6 +375,7 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
                 uv,
                 venv_python,
                 root / "tools/verify_wheel_install.py",
+                root / "tools/validate_wheel_environment.py",
             ),
             prepare=lambda: safe_remove_output(wheel_venv, quality_root),
             blocked_exit_codes=(2,),

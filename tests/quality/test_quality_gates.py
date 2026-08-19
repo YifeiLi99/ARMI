@@ -17,6 +17,8 @@ from tools.quality import (
     run_gate,
     workspace_distribution_names,
 )
+from tools.validate_wheel_environment import validate_wheel_environment
+from tools.verify_wheel_install import snapshot_locked_dependencies
 
 ROOT = Path(__file__).resolve().parents[2]
 VENV_PYTHON = ROOT / ".venv/Scripts/python.exe"
@@ -229,6 +231,82 @@ class QualityGateTests(unittest.TestCase):
                 workspace_distribution_names(root),
                 ("armi_first", "armi_second"),
             )
+
+    def test_wheel_dependency_snapshot_excludes_editable_source_hooks(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            dependencies = root / "dependencies"
+            target = root / "target"
+            dependencies.mkdir()
+            target.mkdir()
+            third_party = dependencies / "third_party"
+            third_party.mkdir()
+            (third_party / "__init__.py").write_text("VALUE = 1\n", encoding="utf-8")
+            third_party_metadata = dependencies / "third_party-1.0.dist-info"
+            third_party_metadata.mkdir()
+            (third_party_metadata / "METADATA").write_text(
+                "Name: third-party\nVersion: 1.0\n", encoding="utf-8"
+            )
+            (dependencies / "armi_kernel.pth").write_text(
+                "C:/workspace/packages/armi-kernel/src\n", encoding="utf-8"
+            )
+            (dependencies / "pywin32.pth").write_text(
+                "win32\nwin32\\lib\npythonwin\nimport pywin32_bootstrap\n",
+                encoding="utf-8",
+            )
+            armi_metadata = dependencies / "armi_kernel-0.0.0.dist-info"
+            armi_metadata.mkdir()
+            (armi_metadata / "METADATA").write_text(
+                "Name: armi-kernel\nVersion: 0.0.0\n", encoding="utf-8"
+            )
+
+            snapshot_locked_dependencies(
+                dependencies,
+                target,
+                frozenset({"armi_kernel"}),
+            )
+
+            self.assertTrue((target / "third_party/__init__.py").is_file())
+            self.assertTrue((target / "third_party-1.0.dist-info/METADATA").is_file())
+            self.assertTrue((target / "pywin32.pth").is_file())
+            self.assertFalse((target / "armi_kernel.pth").exists())
+            self.assertFalse((target / "armi_kernel-0.0.0.dist-info").exists())
+
+    def test_wheel_environment_rejects_a_missing_declared_dependency(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            wheel_site = root / "site-packages"
+            metadata = wheel_site / "sample_owner-1.0.dist-info"
+            metadata.mkdir(parents=True)
+            (metadata / "METADATA").write_text(
+                "\n".join(
+                    (
+                        "Metadata-Version: 2.4",
+                        "Name: sample-owner",
+                        "Version: 1.0",
+                        "Requires-Dist: definitely-missing==1.0",
+                        "",
+                    )
+                ),
+                encoding="utf-8",
+            )
+            contract = root / "contract.json"
+            contract.write_text(
+                json.dumps(
+                    {
+                        "distributions": [],
+                        "forbidden_paths": [],
+                        "wheel_site": str(wheel_site),
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "WHEEL-INSTALL-MISSING-DEPENDENCY",
+            ):
+                validate_wheel_environment(contract)
 
 
 if __name__ == "__main__":
