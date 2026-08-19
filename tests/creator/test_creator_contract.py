@@ -27,8 +27,8 @@ from armi_runtime.interfaces.creator_contract import (
     WaitingOutcomeResponse,
 )
 from armi_runtime.interfaces.creator_openapi import (
-    _create_schema_app,
     build_creator_openapi,
+    create_creator_openapi_app,
 )
 from fastapi.routing import APIRoute
 from pydantic import ValidationError
@@ -64,12 +64,12 @@ def rejected() -> dict[str, object]:
 
 class CreatorContractTests(unittest.TestCase):
     def test_openapi_paths_are_the_real_public_runtime_routes(self) -> None:
-        app = _create_schema_app()
+        app = create_creator_openapi_app()
         runtime_routes = {
             (method.lower(), route.path)
             for route in app.routes
             if isinstance(route, APIRoute) and route.include_in_schema
-            for method in route.methods
+            for method in route.methods or set()
             if method != "HEAD"
         }
         schema = build_creator_openapi()

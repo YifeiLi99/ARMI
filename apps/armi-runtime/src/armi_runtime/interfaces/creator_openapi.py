@@ -20,6 +20,7 @@ from .creator_contract import (
     CreatorRelationshipBoundaryRequest,
     CreatorSceneCreateRequest,
     DataRightsOrderRequest,
+    QQChannelHealthResponse,
     Readiness,
 )
 from .static_assets import StaticAssetStore
@@ -744,15 +745,19 @@ async def _unused_async() -> None:
     raise AssertionError("schema construction must not invoke Runtime dependencies")
 
 
+async def _unused_qq_health() -> QQChannelHealthResponse:
+    raise AssertionError("schema construction must not invoke Runtime dependencies")
+
+
 def _unused_sync() -> Any:
     raise AssertionError("schema construction must not invoke Runtime dependencies")
 
 
-def _create_schema_app() -> FastAPI:
+def create_creator_openapi_app() -> FastAPI:
     app = create_runtime_app(
         readiness=lambda: Readiness.NOT_READY,
         runtime_status=_unused_sync,
-        qq_channel_health=_unused_async,
+        qq_channel_health=_unused_qq_health,
         assets=StaticAssetStore({}),
         browser_sessions=None,
         expected_authority="127.0.0.1:6198",
@@ -768,15 +773,21 @@ def _create_schema_app() -> FastAPI:
 def build_creator_openapi() -> dict[str, object]:
     """Build the public schema without starting Runtime or external resources."""
 
-    app = _create_schema_app()
-    schema = cast(dict[str, Any], app.openapi())
+    app = create_creator_openapi_app()
+    schema: dict[str, Any] = app.openapi()
     schema.pop("servers", None)
-    for path_item in cast(dict[str, dict[str, Any]], schema["paths"]).values():
-        for operation in path_item.values():
-            if not isinstance(operation, dict):
+    paths = cast(dict[str, object], schema["paths"])
+    for raw_path_item in paths.values():
+        if not isinstance(raw_path_item, dict):
+            continue
+        path_item = cast(dict[str, object], raw_path_item)
+        for raw_operation in path_item.values():
+            if not isinstance(raw_operation, dict):
                 continue
-            responses = operation.get("responses")
-            if isinstance(responses, dict):
+            operation = cast(dict[str, object], raw_operation)
+            raw_responses = operation.get("responses")
+            if isinstance(raw_responses, dict):
+                responses = cast(dict[str, object], raw_responses)
                 responses.pop("422", None)
             operation_id = operation.get("operationId")
             if isinstance(operation_id, str) and operation_id in _OPERATION_OVERRIDES:
@@ -814,4 +825,4 @@ def build_creator_openapi() -> dict[str, object]:
     return cast(dict[str, object], schema)
 
 
-__all__ = ("build_creator_openapi",)
+__all__ = ("build_creator_openapi", "create_creator_openapi_app")
