@@ -189,6 +189,7 @@ def compose_data_rights_participants(
         "interaction",
         "perception",
         "live-voice",
+        "live-vision",
         "evidence",
         "opportunity",
         "experience",

@@ -54,6 +54,22 @@ voice:
   llm_model: doubao-seed-character-260628
   tts_resource_id: seed-tts-2.0
   tts_voice_type: zh_female_vv_uranus_bigtts
+vision:
+  enabled: false
+  auto_start: true
+  width: 1280
+  height: 720
+  fps: 5
+  change_sample_hz: 2
+  change_thumbnail_width: 160
+  change_thumbnail_height: 90
+  change_threshold: 0.18
+  stable_change_samples: 3
+  automatic_cooldown_seconds: 30
+  periodic_refresh_seconds: 1800
+  hourly_observation_limit: 12
+  frame_retention_seconds: 86400
+  reconnect_seconds: 30
 
 artifacts:
   max_object_bytes: 104857600

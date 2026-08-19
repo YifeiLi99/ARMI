@@ -20,6 +20,7 @@ from ._application import Diagnostic, ExternalContentPipeline
 from ._data_rights import PostgreSQLPerceptionDataRightsParticipant
 from ._recognizer import ExternalContentRecognizer
 from ._recovery import PerceptionRecoveryParticipant
+from ._visual_attempts import PostgreSQLVisualRecognitionAttempts
 from .api import (
     ExternalContentRecognitionPort,
     ExternalMediaFetchPort,
@@ -99,11 +100,16 @@ def bootstrap_perception_recovery() -> RecoveryParticipant:
     return PerceptionRecoveryParticipant()
 
 
+def bootstrap_visual_recognition_attempts() -> PostgreSQLVisualRecognitionAttempts:
+    return PostgreSQLVisualRecognitionAttempts()
+
+
 __all__ = (
     "PerceptionModule",
     "bootstrap_perception",
     "bootstrap_perception_admin",
     "bootstrap_perception_data_rights",
     "bootstrap_perception_recovery",
+    "bootstrap_visual_recognition_attempts",
     "compose_external_content_pipeline",
 )

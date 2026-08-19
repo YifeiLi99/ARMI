@@ -18,6 +18,7 @@ dependencies = [
     "armi-expression==0.0.0",
     "armi-interaction==0.0.0",
     "armi-live-voice==0.0.0",
+    "armi-live-vision==0.0.0",
     "armi-kernel==0.0.0",
     "armi-attention==0.0.0",
     "armi-perception==0.0.0",
@@ -41,6 +42,8 @@ dependencies = [
     "pydantic==2.13.4",
     "rfc8785==0.1.4",
     "sounddevice==0.5.5",
+    "comtypes==1.4.16",
+    "opencv-python-headless==4.14.0.94",
     "websockets==17.0",
     "uvicorn==0.51.0",
 ]
@@ -77,6 +80,7 @@ armi-mood = { workspace = true }
 armi-prompt = { workspace = true }
 armi-interaction = { workspace = true }
 armi-live-voice = { workspace = true }
+armi-live-vision = { workspace = true }
 armi-perception = { workspace = true }
 
 [build-system]

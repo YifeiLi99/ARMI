@@ -23,6 +23,7 @@ members = [
     "armi-interaction",
     "armi-kernel",
     "armi-live-voice",
+    "armi-live-vision",
     "armi-material",
     "armi-memory",
     "armi-mood",
@@ -163,6 +164,7 @@ dependencies = [
     { name = "armi-expression" },
     { name = "armi-interaction" },
     { name = "armi-kernel" },
+    { name = "armi-live-vision" },
     { name = "armi-material" },
     { name = "armi-mood" },
     { name = "armi-perception" },
@@ -189,6 +191,7 @@ requires-dist = [
     { name = "armi-expression", editable = "modules/expression" },
     { name = "armi-interaction", editable = "modules/interaction" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
+    { name = "armi-live-vision", editable = "modules/live-vision" },
     { name = "armi-material", editable = "modules/material" },
     { name = "armi-mood", editable = "modules/mood" },
     { name = "armi-perception", editable = "modules/perception" },
@@ -584,6 +587,31 @@ requires-dist = [
 ]
 
 [[package]]
+name = "armi-live-vision"
+version = "0.0.0"
+source = { editable = "modules/live-vision" }
+dependencies = [
+    { name = "armi-artifact-store" },
+    { name = "armi-attention" },
+    { name = "armi-data-rights" },
+    { name = "armi-evidence" },
+    { name = "armi-kernel" },
+    { name = "armi-perception" },
+    { name = "armi-runtime-foundation" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "armi-artifact-store", editable = "packages/armi-artifact-store" },
+    { name = "armi-attention", editable = "modules/attention" },
+    { name = "armi-data-rights", editable = "modules/data-rights" },
+    { name = "armi-evidence", editable = "modules/evidence" },
+    { name = "armi-kernel", editable = "packages/armi-kernel" },
+    { name = "armi-perception", editable = "modules/perception" },
+    { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
+]
+
+[[package]]
 name = "armi-material"
 version = "0.0.0"
 source = { editable = "modules/material" }
@@ -761,6 +789,7 @@ dependencies = [
     { name = "armi-interaction" },
     { name = "armi-kernel" },
     { name = "armi-live-voice" },
+    { name = "armi-live-vision" },
     { name = "armi-material" },
     { name = "armi-memory" },
     { name = "armi-mood" },
@@ -781,6 +810,8 @@ dependencies = [
     { name = "pydantic" },
     { name = "rfc8785" },
     { name = "sounddevice" },
+    { name = "comtypes" },
+    { name = "opencv-python-headless" },
     { name = "uvicorn" },
     { name = "websockets" },
 ]
@@ -805,6 +836,7 @@ requires-dist = [
     { name = "armi-interaction", editable = "modules/interaction" },
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-live-voice", editable = "modules/live-voice" },
+    { name = "armi-live-vision", editable = "modules/live-vision" },
     { name = "armi-material", editable = "modules/material" },
     { name = "armi-memory", editable = "modules/memory" },
     { name = "armi-mood", editable = "modules/mood" },
@@ -825,6 +857,8 @@ requires-dist = [
     { name = "pydantic", specifier = "==2.13.4" },
     { name = "rfc8785", specifier = "==0.1.4" },
     { name = "sounddevice", specifier = "==0.5.5" },
+    { name = "comtypes", specifier = "==1.4.16" },
+    { name = "opencv-python-headless", specifier = "==4.14.0.94" },
     { name = "uvicorn", specifier = "==0.51.0" },
     { name = "websockets", specifier = "==17.0" },
 ]
@@ -989,6 +1023,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/dc/78/aa01ac599a8a4322533d45a1f9bc93b338276d2d59dabbe7c6d92a775c81/cffi-2.1.0-cp314-cp314t-win32.whl", hash = "sha256:7d034dcffa09e9a46c93fa3a3be402096cb5354ac6e41ab8e5cc9cd8b642ad76", size = 182857, upload-time = "2026-07-06T21:33:47.696Z" },
     { url = "https://files.pythonhosted.org/packages/b9/26/d00496b22de4d4228f32dde94ad996f350c8aad676d63bcca0743c8dea4d/cffi-2.1.0-cp314-cp314t-win_amd64.whl", hash = "sha256:0582a58f3051372229ca8e7f5f589f9e5632678208d8636fea3676711fdf7fe5", size = 194065, upload-time = "2026-07-06T21:33:48.953Z" },
     { url = "https://files.pythonhosted.org/packages/d5/dd/0c7dbf815a579ff005008a2d815a55d6bb047c349eef536d9dc53d3f0a8d/cffi-2.1.0-cp314-cp314t-win_arm64.whl", hash = "sha256:510aeeeac94811b138077451da1fb18b308a5feab47dd2b603af55804155e1c8", size = 186404, upload-time = "2026-07-06T21:33:50.309Z" },
+]
+
+[[package]]
+name = "comtypes"
+version = "1.4.16"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c6/2a/65274c13327f637ec13af8d39f2cf579d9ebe7a0e683696b5f05236d2805/comtypes-1.4.16.tar.gz", hash = "sha256:cd66d1add01265cface4df51ba1e31cd1657e04463c281c802e737e79e1ba93c", size = 260252, upload-time = "2026-03-02T23:11:42.413Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5f/7c/0eb685107290b6221c03c46d39214a4e42a124189691cb83ae3228257f46/comtypes-1.4.16-py3-none-any.whl", hash = "sha256:e18d85179ff12955524c5a8c3bc09cb3c0d890f1da4d7123d14244c7b78f84c8", size = 296230, upload-time = "2026-03-02T23:11:41.049Z" },
 ]
 
 [[package]]
@@ -1433,6 +1476,11 @@ wheels = [
 ]
 
 [[package]]
+name = "numpy"
+version = "2.4.3"
+source = { registry = "https://pypi.org/simple" }
+
+[[package]]
 name = "openai"
 version = "2.49.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1477,6 +1525,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/2e/a0/65e6fd3a6fba52639937801d9ce517b0c48026458723bb9f08eb07a1dd35/openai_codex_cli_bin-0.144.4-py3-none-musllinux_1_1_x86_64.whl", hash = "sha256:70fb62ed7755e332dd8b00ed48e22ee16df10f4a977335039e237cd330490df3", size = 128817755, upload-time = "2026-07-15T00:14:47.849Z" },
     { url = "https://files.pythonhosted.org/packages/e3/8a/3ab5fc97352e8f780d472c8dd6d7504d6a670cd7dede106d461ac1171999/openai_codex_cli_bin-0.144.4-py3-none-win_amd64.whl", hash = "sha256:56e142974467332f1f669b89f2636e06b3ada09413512abb2f24c33b4a4f59fc", size = 140595092, upload-time = "2026-07-15T00:14:58.484Z" },
     { url = "https://files.pythonhosted.org/packages/70/1a/3aa52ab8f89e0f596b6eea835e3f3494697da51917d3231f5f48f92e2bcb/openai_codex_cli_bin-0.144.4-py3-none-win_arm64.whl", hash = "sha256:2ad01058db7181323ae7c6217e560702e38c4f107595b99ab1d0abc9f184890a", size = 130665105, upload-time = "2026-07-15T00:15:08.861Z" },
+]
+
+[[package]]
+name = "opencv-python-headless"
+version = "4.14.0.94"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/67/8a/51ff1c6287be0b6cd3070cf095875da4ff7d6eda38507e6ada5608786a78/opencv_python_headless-4.14.0.94.tar.gz", hash = "sha256:4afa2ea1214453648be88259f035712454faa9039b686de7753569ba8eec1577", size = 96405664, upload-time = "2026-07-28T19:23:48.759Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ad/8d/db8673846ee53cbb5de4c2b4decc11cf733e203eb7d5146297869f69bd48/opencv_python_headless-4.14.0.94-cp37-abi3-win_amd64.whl", hash = "sha256:cbed65415b8f6a9541c705afe3e64795840524d0ff3bc58f507826284a1dc64b", size = 41028030, upload-time = "2026-07-28T18:32:36.724Z" },
 ]
 
 [[package]]

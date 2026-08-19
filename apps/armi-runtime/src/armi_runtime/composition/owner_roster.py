@@ -47,6 +47,10 @@ from armi_interaction.bootstrap import (
     bootstrap_interaction_data_rights,
     bootstrap_interaction_recovery,
 )
+from armi_live_vision.bootstrap import (
+    bootstrap_live_vision_data_rights,
+    bootstrap_live_vision_recovery,
+)
 from armi_live_voice.bootstrap import (
     bootstrap_live_voice_data_rights,
     bootstrap_live_voice_recovery,
@@ -116,6 +120,7 @@ _DATA_RIGHTS_ORDER = (
     "interaction",
     "perception",
     "live-voice",
+    "live-vision",
     "evidence",
     "opportunity",
     "experience",
@@ -150,6 +155,7 @@ _RECOVERY_ORDER = (
     "interaction",
     "perception",
     "live-voice",
+    "live-vision",
     "evidence",
     "cognition",
     "experience",
@@ -174,6 +180,7 @@ def compose_runtime_owner_roster(
         "interaction": bootstrap_interaction_recovery(),
         "perception": bootstrap_perception_recovery(),
         "live-voice": bootstrap_live_voice_recovery(),
+        "live-vision": bootstrap_live_vision_recovery(),
         "evidence": bootstrap_evidence_recovery(),
         "opportunity": bootstrap_opportunity_recovery(),
         "experience": bootstrap_experience_recovery(),
@@ -198,6 +205,7 @@ def compose_runtime_owner_roster(
         "interaction": bootstrap_interaction_data_rights(),
         "perception": bootstrap_perception_data_rights(),
         "live-voice": bootstrap_live_voice_data_rights(),
+        "live-vision": bootstrap_live_vision_data_rights(),
         "evidence": bootstrap_evidence_data_rights(),
         "opportunity": bootstrap_opportunity_data_rights(),
         "experience": bootstrap_experience_data_rights(),

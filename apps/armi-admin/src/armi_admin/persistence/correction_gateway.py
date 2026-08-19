@@ -21,6 +21,7 @@ from armi_effect.api import EffectAdminPort
 from armi_evidence.api import EvidenceAdminPort
 from armi_expression.api import ExpressionAdminPort
 from armi_interaction.api import InteractionAdminPort
+from armi_live_vision.api import LiveVisionAdminPort
 from armi_material.api import MaterialAdminReadPort
 from armi_mood.api import MoodAdminCorrectionPort
 from armi_perception.api import PerceptionAdminPort
@@ -71,6 +72,7 @@ class AdminCorrectionGateway:
         "_factory",
         "_incarnation",
         "_interaction",
+        "_live_vision",
         "_material",
         "_mood",
         "_opportunity",
@@ -93,6 +95,7 @@ class AdminCorrectionGateway:
         evidence: EvidenceAdminPort,
         expression: ExpressionAdminPort,
         interaction: InteractionAdminPort,
+        live_vision: LiveVisionAdminPort,
         material: MaterialAdminReadPort,
         opportunity: OpportunityAdminPort,
         perception: PerceptionAdminPort,
@@ -112,6 +115,7 @@ class AdminCorrectionGateway:
         self._evidence = evidence
         self._expression = expression
         self._interaction = interaction
+        self._live_vision = live_vision
         self._material = material
         self._opportunity = opportunity
         self._perception = perception
@@ -911,6 +915,9 @@ class AdminCorrectionGateway:
                     )
                 ),
                 self._perception.artifact_reference_count(
+                    connection, artifact_id=artifact_uuid
+                ),
+                self._live_vision.artifact_reference_count(
                     connection, artifact_id=artifact_uuid
                 ),
                 self._evidence.artifact_reference_count(

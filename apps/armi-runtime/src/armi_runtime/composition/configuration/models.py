@@ -208,6 +208,45 @@ class VoiceConfig(_FrozenModel):
         return self
 
 
+class VisionDeviceConfig(_FrozenModel):
+    name: str
+    device_path: str
+    usb_location_id: str
+
+    @field_validator("name", "device_path", "usb_location_id")
+    @classmethod
+    def validate_identity(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized or len(normalized) > 1024:
+            raise ValueError("vision device identity is invalid")
+        return normalized
+
+
+class VisionConfig(_FrozenModel):
+    enabled: bool = False
+    auto_start: bool = True
+    device: VisionDeviceConfig | None = None
+    width: Literal[1280] = 1280
+    height: Literal[720] = 720
+    fps: Literal[5] = 5
+    change_sample_hz: Literal[2] = 2
+    change_thumbnail_width: Literal[160] = 160
+    change_thumbnail_height: Literal[90] = 90
+    change_threshold: Annotated[float, Field(gt=0, le=1)] = 0.18
+    stable_change_samples: Literal[3] = 3
+    automatic_cooldown_seconds: Annotated[int, Field(ge=30, le=3600)] = 30
+    periodic_refresh_seconds: Annotated[int, Field(ge=60, le=86400)] = 1800
+    hourly_observation_limit: Annotated[int, Field(ge=1, le=60)] = 12
+    frame_retention_seconds: Annotated[int, Field(ge=3600, le=604800)] = 86400
+    reconnect_seconds: Annotated[int, Field(ge=5, le=300)] = 30
+
+    @model_validator(mode="after")
+    def validate_enabled_device(self) -> Self:
+        if self.enabled and self.device is None:
+            raise ValueError("enabled vision requires an exact USB device")
+        return self
+
+
 class ArtifactsConfig(_FrozenModel):
     max_object_bytes: PositiveInt = 104_857_600
     orphan_grace_seconds: PositiveInt = 86_400
@@ -269,6 +308,7 @@ class RuntimeConfig(_FrozenModel):
     codex: CodexConfig = CodexConfig()
     creator: CreatorConfig
     voice: VoiceConfig = VoiceConfig()
+    vision: VisionConfig = VisionConfig()
     artifacts: ArtifactsConfig = ArtifactsConfig()
     diagnostics: DiagnosticsConfig = DiagnosticsConfig()
     observability: ObservabilityConfig = ObservabilityConfig()

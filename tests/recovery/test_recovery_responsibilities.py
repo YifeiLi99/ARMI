@@ -24,7 +24,7 @@ def _scope() -> RecoveryScope:
     return RecoveryScope(uuid7(), uuid7(), uuid7(), uuid7(), uuid7(), 1)
 
 
-def test_runtime_composition_builds_the_fixed_twenty_two_owner_roster() -> None:
+def test_runtime_composition_builds_the_fixed_twenty_three_owner_roster() -> None:
     roster = compose_runtime_owner_roster(
         data_rights=EmptyDataRightsParticipant("data-rights"),
         mood_read=cast(MoodReadPort, object()),
@@ -34,9 +34,9 @@ def test_runtime_composition_builds_the_fixed_twenty_two_owner_roster() -> None:
     participants = roster.recovery
     expected = roster.expected_recovery_owners
 
-    assert len(participants) == 22
+    assert len(participants) == 23
     assert tuple(item.owner_identity for item in participants) == expected
-    assert len(set(expected)) == 22
+    assert len(set(expected)) == 23
     assert expected == tuple(
         RecoveryOwnerIdentity(value)
         for value in (
@@ -52,6 +52,7 @@ def test_runtime_composition_builds_the_fixed_twenty_two_owner_roster() -> None:
             "interaction",
             "perception",
             "live-voice",
+            "live-vision",
             "evidence",
             "cognition",
             "experience",

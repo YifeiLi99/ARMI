@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -25,6 +26,10 @@ from armi_perception.api import (
     ExternalContentRecognitionRequest,
     ExternalContentRecognitionResult,
     ExternalContentRecognitionStatus,
+    VisualChangeClass,
+    VisualRecognitionPort,
+    VisualRecognitionRequest,
+    VisualRecognitionResult,
 )
 from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI
 
@@ -73,7 +78,9 @@ class ExternalRecognitionBindings:
         return "volcengine_ark", self.ark.model_for(kind)
 
 
-class VolcengineArkExternalContentRecognizer(ExternalContentRecognitionPort):
+class VolcengineArkExternalContentRecognizer(
+    ExternalContentRecognitionPort, VisualRecognitionPort
+):
     __slots__ = ("_binding", "_credential_port", "_locator")
 
     def __init__(
@@ -149,6 +156,106 @@ class VolcengineArkExternalContentRecognizer(ExternalContentRecognitionPort):
                 ExternalContentRecognitionStatus.FAILED,
                 model_id,
                 "EXTERNAL-MESSAGE-RECOGNITION-RESPONSE",
+            )
+        finally:
+            for index in range(len(secret)):
+                secret[index] = 0
+            if client is not None:
+                await client.close()
+
+    async def recognize_visual(
+        self, request: VisualRecognitionRequest
+    ) -> VisualRecognitionResult:
+        model_id = self._binding.image_model_id
+        secret = self._copy_secret()
+        client: AsyncOpenAI | None = None
+        try:
+            client = AsyncOpenAI(
+                api_key=secret.decode("utf-8", errors="strict"),
+                base_url=self._binding.api_base,
+                max_retries=0,
+                timeout=self._binding.timeout_seconds,
+                http_client=httpx.AsyncClient(trust_env=False),
+            )
+            response = await client.responses.create(
+                model=model_id,
+                input=cast(Any, [_visual_observation_message(request)]),
+                store=False,
+                max_output_tokens=self._binding.image_output_token_limit,
+                tools=[],
+                extra_body={"thinking": {"type": "disabled"}},
+            )
+            raw_value: object = json.loads(response.output_text)
+            raw_mapping = (
+                cast(dict[object, object], raw_value)
+                if isinstance(raw_value, dict)
+                else None
+            )
+            if (
+                raw_mapping is None
+                or not all(isinstance(key, str) for key in raw_mapping)
+                or set(cast(dict[str, object], raw_value))
+                != {
+                    "scene_summary",
+                    "visible_change",
+                    "change_class",
+                    "uncertainties",
+                }
+            ):
+                raise ValueError
+            value = cast(dict[str, object], raw_value)
+            scene_summary = value["scene_summary"]
+            visible_change = value["visible_change"]
+            change_class = value["change_class"]
+            uncertainties = value["uncertainties"]
+            if (
+                not isinstance(scene_summary, str)
+                or not scene_summary.strip()
+                or not isinstance(visible_change, str)
+                or not visible_change.strip()
+                or not isinstance(change_class, str)
+            ):
+                raise ValueError
+            if not isinstance(uncertainties, list) or any(
+                not isinstance(item, str) or not item.strip()
+                for item in cast(list[object], uncertainties)
+            ):
+                raise ValueError
+            typed_uncertainties = cast(list[str], uncertainties)
+            raw = rfc8785.dumps(cast(Any, response.model_dump(mode="json"))) + b"\n"
+            usage = response.usage
+            return VisualRecognitionResult(
+                ExternalContentRecognitionStatus.SUCCEEDED,
+                scene_summary,
+                visible_change,
+                VisualChangeClass(change_class),
+                tuple(typed_uncertainties),
+                "volcengine_ark",
+                model_id,
+                response.model,
+                response.id,
+                getattr(usage, "input_tokens", None),
+                getattr(usage, "output_tokens", None),
+                raw,
+                None,
+            )
+        except APITimeoutError, APIConnectionError:
+            return _visual_failure(
+                ExternalContentRecognitionStatus.UNKNOWN,
+                model_id,
+                "VISION-MODEL-UNKNOWN",
+            )
+        except APIStatusError as error:
+            return _visual_failure(
+                ExternalContentRecognitionStatus.FAILED,
+                model_id,
+                f"VISION-MODEL-HTTP-{error.status_code}",
+            )
+        except UnicodeDecodeError, ValueError, TypeError, json.JSONDecodeError:
+            return _visual_failure(
+                ExternalContentRecognitionStatus.FAILED,
+                model_id,
+                "VISION-MODEL-RESPONSE",
             )
         finally:
             for index in range(len(secret)):
@@ -281,6 +388,52 @@ def _image_instructions(request: ExternalContentRecognitionRequest) -> str:
     else:
         task = "先判断它更像照片、截图、梗图、表情包、文档图或其他图片,再简洁描述内容和文字。"
     return f"{source}{summary}{animation}{task}不确定之处必须明确标出。"
+
+
+def _visual_observation_message(request: VisualRecognitionRequest) -> dict[str, Any]:
+    prior = (
+        "没有上一观察摘要。"
+        if request.previous_summary is None
+        else f"上一观察摘要: {request.previous_summary}"
+    )
+    instructions = (
+        "这些画面来自 ARMI 的常驻摄像头,只描述画面中此刻实际可见的环境。"
+        "禁止做人脸识别、猜测人物身份、推断画面外区域或把推测写成事实。"
+        f"触发原因是 {request.trigger}。{prior}"
+        "严格只输出一个 JSON 对象,键为 scene_summary、visible_change、change_class、uncertainties;"
+        "change_class 只能是 none、minor、notable、uncertain,uncertainties 是字符串数组。"
+    )
+    media = [
+        {
+            "type": "input_image",
+            "image_url": f"data:image/jpeg;base64,{base64.b64encode(frame.content).decode('ascii')}",
+        }
+        for frame in request.frames
+    ]
+    return {
+        "role": "user",
+        "content": [{"type": "input_text", "text": instructions}, *media],
+    }
+
+
+def _visual_failure(
+    status: ExternalContentRecognitionStatus, model_id: str, code: str
+) -> VisualRecognitionResult:
+    return VisualRecognitionResult(
+        status,
+        None,
+        None,
+        None,
+        (),
+        "volcengine_ark",
+        model_id,
+        None,
+        None,
+        None,
+        None,
+        None,
+        code,
+    )
 
 
 def _failure(

@@ -10,7 +10,7 @@ import selectors
 import signal
 import threading
 from collections.abc import Generator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid7
 
@@ -22,6 +22,7 @@ from armi_adapter_esp32_display import (
     load_mood_display_config,
 )
 from armi_artifact_store.bootstrap import bootstrap_artifact_catalog
+from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_attention.api import LifeViolation
 from armi_attention.bootstrap import (
     bootstrap_opportunity_owner,
@@ -59,8 +60,19 @@ from armi_kernel.application import (
     SubjectCommitViolation,
 )
 from armi_kernel.contracts import IdempotencyKey, TraceId
+from armi_live_vision.api import (
+    CameraDevice,
+    CameraFormat,
+    LiveVisionRuntimePort,
+    LiveVisionViolation,
+)
+from armi_live_vision.bootstrap import (
+    compose_live_vision,
+    compose_visual_observation_sink,
+)
 from armi_live_voice.api import LiveVoiceRuntimePort
 from armi_memory.api import MemoryViolation
+from armi_perception.bootstrap import bootstrap_visual_recognition_attempts
 from armi_prompt.api import CreatorPromptViolation
 from armi_relationship.api import RelationshipViolation
 from armi_sleep.api import CreatorMaintenanceViolation, SleepViolation
@@ -72,12 +84,17 @@ from armi_web_observation.api import (
 )
 from armi_web_observation.bootstrap import bootstrap_web_context_read
 
+from armi_runtime.adapters.model.external_content import (
+    VolcengineArkExternalContentRecognizer,
+    load_external_recognition_binding,
+)
 from armi_runtime.adapters.persistence.runtime_observability import (
     RuntimeObservationError,
 )
 from armi_runtime.adapters.persistence.unit_of_work import (
     PostgreSQLUnitOfWorkFactory,
 )
+from armi_runtime.adapters.vision.directshow import DirectShowUsbCamera
 from armi_runtime.adapters.voice.wasapi import WasapiRawAudio
 from armi_runtime.application.action_lifecycle import RuntimeCodexGrantActivation
 from armi_runtime.application.cognition_cycle import RuntimeCognitionState
@@ -91,6 +108,7 @@ from armi_runtime.interfaces.browser_sessions import (
 )
 from armi_runtime.interfaces.creator_app import create_runtime_app
 from armi_runtime.interfaces.creator_contract import (
+    LiveVisionStatusResponse,
     LiveVoiceStatusResponse,
     QQChannelHealthResponse,
     RuntimeStatusResponse,
@@ -106,6 +124,7 @@ from .authority import (
     LocalAuthorityState,
     RuntimeAuthorityController,
 )
+from .config_assets import runtime_config_path
 from .creator_session import compose_browser_sessions, derive_timeline_cursor_key
 from .database import (
     ContinuityState,
@@ -281,6 +300,7 @@ async def _serve(
     admin_control: RuntimeAdminControlServer | None = None
     work_wakeups = WorkWakeupBus()
     live_voice_service: LiveVoiceRuntimePort | None = None
+    live_vision_service: LiveVisionRuntimePort | None = None
 
     def inject_admin_fault(name: str) -> None:
         if admin_control is not None:
@@ -315,10 +335,6 @@ async def _serve(
                 display_subject_id = authority.require_writable().subject_id
 
                 async def read_mood_display_snapshot():
-                    if runtime_unit_of_work_factory is None or mood_module is None:
-                        raise RuntimeViolation(
-                            "MOOD-DISPLAY-RUNTIME", "mood display is unavailable"
-                        )
                     async with runtime_unit_of_work_factory.unit_of_work(
                         read_only=True
                     ) as unit:
@@ -657,6 +673,65 @@ async def _serve(
                     raise ExternalMessageViolation(
                         "EXTERNAL-MESSAGE-RECOGNITION-UNAVAILABLE"
                     ) from None
+            if config.vision.enabled and config.vision.device is not None:
+                model_locator = config.secret_locators.get("model.ark_api_key")
+                if model_locator is not None:
+                    try:
+                        recognition_binding = load_external_recognition_binding(
+                            runtime_config_path("model-bindings.yaml")
+                        )
+                        vision_device = CameraDevice(
+                            config.vision.device.name,
+                            config.vision.device.device_path,
+                            config.vision.device.usb_location_id,
+                        )
+                        vision_sink = compose_visual_observation_sink(
+                            factory=runtime_unit_of_work_factory,
+                            storage=ContentAddressedArtifactStore(
+                                prepared.data_root / "artifacts",
+                                max_object_bytes=config.artifacts.max_object_bytes,
+                            ),
+                            catalog=artifact_catalog,
+                            recognizer=VolcengineArkExternalContentRecognizer(
+                                credential_port=prepared.credential_port,
+                                locator=model_locator,
+                                binding=recognition_binding.ark,
+                            ),
+                            attempts=bootstrap_visual_recognition_attempts(),
+                            evidence=evidence_module.write,
+                            opportunity=opportunity_admission,
+                            subject_id=authority.require_writable().subject_id,
+                            device=vision_device,
+                            retention=timedelta(
+                                seconds=config.vision.frame_retention_seconds
+                            ),
+                        )
+                        live_vision_service = compose_live_vision(
+                            camera=DirectShowUsbCamera(),
+                            sink=vision_sink,
+                            device=vision_device,
+                            format=CameraFormat(
+                                config.vision.width,
+                                config.vision.height,
+                                float(config.vision.fps),
+                            ),
+                            hourly_limit=config.vision.hourly_observation_limit,
+                            automatic_cooldown=timedelta(
+                                seconds=config.vision.automatic_cooldown_seconds
+                            ),
+                            periodic_refresh=timedelta(
+                                seconds=config.vision.periodic_refresh_seconds
+                            ),
+                            reconnect=timedelta(
+                                seconds=config.vision.reconnect_seconds
+                            ),
+                            change_threshold=config.vision.change_threshold,
+                            stable_change_samples=config.vision.stable_change_samples,
+                        )
+                        if config.vision.auto_start:
+                            await live_vision_service.start()
+                    except ValueError, ModelViolation:
+                        live_vision_service = None
             life_opportunity_pipeline = compose_life_opportunity_pipeline(
                 prepared,
                 unit_of_work_factory=runtime_unit_of_work_factory,
@@ -1286,6 +1361,8 @@ async def _serve(
             await data_rights_module.close()
         if perception_module is not None:
             perception_module.stop()
+        if live_vision_service is not None:
+            await live_vision_service.stop()
         if context_pipeline is not None:
             context_pipeline.stop()
         if context_embedding_pipeline is not None:
@@ -1473,9 +1550,9 @@ async def _serve(
             else:
                 assert voice_service is not None
                 if action == "start":
-                    await voice_service.start()
+                    await voice_service.start()  # pyright: ignore[reportGeneralTypeIssues]
                 elif action == "stop":
-                    await voice_service.stop()
+                    await voice_service.stop()  # pyright: ignore[reportGeneralTypeIssues]
                 state = voice_service.status().value
         return LiveVoiceStatusResponse(
             contract_version="1.0",
@@ -1497,6 +1574,78 @@ async def _serve(
 
     async def admin_voice(action: str) -> dict[str, object]:
         return (await live_voice_control(action)).model_dump(mode="json")
+
+    async def admin_vision(action: str) -> dict[str, object]:
+        return (await live_vision_control(action)).model_dump(mode="json")
+
+    async def live_vision_control(action: str) -> LiveVisionStatusResponse:
+        vision_config = config.vision
+        service = live_vision_service
+        reasons: list[str] = []
+        state = "disabled"
+        snapshot = None
+        if vision_config.enabled:
+            if service is None:
+                state = "unavailable"
+                reasons.append("VISION_PIPELINE_UNAVAILABLE")
+            else:
+                snapshot = service.status()
+                try:
+                    if action == "start":
+                        await service.start()
+                    elif action == "stop":
+                        await service.stop()
+                    elif action == "observe":
+                        await service.observe()
+                except LiveVisionViolation as error:
+                    reasons.append(error.code.replace("-", "_"))
+                snapshot = service.status()
+                state = snapshot.state.value
+        device = vision_config.device
+        now = (
+            datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
+        )
+        last_observation = None if snapshot is None else snapshot.last_observation
+        return LiveVisionStatusResponse(
+            contract_version="1.0",
+            projection_version="creator-live-vision-status.v1",
+            state=state,
+            enabled=vision_config.enabled,
+            expected_running=False if snapshot is None else snapshot.expected_running,
+            device=None
+            if device is None
+            else f"{device.name} / {device.usb_location_id}",
+            capture_ready=snapshot is not None and snapshot.last_frame_at is not None,
+            perception_ready=service is not None,
+            last_frame_at=(
+                None
+                if snapshot is None or snapshot.last_frame_at is None
+                else snapshot.last_frame_at.isoformat(timespec="microseconds").replace(
+                    "+00:00", "Z"
+                )
+            ),
+            last_observation_at=(
+                None
+                if last_observation is None
+                else last_observation.registered_at.isoformat(
+                    timespec="microseconds"
+                ).replace("+00:00", "Z")
+            ),
+            observations_last_hour=0
+            if snapshot is None
+            else snapshot.observations_last_hour,
+            hourly_limit=vision_config.hourly_observation_limit,
+            observed_at=now,
+            reason_codes=reasons
+            + (
+                []
+                if snapshot is None or snapshot.reason_code is None
+                else [snapshot.reason_code.replace("-", "_")]
+            ),
+        )
+
+    def live_vision_preview() -> bytes | None:
+        return None if live_vision_service is None else live_vision_service.preview()
 
     def security_event(event: str) -> None:
         diagnostic.emit(event, result_code="CREATOR_SECURITY_EVENT")
@@ -1566,6 +1715,8 @@ async def _serve(
         runtime_status=runtime_status,
         qq_channel_health=qq_health_status,
         live_voice_control=live_voice_control,
+        live_vision_control=live_vision_control,
+        live_vision_preview=live_vision_preview,
         assets=assets,
         browser_sessions=browser_sessions,
         creator_scenes=creator_scenes,
@@ -1649,6 +1800,7 @@ async def _serve(
             on_stop=admin_stop,
             on_input=admin_input if creator_input is not None else None,
             on_voice=admin_voice,
+            on_vision=admin_vision,
         )
     try:
         await server.serve()

@@ -13,6 +13,7 @@ from armi_evidence.bootstrap import bootstrap_evidence_admin
 from armi_expression.bootstrap import bootstrap_expression_admin
 from armi_interaction.bootstrap import bootstrap_interaction_admin
 from armi_kernel.application import CredentialPurpose
+from armi_live_vision.bootstrap import bootstrap_live_vision_admin
 from armi_material.bootstrap import bootstrap_material_admin_read
 from armi_mood.bootstrap import (
     bootstrap_mood_admin_correction,
@@ -96,6 +97,7 @@ def bootstrap_admin(
             evidence=evidence,
             expression=expression,
             interaction=interaction,
+            live_vision=bootstrap_live_vision_admin(),
             material=materials,
             opportunity=opportunity,
             perception=bootstrap_perception_admin(),

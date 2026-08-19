@@ -74,6 +74,10 @@ purpose_profiles:
     profile: web_evidence_cognition
     response_contract_version: armi.cognition-candidate.v7
     output_token_limit: 1024
+  consider_visual_observation:
+    profile: visual_observation
+    response_contract_version: armi.visual-observation-candidate.v1
+    output_token_limit: 768
   maintain_subjective_memory:
     profile: memory_maintenance
     response_contract_version: armi.maintenance-work-candidate.v1

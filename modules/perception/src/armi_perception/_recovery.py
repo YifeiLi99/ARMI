@@ -33,6 +33,11 @@ class PerceptionRecoveryParticipant:
             WHERE dispatch_status='dispatched' RETURNING work_id
         """)
         ).fetchall()
+        visual_rows = await (
+            await transaction.execute("""UPDATE armi.visual_recognition_attempts
+            SET status='unknown',error_code='VISION-OUTCOME-UNKNOWN',settled_at=statement_timestamp()
+            WHERE status='dispatched' RETURNING visual_attempt_id""")
+        ).fetchall()
         by_id = {item.work_id: item for item in work}
         commands = tuple(
             RecoveryWorkCommand(
@@ -50,7 +55,7 @@ class PerceptionRecoveryParticipant:
         return RecoveryContribution(
             self.owner_identity,
             findings=()
-            if not rows
+            if not rows and not visual_rows
             else (
                 RecoveryFindingContribution(
                     "recognition_attempt",
@@ -61,6 +66,9 @@ class PerceptionRecoveryParticipant:
             metrics=(
                 RecoveryMetricContribution(
                     "perception.unknown_attempt_count", len(rows)
+                ),
+                RecoveryMetricContribution(
+                    "perception.unknown_visual_attempt_count", len(visual_rows)
                 ),
             ),
             work_commands=commands,

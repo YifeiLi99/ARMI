@@ -21,6 +21,7 @@ _COMMANDS = {
     "stop",
     "input",
     "voice",
+    "vision",
     "clock",
     "fault",
 }
@@ -93,6 +94,7 @@ class RuntimeAdminControlServer:
         "_server",
         "_test_clock_seconds",
         "_token",
+        "_vision",
         "_voice",
     )
 
@@ -108,6 +110,7 @@ class RuntimeAdminControlServer:
         on_stop: Callable[[], None],
         on_input: Callable[[str, str], Awaitable[dict[str, Any]]] | None,
         on_voice: Callable[[str], Awaitable[dict[str, Any]]] | None = None,
+        on_vision: Callable[[str], Awaitable[dict[str, Any]]] | None = None,
     ) -> None:
         self._run_root = run_root
         self._manifest = run_root / "runtime-control.manifest.json"
@@ -120,6 +123,7 @@ class RuntimeAdminControlServer:
         self._on_stop = on_stop
         self._input = on_input
         self._voice = on_voice
+        self._vision = on_vision
         self._server: asyncio.AbstractServer | None = None
         self._token = ""
         self._test_clock_seconds = 0
@@ -269,6 +273,14 @@ class RuntimeAdminControlServer:
             ):
                 raise RuntimeAdminControlError("ADMIN-CONTROL-VOICE")
             result = await self._voice(str(arguments["action"]))
+        elif command == "vision":
+            if (
+                self._vision is None
+                or set(arguments) != {"action"}
+                or arguments["action"] not in {"status", "start", "stop", "observe"}
+            ):
+                raise RuntimeAdminControlError("ADMIN-CONTROL-VISION")
+            result = await self._vision(str(arguments["action"]))
         elif command == "clock":
             if set(arguments) != {"seconds"} or type(arguments["seconds"]) is not int:
                 raise RuntimeAdminControlError("ADMIN-CONTROL-CLOCK")

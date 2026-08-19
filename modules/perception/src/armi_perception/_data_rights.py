@@ -28,6 +28,11 @@ _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
            FROM armi.external_content_recognition_attempts AS source ORDER BY to_jsonb(source)::text""",
     ),
+    (
+        "visual_recognition_attempts",
+        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
+           FROM armi.visual_recognition_attempts AS source ORDER BY to_jsonb(source)::text""",
+    ),
 )
 
 
