@@ -6,6 +6,8 @@
 static lv_obj_t *screen;
 static lv_obj_t *left_eye;
 static lv_obj_t *right_eye;
+static lv_obj_t *left_eye_cutout;
+static lv_obj_t *right_eye_cutout;
 static lv_obj_t *left_pupil;
 static lv_obj_t *right_pupil;
 static lv_obj_t *mouth;
@@ -52,31 +54,68 @@ static void rounded_block(
     lv_obj_set_style_pad_all(object, 0, 0);
 }
 
+static void apply_eye(
+    lv_obj_t *eye,
+    lv_obj_t *cutout,
+    int width,
+    int height,
+    int x,
+    int y,
+    int rotation,
+    int curve,
+    lv_color_t foreground,
+    lv_color_t background
+)
+{
+    rounded_block(eye, width, height, x, y);
+    lv_obj_set_style_bg_color(eye, foreground, 0);
+    lv_obj_set_style_transform_rotation(eye, rotation, 0);
+    hidden(cutout, curve == 0);
+    if (curve == 0) {
+        return;
+    }
+    int cutout_y = y;
+    if (curve != 2) {
+        cutout_y += curve < 0 ? height / 3 : -height / 3;
+    }
+    rounded_block(cutout, width - 12, height - 10, x, cutout_y);
+    lv_obj_set_style_bg_color(cutout, background, 0);
+    lv_obj_set_style_transform_rotation(cutout, rotation, 0);
+}
+
 static void apply_frame(const mood_animation_frame_t *frame)
 {
-    uint32_t animated_background = lift_rgb(
-        current_state.background_rgb, frame->background_lift
+    uint32_t animated_foreground = lift_rgb(
+        current_state.foreground_rgb, frame->color_lift
     );
-    lv_color_t foreground = lv_color_hex(current_state.foreground_rgb);
-    lv_color_t background = lv_color_hex(animated_background);
+    lv_color_t foreground = lv_color_hex(animated_foreground);
+    lv_color_t background = lv_color_black();
     lv_obj_set_style_bg_color(screen, background, 0);
 
-    rounded_block(
+    apply_eye(
         left_eye,
+        left_eye_cutout,
         frame->left_eye_width,
         frame->left_eye_height,
         frame->left_eye_x,
-        frame->left_eye_y
+        frame->left_eye_y,
+        frame->left_eye_rotation,
+        frame->left_eye_curve,
+        foreground,
+        background
     );
-    rounded_block(
+    apply_eye(
         right_eye,
+        right_eye_cutout,
         frame->right_eye_width,
         frame->right_eye_height,
         frame->right_eye_x,
-        frame->right_eye_y
+        frame->right_eye_y,
+        frame->right_eye_rotation,
+        frame->right_eye_curve,
+        foreground,
+        background
     );
-    lv_obj_set_style_bg_color(left_eye, foreground, 0);
-    lv_obj_set_style_bg_color(right_eye, foreground, 0);
 
     hidden(left_pupil, !frame->pupils_visible);
     hidden(right_pupil, !frame->pupils_visible);
@@ -110,8 +149,10 @@ static void apply_frame(const mood_animation_frame_t *frame)
     hidden(mouth_cutout, frame->mouth_curve == 0);
     if (frame->mouth_curve != 0) {
         int inset = frame->mouth_height / 3;
-        int cutout_y = frame->mouth_y +
-                       (frame->mouth_curve > 0 ? -inset : inset);
+        int cutout_y = frame->mouth_y;
+        if (frame->mouth_curve != 2) {
+            cutout_y += frame->mouth_curve > 0 ? -inset : inset;
+        }
         rounded_block(
             mouth_cutout,
             frame->mouth_width - 22,
@@ -126,11 +167,10 @@ static void apply_frame(const mood_animation_frame_t *frame)
     hidden(left_cheek, !cheeks_visible);
     hidden(right_cheek, !cheeks_visible);
     if (cheeks_visible) {
-        rounded_block(left_cheek, 78, 30, -225, frame->cheek_y);
-        rounded_block(right_cheek, 78, 30, 225, frame->cheek_y);
-        lv_color_t cheek = lv_color_hex(0xffc1d6U);
-        lv_obj_set_style_bg_color(left_cheek, cheek, 0);
-        lv_obj_set_style_bg_color(right_cheek, cheek, 0);
+        rounded_block(left_cheek, 78, 8, -225, frame->cheek_y);
+        rounded_block(right_cheek, 78, 8, 225, frame->cheek_y);
+        lv_obj_set_style_bg_color(left_cheek, foreground, 0);
+        lv_obj_set_style_bg_color(right_cheek, foreground, 0);
         uint8_t cheek_opacity = (uint8_t)(
             (uint16_t)frame->cheek_opacity * frame->face_opacity / 255U
         );
@@ -147,11 +187,13 @@ static void apply_frame(const mood_animation_frame_t *frame)
             frame->accent_x,
             frame->accent_y
         );
-        lv_obj_set_style_bg_color(accent, lv_color_hex(0xbfe8ffU), 0);
+        lv_obj_set_style_bg_color(accent, foreground, 0);
     }
 
     lv_obj_set_style_opa(left_eye, frame->face_opacity, 0);
     lv_obj_set_style_opa(right_eye, frame->face_opacity, 0);
+    lv_obj_set_style_opa(left_eye_cutout, frame->face_opacity, 0);
+    lv_obj_set_style_opa(right_eye_cutout, frame->face_opacity, 0);
     lv_obj_set_style_opa(mouth, frame->face_opacity, 0);
     lv_obj_set_style_opa(left_pupil, frame->face_opacity, 0);
     lv_obj_set_style_opa(right_pupil, frame->face_opacity, 0);
@@ -173,6 +215,8 @@ void mood_face_init(void)
     screen = lv_screen_active();
     left_eye = face_object();
     right_eye = face_object();
+    left_eye_cutout = face_object();
+    right_eye_cutout = face_object();
     left_pupil = face_object();
     right_pupil = face_object();
     mouth = face_object();
@@ -193,8 +237,8 @@ void mood_face_offline(void)
 {
     const mood_state_t offline = {
         .face = MOOD_FACE_OFFLINE,
-        .foreground_rgb = 0xFFFFFF,
-        .background_rgb = 0x3A3F47,
+        .foreground_rgb = 0x3A3F47,
+        .background_rgb = 0x000000,
         .energy = 0,
     };
     mood_face_apply(&offline);

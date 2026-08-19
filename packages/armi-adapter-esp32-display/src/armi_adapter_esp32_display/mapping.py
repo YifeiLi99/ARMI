@@ -88,8 +88,8 @@ def map_mood_snapshot(snapshot: MoodSnapshot) -> DisplayState:
     return DisplayState(
         snapshot.version,
         expression,
-        "#FFFFFF",
         _COLORS[expression],
+        "#000000",
         max(0, min(100, energy)),
     )
 

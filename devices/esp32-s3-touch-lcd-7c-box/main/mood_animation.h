@@ -10,10 +10,14 @@ typedef struct {
     int16_t left_eye_height;
     int16_t left_eye_x;
     int16_t left_eye_y;
+    int16_t left_eye_rotation;
+    int8_t left_eye_curve;
     int16_t right_eye_width;
     int16_t right_eye_height;
     int16_t right_eye_x;
     int16_t right_eye_y;
+    int16_t right_eye_rotation;
+    int8_t right_eye_curve;
     int16_t pupil_size;
     int16_t pupil_x;
     int16_t pupil_y;
@@ -30,7 +34,7 @@ typedef struct {
     int16_t accent_height;
     int16_t accent_x;
     int16_t accent_y;
-    uint8_t background_lift;
+    uint8_t color_lift;
     uint8_t face_opacity;
 } mood_animation_frame_t;
 

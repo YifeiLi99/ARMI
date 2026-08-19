@@ -94,6 +94,7 @@ mood_parse_result_t mood_protocol_parse(const char *frame, size_t length)
                     &result.state.foreground_rgb) &&
         parse_color(cJSON_GetObjectItemCaseSensitive(root, "background"),
                     &result.state.background_rgb) &&
+        result.state.background_rgb == 0x000000U &&
         cJSON_IsNumber(energy) && energy->valuedouble >= 0 && energy->valuedouble <= 100 &&
         energy->valuedouble == (uint8_t)energy->valuedouble &&
         cJSON_IsNumber(validity) && validity->valuedouble == 30;

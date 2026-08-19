@@ -20,8 +20,8 @@ static void test_offline_state(void)
 static void test_protocol_state(void)
 {
     const char *valid =
-        "{\"background\":\"#F6C85F\",\"energy\":80,\"expression\":\"happy\","
-        "\"foreground\":\"#FFFFFF\",\"mood_version\":7,"
+        "{\"background\":\"#000000\",\"energy\":80,\"expression\":\"happy\","
+        "\"foreground\":\"#F6C85F\",\"mood_version\":7,"
         "\"protocol_version\":\"armi.mood-display.v1\",\"state_id\":\"state-1\","
         "\"type\":\"state\",\"valid_for_seconds\":30}\n";
     mood_parse_result_t result = mood_protocol_parse(valid, strlen(valid));
@@ -30,11 +30,20 @@ static void test_protocol_state(void)
     assert(result.state.energy == 80);
 
     const char *unknown_field =
-        "{\"background\":\"#F6C85F\",\"energy\":80,\"expression\":\"happy\","
-        "\"foreground\":\"#FFFFFF\",\"mood_version\":7,"
+        "{\"background\":\"#000000\",\"energy\":80,\"expression\":\"happy\","
+        "\"foreground\":\"#F6C85F\",\"mood_version\":7,"
         "\"protocol_version\":\"armi.mood-display.v1\",\"state_id\":\"state-1\","
         "\"type\":\"state\",\"unknown\":true,\"valid_for_seconds\":30}\n";
     result = mood_protocol_parse(unknown_field, strlen(unknown_field));
+    assert(result.kind == MOOD_PARSE_REJECT);
+    assert(strcmp(result.reject_code, "invalid_state") == 0);
+
+    const char *non_black_background =
+        "{\"background\":\"#FFFFFF\",\"energy\":80,\"expression\":\"happy\","
+        "\"foreground\":\"#F6C85F\",\"mood_version\":7,"
+        "\"protocol_version\":\"armi.mood-display.v1\",\"state_id\":\"state-1\","
+        "\"type\":\"state\",\"valid_for_seconds\":30}\n";
+    result = mood_protocol_parse(non_black_background, strlen(non_black_background));
     assert(result.kind == MOOD_PARSE_REJECT);
     assert(strcmp(result.reject_code, "invalid_state") == 0);
 }
@@ -83,7 +92,7 @@ static void test_energy_changes_motion_but_offline_remains_closed(void)
     mood_animation_frame(MOOD_FACE_EXCITED, 10, 800, &low);
     mood_animation_frame(MOOD_FACE_EXCITED, 100, 800, &high);
     assert(high.mouth_width > low.mouth_width);
-    assert(high.background_lift > low.background_lift);
+    assert(high.color_lift > low.color_lift);
     mood_animation_frame(MOOD_FACE_OFFLINE, 0, 0, &offline_first);
     mood_animation_frame(MOOD_FACE_OFFLINE, 0, 4000, &offline_later);
     assert(memcmp(&offline_first, &offline_later, sizeof(offline_first)) == 0);

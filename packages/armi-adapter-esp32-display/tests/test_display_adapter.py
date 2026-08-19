@@ -96,6 +96,8 @@ def test_conditional_and_vad_mapping() -> None:
 
 def test_wire_state_discloses_only_display_projection() -> None:
     state = map_mood_snapshot(_snapshot(EmotionFamily.JOY, arousal=20))
+    assert state.foreground == "#F6C85F"
+    assert state.background == "#000000"
     frame = encode_state("state-1", state)
     assert len(frame) <= MAX_FRAME_BYTES
     value = decode_frame(frame)

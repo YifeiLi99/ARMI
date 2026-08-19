@@ -12,6 +12,9 @@ def test_firmware_versions_and_wire_contract_are_pinned() -> None:
     assert '"armi.mood-display.v1"' in protocol
     assert "MOOD_FRAME_MAX_BYTES 512" in protocol
     assert "30LL * 1000 * 1000" in offline
+    assert "background_rgb == 0x000000U" in (ROOT / "main" / "mood_protocol.c").read_text(
+        encoding="utf-8"
+    )
     assert (ROOT / "host_tests" / "test_mood_display.c").is_file()
 
 
@@ -60,9 +63,11 @@ def test_online_faces_use_expression_specific_frame_animation_and_color() -> Non
     ):
         assert enum_name in animation
     assert "FRAME_MS 80U" in animation
-    assert "background_lift" in animation
+    assert "color_lift" in animation
     assert "cheek_opacity" in animation
     assert "accent_visible" in animation
     assert "lift_rgb" in face
+    assert "lv_color_black" in face
+    assert "left_eye_cutout" in face
     assert "mouth_cutout" in face
     assert '"mood_animation.c"' in component
