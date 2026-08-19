@@ -15,7 +15,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from armi_runtime.interfaces.creator_contract import build_creator_openapi
+from armi_runtime.interfaces.creator_openapi import build_creator_openapi
 
 CONTRACT_RESOURCE_RELATIVE = Path(
     "apps/armi-runtime/src/armi_runtime/interfaces/creator_web_resources"

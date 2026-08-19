@@ -25,8 +25,12 @@ from armi_runtime.interfaces.creator_contract import (
     SceneTimelineItemResponse,
     SceneTimelinePageResponse,
     WaitingOutcomeResponse,
+)
+from armi_runtime.interfaces.creator_openapi import (
+    _create_schema_app,
     build_creator_openapi,
 )
+from fastapi.routing import APIRoute
 from pydantic import ValidationError
 
 ENVIRONMENT_ID = "01890f47-7ac2-7cc4-98c2-9f4e3f13b9aa"
@@ -59,6 +63,29 @@ def rejected() -> dict[str, object]:
 
 
 class CreatorContractTests(unittest.TestCase):
+    def test_openapi_paths_are_the_real_public_runtime_routes(self) -> None:
+        app = _create_schema_app()
+        runtime_routes = {
+            (method.lower(), route.path)
+            for route in app.routes
+            if isinstance(route, APIRoute) and route.include_in_schema
+            for method in route.methods
+            if method != "HEAD"
+        }
+        schema = build_creator_openapi()
+        schema_routes = {
+            (method, path)
+            for path, path_item in cast(
+                dict[str, dict[str, Any]], schema["paths"]
+            ).items()
+            for method in path_item
+        }
+        self.assertEqual(runtime_routes, schema_routes)
+        self.assertTrue(
+            all(not path.startswith("/v1/local/") for _, path in runtime_routes)
+        )
+        self.assertTrue(all(not path.startswith("/ui") for _, path in runtime_routes))
+
     def test_openapi_has_exact_paths_operations_and_security(self) -> None:
         schema = build_creator_openapi()
         self.assertEqual(schema["openapi"], "3.1.0")

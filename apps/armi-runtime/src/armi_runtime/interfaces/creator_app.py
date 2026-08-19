@@ -122,13 +122,14 @@ from armi_sleep.api import (
     CreatorMaintenanceViolation,
 )
 from armi_subject_state.api import SubjectSummary
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Security
 from fastapi.responses import (
     JSONResponse,
     RedirectResponse,
     Response,
     StreamingResponse,
 )
+from fastapi.security import HTTPBearer
 from pydantic import ValidationError
 
 from .browser_sessions import (
@@ -137,6 +138,8 @@ from .browser_sessions import (
     SessionMetadata,
 )
 from .creator_contract import (
+    AcceptedOutcomeResponse,
+    AppliedOutcomeResponse,
     BrowserSessionCurrentResponse,
     BrowserSessionResponse,
     CapabilityRequestDecisionRequest,
@@ -189,6 +192,7 @@ from .creator_contract import (
     LiveResponse,
     LiveVisionStatusResponse,
     LiveVoiceStatusResponse,
+    OperationOutcomeResponse,
     OtherHumanPartyRecordPageResponse,
     OtherHumanPartyRecordResponse,
     OtherHumanSceneRecordPageResponse,
@@ -198,11 +202,13 @@ from .creator_contract import (
     QQChannelHealthResponse,
     Readiness,
     ReadyResponse,
+    RejectedOutcomeResponse,
     RuntimeStatusResponse,
     SceneTimelineItemResponse,
     SceneTimelinePageResponse,
     SubjectComponentSummaryResponse,
     SubjectSummaryResponse,
+    UnavailableOutcomeResponse,
 )
 from .creator_events import (
     CreatorEventBroker,
@@ -1530,6 +1536,7 @@ def create_runtime_app(
         openapi_url=None,
         lifespan=lifespan,
     )
+    bearer = HTTPBearer(scheme_name="browserSessionBearer", auto_error=False)
 
     @app.middleware("http")
     async def enforce_local_boundary(
@@ -1579,11 +1586,20 @@ def create_runtime_app(
             response.headers.setdefault(name, value)
         return response
 
-    @app.get("/health/live", response_model=LiveResponse)
+    @app.get(
+        "/health/live",
+        operation_id="getHealthLive",
+        response_model=LiveResponse,
+    )
     async def health_live() -> LiveResponse:
         return LiveResponse(status="alive")
 
-    @app.get("/health/ready", response_model=ReadyResponse)
+    @app.get(
+        "/health/ready",
+        operation_id="getHealthReady",
+        response_model=ReadyResponse,
+        responses={503: {"model": ReadyResponse}},
+    )
     async def health_ready() -> JSONResponse:
         current = readiness()
         return JSONResponse(
@@ -1591,7 +1607,15 @@ def create_runtime_app(
             content={"status": current.value},
         )
 
-    @app.post("/v1/browser-sessions")
+    @app.post(
+        "/v1/browser-sessions",
+        operation_id="createBrowserSession",
+        response_model=BrowserSessionResponse,
+        responses={
+            403: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+    )
     async def create_browser_session(request: Request) -> JSONResponse:
         if browser_sessions is None:
             return JSONResponse(
@@ -1614,7 +1638,16 @@ def create_runtime_app(
         )
         return JSONResponse(content=response.model_dump(mode="json"))
 
-    @app.get("/v1/browser-sessions/current")
+    @app.get(
+        "/v1/browser-sessions/current",
+        operation_id="getCurrentBrowserSession",
+        response_model=BrowserSessionCurrentResponse,
+        responses={
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def current_browser_session(request: Request) -> JSONResponse:
         if browser_sessions is None or not _browser_boundary(
             request, canonical_origin=canonical_origin
@@ -1641,7 +1674,17 @@ def create_runtime_app(
         response = BrowserSessionCurrentResponse(**_metadata_wire(metadata))
         return JSONResponse(content=response.model_dump(mode="json"))
 
-    @app.get("/v1/runtime/status")
+    @app.get(
+        "/v1/runtime/status",
+        operation_id="getRuntimeStatus",
+        response_model=RuntimeStatusResponse,
+        responses={
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def get_runtime_status(request: Request) -> JSONResponse:
         if browser_sessions is None or not _browser_boundary(
             request, canonical_origin=canonical_origin
@@ -1666,7 +1709,17 @@ def create_runtime_app(
             )
         return JSONResponse(content=runtime_status().model_dump(mode="json"))
 
-    @app.get("/v1/channels/qq/status")
+    @app.get(
+        "/v1/channels/qq/status",
+        operation_id="getQQChannelHealth",
+        response_model=QQChannelHealthResponse,
+        responses={
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def get_qq_channel_health(request: Request) -> JSONResponse:
         if browser_sessions is None or not _browser_boundary(
             request, canonical_origin=canonical_origin
@@ -1719,15 +1772,30 @@ def create_runtime_app(
             content=(await live_voice_control(action)).model_dump(mode="json")
         )
 
-    @app.get("/v1/voice/status")
+    @app.get(
+        "/v1/voice/status",
+        operation_id="getLiveVoiceStatus",
+        response_model=LiveVoiceStatusResponse,
+        dependencies=[Security(bearer)],
+    )
     async def get_live_voice_status(request: Request) -> JSONResponse:
         return await _voice_control(request, "status")
 
-    @app.post("/v1/voice/start")
+    @app.post(
+        "/v1/voice/start",
+        operation_id="startLiveVoice",
+        response_model=LiveVoiceStatusResponse,
+        dependencies=[Security(bearer)],
+    )
     async def start_live_voice(request: Request) -> JSONResponse:
         return await _voice_control(request, "start")
 
-    @app.post("/v1/voice/stop")
+    @app.post(
+        "/v1/voice/stop",
+        operation_id="stopLiveVoice",
+        response_model=LiveVoiceStatusResponse,
+        dependencies=[Security(bearer)],
+    )
     async def stop_live_voice(request: Request) -> JSONResponse:
         return await _voice_control(request, "stop")
 
@@ -1754,31 +1822,57 @@ def create_runtime_app(
             content=(await live_vision_control(action)).model_dump(mode="json")
         )
 
-    @app.get("/v1/vision/status")
+    @app.get(
+        "/v1/vision/status",
+        operation_id="getLiveVisionStatus",
+        response_model=LiveVisionStatusResponse,
+        dependencies=[Security(bearer)],
+    )
     async def get_live_vision_status(  # pyright: ignore[reportUnusedFunction]
         request: Request,
     ) -> JSONResponse:
         return await _vision_control(request, "status")
 
-    @app.post("/v1/vision/start")
+    @app.post(
+        "/v1/vision/start",
+        operation_id="startLiveVision",
+        response_model=LiveVisionStatusResponse,
+        dependencies=[Security(bearer)],
+    )
     async def start_live_vision(  # pyright: ignore[reportUnusedFunction]
         request: Request,
     ) -> JSONResponse:
         return await _vision_control(request, "start")
 
-    @app.post("/v1/vision/stop")
+    @app.post(
+        "/v1/vision/stop",
+        operation_id="stopLiveVision",
+        response_model=LiveVisionStatusResponse,
+        dependencies=[Security(bearer)],
+    )
     async def stop_live_vision(  # pyright: ignore[reportUnusedFunction]
         request: Request,
     ) -> JSONResponse:
         return await _vision_control(request, "stop")
 
-    @app.post("/v1/vision/observe")
+    @app.post(
+        "/v1/vision/observe",
+        operation_id="observeLiveVision",
+        response_model=LiveVisionStatusResponse,
+        dependencies=[Security(bearer)],
+    )
     async def observe_live_vision(  # pyright: ignore[reportUnusedFunction]
         request: Request,
     ) -> JSONResponse:
         return await _vision_control(request, "observe")
 
-    @app.get("/v1/vision/preview")
+    @app.get(
+        "/v1/vision/preview",
+        operation_id="getLiveVisionPreview",
+        response_class=Response,
+        responses={200: {"content": {"image/jpeg": {}}}, 404: {}},
+        dependencies=[Security(bearer)],
+    )
     async def get_live_vision_preview(  # pyright: ignore[reportUnusedFunction]
         request: Request,
     ) -> Response:
@@ -1794,7 +1888,17 @@ def create_runtime_app(
             headers={"Cache-Control": "no-store"},
         )
 
-    @app.get("/v1/subject/summary")
+    @app.get(
+        "/v1/subject/summary",
+        operation_id="getSubjectSummary",
+        response_model=SubjectSummaryResponse,
+        responses={
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def get_subject_summary(request: Request) -> JSONResponse:
         if (
             browser_sessions is None
@@ -1854,7 +1958,17 @@ def create_runtime_app(
             ).model_dump(mode="json", exclude_none=True)
         )
 
-    @app.get("/v1/prompts/creator-guidance")
+    @app.get(
+        "/v1/prompts/creator-guidance",
+        operation_id="getCreatorPrompt",
+        response_model=CreatorPromptResponse,
+        responses={
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def get_creator_prompt(request: Request) -> JSONResponse:
         if (
             browser_sessions is None
@@ -1891,7 +2005,20 @@ def create_runtime_app(
             content=_creator_prompt_response(view).model_dump(mode="json")
         )
 
-    @app.put("/v1/prompts/creator-guidance")
+    @app.put(
+        "/v1/prompts/creator-guidance",
+        operation_id="reviseCreatorPrompt",
+        response_model=CreatorPromptResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            409: {"model": RejectedOutcomeResponse},
+            413: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def revise_creator_prompt(request: Request) -> JSONResponse:
         if (
             browser_sessions is None
@@ -1943,7 +2070,20 @@ def create_runtime_app(
             content=_creator_prompt_response(view).model_dump(mode="json")
         )
 
-    @app.post("/v1/prompts/creator-guidance/deactivation")
+    @app.post(
+        "/v1/prompts/creator-guidance/deactivation",
+        operation_id="deactivateCreatorPrompt",
+        response_model=CreatorPromptResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            409: {"model": RejectedOutcomeResponse},
+            413: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def deactivate_creator_prompt(request: Request) -> JSONResponse:
         if (
             browser_sessions is None
@@ -1992,7 +2132,22 @@ def create_runtime_app(
 
     del get_creator_prompt, revise_creator_prompt, deactivate_creator_prompt
 
-    @app.post("/v1/exports")
+    @app.post(
+        "/v1/exports",
+        operation_id="createCreatorExport",
+        status_code=201,
+        response_model=CreatorExportResponse,
+        responses={
+            200: {"model": CreatorExportResponse},
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            409: {"model": RejectedOutcomeResponse},
+            413: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def create_creator_export(request: Request) -> JSONResponse:
         if (
             browser_sessions is None
@@ -2044,7 +2199,19 @@ def create_runtime_app(
             content=_creator_export_response(result).model_dump(mode="json"),
         )
 
-    @app.get("/v1/exports/{export_id}")
+    @app.get(
+        "/v1/exports/{export_id}",
+        operation_id="getCreatorExport",
+        response_model=CreatorExportResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def get_creator_export(request: Request, export_id: str) -> JSONResponse:
         if (
             browser_sessions is None
@@ -2092,7 +2259,17 @@ def create_runtime_app(
 
     del create_creator_export, get_creator_export
 
-    @app.get("/v1/data-rights/orders")
+    @app.get(
+        "/v1/data-rights/orders",
+        operation_id="listDataRightsOrders",
+        response_model=DataRightsOrderCollectionResponse,
+        responses={
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def list_creator_data_rights_orders(request: Request) -> JSONResponse:
         if (
             browser_sessions is None
@@ -2128,7 +2305,22 @@ def create_runtime_app(
             ).model_dump(mode="json")
         )
 
-    @app.post("/v1/data-rights/orders")
+    @app.post(
+        "/v1/data-rights/orders",
+        operation_id="createDataRightsOrder",
+        status_code=201,
+        response_model=DataRightsOrderResponse,
+        responses={
+            200: {"model": DataRightsOrderResponse},
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            409: {"model": RejectedOutcomeResponse},
+            413: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def create_creator_data_rights_order(request: Request) -> JSONResponse:
         if (
             browser_sessions is None
@@ -2178,7 +2370,19 @@ def create_runtime_app(
             content=_data_rights_response(result).model_dump(mode="json"),
         )
 
-    @app.get("/v1/data-rights/orders/{order_id}")
+    @app.get(
+        "/v1/data-rights/orders/{order_id}",
+        operation_id="getDataRightsOrder",
+        response_model=DataRightsOrderDetailResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def get_creator_data_rights_order(
         request: Request, order_id: str
     ) -> JSONResponse:
@@ -2227,7 +2431,19 @@ def create_runtime_app(
     del list_creator_data_rights_orders, create_creator_data_rights_order
     del get_creator_data_rights_order
 
-    @app.get("/v1/capability-requests")
+    @app.get(
+        "/v1/capability-requests",
+        operation_id="listCapabilityRequests",
+        response_model=CapabilityRequestPageResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            409: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def list_capability_requests(request: Request) -> JSONResponse:
         if (
             browser_sessions is None
@@ -2363,7 +2579,21 @@ def create_runtime_app(
         )
         return JSONResponse(content=response.model_dump(mode="json", exclude_none=True))
 
-    @app.post("/v1/capability-requests/{capability_request_id}/decision")
+    @app.post(
+        "/v1/capability-requests/{capability_request_id}/decision",
+        operation_id="decideCapabilityRequest",
+        response_model=AppliedOutcomeResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            409: {"model": RejectedOutcomeResponse},
+            413: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def decide_capability_request(
         capability_request_id: str,
         request: Request,
@@ -2454,7 +2684,17 @@ def create_runtime_app(
 
     del list_capability_requests, decide_capability_request
 
-    @app.get("/v1/activities")
+    @app.get(
+        "/v1/activities",
+        operation_id="listCreatorActivities",
+        response_model=CreatorActivityPageResponse,
+        responses={
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def list_creator_activities(request: Request) -> JSONResponse:
         if (
             browser_sessions is None
@@ -2524,7 +2764,19 @@ def create_runtime_app(
         )
         return JSONResponse(content=response.model_dump(mode="json"))
 
-    @app.get("/v1/activities/{activity_id}/timeline")
+    @app.get(
+        "/v1/activities/{activity_id}/timeline",
+        operation_id="getCreatorActivityTimeline",
+        response_model=CreatorActivityTimelineResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def get_creator_activity_timeline(
         activity_id: str, request: Request
     ) -> JSONResponse:
@@ -2606,7 +2858,17 @@ def create_runtime_app(
 
     del list_creator_activities, get_creator_activity_timeline
 
-    @app.get("/v1/relationships/current")
+    @app.get(
+        "/v1/relationships/current",
+        operation_id="getCreatorRelationshipCurrent",
+        response_model=CreatorRelationshipCurrentResponse,
+        responses={
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def get_creator_relationship_current(request: Request) -> JSONResponse:
         if (
             browser_sessions is None
@@ -2661,7 +2923,19 @@ def create_runtime_app(
         )
         return JSONResponse(content=response.model_dump(mode="json"))
 
-    @app.get("/v1/relationships/{relationship_id}/timeline")
+    @app.get(
+        "/v1/relationships/{relationship_id}/timeline",
+        operation_id="getCreatorRelationshipTimeline",
+        response_model=CreatorRelationshipTimelineResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def get_creator_relationship_timeline(
         relationship_id: str,
         request: Request,
@@ -2725,7 +2999,21 @@ def create_runtime_app(
         )
         return JSONResponse(content=response.model_dump(mode="json"))
 
-    @app.post("/v1/relationships/current/boundaries")
+    @app.post(
+        "/v1/relationships/current/boundaries",
+        operation_id="expressCreatorRelationshipBoundary",
+        status_code=202,
+        response_model=AcceptedOutcomeResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            409: {"model": RejectedOutcomeResponse},
+            413: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def express_creator_relationship_boundary(
         request: Request,
     ) -> JSONResponse:
@@ -2805,7 +3093,19 @@ def create_runtime_app(
         get_creator_relationship_timeline,
     )
 
-    @app.get("/v1/life-records")
+    @app.get(
+        "/v1/life-records",
+        operation_id="queryCreatorLifeRecords",
+        response_model=LifeRecordPageResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            409: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def query_creator_life_records(request: Request) -> JSONResponse:
         if (
             browser_sessions is None
@@ -2893,7 +3193,19 @@ def create_runtime_app(
         )
         return JSONResponse(content=response.model_dump(mode="json"))
 
-    @app.get("/v1/materials/{material_id}")
+    @app.get(
+        "/v1/materials/{material_id}",
+        operation_id="getCreatorLifeMaterial",
+        response_model=CreatorLifeMaterialResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def get_creator_life_material(
         material_id: str,
         request: Request,
@@ -2964,7 +3276,19 @@ def create_runtime_app(
         )
         return JSONResponse(content=response.model_dump(mode="json"))
 
-    @app.get("/v1/memories")
+    @app.get(
+        "/v1/memories",
+        operation_id="listCreatorMemories",
+        response_model=CreatorMemoryPageResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            409: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def list_creator_memories(request: Request) -> JSONResponse:
         if (
             browser_sessions is None
@@ -3061,7 +3385,20 @@ def create_runtime_app(
         )
         return JSONResponse(content=response.model_dump(mode="json"))
 
-    @app.get("/v1/memories/{memory_id}/timeline")
+    @app.get(
+        "/v1/memories/{memory_id}/timeline",
+        operation_id="getCreatorMemoryTimeline",
+        response_model=CreatorMemoryTimelineResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            409: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def get_creator_memory_timeline(
         memory_id: str,
         request: Request,
@@ -3190,7 +3527,17 @@ def create_runtime_app(
     del get_creator_life_material, query_creator_life_records, list_creator_memories
     del get_creator_memory_timeline
 
-    @app.get("/v1/maintenance/status")
+    @app.get(
+        "/v1/maintenance/status",
+        operation_id="getCreatorMaintenanceStatus",
+        response_model=CreatorMaintenanceStatusResponse,
+        responses={
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def get_creator_maintenance_status(request: Request) -> JSONResponse:
         if (
             browser_sessions is None
@@ -3256,7 +3603,19 @@ def create_runtime_app(
         )
         return JSONResponse(content=response.model_dump(mode="json"))
 
-    @app.get("/v1/maintenance/{maintenance_session_id}/timeline")
+    @app.get(
+        "/v1/maintenance/{maintenance_session_id}/timeline",
+        operation_id="getCreatorMaintenanceTimeline",
+        response_model=CreatorMaintenanceTimelineResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def get_creator_maintenance_timeline(
         maintenance_session_id: str,
         request: Request,
@@ -3334,7 +3693,20 @@ def create_runtime_app(
         )
         return JSONResponse(content=response.model_dump(mode="json"))
 
-    @app.post("/v1/maintenance/{maintenance_session_id}/wake")
+    @app.post(
+        "/v1/maintenance/{maintenance_session_id}/wake",
+        operation_id="requestCreatorEmergencyWake",
+        status_code=204,
+        response_class=Response,
+        responses={
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            409: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def request_creator_emergency_wake(
         maintenance_session_id: str,
         request: Request,
@@ -3396,7 +3768,17 @@ def create_runtime_app(
         request_creator_emergency_wake,
     )
 
-    @app.get("/v1/scenes")
+    @app.get(
+        "/v1/scenes",
+        operation_id="listCreatorScenes",
+        response_model=CreatorSceneCollectionResponse,
+        responses={
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def list_creator_scenes(request: Request) -> JSONResponse:
         if (
             browser_sessions is None
@@ -3439,7 +3821,20 @@ def create_runtime_app(
         )
         return JSONResponse(content=response.model_dump(mode="json", exclude_none=True))
 
-    @app.post("/v1/scenes")
+    @app.post(
+        "/v1/scenes",
+        operation_id="createCreatorScene",
+        status_code=201,
+        response_model=CreatorSceneResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            409: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def create_creator_scene(request: Request) -> JSONResponse:
         if (
             browser_sessions is None
@@ -3558,18 +3953,55 @@ def create_runtime_app(
             content=_scene_wire(changed).model_dump(mode="json", exclude_none=True)
         )
 
-    @app.post("/v1/scenes/{scene_key}/close")
+    @app.post(
+        "/v1/scenes/{scene_key}/close",
+        operation_id="closeCreatorScene",
+        response_model=CreatorSceneResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def close_creator_scene(scene_key: str, request: Request) -> JSONResponse:
         return await transition_creator_scene(scene_key, request, SceneStatus.CLOSED)
 
-    @app.post("/v1/scenes/{scene_key}/reopen")
+    @app.post(
+        "/v1/scenes/{scene_key}/reopen",
+        operation_id="reopenCreatorScene",
+        response_model=CreatorSceneResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def reopen_creator_scene(scene_key: str, request: Request) -> JSONResponse:
         return await transition_creator_scene(scene_key, request, SceneStatus.OPEN)
 
     del list_creator_scenes, create_creator_scene
     del close_creator_scene, reopen_creator_scene
 
-    @app.get("/v1/scenes/{scene_key}/timeline")
+    @app.get(
+        "/v1/scenes/{scene_key}/timeline",
+        operation_id="getSceneTimeline",
+        response_model=SceneTimelinePageResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            409: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def get_scene_timeline(scene_key: str, request: Request) -> JSONResponse:
         if (
             browser_sessions is None
@@ -3744,7 +4176,18 @@ def create_runtime_app(
         except ContractViolation:
             return JSONResponse(status_code=400, content=_rejected("INPUT_PAGE"))
 
-    @app.get("/v1/other-human-records")
+    @app.get(
+        "/v1/other-human-records",
+        operation_id="listOtherHumanRecordParties",
+        response_model=OtherHumanPartyRecordPageResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def list_other_human_record_parties(request: Request) -> JSONResponse:
         scope = await _other_human_record_scope(request)
         if isinstance(scope, JSONResponse):
@@ -3770,7 +4213,19 @@ def create_runtime_app(
         )
         return JSONResponse(content=response.model_dump(mode="json", exclude_none=True))
 
-    @app.get("/v1/other-human-records/{party_id}/scenes")
+    @app.get(
+        "/v1/other-human-records/{party_id}/scenes",
+        operation_id="listOtherHumanRecordScenes",
+        response_model=OtherHumanSceneRecordPageResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def list_other_human_record_scenes(
         party_id: str, request: Request
     ) -> JSONResponse:
@@ -3823,7 +4278,19 @@ def create_runtime_app(
         )
         return JSONResponse(content=response.model_dump(mode="json", exclude_none=True))
 
-    @app.get("/v1/other-human-records/{party_id}/scenes/{scene_id}/timeline")
+    @app.get(
+        "/v1/other-human-records/{party_id}/scenes/{scene_id}/timeline",
+        operation_id="getOtherHumanRecordTimeline",
+        response_model=OtherHumanTimelineRecordPageResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def get_other_human_record_timeline(
         party_id: str, scene_id: str, request: Request
     ) -> JSONResponse:
@@ -3907,7 +4374,7 @@ def create_runtime_app(
             content=_unavailable("DEPENDENCY_OTHER_HUMAN_INPUT_UNAVAILABLE"),
         )
 
-    @app.post("/v1/local/other-humans/parties")
+    @app.post("/v1/local/other-humans/parties", include_in_schema=False)
     async def register_other_human_party(request: Request) -> JSONResponse:
         if other_human_input is None:
             return JSONResponse(
@@ -3944,7 +4411,10 @@ def create_runtime_app(
             },
         )
 
-    @app.put("/v1/local/other-humans/{party_key}/scenes/{scene_key}")
+    @app.put(
+        "/v1/local/other-humans/{party_key}/scenes/{scene_key}",
+        include_in_schema=False,
+    )
     async def set_other_human_scene(
         party_key: str, scene_key: str, request: Request
     ) -> JSONResponse:
@@ -3981,7 +4451,10 @@ def create_runtime_app(
             }
         )
 
-    @app.post("/v1/local/other-humans/{party_key}/scenes/{scene_key}/messages")
+    @app.post(
+        "/v1/local/other-humans/{party_key}/scenes/{scene_key}/messages",
+        include_in_schema=False,
+    )
     async def accept_other_human_message(
         party_key: str, scene_key: str, request: Request
     ) -> JSONResponse:
@@ -4027,7 +4500,10 @@ def create_runtime_app(
             },
         )
 
-    @app.post("/v1/local/other-humans/{party_key}/data-rights/orders")
+    @app.post(
+        "/v1/local/other-humans/{party_key}/data-rights/orders",
+        include_in_schema=False,
+    )
     async def create_other_human_data_rights_order(
         party_key: str, request: Request
     ) -> JSONResponse:
@@ -4065,7 +4541,10 @@ def create_runtime_app(
             content=_data_rights_response(result).model_dump(mode="json"),
         )
 
-    @app.get("/v1/local/other-humans/{party_key}/data-rights/orders")
+    @app.get(
+        "/v1/local/other-humans/{party_key}/data-rights/orders",
+        include_in_schema=False,
+    )
     async def list_other_human_data_rights_orders(party_key: str) -> JSONResponse:
         if data_rights is None:
             return JSONResponse(
@@ -4088,7 +4567,10 @@ def create_runtime_app(
             ).model_dump(mode="json")
         )
 
-    @app.get("/v1/local/other-humans/{party_key}/data-rights/orders/{order_id}")
+    @app.get(
+        "/v1/local/other-humans/{party_key}/data-rights/orders/{order_id}",
+        include_in_schema=False,
+    )
     async def get_other_human_data_rights_order(
         party_key: str, order_id: str
     ) -> JSONResponse:
@@ -4121,7 +4603,22 @@ def create_runtime_app(
     del create_other_human_data_rights_order, list_other_human_data_rights_orders
     del get_other_human_data_rights_order
 
-    @app.post("/v1/scenes/{scene_key}/messages")
+    @app.post(
+        "/v1/scenes/{scene_key}/messages",
+        operation_id="acceptCreatorMessage",
+        status_code=202,
+        response_model=AcceptedOutcomeResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            409: {"model": RejectedOutcomeResponse},
+            413: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def accept_creator_message(
         scene_key: str,
         request: Request,
@@ -4193,7 +4690,22 @@ def create_runtime_app(
 
     del accept_creator_message
 
-    @app.post("/v1/scenes/{scene_key}/codex-tasks")
+    @app.post(
+        "/v1/scenes/{scene_key}/codex-tasks",
+        operation_id="acceptCreatorCodexTask",
+        status_code=202,
+        response_model=AcceptedOutcomeResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            409: {"model": RejectedOutcomeResponse},
+            413: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def accept_creator_codex_task(
         scene_key: str,
         request: Request,
@@ -4264,7 +4776,19 @@ def create_runtime_app(
 
     del accept_creator_codex_task
 
-    @app.get("/v1/operations/{result_ref}")
+    @app.get(
+        "/v1/operations/{result_ref}",
+        operation_id="getCreatorOperation",
+        response_model=OperationOutcomeResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def get_creator_operation(
         result_ref: str,
         request: Request,
@@ -4305,7 +4829,19 @@ def create_runtime_app(
 
     del get_creator_operation
 
-    @app.get("/v1/effects/{effect_id}")
+    @app.get(
+        "/v1/effects/{effect_id}",
+        operation_id="getEffect",
+        response_model=EffectResponse,
+        responses={
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def get_effect(effect_id: str, request: Request) -> JSONResponse:
         if (
             browser_sessions is None
@@ -4388,7 +4924,26 @@ def create_runtime_app(
 
     del get_effect
 
-    @app.get("/v1/effects/{effect_id}/artifacts/{artifact_kind}")
+    @app.get(
+        "/v1/effects/{effect_id}/artifacts/{artifact_kind}",
+        operation_id="getEffectArtifact",
+        response_class=Response,
+        responses={
+            200: {
+                "description": "Explicit verified Codex result artifact.",
+                "content": {
+                    "text/plain": {"schema": {"type": "string"}},
+                    "application/json": {"schema": {"type": "string"}},
+                },
+            },
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def get_effect_artifact(
         effect_id: str, artifact_kind: str, request: Request
     ) -> Response:
@@ -4447,7 +5002,37 @@ def create_runtime_app(
 
     del get_effect_artifact
 
-    @app.get("/v1/scenes/{scene_key}/events")
+    @app.get(
+        "/v1/scenes/{scene_key}/events",
+        operation_id="streamSceneEvents",
+        response_class=StreamingResponse,
+        responses={
+            200: {
+                "description": "Authenticated Creator projection invalidations.",
+                "content": {
+                    "text/event-stream": {
+                        "schema": {
+                            "type": "string",
+                            "x-event-data-schema": {
+                                "$ref": (
+                                    "#/components/schemas/"
+                                    "CreatorProjectionEventResponse"
+                                )
+                            },
+                        }
+                    }
+                },
+            },
+            400: {"model": RejectedOutcomeResponse},
+            401: {"model": RejectedOutcomeResponse},
+            403: {"model": RejectedOutcomeResponse},
+            404: {"model": RejectedOutcomeResponse},
+            409: {"model": RejectedOutcomeResponse},
+            429: {"model": RejectedOutcomeResponse},
+            503: {"model": UnavailableOutcomeResponse},
+        },
+        dependencies=[Security(bearer)],
+    )
     async def get_scene_events(
         scene_key: str,
         request: Request,
