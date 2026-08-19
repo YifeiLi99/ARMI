@@ -4,11 +4,18 @@ from __future__ import annotations
 
 import os
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 
 from tools.check_repository_hygiene import scan_paths
-from tools.quality import Gate, GateResult, aggregate_exit_code, run_gate
+from tools.quality import (
+    Gate,
+    GateResult,
+    aggregate_exit_code,
+    run_gate,
+    workspace_distribution_names,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 VENV_PYTHON = ROOT / ".venv/Scripts/python.exe"
@@ -139,6 +146,36 @@ class QualityGateTests(unittest.TestCase):
             sample.write_text('{"active":true}\n', encoding="utf-8")
             codes = {item.code for item in scan_paths([sample], root)}
         self.assertIn("REP-JSON-FORMAT", codes)
+
+    def test_default_python_tests_cover_every_workspace_scope(self) -> None:
+        project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        self.assertEqual(
+            project["tool"]["pytest"]["ini_options"]["testpaths"],
+            ["tests", "modules", "apps", "packages"],
+        )
+
+    def test_build_inventory_follows_workspace_members(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "first").mkdir()
+            (root / "second").mkdir()
+            (root / "pyproject.toml").write_text(
+                '[tool.uv.workspace]\nmembers = ["first", "second"]\n',
+                encoding="utf-8",
+            )
+            (root / "first/pyproject.toml").write_text(
+                '[project]\nname = "armi-first"\nversion = "0.0.0"\n',
+                encoding="utf-8",
+            )
+            (root / "second/pyproject.toml").write_text(
+                '[project]\nname = "armi.second"\nversion = "0.0.0"\n',
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                workspace_distribution_names(root),
+                ("armi_first", "armi_second"),
+            )
 
 
 if __name__ == "__main__":

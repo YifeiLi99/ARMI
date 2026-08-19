@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
+import tomllib
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -109,6 +111,21 @@ def run_gate(gate: Gate, environment: dict[str, str]) -> GateResult:
     return GateResult(gate.gate_id, "pass", 0, output)
 
 
+def workspace_distribution_names(root: Path) -> tuple[str, ...]:
+    workspace = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    members = cast(list[str], workspace["tool"]["uv"]["workspace"]["members"])
+    names: list[str] = []
+    for member in members:
+        project = cast(
+            dict[str, Any],
+            tomllib.loads(
+                (root / member / "pyproject.toml").read_text(encoding="utf-8")
+            )["project"],
+        )
+        names.append(re.sub(r"[-_.]+", "_", cast(str, project["name"])))
+    return tuple(sorted(names))
+
+
 def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
     venv_python = root / ".venv/Scripts/python.exe"
     managed_python = (
@@ -126,42 +143,13 @@ def commands(root: Path, tool_root: Path) -> dict[str, Gate]:
         artifacts = sorted(
             path.name for path in python_dist.glob("*") if path.is_file()
         )
-        expected = (
-            "armi_activity",
-            "armi_adapter_qq",
-            "armi_admin",
-            "armi_artifact_store",
-            "armi_capability",
-            "armi_channel_napcat",
-            "armi_cognition",
-            "armi_codex",
-            "armi_context",
-            "armi_data_rights",
-            "armi_effect",
-            "armi_evidence",
-            "armi_expression",
-            "armi_kernel",
-            "armi_interaction",
-            "armi_attention",
-            "armi_perception",
-            "armi_memory",
-            "armi_material",
-            "armi_postgresql_contract",
-            "armi_relationship",
-            "armi_runtime",
-            "armi_runtime_foundation",
-            "armi_sleep",
-            "armi_subject_state",
-            "armi_mood",
-            "armi_prompt",
-            "armi_web_observation",
-        )
+        expected = workspace_distribution_names(root)
         wheels = [name for name in artifacts if name.endswith(".whl")]
         source_distributions = [name for name in artifacts if name.endswith(".tar.gz")]
         valid = (
-            len(artifacts) == 56
-            and len(wheels) == 28
-            and len(source_distributions) == 28
+            len(artifacts) == len(expected) * 2
+            and len(wheels) == len(expected)
+            and len(source_distributions) == len(expected)
             and all(
                 any(name.startswith(f"{prefix}-") for name in wheels)
                 for prefix in expected
