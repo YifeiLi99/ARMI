@@ -14,6 +14,7 @@ from pathlib import Path
 from armi_adapter_esp32_display import MoodDisplayViolation, probe_device
 from armi_kernel.application import BirthViolation
 
+from armi_runtime.adapters.vision.directshow import DirectShowUsbCamera
 from armi_runtime.adapters.voice.wasapi import WasapiRawAudio
 from armi_runtime.composition.bootstrap import execute_birth
 from armi_runtime.composition.configuration import ConfigurationViolation
@@ -107,6 +108,11 @@ def _parser() -> argparse.ArgumentParser:
     for voice_action in ("devices", "status", "start", "stop"):
         voice_action_parser = voice_command.add_parser(voice_action)
         voice_action_parser.add_argument("--environment-root", type=Path)
+    vision = command.add_parser("vision")
+    vision_command = vision.add_subparsers(dest="vision_command", required=True)
+    for vision_action in ("devices", "status", "start", "stop", "observe"):
+        vision_action_parser = vision_command.add_parser(vision_action)
+        vision_action_parser.add_argument("--environment-root", type=Path)
     device = command.add_parser("device")
     device_command = device.add_subparsers(dest="device_command", required=True)
     mood_display = device_command.add_parser("mood-display")
@@ -270,6 +276,38 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         )
         return 0 if result["status"] == "available" else 3
+    if args.command == "vision" and args.vision_command == "devices":
+        try:
+            devices = DirectShowUsbCamera.devices()
+            result = {
+                "status": "available",
+                "devices": [
+                    {
+                        "name": item.name,
+                        "device_path": item.device_path,
+                        "usb_location_id": item.usb_location_id,
+                        "yaml": {
+                            "device": {
+                                "name": item.name,
+                                "device_path": item.device_path,
+                                "usb_location_id": item.usb_location_id,
+                            }
+                        },
+                    }
+                    for item in devices
+                ],
+            }
+        except Exception as error:
+            result = {
+                "status": "unavailable",
+                "reason_code": getattr(error, "code", "VISION-ENUMERATION-FAILED"),
+            }
+        print(
+            json.dumps(
+                result, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            )
+        )
+        return 0 if result["status"] == "available" else 3
     if args.command == "device":
         try:
             result = probe_device(str(args.port))
@@ -367,7 +405,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         credential_scope = {
             QQ_NAPCAT_ACCESS_TOKEN_PURPOSE: QQ_NAPCAT_ACCESS_TOKEN_LOCATOR,
         }
-    elif args.command in {"stop", "capacity", "creator", "voice"}:
+    elif args.command in {"stop", "capacity", "creator", "voice", "vision"}:
         credential_scope = {}
     else:
         credential_scope = {
@@ -582,6 +620,22 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ensure_ascii=False,
                 sort_keys=True,
                 separators=(",", ":"),
+            )
+        )
+        return 0 if result.get("state") not in {"unavailable", "failed"} else 3
+    if args.command == "vision":
+        process = RuntimeProcessManager(
+            prepared.root,
+            str(prepared.effective.config.environment.environment_id),
+        )
+        try:
+            result = process.vision(args.vision_command)
+        except RuntimeViolation as error:
+            _safe_failure(error)
+            return 3
+        print(
+            json.dumps(
+                result, ensure_ascii=False, sort_keys=True, separators=(",", ":")
             )
         )
         return 0 if result.get("state") not in {"unavailable", "failed"} else 3

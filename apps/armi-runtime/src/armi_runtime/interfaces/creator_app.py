@@ -187,6 +187,7 @@ from .creator_contract import (
     LifeRecordKindValue,
     LifeRecordPageResponse,
     LiveResponse,
+    LiveVisionStatusResponse,
     LiveVoiceStatusResponse,
     OtherHumanPartyRecordPageResponse,
     OtherHumanPartyRecordResponse,
@@ -243,6 +244,8 @@ ReadinessProvider = Callable[[], Readiness]
 RuntimeStatusProvider = Callable[[], RuntimeStatusResponse]
 QQChannelHealthProvider = Callable[[], Awaitable[QQChannelHealthResponse]]
 LiveVoiceControlProvider = Callable[[str], Awaitable[LiveVoiceStatusResponse]]
+LiveVisionControlProvider = Callable[[str], Awaitable[LiveVisionStatusResponse]]
+LiveVisionPreviewProvider = Callable[[], bytes | None]
 SubjectSummaryProvider = Callable[[], Awaitable[SubjectSummary]]
 SecurityEvent = Callable[[str], None]
 
@@ -1497,6 +1500,8 @@ def create_runtime_app(
     | None = None,
     on_security_event: SecurityEvent | None = None,
     live_voice_control: LiveVoiceControlProvider | None = None,
+    live_vision_control: LiveVisionControlProvider | None = None,
+    live_vision_preview: LiveVisionPreviewProvider | None = None,
 ) -> FastAPI:
     """Create the fixed Runtime app without implementation discovery."""
 
@@ -1725,6 +1730,69 @@ def create_runtime_app(
     @app.post("/v1/voice/stop")
     async def stop_live_voice(request: Request) -> JSONResponse:
         return await _voice_control(request, "stop")
+
+    async def _vision_control(request: Request, action: str) -> JSONResponse:
+        if (
+            browser_sessions is None
+            or live_vision_control is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_LIVE_VISION_UNAVAILABLE"),
+            )
+        token = _bearer(request)
+        try:
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            browser_sessions.verify(token)
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code, content=_rejected(error.code)
+            )
+        return JSONResponse(
+            content=(await live_vision_control(action)).model_dump(mode="json")
+        )
+
+    @app.get("/v1/vision/status")
+    async def get_live_vision_status(  # pyright: ignore[reportUnusedFunction]
+        request: Request,
+    ) -> JSONResponse:
+        return await _vision_control(request, "status")
+
+    @app.post("/v1/vision/start")
+    async def start_live_vision(  # pyright: ignore[reportUnusedFunction]
+        request: Request,
+    ) -> JSONResponse:
+        return await _vision_control(request, "start")
+
+    @app.post("/v1/vision/stop")
+    async def stop_live_vision(  # pyright: ignore[reportUnusedFunction]
+        request: Request,
+    ) -> JSONResponse:
+        return await _vision_control(request, "stop")
+
+    @app.post("/v1/vision/observe")
+    async def observe_live_vision(  # pyright: ignore[reportUnusedFunction]
+        request: Request,
+    ) -> JSONResponse:
+        return await _vision_control(request, "observe")
+
+    @app.get("/v1/vision/preview")
+    async def get_live_vision_preview(  # pyright: ignore[reportUnusedFunction]
+        request: Request,
+    ) -> Response:
+        denied = await _vision_control(request, "authorize_preview")
+        if denied.status_code != 200:
+            return denied
+        jpeg = None if live_vision_preview is None else live_vision_preview()
+        if jpeg is None:
+            return Response(status_code=404, headers={"Cache-Control": "no-store"})
+        return Response(
+            content=jpeg,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "no-store"},
+        )
 
     @app.get("/v1/subject/summary")
     async def get_subject_summary(request: Request) -> JSONResponse:

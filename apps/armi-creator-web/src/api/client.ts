@@ -7,6 +7,8 @@ export type BrowserSessionEstablished =
 export type RuntimeStatus = components["schemas"]["RuntimeStatusResponse"];
 export type QQChannelHealth = components["schemas"]["QQChannelHealthResponse"];
 export type LiveVoiceStatus = components["schemas"]["LiveVoiceStatusResponse"];
+export type LiveVisionStatus =
+  components["schemas"]["LiveVisionStatusResponse"];
 export type SceneTimelinePage =
   components["schemas"]["SceneTimelinePageResponse"];
 export type CreatorScene = components["schemas"]["CreatorSceneResponse"];
@@ -233,6 +235,44 @@ export async function setLiveVoiceRunning(
     headers: { Authorization: `Bearer ${token}` },
   });
   return requireJson(response);
+}
+
+export async function getLiveVisionStatus(
+  token: string,
+  signal?: AbortSignal,
+): Promise<LiveVisionStatus> {
+  const response = await fetch("/v1/vision/status", {
+    credentials: "omit",
+    headers: { Authorization: `Bearer ${token}` },
+    ...(signal === undefined ? {} : { signal }),
+  });
+  return requireJson(response);
+}
+
+export async function controlLiveVision(
+  token: string,
+  action: "start" | "stop" | "observe",
+): Promise<LiveVisionStatus> {
+  const response = await fetch(`/v1/vision/${action}`, {
+    method: "POST",
+    credentials: "omit",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return requireJson(response);
+}
+
+export async function getLiveVisionPreview(
+  token: string,
+): Promise<Blob | null> {
+  const response = await fetch("/v1/vision/preview", {
+    credentials: "omit",
+    cache: "no-store",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (response.status === 404) return null;
+  if (!response.ok)
+    throw new ApiFailure(response.status, await response.text());
+  return response.blob();
 }
 
 export async function getSceneTimeline(

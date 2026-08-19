@@ -687,6 +687,91 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/vision/observe": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Observe Live Vision */
+    post: operations["observeLiveVision"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/vision/preview": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Live Vision Preview */
+    get: operations["getLiveVisionPreview"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/vision/start": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Start Live Vision */
+    post: operations["startLiveVision"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/vision/status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Live Vision Status */
+    get: operations["getLiveVisionStatus"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/vision/stop": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Stop Live Vision */
+    post: operations["stopLiveVision"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/voice/start": {
     parameters: {
       query?: never;
@@ -2241,6 +2326,53 @@ export interface components {
        * @constant
        */
       status: "alive";
+    };
+    /** LiveVisionStatusResponse */
+    LiveVisionStatusResponse: {
+      /** Capture Ready */
+      capture_ready: boolean;
+      /**
+       * Contract Version
+       * @constant
+       */
+      contract_version: "1.0";
+      /** Device */
+      device: string | null;
+      /** Enabled */
+      enabled: boolean;
+      /** Expected Running */
+      expected_running: boolean;
+      /** Hourly Limit */
+      hourly_limit: number;
+      /** Last Frame At */
+      last_frame_at: string | null;
+      /** Last Observation At */
+      last_observation_at: string | null;
+      /** Observations Last Hour */
+      observations_last_hour: number;
+      /** Observed At */
+      observed_at: string;
+      /** Perception Ready */
+      perception_ready: boolean;
+      /**
+       * Projection Version
+       * @constant
+       */
+      projection_version: "creator-live-vision-status.v1";
+      /** Reason Codes */
+      reason_codes: components["schemas"]["ReasonCode"][];
+      /**
+       * State
+       * @enum {string}
+       */
+      state:
+        | "disabled"
+        | "idle"
+        | "starting"
+        | "observing"
+        | "degraded"
+        | "unavailable"
+        | "stopping";
     };
     /** LiveVoiceStatusResponse */
     LiveVoiceStatusResponse: {
@@ -5687,6 +5819,113 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["UnavailableOutcomeResponse"];
+        };
+      };
+    };
+  };
+  observeLiveVision: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LiveVisionStatusResponse"];
+        };
+      };
+    };
+  };
+  getLiveVisionPreview: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "image/jpeg": unknown;
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  startLiveVision: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LiveVisionStatusResponse"];
+        };
+      };
+    };
+  };
+  getLiveVisionStatus: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LiveVisionStatusResponse"];
+        };
+      };
+    };
+  };
+  stopLiveVision: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LiveVisionStatusResponse"];
         };
       };
     };

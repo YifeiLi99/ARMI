@@ -3876,6 +3876,126 @@
         "title": "LiveResponse",
         "type": "object"
       },
+      "LiveVisionStatusResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "capture_ready": {
+            "title": "Capture Ready",
+            "type": "boolean"
+          },
+          "contract_version": {
+            "const": "1.0",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "device": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "expected_running": {
+            "title": "Expected Running",
+            "type": "boolean"
+          },
+          "hourly_limit": {
+            "minimum": 1.0,
+            "title": "Hourly Limit",
+            "type": "integer"
+          },
+          "last_frame_at": {
+            "anyOf": [
+              {
+                "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Frame At"
+          },
+          "last_observation_at": {
+            "anyOf": [
+              {
+                "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Observation At"
+          },
+          "observations_last_hour": {
+            "minimum": 0.0,
+            "title": "Observations Last Hour",
+            "type": "integer"
+          },
+          "observed_at": {
+            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
+            "title": "Observed At",
+            "type": "string"
+          },
+          "perception_ready": {
+            "title": "Perception Ready",
+            "type": "boolean"
+          },
+          "projection_version": {
+            "const": "creator-live-vision-status.v1",
+            "title": "Projection Version",
+            "type": "string"
+          },
+          "reason_codes": {
+            "items": {
+              "$ref": "#/components/schemas/ReasonCode"
+            },
+            "maxItems": 16,
+            "title": "Reason Codes",
+            "type": "array"
+          },
+          "state": {
+            "enum": [
+              "disabled",
+              "idle",
+              "starting",
+              "observing",
+              "degraded",
+              "unavailable",
+              "stopping"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "projection_version",
+          "state",
+          "enabled",
+          "expected_running",
+          "device",
+          "capture_ready",
+          "perception_ready",
+          "last_frame_at",
+          "last_observation_at",
+          "observations_last_hour",
+          "hourly_limit",
+          "observed_at",
+          "reason_codes"
+        ],
+        "title": "LiveVisionStatusResponse",
+        "type": "object"
+      },
       "LiveVoiceStatusResponse": {
         "additionalProperties": false,
         "properties": {
@@ -9171,6 +9291,120 @@
           }
         ],
         "summary": "Subject Summary"
+      }
+    },
+    "/v1/vision/observe": {
+      "post": {
+        "operationId": "observeLiveVision",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveVisionStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "Observe Live Vision"
+      }
+    },
+    "/v1/vision/preview": {
+      "get": {
+        "operationId": "getLiveVisionPreview",
+        "responses": {
+          "200": {
+            "content": {
+              "image/jpeg": {}
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "Live Vision Preview"
+      }
+    },
+    "/v1/vision/start": {
+      "post": {
+        "operationId": "startLiveVision",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveVisionStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "Start Live Vision"
+      }
+    },
+    "/v1/vision/status": {
+      "get": {
+        "operationId": "getLiveVisionStatus",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveVisionStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "Live Vision Status"
+      }
+    },
+    "/v1/vision/stop": {
+      "post": {
+        "operationId": "stopLiveVision",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveVisionStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "Stop Live Vision"
       }
     },
     "/v1/voice/start": {

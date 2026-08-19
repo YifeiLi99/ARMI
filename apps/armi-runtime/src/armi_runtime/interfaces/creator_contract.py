@@ -715,6 +715,31 @@ class LiveVoiceStatusResponse(_StrictWireModel):
     reason_codes: Annotated[list[ReasonCode], Field(max_length=16)]
 
 
+class LiveVisionStatusResponse(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    projection_version: Literal["creator-live-vision-status.v1"]
+    state: Literal[
+        "disabled",
+        "idle",
+        "starting",
+        "observing",
+        "degraded",
+        "unavailable",
+        "stopping",
+    ]
+    enabled: bool
+    expected_running: bool
+    device: str | None
+    capture_ready: bool
+    perception_ready: bool
+    last_frame_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None
+    last_observation_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None
+    observations_last_hour: Annotated[int, Field(ge=0)]
+    hourly_limit: Annotated[int, Field(ge=1)]
+    observed_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+    reason_codes: Annotated[list[ReasonCode], Field(max_length=16)]
+
+
 class ErrorDescriptorResponse(_StrictWireModel):
     category: ErrorCategoryValue
     code: Annotated[str, Field(pattern=_ERROR_CODE_PATTERN)]
@@ -1386,6 +1411,52 @@ def build_creator_openapi() -> dict[str, object]:
         dependencies=[Security(bearer)],
     )
     async def stop_live_voice() -> LiveVoiceStatusResponse:
+        raise NotImplementedError
+
+    @app.get(
+        "/v1/vision/status",
+        operation_id="getLiveVisionStatus",
+        response_model=LiveVisionStatusResponse,
+        dependencies=[Security(bearer)],
+    )
+    async def live_vision_status() -> LiveVisionStatusResponse:
+        raise NotImplementedError
+
+    @app.post(
+        "/v1/vision/start",
+        operation_id="startLiveVision",
+        response_model=LiveVisionStatusResponse,
+        dependencies=[Security(bearer)],
+    )
+    async def start_live_vision() -> LiveVisionStatusResponse:
+        raise NotImplementedError
+
+    @app.post(
+        "/v1/vision/stop",
+        operation_id="stopLiveVision",
+        response_model=LiveVisionStatusResponse,
+        dependencies=[Security(bearer)],
+    )
+    async def stop_live_vision() -> LiveVisionStatusResponse:
+        raise NotImplementedError
+
+    @app.post(
+        "/v1/vision/observe",
+        operation_id="observeLiveVision",
+        response_model=LiveVisionStatusResponse,
+        dependencies=[Security(bearer)],
+    )
+    async def observe_live_vision() -> LiveVisionStatusResponse:
+        raise NotImplementedError
+
+    @app.get(
+        "/v1/vision/preview",
+        operation_id="getLiveVisionPreview",
+        response_class=Response,
+        responses={200: {"content": {"image/jpeg": {}}}, 404: {}},
+        dependencies=[Security(bearer)],
+    )
+    async def live_vision_preview() -> Response:
         raise NotImplementedError
 
     @app.get(
@@ -2177,6 +2248,11 @@ def build_creator_openapi() -> dict[str, object]:
         live_voice_status,
         start_live_voice,
         stop_live_voice,
+        live_vision_status,
+        start_live_vision,
+        stop_live_vision,
+        observe_live_vision,
+        live_vision_preview,
         subject_summary,
         get_creator_prompt,
         revise_creator_prompt,
@@ -2348,6 +2424,7 @@ __all__ = (
     "LifeRecordItemResponse",
     "LifeRecordPageResponse",
     "LiveResponse",
+    "LiveVisionStatusResponse",
     "LiveVoiceStatusResponse",
     "OperationOutcomeResponse",
     "OtherHumanPartyRecordPageResponse",

@@ -422,6 +422,12 @@ class RuntimeProcessManager:
         response = self._send_control("voice", {"action": action})
         return cast(dict[str, Any], response["result"])
 
+    def vision(self, action: str) -> dict[str, Any]:
+        if action not in {"status", "start", "stop", "observe"}:
+            raise ValueError("unsupported vision action")
+        response = self._send_control("vision", {"action": action})
+        return cast(dict[str, Any], response["result"])
+
     def _send_control(
         self,
         command: str,
