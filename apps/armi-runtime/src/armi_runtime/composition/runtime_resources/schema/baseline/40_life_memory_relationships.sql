@@ -1,3 +1,5 @@
+-- Current ARMI schema tables owned by this baseline module.
+
 --
 -- Name: life_material_revisions; Type: TABLE; Schema: armi; Owner: -
 --
@@ -107,13 +109,15 @@ CREATE TABLE armi.relationship_revisions (
     mechanism_identity text NOT NULL,
     privacy_scope text NOT NULL,
     created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
+    issue_resolution jsonb,
     CONSTRAINT relationship_revisions_boundaries_check CHECK (((jsonb_typeof(boundaries) = 'array'::text) AND (jsonb_array_length(boundaries) <= 16))),
     CONSTRAINT relationship_revisions_check CHECK ((((revision_no = 1) AND (previous_revision_id IS NULL)) OR ((revision_no > 1) AND (previous_revision_id IS NOT NULL)))),
     CONSTRAINT relationship_revisions_commitment_event_check CHECK (((commitment_event IS NULL) OR (jsonb_typeof(commitment_event) = 'object'::text))),
     CONSTRAINT relationship_revisions_commitments_check CHECK (((jsonb_typeof(commitments) = 'array'::text) AND (jsonb_array_length(commitments) <= 16))),
     CONSTRAINT relationship_revisions_facts_check CHECK (((jsonb_typeof(facts) = 'array'::text) AND ((jsonb_array_length(facts) >= 1) AND (jsonb_array_length(facts) <= 64)))),
     CONSTRAINT relationship_revisions_interpretation_check CHECK (((length(interpretation) >= 1) AND (length(interpretation) <= 1024))),
-    CONSTRAINT relationship_revisions_mechanism_identity_check CHECK ((mechanism_identity = 'armi.relationship.contextual-v1'::text)),
+    CONSTRAINT relationship_revisions_issue_resolution_check CHECK (((issue_resolution IS NULL) OR ((jsonb_typeof(issue_resolution) = 'object'::text) AND (issue_resolution ?& ARRAY['issue_id'::text, 'resolution_summary'::text, 'status'::text]) AND ((issue_resolution - ARRAY['issue_id'::text, 'resolution_summary'::text, 'status'::text]) = '{}'::jsonb) AND ((issue_resolution ->> 'status'::text) = 'resolved'::text) AND (((issue_resolution ->> 'issue_id'::text))::uuid IS NOT NULL) AND (uuid_extract_version(((issue_resolution ->> 'issue_id'::text))::uuid) = 7) AND ((length((issue_resolution ->> 'resolution_summary'::text)) >= 1) AND (length((issue_resolution ->> 'resolution_summary'::text)) <= 512))))),
+    CONSTRAINT relationship_revisions_mechanism_identity_check CHECK ((mechanism_identity = ANY (ARRAY['armi.relationship.contextual-v1'::text, 'armi.relationship.lifecycle-v2'::text]))),
     CONSTRAINT relationship_revisions_open_issues_check CHECK (((jsonb_typeof(open_issues) = 'array'::text) AND (jsonb_array_length(open_issues) <= 32))),
     CONSTRAINT relationship_revisions_privacy_scope_check CHECK ((privacy_scope = 'private'::text)),
     CONSTRAINT relationship_revisions_proposal_ref_check CHECK ((proposal_ref ~ '^proposal:[1-9][0-9]{0,2}$'::text)),
@@ -136,11 +140,15 @@ CREATE TABLE armi.relationships (
     current_revision_id uuid NOT NULL,
     head_version bigint NOT NULL,
     created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
+    tombstoned_at timestamp(6) with time zone,
+    tombstone_order_id uuid,
     CONSTRAINT relationships_check CHECK ((subject_party_id <> other_party_id)),
     CONSTRAINT relationships_current_revision_id_check CHECK ((uuid_extract_version(current_revision_id) = 7)),
     CONSTRAINT relationships_head_version_check CHECK ((head_version > 0)),
     CONSTRAINT relationships_relationship_id_check CHECK ((uuid_extract_version(relationship_id) = 7)),
-    CONSTRAINT relationships_scope_check CHECK ((scope = ANY (ARRAY['creator_social'::text, 'other_human_social'::text])))
+    CONSTRAINT relationships_scope_check CHECK ((scope = ANY (ARRAY['creator_social'::text, 'other_human_social'::text]))),
+    CONSTRAINT relationships_tombstone_order_id_check CHECK (((tombstone_order_id IS NULL) OR (uuid_extract_version(tombstone_order_id) = 7))),
+    CONSTRAINT relationships_tombstone_pair_check CHECK (((tombstoned_at IS NULL) = (tombstone_order_id IS NULL)))
 );
 
 --

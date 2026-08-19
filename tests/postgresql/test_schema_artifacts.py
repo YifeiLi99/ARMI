@@ -41,31 +41,12 @@ def test_schema_resources_use_one_linear_alembic_history() -> None:
     assert not (RESOURCE / "migrations").exists()
     assert not list(RESOURCE.glob("**/manifest.json"))
     script = _script()
-    assert script.get_heads() == ["0020"]
+    assert script.get_heads() == ["0000"]
     revisions = list(script.walk_revisions(base="base", head="heads"))
-    assert [revision.revision for revision in reversed(revisions)] == [
-        "0000",
-        "0001",
-        "0002",
-        "0003",
-        "0004",
-        "0005",
-        "0006",
-        "0007",
-        "0008",
-        "0009",
-        "0010",
-        "0011",
-        "0012",
-        "0013",
-        "0014",
-        "0015",
-        "0016",
-        "0017",
-        "0018",
-        "0019",
-        "0020",
-    ]
+    assert [revision.revision for revision in reversed(revisions)] == ["0000"]
+    assert sorted(
+        path.name for path in (RESOURCE / "alembic" / "versions").glob("*.py")
+    ) == ["0000_baseline.py"]
 
 
 def test_baseline_contains_authoritative_schema() -> None:
@@ -86,51 +67,24 @@ def test_baseline_contains_authoritative_schema() -> None:
     assert "external.private.message.send" in sql
 
 
-def test_active_cognition_contracts_have_a_forward_schema_revision() -> None:
-    migration = (
-        RESOURCE / "alembic/versions/0008_cognition_candidate_contracts.py"
-    ).read_text(encoding="utf-8")
+def test_active_cognition_contracts_are_in_the_current_baseline() -> None:
+    baseline = "\n".join(
+        (RESOURCE / "baseline" / name).read_text(encoding="utf-8")
+        for name in BASELINE_DOCUMENTS
+    )
     for contract in (
         "armi.creator-dialogue-candidate.v21",
         "armi.creator-dialogue-candidate.v22",
         "armi.other-human-dialogue-candidate.v4",
     ):
-        assert contract in migration
-    assert "cognitive_attempts_candidate_schema_version_check" in migration
-    assert (
-        "cognitive_candidate_validation_candidate_contract_version_check" in migration
-    )
-    branches = (
-        RESOURCE / "alembic/versions/0011_creator_cognition_branches.py"
-    ).read_text(encoding="utf-8")
-    assert "armi.creator-response-candidate.v1" in branches
-    assert "armi.creator-appraisal-candidate.v1" in branches
-    assert "armi.creator-dialogue-aggregate.v1" in branches
-    assert "cognition_maintenance_batches" in branches
-    assert "processed_through_experience_id" in branches
-    assert "late_response_artifact_id" in branches
-    assert "reflect_self','reflect_mind','reflect_prompt" in branches
-    mood_v2 = (RESOURCE / "alembic/versions/0016_mood_v2.py").read_text(
-        encoding="utf-8"
-    )
-    assert "armi.creator-appraisal-candidate.v2" in mood_v2
-    assert "armi.creator-dialogue-aggregate.v2" in mood_v2
-    assert "reflect_mood" in mood_v2
-    mood_v3 = (RESOURCE / "alembic/versions/0017_mood_v3.py").read_text(
-        encoding="utf-8"
-    )
-    for contract in (
-        "armi.creator-appraisal-candidate.v3",
-        "armi.other-human-dialogue-candidate.v5",
-        "armi.autonomous-activity-candidate.v2",
-        "armi.activity-attention-candidate.v3",
-        "armi.activity-internal-work-candidate.v2",
-    ):
-        assert contract in mood_v3
-    assert "CREATE TABLE armi.mood_appraisal_events" in mood_v3
-    mood_v31 = (
-        RESOURCE / "alembic/versions/0018_mood_semantic_appraisal.py"
-    ).read_text(encoding="utf-8")
+        assert contract in baseline
+    assert "cognitive_attempts_candidate_schema_version_check" in baseline
+    assert "cognitive_candidate_validation_candidate_contract_version_check" in baseline
+    assert "armi.creator-response-candidate.v1" in baseline
+    assert "cognition_maintenance_batches" in baseline
+    assert "processed_through_experience_id" in baseline
+    assert "late_response_artifact_id" in baseline
+    assert "reflect_mood" in baseline
     for contract in (
         "armi.creator-appraisal-candidate.v4",
         "armi.creator-dialogue-aggregate.v3",
@@ -139,9 +93,10 @@ def test_active_cognition_contracts_have_a_forward_schema_revision() -> None:
         "armi.activity-attention-candidate.v4",
         "armi.activity-internal-work-candidate.v3",
     ):
-        assert contract in mood_v31
-    assert "semantic-anchors.v1" in mood_v31
-    assert "derived_appraisal_payload" in mood_v31
+        assert contract in baseline
+    assert "CREATE TABLE armi.mood_appraisal_events" in baseline
+    assert "semantic-anchors.v1" in baseline
+    assert "derived_appraisal_payload" in baseline
 
 
 def test_gateway_exposes_install_status_and_explicit_migration() -> None:

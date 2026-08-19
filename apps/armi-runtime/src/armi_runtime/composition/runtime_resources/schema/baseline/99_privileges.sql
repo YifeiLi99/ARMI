@@ -1,3 +1,5 @@
+-- Current ARMI role grants.
+
 --
 -- Name: SCHEMA armi; Type: ACL; Schema: -; Owner: -
 --
@@ -5,6 +7,15 @@
 GRANT USAGE ON SCHEMA armi TO armi_admin;
 GRANT USAGE ON SCHEMA armi TO armi_migrator;
 GRANT USAGE ON SCHEMA armi TO armi_runtime;
+
+--
+-- Name: SCHEMA armi_extensions; Type: ACL; Schema: -; Owner: -
+--
+
+GRANT USAGE ON SCHEMA armi_extensions TO armi_owner;
+GRANT USAGE ON SCHEMA armi_extensions TO armi_migrator;
+GRANT USAGE ON SCHEMA armi_extensions TO armi_runtime;
+GRANT USAGE ON SCHEMA armi_extensions TO armi_admin;
 
 --
 -- Name: TABLE accepted_experiences; Type: ACL; Schema: armi; Owner: -
@@ -26,13 +37,6 @@ GRANT SELECT,INSERT,UPDATE ON TABLE armi.action_intent_revisions TO armi_runtime
 
 GRANT SELECT ON TABLE armi.action_intents TO armi_admin;
 GRANT SELECT,INSERT,UPDATE ON TABLE armi.action_intents TO armi_runtime;
-
---
--- Name: TABLE action_operations; Type: ACL; Schema: armi; Owner: -
---
-
-GRANT SELECT ON TABLE armi.action_operations TO armi_admin;
-GRANT SELECT,INSERT,UPDATE ON TABLE armi.action_operations TO armi_runtime;
 
 --
 -- Name: TABLE activities; Type: ACL; Schema: armi; Owner: -
@@ -650,6 +654,27 @@ GRANT SELECT,INSERT ON TABLE armi.codex_task_sources TO armi_runtime;
 GRANT SELECT,INSERT ON TABLE armi.codex_verification_results TO armi_runtime;
 
 --
+-- Name: TABLE cognition_maintenance_batch_sources; Type: ACL; Schema: armi; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE armi.cognition_maintenance_batch_sources TO armi_runtime;
+GRANT SELECT ON TABLE armi.cognition_maintenance_batch_sources TO armi_admin;
+
+--
+-- Name: TABLE cognition_maintenance_batches; Type: ACL; Schema: armi; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE armi.cognition_maintenance_batches TO armi_runtime;
+GRANT SELECT ON TABLE armi.cognition_maintenance_batches TO armi_admin;
+
+--
+-- Name: TABLE cognition_maintenance_cursors; Type: ACL; Schema: armi; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE armi.cognition_maintenance_cursors TO armi_runtime;
+GRANT SELECT ON TABLE armi.cognition_maintenance_cursors TO armi_admin;
+
+--
 -- Name: TABLE cognitive_attempts; Type: ACL; Schema: armi; Owner: -
 --
 
@@ -813,6 +838,13 @@ GRANT UPDATE(dispatched_at) ON TABLE armi.cognitive_attempts TO armi_runtime;
 GRANT UPDATE(settled_at) ON TABLE armi.cognitive_attempts TO armi_runtime;
 
 --
+-- Name: TABLE cognitive_branches; Type: ACL; Schema: armi; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE armi.cognitive_branches TO armi_runtime;
+GRANT SELECT ON TABLE armi.cognitive_branches TO armi_admin;
+
+--
 -- Name: TABLE cognitive_candidate_applications; Type: ACL; Schema: armi; Owner: -
 --
 
@@ -926,11 +958,46 @@ GRANT INSERT(reason_code) ON TABLE armi.cognitive_context_items TO armi_runtime;
 GRANT INSERT(content_bytes) ON TABLE armi.cognitive_context_items TO armi_runtime;
 
 --
+-- Name: TABLE cognitive_dialogue_aggregates; Type: ACL; Schema: armi; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE armi.cognitive_dialogue_aggregates TO armi_runtime;
+GRANT SELECT ON TABLE armi.cognitive_dialogue_aggregates TO armi_admin;
+
+--
 -- Name: TABLE cognitive_episodes; Type: ACL; Schema: armi; Owner: -
 --
 
 GRANT SELECT ON TABLE armi.cognitive_episodes TO armi_admin;
 GRANT SELECT,INSERT,UPDATE ON TABLE armi.cognitive_episodes TO armi_runtime;
+
+--
+-- Name: TABLE context_embedding_attempts; Type: ACL; Schema: armi; Owner: -
+--
+
+GRANT SELECT ON TABLE armi.context_embedding_attempts TO armi_admin;
+GRANT SELECT,INSERT,UPDATE ON TABLE armi.context_embedding_attempts TO armi_runtime;
+
+--
+-- Name: TABLE context_embedding_coverage; Type: ACL; Schema: armi; Owner: -
+--
+
+GRANT SELECT ON TABLE armi.context_embedding_coverage TO armi_admin;
+GRANT SELECT,INSERT,UPDATE ON TABLE armi.context_embedding_coverage TO armi_runtime;
+
+--
+-- Name: TABLE context_embedding_projections; Type: ACL; Schema: armi; Owner: -
+--
+
+GRANT SELECT ON TABLE armi.context_embedding_projections TO armi_admin;
+GRANT SELECT,INSERT,DELETE ON TABLE armi.context_embedding_projections TO armi_runtime;
+
+--
+-- Name: TABLE context_model_cache_hit_ratios; Type: ACL; Schema: armi; Owner: -
+--
+
+GRANT SELECT ON TABLE armi.context_model_cache_hit_ratios TO armi_admin;
+GRANT SELECT ON TABLE armi.context_model_cache_hit_ratios TO armi_runtime;
 
 --
 -- Name: TABLE creator_exports; Type: ACL; Schema: armi; Owner: -
@@ -1531,11 +1598,32 @@ GRANT UPDATE(display_label) ON TABLE armi.external_channel_bindings TO armi_runt
 GRANT UPDATE(last_observed_at) ON TABLE armi.external_channel_bindings TO armi_runtime;
 
 --
+-- Name: TABLE external_content_recognition_attempts; Type: ACL; Schema: armi; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE armi.external_content_recognition_attempts TO armi_runtime;
+GRANT SELECT,DELETE ON TABLE armi.external_content_recognition_attempts TO armi_admin;
+
+--
 -- Name: TABLE external_evidence; Type: ACL; Schema: armi; Owner: -
 --
 
 GRANT SELECT,DELETE ON TABLE armi.external_evidence TO armi_admin;
 GRANT SELECT,INSERT,UPDATE ON TABLE armi.external_evidence TO armi_runtime;
+
+--
+-- Name: COLUMN external_evidence.visual_observation_id; Type: ACL; Schema: armi; Owner: -
+--
+
+GRANT UPDATE(visual_observation_id) ON TABLE armi.external_evidence TO armi_runtime;
+GRANT SELECT(visual_observation_id) ON TABLE armi.external_evidence TO armi_admin;
+
+--
+-- Name: TABLE external_message_parts; Type: ACL; Schema: armi; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE armi.external_message_parts TO armi_runtime;
+GRANT SELECT,DELETE ON TABLE armi.external_message_parts TO armi_admin;
 
 --
 -- Name: TABLE interaction_scenes; Type: ACL; Schema: armi; Owner: -
@@ -1690,6 +1778,62 @@ GRANT UPDATE(deleted_at) ON TABLE armi.life_materials TO armi_runtime;
 GRANT UPDATE(updated_at) ON TABLE armi.life_materials TO armi_runtime;
 
 --
+-- Name: TABLE live_vision_observation_frames; Type: ACL; Schema: armi; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE armi.live_vision_observation_frames TO armi_runtime;
+GRANT SELECT ON TABLE armi.live_vision_observation_frames TO armi_admin;
+
+--
+-- Name: TABLE live_vision_observations; Type: ACL; Schema: armi; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE armi.live_vision_observations TO armi_runtime;
+GRANT SELECT ON TABLE armi.live_vision_observations TO armi_admin;
+
+--
+-- Name: TABLE live_vision_sessions; Type: ACL; Schema: armi; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE armi.live_vision_sessions TO armi_runtime;
+GRANT SELECT ON TABLE armi.live_vision_sessions TO armi_admin;
+
+--
+-- Name: TABLE live_voice_playback_attempts; Type: ACL; Schema: armi; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE armi.live_voice_playback_attempts TO armi_runtime;
+GRANT SELECT ON TABLE armi.live_voice_playback_attempts TO armi_admin;
+
+--
+-- Name: TABLE live_voice_provider_attempts; Type: ACL; Schema: armi; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE armi.live_voice_provider_attempts TO armi_runtime;
+GRANT SELECT ON TABLE armi.live_voice_provider_attempts TO armi_admin;
+
+--
+-- Name: TABLE live_voice_sessions; Type: ACL; Schema: armi; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE armi.live_voice_sessions TO armi_runtime;
+GRANT SELECT ON TABLE armi.live_voice_sessions TO armi_admin;
+
+--
+-- Name: TABLE live_voice_text_fragments; Type: ACL; Schema: armi; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE armi.live_voice_text_fragments TO armi_runtime;
+GRANT SELECT ON TABLE armi.live_voice_text_fragments TO armi_admin;
+
+--
+-- Name: TABLE live_voice_turns; Type: ACL; Schema: armi; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE armi.live_voice_turns TO armi_runtime;
+GRANT SELECT ON TABLE armi.live_voice_turns TO armi_admin;
+
+--
 -- Name: TABLE local_inbox_deliveries; Type: ACL; Schema: armi; Owner: -
 --
 
@@ -1842,6 +1986,34 @@ GRANT UPDATE(quiet_until) ON TABLE armi.maintenance_sessions TO armi_runtime;
 --
 
 GRANT SELECT,INSERT ON TABLE armi.memory_relations TO armi_runtime;
+
+--
+-- Name: TABLE mood_affective_events; Type: ACL; Schema: armi; Owner: -
+--
+
+GRANT SELECT,INSERT ON TABLE armi.mood_affective_events TO armi_runtime;
+GRANT SELECT ON TABLE armi.mood_affective_events TO armi_admin;
+
+--
+-- Name: TABLE mood_appraisal_events; Type: ACL; Schema: armi; Owner: -
+--
+
+GRANT SELECT,INSERT ON TABLE armi.mood_appraisal_events TO armi_runtime;
+GRANT SELECT ON TABLE armi.mood_appraisal_events TO armi_admin;
+
+--
+-- Name: TABLE mood_heads; Type: ACL; Schema: armi; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE armi.mood_heads TO armi_runtime;
+GRANT SELECT,UPDATE ON TABLE armi.mood_heads TO armi_admin;
+
+--
+-- Name: TABLE mood_revisions; Type: ACL; Schema: armi; Owner: -
+--
+
+GRANT SELECT,INSERT ON TABLE armi.mood_revisions TO armi_runtime;
+GRANT SELECT,INSERT ON TABLE armi.mood_revisions TO armi_admin;
 
 --
 -- Name: TABLE observation_attempts; Type: ACL; Schema: armi; Owner: -
@@ -2063,6 +2235,13 @@ GRANT INSERT(declared_identity_key) ON TABLE armi.parties TO armi_runtime;
 
 GRANT SELECT,DELETE ON TABLE armi.party_input_interactions TO armi_admin;
 GRANT SELECT,INSERT,UPDATE ON TABLE armi.party_input_interactions TO armi_runtime;
+
+--
+-- Name: COLUMN party_input_interactions.modality; Type: ACL; Schema: armi; Owner: -
+--
+
+GRANT SELECT(modality),INSERT(modality) ON TABLE armi.party_input_interactions TO armi_runtime;
+GRANT SELECT(modality) ON TABLE armi.party_input_interactions TO armi_admin;
 
 --
 -- Name: TABLE permission_grants; Type: ACL; Schema: armi; Owner: -
@@ -2339,6 +2518,18 @@ GRANT UPDATE(current_revision_id) ON TABLE armi.relationships TO armi_runtime;
 GRANT UPDATE(head_version) ON TABLE armi.relationships TO armi_runtime;
 
 --
+-- Name: COLUMN relationships.tombstoned_at; Type: ACL; Schema: armi; Owner: -
+--
+
+GRANT UPDATE(tombstoned_at) ON TABLE armi.relationships TO armi_runtime;
+
+--
+-- Name: COLUMN relationships.tombstone_order_id; Type: ACL; Schema: armi; Owner: -
+--
+
+GRANT UPDATE(tombstone_order_id) ON TABLE armi.relationships TO armi_runtime;
+
+--
 -- Name: TABLE runtime_bundle_activations; Type: ACL; Schema: armi; Owner: -
 --
 
@@ -2362,18 +2553,6 @@ GRANT INSERT(subject_id) ON TABLE armi.runtime_bundle_activations TO armi_runtim
 --
 
 GRANT INSERT(bundle_version) ON TABLE armi.runtime_bundle_activations TO armi_runtime;
-
---
--- Name: COLUMN runtime_bundle_activations.bundle_digest; Type: ACL; Schema: armi; Owner: -
---
-
-GRANT INSERT(bundle_digest) ON TABLE armi.runtime_bundle_activations TO armi_runtime;
-
---
--- Name: COLUMN runtime_bundle_activations.manifest_artifact_id; Type: ACL; Schema: armi; Owner: -
---
-
-GRANT INSERT(manifest_artifact_id) ON TABLE armi.runtime_bundle_activations TO armi_runtime;
 
 --
 -- Name: COLUMN runtime_bundle_activations.fixed_policy_digest; Type: ACL; Schema: armi; Owner: -
@@ -2810,6 +2989,13 @@ GRANT UPDATE(state_epoch) ON TABLE armi.subjects TO armi_admin;
 GRANT UPDATE(state_epoch) ON TABLE armi.subjects TO armi_runtime;
 
 --
+-- Name: TABLE visual_recognition_attempts; Type: ACL; Schema: armi; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE armi.visual_recognition_attempts TO armi_runtime;
+GRANT SELECT ON TABLE armi.visual_recognition_attempts TO armi_admin;
+
+--
 -- Name: TABLE web_evidence_sources; Type: ACL; Schema: armi; Owner: -
 --
 
@@ -3082,12 +3268,6 @@ GRANT INSERT(trace_id) ON TABLE armi.web_research_intents TO armi_runtime;
 
 GRANT UPDATE(completed_at) ON TABLE armi.web_research_intents TO armi_runtime;
 
-
---
--- PostgreSQL database dump complete
---
-
--- Alembic owns the only schema revision ledger.
 
 GRANT SELECT ON TABLE armi.alembic_version TO armi_admin;
 GRANT SELECT ON TABLE armi.alembic_version TO armi_migrator;

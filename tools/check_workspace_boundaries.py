@@ -2721,30 +2721,13 @@ def check_repository(root: Path) -> list[Violation]:
     production_accesses = tuple(
         access for access in foreign_accesses if "/schema/" not in access.path
     )
-    frozen_revision_paths = (
-        "/schema/alembic/versions/0004_context_embedding_projections.py",
-        "/schema/alembic/versions/0006_relationship_lifecycle.py",
-        "/schema/alembic/versions/0007_mood_owner.py",
-        "/schema/alembic/versions/0009_remove_shared_action_operations.py",
-        "/schema/alembic/versions/0011_creator_cognition_branches.py",
-        "/schema/alembic/versions/0012_local_hybrid_semantic_recall.py",
-        "/schema/alembic/versions/0013_scalable_semantic_recall.py",
-        "/schema/alembic/versions/0016_mood_v2.py",
-        "/schema/alembic/versions/0017_mood_v3.py",
-        "/schema/alembic/versions/0018_mood_semantic_appraisal.py",
-    )
-    unexpected_frozen_accesses = tuple(
-        access
-        for access in foreign_accesses
-        if not any(access.path.endswith(path) for path in frozen_revision_paths)
-    )
-    if len(foreign_accesses) != 43:
+    if foreign_accesses:
         violations.append(
             Violation(
                 "ARC-SQL-OWNER-BUDGET",
                 _relative(registry_path, root),
                 1,
-                "foreign SQL must be limited to the 43 frozen revision accesses: "
+                "foreign SQL must be zero after the schema baseline squash: "
                 f"raw={len(foreign_accesses)}",
             )
         )
@@ -2756,15 +2739,6 @@ def check_repository(root: Path) -> list[Violation]:
                 1,
                 "production foreign SQL must be zero: "
                 f"production={len(production_accesses)}",
-            )
-        )
-    for access in unexpected_frozen_accesses:
-        violations.append(
-            Violation(
-                "ARC-SQL-OWNER-FROZEN",
-                access.path,
-                access.line,
-                f"armi.{access.table} is not an approved frozen revision access",
             )
         )
     for access in production_accesses:

@@ -1,3 +1,5 @@
+-- Current ARMI schema tables owned by this baseline module.
+
 --
 -- Name: activities; Type: TABLE; Schema: armi; Owner: -
 --
@@ -82,6 +84,52 @@ CREATE TABLE armi.activity_revisions (
 );
 
 --
+-- Name: cognition_maintenance_batch_sources; Type: TABLE; Schema: armi; Owner: -
+--
+
+CREATE TABLE armi.cognition_maintenance_batch_sources (
+    maintenance_batch_id uuid CONSTRAINT cognition_maintenance_batch_sourc_maintenance_batch_id_not_null NOT NULL,
+    experience_id uuid NOT NULL,
+    ordinal smallint NOT NULL,
+    CONSTRAINT cognition_maintenance_batch_sources_ordinal_check CHECK (((ordinal >= 1) AND (ordinal <= 64)))
+);
+
+--
+-- Name: cognition_maintenance_batches; Type: TABLE; Schema: armi; Owner: -
+--
+
+CREATE TABLE armi.cognition_maintenance_batches (
+    maintenance_batch_id uuid NOT NULL,
+    subject_id uuid NOT NULL,
+    life_generation_id uuid NOT NULL,
+    trigger_kind text NOT NULL,
+    status text NOT NULL,
+    base_subject_version bigint NOT NULL,
+    failure_code text,
+    created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
+    finished_at timestamp(6) with time zone,
+    CONSTRAINT cognition_maintenance_batches_base_subject_version_check CHECK ((base_subject_version >= 0)),
+    CONSTRAINT cognition_maintenance_batches_id_check CHECK ((uuid_extract_version(maintenance_batch_id) = 7)),
+    CONSTRAINT cognition_maintenance_batches_state_check CHECK ((((status = ANY (ARRAY['prepared'::text, 'running'::text])) AND (failure_code IS NULL) AND (finished_at IS NULL)) OR ((status = 'completed'::text) AND (failure_code IS NULL) AND (finished_at IS NOT NULL)) OR ((status = ANY (ARRAY['interrupted'::text, 'failed'::text])) AND (failure_code IS NOT NULL) AND (finished_at IS NOT NULL)))),
+    CONSTRAINT cognition_maintenance_batches_status_check CHECK ((status = ANY (ARRAY['prepared'::text, 'running'::text, 'completed'::text, 'interrupted'::text, 'failed'::text]))),
+    CONSTRAINT cognition_maintenance_batches_trigger_kind_check CHECK ((trigger_kind = ANY (ARRAY['runtime_idle'::text, 'sleep'::text])))
+);
+
+--
+-- Name: cognition_maintenance_cursors; Type: TABLE; Schema: armi; Owner: -
+--
+
+CREATE TABLE armi.cognition_maintenance_cursors (
+    subject_id uuid NOT NULL,
+    life_generation_id uuid NOT NULL,
+    last_experience_id uuid,
+    processed_through_experience_id uuid,
+    dirty_since timestamp(6) with time zone,
+    updated_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
+    CONSTRAINT cognition_maintenance_cursors_dirty_check CHECK ((((dirty_since IS NULL) AND (processed_through_experience_id IS NULL)) OR ((dirty_since IS NOT NULL) AND (last_experience_id IS NOT NULL))))
+);
+
+--
 -- Name: maintenance_phase_results; Type: TABLE; Schema: armi; Owner: -
 --
 
@@ -101,14 +149,17 @@ CREATE TABLE armi.maintenance_phase_results (
     creator_visible_problem text,
     memory_id uuid,
     completed_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    CONSTRAINT maintenance_phase_results_check CHECK ((((phase = 'memory_maintenance'::text) AND (outcome = ANY (ARRAY['memory_changed'::text, 'memory_unchanged'::text]))) OR ((phase = 'self_check'::text) AND (outcome = ANY (ARRAY['issue_found'::text, 'no_issue'::text]))))),
+    issue_target text,
+    CONSTRAINT maintenance_phase_results_check CHECK ((((phase = 'memory_maintenance'::text) AND (outcome = ANY (ARRAY['memory_changed'::text, 'memory_unchanged'::text]))) OR ((phase = 'self_check'::text) AND (outcome = ANY (ARRAY['issue_found'::text, 'no_issue'::text]))) OR ((phase = ANY (ARRAY['reflect_self'::text, 'reflect_mind'::text, 'reflect_mood'::text, 'reflect_prompt'::text])) AND (outcome = ANY (ARRAY['reflection_changed'::text, 'reflection_unchanged'::text]))))),
     CONSTRAINT maintenance_phase_results_check1 CHECK (((outcome = 'memory_changed'::text) = (memory_id IS NOT NULL))),
     CONSTRAINT maintenance_phase_results_check2 CHECK (((outcome = 'issue_found'::text) = (creator_visible_problem IS NOT NULL))),
     CONSTRAINT maintenance_phase_results_creator_visible_problem_check CHECK (((creator_visible_problem IS NULL) OR ((length(creator_visible_problem) >= 1) AND (length(creator_visible_problem) <= 512)))),
     CONSTRAINT maintenance_phase_results_expected_head_version_check CHECK ((expected_head_version > 0)),
+    CONSTRAINT maintenance_phase_results_issue_target_check CHECK (((outcome = 'issue_found'::text) = (issue_target IS NOT NULL))),
+    CONSTRAINT maintenance_phase_results_issue_target_value_check CHECK (((issue_target IS NULL) OR (issue_target = ANY (ARRAY['self'::text, 'mind'::text, 'prompt'::text])))),
     CONSTRAINT maintenance_phase_results_maintenance_phase_result_id_check CHECK ((uuid_extract_version(maintenance_phase_result_id) = 7)),
-    CONSTRAINT maintenance_phase_results_outcome_check CHECK ((outcome = ANY (ARRAY['memory_changed'::text, 'memory_unchanged'::text, 'issue_found'::text, 'no_issue'::text]))),
-    CONSTRAINT maintenance_phase_results_phase_check CHECK ((phase = ANY (ARRAY['memory_maintenance'::text, 'self_check'::text]))),
+    CONSTRAINT maintenance_phase_results_outcome_check CHECK ((outcome = ANY (ARRAY['memory_changed'::text, 'memory_unchanged'::text, 'issue_found'::text, 'no_issue'::text, 'reflection_changed'::text, 'reflection_unchanged'::text]))),
+    CONSTRAINT maintenance_phase_results_phase_check CHECK ((phase = ANY (ARRAY['memory_maintenance'::text, 'self_check'::text, 'reflect_self'::text, 'reflect_mind'::text, 'reflect_mood'::text, 'reflect_prompt'::text]))),
     CONSTRAINT maintenance_phase_results_result_summary_check CHECK (((length(result_summary) >= 1) AND (length(result_summary) <= 512)))
 );
 
@@ -128,7 +179,7 @@ CREATE TABLE armi.maintenance_session_revisions (
     CONSTRAINT maintenance_session_revisions_check CHECK ((((revision_no = 1) AND (previous_revision_id IS NULL) AND (phase = 'preparing'::text) AND (result_status = 'running'::text) AND (transition_kind = 'started'::text)) OR ((revision_no > 1) AND (previous_revision_id IS NOT NULL)))),
     CONSTRAINT maintenance_session_revisions_check1 CHECK (((phase = 'completed'::text) = (result_status = 'completed'::text))),
     CONSTRAINT maintenance_session_revisions_maintenance_revision_id_check CHECK ((uuid_extract_version(maintenance_revision_id) = 7)),
-    CONSTRAINT maintenance_session_revisions_phase_check CHECK ((phase = ANY (ARRAY['preparing'::text, 'memory_maintenance'::text, 'self_check'::text, 'life_quiet'::text, 'resume_check'::text, 'completed'::text]))),
+    CONSTRAINT maintenance_session_revisions_phase_check CHECK ((phase = ANY (ARRAY['preparing'::text, 'memory_maintenance'::text, 'self_check'::text, 'reflect_self'::text, 'reflect_mind'::text, 'reflect_mood'::text, 'reflect_prompt'::text, 'life_quiet'::text, 'resume_check'::text, 'completed'::text]))),
     CONSTRAINT maintenance_session_revisions_result_status_check CHECK ((result_status = ANY (ARRAY['running'::text, 'completed'::text, 'interrupted'::text, 'failed'::text]))),
     CONSTRAINT maintenance_session_revisions_revision_no_check CHECK ((revision_no > 0)),
     CONSTRAINT maintenance_session_revisions_transition_kind_check CHECK ((transition_kind = ANY (ARRAY['started'::text, 'advanced'::text, 'completed'::text, 'interrupted'::text, 'system_failed'::text])))

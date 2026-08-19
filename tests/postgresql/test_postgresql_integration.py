@@ -631,7 +631,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             environment_id=fixture.environment_id,
         )
         self.assertEqual(installed.status, "current")
-        self.assertGreater(installed.table_count, 0)
+        self.assertEqual(installed.table_count, 97)
+        self.assertEqual(installed.current_revision, "0000")
+        self.assertEqual(installed.head_revision, "0000")
         status = PostgreSQLSchemaGateway().status(
             fixture.runtime_dsn,
             environment_id=fixture.environment_id,
@@ -1385,500 +1387,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertEqual(namespace, ("armi",))
         self.assertEqual(tables, (0,))
 
-    def test_live_voice_revision_migrates_0018_to_0019_and_preserves_data(
-        self,
-    ) -> None:
-        fixture = self.create_database()
-        source = Path(
-            "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
-        )
-        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
-            schema_root = Path(temporary) / "schema"
-            shutil.copytree(source, schema_root)
-            (schema_root / "alembic/versions/0020_live_vision.py").unlink()
-            (schema_root / "alembic/versions/0019_live_voice.py").unlink()
-            installed = PostgreSQLSchemaGateway(resource_root=schema_root).install(
-                fixture.migrator_dsn,
-                environment_id=fixture.environment_id,
-            )
-        self.assertEqual(installed.current_revision, "0018")
-        with psycopg.connect(fixture.provisioner_dsn) as connection:
-            before = connection.execute(
-                "SELECT capability_id,availability_status FROM armi.capabilities ORDER BY capability_id"
-            ).fetchall()
-
-        migrated = PostgreSQLSchemaGateway().migrate(
-            fixture.migrator_dsn,
-            environment_id=fixture.environment_id,
-        )
-        self.assertEqual(migrated.current_revision, "0020")
-        self.assertEqual(
-            PostgreSQLSchemaGateway().migrate(
-                fixture.migrator_dsn,
-                environment_id=fixture.environment_id,
-            ),
-            migrated,
-        )
-        with psycopg.connect(fixture.provisioner_dsn) as connection:
-            after = connection.execute(
-                "SELECT capability_id,availability_status FROM armi.capabilities ORDER BY capability_id"
-            ).fetchall()
-            shape = connection.execute(
-                """
-                SELECT to_regclass('armi.live_voice_sessions'),
-                       to_regclass('armi.live_voice_turns'),
-                       column_default
-                FROM information_schema.columns
-                WHERE table_schema='armi'
-                  AND table_name='party_input_interactions'
-                  AND column_name='modality'
-                """
-            ).fetchone()
-        self.assertEqual(after, before)
-        self.assertEqual(
-            shape,
-            ("armi.live_voice_sessions", "armi.live_voice_turns", "'text'::text"),
-        )
-
-    def test_live_vision_revision_migrates_0019_to_0020_and_is_idempotent(
-        self,
-    ) -> None:
-        fixture = self.create_database()
-        source = Path(
-            "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
-        )
-        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
-            schema_root = Path(temporary) / "schema"
-            shutil.copytree(source, schema_root)
-            (schema_root / "alembic/versions/0020_live_vision.py").unlink()
-            installed = PostgreSQLSchemaGateway(resource_root=schema_root).install(
-                fixture.migrator_dsn,
-                environment_id=fixture.environment_id,
-            )
-        self.assertEqual(installed.current_revision, "0019")
-
-        migrated = PostgreSQLSchemaGateway().migrate(
-            fixture.migrator_dsn,
-            environment_id=fixture.environment_id,
-        )
-        self.assertEqual(migrated.current_revision, "0020")
-        self.assertEqual(
-            PostgreSQLSchemaGateway().migrate(
-                fixture.migrator_dsn,
-                environment_id=fixture.environment_id,
-            ),
-            migrated,
-        )
-        with psycopg.connect(fixture.provisioner_dsn) as connection:
-            shape = connection.execute(
-                """SELECT to_regclass('armi.live_vision_sessions'),
-                          to_regclass('armi.live_vision_observations'),
-                          to_regclass('armi.live_vision_observation_frames'),
-                          to_regclass('armi.visual_recognition_attempts')"""
-            ).fetchone()
-            head = connection.execute(
-                "SELECT version_num FROM armi.alembic_version"
-            ).fetchone()
-        self.assertEqual(
-            shape,
-            (
-                "armi.live_vision_sessions",
-                "armi.live_vision_observations",
-                "armi.live_vision_observation_frames",
-                "armi.visual_recognition_attempts",
-            ),
-        )
-        self.assertEqual(head, ("0020",))
-
-    def test_external_visual_and_dialogue_revisions_migrate_0001_to_head(self) -> None:
-        fixture = self.create_database()
-        source = Path(
-            "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
-        )
-        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
-            schema_root = Path(temporary) / "schema"
-            shutil.copytree(source, schema_root)
-            (schema_root / "alembic/versions/0002_external_visual_routing.py").unlink()
-            (
-                schema_root / "alembic/versions/0003_dialogue_prompt_contracts.py"
-            ).unlink()
-            (
-                schema_root / "alembic/versions/0004_context_embedding_projections.py"
-            ).unlink()
-            (
-                schema_root
-                / "alembic/versions/0005_remove_runtime_composition_manifest.py"
-            ).unlink()
-            (schema_root / "alembic/versions/0006_relationship_lifecycle.py").unlink()
-            (schema_root / "alembic/versions/0007_mood_owner.py").unlink()
-            (
-                schema_root / "alembic/versions/0008_cognition_candidate_contracts.py"
-            ).unlink()
-            (
-                schema_root / "alembic/versions/0009_remove_shared_action_operations.py"
-            ).unlink()
-            (schema_root / "alembic/versions/0010_generic_recovery_metrics.py").unlink()
-            (
-                schema_root / "alembic/versions/0011_creator_cognition_branches.py"
-            ).unlink()
-            (
-                schema_root / "alembic/versions/0012_local_hybrid_semantic_recall.py"
-            ).unlink()
-            (schema_root / "alembic/versions/0013_scalable_semantic_recall.py").unlink()
-            (
-                schema_root / "alembic/versions/0014_embedding_coverage_accounting.py"
-            ).unlink()
-            (schema_root / "alembic/versions/0015_wider_lexical_gist.py").unlink()
-            (schema_root / "alembic/versions/0016_mood_v2.py").unlink()
-            (schema_root / "alembic/versions/0017_mood_v3.py").unlink()
-            (schema_root / "alembic/versions/0018_mood_semantic_appraisal.py").unlink()
-            (schema_root / "alembic/versions/0020_live_vision.py").unlink()
-            (schema_root / "alembic/versions/0019_live_voice.py").unlink()
-            installed = PostgreSQLSchemaGateway(resource_root=schema_root).install(
-                fixture.migrator_dsn,
-                environment_id=fixture.environment_id,
-            )
-        self.assertEqual(installed.current_revision, "0001")
-        migrated = PostgreSQLSchemaGateway().migrate(
-            fixture.migrator_dsn,
-            environment_id=fixture.environment_id,
-        )
-        self.assertEqual(migrated.current_revision, "0020")
-        with psycopg.connect(fixture.runtime_dsn) as connection:
-            shape = connection.execute(
-                """
-                SELECT to_regclass('armi.external_message_parts'),
-                       to_regclass('armi.external_content_recognition_attempts'),
-                       has_table_privilege(
-                         current_user, 'armi.external_message_parts', 'INSERT,UPDATE'
-                       ),
-                       EXISTS (
-                         SELECT 1 FROM information_schema.columns
-                         WHERE table_schema = 'armi'
-                           AND table_name = 'party_input_interactions'
-                           AND column_name = 'cognition_content_digest'
-                       ),
-                       EXISTS (
-                         SELECT 1 FROM information_schema.columns
-                         WHERE table_schema = 'armi'
-                           AND table_name = 'external_message_parts'
-                           AND column_name = 'visual_role'
-                       ),
-                       to_regclass('armi.context_embedding_projections'),
-                       to_regclass('armi.context_embedding_attempts'),
-                       to_regclass('armi.context_model_cache_hit_ratios'),
-                       has_table_privilege(
-                         current_user,
-                         'armi.context_embedding_projections',
-                         'SELECT,INSERT,DELETE'
-                       ),
-                       NOT EXISTS (
-                         SELECT 1 FROM information_schema.columns
-                         WHERE table_schema = 'armi'
-                           AND table_name = 'runtime_bundle_activations'
-                           AND column_name = 'bundle_digest'
-                       ),
-                       NOT EXISTS (
-                         SELECT 1 FROM information_schema.columns
-                         WHERE table_schema = 'armi'
-                           AND table_name = 'runtime_bundle_activations'
-                           AND column_name = 'manifest_artifact_id'
-                       )
-                """
-            ).fetchone()
-        self.assertEqual(
-            shape,
-            (
-                "external_message_parts",
-                "external_content_recognition_attempts",
-                True,
-                True,
-                True,
-                "context_embedding_projections",
-                "context_embedding_attempts",
-                "context_model_cache_hit_ratios",
-                True,
-                True,
-                True,
-            ),
-        )
-
-    def test_mood_v2_head_migrates_through_v31_without_rewriting_history(self) -> None:
-        fixture = self.create_database()
-        source = Path(
-            "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
-        )
-        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
-            schema_root = Path(temporary) / "schema"
-            shutil.copytree(source, schema_root)
-            (schema_root / "alembic/versions/0017_mood_v3.py").unlink()
-            (schema_root / "alembic/versions/0018_mood_semantic_appraisal.py").unlink()
-            (schema_root / "alembic/versions/0020_live_vision.py").unlink()
-            (schema_root / "alembic/versions/0019_live_voice.py").unlink()
-            installed = PostgreSQLSchemaGateway(resource_root=schema_root).install(
-                fixture.migrator_dsn,
-                environment_id=fixture.environment_id,
-            )
-        self.assertEqual(installed.current_revision, "0016")
-        subject_id, first_revision, second_revision = _uuid7(), _uuid7(), _uuid7()
-        with psycopg.connect(fixture.provisioner_dsn, autocommit=True) as connection:
-            connection.execute("SET session_replication_role = replica")
-            connection.execute(
-                """INSERT INTO armi.subjects
-                   (subject_id,singleton_key,birth_request_id,birth_idempotency_key,
-                    birth_manifest_digest,current_generation_id,
-                    current_bundle_activation_id)
-                   VALUES (%s,1,%s,'mood-v3-migration',%s,%s,%s)""",
-                (
-                    subject_id,
-                    _uuid7(),
-                    "sha256:" + "a" * 64,
-                    _uuid7(),
-                    _uuid7(),
-                ),
-            )
-            connection.execute(
-                """INSERT INTO armi.mood_revisions
-                   (mood_revision_id,subject_id,mood_version,previous_revision_id,
-                    origin_kind,origin_ref,semantic_payload,privacy_scope)
-                   VALUES
-                   (%s,%s,1,NULL,'bootstrap',%s,%s::jsonb,'private'),
-                   (%s,%s,2,%s,'module_migration',%s,%s::jsonb,'private')""",
-                (
-                    first_revision,
-                    subject_id,
-                    _uuid7(),
-                    '{"schema_version":"armi.mood.v1","emotions":[],"mood":null}',
-                    second_revision,
-                    subject_id,
-                    first_revision,
-                    first_revision,
-                    '{"schema_version":"armi.mood.v2","dynamics_version":"exponential.v1","home_base":{"valence":7,"arousal":-3,"dominance":4}}',
-                ),
-            )
-            connection.execute(
-                """INSERT INTO armi.mood_heads
-                   (subject_id,current_revision_id,mood_version) VALUES (%s,%s,2)""",
-                (subject_id, second_revision),
-            )
-            connection.execute("SET session_replication_role = origin")
-        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
-            v3_schema_root = Path(temporary) / "schema"
-            shutil.copytree(source, v3_schema_root)
-            (
-                v3_schema_root / "alembic/versions/0018_mood_semantic_appraisal.py"
-            ).unlink()
-            (v3_schema_root / "alembic/versions/0020_live_vision.py").unlink()
-            (v3_schema_root / "alembic/versions/0019_live_voice.py").unlink()
-            migrated_v3 = PostgreSQLSchemaGateway(resource_root=v3_schema_root).migrate(
-                fixture.migrator_dsn,
-                environment_id=fixture.environment_id,
-            )
-        self.assertEqual(migrated_v3.current_revision, "0017")
-        old_appraisal = {
-            "schema_version": "armi.mood-appraisal.v1",
-            "transition": "new",
-            "previous_episode_id": None,
-            "event_phase": "anticipated",
-            "gist": "旧数值评价保持原值",
-            "appraisal": {
-                "suddenness": 1,
-                "predictability": 2,
-                "outcome_certainty": 3,
-                "self_relevance": 4,
-                "relationship_relevance": 0,
-                "social_order_relevance": 0,
-                "urgency": 2,
-                "effort": 1,
-                "intentionality": 0,
-                "control": 2,
-                "power": 1,
-                "adjustment": 2,
-                "ego_involvement": 1,
-                "intrinsic_pleasantness": -2,
-                "goal_conduciveness": -3,
-                "self_compatibility": 0,
-                "norm_compatibility": 0,
-                "agency": "circumstance",
-                "self_scope": "none",
-            },
-        }
-        with psycopg.connect(fixture.provisioner_dsn) as connection:
-            third_revision = connection.execute(
-                "SELECT current_revision_id FROM armi.mood_heads WHERE subject_id=%s",
-                (subject_id,),
-            ).fetchone()
-            assert third_revision is not None
-            connection.execute(
-                """INSERT INTO armi.mood_appraisal_events
-                   (mood_appraisal_event_id,subject_id,mood_revision_id,
-                    mood_episode_id,previous_appraisal_event_id,transition,
-                    event_phase,gist,basis_ordinals,appraisal_payload,importance,
-                    derived_vad,derived_components,derivation_version,
-                    dynamics_version,privacy_scope)
-                   VALUES (%s,%s,%s,%s,NULL,'new','anticipated',
-                           '旧数值评价保持原值',ARRAY[1]::smallint[],%s::jsonb,75,
-                           '{"valence":-55,"arousal":20,"dominance":-20}'::jsonb,
-                           '[]'::jsonb,'cpm-fuzzy.v1',
-                           'recency-reappraisal.v1','private')""",
-                (
-                    _uuid7(),
-                    subject_id,
-                    third_revision[0],
-                    _uuid7(),
-                    json.dumps(old_appraisal, ensure_ascii=False),
-                ),
-            )
-        migrated = PostgreSQLSchemaGateway().migrate(
-            fixture.migrator_dsn,
-            environment_id=fixture.environment_id,
-        )
-        self.assertEqual(migrated.current_revision, "0020")
-        with psycopg.connect(fixture.provisioner_dsn) as connection:
-            revisions = connection.execute(
-                """SELECT mood_version,semantic_payload->>'schema_version',
-                          semantic_payload->'home_base',
-                          semantic_payload->>'derivation_version'
-                   FROM armi.mood_revisions WHERE subject_id=%s
-                   ORDER BY mood_version""",
-                (subject_id,),
-            ).fetchall()
-            head = connection.execute(
-                "SELECT mood_version FROM armi.mood_heads WHERE subject_id=%s",
-                (subject_id,),
-            ).fetchone()
-            appraisal_table = connection.execute(
-                "SELECT to_regclass('armi.mood_appraisal_events')"
-            ).fetchone()
-            semantic_columns = connection.execute(
-                """SELECT count(*) FROM information_schema.columns
-                   WHERE table_schema='armi'
-                     AND table_name='mood_appraisal_events'
-                     AND column_name IN (
-                       'appraisal_mapping_version','derived_appraisal_payload'
-                     ) AND is_nullable='NO'"""
-            ).fetchone()
-            old_event = connection.execute(
-                """SELECT appraisal_payload,appraisal_mapping_version,
-                          derived_appraisal_payload,derivation_version
-                   FROM armi.mood_appraisal_events WHERE subject_id=%s""",
-                (subject_id,),
-            ).fetchone()
-        self.assertEqual(
-            [item[:2] for item in revisions],
-            [
-                (1, "armi.mood.v1"),
-                (2, "armi.mood.v2"),
-                (3, "armi.mood.v3"),
-                (4, "armi.mood.v3"),
-            ],
-        )
-        self.assertEqual(revisions[2][2], {"valence": 7, "arousal": -3, "dominance": 4})
-        self.assertEqual(revisions[2][3], "cpm-fuzzy.v1")
-        self.assertEqual(revisions[3][3], "cpm-fuzzy.v2")
-        self.assertEqual(head, (4,))
-        self.assertEqual(appraisal_table, ("armi.mood_appraisal_events",))
-        self.assertEqual(semantic_columns, (2,))
-        assert old_event is not None
-        self.assertEqual(old_event[0], old_appraisal)
-        self.assertEqual(old_event[1], "direct-scale.v1")
-        self.assertEqual(
-            old_event[2],
-            {
-                "schema_version": "armi.mood-derived-appraisal.v1",
-                "vector": old_appraisal["appraisal"],
-            },
-        )
-        self.assertEqual(old_event[3], "cpm-fuzzy.v1")
-
-    def test_runtime_composition_columns_are_removed_without_losing_activation(
-        self,
-    ) -> None:
-        fixture = self.create_database()
-        source = Path(
-            "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
-        )
-        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
-            schema_root = Path(temporary) / "schema"
-            shutil.copytree(source, schema_root)
-            (
-                schema_root
-                / "alembic/versions/0005_remove_runtime_composition_manifest.py"
-            ).unlink()
-            (schema_root / "alembic/versions/0006_relationship_lifecycle.py").unlink()
-            (schema_root / "alembic/versions/0007_mood_owner.py").unlink()
-            (
-                schema_root / "alembic/versions/0008_cognition_candidate_contracts.py"
-            ).unlink()
-            (
-                schema_root / "alembic/versions/0009_remove_shared_action_operations.py"
-            ).unlink()
-            (schema_root / "alembic/versions/0010_generic_recovery_metrics.py").unlink()
-            (
-                schema_root / "alembic/versions/0011_creator_cognition_branches.py"
-            ).unlink()
-            (
-                schema_root / "alembic/versions/0012_local_hybrid_semantic_recall.py"
-            ).unlink()
-            (schema_root / "alembic/versions/0013_scalable_semantic_recall.py").unlink()
-            (
-                schema_root / "alembic/versions/0014_embedding_coverage_accounting.py"
-            ).unlink()
-            (schema_root / "alembic/versions/0015_wider_lexical_gist.py").unlink()
-            (schema_root / "alembic/versions/0016_mood_v2.py").unlink()
-            (schema_root / "alembic/versions/0017_mood_v3.py").unlink()
-            (schema_root / "alembic/versions/0018_mood_semantic_appraisal.py").unlink()
-            (schema_root / "alembic/versions/0020_live_vision.py").unlink()
-            (schema_root / "alembic/versions/0019_live_voice.py").unlink()
-            installed = PostgreSQLSchemaGateway(resource_root=schema_root).install(
-                fixture.migrator_dsn,
-                environment_id=fixture.environment_id,
-            )
-        self.assertEqual(installed.current_revision, "0004")
-        activation_id = _uuid7()
-        with psycopg.connect(fixture.provisioner_dsn, autocommit=True) as connection:
-            connection.execute("SET session_replication_role = replica")
-            connection.execute(
-                """
-                INSERT INTO armi.runtime_bundle_activations (
-                    bundle_activation_id, subject_id, bundle_version,
-                    bundle_digest, manifest_artifact_id, fixed_policy_digest,
-                    status, activated_by_party_id
-                ) VALUES (
-                    %s, %s, '0.0.0',
-                    'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-                    %s,
-                    'sha256:deba3fecb2391c4d24852b9fba27ae3492c261bc559a26058a349611c7522c6b',
-                    'current', %s
-                )
-                """,
-                (activation_id, _uuid7(), _uuid7(), _uuid7()),
-            )
-            connection.execute("SET session_replication_role = origin")
-        migrated = PostgreSQLSchemaGateway().migrate(
-            fixture.migrator_dsn,
-            environment_id=fixture.environment_id,
-        )
-        self.assertEqual(migrated.current_revision, "0020")
-        with psycopg.connect(fixture.provisioner_dsn) as connection:
-            activation = connection.execute(
-                """
-                SELECT bundle_activation_id, status
-                FROM armi.runtime_bundle_activations
-                """
-            ).fetchone()
-            removed = connection.execute(
-                """
-                SELECT count(*)
-                FROM information_schema.columns
-                WHERE table_schema = 'armi'
-                  AND table_name = 'runtime_bundle_activations'
-                  AND column_name IN ('bundle_digest', 'manifest_artifact_id')
-                """
-            ).fetchone()
-        self.assertEqual(activation, (activation_id, "current"))
-        self.assertEqual(removed, (0,))
-
     def test_missing_and_unknown_alembic_revisions_are_rejected(self) -> None:
         missing_fixture = self.create_database()
         gateway = PostgreSQLSchemaGateway()
@@ -1914,123 +1422,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 environment_id=unknown_fixture.environment_id,
             )
         self.assertEqual(unknown.exception.code, "DB-SCHEMA-HISTORY")
-
-    def test_local_semantic_recall_migration_preserves_attempt_history(self) -> None:
-        fixture = self.create_database()
-        source = Path(
-            "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
-        )
-        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
-            schema_root = Path(temporary) / "schema"
-            shutil.copytree(source, schema_root)
-            (
-                schema_root / "alembic/versions/0012_local_hybrid_semantic_recall.py"
-            ).unlink()
-            (schema_root / "alembic/versions/0013_scalable_semantic_recall.py").unlink()
-            (
-                schema_root / "alembic/versions/0014_embedding_coverage_accounting.py"
-            ).unlink()
-            (schema_root / "alembic/versions/0015_wider_lexical_gist.py").unlink()
-            (schema_root / "alembic/versions/0016_mood_v2.py").unlink()
-            (schema_root / "alembic/versions/0017_mood_v3.py").unlink()
-            (schema_root / "alembic/versions/0018_mood_semantic_appraisal.py").unlink()
-            (schema_root / "alembic/versions/0020_live_vision.py").unlink()
-            (schema_root / "alembic/versions/0019_live_voice.py").unlink()
-            installed = PostgreSQLSchemaGateway(resource_root=schema_root).install(
-                fixture.migrator_dsn,
-                environment_id=fixture.environment_id,
-            )
-        self.assertEqual(installed.current_revision, "0011")
-        attempt_id = _uuid7()
-        projection_id = _uuid7()
-        with psycopg.connect(fixture.provisioner_dsn, autocommit=True) as connection:
-            connection.execute("SET session_replication_role = replica")
-            connection.execute(
-                """
-                INSERT INTO armi.context_embedding_attempts (
-                  context_embedding_attempt_id,subject_id,life_generation_id,
-                  source_kind,source_ref,source_version,chunk_ordinal,
-                  model_binding,provider_model,input_digest,status,settled_at
-                ) VALUES (
-                  %s,%s,%s,'subjective_memory',%s,1,0,
-                  'armi.embedding.volcengine-ark-doubao-vision-250615-v1',
-                  'doubao-embedding-vision-250615',%s,'succeeded',clock_timestamp()
-                )
-                """,
-                (
-                    attempt_id,
-                    _uuid7(),
-                    _uuid7(),
-                    _uuid7(),
-                    "sha256:" + "a" * 64,
-                ),
-            )
-            connection.execute(
-                """
-                INSERT INTO armi.context_embedding_projections (
-                  context_embedding_projection_id,context_embedding_attempt_id,
-                  subject_id,life_generation_id,source_kind,source_ref,
-                  source_version,chunk_ordinal,chunk_text,model_binding,embedding
-                ) VALUES (
-                  %s,%s,%s,%s,'subjective_memory',%s,1,0,'legacy projection',
-                  'armi.embedding.volcengine-ark-doubao-vision-250615-v1',
-                  %s::armi_extensions.vector
-                )
-                """,
-                (
-                    projection_id,
-                    attempt_id,
-                    _uuid7(),
-                    _uuid7(),
-                    _uuid7(),
-                    "[" + ",".join("0" for _ in range(1024)) + "]",
-                ),
-            )
-            connection.execute("SET session_replication_role = origin")
-
-        migrated = PostgreSQLSchemaGateway().migrate(
-            fixture.migrator_dsn,
-            environment_id=fixture.environment_id,
-        )
-        self.assertEqual(migrated.current_revision, "0020")
-        with psycopg.connect(fixture.provisioner_dsn) as connection:
-            shape = connection.execute(
-                """
-                SELECT
-                  (SELECT count(*) FROM armi.context_embedding_attempts
-                   WHERE context_embedding_attempt_id=%s),
-                  (SELECT count(*) FROM armi.context_embedding_projections),
-                  EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_schema='armi'
-                      AND table_name='context_embedding_projections'
-                      AND column_name='retrieval_text' AND is_nullable='NO'
-                  ),
-                  to_regclass(
-                    'armi.context_embedding_projections_retrieval_trgm_idx'
-                  ) IS NULL,
-                  to_regclass(
-                    'armi.context_embedding_projections_retrieval_gist_idx'
-                  ) IS NOT NULL,
-                  to_regclass(
-                    'armi.context_embedding_projections_embedding_hnsw_idx'
-                  ) IS NOT NULL,
-                  to_regclass('armi.context_embedding_coverage') IS NOT NULL,
-                  EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_schema='armi'
-                      AND table_name='context_embedding_coverage'
-                      AND column_name='pending_work_count'
-                      AND is_nullable='NO'
-                  ),
-                  pg_get_indexdef(
-                    'armi.context_embedding_projections_retrieval_gist_idx'
-                      ::regclass
-                  ) LIKE '%%siglen=''256''%%'
-                """,
-                (attempt_id,),
-            ).fetchone()
-        self.assertEqual(shape, (1, 0, True, True, True, True, True, True, True))
 
     def test_scalable_semantic_recall_executes_dense_and_lexical_paths(self) -> None:
         fixture = self.create_database()
@@ -2166,10 +1557,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             schema_root = Path(temporary) / "schema"
             shutil.copytree(source, schema_root)
-            (schema_root / "alembic/versions/0021_probe.py").write_text(
+            (schema_root / "alembic/versions/0001_probe.py").write_text(
                 "from alembic import op\n"
-                "revision = '0021'\n"
-                "down_revision = '0020'\n"
+                "revision = '0001'\n"
+                "down_revision = '0000'\n"
                 "branch_labels = None\n"
                 "depends_on = None\n"
                 "def upgrade(): op.execute('CREATE TABLE armi.revision_probe (id bigint PRIMARY KEY)')\n"
@@ -2224,8 +1615,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(migrated.status, "current")
             self.assertEqual(migrated.table_count, installed.table_count + 1)
-            self.assertEqual(migrated.current_revision, "0021")
-            self.assertEqual(migrated.head_revision, "0021")
+            self.assertEqual(migrated.current_revision, "0001")
+            self.assertEqual(migrated.head_revision, "0001")
             self.assertEqual(
                 gateway.migrate(
                     fixture.migrator_dsn,
@@ -2246,10 +1637,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             schema_root = Path(temporary) / "schema"
             shutil.copytree(source, schema_root)
-            (schema_root / "alembic/versions/0021_failing_probe.py").write_text(
+            (schema_root / "alembic/versions/0001_failing_probe.py").write_text(
                 "from alembic import op\n"
-                "revision = '0021'\n"
-                "down_revision = '0020'\n"
+                "revision = '0001'\n"
+                "down_revision = '0000'\n"
                 "branch_labels = None\n"
                 "depends_on = None\n"
                 "def upgrade():\n"
@@ -2274,7 +1665,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "SELECT version_num FROM armi.alembic_version"
                 ).fetchall()
             self.assertEqual(table, (None,))
-            self.assertEqual(history, [("0020",)])
+            self.assertEqual(history, [("0000",)])
 
     def test_p0_clean_environment_cli_start_restart_and_capacity(self) -> None:
         fixture = self.create_database()
@@ -7744,7 +7135,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 restored = connection.execute(
                     "SELECT version_num FROM armi.alembic_version"
                 ).fetchall()
-            self.assertEqual(restored, [("0020",)])
+            self.assertEqual(restored, [("0000",)])
 
             second_quarantine = root / "second-quarantine"
             second_quarantine.mkdir()

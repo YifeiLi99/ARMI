@@ -1,3 +1,5 @@
+-- Current ARMI schema tables owned by this baseline module.
+
 --
 -- Name: action_intent_revisions; Type: TABLE; Schema: armi; Owner: -
 --
@@ -44,44 +46,12 @@ CREATE TABLE armi.action_intents (
     current_revision_id uuid,
     created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
     action_kind text NOT NULL,
+    operation_ref uuid NOT NULL,
     CONSTRAINT action_intents_id_check CHECK ((uuid_extract_version(action_intent_id) = 7)),
     CONSTRAINT action_intents_kind_check CHECK ((action_kind = ANY (ARRAY['party_response'::text, 'codex_delegation'::text]))),
+    CONSTRAINT action_intents_operation_ref_check CHECK ((uuid_extract_version(operation_ref) = 7)),
     CONSTRAINT action_intents_purpose_check CHECK ((purpose = ANY (ARRAY['respond_to_creator'::text, 'respond_to_other_human'::text, 'delegate_codex_work'::text]))),
     CONSTRAINT action_intents_shape_check CHECK ((((action_kind = 'party_response'::text) AND (purpose = ANY (ARRAY['respond_to_creator'::text, 'respond_to_other_human'::text]))) OR ((action_kind = 'codex_delegation'::text) AND (purpose = 'delegate_codex_work'::text))))
-);
-
---
--- Name: action_operations; Type: TABLE; Schema: armi; Owner: -
---
-
-CREATE TABLE armi.action_operations (
-    operation_id uuid NOT NULL,
-    root_opportunity_id uuid NOT NULL,
-    subject_id uuid NOT NULL,
-    scene_id uuid NOT NULL,
-    context_party_id uuid NOT NULL,
-    action_intent_id uuid,
-    dialogue_decision_id uuid,
-    admission_work_id uuid,
-    phase text NOT NULL,
-    outcome text,
-    matched_grant_id uuid,
-    reason_code text,
-    created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    completed_at timestamp(6) with time zone,
-    registration_work_id uuid,
-    current_policy_decision_id uuid,
-    effect_id uuid,
-    effect_registered_at timestamp(6) with time zone,
-    operation_kind text NOT NULL,
-    CONSTRAINT action_operations_effect_registration_check CHECK ((((effect_id IS NULL) AND (effect_registered_at IS NULL)) OR ((effect_id IS NOT NULL) AND (effect_registered_at IS NOT NULL)))),
-    CONSTRAINT action_operations_id_check CHECK ((uuid_extract_version(operation_id) = 7)),
-    CONSTRAINT action_operations_kind_check CHECK ((operation_kind = ANY (ARRAY['party_response'::text, 'codex_delegation'::text]))),
-    CONSTRAINT action_operations_outcome_check CHECK (((outcome IS NULL) OR (outcome = ANY (ARRAY['completed'::text, 'failed'::text, 'denied'::text, 'cancelled'::text, 'unknown'::text, 'no_action'::text, 'rejected'::text])))),
-    CONSTRAINT action_operations_owner_shape_check CHECK ((((operation_kind = 'codex_delegation'::text) AND (action_intent_id IS NOT NULL) AND (dialogue_decision_id IS NULL)) OR ((operation_kind = 'party_response'::text) AND (dialogue_decision_id IS NOT NULL) AND ((action_intent_id IS NOT NULL) OR ((phase = 'terminal'::text) AND (outcome = 'no_action'::text)))))),
-    CONSTRAINT action_operations_phase_check CHECK ((phase = ANY (ARRAY['admission_pending'::text, 'admitted'::text, 'effect_registered'::text, 'dispatching'::text, 'result_pending'::text, 'terminal'::text]))),
-    CONSTRAINT action_operations_phase_effect_check CHECK ((((phase = ANY (ARRAY['admission_pending'::text, 'admitted'::text])) AND (effect_id IS NULL)) OR ((phase = ANY (ARRAY['effect_registered'::text, 'dispatching'::text, 'result_pending'::text])) AND (effect_id IS NOT NULL)) OR (phase = 'terminal'::text))),
-    CONSTRAINT action_operations_terminal_shape_check CHECK (((phase = 'terminal'::text) = ((outcome IS NOT NULL) AND (completed_at IS NOT NULL))))
 );
 
 --
@@ -194,8 +164,10 @@ CREATE TABLE armi.dialogue_decisions (
     action_intent_id uuid,
     effect_id uuid,
     decided_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
+    operation_ref uuid NOT NULL,
     CONSTRAINT dialogue_decisions_id_check CHECK ((uuid_extract_version(dialogue_decision_id) = 7)),
     CONSTRAINT dialogue_decisions_kind_check CHECK ((decision_kind = ANY (ARRAY['reply'::text, 'decline'::text, 'silence'::text, 'defer'::text, 'end_conversation'::text]))),
+    CONSTRAINT dialogue_decisions_operation_ref_check CHECK ((uuid_extract_version(operation_ref) = 7)),
     CONSTRAINT dialogue_decisions_shape_check CHECK ((((decision_kind = 'reply'::text) AND (proposal_ref IS NOT NULL) AND (action_intent_id IS NOT NULL)) OR ((decision_kind <> 'reply'::text) AND (action_intent_id IS NULL) AND (effect_id IS NULL))))
 );
 
@@ -345,7 +317,6 @@ CREATE TABLE armi.effect_outbox_items (
 CREATE TABLE armi.effects (
     effect_id uuid NOT NULL,
     action_intent_revision_id uuid NOT NULL,
-    operation_id uuid NOT NULL,
     policy_decision_id uuid,
     subject_id uuid NOT NULL,
     scene_id uuid NOT NULL,
@@ -421,7 +392,6 @@ CREATE TABLE armi.permission_grants (
 CREATE TABLE armi.policy_decisions (
     policy_decision_id uuid NOT NULL,
     action_intent_revision_id uuid NOT NULL,
-    operation_id uuid NOT NULL,
     matched_grant_id uuid,
     decision_outcome text NOT NULL,
     policy_identity text NOT NULL,

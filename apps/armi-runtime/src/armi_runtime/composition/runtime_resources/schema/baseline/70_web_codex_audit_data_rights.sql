@@ -1,3 +1,5 @@
+-- Current ARMI schema tables owned by this baseline module.
+
 --
 -- Name: audit_events; Type: TABLE; Schema: armi; Owner: -
 --

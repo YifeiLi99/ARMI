@@ -151,14 +151,10 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
 
 
 def schema_tables_at_head(schema_root: Path) -> frozenset[str]:
-    """Extract the effective table set from frozen baseline and ordered revisions."""
+    """Extract the effective table set from the current frozen baseline."""
 
     baseline = schema_root / "baseline"
-    revisions = schema_root / "alembic" / "versions"
-    sources: Iterable[Path] = (
-        *sorted(baseline.glob("*.sql")),
-        *sorted(revisions.glob("[0-9][0-9][0-9][0-9]_*.py")),
-    )
+    sources: Iterable[Path] = sorted(baseline.glob("*.sql"))
     tables: set[str] = set()
     for path in sources:
         for match in _TABLE_CHANGE.finditer(path.read_text(encoding="utf-8")):

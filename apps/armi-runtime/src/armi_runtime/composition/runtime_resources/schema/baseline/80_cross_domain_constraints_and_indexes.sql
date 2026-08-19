@@ -1,3 +1,5 @@
+-- Current ARMI keys, indexes and cross-domain constraints.
+
 --
 -- Name: accepted_experiences accepted_experiences_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
 --
@@ -34,6 +36,20 @@ ALTER TABLE ONLY armi.action_intent_revisions
     ADD CONSTRAINT action_intent_revisions_pkey PRIMARY KEY (action_intent_revision_id);
 
 --
+-- Name: action_intents action_intents_operation_owner_key; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.action_intents
+    ADD CONSTRAINT action_intents_operation_owner_key UNIQUE (action_intent_id, operation_ref);
+
+--
+-- Name: action_intents action_intents_operation_ref_key; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.action_intents
+    ADD CONSTRAINT action_intents_operation_ref_key UNIQUE (operation_ref);
+
+--
 -- Name: action_intents action_intents_owner_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
@@ -53,41 +69,6 @@ ALTER TABLE ONLY armi.action_intents
 
 ALTER TABLE ONLY armi.action_intents
     ADD CONSTRAINT action_intents_root_kind_key UNIQUE (root_opportunity_id, action_kind);
-
---
--- Name: action_operations action_operations_admission_work_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.action_operations
-    ADD CONSTRAINT action_operations_admission_work_key UNIQUE (admission_work_id);
-
---
--- Name: action_operations action_operations_effect_owner_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.action_operations
-    ADD CONSTRAINT action_operations_effect_owner_key UNIQUE (operation_id, action_intent_id, subject_id, scene_id, context_party_id);
-
---
--- Name: action_operations action_operations_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.action_operations
-    ADD CONSTRAINT action_operations_pkey PRIMARY KEY (operation_id);
-
---
--- Name: action_operations action_operations_registration_work_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.action_operations
-    ADD CONSTRAINT action_operations_registration_work_key UNIQUE (registration_work_id);
-
---
--- Name: action_operations action_operations_root_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.action_operations
-    ADD CONSTRAINT action_operations_root_key UNIQUE (root_opportunity_id);
 
 --
 -- Name: activities activities_activity_id_subject_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -314,11 +295,39 @@ ALTER TABLE ONLY armi.codex_verification_results
     ADD CONSTRAINT codex_verification_results_pkey PRIMARY KEY (codex_verification_id);
 
 --
--- Name: cognitive_attempts cognitive_attempts_cognitive_episode_id_attempt_no_key; Type: CONSTRAINT; Schema: armi; Owner: -
+-- Name: cognition_maintenance_batch_sources cognition_maintenance_batch_so_maintenance_batch_id_ordinal_key; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.cognition_maintenance_batch_sources
+    ADD CONSTRAINT cognition_maintenance_batch_so_maintenance_batch_id_ordinal_key UNIQUE (maintenance_batch_id, ordinal);
+
+--
+-- Name: cognition_maintenance_batch_sources cognition_maintenance_batch_sources_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.cognition_maintenance_batch_sources
+    ADD CONSTRAINT cognition_maintenance_batch_sources_pkey PRIMARY KEY (maintenance_batch_id, experience_id);
+
+--
+-- Name: cognition_maintenance_batches cognition_maintenance_batches_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.cognition_maintenance_batches
+    ADD CONSTRAINT cognition_maintenance_batches_pkey PRIMARY KEY (maintenance_batch_id);
+
+--
+-- Name: cognition_maintenance_cursors cognition_maintenance_cursors_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.cognition_maintenance_cursors
+    ADD CONSTRAINT cognition_maintenance_cursors_pkey PRIMARY KEY (subject_id, life_generation_id);
+
+--
+-- Name: cognitive_attempts cognitive_attempts_branch_attempt_no_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
 ALTER TABLE ONLY armi.cognitive_attempts
-    ADD CONSTRAINT cognitive_attempts_cognitive_episode_id_attempt_no_key UNIQUE (cognitive_episode_id, attempt_no);
+    ADD CONSTRAINT cognitive_attempts_branch_attempt_no_key UNIQUE (cognitive_branch_id, attempt_no);
 
 --
 -- Name: cognitive_attempts cognitive_attempts_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -328,11 +337,18 @@ ALTER TABLE ONLY armi.cognitive_attempts
     ADD CONSTRAINT cognitive_attempts_pkey PRIMARY KEY (model_attempt_id);
 
 --
--- Name: cognitive_attempts cognitive_attempts_work_id_work_attempt_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
+-- Name: cognitive_branches cognitive_branches_episode_role_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.cognitive_attempts
-    ADD CONSTRAINT cognitive_attempts_work_id_work_attempt_id_key UNIQUE (work_id, work_attempt_id);
+ALTER TABLE ONLY armi.cognitive_branches
+    ADD CONSTRAINT cognitive_branches_episode_role_key UNIQUE (cognitive_episode_id, branch_role);
+
+--
+-- Name: cognitive_branches cognitive_branches_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.cognitive_branches
+    ADD CONSTRAINT cognitive_branches_pkey PRIMARY KEY (cognitive_branch_id);
 
 --
 -- Name: cognitive_candidate_applications cognitive_candidate_applications_candidate_validation_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -447,6 +463,13 @@ ALTER TABLE ONLY armi.cognitive_context_items
     ADD CONSTRAINT cognitive_context_items_pkey PRIMARY KEY (context_item_id);
 
 --
+-- Name: cognitive_dialogue_aggregates cognitive_dialogue_aggregates_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.cognitive_dialogue_aggregates
+    ADD CONSTRAINT cognitive_dialogue_aggregates_pkey PRIMARY KEY (cognitive_episode_id);
+
+--
 -- Name: cognitive_episodes cognitive_episodes_opportunity_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
@@ -459,6 +482,48 @@ ALTER TABLE ONLY armi.cognitive_episodes
 
 ALTER TABLE ONLY armi.cognitive_episodes
     ADD CONSTRAINT cognitive_episodes_pkey PRIMARY KEY (cognitive_episode_id);
+
+--
+-- Name: context_embedding_attempts context_embedding_attempts_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.context_embedding_attempts
+    ADD CONSTRAINT context_embedding_attempts_pkey PRIMARY KEY (context_embedding_attempt_id);
+
+--
+-- Name: context_embedding_attempts context_embedding_attempts_source_kind_source_ref_source_ve_key; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.context_embedding_attempts
+    ADD CONSTRAINT context_embedding_attempts_source_kind_source_ref_source_ve_key UNIQUE (source_kind, source_ref, source_version, chunk_ordinal, model_binding, context_embedding_attempt_id);
+
+--
+-- Name: context_embedding_coverage context_embedding_coverage_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.context_embedding_coverage
+    ADD CONSTRAINT context_embedding_coverage_pkey PRIMARY KEY (model_binding);
+
+--
+-- Name: context_embedding_projections context_embedding_projections_context_embedding_attempt_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.context_embedding_projections
+    ADD CONSTRAINT context_embedding_projections_context_embedding_attempt_id_key UNIQUE (context_embedding_attempt_id);
+
+--
+-- Name: context_embedding_projections context_embedding_projections_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.context_embedding_projections
+    ADD CONSTRAINT context_embedding_projections_pkey PRIMARY KEY (context_embedding_projection_id);
+
+--
+-- Name: context_embedding_projections context_embedding_projections_source_kind_source_ref_source_key; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.context_embedding_projections
+    ADD CONSTRAINT context_embedding_projections_source_kind_source_ref_source_key UNIQUE (source_kind, source_ref, source_version, chunk_ordinal, model_binding);
 
 --
 -- Name: creator_exports creator_exports_creator_party_id_directory_name_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -529,6 +594,13 @@ ALTER TABLE ONLY armi.deployment_environments
 
 ALTER TABLE ONLY armi.deployment_environments
     ADD CONSTRAINT deployment_environments_pkey PRIMARY KEY (singleton_key);
+
+--
+-- Name: dialogue_decisions dialogue_decisions_operation_ref_key; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.dialogue_decisions
+    ADD CONSTRAINT dialogue_decisions_operation_ref_key UNIQUE (operation_ref);
 
 --
 -- Name: dialogue_decisions dialogue_decisions_opportunity_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -706,6 +778,20 @@ ALTER TABLE ONLY armi.external_channel_bindings
     ADD CONSTRAINT external_channel_bindings_pkey PRIMARY KEY (external_binding_id);
 
 --
+-- Name: external_content_recognition_attempts external_content_recognition_attem_external_message_part_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.external_content_recognition_attempts
+    ADD CONSTRAINT external_content_recognition_attem_external_message_part_id_key UNIQUE (external_message_part_id);
+
+--
+-- Name: external_content_recognition_attempts external_content_recognition_attempts_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.external_content_recognition_attempts
+    ADD CONSTRAINT external_content_recognition_attempts_pkey PRIMARY KEY (recognition_attempt_id);
+
+--
 -- Name: external_evidence external_evidence_interaction_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
@@ -718,6 +804,20 @@ ALTER TABLE ONLY armi.external_evidence
 
 ALTER TABLE ONLY armi.external_evidence
     ADD CONSTRAINT external_evidence_pkey PRIMARY KEY (evidence_id);
+
+--
+-- Name: external_message_parts external_message_parts_interaction_id_ordinal_key; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.external_message_parts
+    ADD CONSTRAINT external_message_parts_interaction_id_ordinal_key UNIQUE (interaction_id, ordinal);
+
+--
+-- Name: external_message_parts external_message_parts_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.external_message_parts
+    ADD CONSTRAINT external_message_parts_pkey PRIMARY KEY (external_message_part_id);
 
 --
 -- Name: interaction_scenes interaction_scenes_input_identity_unique; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -795,6 +895,97 @@ ALTER TABLE ONLY armi.life_material_revisions
 
 ALTER TABLE ONLY armi.life_materials
     ADD CONSTRAINT life_materials_pkey PRIMARY KEY (life_material_id);
+
+--
+-- Name: live_vision_observation_frames live_vision_observation_frames_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.live_vision_observation_frames
+    ADD CONSTRAINT live_vision_observation_frames_pkey PRIMARY KEY (observation_id, ordinal);
+
+--
+-- Name: live_vision_observations live_vision_observations_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.live_vision_observations
+    ADD CONSTRAINT live_vision_observations_pkey PRIMARY KEY (observation_id);
+
+--
+-- Name: live_vision_observations live_vision_observations_session_id_observation_no_key; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.live_vision_observations
+    ADD CONSTRAINT live_vision_observations_session_id_observation_no_key UNIQUE (session_id, observation_no);
+
+--
+-- Name: live_vision_sessions live_vision_sessions_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.live_vision_sessions
+    ADD CONSTRAINT live_vision_sessions_pkey PRIMARY KEY (session_id);
+
+--
+-- Name: live_voice_playback_attempts live_voice_playback_attempts_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.live_voice_playback_attempts
+    ADD CONSTRAINT live_voice_playback_attempts_pkey PRIMARY KEY (playback_attempt_id);
+
+--
+-- Name: live_voice_playback_attempts live_voice_playback_attempts_turn_id_attempt_no_key; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.live_voice_playback_attempts
+    ADD CONSTRAINT live_voice_playback_attempts_turn_id_attempt_no_key UNIQUE (turn_id, attempt_no);
+
+--
+-- Name: live_voice_provider_attempts live_voice_provider_attempts_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.live_voice_provider_attempts
+    ADD CONSTRAINT live_voice_provider_attempts_pkey PRIMARY KEY (provider_attempt_id);
+
+--
+-- Name: live_voice_provider_attempts live_voice_provider_attempts_turn_id_service_kind_attempt_n_key; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.live_voice_provider_attempts
+    ADD CONSTRAINT live_voice_provider_attempts_turn_id_service_kind_attempt_n_key UNIQUE (turn_id, service_kind, attempt_no);
+
+--
+-- Name: live_voice_sessions live_voice_sessions_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.live_voice_sessions
+    ADD CONSTRAINT live_voice_sessions_pkey PRIMARY KEY (session_id);
+
+--
+-- Name: live_voice_text_fragments live_voice_text_fragments_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.live_voice_text_fragments
+    ADD CONSTRAINT live_voice_text_fragments_pkey PRIMARY KEY (fragment_id);
+
+--
+-- Name: live_voice_text_fragments live_voice_text_fragments_turn_id_fragment_no_key; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.live_voice_text_fragments
+    ADD CONSTRAINT live_voice_text_fragments_turn_id_fragment_no_key UNIQUE (turn_id, fragment_no);
+
+--
+-- Name: live_voice_turns live_voice_turns_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.live_voice_turns
+    ADD CONSTRAINT live_voice_turns_pkey PRIMARY KEY (turn_id);
+
+--
+-- Name: live_voice_turns live_voice_turns_session_id_turn_no_key; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.live_voice_turns
+    ADD CONSTRAINT live_voice_turns_session_id_turn_no_key UNIQUE (session_id, turn_no);
 
 --
 -- Name: local_inbox_deliveries local_inbox_deliveries_effect_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -923,6 +1114,69 @@ ALTER TABLE ONLY armi.memory_relations
     ADD CONSTRAINT memory_relations_subject_commit_id_proposal_ref_key UNIQUE (subject_commit_id, proposal_ref);
 
 --
+-- Name: mood_affective_events mood_affective_events_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.mood_affective_events
+    ADD CONSTRAINT mood_affective_events_pkey PRIMARY KEY (mood_affective_event_id);
+
+--
+-- Name: mood_affective_events mood_affective_events_revision_key; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.mood_affective_events
+    ADD CONSTRAINT mood_affective_events_revision_key UNIQUE (mood_revision_id, subject_id);
+
+--
+-- Name: mood_appraisal_events mood_appraisal_events_identity_key; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.mood_appraisal_events
+    ADD CONSTRAINT mood_appraisal_events_identity_key UNIQUE (mood_appraisal_event_id, subject_id);
+
+--
+-- Name: mood_appraisal_events mood_appraisal_events_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.mood_appraisal_events
+    ADD CONSTRAINT mood_appraisal_events_pkey PRIMARY KEY (mood_appraisal_event_id);
+
+--
+-- Name: mood_appraisal_events mood_appraisal_events_revision_key; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.mood_appraisal_events
+    ADD CONSTRAINT mood_appraisal_events_revision_key UNIQUE (mood_revision_id, subject_id);
+
+--
+-- Name: mood_heads mood_heads_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.mood_heads
+    ADD CONSTRAINT mood_heads_pkey PRIMARY KEY (subject_id);
+
+--
+-- Name: mood_revisions mood_revisions_owner_key; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.mood_revisions
+    ADD CONSTRAINT mood_revisions_owner_key UNIQUE (mood_revision_id, subject_id);
+
+--
+-- Name: mood_revisions mood_revisions_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.mood_revisions
+    ADD CONSTRAINT mood_revisions_pkey PRIMARY KEY (mood_revision_id);
+
+--
+-- Name: mood_revisions mood_revisions_subject_version_key; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.mood_revisions
+    ADD CONSTRAINT mood_revisions_subject_version_key UNIQUE (subject_id, mood_version);
+
+--
 -- Name: observation_attempts observation_attempts_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
@@ -1039,7 +1293,7 @@ ALTER TABLE ONLY armi.permission_grants
 --
 
 ALTER TABLE ONLY armi.policy_decisions
-    ADD CONSTRAINT policy_decisions_effect_owner_key UNIQUE (policy_decision_id, action_intent_revision_id, operation_id);
+    ADD CONSTRAINT policy_decisions_effect_owner_key UNIQUE (policy_decision_id, action_intent_revision_id);
 
 --
 -- Name: policy_decisions policy_decisions_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -1371,6 +1625,20 @@ ALTER TABLE ONLY armi.subjects
     ADD CONSTRAINT subjects_singleton_key_key UNIQUE (singleton_key);
 
 --
+-- Name: visual_recognition_attempts visual_recognition_attempts_observation_id_attempt_no_key; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.visual_recognition_attempts
+    ADD CONSTRAINT visual_recognition_attempts_observation_id_attempt_no_key UNIQUE (observation_id, attempt_no);
+
+--
+-- Name: visual_recognition_attempts visual_recognition_attempts_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.visual_recognition_attempts
+    ADD CONSTRAINT visual_recognition_attempts_pkey PRIMARY KEY (visual_attempt_id);
+
+--
 -- Name: web_evidence_sources web_evidence_sources_evidence_id_canonical_url_digest_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
@@ -1535,10 +1803,28 @@ CREATE UNIQUE INDEX capability_requests_open_codex_idx ON armi.capability_reques
 CREATE INDEX capability_requests_pending_idx ON armi.capability_requests USING btree (current_status, created_at, capability_request_id);
 
 --
+-- Name: cognition_maintenance_batches_active_idx; Type: INDEX; Schema: armi; Owner: -
+--
+
+CREATE UNIQUE INDEX cognition_maintenance_batches_active_idx ON armi.cognition_maintenance_batches USING btree (subject_id, life_generation_id) WHERE (status = ANY (ARRAY['prepared'::text, 'running'::text]));
+
+--
+-- Name: cognitive_attempts_branch_status_idx; Type: INDEX; Schema: armi; Owner: -
+--
+
+CREATE INDEX cognitive_attempts_branch_status_idx ON armi.cognitive_attempts USING btree (cognitive_branch_id, dispatch_status, attempt_no);
+
+--
 -- Name: cognitive_attempts_episode_status_idx; Type: INDEX; Schema: armi; Owner: -
 --
 
 CREATE INDEX cognitive_attempts_episode_status_idx ON armi.cognitive_attempts USING btree (cognitive_episode_id, dispatch_status, attempt_no);
+
+--
+-- Name: cognitive_branches_episode_status_idx; Type: INDEX; Schema: armi; Owner: -
+--
+
+CREATE INDEX cognitive_branches_episode_status_idx ON armi.cognitive_branches USING btree (cognitive_episode_id, status, branch_role);
 
 --
 -- Name: cognitive_candidate_validations_status_idx; Type: INDEX; Schema: armi; Owner: -
@@ -1551,6 +1837,24 @@ CREATE INDEX cognitive_candidate_validations_status_idx ON armi.cognitive_candid
 --
 
 CREATE INDEX cognitive_episodes_subject_purpose_recent_idx ON armi.cognitive_episodes USING btree (subject_id, purpose, created_at DESC, cognitive_episode_id DESC);
+
+--
+-- Name: context_embedding_projections_current_source_idx; Type: INDEX; Schema: armi; Owner: -
+--
+
+CREATE INDEX context_embedding_projections_current_source_idx ON armi.context_embedding_projections USING btree (subject_id, life_generation_id, source_kind, source_ref, source_version, model_binding);
+
+--
+-- Name: context_embedding_projections_embedding_hnsw_idx; Type: INDEX; Schema: armi; Owner: -
+--
+
+CREATE INDEX context_embedding_projections_embedding_hnsw_idx ON armi.context_embedding_projections USING hnsw (((embedding)::armi_extensions.halfvec(1024)) armi_extensions.halfvec_cosine_ops) WITH (m='16', ef_construction='128');
+
+--
+-- Name: context_embedding_projections_retrieval_gist_idx; Type: INDEX; Schema: armi; Owner: -
+--
+
+CREATE INDEX context_embedding_projections_retrieval_gist_idx ON armi.context_embedding_projections USING gist (retrieval_text armi_extensions.gist_trgm_ops (siglen='256'));
 
 --
 -- Name: deletion_items_active_target_idx; Type: INDEX; Schema: armi; Owner: -
@@ -1613,6 +1917,18 @@ CREATE UNIQUE INDEX external_channel_bindings_group_scene_idx ON armi.external_c
 CREATE UNIQUE INDEX external_channel_bindings_person_party_idx ON armi.external_channel_bindings USING btree (channel_kind, account_key, party_id) WHERE (external_kind = 'person'::text);
 
 --
+-- Name: external_message_parts_interaction_idx; Type: INDEX; Schema: armi; Owner: -
+--
+
+CREATE INDEX external_message_parts_interaction_idx ON armi.external_message_parts USING btree (interaction_id, ordinal);
+
+--
+-- Name: external_message_parts_pending_idx; Type: INDEX; Schema: armi; Owner: -
+--
+
+CREATE INDEX external_message_parts_pending_idx ON armi.external_message_parts USING btree (processing_status, interaction_id) WHERE (processing_status = 'pending'::text);
+
+--
 -- Name: life_generations_one_active_idx; Type: INDEX; Schema: armi; Owner: -
 --
 
@@ -1637,6 +1953,18 @@ CREATE INDEX life_material_revisions_title_trgm_idx ON armi.life_material_revisi
 CREATE INDEX life_materials_subject_current_idx ON armi.life_materials USING btree (subject_id, updated_at DESC, life_material_id) WHERE (deleted_at IS NULL);
 
 --
+-- Name: live_vision_one_open_session; Type: INDEX; Schema: armi; Owner: -
+--
+
+CREATE UNIQUE INDEX live_vision_one_open_session ON armi.live_vision_sessions USING btree (subject_id) WHERE (ended_at IS NULL);
+
+--
+-- Name: live_voice_one_open_session; Type: INDEX; Schema: armi; Owner: -
+--
+
+CREATE UNIQUE INDEX live_voice_one_open_session ON armi.live_voice_sessions USING btree (subject_id) WHERE (ended_at IS NULL);
+
+--
 -- Name: maintenance_sessions_one_unfinished; Type: INDEX; Schema: armi; Owner: -
 --
 
@@ -1653,6 +1981,36 @@ CREATE INDEX memory_relations_from_idx ON armi.memory_relations USING btree (fro
 --
 
 CREATE INDEX memory_relations_to_idx ON armi.memory_relations USING btree (to_memory_id, created_at DESC);
+
+--
+-- Name: mood_affective_events_subject_time_idx; Type: INDEX; Schema: armi; Owner: -
+--
+
+CREATE INDEX mood_affective_events_subject_time_idx ON armi.mood_affective_events USING btree (subject_id, occurred_at DESC, mood_affective_event_id DESC);
+
+--
+-- Name: mood_appraisal_events_episode_time_idx; Type: INDEX; Schema: armi; Owner: -
+--
+
+CREATE INDEX mood_appraisal_events_episode_time_idx ON armi.mood_appraisal_events USING btree (subject_id, mood_episode_id, occurred_at DESC, mood_appraisal_event_id DESC);
+
+--
+-- Name: mood_appraisal_events_previous_unique_idx; Type: INDEX; Schema: armi; Owner: -
+--
+
+CREATE UNIQUE INDEX mood_appraisal_events_previous_unique_idx ON armi.mood_appraisal_events USING btree (previous_appraisal_event_id) WHERE (previous_appraisal_event_id IS NOT NULL);
+
+--
+-- Name: mood_appraisal_events_subject_time_idx; Type: INDEX; Schema: armi; Owner: -
+--
+
+CREATE INDEX mood_appraisal_events_subject_time_idx ON armi.mood_appraisal_events USING btree (subject_id, occurred_at DESC, mood_appraisal_event_id DESC);
+
+--
+-- Name: mood_revisions_subject_created_idx; Type: INDEX; Schema: armi; Owner: -
+--
+
+CREATE INDEX mood_revisions_subject_created_idx ON armi.mood_revisions USING btree (subject_id, created_at DESC, mood_revision_id DESC);
 
 --
 -- Name: parties_one_creator_idx; Type: INDEX; Schema: armi; Owner: -
@@ -1701,6 +2059,12 @@ CREATE INDEX relationship_revisions_interpretation_trgm_idx ON armi.relationship
 --
 
 CREATE INDEX relationship_revisions_relationship_idx ON armi.relationship_revisions USING btree (relationship_id, revision_no DESC);
+
+--
+-- Name: relationships_active_other_party_idx; Type: INDEX; Schema: armi; Owner: -
+--
+
+CREATE INDEX relationships_active_other_party_idx ON armi.relationships USING btree (other_party_id, scope) WHERE (tombstoned_at IS NULL);
 
 --
 -- Name: relationships_subject_idx; Type: INDEX; Schema: armi; Owner: -
@@ -1852,69 +2216,6 @@ ALTER TABLE ONLY armi.action_intents
 
 ALTER TABLE ONLY armi.action_intents
     ADD CONSTRAINT action_intents_scene_participant_fkey FOREIGN KEY (scene_id, subject_id, context_party_id) REFERENCES armi.scene_participants(scene_id, subject_id, party_id);
-
---
--- Name: action_operations action_operations_admission_work_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.action_operations
-    ADD CONSTRAINT action_operations_admission_work_fkey FOREIGN KEY (admission_work_id) REFERENCES armi.durable_work(work_id);
-
---
--- Name: action_operations action_operations_dialogue_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.action_operations
-    ADD CONSTRAINT action_operations_dialogue_fkey FOREIGN KEY (dialogue_decision_id) REFERENCES armi.dialogue_decisions(dialogue_decision_id);
-
---
--- Name: action_operations action_operations_effect_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.action_operations
-    ADD CONSTRAINT action_operations_effect_fkey FOREIGN KEY (effect_id) REFERENCES armi.effects(effect_id);
-
---
--- Name: action_operations action_operations_grant_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.action_operations
-    ADD CONSTRAINT action_operations_grant_fkey FOREIGN KEY (matched_grant_id) REFERENCES armi.permission_grants(grant_id);
-
---
--- Name: action_operations action_operations_intent_owner_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.action_operations
-    ADD CONSTRAINT action_operations_intent_owner_fkey FOREIGN KEY (action_intent_id, subject_id, scene_id, context_party_id) REFERENCES armi.action_intents(action_intent_id, subject_id, scene_id, context_party_id);
-
---
--- Name: action_operations action_operations_policy_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.action_operations
-    ADD CONSTRAINT action_operations_policy_fkey FOREIGN KEY (current_policy_decision_id) REFERENCES armi.policy_decisions(policy_decision_id);
-
---
--- Name: action_operations action_operations_registration_work_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.action_operations
-    ADD CONSTRAINT action_operations_registration_work_fkey FOREIGN KEY (registration_work_id) REFERENCES armi.durable_work(work_id);
-
---
--- Name: action_operations action_operations_root_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.action_operations
-    ADD CONSTRAINT action_operations_root_fkey FOREIGN KEY (root_opportunity_id) REFERENCES armi.opportunities(opportunity_id);
-
---
--- Name: action_operations action_operations_scene_participant_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.action_operations
-    ADD CONSTRAINT action_operations_scene_participant_fkey FOREIGN KEY (scene_id, subject_id, context_party_id) REFERENCES armi.scene_participants(scene_id, subject_id, party_id);
 
 --
 -- Name: activities activities_current_revision_fk; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2204,11 +2505,81 @@ ALTER TABLE ONLY armi.codex_verification_results
     ADD CONSTRAINT codex_verification_results_validation_report_artifact_id_fkey FOREIGN KEY (validation_report_artifact_id) REFERENCES armi.artifacts(artifact_id);
 
 --
+-- Name: cognition_maintenance_batch_sources cognition_maintenance_batch_sources_experience_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.cognition_maintenance_batch_sources
+    ADD CONSTRAINT cognition_maintenance_batch_sources_experience_id_fkey FOREIGN KEY (experience_id) REFERENCES armi.accepted_experiences(experience_id);
+
+--
+-- Name: cognition_maintenance_batch_sources cognition_maintenance_batch_sources_maintenance_batch_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.cognition_maintenance_batch_sources
+    ADD CONSTRAINT cognition_maintenance_batch_sources_maintenance_batch_id_fkey FOREIGN KEY (maintenance_batch_id) REFERENCES armi.cognition_maintenance_batches(maintenance_batch_id);
+
+--
+-- Name: cognition_maintenance_batches cognition_maintenance_batches_life_generation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.cognition_maintenance_batches
+    ADD CONSTRAINT cognition_maintenance_batches_life_generation_id_fkey FOREIGN KEY (life_generation_id) REFERENCES armi.life_generations(life_generation_id);
+
+--
+-- Name: cognition_maintenance_batches cognition_maintenance_batches_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.cognition_maintenance_batches
+    ADD CONSTRAINT cognition_maintenance_batches_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
+
+--
+-- Name: cognition_maintenance_cursors cognition_maintenance_cursors_last_experience_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.cognition_maintenance_cursors
+    ADD CONSTRAINT cognition_maintenance_cursors_last_experience_id_fkey FOREIGN KEY (last_experience_id) REFERENCES armi.accepted_experiences(experience_id);
+
+--
+-- Name: cognition_maintenance_cursors cognition_maintenance_cursors_life_generation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.cognition_maintenance_cursors
+    ADD CONSTRAINT cognition_maintenance_cursors_life_generation_id_fkey FOREIGN KEY (life_generation_id) REFERENCES armi.life_generations(life_generation_id);
+
+--
+-- Name: cognition_maintenance_cursors cognition_maintenance_cursors_processed_through_experience_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.cognition_maintenance_cursors
+    ADD CONSTRAINT cognition_maintenance_cursors_processed_through_experience_fkey FOREIGN KEY (processed_through_experience_id) REFERENCES armi.accepted_experiences(experience_id);
+
+--
+-- Name: cognition_maintenance_cursors cognition_maintenance_cursors_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.cognition_maintenance_cursors
+    ADD CONSTRAINT cognition_maintenance_cursors_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
+
+--
+-- Name: cognitive_attempts cognitive_attempts_branch_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.cognitive_attempts
+    ADD CONSTRAINT cognitive_attempts_branch_fkey FOREIGN KEY (cognitive_branch_id) REFERENCES armi.cognitive_branches(cognitive_branch_id);
+
+--
 -- Name: cognitive_attempts cognitive_attempts_cognitive_episode_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
 ALTER TABLE ONLY armi.cognitive_attempts
     ADD CONSTRAINT cognitive_attempts_cognitive_episode_id_fkey FOREIGN KEY (cognitive_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);
+
+--
+-- Name: cognitive_attempts cognitive_attempts_late_response_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.cognitive_attempts
+    ADD CONSTRAINT cognitive_attempts_late_response_artifact_id_fkey FOREIGN KEY (late_response_artifact_id) REFERENCES armi.artifacts(artifact_id);
 
 --
 -- Name: cognitive_attempts cognitive_attempts_request_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2230,6 +2601,27 @@ ALTER TABLE ONLY armi.cognitive_attempts
 
 ALTER TABLE ONLY armi.cognitive_attempts
     ADD CONSTRAINT cognitive_attempts_work_id_fkey FOREIGN KEY (work_id) REFERENCES armi.durable_work(work_id);
+
+--
+-- Name: cognitive_branches cognitive_branches_cognitive_episode_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.cognitive_branches
+    ADD CONSTRAINT cognitive_branches_cognitive_episode_id_fkey FOREIGN KEY (cognitive_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);
+
+--
+-- Name: cognitive_branches cognitive_branches_response_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.cognitive_branches
+    ADD CONSTRAINT cognitive_branches_response_artifact_id_fkey FOREIGN KEY (response_artifact_id) REFERENCES armi.artifacts(artifact_id);
+
+--
+-- Name: cognitive_branches cognitive_branches_selected_attempt_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.cognitive_branches
+    ADD CONSTRAINT cognitive_branches_selected_attempt_fkey FOREIGN KEY (selected_attempt_id) REFERENCES armi.cognitive_attempts(model_attempt_id);
 
 --
 -- Name: cognitive_candidate_applications cognitive_candidate_applications_candidate_validation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2358,6 +2750,41 @@ ALTER TABLE ONLY armi.cognitive_context_items
     ADD CONSTRAINT cognitive_context_items_cognitive_episode_id_fkey FOREIGN KEY (cognitive_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);
 
 --
+-- Name: cognitive_dialogue_aggregates cognitive_dialogue_aggregates_aggregate_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.cognitive_dialogue_aggregates
+    ADD CONSTRAINT cognitive_dialogue_aggregates_aggregate_artifact_id_fkey FOREIGN KEY (aggregate_artifact_id) REFERENCES armi.artifacts(artifact_id);
+
+--
+-- Name: cognitive_dialogue_aggregates cognitive_dialogue_aggregates_appraisal_branch_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.cognitive_dialogue_aggregates
+    ADD CONSTRAINT cognitive_dialogue_aggregates_appraisal_branch_id_fkey FOREIGN KEY (appraisal_branch_id) REFERENCES armi.cognitive_branches(cognitive_branch_id);
+
+--
+-- Name: cognitive_dialogue_aggregates cognitive_dialogue_aggregates_cognitive_episode_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.cognitive_dialogue_aggregates
+    ADD CONSTRAINT cognitive_dialogue_aggregates_cognitive_episode_id_fkey FOREIGN KEY (cognitive_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);
+
+--
+-- Name: cognitive_dialogue_aggregates cognitive_dialogue_aggregates_primary_model_attempt_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.cognitive_dialogue_aggregates
+    ADD CONSTRAINT cognitive_dialogue_aggregates_primary_model_attempt_id_fkey FOREIGN KEY (primary_model_attempt_id) REFERENCES armi.cognitive_attempts(model_attempt_id);
+
+--
+-- Name: cognitive_dialogue_aggregates cognitive_dialogue_aggregates_response_branch_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.cognitive_dialogue_aggregates
+    ADD CONSTRAINT cognitive_dialogue_aggregates_response_branch_id_fkey FOREIGN KEY (response_branch_id) REFERENCES armi.cognitive_branches(cognitive_branch_id);
+
+--
 -- Name: cognitive_episodes cognitive_episodes_bundle_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
@@ -2412,6 +2839,41 @@ ALTER TABLE ONLY armi.cognitive_episodes
 
 ALTER TABLE ONLY armi.cognitive_episodes
     ADD CONSTRAINT cognitive_episodes_subject_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
+
+--
+-- Name: context_embedding_attempts context_embedding_attempts_life_generation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.context_embedding_attempts
+    ADD CONSTRAINT context_embedding_attempts_life_generation_id_fkey FOREIGN KEY (life_generation_id) REFERENCES armi.life_generations(life_generation_id);
+
+--
+-- Name: context_embedding_attempts context_embedding_attempts_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.context_embedding_attempts
+    ADD CONSTRAINT context_embedding_attempts_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
+
+--
+-- Name: context_embedding_projections context_embedding_projections_context_embedding_attempt_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.context_embedding_projections
+    ADD CONSTRAINT context_embedding_projections_context_embedding_attempt_id_fkey FOREIGN KEY (context_embedding_attempt_id) REFERENCES armi.context_embedding_attempts(context_embedding_attempt_id);
+
+--
+-- Name: context_embedding_projections context_embedding_projections_life_generation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.context_embedding_projections
+    ADD CONSTRAINT context_embedding_projections_life_generation_id_fkey FOREIGN KEY (life_generation_id) REFERENCES armi.life_generations(life_generation_id);
+
+--
+-- Name: context_embedding_projections context_embedding_projections_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.context_embedding_projections
+    ADD CONSTRAINT context_embedding_projections_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
 --
 -- Name: creator_exports creator_exports_creator_party_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2477,6 +2939,13 @@ ALTER TABLE ONLY armi.dialogue_decisions
     ADD CONSTRAINT dialogue_decisions_episode_fkey FOREIGN KEY (cognitive_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);
 
 --
+-- Name: dialogue_decisions dialogue_decisions_intent_operation_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.dialogue_decisions
+    ADD CONSTRAINT dialogue_decisions_intent_operation_fkey FOREIGN KEY (action_intent_id, operation_ref) REFERENCES armi.action_intents(action_intent_id, operation_ref);
+
+--
 -- Name: dialogue_decisions dialogue_decisions_intent_owner_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
@@ -2540,6 +3009,13 @@ ALTER TABLE ONLY armi.effect_outbox_items
     ADD CONSTRAINT effect_outbox_items_effect_id_fkey FOREIGN KEY (effect_id) REFERENCES armi.effects(effect_id);
 
 --
+-- Name: effects effects_action_intent_owner_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.effects
+    ADD CONSTRAINT effects_action_intent_owner_fkey FOREIGN KEY (action_intent_id, subject_id, scene_id, context_party_id) REFERENCES armi.action_intents(action_intent_id, subject_id, scene_id, context_party_id);
+
+--
 -- Name: effects effects_current_attempt_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
@@ -2568,13 +3044,6 @@ ALTER TABLE ONLY armi.effects
     ADD CONSTRAINT effects_destination_party_fkey FOREIGN KEY (destination_party_id) REFERENCES armi.parties(party_id);
 
 --
--- Name: effects effects_operation_owner_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.effects
-    ADD CONSTRAINT effects_operation_owner_fkey FOREIGN KEY (operation_id, action_intent_id, subject_id, scene_id, context_party_id) REFERENCES armi.action_operations(operation_id, action_intent_id, subject_id, scene_id, context_party_id);
-
---
 -- Name: effects effects_payload_artifact_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
@@ -2586,7 +3055,7 @@ ALTER TABLE ONLY armi.effects
 --
 
 ALTER TABLE ONLY armi.effects
-    ADD CONSTRAINT effects_policy_owner_fkey FOREIGN KEY (policy_decision_id, action_intent_revision_id, operation_id) REFERENCES armi.policy_decisions(policy_decision_id, action_intent_revision_id, operation_id);
+    ADD CONSTRAINT effects_policy_owner_fkey FOREIGN KEY (policy_decision_id, action_intent_revision_id) REFERENCES armi.policy_decisions(policy_decision_id, action_intent_revision_id);
 
 --
 -- Name: effects effects_revision_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2694,6 +3163,34 @@ ALTER TABLE ONLY armi.external_channel_bindings
     ADD CONSTRAINT external_channel_bindings_scene_fkey FOREIGN KEY (scene_id) REFERENCES armi.interaction_scenes(scene_id);
 
 --
+-- Name: external_content_recognition_attempts external_content_recognition_atte_external_message_part_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.external_content_recognition_attempts
+    ADD CONSTRAINT external_content_recognition_atte_external_message_part_id_fkey FOREIGN KEY (external_message_part_id) REFERENCES armi.external_message_parts(external_message_part_id);
+
+--
+-- Name: external_content_recognition_attempts external_content_recognition_attempts_request_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.external_content_recognition_attempts
+    ADD CONSTRAINT external_content_recognition_attempts_request_artifact_id_fkey FOREIGN KEY (request_artifact_id) REFERENCES armi.artifacts(artifact_id);
+
+--
+-- Name: external_content_recognition_attempts external_content_recognition_attempts_response_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.external_content_recognition_attempts
+    ADD CONSTRAINT external_content_recognition_attempts_response_artifact_id_fkey FOREIGN KEY (response_artifact_id) REFERENCES armi.artifacts(artifact_id);
+
+--
+-- Name: external_content_recognition_attempts external_content_recognition_attempts_work_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.external_content_recognition_attempts
+    ADD CONSTRAINT external_content_recognition_attempts_work_id_fkey FOREIGN KEY (work_id) REFERENCES armi.durable_work(work_id);
+
+--
 -- Name: external_evidence external_evidence_artifact_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
@@ -2750,11 +3247,39 @@ ALTER TABLE ONLY armi.external_evidence
     ADD CONSTRAINT external_evidence_subject_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
 --
+-- Name: external_evidence external_evidence_visual_observation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.external_evidence
+    ADD CONSTRAINT external_evidence_visual_observation_id_fkey FOREIGN KEY (visual_observation_id) REFERENCES armi.live_vision_observations(observation_id);
+
+--
 -- Name: external_evidence external_evidence_web_request_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
 ALTER TABLE ONLY armi.external_evidence
     ADD CONSTRAINT external_evidence_web_request_fkey FOREIGN KEY (web_observation_request_id) REFERENCES armi.web_observation_requests(web_observation_request_id);
+
+--
+-- Name: external_message_parts external_message_parts_interaction_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.external_message_parts
+    ADD CONSTRAINT external_message_parts_interaction_id_fkey FOREIGN KEY (interaction_id) REFERENCES armi.party_input_interactions(interaction_id);
+
+--
+-- Name: external_message_parts external_message_parts_interpretation_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.external_message_parts
+    ADD CONSTRAINT external_message_parts_interpretation_artifact_id_fkey FOREIGN KEY (interpretation_artifact_id) REFERENCES armi.artifacts(artifact_id);
+
+--
+-- Name: external_message_parts external_message_parts_raw_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.external_message_parts
+    ADD CONSTRAINT external_message_parts_raw_artifact_id_fkey FOREIGN KEY (raw_artifact_id) REFERENCES armi.artifacts(artifact_id);
 
 --
 -- Name: interaction_scenes interaction_scenes_primary_party_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2846,6 +3371,104 @@ ALTER TABLE ONLY armi.life_materials
 
 ALTER TABLE ONLY armi.life_materials
     ADD CONSTRAINT life_materials_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
+
+--
+-- Name: live_vision_observations live_vision_observation_evidence_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.live_vision_observations
+    ADD CONSTRAINT live_vision_observation_evidence_fkey FOREIGN KEY (evidence_id) REFERENCES armi.external_evidence(evidence_id);
+
+--
+-- Name: live_vision_observation_frames live_vision_observation_frames_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.live_vision_observation_frames
+    ADD CONSTRAINT live_vision_observation_frames_artifact_id_fkey FOREIGN KEY (artifact_id) REFERENCES armi.artifacts(artifact_id);
+
+--
+-- Name: live_vision_observation_frames live_vision_observation_frames_observation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.live_vision_observation_frames
+    ADD CONSTRAINT live_vision_observation_frames_observation_id_fkey FOREIGN KEY (observation_id) REFERENCES armi.live_vision_observations(observation_id);
+
+--
+-- Name: live_vision_observations live_vision_observations_session_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.live_vision_observations
+    ADD CONSTRAINT live_vision_observations_session_id_fkey FOREIGN KEY (session_id) REFERENCES armi.live_vision_sessions(session_id);
+
+--
+-- Name: live_vision_observations live_vision_observations_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.live_vision_observations
+    ADD CONSTRAINT live_vision_observations_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
+
+--
+-- Name: live_vision_sessions live_vision_sessions_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.live_vision_sessions
+    ADD CONSTRAINT live_vision_sessions_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
+
+--
+-- Name: live_voice_playback_attempts live_voice_playback_attempts_turn_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.live_voice_playback_attempts
+    ADD CONSTRAINT live_voice_playback_attempts_turn_id_fkey FOREIGN KEY (turn_id) REFERENCES armi.live_voice_turns(turn_id);
+
+--
+-- Name: live_voice_provider_attempts live_voice_provider_attempts_turn_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.live_voice_provider_attempts
+    ADD CONSTRAINT live_voice_provider_attempts_turn_id_fkey FOREIGN KEY (turn_id) REFERENCES armi.live_voice_turns(turn_id);
+
+--
+-- Name: live_voice_sessions live_voice_sessions_creator_party_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.live_voice_sessions
+    ADD CONSTRAINT live_voice_sessions_creator_party_id_fkey FOREIGN KEY (creator_party_id) REFERENCES armi.parties(party_id);
+
+--
+-- Name: live_voice_sessions live_voice_sessions_scene_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.live_voice_sessions
+    ADD CONSTRAINT live_voice_sessions_scene_id_fkey FOREIGN KEY (scene_id) REFERENCES armi.interaction_scenes(scene_id);
+
+--
+-- Name: live_voice_sessions live_voice_sessions_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.live_voice_sessions
+    ADD CONSTRAINT live_voice_sessions_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
+
+--
+-- Name: live_voice_text_fragments live_voice_text_fragments_turn_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.live_voice_text_fragments
+    ADD CONSTRAINT live_voice_text_fragments_turn_id_fkey FOREIGN KEY (turn_id) REFERENCES armi.live_voice_turns(turn_id);
+
+--
+-- Name: live_voice_turns live_voice_turns_interaction_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.live_voice_turns
+    ADD CONSTRAINT live_voice_turns_interaction_id_fkey FOREIGN KEY (interaction_id) REFERENCES armi.party_input_interactions(interaction_id);
+
+--
+-- Name: live_voice_turns live_voice_turns_session_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.live_voice_turns
+    ADD CONSTRAINT live_voice_turns_session_id_fkey FOREIGN KEY (session_id) REFERENCES armi.live_voice_sessions(session_id);
 
 --
 -- Name: local_inbox_deliveries local_inbox_deliveries_artifact_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3016,6 +3639,76 @@ ALTER TABLE ONLY armi.memory_relations
     ADD CONSTRAINT memory_relations_to_memory_id_fkey FOREIGN KEY (to_memory_id) REFERENCES armi.subjective_memories(memory_id);
 
 --
+-- Name: mood_affective_events mood_affective_events_revision_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.mood_affective_events
+    ADD CONSTRAINT mood_affective_events_revision_fkey FOREIGN KEY (mood_revision_id, subject_id) REFERENCES armi.mood_revisions(mood_revision_id, subject_id);
+
+--
+-- Name: mood_affective_events mood_affective_events_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.mood_affective_events
+    ADD CONSTRAINT mood_affective_events_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
+
+--
+-- Name: mood_appraisal_events mood_appraisal_events_previous_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.mood_appraisal_events
+    ADD CONSTRAINT mood_appraisal_events_previous_fkey FOREIGN KEY (previous_appraisal_event_id, subject_id) REFERENCES armi.mood_appraisal_events(mood_appraisal_event_id, subject_id);
+
+--
+-- Name: mood_appraisal_events mood_appraisal_events_revision_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.mood_appraisal_events
+    ADD CONSTRAINT mood_appraisal_events_revision_fkey FOREIGN KEY (mood_revision_id, subject_id) REFERENCES armi.mood_revisions(mood_revision_id, subject_id);
+
+--
+-- Name: mood_appraisal_events mood_appraisal_events_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.mood_appraisal_events
+    ADD CONSTRAINT mood_appraisal_events_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
+
+--
+-- Name: mood_heads mood_heads_current_owner_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.mood_heads
+    ADD CONSTRAINT mood_heads_current_owner_fkey FOREIGN KEY (current_revision_id, subject_id) REFERENCES armi.mood_revisions(mood_revision_id, subject_id);
+
+--
+-- Name: mood_heads mood_heads_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.mood_heads
+    ADD CONSTRAINT mood_heads_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
+
+--
+-- Name: mood_revisions mood_revisions_previous_owner_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.mood_revisions
+    ADD CONSTRAINT mood_revisions_previous_owner_fkey FOREIGN KEY (previous_revision_id, subject_id) REFERENCES armi.mood_revisions(mood_revision_id, subject_id);
+
+--
+-- Name: mood_revisions mood_revisions_subject_commit_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.mood_revisions
+    ADD CONSTRAINT mood_revisions_subject_commit_id_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
+
+--
+-- Name: mood_revisions mood_revisions_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.mood_revisions
+    ADD CONSTRAINT mood_revisions_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
+
+--
 -- Name: observation_attempts observation_attempts_result_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
@@ -3170,13 +3863,6 @@ ALTER TABLE ONLY armi.policy_decisions
     ADD CONSTRAINT policy_decisions_matched_grant_id_fkey FOREIGN KEY (matched_grant_id) REFERENCES armi.permission_grants(grant_id);
 
 --
--- Name: policy_decisions policy_decisions_operation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.policy_decisions
-    ADD CONSTRAINT policy_decisions_operation_id_fkey FOREIGN KEY (operation_id) REFERENCES armi.action_operations(operation_id);
-
---
 -- Name: policy_decisions policy_decisions_supersedes_policy_decision_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
@@ -3310,18 +3996,18 @@ ALTER TABLE ONLY armi.relationships
     ADD CONSTRAINT relationships_subject_party_id_fkey FOREIGN KEY (subject_party_id) REFERENCES armi.parties(party_id);
 
 --
+-- Name: relationships relationships_tombstone_order_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.relationships
+    ADD CONSTRAINT relationships_tombstone_order_id_fkey FOREIGN KEY (tombstone_order_id) REFERENCES armi.deletion_orders(deletion_order_id);
+
+--
 -- Name: runtime_bundle_activations runtime_bundle_activations_activated_by_party_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
 ALTER TABLE ONLY armi.runtime_bundle_activations
     ADD CONSTRAINT runtime_bundle_activations_activated_by_party_id_fkey FOREIGN KEY (activated_by_party_id) REFERENCES armi.parties(party_id);
-
---
--- Name: runtime_bundle_activations runtime_bundle_activations_manifest_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.runtime_bundle_activations
-    ADD CONSTRAINT runtime_bundle_activations_manifest_artifact_id_fkey FOREIGN KEY (manifest_artifact_id) REFERENCES armi.artifacts(artifact_id);
 
 --
 -- Name: runtime_bundle_activations runtime_bundle_activations_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3595,6 +4281,27 @@ ALTER TABLE ONLY armi.subjects
 
 ALTER TABLE ONLY armi.subjects
     ADD CONSTRAINT subjects_current_generation_fk FOREIGN KEY (current_generation_id) REFERENCES armi.life_generations(life_generation_id) DEFERRABLE INITIALLY DEFERRED;
+
+--
+-- Name: visual_recognition_attempts visual_recognition_attempts_observation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.visual_recognition_attempts
+    ADD CONSTRAINT visual_recognition_attempts_observation_id_fkey FOREIGN KEY (observation_id) REFERENCES armi.live_vision_observations(observation_id);
+
+--
+-- Name: visual_recognition_attempts visual_recognition_attempts_request_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.visual_recognition_attempts
+    ADD CONSTRAINT visual_recognition_attempts_request_artifact_id_fkey FOREIGN KEY (request_artifact_id) REFERENCES armi.artifacts(artifact_id);
+
+--
+-- Name: visual_recognition_attempts visual_recognition_attempts_response_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.visual_recognition_attempts
+    ADD CONSTRAINT visual_recognition_attempts_response_artifact_id_fkey FOREIGN KEY (response_artifact_id) REFERENCES armi.artifacts(artifact_id);
 
 --
 -- Name: web_evidence_sources web_evidence_sources_evidence_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -

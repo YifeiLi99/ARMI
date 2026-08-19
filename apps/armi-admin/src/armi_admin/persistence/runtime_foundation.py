@@ -377,7 +377,7 @@ class RuntimeFoundationAdminAdapter:
         self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
     ) -> int:
         del transaction, artifact_id
-        # Revision 0005 removed Runtime's manifest artifact foreign key. Runtime
+        # The current baseline does not give Runtime a manifest artifact foreign key. Runtime
         # currently owns no artifact reference that participates in this correction.
         return 0
 
