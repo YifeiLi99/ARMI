@@ -515,6 +515,50 @@ class RuntimeCliTests(unittest.TestCase):
             idempotency_key=None,
         )
 
+    def test_other_human_send_uses_private_runtime_control(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            make_environment(root)
+            output = io.StringIO()
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch(
+                    "armi_runtime.cli.prepare_environment", wraps=prepare_environment
+                ) as prepare,
+                patch("armi_runtime.cli.RuntimeProcessManager") as manager_type,
+                redirect_stdout(output),
+            ):
+                manager_type.return_value.other_human.return_value = {
+                    "status": "succeeded",
+                    "newly_accepted": True,
+                }
+                exit_code = main(
+                    (
+                        "other-human",
+                        "send",
+                        "--environment-root",
+                        str(root.resolve()),
+                        "--party-key",
+                        "friend-1",
+                        "--message",
+                        "你好",
+                        "--idempotency-key",
+                        "friend-message-1",
+                    )
+                )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(prepare.call_args.kwargs["credential_scope"], {})
+        manager_type.return_value.other_human.assert_called_once_with(
+            "message_send",
+            {
+                "party_key": "friend-1",
+                "scene_key": "default",
+                "message": "你好",
+                "idempotency_key": "friend-message-1",
+            },
+        )
+
     def test_birth_command_is_explicit_and_returns_only_stable_identity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -673,8 +717,8 @@ class RuntimeCliTests(unittest.TestCase):
                 safe_view=lambda: {
                     "status": "current",
                     "table_count": 43,
-                    "current_revision": "0000",
-                    "head_revision": "0000",
+                    "current_revision": "0001",
+                    "head_revision": "0001",
                 }
             )
             with (

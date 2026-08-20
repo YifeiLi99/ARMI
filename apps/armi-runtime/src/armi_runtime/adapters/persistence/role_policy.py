@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Final
 from uuid import UUID
 
 import psycopg
-from psycopg.pq import TransactionStatus
-from psycopg_pool import ConnectionPool
 
 from armi_runtime.adapters.database_errors import DatabaseViolation
 
@@ -364,77 +361,8 @@ class PostgreSQLRolePolicyGateway:
             )
 
 
-class RoleBoundConnectionPool:
-    """A minimal pool that resets role and session state before reuse."""
-
-    __slots__ = ("_environment_id", "_gateway", "_pool", "_role_class")
-
-    def __init__(
-        self,
-        conninfo: str,
-        *,
-        environment_id: UUID,
-        role_class: str,
-        min_size: int = 0,
-        max_size: int = 1,
-    ) -> None:
-        physical_role_name(environment_id, role_class)
-        self._environment_id = environment_id
-        self._role_class = role_class
-        self._gateway = PostgreSQLRolePolicyGateway()
-        self._pool = ConnectionPool(
-            conninfo,
-            min_size=min_size,
-            max_size=max_size,
-            open=False,
-            configure=self._configure,
-            reset=self._reset,
-            kwargs={"application_name": f"armi-{role_class}-pool"},
-        )
-
-    def open(self) -> None:
-        self._pool.open(wait=True)
-
-    def close(self) -> None:
-        self._pool.close()
-
-    @contextmanager
-    def connection(self):
-        with self._pool.connection() as connection:
-            self._gateway.verify(
-                connection,
-                environment_id=self._environment_id,
-                role_class=self._role_class,
-            )
-            yield connection
-
-    def _configure(self, connection: psycopg.Connection[Any]) -> None:
-        connection.execute("SET search_path TO pg_catalog, armi")
-        connection.commit()
-        self._gateway.verify(
-            connection,
-            environment_id=self._environment_id,
-            role_class=self._role_class,
-        )
-        connection.commit()
-
-    def _reset(self, connection: psycopg.Connection[Any]) -> None:
-        if connection.info.transaction_status != TransactionStatus.IDLE:
-            connection.rollback()
-        connection.execute("RESET ROLE")
-        connection.execute("RESET ALL")
-        connection.execute("SET search_path TO pg_catalog, armi")
-        self._gateway.verify(
-            connection,
-            environment_id=self._environment_id,
-            role_class=self._role_class,
-        )
-        connection.commit()
-
-
 __all__ = (
     "PostgreSQLRolePolicyGateway",
-    "RoleBoundConnectionPool",
     "RolePolicyStatus",
     "physical_role_name",
 )

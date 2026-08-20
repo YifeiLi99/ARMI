@@ -78,17 +78,6 @@ def bootstrap_interaction_subject_commit() -> InteractionSubjectCommitPort:
 
 
 @dataclass(frozen=True, slots=True)
-class InteractionCognitionPorts:
-    context: InteractionContextReadPort
-    cognition: InteractionCognitionReadPort
-
-
-def bootstrap_interaction_cognition() -> InteractionCognitionPorts:
-    owner = PostgreSQLInteractionContextRead()
-    return InteractionCognitionPorts(owner, owner)
-
-
-@dataclass(frozen=True, slots=True)
 class InteractionModule:
     creator_input: CreatorInteractionPort
     creator_transaction: CreatorInputTransactionPort
@@ -243,13 +232,11 @@ def bootstrap_interaction_recovery() -> RecoveryParticipant:
 
 __all__ = (
     "InteractionActionPorts",
-    "InteractionCognitionPorts",
     "InteractionModule",
     "bootstrap_interaction",
     "bootstrap_interaction_action_ports",
     "bootstrap_interaction_admin",
     "bootstrap_interaction_birth",
-    "bootstrap_interaction_cognition",
     "bootstrap_interaction_data_rights",
     "bootstrap_interaction_identity",
     "bootstrap_interaction_recovery",

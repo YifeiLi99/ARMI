@@ -397,13 +397,35 @@ class CreatorInputRepository:
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         acceptance: CreatorVoiceInputAcceptance,
     ) -> OpportunityId:
+        return await self._admit_voice_successor(
+            unit_of_work,
+            acceptance,
+            purpose=OpportunityPurpose.CONSIDER_CREATOR_INPUT,
+        )
+
+    async def admit_voice_appraisal(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        acceptance: CreatorVoiceInputAcceptance,
+    ) -> OpportunityId:
+        return await self._admit_voice_successor(
+            unit_of_work,
+            acceptance,
+            purpose=OpportunityPurpose.CONSIDER_CREATOR_VOICE_APPRAISAL,
+        )
+
+    async def _admit_voice_successor(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        acceptance: CreatorVoiceInputAcceptance,
+        *,
+        purpose: OpportunityPurpose,
+    ) -> OpportunityId:
         row = await (
             await unit_of_work.transaction.execute(
-                """
-                SELECT subject_id,scene_id,source_party_id
-                FROM armi.party_input_interactions
-                WHERE interaction_id=%s AND modality='live_voice'
-                """,
+                """SELECT subject_id,scene_id,source_party_id
+                   FROM armi.party_input_interactions
+                   WHERE interaction_id=%s AND modality='live_voice'""",
                 (acceptance.interaction_id.value,),
             )
         ).fetchone()
@@ -416,7 +438,7 @@ class CreatorInputRepository:
                 subject_id=row[0],
                 scene_id=row[1],
                 context_party_id=row[2],
-                purpose=OpportunityPurpose.CONSIDER_CREATOR_INPUT,
+                purpose=purpose,
             ),
         )
         if admitted.opportunity_id is None:

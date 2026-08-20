@@ -168,20 +168,6 @@ from ._creator_branch_contract import (
 )
 from ._dialogue_contract import (
     DIALOGUE_CANDIDATE_VERSION,
-    HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION,
-    HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION,
-    HISTORICAL_CAPABILITY_DIALOGUE_CANDIDATE_VERSION,
-    HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION,
-    HISTORICAL_DIALOGUE_CANDIDATE_VERSION,
-    HISTORICAL_GROWTH_DIALOGUE_CANDIDATE_VERSION,
-    HISTORICAL_GROWTH_WEB_DIALOGUE_CANDIDATE_VERSION,
-    HISTORICAL_MATERIAL_DIALOGUE_CANDIDATE_VERSION,
-    HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
-    HISTORICAL_PRIVATE_DIALOGUE_CANDIDATE_VERSION,
-    HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION,
-    HISTORICAL_PROMPT_DIALOGUE_CANDIDATE_VERSION,
-    HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION,
-    HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION,
     WEB_DIALOGUE_CANDIDATE_VERSION,
     CreatorDialogueCandidate,
     DialogueCommitmentChange,
@@ -669,6 +655,7 @@ class DeterministicCandidateValidator:
                         if self._context.purpose
                         in {
                             "consider_creator_input",
+                            "consider_creator_voice_appraisal",
                             "consider_creator_outreach",
                             "consider_other_human_input",
                         }
@@ -1308,56 +1295,8 @@ class DeterministicCandidateValidator:
         )
         rejections = tuple(value for _, value in sorted(rejected.items()))
         disposition = CandidateDisposition(candidate.disposition)
-        _legacy_change_set_version = (
-            EXACT_LIFE_QUERY_CHANGE_SET_VERSION
-            if exact_life_queries
-            else PROMPT_CHANGE_SET_VERSION
-            if prompts
-            else MATERIAL_CHANGE_SET_VERSION
-            if materials
-            else WEB_CHANGE_SET_VERSION
-            if source_version
-            in {
-                HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION,
-                HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
-                HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION,
-                HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION,
-                HISTORICAL_GROWTH_WEB_DIALOGUE_CANDIDATE_VERSION,
-                HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION,
-                HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION,
-                WEB_DIALOGUE_CANDIDATE_VERSION,
-            }
-            and web_research_requests
-            else RUNTIME_BOUND_CHANGE_SET_VERSION
-            if source_version
-            in {
-                "armi.cognition-candidate.v7",
-                HISTORICAL_DIALOGUE_CANDIDATE_VERSION,
-                HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION,
-                HISTORICAL_MATERIAL_DIALOGUE_CANDIDATE_VERSION,
-                HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
-                HISTORICAL_PRIVATE_DIALOGUE_CANDIDATE_VERSION,
-                HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION,
-                HISTORICAL_CAPABILITY_DIALOGUE_CANDIDATE_VERSION,
-                HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION,
-                HISTORICAL_GROWTH_DIALOGUE_CANDIDATE_VERSION,
-                HISTORICAL_GROWTH_WEB_DIALOGUE_CANDIDATE_VERSION,
-                HISTORICAL_PROMPT_DIALOGUE_CANDIDATE_VERSION,
-                HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION,
-                HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION,
-                HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION,
-                DIALOGUE_CANDIDATE_VERSION,
-                WEB_DIALOGUE_CANDIDATE_VERSION,
-            }
-            else CODEX_CHANGE_SET_VERSION
-            if source_version == "armi.cognition-candidate.v6"
-            else WEB_CHANGE_SET_VERSION
-            if source_version == "armi.cognition-candidate.v5"
-            else CHANGE_SET_VERSION
-        )
-        change_set_version: str = ACTIVE_CHANGE_SET_VERSION
         change_set_value: dict[str, object] = {
-            "schema_version": change_set_version,
+            "schema_version": ACTIVE_CHANGE_SET_VERSION,
             "subject_id": str(self._context.subject_id),
             "generation_id": str(self._context.generation_id),
             "episode_id": str(self._context.episode_id),
@@ -1374,117 +1313,18 @@ class DeterministicCandidateValidator:
                 _capability_wire(item) for item in capability_requests
             ],
             "action_choices": [_action_wire(item) for item in action_choices],
+            "web_research_requests": [
+                _web_research_wire(item) for item in web_research_requests
+            ],
+            "codex_delegations": [
+                _codex_delegation_wire(item) for item in codex_delegations
+            ],
+            "owner_drafts": [_owner_draft_wire(item) for item in owner_drafts],
+            "exact_life_queries": [
+                _exact_life_query_wire(item) for item in exact_life_queries
+            ],
             "rejections": [_rejection_wire(item) for item in rejections],
         }
-        if change_set_version == ACTIVE_CHANGE_SET_VERSION:
-            change_set_value.update(
-                web_research_requests=[
-                    _web_research_wire(item) for item in web_research_requests
-                ],
-                codex_delegations=[
-                    _codex_delegation_wire(item) for item in codex_delegations
-                ],
-                owner_drafts=[_owner_draft_wire(item) for item in owner_drafts],
-                exact_life_queries=[
-                    _exact_life_query_wire(item) for item in exact_life_queries
-                ],
-            )
-        if change_set_version in {
-            MEMORY_CHANGE_SET_VERSION,
-            MEMORY_REVISION_CHANGE_SET_VERSION,
-            MATERIAL_CHANGE_SET_VERSION,
-            PROMPT_CHANGE_SET_VERSION,
-            EXACT_LIFE_QUERY_CHANGE_SET_VERSION,
-        }:
-            change_set_value["memories"] = [_memory_wire(item) for item in memories]
-        if change_set_version in {
-            MEMORY_REVISION_CHANGE_SET_VERSION,
-            MATERIAL_CHANGE_SET_VERSION,
-            PROMPT_CHANGE_SET_VERSION,
-            EXACT_LIFE_QUERY_CHANGE_SET_VERSION,
-        }:
-            change_set_value["memory_revisions"] = [
-                _memory_revision_wire(item) for item in memory_revisions
-            ]
-        if change_set_version in {
-            MATERIAL_CHANGE_SET_VERSION,
-            PROMPT_CHANGE_SET_VERSION,
-            EXACT_LIFE_QUERY_CHANGE_SET_VERSION,
-        }:
-            change_set_value["relationships"] = [
-                _relationship_wire(item) for item in relationships
-            ]
-        if change_set_version in {
-            MATERIAL_CHANGE_SET_VERSION,
-            PROMPT_CHANGE_SET_VERSION,
-            EXACT_LIFE_QUERY_CHANGE_SET_VERSION,
-        }:
-            change_set_value["materials"] = [_material_wire(item) for item in materials]
-        if change_set_version in {
-            PROMPT_CHANGE_SET_VERSION,
-            EXACT_LIFE_QUERY_CHANGE_SET_VERSION,
-        }:
-            change_set_value["prompts"] = [_prompt_wire(item) for item in prompts]
-        if change_set_version in {
-            MEMORY_CHANGE_SET_VERSION,
-            MEMORY_REVISION_CHANGE_SET_VERSION,
-            MATERIAL_CHANGE_SET_VERSION,
-            PROMPT_CHANGE_SET_VERSION,
-            EXACT_LIFE_QUERY_CHANGE_SET_VERSION,
-        } or source_version in {
-            "armi.cognition-candidate.v5",
-            HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION,
-            HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
-            HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION,
-            HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION,
-            HISTORICAL_GROWTH_WEB_DIALOGUE_CANDIDATE_VERSION,
-            HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION,
-            HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION,
-            WEB_DIALOGUE_CANDIDATE_VERSION,
-        }:
-            change_set_value["web_research_requests"] = [
-                _web_research_wire(item) for item in web_research_requests
-            ]
-        if (
-            change_set_version
-            in {
-                MEMORY_CHANGE_SET_VERSION,
-                MEMORY_REVISION_CHANGE_SET_VERSION,
-                MATERIAL_CHANGE_SET_VERSION,
-                PROMPT_CHANGE_SET_VERSION,
-                EXACT_LIFE_QUERY_CHANGE_SET_VERSION,
-            }
-            or source_version
-            in {
-                DIALOGUE_CANDIDATE_VERSION,
-                HISTORICAL_DIALOGUE_CANDIDATE_VERSION,
-                HISTORICAL_MATERIAL_DIALOGUE_CANDIDATE_VERSION,
-                HISTORICAL_PRIVATE_DIALOGUE_CANDIDATE_VERSION,
-                HISTORICAL_CAPABILITY_DIALOGUE_CANDIDATE_VERSION,
-                HISTORICAL_GROWTH_DIALOGUE_CANDIDATE_VERSION,
-                HISTORICAL_PROMPT_DIALOGUE_CANDIDATE_VERSION,
-                HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION,
-                "armi.cognition-candidate.v6",
-                "armi.cognition-candidate.v7",
-            }
-            or (
-                source_version
-                in {
-                    HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION,
-                    HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION,
-                    HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION,
-                    HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION,
-                    HISTORICAL_GROWTH_WEB_DIALOGUE_CANDIDATE_VERSION,
-                    HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION,
-                    HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION,
-                    WEB_DIALOGUE_CANDIDATE_VERSION,
-                }
-                and not web_research_requests
-            )
-        ):
-            change_set_value["codex_delegations"] = [
-                _codex_delegation_wire(item) for item in codex_delegations
-            ]
         canonical = rfc8785.dumps(cast(Any, change_set_value))
         change_set = SubjectChangeSet(
             canonical,
@@ -4428,14 +4268,16 @@ def _bind_dialogue_relationship(
 ) -> tuple[CandidateRelationshipDraft | None, str | None]:
     other_party_id = (
         context.creator_party_id
-        if context.purpose == "consider_creator_input"
+        if context.purpose
+        in {"consider_creator_input", "consider_creator_voice_appraisal"}
         else context.other_party_id
         if context.purpose == "consider_other_human_input"
         else None
     )
     scope = (
         "creator_social"
-        if context.purpose == "consider_creator_input"
+        if context.purpose
+        in {"consider_creator_input", "consider_creator_voice_appraisal"}
         or (
             context.purpose == "consider_other_human_input"
             and context.sender_party_kind == "creator"
@@ -5268,120 +5110,6 @@ def _experience_wire(value: CandidateExperienceDraft) -> dict[str, object]:
     }
 
 
-def _memory_wire(value: CandidateMemoryDraft) -> dict[str, object]:
-    return {
-        "proposal_ref": value.proposal_ref,
-        "atomic_group_ref": value.atomic_group_ref,
-        "basis_ordinals": list(value.basis_ordinals),
-        "fact_class": value.fact_class.value,
-        "source_experience_ref": value.source_experience_ref,
-        "source_kind": value.source_kind.value,
-        "summary": value.summary,
-        "mechanism_identity": value.mechanism_identity,
-        "privacy_scope": value.privacy_scope,
-    }
-
-
-def _memory_revision_wire(
-    value: CandidateMemoryRevisionDraft,
-) -> dict[str, object]:
-    return {
-        "proposal_ref": value.proposal_ref,
-        "atomic_group_ref": value.atomic_group_ref,
-        "basis_ordinals": list(value.basis_ordinals),
-        "fact_class": value.fact_class.value,
-        "memory_id": str(value.memory_id),
-        "current_revision_id": str(value.current_revision_id),
-        "expected_head_version": value.expected_head_version,
-        "revision_kind": value.revision_kind.value,
-        "accessibility": value.accessibility.value,
-        "source_kind": value.source_kind.value,
-        "summary": value.summary,
-        "uncertainty": value.uncertainty,
-        "related_memory_id": (
-            None if value.related_memory_id is None else str(value.related_memory_id)
-        ),
-        "relation_kind": (
-            None if value.relation_kind is None else value.relation_kind.value
-        ),
-        "mechanism_identity": value.mechanism_identity,
-        "mechanism_config_identity": value.mechanism_config_identity,
-        "privacy_scope": value.privacy_scope,
-    }
-
-
-def _relationship_wire(value: CandidateRelationshipDraft) -> dict[str, object]:
-    return {
-        "proposal_ref": value.proposal_ref,
-        "atomic_group_ref": value.atomic_group_ref,
-        "basis_ordinals": list(value.basis_ordinals),
-        "fact_class": value.fact_class.value,
-        "relationship_id": str(value.relationship_id),
-        "subject_party_id": str(value.subject_party_id),
-        "other_party_id": str(value.other_party_id),
-        "current_revision_id": (
-            None
-            if value.current_revision_id is None
-            else str(value.current_revision_id)
-        ),
-        "expected_head_version": value.expected_head_version,
-        "source_experience_ref": value.source_experience_ref,
-        "facts": [
-            {"kind": item.kind.value, "summary": item.summary} for item in value.facts
-        ],
-        "interpretation": value.interpretation,
-        "boundaries": [
-            {
-                "party_role": item.party_role.value,
-                "kind": item.kind.value,
-                "action": item.action.value,
-                "summary": item.summary,
-            }
-            for item in value.boundaries
-        ],
-        "commitments": [
-            {
-                "commitment_id": str(item.commitment_id),
-                "party_role": item.party_role.value,
-                "scope": item.scope,
-                "content": item.content,
-                "status": item.status.value,
-                "last_event_kind": item.last_event_kind.value,
-                "last_event_summary": item.last_event_summary,
-            }
-            for item in value.commitments
-        ],
-        "open_issues": [
-            {
-                "issue_id": str(item.issue_id),
-                "kind": item.kind.value,
-                "commitment_ids": [str(value) for value in item.commitment_ids],
-                "summary": item.summary,
-                "status": item.status.value,
-            }
-            for item in value.open_issues
-        ],
-        "commitment_event": (
-            None
-            if value.commitment_event is None
-            else {
-                "commitment_id": str(value.commitment_event.commitment_id),
-                "kind": value.commitment_event.kind.value,
-                "summary": value.commitment_event.summary,
-                "related_commitment_id": (
-                    None
-                    if value.commitment_event.related_commitment_id is None
-                    else str(value.commitment_event.related_commitment_id)
-                ),
-            }
-        ),
-        "status": value.status.value,
-        "scope": value.scope,
-        "mechanism_identity": value.mechanism_identity,
-        "privacy_scope": value.privacy_scope,
-    }
-
-
 def _owner_draft_wire(value: CandidateOwnerDraft) -> dict[str, object]:
     return {
         "proposal_ref": value.proposal_ref,
@@ -5390,34 +5118,6 @@ def _owner_draft_wire(value: CandidateOwnerDraft) -> dict[str, object]:
         "fact_class": value.fact_class.value,
         "owner": value.owner,
         "payload": json.loads(value.canonical_payload),
-    }
-
-
-def _material_wire(value: CandidateLifeMaterialDraft) -> dict[str, object]:
-    return {
-        "proposal_ref": value.proposal_ref,
-        "atomic_group_ref": value.atomic_group_ref,
-        "basis_ordinals": list(value.basis_ordinals),
-        "material_id": str(value.material_id),
-        "owner_party_id": str(value.owner_party_id),
-        "material_kind": value.material_kind.value,
-        "current_revision_id": (
-            None
-            if value.current_revision_id is None
-            else str(value.current_revision_id)
-        ),
-        "expected_head_version": value.expected_head_version,
-        "title": value.title,
-        "body": (
-            None
-            if value.body_bytes is None
-            else value.body_bytes.decode("utf-8", errors="strict")
-        ),
-        "metadata": dict(value.metadata),
-        "material_status": value.material_status.value,
-        "privacy_status": value.privacy_status,
-        "revision_kind": value.revision_kind.value,
-        "source_kind": value.source_kind,
     }
 
 
@@ -5477,23 +5177,6 @@ def _codex_delegation_wire(value: CodexDelegationDraft) -> dict[str, object]:
         "capability_kind": value.capability_kind,
         "operation": value.operation,
         "purpose": value.purpose,
-    }
-
-
-def _prompt_wire(value: CandidatePromptDraft) -> dict[str, object]:
-    return {
-        "proposal_ref": value.proposal_ref,
-        "atomic_group_ref": value.atomic_group_ref,
-        "basis_ordinals": list(value.basis_ordinals),
-        "fact_class": value.fact_class.value,
-        "prompt_document_id": str(value.prompt_document_id),
-        "current_revision_id": (
-            None
-            if value.current_revision_id is None
-            else str(value.current_revision_id)
-        ),
-        "expected_revision_no": value.expected_revision_no,
-        "content": json.loads(value.content_bytes),
     }
 
 

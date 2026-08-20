@@ -7,10 +7,8 @@ from uuid import UUID
 
 import psycopg
 from armi_kernel.application import (
-    CasStatus,
     PostCommitAction,
     TransactionIsolation,
-    classify_cas_rows,
 )
 from armi_runtime.adapters.transaction_errors import (
     CommitState,
@@ -33,13 +31,6 @@ class TransactionContractTests(unittest.TestCase):
                 TransactionIsolation.SERIALIZABLE,
             ),
         )
-
-    def test_cas_row_count_is_strict(self) -> None:
-        self.assertIs(classify_cas_rows(1), CasStatus.APPLIED)
-        self.assertIs(classify_cas_rows(0), CasStatus.CONFLICT)
-        for value in (-1, 2, True):
-            with self.subTest(value=value), self.assertRaises(ValueError):
-                classify_cas_rows(value)
 
     def test_post_commit_action_is_only_an_immutable_description(self) -> None:
         action = PostCommitAction("audit.append", _FIRST)

@@ -83,32 +83,6 @@ def decode(payload: bytes) -> CandidatePromptDraft:
         raise PromptViolation("PROMPT-CODEC") from None
 
 
-def decode_legacy(value: object) -> CandidatePromptDraft:
-    try:
-        if type(value) is not dict:
-            raise ValueError
-        item = cast(dict[str, object], value)
-        content = item["content"]
-        if type(content) is not dict:
-            raise ValueError
-        return CandidatePromptDraft(
-            cast(str, item["proposal_ref"]),
-            cast(str, item["atomic_group_ref"]),
-            tuple(cast(list[int], item["basis_ordinals"])),
-            CandidateFactClass(cast(str, item["fact_class"])),
-            UUID(cast(str, item["prompt_document_id"])),
-            (
-                None
-                if item["current_revision_id"] is None
-                else UUID(cast(str, item["current_revision_id"]))
-            ),
-            cast(int, item["expected_revision_no"]),
-            rfc8785.dumps(cast(Any, content)),
-        )
-    except KeyError, TypeError, ValueError:
-        raise PromptViolation("PROMPT-CODEC") from None
-
-
 def bind(value: CandidatePromptDraft) -> CandidateOwnerDraft:
     return CandidateOwnerDraft(
         value.proposal_ref,
@@ -120,4 +94,4 @@ def bind(value: CandidatePromptDraft) -> CandidateOwnerDraft:
     )
 
 
-__all__ = ("bind", "decode", "decode_legacy", "encode")
+__all__ = ("bind", "decode", "encode")

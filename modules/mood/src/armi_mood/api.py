@@ -258,23 +258,6 @@ class EmotionComponent:
 
 
 @dataclass(frozen=True, slots=True)
-class AffectiveEvent:
-    importance: int
-    components: tuple[EmotionComponent, ...]
-
-    def __post_init__(self) -> None:
-        if (
-            type(self.importance) is not int
-            or not 5 <= self.importance <= 100
-            or self.importance % 5
-            or type(self.components) is not tuple
-            or not 1 <= len(self.components) <= 3
-            or any(type(item) is not EmotionComponent for item in self.components)
-        ):
-            raise MoodViolation("MOOD-EVENT")
-
-
-@dataclass(frozen=True, slots=True)
 class AppraisalVector:
     suddenness: int
     predictability: int
@@ -703,7 +686,6 @@ __all__ = (
     "VAD",
     "ActionTendency",
     "ActiveAffectiveEpisode",
-    "AffectiveEvent",
     "AppraisalAdjustment",
     "AppraisalAgency",
     "AppraisalCausality",

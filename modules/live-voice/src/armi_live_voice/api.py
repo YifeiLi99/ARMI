@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from collections import deque
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import ClassVar, Protocol, runtime_checkable
@@ -41,6 +40,12 @@ class AttemptOutcome(StrEnum):
     FAILED = "failed"
     PARTIAL = "partial"
     UNKNOWN = "unknown"
+
+
+class VoiceProviderService(StrEnum):
+    ASR = "asr"
+    LLM = "llm"
+    TTS = "tts"
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,12 +99,89 @@ class VoiceContext:
     version: str
     prompt: str
 
+    def __post_init__(self) -> None:
+        if not self.version or len(self.version) > 128:
+            raise LiveVoiceViolation("VOICE-CONTEXT-VERSION", "voice context is invalid")
+        if not self.prompt.strip() or len(self.prompt.encode("utf-8")) > 262_144:
+            raise LiveVoiceViolation("VOICE-CONTEXT-SIZE", "voice context is invalid")
+
+
+@dataclass(frozen=True, slots=True)
+class VoiceProviderBinding:
+    service: VoiceProviderService
+    provider: str
+    resource_id: str
+    model_identity: str | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.service) is not VoiceProviderService:
+            raise LiveVoiceViolation("VOICE-BINDING", "voice provider binding is invalid")
+        for value, maximum in ((self.provider, 64), (self.resource_id, 128)):
+            if value != value.strip() or not value or len(value) > maximum:
+                raise LiveVoiceViolation(
+                    "VOICE-BINDING", "voice provider binding is invalid"
+                )
+        if self.model_identity is not None and (
+            self.model_identity != self.model_identity.strip()
+            or not self.model_identity
+            or len(self.model_identity) > 256
+        ):
+            raise LiveVoiceViolation("VOICE-BINDING", "voice provider binding is invalid")
+
+
+@dataclass(frozen=True, slots=True)
+class LiveVoiceBinding:
+    input_host_api: str
+    input_device_name: str
+    output_host_api: str
+    output_device_name: str
+    asr: VoiceProviderBinding
+    llm: VoiceProviderBinding
+    tts: VoiceProviderBinding
+
+    def __post_init__(self) -> None:
+        for value, maximum in (
+            (self.input_host_api, 128),
+            (self.input_device_name, 512),
+            (self.output_host_api, 128),
+            (self.output_device_name, 512),
+        ):
+            if value != value.strip() or not value or len(value) > maximum:
+                raise LiveVoiceViolation("VOICE-BINDING", "voice device binding is invalid")
+        if (
+            self.asr.service is not VoiceProviderService.ASR
+            or self.llm.service is not VoiceProviderService.LLM
+            or self.tts.service is not VoiceProviderService.TTS
+        ):
+            raise LiveVoiceViolation("VOICE-BINDING", "voice provider binding is invalid")
+
 
 @dataclass(frozen=True, slots=True)
 class AcceptedVoiceInput:
     interaction_id: UUID
     evidence_id: UUID
-    opportunity_id: UUID
+    request_digest: str
+    content_digest: str
+    newly_accepted: bool
+
+    def __post_init__(self) -> None:
+        if any(
+            type(value) is not UUID or value.version != 7
+            for value in (self.interaction_id, self.evidence_id)
+        ):
+            raise LiveVoiceViolation("VOICE-INPUT-ACCEPTANCE", "voice input is invalid")
+        for value in (self.request_digest, self.content_digest):
+            if (
+                type(value) is not str
+                or len(value) != 71
+                or not value.startswith("sha256:")
+                or not all(character in "0123456789abcdef" for character in value[7:])
+            ):
+                raise LiveVoiceViolation(
+                    "VOICE-INPUT-ACCEPTANCE", "voice input is invalid"
+                )
+        if type(self.newly_accepted) is not bool:
+            raise LiveVoiceViolation("VOICE-INPUT-ACCEPTANCE", "voice input is invalid")
 
 
 @runtime_checkable
@@ -133,34 +215,67 @@ class VoiceSuccessorPort(Protocol):
     async def run_slow(self, accepted: AcceptedVoiceInput) -> None: ...
 
 
-class BoundedAudioQueue:
-    """A byte-bounded volatile queue; overflow is explicit, never silent."""
-
-    def __init__(self, max_bytes: int) -> None:
-        if max_bytes <= 0:
-            raise ValueError("max_bytes must be positive")
-        self._max_bytes = max_bytes
-        self._size = 0
-        self._items: deque[bytes] = deque()
-
-    @property
-    def size_bytes(self) -> int:
-        return self._size
-
-    def put(self, frame: bytes) -> None:
-        if not frame:
-            return
-        if self._size + len(frame) > self._max_bytes:
-            raise LiveVoiceViolation("VOICE-AUDIO-BACKPRESSURE", "audio queue is full")
-        self._items.append(frame)
-        self._size += len(frame)
-
-    def get(self) -> bytes | None:
-        if not self._items:
-            return None
-        item = self._items.popleft()
-        self._size -= len(item)
-        return item
+@runtime_checkable
+class VoiceJournalPort(Protocol):
+    async def open_session(self, *, session_id: UUID) -> None: ...
+    async def set_session_state(
+        self,
+        *,
+        session_id: UUID,
+        state: LiveVoiceSessionState,
+        context_version: str | None = None,
+    ) -> None: ...
+    async def close_session(
+        self, *, session_id: UUID, error_code: str | None = None
+    ) -> None: ...
+    async def begin_turn(
+        self,
+        *,
+        session_id: UUID,
+        turn_id: UUID,
+        turn_no: int,
+        context_version: str,
+    ) -> None: ...
+    async def record_transcript(
+        self,
+        *,
+        turn_id: UUID,
+        transcript: str | None,
+        interaction_id: UUID | None,
+    ) -> None: ...
+    async def record_decision(
+        self, *, turn_id: UUID, decision: FastReplyDecision
+    ) -> None: ...
+    async def settle_turn(
+        self,
+        *,
+        turn_id: UUID,
+        outcome: AttemptOutcome,
+        spoken_text: str = "",
+        error_code: str | None = None,
+        silent: bool = False,
+    ) -> None: ...
+    async def begin_provider_attempt(
+        self, *, turn_id: UUID, binding: VoiceProviderBinding
+    ) -> UUID: ...
+    async def mark_provider_first_result(self, *, attempt_id: UUID) -> None: ...
+    async def settle_provider_attempt(
+        self,
+        *,
+        attempt_id: UUID,
+        outcome: AttemptOutcome,
+        error_code: str | None = None,
+    ) -> None: ...
+    async def begin_playback(self, *, turn_id: UUID) -> UUID: ...
+    async def mark_playback_first_frame(self, *, attempt_id: UUID) -> None: ...
+    async def settle_playback(
+        self,
+        *,
+        attempt_id: UUID,
+        outcome: AttemptOutcome,
+        frames_written: int,
+        error_code: str | None = None,
+    ) -> None: ...
 
 
 def parse_fast_reply(payload: str) -> FastReplyDecision:
@@ -185,33 +300,6 @@ def parse_fast_reply(payload: str) -> FastReplyDecision:
     if not text or len(text) > limit or "\n" in text:
         raise LiveVoiceViolation("VOICE-FAST-PROTOCOL", "reply text is invalid")
     return FastReplyDecision(kind, text)
-
-
-_BREAKS = frozenset("。\uff01\uff1f!?\uff1b;\uff0c,、\uff1a:\n")
-
-
-def speech_chunks(
-    text: str, *, first_target: int = 12, maximum: int = 48
-) -> tuple[str, ...]:
-    """Split completed text into short pronounceable chunks."""
-
-    if first_target <= 0 or maximum < first_target:
-        raise ValueError("invalid chunk limits")
-    chunks: list[str] = []
-    start = 0
-    target = first_target
-    for index, character in enumerate(text, start=1):
-        length = index - start
-        if (character in _BREAKS and length >= target) or length >= maximum:
-            chunk = text[start:index].strip()
-            if chunk:
-                chunks.append(chunk)
-            start = index
-            target = maximum
-    tail = text[start:].strip()
-    if tail:
-        chunks.append(tail)
-    return tuple(chunks)
 
 
 class HalfDuplexStateMachine:
@@ -290,7 +378,12 @@ class HalfDuplexStateMachine:
 class AudioDevicePort(Protocol):
     def devices(self) -> tuple[AudioDevice, ...]: ...
     def capture(self) -> AsyncIterator[bytes]: ...
-    async def play(self, frames: AsyncIterator[bytes]) -> None: ...
+    async def play(
+        self,
+        frames: AsyncIterator[bytes],
+        *,
+        on_frame_written: Callable[[], Awaitable[None]] | None = None,
+    ) -> int: ...
     async def close(self) -> None: ...
 
 
@@ -321,6 +414,8 @@ class LiveVoiceRuntimePort(Protocol):
     async def start(self) -> None: ...
     async def stop(self) -> None: ...
     def status(self) -> LiveVoiceSessionState: ...
+    @property
+    def last_error(self) -> str | None: ...
 
 
 __all__ = (
@@ -329,10 +424,10 @@ __all__ = (
     "AudioDevice",
     "AudioDevicePort",
     "AudioFormat",
-    "BoundedAudioQueue",
     "FastReplyDecision",
     "FastReplyKind",
     "HalfDuplexStateMachine",
+    "LiveVoiceBinding",
     "LiveVoiceRuntimePort",
     "LiveVoiceSessionState",
     "LiveVoiceViolation",
@@ -344,7 +439,9 @@ __all__ = (
     "VoiceContextPort",
     "VoiceExpressionPort",
     "VoiceInputAcceptancePort",
+    "VoiceJournalPort",
+    "VoiceProviderBinding",
+    "VoiceProviderService",
     "VoiceSuccessorPort",
     "parse_fast_reply",
-    "speech_chunks",
 )

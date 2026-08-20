@@ -3,15 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
 from uuid import UUID
-
-
-class CognitiveEpisodeStatus(StrEnum):
-    PREPARING = "preparing"
-    PREPARED = "prepared"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,4 +18,4 @@ class CognitiveEpisodeId:
         return str(self.value)
 
 
-__all__ = ("CognitiveEpisodeId", "CognitiveEpisodeStatus")
+__all__ = ("CognitiveEpisodeId",)

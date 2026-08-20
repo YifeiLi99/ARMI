@@ -1,8 +1,4 @@
-"""Strict, inactive Ark built-in Web Search governance boundary.
-
-S032 proves the provider-managed tool contract only. Production cognition keeps
-``tools=[]`` until S033 adds durable tool-call custody.
-"""
+"""Strict Ark built-in Web Search governance boundary for the active pipeline."""
 
 from __future__ import annotations
 

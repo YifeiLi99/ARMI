@@ -15,8 +15,4 @@ class PromptApplication:
     def decode(self, payload: bytes) -> CandidatePromptDraft:
         return _codec.decode(payload)
 
-    def decode_legacy(self, value: object) -> CandidatePromptDraft:
-        return _codec.decode_legacy(value)
-
-
 __all__ = ("PromptApplication",)

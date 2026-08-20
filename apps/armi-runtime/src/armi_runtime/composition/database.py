@@ -565,20 +565,6 @@ async def inspect_creator_context(
         )
 
 
-async def inspect_creator_party_id(
-    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
-    *,
-    subject_id: UUID,
-    identity: InteractionIdentityPort,
-) -> UUID | None:
-    context = await inspect_creator_context(
-        unit_of_work_factory,
-        subject_id=subject_id,
-        identity=identity,
-    )
-    return None if context is None else context.party_id
-
-
 def compose_evidence_module() -> EvidenceModule:
     """Bind the one active accepted-evidence owner implementation."""
 
@@ -1786,7 +1772,6 @@ __all__ = (
     "compose_web_research_admission_pipeline",
     "compose_web_search_pipeline",
     "inspect_creator_context",
-    "inspect_creator_party_id",
     "inspect_operator_schema",
     "inspect_runtime_continuity",
     "inspect_runtime_schema",

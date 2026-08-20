@@ -453,6 +453,27 @@ class RuntimeProcessManager:
         response = self._send_control("voice", {"action": action})
         return cast(dict[str, Any], response["result"])
 
+    def other_human(
+        self, action: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        allowed = {
+            "party_register",
+            "scene_set",
+            "message_send",
+            "data_rights_request",
+            "data_rights_list",
+            "data_rights_get",
+        }
+        if action not in allowed:
+            raise ValueError("unsupported other-human action")
+        response = self._send_control(
+            "other_human", {"action": action, "payload": payload}
+        )
+        return {
+            "status": "succeeded",
+            **cast(dict[str, Any], response["result"]),
+        }
+
     def vision(self, action: str) -> dict[str, Any]:
         if action not in {"status", "start", "stop", "observe"}:
             raise ValueError("unsupported vision action")

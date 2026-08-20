@@ -60,7 +60,7 @@ class WebResearchIntentSnapshot:
 
 
 class PostgreSQLWebEvidenceRepository:
-    """Own fixed SQL for the inactive S034 admission and evidence path."""
+    """Own fixed SQL for the active web admission and evidence path."""
 
     __slots__ = ("_catalog", "_evidence", "_opportunity")
 

@@ -19,26 +19,6 @@ from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTrans
 from .api import EffectDispatchBoundaryResult
 
 
-def dispatch_cancellation_reason(
-    *,
-    policy_current: bool,
-    before_dispatch_deadline: bool,
-    grant_status: str,
-    grant_time_valid: bool,
-) -> str | None:
-    if not policy_current:
-        return "POLICY-GRANT-NOT-CURRENT"
-    if (
-        not before_dispatch_deadline
-        or grant_status == "expired"
-        or not grant_time_valid
-    ):
-        return "POLICY-GRANT-EXPIRED"
-    if grant_status == "revoked":
-        return "POLICY-GRANT-REVOKED"
-    return None
-
-
 class PostgreSQLEffectGrantCancellation:
     __slots__ = ()
 

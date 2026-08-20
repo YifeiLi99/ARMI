@@ -219,19 +219,7 @@ def database_catalog_digest(connection: Any) -> str:
     return f"sha256:{hashlib.sha256(database_catalog_payload(connection)).hexdigest()}"
 
 
-def legacy_database_catalog_digest(connection: Any) -> str:
-    """Fingerprint the frozen baseline's physical column attribute numbers."""
-
-    return (
-        "sha256:"
-        + hashlib.sha256(
-            database_catalog_payload(connection, normalize_column_ordinals=False)
-        ).hexdigest()
-    )
-
-
 __all__ = (
     "database_catalog_digest",
     "database_catalog_payload",
-    "legacy_database_catalog_digest",
 )

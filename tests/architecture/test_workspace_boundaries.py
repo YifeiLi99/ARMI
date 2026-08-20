@@ -50,10 +50,8 @@ PUBLIC_EXPORTS = {
             "DurableWorkWriter",
             "BeforeCommitHook",
             "BirthManifest",
-            "BirthPort",
             "BirthResult",
             "BirthViolation",
-            "CasStatus",
             "PostCommitAction",
             "PersonalityAnchor",
             "PublishedArtifact",
@@ -66,7 +64,6 @@ PUBLIC_EXPORTS = {
             "SecretHandle",
             "StagedArtifact",
             "TransactionIsolation",
-            "UnitOfWork",
             "VerifiedByteStream",
             "WorkAttemptId",
             "WorkDraft",
@@ -78,7 +75,6 @@ PUBLIC_EXPORTS = {
             "WorkResultRef",
             "WorkStatus",
             "WorkViolation",
-            "classify_cas_rows",
         }
     ),
     "armi_kernel.contracts": frozenset(

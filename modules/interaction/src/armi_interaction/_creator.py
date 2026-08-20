@@ -314,6 +314,19 @@ class EvidenceAcceptanceTransaction(CreatorInputAcceptancePort):
         self._wakeups.notify(_OPPORTUNITY_AVAILABLE)
         return opportunity_id
 
+    async def release_voice_appraisal(
+        self, acceptance: CreatorVoiceInputAcceptance
+    ) -> OpportunityId:
+        try:
+            async with self._uow_factory.unit_of_work() as unit:
+                opportunity_id = await self._repository.admit_voice_appraisal(
+                    unit, acceptance
+                )
+        except RuntimeTransactionFailure:
+            raise CreatorInputViolation("DB-INPUT-UNAVAILABLE") from None
+        self._wakeups.notify(_OPPORTUNITY_AVAILABLE)
+        return opportunity_id
+
     async def open(self) -> None:
         return None
 

@@ -84,6 +84,57 @@ def _parser() -> argparse.ArgumentParser:
     creator_source.add_argument("--message")
     creator_source.add_argument("--message-file")
     creator_send.add_argument("--idempotency-key")
+    other_human = command.add_parser("other-human")
+    other_human_command = other_human.add_subparsers(
+        dest="other_human_command", required=True
+    )
+    other_human_party = other_human_command.add_parser("party")
+    other_human_party_command = other_human_party.add_subparsers(
+        dest="other_human_party_command", required=True
+    )
+    other_human_party_register = other_human_party_command.add_parser("register")
+    other_human_party_register.add_argument("--environment-root", type=Path)
+    other_human_party_register.add_argument("--party-key", required=True)
+    other_human_party_register.add_argument("--display-label", required=True)
+    other_human_scene = other_human_command.add_parser("scene")
+    other_human_scene_command = other_human_scene.add_subparsers(
+        dest="other_human_scene_command", required=True
+    )
+    other_human_scene_set = other_human_scene_command.add_parser("set")
+    other_human_scene_set.add_argument("--environment-root", type=Path)
+    other_human_scene_set.add_argument("--party-key", required=True)
+    other_human_scene_set.add_argument("--scene-key", required=True)
+    other_human_scene_set.add_argument(
+        "--status", choices=("open", "closed"), required=True
+    )
+    other_human_send = other_human_command.add_parser("send")
+    other_human_send.add_argument("--environment-root", type=Path)
+    other_human_send.add_argument("--party-key", required=True)
+    other_human_send.add_argument("--scene-key", default="default")
+    other_human_source = other_human_send.add_mutually_exclusive_group(required=True)
+    other_human_source.add_argument("--message")
+    other_human_source.add_argument("--message-file")
+    other_human_send.add_argument("--idempotency-key")
+    other_human_rights = other_human_command.add_parser("data-rights")
+    other_human_rights_command = other_human_rights.add_subparsers(
+        dest="other_human_rights_command", required=True
+    )
+    other_human_rights_request = other_human_rights_command.add_parser("request")
+    other_human_rights_request.add_argument("--environment-root", type=Path)
+    other_human_rights_request.add_argument("--party-key", required=True)
+    other_human_rights_request.add_argument(
+        "--order-kind",
+        choices=("stop_contact", "stop_use", "delete_related"),
+        required=True,
+    )
+    other_human_rights_request.add_argument("--idempotency-key")
+    other_human_rights_list = other_human_rights_command.add_parser("list")
+    other_human_rights_list.add_argument("--environment-root", type=Path)
+    other_human_rights_list.add_argument("--party-key", required=True)
+    other_human_rights_get = other_human_rights_command.add_parser("get")
+    other_human_rights_get.add_argument("--environment-root", type=Path)
+    other_human_rights_get.add_argument("--party-key", required=True)
+    other_human_rights_get.add_argument("--order-id", required=True)
     channel = command.add_parser("channel")
     channel_command = channel.add_subparsers(dest="channel_command", required=True)
     channel_qq = channel_command.add_parser("qq")
@@ -405,7 +456,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         credential_scope = {
             QQ_NAPCAT_ACCESS_TOKEN_PURPOSE: QQ_NAPCAT_ACCESS_TOKEN_LOCATOR,
         }
-    elif args.command in {"stop", "capacity", "creator", "voice", "vision"}:
+    elif args.command in {
+        "stop",
+        "capacity",
+        "creator",
+        "other-human",
+        "voice",
+        "vision",
+    }:
         credential_scope = {}
     else:
         credential_scope = {
@@ -725,6 +783,61 @@ def main(argv: Sequence[str] | None = None) -> int:
                 _creator_message(args),
                 idempotency_key=args.idempotency_key,
             )
+        except RuntimeViolation as error:
+            _safe_failure(error)
+            return 3
+        print(
+            json.dumps(
+                result,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+        return 0
+    if args.command == "other-human":
+        process = RuntimeProcessManager(
+            prepared.root,
+            str(prepared.effective.config.environment.environment_id),
+        )
+        action: str
+        payload: dict[str, object]
+        if args.other_human_command == "party":
+            action = "party_register"
+            payload = {
+                "party_key": args.party_key,
+                "display_label": args.display_label,
+            }
+        elif args.other_human_command == "scene":
+            action = "scene_set"
+            payload = {
+                "party_key": args.party_key,
+                "scene_key": args.scene_key,
+                "status": args.status,
+            }
+        elif args.other_human_command == "send":
+            action = "message_send"
+            payload = {
+                "party_key": args.party_key,
+                "scene_key": args.scene_key,
+                "message": _creator_message(args),
+                "idempotency_key": args.idempotency_key or f"cli-{os.urandom(16).hex()}",
+            }
+        elif args.other_human_rights_command == "request":
+            action = "data_rights_request"
+            payload = {
+                "party_key": args.party_key,
+                "order_kind": args.order_kind,
+                "idempotency_key": args.idempotency_key or f"cli-{os.urandom(16).hex()}",
+            }
+        elif args.other_human_rights_command == "list":
+            action = "data_rights_list"
+            payload = {"party_key": args.party_key}
+        else:
+            action = "data_rights_get"
+            payload = {"party_key": args.party_key, "order_id": args.order_id}
+        try:
+            result = process.other_human(action, payload)
         except RuntimeViolation as error:
             _safe_failure(error)
             return 3

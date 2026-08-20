@@ -59,13 +59,6 @@ class CognitiveBranchRole(StrEnum):
     EPISODE_APPRAISAL = "episode_appraisal"
 
 
-class HotDialogueAggregateOutcome(StrEnum):
-    COMPLETE = "complete"
-    RESPONSE_ONLY = "response_only"
-    INTERNAL_ONLY = "internal_only"
-    FAILED = "failed"
-
-
 class MaintenanceIssueTarget(StrEnum):
     SELF = "self"
     MIND = "mind"
@@ -726,7 +719,6 @@ __all__ = (
     "CognitionWakeupPort",
     "CognitionWorkerPort",
     "CognitiveBranchRole",
-    "HotDialogueAggregateOutcome",
     "MaintenanceIssueTarget",
     "SubjectChangeSet",
     "SubjectChangeSetCodec",

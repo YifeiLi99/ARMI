@@ -224,13 +224,6 @@ class BirthTransaction:
             return await self._repository.existing(unit_of_work, manifest)
 
 
-async def run_birth_transaction(
-    transaction: BirthTransaction,
-    manifest: BirthManifest,
-) -> BirthResult:
-    return await transaction.birth(manifest)
-
-
 async def execute_birth_with_conninfo(
     prepared: PreparedEnvironment,
     manifest: BirthManifest,
@@ -270,5 +263,4 @@ async def execute_birth_with_conninfo(
 __all__ = (
     "BirthTransaction",
     "execute_birth_with_conninfo",
-    "run_birth_transaction",
 )

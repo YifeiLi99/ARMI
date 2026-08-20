@@ -57,6 +57,33 @@ class VolcCredentials:
             )
 
 
+def decode_volc_credentials(secret: bytes | bytearray) -> VolcCredentials:
+    """Decode the exact approved speech credential document."""
+
+    try:
+        decoded: object = json.loads(bytes(secret).decode("utf-8", errors="strict"))
+    except UnicodeDecodeError, json.JSONDecodeError:
+        raise LiveVoiceViolation(
+            "VOICE-VOLC-CREDENTIAL", "Volcengine speech credential is invalid"
+        ) from None
+    if type(decoded) is not dict:
+        raise LiveVoiceViolation(
+            "VOICE-VOLC-CREDENTIAL", "Volcengine speech credential is invalid"
+        )
+    document = cast(dict[str, object], decoded)
+    if set(document) != {"app_id", "access_token"}:
+        raise LiveVoiceViolation(
+            "VOICE-VOLC-CREDENTIAL", "Volcengine speech credential is invalid"
+        )
+    app_id = document["app_id"]
+    access_token = document["access_token"]
+    if type(app_id) is not str or type(access_token) is not str:
+        raise LiveVoiceViolation(
+            "VOICE-VOLC-CREDENTIAL", "Volcengine speech credential is invalid"
+        )
+    return VolcCredentials(app_id.strip(), access_token.strip())
+
+
 @dataclass(frozen=True, slots=True)
 class BinaryMessage:
     message_type: int
@@ -498,6 +525,7 @@ __all__ = (
     "VolcStreamingAsr",
     "VolcStreamingTts",
     "decode_message",
+    "decode_volc_credentials",
     "encode_asr_audio",
     "encode_asr_full_request",
     "encode_event",

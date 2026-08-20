@@ -9,15 +9,12 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-from armi_activity.api import ActivityId
-from armi_kernel.contracts import Digest
 from armi_runtime_foundation import (
     PostgreSQLAdminTransaction,
     PostgreSQLRuntimeUnitOfWork,
     PostgreSQLTransaction,
 )
 
-_TOKEN = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 _CODE = re.compile(r"^(?:LIFE|ACTIVITY)-[A-Z0-9-]+$", re.ASCII)
 
 
@@ -53,6 +50,7 @@ class OpportunityAdmissionStatus(StrEnum):
 
 class OpportunityPurpose(StrEnum):
     CONSIDER_CREATOR_INPUT = "consider_creator_input"
+    CONSIDER_CREATOR_VOICE_APPRAISAL = "consider_creator_voice_appraisal"
     CONSIDER_OTHER_HUMAN_INPUT = "consider_other_human_input"
     CONSIDER_WEB_EVIDENCE = "consider_web_evidence"
     CONSIDER_CODEX_TASK = "consider_codex_task"
@@ -190,49 +188,6 @@ class LifeOpportunityFactsPort(Protocol):
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
     ) -> CreatorOutreachFacts | None: ...
-
-
-@dataclass(frozen=True, slots=True)
-class LifeOpportunitySourceSnapshot:
-    subject_id: UUID
-    generation_id: UUID
-    kind: LifeOpportunitySourceKind
-    reference: UUID
-    version: int
-    digest: Digest
-    available_after: datetime
-    expires_at: datetime | None = None
-    activity_id: ActivityId | None = None
-
-    def __post_init__(self) -> None:
-        if any(
-            type(value) is not UUID or value.version != 7
-            for value in (self.subject_id, self.generation_id, self.reference)
-        ):
-            raise LifeViolation("LIFE-SOURCE-ID")
-        if (
-            type(self.kind) is not LifeOpportunitySourceKind
-            or type(self.version) is not int
-            or self.version <= 0
-            or type(self.digest) is not Digest
-            or type(self.available_after) is not datetime
-            or self.available_after.tzinfo is None
-            or (
-                self.expires_at is not None
-                and (
-                    type(self.expires_at) is not datetime
-                    or self.expires_at.tzinfo is None
-                    or self.expires_at <= self.available_after
-                )
-            )
-        ):
-            raise LifeViolation("LIFE-SOURCE")
-        activity_source = self.kind in {
-            LifeOpportunitySourceKind.ACTIVITY_REVISION,
-            LifeOpportunitySourceKind.CREATOR_OUTREACH_ACTIVITY,
-        }
-        if activity_source != (self.activity_id is not None):
-            raise LifeViolation("LIFE-SOURCE-ACTIVITY")
 
 
 @dataclass(frozen=True, slots=True)
@@ -489,11 +444,6 @@ class OpportunityRuntimePort(LifeOpportunitySourcePort, Protocol):
     ) -> UUID: ...
 
 
-def require_life_token(value: str) -> None:
-    if type(value) is not str or _TOKEN.fullmatch(value) is None:
-        raise LifeViolation("LIFE-TOKEN")
-
-
 @dataclass(frozen=True, slots=True)
 class OpportunityAdminSnapshot:
     opportunity_id: UUID
@@ -525,7 +475,6 @@ __all__ = (
     "LifeOpportunityFactsPort",
     "LifeOpportunitySourceKind",
     "LifeOpportunitySourcePort",
-    "LifeOpportunitySourceSnapshot",
     "LifeQueryResultOpportunityDraft",
     "LifeViolation",
     "OpportunityAdminPort",

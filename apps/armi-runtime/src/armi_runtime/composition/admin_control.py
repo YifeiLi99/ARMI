@@ -20,6 +20,7 @@ _COMMANDS = {
     "drain",
     "stop",
     "input",
+    "other_human",
     "voice",
     "vision",
     "clock",
@@ -90,6 +91,7 @@ class RuntimeAdminControlServer:
         "_on_drain",
         "_on_status",
         "_on_stop",
+        "_other_human",
         "_run_root",
         "_server",
         "_test_clock_seconds",
@@ -109,6 +111,9 @@ class RuntimeAdminControlServer:
         on_drain: Callable[[], None],
         on_stop: Callable[[], None],
         on_input: Callable[[str, str], Awaitable[dict[str, Any]]] | None,
+        on_other_human: (
+            Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]] | None
+        ) = None,
         on_voice: Callable[[str], Awaitable[dict[str, Any]]] | None = None,
         on_vision: Callable[[str], Awaitable[dict[str, Any]]] | None = None,
     ) -> None:
@@ -122,6 +127,7 @@ class RuntimeAdminControlServer:
         self._on_drain = on_drain
         self._on_stop = on_stop
         self._input = on_input
+        self._other_human = on_other_human
         self._voice = on_voice
         self._vision = on_vision
         self._server: asyncio.AbstractServer | None = None
@@ -264,6 +270,17 @@ class RuntimeAdminControlServer:
                 raise RuntimeAdminControlError("ADMIN-CONTROL-INPUT")
             result = await self._input(
                 str(arguments["message"]), str(arguments["idempotency_key"])
+            )
+        elif command == "other_human":
+            if (
+                self._other_human is None
+                or set(arguments) != {"action", "payload"}
+                or not isinstance(arguments["action"], str)
+                or not isinstance(arguments["payload"], dict)
+            ):
+                raise RuntimeAdminControlError("ADMIN-CONTROL-OTHER-HUMAN")
+            result = await self._other_human(
+                arguments["action"], cast(dict[str, Any], arguments["payload"])
             )
         elif command == "voice":
             if (

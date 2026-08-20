@@ -94,7 +94,6 @@ from armi_kernel.application import (
     BirthViolation,
     CandidateApplicationStatus,
     CandidateBasis,
-    CasStatus,
     CredentialLocator,
     LifeRecordActor,
     LifeRecordKind,
@@ -116,7 +115,6 @@ from armi_kernel.application import (
     WorkPayloadRef,
     WorkResultRef,
     WorkViolation,
-    classify_cas_rows,
 )
 from armi_kernel.contracts import (
     Digest,
@@ -146,7 +144,6 @@ from armi_runtime.adapters.persistence.recovery import (
     PostgreSQLRuntimeRecovery,
 )
 from armi_runtime.adapters.persistence.role_policy import (
-    RoleBoundConnectionPool,
     physical_role_name,
 )
 from armi_runtime.adapters.persistence.runtime_authority import (
@@ -172,7 +169,6 @@ from armi_runtime.cli import main
 from armi_runtime.composition.artifacts import (
     ContentAddressedArtifactCoordinator,
 )
-from armi_runtime.composition.audit import AuditQueryGateway
 from armi_runtime.composition.birth import BirthTransaction
 from armi_runtime.composition.birth_manifest import packaged_birth_digests
 from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
@@ -632,8 +628,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(installed.status, "current")
         self.assertEqual(installed.table_count, 97)
-        self.assertEqual(installed.current_revision, "0000")
-        self.assertEqual(installed.head_revision, "0000")
+        self.assertEqual(installed.current_revision, "0001")
+        self.assertEqual(installed.head_revision, "0001")
         status = PostgreSQLSchemaGateway().status(
             fixture.runtime_dsn,
             environment_id=fixture.environment_id,
@@ -1557,10 +1553,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             schema_root = Path(temporary) / "schema"
             shutil.copytree(source, schema_root)
-            (schema_root / "alembic/versions/0001_probe.py").write_text(
+            (schema_root / "alembic/versions/0002_probe.py").write_text(
                 "from alembic import op\n"
-                "revision = '0001'\n"
-                "down_revision = '0000'\n"
+                "revision = '0002'\n"
+                "down_revision = '0001'\n"
                 "branch_labels = None\n"
                 "depends_on = None\n"
                 "def upgrade(): op.execute('CREATE TABLE armi.revision_probe (id bigint PRIMARY KEY)')\n"
@@ -1615,8 +1611,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(migrated.status, "current")
             self.assertEqual(migrated.table_count, installed.table_count + 1)
-            self.assertEqual(migrated.current_revision, "0001")
-            self.assertEqual(migrated.head_revision, "0001")
+            self.assertEqual(migrated.current_revision, "0002")
+            self.assertEqual(migrated.head_revision, "0002")
             self.assertEqual(
                 gateway.migrate(
                     fixture.migrator_dsn,
@@ -1637,10 +1633,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             schema_root = Path(temporary) / "schema"
             shutil.copytree(source, schema_root)
-            (schema_root / "alembic/versions/0001_failing_probe.py").write_text(
+            (schema_root / "alembic/versions/0002_failing_probe.py").write_text(
                 "from alembic import op\n"
-                "revision = '0001'\n"
-                "down_revision = '0000'\n"
+                "revision = '0002'\n"
+                "down_revision = '0001'\n"
                 "branch_labels = None\n"
                 "depends_on = None\n"
                 "def upgrade():\n"
@@ -1665,7 +1661,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "SELECT version_num FROM armi.alembic_version"
                 ).fetchall()
             self.assertEqual(table, (None,))
-            self.assertEqual(history, [("0000",)])
+            self.assertEqual(history, [("0001",)])
 
     def test_p0_clean_environment_cli_start_restart_and_capacity(self) -> None:
         fixture = self.create_database()
@@ -4485,25 +4481,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with self.assertRaises(psycopg.Error):
             psycopg.connect(cross_dsn, connect_timeout=5)
 
-        runtime_pool = RoleBoundConnectionPool(
-            fixture_a.runtime_dsn,
-            environment_id=fixture_a.environment_id,
-            role_class="runtime",
-        )
-        runtime_pool.open()
-        try:
-            with runtime_pool.connection() as connection:
-                connection.execute("SET search_path TO public")
-            with runtime_pool.connection() as connection:
-                self.assertEqual(
-                    connection.execute(
-                        "SELECT current_setting('search_path')"
-                    ).fetchone(),
-                    ("pg_catalog, armi",),
-                )
-        finally:
-            runtime_pool.close()
-
         admin_pool = AdminRoleBoundPool(
             fixture_a.admin_role_dsn,
             expected_role=fixture_a.admin_role,
@@ -4654,10 +4631,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         first.artifact_id,
                         trace_id=policy.producer_trace_id,
                     )
-                query_result = await AuditQueryGateway(
-                    AuditEventRepository(),
-                    factory,
-                ).query(AuditQuery(trace_id=policy.producer_trace_id, limit=100))
+                async with factory.unit_of_work(read_only=True) as unit_of_work:
+                    query_result = await AuditEventRepository().query(
+                        unit_of_work,
+                        AuditQuery(trace_id=policy.producer_trace_id, limit=100),
+                    )
                 self.assertFalse(query_result.truncated)
                 self.assertEqual(
                     [record.draft.operation for record in query_result.records],
@@ -8258,10 +8236,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             try:
                 start = asyncio.Event()
 
-                async def cas(value: str) -> CasStatus:
+                async def cas(value: str) -> bool:
                     await start.wait()
                     uow = factory.unit_of_work()
-                    result = CasStatus.CONFLICT
+                    applied = False
                     async with uow:
                         connection = uow._connection_for_repository()
                         cursor = await connection.execute(
@@ -8270,10 +8248,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             "WHERE id = %s AND version = %s",
                             (value, subject_id, 0),
                         )
-                        result = classify_cas_rows(cursor.rowcount)
-                        if result is CasStatus.CONFLICT:
+                        applied = cursor.rowcount == 1
+                        if not applied:
                             uow.request_rollback()
-                    return result
+                    return applied
 
                 tasks = (
                     asyncio.create_task(cas("left")),
@@ -8283,7 +8261,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 results = await asyncio.gather(*tasks)
                 self.assertCountEqual(
                     results,
-                    (CasStatus.APPLIED, CasStatus.CONFLICT),
+                    (True, False),
                 )
 
                 timeout_uow = factory.unit_of_work()

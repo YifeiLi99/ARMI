@@ -1,7 +1,6 @@
 """Stable, business-neutral Runtime integration contracts."""
 
 from .admin_transactions import (
-    PostgreSQLAdminAuthorityLease,
     PostgreSQLAdminParameter,
     PostgreSQLAdminResult,
     PostgreSQLAdminScalar,
@@ -40,7 +39,6 @@ from .transactions import (
 
 __all__ = (
     "EmptyRecoveryParticipant",
-    "PostgreSQLAdminAuthorityLease",
     "PostgreSQLAdminParameter",
     "PostgreSQLAdminResult",
     "PostgreSQLAdminScalar",

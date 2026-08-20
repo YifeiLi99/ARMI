@@ -49,14 +49,7 @@ class PostgreSQLAdminUnitOfWorkFactory(Protocol):
     def serializable(self) -> AbstractContextManager[PostgreSQLAdminUnitOfWork]: ...
 
 
-class PostgreSQLAdminAuthorityLease(Protocol):
-    def __enter__(self) -> None: ...
-
-    def __exit__(self, exc_type: object, exc: object, traceback: object) -> bool: ...
-
-
 __all__ = (
-    "PostgreSQLAdminAuthorityLease",
     "PostgreSQLAdminParameter",
     "PostgreSQLAdminResult",
     "PostgreSQLAdminScalar",

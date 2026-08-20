@@ -9,8 +9,12 @@ import pytest
 from armi_live_voice.api import (
     AcceptedVoiceInput,
     AudioDevice,
+    FastReplyDecision,
+    LiveVoiceBinding,
     RecognitionEvent,
     VoiceContext,
+    VoiceProviderBinding,
+    VoiceProviderService,
 )
 from armi_live_voice.service import LiveVoiceService, _stream_speak_fragments
 
@@ -25,10 +29,17 @@ class FakeAudio:
     async def capture(self) -> AsyncIterator[bytes]:
         yield b"audio"
 
-    async def play(self, frames: AsyncIterator[bytes]) -> None:
+    async def play(
+        self, frames: AsyncIterator[bytes], *, on_frame_written=None
+    ) -> int:
+        count = 0
         async for frame in frames:
             assert frame == b"pcm"
             self.log.append("played")
+            count += 1
+            if on_frame_written is not None:
+                await on_frame_written()
+        return count
 
     async def close(self) -> None:
         return None
@@ -81,7 +92,8 @@ class FakeContext:
 
 class FakeInputs:
     async def accept_once(self, **_: object) -> AcceptedVoiceInput:
-        return AcceptedVoiceInput(uuid7(), uuid7(), uuid7())
+        digest = "sha256:" + "a" * 64
+        return AcceptedVoiceInput(uuid7(), uuid7(), digest, digest, True)
 
 
 class FakeExpression:
@@ -107,6 +119,61 @@ class FakeSuccessors:
         del accepted
 
 
+class FakeJournal:
+    async def open_session(self, **_: object) -> None:
+        return None
+
+    async def set_session_state(self, **_: object) -> None:
+        return None
+
+    async def close_session(self, **_: object) -> None:
+        return None
+
+    async def begin_turn(self, **_: object) -> None:
+        return None
+
+    async def record_transcript(self, **_: object) -> None:
+        return None
+
+    async def record_decision(
+        self, *, turn_id: object, decision: FastReplyDecision
+    ) -> None:
+        del turn_id, decision
+
+    async def settle_turn(self, **_: object) -> None:
+        return None
+
+    async def begin_provider_attempt(self, **_: object):
+        return uuid7()
+
+    async def mark_provider_first_result(self, **_: object) -> None:
+        return None
+
+    async def settle_provider_attempt(self, **_: object) -> None:
+        return None
+
+    async def begin_playback(self, **_: object):
+        return uuid7()
+
+    async def mark_playback_first_frame(self, **_: object) -> None:
+        return None
+
+    async def settle_playback(self, **_: object) -> None:
+        return None
+
+
+def _binding() -> LiveVoiceBinding:
+    return LiveVoiceBinding(
+        "Windows WASAPI",
+        "microphone",
+        "Windows WASAPI",
+        "speaker",
+        VoiceProviderBinding(VoiceProviderService.ASR, "volcengine", "asr"),
+        VoiceProviderBinding(VoiceProviderService.LLM, "ark", "model", "model"),
+        VoiceProviderBinding(VoiceProviderService.TTS, "volcengine", "tts", "voice"),
+    )
+
+
 @pytest.mark.asyncio
 async def test_fast_speech_is_registered_before_audio_and_appraisal_is_async() -> None:
     log: list[str] = []
@@ -120,6 +187,8 @@ async def test_fast_speech_is_registered_before_audio_and_appraisal_is_async() -
         inputs=FakeInputs(),
         expression=FakeExpression(log),
         successors=successors,
+        journal=FakeJournal(),
+        binding=_binding(),
     )
     await service.start()
     await asyncio.wait_for(successors.appraised.wait(), timeout=1)

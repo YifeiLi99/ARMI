@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any, cast
 
 from armi_live_voice.api import AudioDevice, AudioFormat, LiveVoiceViolation
@@ -111,7 +111,12 @@ class WasapiRawAudio:
             self._capture_stream = None
             self._capture_stop = None
 
-    async def play(self, frames: AsyncIterator[bytes]) -> None:
+    async def play(
+        self,
+        frames: AsyncIterator[bytes],
+        *,
+        on_frame_written: Callable[[], Awaitable[None]] | None = None,
+    ) -> int:
         sd = _sounddevice()
         device = self._resolve(*self._output_identity, input_=False)
         stream = sd.RawOutputStream(
@@ -122,14 +127,19 @@ class WasapiRawAudio:
         )
         self._playback_stream = stream
         stream.start()
+        frames_written = 0
         try:
             async for frame in frames:
                 if frame:
                     await asyncio.to_thread(stream.write, frame)
+                    frames_written += 1
+                    if on_frame_written is not None:
+                        await on_frame_written()
         finally:
             stream.stop()
             stream.close()
             self._playback_stream = None
+        return frames_written
 
     async def close(self) -> None:
         if self._capture_stop is not None:

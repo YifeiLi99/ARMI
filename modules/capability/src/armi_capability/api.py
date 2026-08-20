@@ -29,11 +29,6 @@ class CapabilityOperation(StrEnum):
     EXECUTE = "execute"
 
 
-class CapabilityAvailability(StrEnum):
-    AVAILABLE = "available"
-    UNAVAILABLE = "unavailable"
-
-
 class CapabilityRequestStatus(StrEnum):
     PENDING = "pending"
     GRANTED = "granted"
@@ -73,14 +68,6 @@ class CapabilityViolation(RuntimeError):
 
     def __str__(self) -> str:
         return f"{self.code}: capability policy failed"
-
-
-@dataclass(frozen=True, slots=True)
-class CapabilityId:
-    value: UUID
-
-    def __post_init__(self) -> None:
-        _uuid7(self.value, "CON-CAPABILITY-ID")
 
 
 @dataclass(frozen=True, slots=True)
@@ -414,65 +401,6 @@ class CreatorGrantResult:
             raise CapabilityViolation("CON-CAPABILITY-RESULT")
 
 
-class GrantMatcher:
-    @staticmethod
-    def permits(
-        grant: PermissionGrant,
-        *,
-        now: datetime,
-        subject_id: UUID,
-        scene_id: UUID,
-        creator_party_id: UUID,
-        purpose: str,
-        payload_bytes: int,
-    ) -> bool:
-        scope = grant.scope
-        return (
-            grant.capability is CapabilityKind.CREATOR_SCENE_REPLY
-            and grant.operation is CapabilityOperation.SEND
-            and isinstance(scope, CreatorSceneReplyScope)
-            and grant.status is GrantStatus.ACTIVE
-            and grant.valid_from <= now < grant.valid_until
-            and grant.consumed_uses < scope.max_uses
-            and grant.subject_id == subject_id
-            and grant.scene_id == scene_id
-            and grant.creator_party_id == creator_party_id
-            and scope.subject_id == subject_id
-            and scope.scene_id == scene_id
-            and scope.creator_party_id == creator_party_id
-            and scope.purpose == purpose
-            and type(payload_bytes) is int
-            and 0 <= payload_bytes <= scope.max_payload_bytes
-        )
-
-    @staticmethod
-    def permits_codex(
-        grant: PermissionGrant,
-        *,
-        now: datetime,
-        subject_id: UUID,
-        scene_id: UUID,
-        creator_party_id: UUID,
-        purpose: str,
-    ) -> bool:
-        scope = grant.scope
-        return (
-            grant.capability is CapabilityKind.CODEX_DELEGATED_WORK
-            and grant.operation is CapabilityOperation.EXECUTE
-            and isinstance(scope, CodexDelegatedWorkScope)
-            and grant.status is GrantStatus.ACTIVE
-            and grant.valid_from <= now < grant.valid_until
-            and grant.consumed_uses == 0
-            and grant.subject_id == subject_id
-            and grant.scene_id == scene_id
-            and grant.creator_party_id == creator_party_id
-            and purpose == "delegate_codex_work"
-            and scope.workspace_scope == "isolated_ephemeral"
-            and scope.artifact_scope == "explicit_only"
-            and scope.network_access is False
-        )
-
-
 @runtime_checkable
 class CreatorGrantPolicyPort(Protocol):
     async def decide(self, command: CreatorGrantCommand) -> CreatorGrantResult: ...
@@ -723,7 +651,6 @@ __all__ = (
     "CapabilityAdmissionRequest",
     "CapabilityAdmissionResult",
     "CapabilityAuthorizationOutcome",
-    "CapabilityAvailability",
     "CapabilityCodexActivationPort",
     "CapabilityCommitContext",
     "CapabilityCommitPort",
@@ -737,7 +664,6 @@ __all__ = (
     "CapabilityEffectCancellationPort",
     "CapabilityEffectiveGrantSnapshot",
     "CapabilityGrantConsumptionPort",
-    "CapabilityId",
     "CapabilityKind",
     "CapabilityOperation",
     "CapabilityOperationReadPort",
@@ -757,7 +683,6 @@ __all__ = (
     "CreatorGrantPolicyPort",
     "CreatorGrantResult",
     "CreatorSceneReplyScope",
-    "GrantMatcher",
     "GrantStatus",
     "PermissionGrant",
     "PermissionGrantId",

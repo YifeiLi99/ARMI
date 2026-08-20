@@ -659,6 +659,16 @@ class ModelPipeline:
                 schema_name="armi_creator_appraisal_candidate_v1",
             ),
             (
+                "consider_creator_voice_appraisal",
+                CognitiveBranchRole.EPISODE_APPRAISAL.value,
+            ): build_adapter(
+                binding=creator_appraisal_binding,
+                candidate_schema=creator_appraisal_schema(),
+                candidate_parser=parse_appraisal_branch,
+                instructions=CREATOR_APPRAISAL_INSTRUCTIONS,
+                schema_name="armi_creator_appraisal_candidate_v1",
+            ),
+            (
                 "consider_life_query_result",
                 CognitiveBranchRole.RESPONSE_ACTION.value,
             ): build_adapter(
@@ -728,6 +738,7 @@ class ModelPipeline:
             snapshot = await self._snapshot(record)
             if snapshot.purpose in {
                 "consider_creator_input",
+                "consider_creator_voice_appraisal",
                 "consider_life_query_result",
             }:
                 await self._invoke_dialogue_branches(record, lease, snapshot)
@@ -845,6 +856,7 @@ class ModelPipeline:
                 current_snapshot, ModelEpisodeSnapshot
             ) and current_snapshot.purpose in {
                 "consider_creator_input",
+                "consider_creator_voice_appraisal",
                 "consider_life_query_result",
             }:
                 async with self._factory.unit_of_work() as unit_of_work:
@@ -881,6 +893,7 @@ class ModelPipeline:
                 current_snapshot, ModelEpisodeSnapshot
             ) and current_snapshot.purpose in {
                 "consider_creator_input",
+                "consider_creator_voice_appraisal",
                 "consider_life_query_result",
             }:
                 async with self._factory.unit_of_work() as unit_of_work:
@@ -925,7 +938,9 @@ class ModelPipeline:
         snapshot: ModelEpisodeSnapshot,
     ) -> None:
         context_bytes = await self._read_context(snapshot)
-        response_branch = _branch(snapshot, CognitiveBranchRole.RESPONSE_ACTION.value)
+        response_branch = _branch_or_none(
+            snapshot, CognitiveBranchRole.RESPONSE_ACTION.value
+        )
         appraisal_branch = _branch(
             snapshot, CognitiveBranchRole.EPISODE_APPRAISAL.value
         )
@@ -936,7 +951,8 @@ class ModelPipeline:
                 context_bytes,
                 CognitiveBranchRole.RESPONSE_ACTION.value,
             )
-            if response_branch.status in {"prepared", "calling_model"}
+            if response_branch is not None
+            and response_branch.status in {"prepared", "calling_model"}
             else None
         )
         appraisal = (
@@ -986,28 +1002,19 @@ class ModelPipeline:
             )
             await self._settle_branch_result(lease, snapshot, response, response_result)
         elif appraisal is not None:
-            appraisal_task = asyncio.create_task(
-                appraisal.adapter.invoke(appraisal.request)
+            appraisal_result, lease = await self._invoke_with_renewal(
+                appraisal.adapter, appraisal.request, lease
             )
-            done, _ = await asyncio.wait(
-                {appraisal_task}, timeout=_APPRAISAL_GRACE_SECONDS
-            )
-            if done:
-                appraisal_result = await appraisal_task
-            else:
-                appraisal_result = await self._cancel_appraisal(
-                    appraisal_task,
-                    late_appraisal=lambda task: self._schedule_late_appraisal(
-                        task, snapshot, appraisal
-                    ),
-                )
             await self._settle_branch_result(
                 lease, snapshot, appraisal, appraisal_result
             )
         current = await self._snapshot(record)
-        response_branch = _branch(current, CognitiveBranchRole.RESPONSE_ACTION.value)
+        response_branch = _branch_or_none(
+            current, CognitiveBranchRole.RESPONSE_ACTION.value
+        )
         if (
-            response_branch.status != "succeeded"
+            response_branch is not None
+            and response_branch.status != "succeeded"
             and response_branch.status != "outcome_unknown"
             and response_branch.attempt_count < 2
         ):
@@ -1025,9 +1032,13 @@ class ModelPipeline:
                     lease, current, retry_call, retry_result
                 )
                 current = await self._snapshot(record)
-        response_branch = _branch(current, CognitiveBranchRole.RESPONSE_ACTION.value)
+        response_branch = _branch_or_none(
+            current, CognitiveBranchRole.RESPONSE_ACTION.value
+        )
         appraisal_branch = _branch(current, CognitiveBranchRole.EPISODE_APPRAISAL.value)
-        response_ok = response_branch.status == "succeeded"
+        response_ok = (
+            response_branch is not None and response_branch.status == "succeeded"
+        )
         appraisal_ok = appraisal_branch.status == "succeeded"
         outcome = _hot_aggregate_outcome(response_ok, appraisal_ok)
         if outcome is None:
@@ -1040,7 +1051,9 @@ class ModelPipeline:
                 )
             return
         response_candidate = (
-            await self._read_branch_candidate(response_branch, parse_creator_response)
+            await self._read_branch_candidate(
+                cast(ModelBranchSnapshot, response_branch), parse_creator_response
+            )
             if response_ok
             else None
         )
@@ -1068,7 +1081,12 @@ class ModelPipeline:
             aggregate_bytes, logical_kind="model.response.aggregate", snapshot=current
         )
         primary_attempt = (
-            response_branch.selected_attempt_id or appraisal_branch.selected_attempt_id
+            (
+                None
+                if response_branch is None
+                else response_branch.selected_attempt_id
+            )
+            or appraisal_branch.selected_attempt_id
         )
         if primary_attempt is None:
             raise ModelViolation("MODEL-AGGREGATE")
@@ -1085,7 +1103,11 @@ class ModelPipeline:
                 lease=lease,
                 snapshot=current,
                 outcome=outcome,
-                response_branch_id=response_branch.branch_id if response_ok else None,
+                response_branch_id=(
+                    cast(ModelBranchSnapshot, response_branch).branch_id
+                    if response_ok
+                    else None
+                ),
                 appraisal_branch_id=appraisal_branch.branch_id
                 if appraisal_ok
                 else None,
@@ -1572,6 +1594,12 @@ def _branch(snapshot: ModelEpisodeSnapshot, role: str) -> ModelBranchSnapshot:
         if branch.role == role:
             return branch
     raise ModelViolation("MODEL-BRANCH-STATE")
+
+
+def _branch_or_none(
+    snapshot: ModelEpisodeSnapshot, role: str
+) -> ModelBranchSnapshot | None:
+    return next((branch for branch in snapshot.branches if branch.role == role), None)
 
 
 def _response_candidate_value(value: bytes) -> object:

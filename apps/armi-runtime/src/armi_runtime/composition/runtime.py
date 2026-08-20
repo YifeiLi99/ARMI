@@ -12,7 +12,7 @@ import threading
 from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from uuid import uuid7
+from uuid import UUID, uuid7
 
 import uvicorn
 from armi_activity.api import ActivityViolation
@@ -36,7 +36,14 @@ from armi_cognition.bootstrap import (
     bootstrap_cognition_owner,
 )
 from armi_context.api import ContextViolation
-from armi_data_rights.api import CreatorExportViolation, DataRightsViolation
+from armi_data_rights.api import (
+    CreatorExportViolation,
+    DataRightsOrderCommand,
+    DataRightsOrderDetail,
+    DataRightsOrderKind,
+    DataRightsOrderResult,
+    DataRightsViolation,
+)
 from armi_effect.api import EffectViolation
 from armi_effect.bootstrap import bootstrap_effect_operation_read
 from armi_experience.bootstrap import bootstrap_experience_owner
@@ -45,7 +52,13 @@ from armi_interaction.api import (
     CreatorInputCommand,
     CreatorInputViolation,
     ExternalMessageViolation,
+    OtherHumanInputCommand,
+    OtherHumanPartyKey,
+    OtherHumanSceneCommand,
+    RegisterOtherHumanPartyCommand,
+    SceneKey,
     SceneQueryViolation,
+    SceneStatus,
 )
 from armi_kernel.application import (
     CandidateViolation,
@@ -70,7 +83,7 @@ from armi_live_vision.bootstrap import (
     compose_live_vision,
     compose_visual_observation_sink,
 )
-from armi_live_voice.api import LiveVoiceRuntimePort
+from armi_live_voice.api import LiveVoiceRuntimePort, LiveVoiceViolation
 from armi_memory.api import MemoryViolation
 from armi_perception.bootstrap import bootstrap_visual_recognition_attempts
 from armi_prompt.api import CreatorPromptViolation
@@ -178,6 +191,7 @@ from .database import (
 from .diagnostics import StructuredDiagnosticLog
 from .environment import PreparedEnvironment
 from .lifecycle import RUNTIME_BLOCKING_REASONS, LifecycleController
+from .live_voice import compose_runtime_live_voice
 from .napcat_process import compose_qq_health, disabled_qq_health
 from .owner_roster import compose_runtime_owner_roster
 from .qq_channel import QQChannelBinding, compose_qq_channel
@@ -617,6 +631,28 @@ async def _serve(
             scene_timeline_query = interaction_module.scene_timeline
             creator_scenes = interaction_module.creator_scenes
             creator_input = interaction_module.creator_input
+            if config.voice.enabled:
+                try:
+                    live_voice_service = compose_runtime_live_voice(
+                        prepared,
+                        factory=runtime_unit_of_work_factory,
+                        subject_id=authority.require_writable().subject_id,
+                        creator=creator_context,
+                        interaction=interaction_module.creator_input,
+                        subject_state=subject_state_module.read,
+                        mood=mood_module.read,
+                        prompt=prompt_module.read,
+                        relationship=relationship_module.read,
+                        catalog=artifact_catalog,
+                    )
+                except LiveVoiceViolation:
+                    live_voice_service = None
+                    lifecycle.add_degradation("RUNTIME_LIVE_VOICE_UNAVAILABLE")
+                    diagnostic.emit(
+                        "runtime.live_voice.unavailable",
+                        level=logging.WARNING,
+                        result_code="LIVE_VOICE_UNAVAILABLE",
+                    )
             subject_summary_provider = RuntimeSubjectSummaryAssembler(
                 runtime_unit_of_work_factory,
                 subject_id=authority.require_writable().subject_id,
@@ -1337,6 +1373,8 @@ async def _serve(
                 "creator.session.revoked_all",
                 result_code="CREATOR_SESSION_REVOKED",
             )
+        if live_voice_service is not None:
+            await live_voice_service.stop()
         if interaction_module is not None:
             await interaction_module.close()
         if activity_module is not None:
@@ -1549,11 +1587,16 @@ async def _serve(
                 state = "unavailable"
             else:
                 assert voice_service is not None
-                if action == "start":
-                    await voice_service.start()  # pyright: ignore[reportGeneralTypeIssues]
-                elif action == "stop":
-                    await voice_service.stop()  # pyright: ignore[reportGeneralTypeIssues]
+                try:
+                    if action == "start":
+                        await voice_service.start()
+                    elif action == "stop":
+                        await voice_service.stop()
+                except LiveVoiceViolation as error:
+                    reasons.append(error.code.replace("-", "_"))
                 state = voice_service.status().value
+                if voice_service.last_error is not None:
+                    reasons.append(voice_service.last_error.replace("-", "_"))
         return LiveVoiceStatusResponse(
             contract_version="1.0",
             projection_version="creator-live-voice-status.v1",
@@ -1710,6 +1753,151 @@ async def _serve(
             "newly_accepted": acceptance.newly_accepted,
         }
 
+    def data_rights_result_wire(result: DataRightsOrderResult) -> dict[str, object]:
+        return {
+            "order_id": str(result.order_id),
+            "requester_party_id": str(result.requester_party_id),
+            "requester_kind": result.requester_kind.value,
+            "order_kind": result.order_kind.value,
+            "scope_kind": result.scope_kind.value,
+            "status": result.status,
+            "execution_status": result.execution_status.value,
+            "effective_at": result.effective_at.to_wire(),
+            "completed_at": (
+                None if result.completed_at is None else result.completed_at.to_wire()
+            ),
+            "newly_created": result.newly_created,
+        }
+
+    def data_rights_detail_wire(detail: DataRightsOrderDetail) -> dict[str, object]:
+        return {
+            **data_rights_result_wire(detail.order),
+            "items": [
+                {
+                    "item_id": str(item.item_id),
+                    "target_kind": item.target_kind,
+                    "required_action": item.required_action,
+                    "result_status": item.result_status.value,
+                    "remaining_location": item.remaining_location,
+                    "created_at": item.created_at.to_wire(),
+                    "completed_at": (
+                        None
+                        if item.completed_at is None
+                        else item.completed_at.to_wire()
+                    ),
+                }
+                for item in detail.items
+            ],
+        }
+
+    async def admin_other_human(
+        action: str, payload: dict[str, object]
+    ) -> dict[str, object]:
+        if other_human_input is None:
+            raise RuntimeViolation(
+                "ADMIN-CONTROL-OTHER-HUMAN-UNAVAILABLE",
+                "other-human intake is unavailable",
+            )
+        trace_id = TraceId(os.urandom(16).hex())
+        if action == "party_register" and set(payload) == {
+            "party_key",
+            "display_label",
+        }:
+            view = await other_human_input.register_party(
+                RegisterOtherHumanPartyCommand(
+                    OtherHumanPartyKey(str(payload["party_key"])),
+                    str(payload["display_label"]),
+                    "other_human",
+                    trace_id,
+                )
+            )
+            return {
+                "party_id": str(view.party_id),
+                "party_key": view.party_key.value,
+                "display_label": view.display_label,
+                "identity_assurance": view.identity_assurance,
+            }
+        if action == "scene_set" and set(payload) == {
+            "party_key",
+            "scene_key",
+            "status",
+        }:
+            view = await other_human_input.set_scene(
+                OtherHumanSceneCommand(
+                    OtherHumanPartyKey(str(payload["party_key"])),
+                    SceneKey(str(payload["scene_key"])),
+                    SceneStatus(str(payload["status"])),
+                    trace_id,
+                )
+            )
+            return {
+                "scene_id": str(view.scene_id),
+                "party_id": str(view.party_id),
+                "scene_key": view.scene_key.value,
+                "status": view.status.value,
+            }
+        if action == "message_send" and set(payload) == {
+            "party_key",
+            "scene_key",
+            "message",
+            "idempotency_key",
+        }:
+            accepted = await other_human_input.accept(
+                OtherHumanInputCommand(
+                    OtherHumanPartyKey(str(payload["party_key"])),
+                    SceneKey(str(payload["scene_key"])),
+                    str(payload["message"]),
+                    IdempotencyKey(str(payload["idempotency_key"])),
+                    trace_id,
+                )
+            )
+            return {
+                "party_id": str(accepted.party_id),
+                "scene_id": str(accepted.scene_id),
+                "interaction_id": str(accepted.interaction_id.value),
+                "evidence_id": str(accepted.evidence_id),
+                "opportunity_id": str(accepted.opportunity_id),
+                "newly_accepted": accepted.newly_accepted,
+            }
+        orders = None if data_rights_module is None else data_rights_module.orders
+        if orders is None:
+            raise RuntimeViolation(
+                "ADMIN-CONTROL-DATA-RIGHTS-UNAVAILABLE",
+                "data-rights orders are unavailable",
+            )
+        party_key = OtherHumanPartyKey(str(payload.get("party_key", "")))
+        if action == "data_rights_request" and set(payload) == {
+            "party_key",
+            "order_kind",
+            "idempotency_key",
+        }:
+            result = await orders.request_other_human(
+                party_key,
+                DataRightsOrderCommand(
+                    DataRightsOrderKind(str(payload["order_kind"])),
+                    IdempotencyKey(str(payload["idempotency_key"])),
+                    trace_id,
+                ),
+            )
+            return data_rights_result_wire(result)
+        if action == "data_rights_list" and set(payload) == {"party_key"}:
+            details = await orders.list_other_human(party_key)
+            return {"orders": [data_rights_detail_wire(item) for item in details]}
+        if action == "data_rights_get" and set(payload) == {
+            "party_key",
+            "order_id",
+        }:
+            detail = await orders.detail_other_human(
+                party_key, UUID(str(payload["order_id"]))
+            )
+            return {
+                "order": None if detail is None else data_rights_detail_wire(detail)
+            }
+        raise RuntimeViolation(
+            "ADMIN-CONTROL-OTHER-HUMAN-INPUT",
+            "other-human control input is invalid",
+        )
+
     app = create_runtime_app(
         readiness=lambda: lifecycle.snapshot().readiness,
         runtime_status=runtime_status,
@@ -1799,6 +1987,9 @@ async def _serve(
             on_drain=admin_drain,
             on_stop=admin_stop,
             on_input=admin_input if creator_input is not None else None,
+            on_other_human=(
+                admin_other_human if other_human_input is not None else None
+            ),
             on_voice=admin_voice,
             on_vision=admin_vision,
         )

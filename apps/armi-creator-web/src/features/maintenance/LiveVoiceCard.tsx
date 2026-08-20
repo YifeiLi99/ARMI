@@ -28,7 +28,7 @@ const REASON_LABELS: Record<string, string> = {
   VOICE_INPUT_DEVICE_UNAVAILABLE: "找不到配置的麦克风。",
   VOICE_OUTPUT_DEVICE_UNAVAILABLE: "找不到配置的扬声器。",
   VOICE_AUDIO_UNAVAILABLE: "Windows 音频接口当前不可用。",
-  VOICE_PIPELINE_UNAVAILABLE: "实时语音链路尚未完成运行接线。",
+  VOICE_PIPELINE_UNAVAILABLE: "实时语音配置或凭据当前不可用。",
 };
 
 export function LiveVoiceCard({ token, onUnauthorized }: LiveVoiceCardProps) {

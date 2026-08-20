@@ -60,13 +60,6 @@ class EffectAdminPort(Protocol):
     ) -> int: ...
 
 
-class PolicyDecisionOutcome(StrEnum):
-    ALLOWED = "allowed"
-    DENIED = "denied"
-    CONFIRMATION_REQUIRED = "confirmation_required"
-    UNAVAILABLE = "unavailable"
-
-
 class EffectStatus(StrEnum):
     REGISTERED = "registered"
     DISPATCHING = "dispatching"
@@ -81,19 +74,6 @@ class EffectVerificationStatus(StrEnum):
     PENDING = "pending"
     VERIFIED = "verified"
     INCONCLUSIVE = "inconclusive"
-
-
-class EffectAttemptState(StrEnum):
-    PREPARED = "prepared"
-    DISPATCHING = "dispatching"
-    SETTLED = "settled"
-
-
-class EffectAttemptResult(StrEnum):
-    SUCCEEDED = "succeeded"
-    FAILED = "failed"
-    UNKNOWN = "unknown"
-    CANCELLED = "cancelled"
 
 
 class EffectObservationKind(StrEnum):
@@ -289,30 +269,6 @@ class EffectObservation:
             raise EffectViolation("CON-EFFECT-OBSERVATION")
         if self.receiver_ref is not None:
             _uuid7(self.receiver_ref)
-
-
-@dataclass(frozen=True, slots=True)
-class EffectSettlement:
-    effect_id: EffectId
-    status: EffectStatus
-    verification_status: EffectVerificationStatus
-    attempt_count: int
-    observation: EffectObservation | None
-    settled_at: Instant | None
-
-    def __post_init__(self) -> None:
-        if type(self.attempt_count) is not int or not 0 <= self.attempt_count <= 2:
-            raise EffectViolation("CON-EFFECT-ATTEMPT")
-        settled = self.status in {
-            EffectStatus.COMPLETED,
-            EffectStatus.FAILED,
-            EffectStatus.UNKNOWN,
-        } or (
-            self.status is EffectStatus.CANCELLED
-            and self.verification_status is EffectVerificationStatus.VERIFIED
-        )
-        if settled != (self.settled_at is not None):
-            raise EffectViolation("CON-EFFECT-SETTLEMENT")
 
 
 @dataclass(frozen=True, slots=True)
@@ -522,15 +478,6 @@ class EffectCodexLifecyclePort(Protocol):
 
 
 @runtime_checkable
-class EffectRegistrationPort(Protocol):
-    async def register(
-        self,
-        transaction: PostgreSQLTransaction,
-        draft: EffectRegistrationDraft,
-    ) -> EffectRegistrationResult: ...
-
-
-@runtime_checkable
 class EffectOperationReadPort(Protocol):
     async def by_action_intent(
         self,
@@ -627,22 +574,6 @@ class EffectGrantCancellationPort(Protocol):
 
 
 @runtime_checkable
-class EffectDispatchBoundaryPort(Protocol):
-    async def coordinate(
-        self,
-        unit_of_work: PostgreSQLRuntimeUnitOfWork,
-        *,
-        effect_id: UUID,
-        attempt_id: UUID,
-        outbox_id: UUID,
-        claim_owner: UUID,
-        claim_token: int,
-        expected_operation_status: str,
-        cancelled_operation_status: str,
-    ) -> EffectDispatchBoundaryResult | None: ...
-
-
-@runtime_checkable
 class EffectWakeupPort(Protocol):
     def version(self, channel: str) -> int: ...
     def notify(self, channel: str) -> None: ...
@@ -702,13 +633,10 @@ __all__ = (
     "EffectArtifactKind",
     "EffectArtifactStorePort",
     "EffectAttemptId",
-    "EffectAttemptResult",
-    "EffectAttemptState",
     "EffectCodexArtifactPort",
     "EffectCodexClaim",
     "EffectCodexLifecyclePort",
     "EffectDeliveryId",
-    "EffectDispatchBoundaryPort",
     "EffectDispatchBoundaryResult",
     "EffectGrantCancellationPort",
     "EffectId",
@@ -725,10 +653,8 @@ __all__ = (
     "EffectRegistrationContext",
     "EffectRegistrationContextPort",
     "EffectRegistrationDraft",
-    "EffectRegistrationPort",
     "EffectRegistrationResult",
     "EffectRuntimePort",
-    "EffectSettlement",
     "EffectStatus",
     "EffectTimelinePort",
     "EffectVerificationStatus",
@@ -737,6 +663,5 @@ __all__ = (
     "EffectWakeupPort",
     "FrozenEffectRequest",
     "PolicyDecisionId",
-    "PolicyDecisionOutcome",
     "ResponseAdmissionRuntimePort",
 )

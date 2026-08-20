@@ -64,7 +64,7 @@ describe("live voice card", () => {
     renderCard();
 
     expect(
-      await screen.findByText("实时语音链路尚未完成运行接线。"),
+      await screen.findByText("实时语音配置或凭据当前不可用。"),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "开始语音" })).toBeDisabled();
   });

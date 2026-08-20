@@ -904,12 +904,6 @@ def candidate_schema(
     raise ModelViolation("MODEL-BINDING")
 
 
-def candidate_v5_schema() -> dict[str, Any]:
-    """Return the frozen-but-inactive S034 output contract."""
-
-    return _WEB_CANDIDATE_ADAPTER.json_schema()
-
-
 def parse_candidate(
     value: bytes,
     *,
@@ -2166,6 +2160,7 @@ def _dialogue_request_value(
             if branch_role == "episode_appraisal"
             else "respond_to_creator"
         ),
+        "consider_creator_voice_appraisal": "appraise_creator_input",
         "consider_life_query_result": (
             "appraise_verified_life_query"
             if branch_role == "episode_appraisal"
@@ -2344,7 +2339,6 @@ __all__ = (
     "WebResearchRequestProposal",
     "build_request_bytes",
     "candidate_schema",
-    "candidate_v5_schema",
     "checked_model_request",
     "load_active_binding",
     "load_purpose_binding",

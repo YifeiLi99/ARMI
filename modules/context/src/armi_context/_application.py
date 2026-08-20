@@ -750,6 +750,7 @@ def _context_request(
                 required=snapshot.purpose
                 in {
                     "consider_creator_input",
+                    "consider_creator_voice_appraisal",
                     "consider_life_query_result",
                     "consider_creator_outreach",
                     "consider_other_human_input",
@@ -992,6 +993,7 @@ def _context_request(
                     requested_required=snapshot.purpose
                     in {
                         "consider_creator_input",
+                        "consider_creator_voice_appraisal",
                         "consider_life_query_result",
                         "consider_other_human_input",
                     },
@@ -1314,6 +1316,7 @@ def _context_request(
         )
     dialogue_purpose = snapshot.purpose in {
         "consider_creator_input",
+        "consider_creator_voice_appraisal",
         "consider_life_query_result",
         "consider_other_human_input",
     }

@@ -300,6 +300,28 @@ class RuntimeProcessManagerTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, "CLI-CREATOR-INPUT")
         send.assert_not_called()
 
+    def test_other_human_uses_authenticated_runtime_control(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            manager = RuntimeProcessManager(Path(temporary), "environment-1")
+            with patch.object(
+                RuntimeProcessManager,
+                "_send_control",
+                return_value={"result": {"party_id": "party-1"}},
+            ) as send:
+                result = manager.other_human(
+                    "party_register",
+                    {"party_key": "friend-1", "display_label": "朋友"},
+                )
+
+        send.assert_called_once_with(
+            "other_human",
+            {
+                "action": "party_register",
+                "payload": {"party_key": "friend-1", "display_label": "朋友"},
+            },
+        )
+        self.assertEqual(result, {"status": "succeeded", "party_id": "party-1"})
+
 
 if __name__ == "__main__":
     unittest.main()

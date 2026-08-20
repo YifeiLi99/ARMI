@@ -5,9 +5,6 @@ from armi_effect._dispatch import (
     _AbsentDisposition,
     _classify_absent_effect,
 )
-from armi_effect._grant import (
-    dispatch_cancellation_reason,
-)
 
 
 @pytest.mark.parametrize(
@@ -47,30 +44,3 @@ def test_confirmed_absent_attempt_only_retries_under_current_grant(
     values.update(overrides)
 
     assert _classify_absent_effect(**values) is expected  # type: ignore[arg-type]
-
-
-@pytest.mark.parametrize(
-    ("overrides", "expected"),
-    [
-        ({}, None),
-        ({"grant_status": "revoked"}, "POLICY-GRANT-REVOKED"),
-        (
-            {"grant_status": "expired", "grant_time_valid": False},
-            "POLICY-GRANT-EXPIRED",
-        ),
-        ({"before_dispatch_deadline": False}, "POLICY-GRANT-EXPIRED"),
-        ({"policy_current": False}, "POLICY-GRANT-NOT-CURRENT"),
-    ],
-)
-def test_dispatch_boundary_rechecks_current_grant(
-    overrides: dict[str, object], expected: str | None
-) -> None:
-    values: dict[str, object] = {
-        "policy_current": True,
-        "before_dispatch_deadline": True,
-        "grant_status": "active",
-        "grant_time_valid": True,
-    }
-    values.update(overrides)
-
-    assert dispatch_cancellation_reason(**values) == expected  # type: ignore[arg-type]

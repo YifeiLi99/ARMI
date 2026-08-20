@@ -103,12 +103,18 @@ uv run armi voice status --environment-root C:\path\to\environment
 uv run armi voice start --environment-root C:\path\to\environment
 uv run armi voice stop --environment-root C:\path\to\environment
 uv run armi creator send --environment-root C:\path\to\environment --message "你好"
+uv run armi other-human party register --environment-root C:\path\to\environment --party-key friend-1 --display-label "朋友"
+uv run armi other-human scene set --environment-root C:\path\to\environment --party-key friend-1 --scene-key default --status open
+uv run armi other-human send --environment-root C:\path\to\environment --party-key friend-1 --message "你好" --idempotency-key friend-message-1
+uv run armi other-human data-rights list --environment-root C:\path\to\environment --party-key friend-1
 uv run armi stop --environment-root C:\path\to\environment
 ```
 
 语义召回默认关闭。显式安装命令只从固定的 Qwen 与 llama.cpp 官方地址下载一次并校验固定摘要；`semantic-recall calibrate` 在 Runtime 停止时使用已有制品验证本机 28 层全 GPU 配置，不联网，也不降级到部分 GPU 或 CPU。校准使用不同长度的真实查询并保存延迟、显存和 RSS 结果；旧配置、硬件变化或门槛失败都会明确要求重新校准。启用后的运行期只访问随机回环端口，不会联网换版本或回退云 embedding。数据库以 halfvec HNSW 和 `siglen=256` 的 GiST trigram 分别生成有界候选；有向量时两路使用独立只读连接并行执行，再经原向量、真实词相似度和 owner 当前态精排后做 RRF，向量和关键词仍只是可重建投影。`armi semantic-recall status` 同时显示投影块数、覆盖状态、检索 profile 和两个索引是否就绪。`armi start` 会先尝试启动、预热并检查本地 embedding 服务；模型缺失、校准失效或 GPU 启动失败时只把语义召回标为 `unavailable`，Runtime 主链路继续运行并使用关键词召回，不会转到 CPU。`armi stop` 在权威 Runtime 退出后回收该服务和显存。它仍不终止交互式 QQ/NapCat，渠道掉线也不会持续自动重启。重新运行 `armi start` 或 `armi channel qq start` 会先检查健康状态，健康实例不会被重复拉起。`armi channel qq open` 从当前 NapCat 安装读取 WebUI 地址，把 WebUI 登录凭据复制到 Windows 剪贴板并打开默认浏览器；命令输出和 URL 都不包含凭据。显式增加 `--auto-login` 会把 token 作为浏览器 URL 查询参数交给 NapCat 自动登录，不再复制剪贴板；命令输出仍保持脱敏，但 token 可能进入浏览器、进程、引用来源或本机访问日志，调用该选项即表示操作者接受这项风险。Creator“运行与维护”页继续只提供无密钥的本机 NapCat 管理页入口，不授予浏览器宿主进程控制权。
 
 自动化 Creator 对话不需要驱动浏览器。运行中的环境可通过 `armi creator send` 把输入送入与工作台相同的正式 Creator intake；重复调用需要自行传入稳定的 `--idempotency-key`。消息也可通过 `--message-file <path>` 读取，或用 `--message-file -` 从标准输入读取。Codex 管理会话可使用 Admin MCP 的 `inject_creator_input`，两条入口最终进入同一 Runtime intake，不直接写数据库。
+
+caller-declared 的本地其他人入口通过 `armi other-human` 调用运行中 Runtime 的私有本机控制面，不进入 Creator 公共 OpenAPI，也不直写数据库。命令覆盖 party 注册、scene 开关、带稳定幂等键的消息接纳，以及 `data-rights request/list/get`；该入口只声明调用方提供的本地身份，不能证明现实平台身份或真实送达。
 
 日常及安装后的 Creator 工作台只在 Runtime 的本机地址上提供。页面打开后会自动建立进程内连接并直接进入工作台，不需要登录、bootstrap code 或手动注销。Vite 地址仅用于源码前端开发。
 

@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import suppress
 from uuid import UUID, uuid7
 
 from .api import (
+    AttemptOutcome,
     AudioDevicePort,
+    FastReplyDecision,
     FastReplyKind,
     HalfDuplexStateMachine,
+    LiveVoiceBinding,
     LiveVoiceSessionState,
     LiveVoiceViolation,
     StreamingAsrPort,
@@ -20,6 +23,7 @@ from .api import (
     VoiceContextPort,
     VoiceExpressionPort,
     VoiceInputAcceptancePort,
+    VoiceJournalPort,
     VoiceSuccessorPort,
     parse_fast_reply,
 )
@@ -39,6 +43,8 @@ class LiveVoiceService:
         inputs: VoiceInputAcceptancePort,
         expression: VoiceExpressionPort,
         successors: VoiceSuccessorPort,
+        journal: VoiceJournalPort,
+        binding: LiveVoiceBinding,
     ) -> None:
         self._audio = audio
         self._asr = asr
@@ -48,12 +54,15 @@ class LiveVoiceService:
         self._inputs = inputs
         self._expression = expression
         self._successors = successors
+        self._journal = journal
+        self._binding = binding
         self._machine = HalfDuplexStateMachine()
         self._task: asyncio.Task[None] | None = None
         self._stop = asyncio.Event()
         self._ready = asyncio.Event()
         self._session_id: UUID | None = None
         self._last_error: str | None = None
+        self._turn_no = 0
 
     def status(self) -> LiveVoiceSessionState:
         return self._machine.state
@@ -70,6 +79,7 @@ class LiveVoiceService:
         self._ready = asyncio.Event()
         self._session_id = uuid7()
         self._last_error = None
+        self._turn_no = 0
         self._task = asyncio.create_task(self._run(), name="armi-live-voice")
         await self._ready.wait()
 
@@ -85,84 +95,250 @@ class LiveVoiceService:
         with suppress(asyncio.CancelledError):
             await task
         await self._tts.close()
+        assert self._session_id is not None
+        await self._journal.close_session(session_id=self._session_id)
         self._task = None
         if self._machine.state is not LiveVoiceSessionState.IDLE:
             self._machine.transition(LiveVoiceSessionState.IDLE)
 
     async def _run(self) -> None:
+        assert self._session_id is not None
         try:
+            await self._journal.open_session(session_id=self._session_id)
             context, _, _ = await asyncio.gather(
                 self._context.compile(),
                 self._model.prepare(),
                 self._tts.prepare(),
             )
-            self._machine.transition(LiveVoiceSessionState.LISTENING)
+            await self._transition(
+                LiveVoiceSessionState.LISTENING, context_version=context.version
+            )
             self._ready.set()
             while not self._stop.is_set():
                 await self._one_turn(context)
+                context = await self._context.compile()
         except asyncio.CancelledError:
             raise
         except LiveVoiceViolation as error:
             self._last_error = error.code
             self._machine.transition(LiveVoiceSessionState.UNAVAILABLE)
+            with suppress(Exception):
+                await self._journal.close_session(
+                    session_id=self._session_id, error_code=error.code
+                )
             self._ready.set()
         except Exception:
             self._last_error = "VOICE-RUNTIME-FAILED"
             self._machine.transition(LiveVoiceSessionState.UNAVAILABLE)
+            with suppress(Exception):
+                await self._journal.close_session(
+                    session_id=self._session_id,
+                    error_code="VOICE-RUNTIME-FAILED",
+                )
             self._ready.set()
 
     async def _one_turn(self, context: VoiceContext) -> None:
-        self._machine.transition(LiveVoiceSessionState.RECOGNIZING)
-        transcript = ""
-        async for event in self._asr.recognize(self._audio.capture()):
-            transcript = event.text
-            if event.utterance_ended:
-                break
-        if not transcript.strip():
-            self._machine.transition(LiveVoiceSessionState.LISTENING)
-            return
-        self._machine.transition(LiveVoiceSessionState.THINKING)
+        assert self._session_id is not None
+        self._turn_no += 1
         turn_id = uuid7()
+        await self._journal.begin_turn(
+            session_id=self._session_id,
+            turn_id=turn_id,
+            turn_no=self._turn_no,
+            context_version=context.version,
+        )
+        try:
+            outcome, spoken, silent = await self._execute_turn(turn_id, context)
+        except asyncio.CancelledError:
+            await self._journal.settle_turn(
+                turn_id=turn_id,
+                outcome=AttemptOutcome.UNKNOWN,
+                error_code="VOICE-TURN-CANCELLED",
+            )
+            raise
+        except LiveVoiceViolation as error:
+            await self._journal.settle_turn(
+                turn_id=turn_id,
+                outcome=AttemptOutcome.FAILED,
+                error_code=error.code,
+            )
+            raise
+        except Exception:
+            await self._journal.settle_turn(
+                turn_id=turn_id,
+                outcome=AttemptOutcome.UNKNOWN,
+                error_code="VOICE-TURN-UNKNOWN",
+            )
+            raise
+        await self._journal.settle_turn(
+            turn_id=turn_id,
+            outcome=outcome,
+            spoken_text=spoken,
+            silent=silent,
+        )
+        await self._transition(LiveVoiceSessionState.LISTENING)
+
+    async def _execute_turn(
+        self, turn_id: UUID, context: VoiceContext
+    ) -> tuple[AttemptOutcome, str, bool]:
+        await self._transition(LiveVoiceSessionState.RECOGNIZING)
+        asr_attempt = await self._journal.begin_provider_attempt(
+            turn_id=turn_id, binding=self._binding.asr
+        )
+        transcript = ""
+        received_asr = False
+        try:
+            async for event in self._asr.recognize(self._audio.capture()):
+                if not received_asr:
+                    await self._journal.mark_provider_first_result(
+                        attempt_id=asr_attempt
+                    )
+                    received_asr = True
+                transcript = event.text
+                if event.utterance_ended:
+                    break
+        except asyncio.CancelledError:
+            await self._journal.settle_provider_attempt(
+                attempt_id=asr_attempt,
+                outcome=AttemptOutcome.UNKNOWN,
+                error_code="VOICE-ASR-CANCELLED",
+            )
+            raise
+        except LiveVoiceViolation as error:
+            await self._journal.settle_provider_attempt(
+                attempt_id=asr_attempt,
+                outcome=(
+                    AttemptOutcome.PARTIAL if received_asr else AttemptOutcome.FAILED
+                ),
+                error_code=error.code,
+            )
+            raise
+        except Exception as error:
+            await self._journal.settle_provider_attempt(
+                attempt_id=asr_attempt,
+                outcome=(
+                    AttemptOutcome.PARTIAL if received_asr else AttemptOutcome.UNKNOWN
+                ),
+                error_code="VOICE-ASR-UNKNOWN",
+            )
+            raise LiveVoiceViolation(
+                "VOICE-ASR-UNKNOWN", "speech recognition failed"
+            ) from error
+        await self._journal.settle_provider_attempt(
+            attempt_id=asr_attempt, outcome=AttemptOutcome.COMPLETED
+        )
+        if not transcript.strip():
+            await self._journal.record_transcript(
+                turn_id=turn_id, transcript=None, interaction_id=None
+            )
+            return AttemptOutcome.COMPLETED, "", False
+        await self._transition(LiveVoiceSessionState.THINKING)
         assert self._session_id is not None
         accepted = await self._inputs.accept_once(
             transcript=transcript,
             session_id=self._session_id,
             turn_id=turn_id,
         )
-        stream = self._model.generate(context, transcript)
+        await self._journal.record_transcript(
+            turn_id=turn_id,
+            transcript=transcript.strip(),
+            interaction_id=accepted.interaction_id,
+        )
+        llm_attempt = await self._journal.begin_provider_attempt(
+            turn_id=turn_id, binding=self._binding.llm
+        )
+        stream = self._observed_model_stream(
+            llm_attempt, self._model.generate(context, transcript)
+        )
         try:
             kind, initial, remaining = await _read_route(stream)
         except LiveVoiceViolation:
-            self._machine.transition(LiveVoiceSessionState.WAITING_SLOW)
+            await stream.aclose()
+            await self._transition(LiveVoiceSessionState.WAITING_SLOW)
             await self._successors.run_slow(accepted)
-            self._machine.transition(LiveVoiceSessionState.LISTENING)
-            return
+            return AttemptOutcome.COMPLETED, "", False
         if kind is FastReplyKind.SILENT:
             trailing = initial + await _collect_text(remaining)
-            parse_fast_reply("SILENT\n" + trailing)
+            decision = parse_fast_reply("SILENT\n" + trailing)
+            await self._journal.record_decision(turn_id=turn_id, decision=decision)
             await self._successors.enqueue_appraisal(accepted)
-            self._machine.transition(LiveVoiceSessionState.LISTENING)
-            return
+            return AttemptOutcome.COMPLETED, "", True
         if kind is FastReplyKind.WAIT:
             text = (initial + await _collect_text(remaining)).strip()
             decision = parse_fast_reply("WAIT\n" + text)
-            self._machine.transition(LiveVoiceSessionState.SPEAKING)
+            await self._journal.record_decision(turn_id=turn_id, decision=decision)
+            await self._transition(LiveVoiceSessionState.SPEAKING)
             spoken = await self._speak(turn_id, _single_fragment(decision.text))
             await self._expression.seal(turn_id=turn_id, spoken_text=spoken)
-            self._machine.transition(LiveVoiceSessionState.WAITING_SLOW)
+            await self._transition(LiveVoiceSessionState.WAITING_SLOW)
             await self._successors.run_slow(accepted)
-            self._machine.transition(LiveVoiceSessionState.LISTENING)
-            return
-        self._machine.transition(LiveVoiceSessionState.SPEAKING)
+            return AttemptOutcome.COMPLETED, spoken, False
+        await self._journal.record_decision(
+            turn_id=turn_id,
+            decision=FastReplyDecision(FastReplyKind.SPEAK),
+        )
+        await self._transition(LiveVoiceSessionState.SPEAKING)
         fragments = _stream_speak_fragments(initial, remaining)
         spoken = await self._speak(turn_id, fragments)
         parse_fast_reply("SPEAK\n" + spoken)
         await self._expression.seal(turn_id=turn_id, spoken_text=spoken)
         await self._successors.enqueue_appraisal(accepted)
-        self._machine.transition(LiveVoiceSessionState.LISTENING)
+        return AttemptOutcome.COMPLETED, spoken, False
+
+    async def _observed_model_stream(
+        self, attempt_id: UUID, stream: AsyncIterator[str]
+    ) -> AsyncGenerator[str]:
+        received = False
+        try:
+            async for value in stream:
+                if not received:
+                    await self._journal.mark_provider_first_result(
+                        attempt_id=attempt_id
+                    )
+                    received = True
+                yield value
+        except asyncio.CancelledError:
+            await self._journal.settle_provider_attempt(
+                attempt_id=attempt_id,
+                outcome=AttemptOutcome.UNKNOWN,
+                error_code="VOICE-LLM-CANCELLED",
+            )
+            raise
+        except LiveVoiceViolation as error:
+            await self._journal.settle_provider_attempt(
+                attempt_id=attempt_id,
+                outcome=AttemptOutcome.PARTIAL if received else AttemptOutcome.FAILED,
+                error_code=error.code,
+            )
+            raise
+        except GeneratorExit:
+            await self._journal.settle_provider_attempt(
+                attempt_id=attempt_id,
+                outcome=AttemptOutcome.PARTIAL if received else AttemptOutcome.FAILED,
+                error_code="VOICE-LLM-ABANDONED",
+            )
+            raise
+        except Exception as error:
+            await self._journal.settle_provider_attempt(
+                attempt_id=attempt_id,
+                outcome=AttemptOutcome.PARTIAL if received else AttemptOutcome.UNKNOWN,
+                error_code="VOICE-LLM-UNKNOWN",
+            )
+            raise LiveVoiceViolation(
+                "VOICE-LLM-UNKNOWN", "fast voice model failed"
+            ) from error
+        await self._journal.settle_provider_attempt(
+            attempt_id=attempt_id, outcome=AttemptOutcome.COMPLETED
+        )
 
     async def _speak(self, turn_id: UUID, fragments: AsyncIterator[str]) -> str:
         spoken: list[str] = []
+        tts_attempt = await self._journal.begin_provider_attempt(
+            turn_id=turn_id, binding=self._binding.tts
+        )
+        playback_attempt = await self._journal.begin_playback(turn_id=turn_id)
+        tts_frames = 0
+        written_frames = 0
 
         async def registered() -> AsyncIterator[str]:
             fragment_no = 0
@@ -176,8 +352,112 @@ class LiveVoiceService:
                 spoken.append(fragment)
                 yield fragment
 
-        await self._audio.play(self._tts.synthesize(registered()))
+        async def observed_audio() -> AsyncIterator[bytes]:
+            nonlocal tts_frames
+            async for frame in self._tts.synthesize(registered()):
+                if not frame:
+                    continue
+                if tts_frames == 0:
+                    await self._journal.mark_provider_first_result(
+                        attempt_id=tts_attempt
+                    )
+                tts_frames += 1
+                yield frame
+
+        async def frame_written() -> None:
+            nonlocal written_frames
+            if written_frames == 0:
+                written_frames += 1
+                await self._journal.mark_playback_first_frame(
+                    attempt_id=playback_attempt
+                )
+            else:
+                written_frames += 1
+
+        try:
+            reported_frames = await self._audio.play(
+                observed_audio(), on_frame_written=frame_written
+            )
+            if reported_frames != written_frames:
+                raise LiveVoiceViolation(
+                    "VOICE-PLAYBACK-COUNT", "audio playback count is inconsistent"
+                )
+            if tts_frames == 0 or written_frames == 0:
+                raise LiveVoiceViolation("VOICE-TTS-EMPTY", "TTS returned no audio")
+        except asyncio.CancelledError:
+            await self._journal.settle_provider_attempt(
+                attempt_id=tts_attempt,
+                outcome=AttemptOutcome.UNKNOWN,
+                error_code="VOICE-TTS-CANCELLED",
+            )
+            await self._journal.settle_playback(
+                attempt_id=playback_attempt,
+                outcome=AttemptOutcome.UNKNOWN,
+                frames_written=written_frames,
+                error_code="VOICE-PLAYBACK-CANCELLED",
+            )
+            raise
+        except LiveVoiceViolation as error:
+            await self._journal.settle_provider_attempt(
+                attempt_id=tts_attempt,
+                outcome=(
+                    AttemptOutcome.PARTIAL if tts_frames else AttemptOutcome.FAILED
+                ),
+                error_code=error.code,
+            )
+            await self._journal.settle_playback(
+                attempt_id=playback_attempt,
+                outcome=(
+                    AttemptOutcome.PARTIAL if written_frames else AttemptOutcome.FAILED
+                ),
+                frames_written=written_frames,
+                error_code=error.code,
+            )
+            raise
+        except Exception as error:
+            await self._journal.settle_provider_attempt(
+                attempt_id=tts_attempt,
+                outcome=(
+                    AttemptOutcome.PARTIAL if tts_frames else AttemptOutcome.UNKNOWN
+                ),
+                error_code="VOICE-TTS-UNKNOWN",
+            )
+            await self._journal.settle_playback(
+                attempt_id=playback_attempt,
+                outcome=(
+                    AttemptOutcome.PARTIAL
+                    if written_frames
+                    else AttemptOutcome.UNKNOWN
+                ),
+                frames_written=written_frames,
+                error_code="VOICE-PLAYBACK-UNKNOWN",
+            )
+            raise LiveVoiceViolation(
+                "VOICE-PLAYBACK-UNKNOWN", "audio playback failed"
+            ) from error
+        await self._journal.settle_provider_attempt(
+            attempt_id=tts_attempt, outcome=AttemptOutcome.COMPLETED
+        )
+        await self._journal.settle_playback(
+            attempt_id=playback_attempt,
+            outcome=AttemptOutcome.COMPLETED,
+            frames_written=written_frames,
+        )
         return "".join(spoken)
+
+    async def _transition(
+        self,
+        state: LiveVoiceSessionState,
+        *,
+        context_version: str | None = None,
+    ) -> None:
+        self._machine.transition(state)
+        assert self._session_id is not None
+        await self._journal.set_session_state(
+            session_id=self._session_id,
+            state=state,
+            context_version=context_version,
+        )
 
 
 async def _read_route(

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
 from uuid import UUID
 
 from armi_kernel.contracts import Digest
@@ -115,14 +114,8 @@ class BirthResult:
         }
 
 
-@runtime_checkable
-class BirthPort(Protocol):
-    async def birth(self, manifest: BirthManifest) -> BirthResult: ...
-
-
 __all__ = (
     "BirthManifest",
-    "BirthPort",
     "BirthResult",
     "BirthViolation",
     "PersonalityAnchor",

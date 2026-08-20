@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Protocol, runtime_checkable
 from uuid import UUID
 
 _REASON = re.compile(r"^REC-[A-Z0-9-]{1,123}$", re.ASCII)
@@ -127,18 +126,10 @@ class RecoverySummary:
             raise RecoveryViolation("REC-DECLARATION")
 
 
-@runtime_checkable
-class RecoveryPort(Protocol):
-    async def recover(self) -> RecoverySummary:
-        """Rebuild only currently manifested durable responsibilities."""
-        ...
-
-
 __all__ = (
     "RecoveryDecision",
     "RecoveryFinding",
     "RecoveryMetric",
-    "RecoveryPort",
     "RecoveryRunId",
     "RecoveryStatus",
     "RecoverySummary",

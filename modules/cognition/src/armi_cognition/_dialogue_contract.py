@@ -1114,42 +1114,6 @@ def dialogue_candidate_schema(
     raise ValueError("unsupported dialogue candidate version")
 
 
-def dialogue_model_output_schema(*, web_search: bool) -> dict[str, Any]:
-    """Return the Runtime candidate shape without non-validating annotations.
-
-    Structured output is an untrusted transport constraint, not a second and looser
-    candidate language. Pydantic titles, defaults and discriminator hints add provider
-    tokens but do not change the accepted shape: required fields, unions and constants
-    already carry those semantics.
-    """
-
-    version = (
-        WEB_DIALOGUE_CANDIDATE_VERSION if web_search else DIALOGUE_CANDIDATE_VERSION
-    )
-    return cast(
-        dict[str, Any],
-        _strip_provider_schema_annotations(dialogue_candidate_schema(version)),
-    )
-
-
-def _strip_provider_schema_annotations(value: Any) -> Any:
-    if isinstance(value, list):
-        return [
-            _strip_provider_schema_annotations(item) for item in cast(list[Any], value)
-        ]
-    if isinstance(value, dict):
-        mapping = cast(dict[str, Any], value)
-        return {
-            key: _strip_provider_schema_annotations(item)
-            for key, item in mapping.items()
-            if not (
-                key in {"default", "discriminator"}
-                or (key == "title" and isinstance(item, str))
-            )
-        }
-    return value
-
-
 def _compact_metadata(
     change: DialogueCompactChange,
     *,
@@ -1583,7 +1547,6 @@ __all__ = (
     "DialogueWebResearchDecisionV18",
     "DialogueWebResearchDecisionV20",
     "dialogue_candidate_schema",
-    "dialogue_model_output_schema",
     "parse_dialogue_candidate",
     "translate_compact_change_set",
 )

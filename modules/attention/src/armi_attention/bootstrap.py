@@ -24,8 +24,6 @@ from .api import (
     OpportunityAdminPort,
     OpportunityAdmissionPort,
     OpportunityCognitionPort,
-    OpportunityContextReadPort,
-    OpportunityOperationReadPort,
     OpportunityOwnerPort,
     OpportunityRuntimePort,
     OpportunityTransitionPort,
@@ -53,15 +51,7 @@ def bootstrap_opportunity_transition() -> OpportunityTransitionPort:
     return PostgreSQLOpportunityOwner()
 
 
-def bootstrap_opportunity_operation() -> OpportunityOperationReadPort:
-    return PostgreSQLOpportunityOwner()
-
-
 def bootstrap_opportunity_cognition() -> OpportunityCognitionPort:
-    return PostgreSQLOpportunityOwner()
-
-
-def bootstrap_opportunity_context() -> OpportunityContextReadPort:
     return PostgreSQLOpportunityOwner()
 
 
@@ -119,9 +109,7 @@ __all__ = (
     "bootstrap_opportunity_admin",
     "bootstrap_opportunity_admission",
     "bootstrap_opportunity_cognition",
-    "bootstrap_opportunity_context",
     "bootstrap_opportunity_data_rights",
-    "bootstrap_opportunity_operation",
     "bootstrap_opportunity_owner",
     "bootstrap_opportunity_recovery",
     "bootstrap_opportunity_sleep",

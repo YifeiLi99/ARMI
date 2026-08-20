@@ -14,11 +14,36 @@ from armi_runtime.adapters.voice.volc import (
     VolcStreamingAsr,
     VolcStreamingTts,
     decode_message,
+    decode_volc_credentials,
     encode_asr_audio,
     encode_asr_full_request,
     encode_event,
     json_payload,
 )
+
+
+def test_voice_credentials_decode_from_scoped_json() -> None:
+    value = bytearray(b'{"app_id":" app ","access_token":" token "}')
+
+    credentials = decode_volc_credentials(value)
+
+    assert credentials == VolcCredentials("app", "token")
+
+
+@pytest.mark.parametrize(
+    "value",
+    (
+        bytearray(b"{}"),
+        bytearray(b'{"app_id":"app","access_token":""}'),
+        bytearray(b'{"app_id":"app","access_token":"token","extra":1}'),
+        bytearray(b"not-json"),
+    ),
+)
+def test_voice_credentials_reject_incomplete_or_ambiguous_json(
+    value: bytearray,
+) -> None:
+    with pytest.raises(LiveVoiceViolation, match="credential"):
+        decode_volc_credentials(value)
 
 
 def test_asr_full_request_uses_sequence_json_and_gzip() -> None:

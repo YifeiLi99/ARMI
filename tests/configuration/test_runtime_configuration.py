@@ -200,6 +200,23 @@ class RuntimeConfigurationTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             RuntimeConfig.model_validate(payload)
 
+    def test_voice_provider_identities_are_trimmed_and_bounded(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            effective = self.load(
+                Path(directory),
+                extra="voice:\n  llm_model: '  model-name  '\n",
+            )
+        self.assertEqual(effective.config.voice.llm_model, "model-name")
+
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            self.assertRaises(ConfigurationViolation),
+        ):
+            self.load(
+                Path(directory),
+                extra=f"voice:\n  tts_voice_type: {'x' * 129}\n",
+            )
+
     def test_unknown_armi_environment_is_rejected(self) -> None:
         with (
             tempfile.TemporaryDirectory() as directory,

@@ -135,6 +135,13 @@ _PROFILES = {
         ),
         retrieval=frozenset({"current_memory", "current_material"}),
     ),
+    "consider_creator_voice_appraisal": _profile(
+        "consider_creator_voice_appraisal",
+        required=frozenset(
+            {"current_scene", "current_relationship", "current_evidence"}
+        ),
+        retrieval=frozenset({"current_memory"}),
+    ),
     "consider_web_evidence": _profile(
         "consider_web_evidence",
         required=frozenset({"current_scene", "current_evidence"}),

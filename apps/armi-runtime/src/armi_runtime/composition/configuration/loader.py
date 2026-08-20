@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import copy
-import hashlib
 import json
 import re
 from collections.abc import Mapping
@@ -308,21 +307,6 @@ def schema_bytes() -> bytes:
     return f"{text}\n".encode()
 
 
-def environment_override_manifest() -> dict[str, dict[str, object]]:
-    return {
-        name: {
-            "path": ".".join(path),
-            "type": kind,
-            "env_overridable": True,
-        }
-        for name, (path, kind) in sorted(_ENV_OVERRIDES.items())
-    }
-
-
-def sha256_hex(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
-
-
 def _read_yaml(path: Path) -> dict[str, Any]:
     if not path.is_file():
         raise ConfigurationViolation(
@@ -430,10 +414,8 @@ __all__ = (
     "DeploymentProfile",
     "EffectiveConfig",
     "PreflightRequirements",
-    "environment_override_manifest",
     "load_effective_config",
     "preflight_config",
     "runtime_config_schema",
     "schema_bytes",
-    "sha256_hex",
 )

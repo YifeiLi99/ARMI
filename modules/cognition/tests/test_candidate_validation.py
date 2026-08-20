@@ -36,7 +36,6 @@ from armi_cognition._validator import (
     CandidateSubjectPromptContext,
     CandidateValidationContext,
     _memory_source_kind,
-    _relationship_wire,
 )
 from armi_cognition._validator import (
     DeterministicCandidateValidator as _CandidateValidator,
@@ -104,6 +103,67 @@ from armi_sleep.api import (
 from armi_subject_state.api import (
     SubjectStateKind,
 )
+
+
+def _relationship_wire(value: object) -> dict[str, object]:
+    relationship = cast(Any, value)
+    return {
+        "proposal_ref": relationship.proposal_ref,
+        "atomic_group_ref": relationship.atomic_group_ref,
+        "basis_ordinals": list(relationship.basis_ordinals),
+        "fact_class": relationship.fact_class.value,
+        "relationship_id": str(relationship.relationship_id),
+        "subject_party_id": str(relationship.subject_party_id),
+        "other_party_id": str(relationship.other_party_id),
+        "current_revision_id": (
+            None
+            if relationship.current_revision_id is None
+            else str(relationship.current_revision_id)
+        ),
+        "expected_head_version": relationship.expected_head_version,
+        "source_experience_ref": relationship.source_experience_ref,
+        "facts": [
+            {"kind": item.kind.value, "summary": item.summary}
+            for item in relationship.facts
+        ],
+        "interpretation": relationship.interpretation,
+        "boundaries": [
+            {
+                "party_role": item.party_role.value,
+                "kind": item.kind.value,
+                "action": item.action.value,
+                "summary": item.summary,
+            }
+            for item in relationship.boundaries
+        ],
+        "commitments": [
+            {
+                "commitment_id": str(item.commitment_id),
+                "party_role": item.party_role.value,
+                "scope": item.scope,
+                "content": item.content,
+                "status": item.status.value,
+                "last_event_kind": item.last_event_kind.value,
+                "last_event_summary": item.last_event_summary,
+            }
+            for item in relationship.commitments
+        ],
+        "open_issues": [
+            {
+                "issue_id": str(issue.issue_id),
+                "kind": issue.kind.value,
+                "commitment_ids": [str(item) for item in issue.commitment_ids],
+                "summary": issue.summary,
+                "status": issue.status.value,
+            }
+            for issue in relationship.open_issues
+        ],
+        "commitment_event": None,
+        "status": relationship.status.value,
+        "scope": relationship.scope,
+        "mechanism_identity": relationship.mechanism_identity,
+        "privacy_scope": relationship.privacy_scope,
+    }
 
 
 def DeterministicCandidateValidator(

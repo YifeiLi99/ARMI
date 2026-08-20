@@ -31,7 +31,6 @@ from ._codex_postgresql import PostgreSQLEffectCodexLifecycle
 from ._data_rights import PostgreSQLEffectDataRightsParticipant
 from ._dispatch import PostgreSQLEffectDispatchRepository
 from ._grant import (
-    PostgreSQLEffectDispatchBoundary,
     PostgreSQLEffectGrantCancellation,
 )
 from ._inbox import PostgreSQLLocalInbox
@@ -48,7 +47,6 @@ from .api import (
     EffectArtifactStorePort,
     EffectCodexArtifactPort,
     EffectCodexLifecyclePort,
-    EffectDispatchBoundaryPort,
     EffectGrantCancellationPort,
     EffectReadPort,
     EffectRegistrationContextPort,
@@ -76,12 +74,6 @@ compose_effect_ledger_repository = PostgreSQLEffectLedgerRepository
 
 def bootstrap_effect_grant_cancellation() -> EffectGrantCancellationPort:
     return PostgreSQLEffectGrantCancellation()
-
-
-def bootstrap_effect_dispatch_boundary(
-    authorization: CapabilityDispatchAuthorizationPort,
-) -> EffectDispatchBoundaryPort:
-    return PostgreSQLEffectDispatchBoundary(authorization)
 
 
 def bootstrap_effect_codex_lifecycle(
@@ -174,7 +166,6 @@ __all__ = (
     "bootstrap_effect_admin",
     "bootstrap_effect_codex_lifecycle",
     "bootstrap_effect_data_rights",
-    "bootstrap_effect_dispatch_boundary",
     "bootstrap_effect_grant_cancellation",
     "bootstrap_effect_operation_read",
     "bootstrap_effect_recovery",

@@ -201,6 +201,16 @@ class VoiceConfig(_FrozenModel):
     tts_resource_id: str = "seed-tts-2.0"
     tts_voice_type: str = "zh_female_vv_uranus_bigtts"
 
+    @field_validator(
+        "asr_resource_id", "llm_model", "tts_resource_id", "tts_voice_type"
+    )
+    @classmethod
+    def validate_provider_identity(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized or len(normalized) > 128:
+            raise ValueError("voice provider identity is invalid")
+        return normalized
+
     @model_validator(mode="after")
     def validate_enabled_devices(self) -> Self:
         if self.enabled and (self.input_device is None or self.output_device is None):

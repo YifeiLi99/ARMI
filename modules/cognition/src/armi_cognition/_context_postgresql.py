@@ -157,7 +157,11 @@ class PostgreSQLCognitionContextLifecycle:
                 ordinals=tuple(cast(int, item[1]) for item in source_rows),
                 maintenance_source=True,
             )
-        elif purpose in {"consider_creator_input", "consider_life_query_result"}:
+        elif purpose in {
+            "consider_creator_input",
+            "consider_creator_voice_appraisal",
+            "consider_life_query_result",
+        }:
             snapshots = await self._experiences.recent(
                 transaction,
                 subject_id=cast(UUID, row[2]),
@@ -200,9 +204,12 @@ class PostgreSQLCognitionContextLifecycle:
         ).fetchone()
         if row is None:
             raise CandidateViolation("CANDIDATE-EPISODE-STATE")
+        purpose = str(row[5])
         branch_roles = (
-            ("response_action", "episode_appraisal")
-            if str(row[5]) in {"consider_creator_input", "consider_life_query_result"}
+            ("episode_appraisal",)
+            if purpose == "consider_creator_voice_appraisal"
+            else ("response_action", "episode_appraisal")
+            if purpose in {"consider_creator_input", "consider_life_query_result"}
             else ("primary",)
         )
         for role in branch_roles:

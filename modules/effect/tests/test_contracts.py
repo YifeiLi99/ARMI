@@ -5,23 +5,15 @@ from datetime import UTC, datetime
 from uuid import uuid4, uuid7
 
 from armi_effect.api import (
-    EffectAdapterReceipt,
     EffectAttemptId,
-    EffectDeliveryId,
     EffectDispatchBoundaryResult,
     EffectId,
-    EffectObservation,
-    EffectObservationId,
-    EffectObservationKind,
-    EffectObservationReliability,
-    EffectSettlement,
     EffectStatus,
     EffectVerificationStatus,
     EffectView,
     EffectViolation,
     FrozenEffectRequest,
     PolicyDecisionId,
-    PolicyDecisionOutcome,
 )
 from armi_kernel.contracts import Digest, Instant, TraceId
 
@@ -43,10 +35,6 @@ class EffectContractTests(unittest.TestCase):
         )
         self.assertEqual(view.effect_id, effect_id)
         self.assertEqual(decision_id.value.version, 7)
-        self.assertEqual(
-            {item.value for item in PolicyDecisionOutcome},
-            {"allowed", "denied", "confirmation_required", "unavailable"},
-        )
 
     def test_invalid_identity_and_state_are_rejected(self) -> None:
         with self.assertRaises(EffectViolation) as identity:
@@ -76,35 +64,6 @@ class EffectContractTests(unittest.TestCase):
         error = EffectViolation("EFFECT-DATABASE")
         self.assertNotIn("postgres", str(error).lower())
 
-    def test_receipt_observation_and_terminal_settlement_are_strict(self) -> None:
-        now = Instant(datetime.now(UTC))
-        effect_id = EffectId(uuid7())
-        attempt_id = EffectAttemptId(uuid7())
-        delivery_id = EffectDeliveryId(uuid7())
-        receipt = EffectAdapterReceipt(
-            delivery_id,
-            Digest.from_bytes(b"receipt"),
-            now,
-        )
-        observation = EffectObservation(
-            EffectObservationId(uuid7()),
-            attempt_id,
-            EffectObservationKind.RECEIPT,
-            EffectObservationReliability.RELIABLE,
-            receipt.receipt_digest,
-            now,
-            delivery_id.value,
-        )
-        settlement = EffectSettlement(
-            effect_id,
-            EffectStatus.COMPLETED,
-            EffectVerificationStatus.VERIFIED,
-            1,
-            observation,
-            now,
-        )
-        self.assertEqual(settlement.attempt_count, 1)
-
     def test_unknown_requires_explicit_verification_action(self) -> None:
         with self.assertRaises(EffectViolation) as invalid:
             EffectView(
@@ -120,27 +79,6 @@ class EffectContractTests(unittest.TestCase):
                 attempt_count=1,
             )
         self.assertEqual(invalid.exception.code, "CON-EFFECT-VERIFICATION")
-
-    def test_verified_cancellation_after_attempt_keeps_settlement(self) -> None:
-        now = Instant(datetime.now(UTC))
-        observation = EffectObservation(
-            EffectObservationId(uuid7()),
-            EffectAttemptId(uuid7()),
-            EffectObservationKind.QUERY,
-            EffectObservationReliability.RELIABLE,
-            Digest.from_bytes(b"confirmed absent"),
-            now,
-        )
-        settlement = EffectSettlement(
-            EffectId(uuid7()),
-            EffectStatus.CANCELLED,
-            EffectVerificationStatus.VERIFIED,
-            1,
-            observation,
-            now,
-        )
-
-        self.assertIs(settlement.status, EffectStatus.CANCELLED)
 
     def test_external_group_effect_requires_complete_frozen_route(self) -> None:
         content = b"hello"

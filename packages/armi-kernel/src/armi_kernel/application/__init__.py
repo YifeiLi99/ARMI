@@ -27,7 +27,6 @@ from .auditing import (
 )
 from .birth import (
     BirthManifest,
-    BirthPort,
     BirthResult,
     BirthViolation,
     PersonalityAnchor,
@@ -43,10 +42,7 @@ from .candidates import (
     CandidateValidationId,
     CandidateViolation,
 )
-from .context import (
-    CognitiveEpisodeId,
-    CognitiveEpisodeStatus,
-)
+from .context import CognitiveEpisodeId
 from .creator_events import (
     CreatorEventViolation,
     CreatorProjectionInvalidation,
@@ -110,7 +106,6 @@ from .recovery import (
     RecoveryDecision,
     RecoveryFinding,
     RecoveryMetric,
-    RecoveryPort,
     RecoveryRunId,
     RecoveryStatus,
     RecoverySummary,
@@ -129,17 +124,13 @@ from .subject_commit import (
     CandidateApplicationStatus,
     ExperienceId,
     SubjectCommitId,
-    SubjectCommitPort,
     SubjectCommitResult,
     SubjectCommitViolation,
 )
 from .transactions import (
     BeforeCommitHook,
-    CasStatus,
     PostCommitAction,
     TransactionIsolation,
-    UnitOfWork,
-    classify_cas_rows,
 )
 
 __all__: tuple[str, ...] = (
@@ -165,7 +156,6 @@ __all__: tuple[str, ...] = (
     "AuditWriter",
     "BeforeCommitHook",
     "BirthManifest",
-    "BirthPort",
     "BirthResult",
     "BirthViolation",
     "CandidateApplicationId",
@@ -179,9 +169,7 @@ __all__: tuple[str, ...] = (
     "CandidateRejection",
     "CandidateValidationId",
     "CandidateViolation",
-    "CasStatus",
     "CognitiveEpisodeId",
-    "CognitiveEpisodeStatus",
     "CreatorEventViolation",
     "CreatorProjectionInvalidation",
     "CreatorProjectionNotifier",
@@ -223,7 +211,6 @@ __all__: tuple[str, ...] = (
     "RecoveryDecision",
     "RecoveryFinding",
     "RecoveryMetric",
-    "RecoveryPort",
     "RecoveryRunId",
     "RecoveryStatus",
     "RecoverySummary",
@@ -237,11 +224,9 @@ __all__: tuple[str, ...] = (
     "SecretHandle",
     "StagedArtifact",
     "SubjectCommitId",
-    "SubjectCommitPort",
     "SubjectCommitResult",
     "SubjectCommitViolation",
     "TransactionIsolation",
-    "UnitOfWork",
     "VerifiedByteStream",
     "WorkAttemptId",
     "WorkDraft",
@@ -253,5 +238,4 @@ __all__: tuple[str, ...] = (
     "WorkResultRef",
     "WorkStatus",
     "WorkViolation",
-    "classify_cas_rows",
 )

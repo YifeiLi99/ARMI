@@ -2624,10 +2624,8 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
     for legacy_call in (
         "bootstrap_cognition_operation(",
         "bootstrap_cognition_life_records(",
-        "bootstrap_interaction_cognition(",
         "bootstrap_interaction_subject_commit(",
         "bootstrap_opportunity_cognition(",
-        "bootstrap_opportunity_operation(",
     ):
         if legacy_call in runtime_source:
             violations.append(

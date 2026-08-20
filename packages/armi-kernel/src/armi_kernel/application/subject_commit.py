@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Protocol, runtime_checkable
 from uuid import UUID
 
 _CODE = re.compile(r"^(?:CON|SUBJECT|CONFLICT|DB)-[A-Z0-9-]+$", re.ASCII)
@@ -106,13 +105,6 @@ class SubjectCommitResult:
             raise SubjectCommitViolation("CON-SUBJECT-COMMIT-RESULT")
 
 
-@runtime_checkable
-class SubjectCommitPort(Protocol):
-    async def commit_once(self) -> bool:
-        """Claim and settle at most one validated T-03 responsibility."""
-        ...
-
-
 def _require_uuid7(value: UUID, code: str) -> None:
     if type(value) is not UUID or value.version != 7:
         raise SubjectCommitViolation(code)
@@ -123,7 +115,6 @@ __all__ = (
     "CandidateApplicationStatus",
     "ExperienceId",
     "SubjectCommitId",
-    "SubjectCommitPort",
     "SubjectCommitResult",
     "SubjectCommitViolation",
 )

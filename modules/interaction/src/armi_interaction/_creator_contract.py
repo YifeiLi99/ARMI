@@ -367,6 +367,12 @@ class CreatorVoiceInputAcceptancePort(Protocol):
 
 @runtime_checkable
 class CreatorVoiceInputSuccessorPort(Protocol):
+    async def release_voice_appraisal(
+        self, acceptance: CreatorVoiceInputAcceptance
+    ) -> OpportunityId:
+        """Admit only the private appraisal successor after a fast decision."""
+        ...
+
     async def release_voice_slow(
         self, acceptance: CreatorVoiceInputAcceptance
     ) -> OpportunityId:
