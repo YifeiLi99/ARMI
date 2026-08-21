@@ -329,9 +329,8 @@ _REASON_BY_CODE: Final = {
     "DB-RUNTIME-ROLE-UNSAFE": "RUNTIME_DATABASE_ROLE_UNSAFE",
     "DB-SCHEMA-MISSING": "RUNTIME_SCHEMA_MISSING",
     "DB-SCHEMA-EXISTS": "RUNTIME_SCHEMA_INVALID",
-    "DB-SCHEMA-HISTORY": "RUNTIME_SCHEMA_INVALID",
+    "DB-SCHEMA-CONTRACT": "RUNTIME_SCHEMA_INVALID",
     "DB-SCHEMA-INVARIANT": "RUNTIME_SCHEMA_INVALID",
-    "DB-SCHEMA-PENDING": "RUNTIME_SCHEMA_MIGRATION_REQUIRED",
     "DB-SCHEMA-RESOURCE": "RUNTIME_SCHEMA_INVALID",
     "DB-ROLE-IDENTITY": "RUNTIME_DATABASE_ROLE_POLICY_INVALID",
     "DB-ROLE-ATTRIBUTES": "RUNTIME_DATABASE_ROLE_POLICY_INVALID",
@@ -403,11 +402,6 @@ def _with_connection(
                     ) from None
                 if operation == "install":
                     return gateway.install(
-                        conninfo,
-                        environment_id=prepared.effective.config.environment.environment_id,
-                    )
-                if operation == "migrate":
-                    return gateway.migrate(
                         conninfo,
                         environment_id=prepared.effective.config.environment.environment_id,
                     )
@@ -483,15 +477,6 @@ def install_operator_schema(prepared: PreparedEnvironment) -> SchemaStatus:
         locator_name=MIGRATOR_LOCATOR_NAME,
         purpose="database.migrator",
         operation="install",
-    )
-
-
-def migrate_operator_schema(prepared: PreparedEnvironment) -> SchemaStatus:
-    return _with_connection(
-        prepared,
-        locator_name=MIGRATOR_LOCATOR_NAME,
-        purpose="database.migrate",
-        operation="migrate",
     )
 
 
@@ -1777,6 +1762,5 @@ __all__ = (
     "inspect_runtime_schema",
     "inspect_semantic_recall_storage",
     "install_operator_schema",
-    "migrate_operator_schema",
     "runtime_database_reason",
 )

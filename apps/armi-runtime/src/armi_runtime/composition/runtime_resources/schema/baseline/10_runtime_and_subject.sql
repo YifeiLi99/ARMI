@@ -1,5 +1,19 @@
 -- Current ARMI schema tables owned by this baseline module.
 
+CREATE TABLE armi.schema_baseline_identity (
+    singleton_key boolean DEFAULT true NOT NULL,
+    baseline_identity text NOT NULL,
+    installed_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
+    CONSTRAINT schema_baseline_identity_pkey PRIMARY KEY (singleton_key),
+    CONSTRAINT schema_baseline_identity_singleton_check CHECK (singleton_key),
+    CONSTRAINT schema_baseline_identity_value_check CHECK (
+        baseline_identity = 'armi.schema-baseline.v1'::text
+    )
+);
+
+INSERT INTO armi.schema_baseline_identity (baseline_identity)
+VALUES ('armi.schema-baseline.v1');
+
 --
 -- Name: deployment_environments; Type: TABLE; Schema: armi; Owner: -
 --

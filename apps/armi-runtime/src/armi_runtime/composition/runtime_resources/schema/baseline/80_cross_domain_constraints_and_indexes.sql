@@ -1114,20 +1114,6 @@ ALTER TABLE ONLY armi.memory_relations
     ADD CONSTRAINT memory_relations_subject_commit_id_proposal_ref_key UNIQUE (subject_commit_id, proposal_ref);
 
 --
--- Name: mood_affective_events mood_affective_events_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.mood_affective_events
-    ADD CONSTRAINT mood_affective_events_pkey PRIMARY KEY (mood_affective_event_id);
-
---
--- Name: mood_affective_events mood_affective_events_revision_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.mood_affective_events
-    ADD CONSTRAINT mood_affective_events_revision_key UNIQUE (mood_revision_id, subject_id);
-
---
 -- Name: mood_appraisal_events mood_appraisal_events_identity_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
@@ -1981,12 +1967,6 @@ CREATE INDEX memory_relations_from_idx ON armi.memory_relations USING btree (fro
 --
 
 CREATE INDEX memory_relations_to_idx ON armi.memory_relations USING btree (to_memory_id, created_at DESC);
-
---
--- Name: mood_affective_events_subject_time_idx; Type: INDEX; Schema: armi; Owner: -
---
-
-CREATE INDEX mood_affective_events_subject_time_idx ON armi.mood_affective_events USING btree (subject_id, occurred_at DESC, mood_affective_event_id DESC);
 
 --
 -- Name: mood_appraisal_events_episode_time_idx; Type: INDEX; Schema: armi; Owner: -
@@ -3637,20 +3617,6 @@ ALTER TABLE ONLY armi.memory_relations
 
 ALTER TABLE ONLY armi.memory_relations
     ADD CONSTRAINT memory_relations_to_memory_id_fkey FOREIGN KEY (to_memory_id) REFERENCES armi.subjective_memories(memory_id);
-
---
--- Name: mood_affective_events mood_affective_events_revision_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.mood_affective_events
-    ADD CONSTRAINT mood_affective_events_revision_fkey FOREIGN KEY (mood_revision_id, subject_id) REFERENCES armi.mood_revisions(mood_revision_id, subject_id);
-
---
--- Name: mood_affective_events mood_affective_events_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.mood_affective_events
-    ADD CONSTRAINT mood_affective_events_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
 --
 -- Name: mood_appraisal_events mood_appraisal_events_previous_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -

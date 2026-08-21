@@ -61,6 +61,7 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "runtime_instances": TableOwnership("runtime"),
     "runtime_recovery_metrics": TableOwnership("runtime"),
     "runtime_recovery_runs": TableOwnership("runtime"),
+    "schema_baseline_identity": TableOwnership("runtime"),
     "subject_commits": TableOwnership("runtime"),
     "subjects": TableOwnership("runtime"),
     # Technical artifact catalog.
@@ -115,7 +116,6 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "prompt_revisions": TableOwnership("prompt"),
     "mood_heads": TableOwnership("mood"),
     "mood_revisions": TableOwnership("mood"),
-    "mood_affective_events": TableOwnership("mood"),
     "mood_appraisal_events": TableOwnership("mood"),
     # Life facts.
     "memory_relations": TableOwnership("memory"),

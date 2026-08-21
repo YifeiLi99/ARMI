@@ -1,9 +1,4 @@
-"""Head-scoped PostgreSQL data-modification capabilities.
-
-Revision snapshots are immutable.  A later schema revision must add a new
-snapshot instead of changing an existing one, so historical Alembic upgrades
-remain deterministic.
-"""
+"""Current PostgreSQL table-level data-modification capabilities."""
 
 from __future__ import annotations
 
@@ -19,7 +14,7 @@ def _capabilities(
     return frozenset((role, table, operation) for table in tables.split() if table)
 
 
-_RUNTIME_INSERT_0002 = """
+_RUNTIME_INSERT = """
 accepted_experiences action_intent_revisions action_intents activities
 activity_decisions activity_revisions artifacts audit_events
 capability_request_basis_links capability_request_decisions capability_requests
@@ -40,7 +35,7 @@ live_vision_observations live_vision_sessions live_voice_playback_attempts
 live_voice_provider_attempts live_voice_sessions live_voice_text_fragments
 live_voice_turns local_inbox_deliveries maintenance_phase_results
 maintenance_session_revisions maintenance_sessions memory_relations
-mood_affective_events mood_appraisal_events mood_heads mood_revisions
+mood_appraisal_events mood_heads mood_revisions
 observation_attempts observation_tool_calls opportunities parties
 party_input_interactions permission_grants policy_decisions prompt_documents
 prompt_revisions relationship_experience_links relationship_revisions
@@ -52,7 +47,7 @@ subjects visual_recognition_attempts web_evidence_sources
 web_observation_requests web_research_intents
 """
 
-_RUNTIME_UPDATE_0002 = """
+_RUNTIME_UPDATE = """
 action_intent_revisions action_intents activities activity_decisions artifacts
 capability_requests cognition_maintenance_batch_sources
 cognition_maintenance_batches cognition_maintenance_cursors cognitive_attempts
@@ -72,40 +67,35 @@ scene_participants subject_component_heads subjective_memories subjects
 visual_recognition_attempts web_observation_requests web_research_intents
 """
 
-_ADMIN_INSERT_0002 = """
+_ADMIN_INSERT = """
 deployment_environments durable_work effect_observations mood_revisions
 subject_component_revisions
 """
 
-_ADMIN_UPDATE_0002 = """
+_ADMIN_UPDATE = """
 durable_work effect_outbox_items effects mood_heads runtime_instances
 subject_component_heads subjects
 """
 
-_ADMIN_DELETE_0002 = """
+_ADMIN_DELETE = """
 artifacts audit_events dialogue_decisions external_content_recognition_attempts
 external_evidence external_message_parts local_inbox_deliveries opportunities
 party_input_interactions scene_timeline_items
 """
 
-DML_CAPABILITIES_0002: Final[frozenset[DatabaseDmlCapability]] = frozenset[
+CURRENT_DML_CAPABILITIES: Final[frozenset[DatabaseDmlCapability]] = frozenset[
     DatabaseDmlCapability
 ]().union(
-    _capabilities("armi_runtime", "INSERT", _RUNTIME_INSERT_0002),
-    _capabilities("armi_runtime", "UPDATE", _RUNTIME_UPDATE_0002),
+    _capabilities("armi_runtime", "INSERT", _RUNTIME_INSERT),
+    _capabilities("armi_runtime", "UPDATE", _RUNTIME_UPDATE),
     _capabilities("armi_runtime", "DELETE", "context_embedding_projections"),
-    _capabilities("armi_admin", "INSERT", _ADMIN_INSERT_0002),
-    _capabilities("armi_admin", "UPDATE", _ADMIN_UPDATE_0002),
-    _capabilities("armi_admin", "DELETE", _ADMIN_DELETE_0002),
-)
-
-CURRENT_DML_CAPABILITIES: Final[frozenset[DatabaseDmlCapability]] = (
-    DML_CAPABILITIES_0002
+    _capabilities("armi_admin", "INSERT", _ADMIN_INSERT),
+    _capabilities("armi_admin", "UPDATE", _ADMIN_UPDATE),
+    _capabilities("armi_admin", "DELETE", _ADMIN_DELETE),
 )
 
 __all__ = (
     "CURRENT_DML_CAPABILITIES",
-    "DML_CAPABILITIES_0002",
     "DatabaseDmlCapability",
     "DatabaseOperation",
 )

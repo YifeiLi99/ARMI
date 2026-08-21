@@ -434,23 +434,9 @@ class AdminControlPlane:
             conninfo = handle.consume(lambda value: bytes(value).decode("utf-8"))
         AdminEnvironmentSchemaGateway.recreate_empty_schema(conninfo)
         self._run_runtime_cli("db", "install", timeout=180, with_migrator=True)
-        self._run_runtime_cli(
-            "db",
-            "migrate",
-            arguments=("--apply",),
-            timeout=180,
-            with_migrator=True,
-        )
 
     def _install_database(self) -> None:
         self._run_runtime_cli("db", "install", timeout=180, with_migrator=True)
-        self._run_runtime_cli(
-            "db",
-            "migrate",
-            arguments=("--apply",),
-            timeout=180,
-            with_migrator=True,
-        )
 
     def _run_runtime_cli(
         self,

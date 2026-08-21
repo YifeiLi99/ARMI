@@ -41,20 +41,12 @@ def test_schema_resources_use_one_linear_alembic_history() -> None:
     assert not (RESOURCE / "migrations").exists()
     assert not list(RESOURCE.glob("**/manifest.json"))
     script = _script()
-    assert script.get_heads() == ["0002"]
+    assert script.get_heads() == ["0000"]
     revisions = list(script.walk_revisions(base="base", head="heads"))
-    assert [revision.revision for revision in reversed(revisions)] == [
-        "0000",
-        "0001",
-        "0002",
-    ]
+    assert [revision.revision for revision in reversed(revisions)] == ["0000"]
     assert sorted(
         path.name for path in (RESOURCE / "alembic" / "versions").glob("*.py")
-    ) == [
-        "0000_baseline.py",
-        "0001_creator_voice_appraisal.py",
-        "0002_table_level_dml_capabilities.py",
-    ]
+    ) == ["0000_baseline.py"]
 
 
 def test_baseline_contains_authoritative_schema() -> None:
@@ -81,9 +73,8 @@ def test_active_cognition_contracts_are_in_the_current_baseline() -> None:
         for name in BASELINE_DOCUMENTS
     )
     for contract in (
-        "armi.creator-dialogue-candidate.v21",
-        "armi.creator-dialogue-candidate.v22",
-        "armi.other-human-dialogue-candidate.v4",
+        "armi.creator-dialogue-candidate.v23",
+        "armi.other-human-dialogue-candidate.v6",
     ):
         assert contract in baseline
     assert "cognitive_attempts_candidate_schema_version_check" in baseline
@@ -107,22 +98,24 @@ def test_active_cognition_contracts_are_in_the_current_baseline() -> None:
     assert "derived_appraisal_payload" in baseline
 
 
-def test_gateway_exposes_install_status_and_explicit_migration() -> None:
+def test_gateway_exposes_install_and_status_only() -> None:
     assert callable(PostgreSQLSchemaGateway.install)
     assert callable(PostgreSQLSchemaGateway.status)
-    assert callable(PostgreSQLSchemaGateway.migrate)
+    assert not hasattr(PostgreSQLSchemaGateway, "migrate")
+    assert "armi.schema-baseline.v1" in (
+        RESOURCE / "baseline" / "10_runtime_and_subject.sql"
+    ).read_text(encoding="utf-8")
 
 
 def test_gateway_rejects_multiple_alembic_heads(tmp_path: Path) -> None:
     schema = tmp_path / "schema"
     shutil.copytree(RESOURCE, schema)
-    (schema / "alembic/versions/0001_parallel_probe.py").write_text(
+    (schema / "alembic/versions/unsupported_parallel_probe.py").write_text(
         "revision = 'parallel'\n"
         "down_revision = None\n"
         "branch_labels = None\n"
         "depends_on = None\n"
-        "def upgrade(): pass\n"
-        "def downgrade(): pass\n",
+        "def upgrade(): pass\n",
         encoding="utf-8",
         newline="\n",
     )

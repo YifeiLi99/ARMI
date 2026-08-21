@@ -1,4 +1,4 @@
-"""Install, inspect, and migrate the authoritative PostgreSQL schema."""
+"""Install and inspect the authoritative PostgreSQL schema."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ import psycopg
 from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from alembic.script.revision import ResolutionError
 from alembic.util.exc import CommandError
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Connection
@@ -31,6 +30,7 @@ _EXPECTED_ENCODING: Final = "UTF8"
 _EXPECTED_TIMEZONE: Final = "UTC"
 _EXPECTED_LOCALE: Final = "C.UTF-8"
 _VERSION_TABLE: Final = "alembic_version"
+_BASELINE_IDENTITY: Final = "armi.schema-baseline.v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +39,7 @@ class SchemaStatus:
     table_count: int
     current_revision: str
     head_revision: str
+    baseline_identity: str = _BASELINE_IDENTITY
 
     def safe_view(self) -> dict[str, object]:
         return {
@@ -46,11 +47,12 @@ class SchemaStatus:
             "table_count": self.table_count,
             "current_revision": self.current_revision,
             "head_revision": self.head_revision,
+            "baseline_identity": self.baseline_identity,
         }
 
 
 class PostgreSQLSchemaGateway:
-    """Govern one authoritative schema through a linear Alembic history."""
+    """Govern one authoritative schema through its sole Alembic baseline."""
 
     __slots__ = ("_config", "_head")
 
@@ -91,7 +93,7 @@ class PostgreSQLSchemaGateway:
                 connection,
                 environment_id=environment_id,
                 role_class=role_class,
-                require_head_dml=self._uses_table_dml_policy(state.current_revision),
+                require_head_dml=True,
             )
             return state
 
@@ -132,65 +134,9 @@ class PostgreSQLSchemaGateway:
                 connection,
                 environment_id=environment_id,
                 role_class="migrator",
-                require_head_dml=self._uses_table_dml_policy(state.current_revision),
+                require_head_dml=True,
             )
             return state
-
-    def migrate(self, conninfo: str, *, environment_id: UUID) -> SchemaStatus:
-        with self._connect(conninfo, autocommit=True) as connection:
-            self._verify_database_identity(connection)
-            role_gateway = PostgreSQLRolePolicyGateway()
-            role_gateway.verify(
-                connection,
-                environment_id=environment_id,
-                role_class="migrator",
-                require_head_dml=False,
-            )
-            self._acquire_lock(connection)
-            state = self._inspect_schema(connection, allow_pending=True)
-            if state.status == "current":
-                role_gateway.verify(
-                    connection,
-                    environment_id=environment_id,
-                    role_class="migrator",
-                    require_head_dml=self._uses_table_dml_policy(
-                        state.current_revision
-                    ),
-                )
-                return state
-            self._reject_active_runtime(connection)
-            try:
-                self._upgrade(conninfo)
-            except (
-                psycopg.Error,
-                CommandError,
-                OSError,
-                SQLAlchemyError,
-                UnicodeError,
-            ):
-                raise DatabaseViolation(
-                    "DB-SCHEMA-MIGRATION-FAILED",
-                    "an Alembic revision failed",
-                ) from None
-            migrated = self._inspect_schema(connection)
-            role_gateway.verify(
-                connection,
-                environment_id=environment_id,
-                role_class="migrator",
-                require_head_dml=self._uses_table_dml_policy(migrated.current_revision),
-            )
-            return migrated
-
-    def _uses_table_dml_policy(self, revision_id: str) -> bool:
-        script = ScriptDirectory.from_config(self._config)
-        revision = script.get_revision(revision_id)
-        while True:
-            if revision.revision == "0002":
-                return True
-            down_revision = revision.down_revision
-            if not isinstance(down_revision, str):
-                return False
-            revision = script.get_revision(down_revision)
 
     def _upgrade(self, conninfo: str) -> None:
         engine = create_engine(
@@ -307,8 +253,6 @@ class PostgreSQLSchemaGateway:
     def _inspect_schema(
         self,
         connection: psycopg.Connection[tuple[Any, ...]],
-        *,
-        allow_pending: bool = False,
     ) -> SchemaStatus:
         tables = self._catalog_tables(connection)
         if _VERSION_TABLE not in tables:
@@ -322,31 +266,35 @@ class PostgreSQLSchemaGateway:
             ).fetchall()
         except psycopg.Error:
             raise DatabaseViolation(
-                "DB-SCHEMA-HISTORY",
+                "DB-SCHEMA-CONTRACT",
                 "the Alembic revision is unavailable",
             ) from None
         if len(rows) != 1:
             raise DatabaseViolation(
-                "DB-SCHEMA-HISTORY",
+                "DB-SCHEMA-CONTRACT",
                 "the Alembic revision history is invalid",
             )
         current = str(rows[0][0])
+        if current != self._head:
+            raise DatabaseViolation(
+                "DB-SCHEMA-CONTRACT",
+                "the database revision does not match the sole baseline",
+            )
         try:
-            revision = ScriptDirectory.from_config(self._config).get_revision(current)
-        except CommandError, ResolutionError:
-            revision = None
-        if revision is None:
+            identity_rows = connection.execute(
+                "SELECT singleton_key, baseline_identity "
+                "FROM armi.schema_baseline_identity"
+            ).fetchall()
+        except psycopg.Error:
+            identity_rows = []
+        if identity_rows != [(True, _BASELINE_IDENTITY)]:
             raise DatabaseViolation(
-                "DB-SCHEMA-HISTORY",
-                "the database revision is not present in this build",
+                "DB-SCHEMA-CONTRACT",
+                "the database baseline identity does not match this build",
             )
-        status = "current" if current == self._head else "pending"
-        if status == "pending" and not allow_pending:
-            raise DatabaseViolation(
-                "DB-SCHEMA-PENDING",
-                "Alembic revisions must be applied explicitly",
-            )
-        return SchemaStatus(status, len(tables), current, self._head)
+        return SchemaStatus(
+            "current", len(tables), current, self._head, _BASELINE_IDENTITY
+        )
 
     @staticmethod
     def _catalog_user_objects(
@@ -399,33 +347,6 @@ class PostgreSQLSchemaGateway:
                 "the schema catalog could not be inspected",
             ) from None
         return frozenset(str(row[0]) for row in rows)
-
-    @staticmethod
-    def _reject_active_runtime(
-        connection: psycopg.Connection[tuple[Any, ...]],
-    ) -> None:
-        try:
-            with connection.transaction():
-                connection.execute("SET LOCAL ROLE armi_owner")
-                row = connection.execute(
-                    """
-                    SELECT EXISTS (
-                        SELECT 1
-                        FROM armi.runtime_instances
-                        WHERE status = 'active'
-                    )
-                    """
-                ).fetchone()
-        except psycopg.Error:
-            raise DatabaseViolation(
-                "DB-SCHEMA-RUNTIME-STATE",
-                "the Runtime state could not be verified before migration",
-            ) from None
-        if row != (False,):
-            raise DatabaseViolation(
-                "DB-SCHEMA-RUNTIME-ACTIVE",
-                "stop the active Runtime before applying schema revisions",
-            )
 
     @staticmethod
     def _acquire_lock(connection: psycopg.Connection[tuple[Any, ...]]) -> None:
