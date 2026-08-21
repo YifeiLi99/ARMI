@@ -25,6 +25,7 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import ContractViolation
 from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWork,
     PostgreSQLRuntimeUnitOfWorkFactory,
     RuntimeTransactionFailure,
 )
@@ -73,6 +74,7 @@ class EffectRegistrationPipeline:
         "_factory",
         "_fault_injector",
         "_intents",
+        "_interaction_delivery",
         "_lease_owner",
         "_notifier",
         "_registration_context",
@@ -113,13 +115,14 @@ class EffectRegistrationPipeline:
         self._intents = intents
         self._registration_context = registration_context
         self._codex_artifacts = codex_artifacts
+        self._interaction_delivery = interaction_delivery
         self._dispatcher = PostgreSQLEffectDispatchRepository(authorization, routes)
         if adapter is not None and external_message_adapter is not None:
             raise ValueError("whole-effect and external-message adapters are exclusive")
         if adapter is not None:
             self._adapter = adapter
         else:
-            local_inbox = PostgreSQLLocalInbox(factory, interaction_delivery)
+            local_inbox = PostgreSQLLocalInbox(factory)
             adapter_routes: dict[str, ActionAdapterPort] = {
                 "creator_inbox": local_inbox,
                 "other_human_inbox": local_inbox,
@@ -305,6 +308,7 @@ class EffectRegistrationPipeline:
             self._fault_injector("adapter_after_dispatch_before_settlement")
             async with self._factory.unit_of_work() as uow:
                 await self._dispatcher.settle_receipt(uow, snapshot, receipt)
+                await self._record_party_response(uow, snapshot, receipt)
             await self._notify_dispatch(snapshot, include_scene=True)
             return True
         except RuntimeTransactionFailure, EffectViolation:
@@ -334,6 +338,7 @@ class EffectRegistrationPipeline:
                     await self._dispatcher.resolve_unknown_receipt(
                         uow, unknown, receipt
                     )
+                    await self._record_party_response(uow, unknown, receipt)
             if receipt is not None:
                 await self._notify_dispatch(unknown, include_scene=True)
             else:
@@ -356,12 +361,26 @@ class EffectRegistrationPipeline:
         if receipt is not None:
             async with self._factory.unit_of_work() as uow:
                 await self._dispatcher.settle_receipt(uow, snapshot, receipt)
+                await self._record_party_response(uow, snapshot, receipt)
             await self._notify_dispatch(snapshot, include_scene=True)
             return True
         async with self._factory.unit_of_work() as uow:
             await self._dispatcher.settle_absent(uow, snapshot)
         await self._notify_dispatch(snapshot, include_scene=False)
         return True
+
+    async def _record_party_response(
+        self,
+        uow: PostgreSQLRuntimeUnitOfWork,
+        snapshot: EffectDispatchSnapshot,
+        receipt: EffectAdapterReceipt,
+    ) -> None:
+        await self._interaction_delivery.record_party_response(
+            uow.transaction,
+            scene_id=snapshot.request.scene_id,
+            effect_id=snapshot.request.effect_id.value,
+            occurred_at=receipt.received_at,
+        )
 
     async def _dispatch_with_heartbeat(
         self, snapshot: EffectDispatchSnapshot, payload: bytes
@@ -439,7 +458,7 @@ class EffectRegistrationPipeline:
                 (
                     CreatorResourceKind("scene_timeline"),
                     snapshot.scene_key,
-                    "scene-timeline.v5",
+                    "scene-timeline.v6",
                 ),
             )
         await self._notify(invalidations)

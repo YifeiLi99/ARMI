@@ -248,6 +248,14 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                     "runtime_state": "ready",
                     "readiness": "ready",
                     "reason_codes": [],
+                    "components": [
+                        {
+                            "component": component,
+                            "state": "ready",
+                            "reason_codes": [],
+                        }
+                        for component in ("database", "runtime", "creator_web")
+                    ],
                     "observed_at": "2026-07-30T10:00:01.000000Z",
                 },
             )
@@ -322,7 +330,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                 200,
                 {
                     "contract_version": "1.0",
-                    "projection_version": "scene-timeline.v5",
+                    "projection_version": "scene-timeline.v6",
                     "scene_key": "default",
                     "items": items,
                 },
@@ -371,7 +379,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                     "event_kind": "scene.timeline.invalidated",
                     "resource_kind": "scene_timeline",
                     "resource_ref": "default",
-                    "projection_version": "scene-timeline.v5",
+                    "projection_version": "scene-timeline.v6",
                     "occurred_at": "2026-07-30T10:02:00.000000Z",
                 },
                 separators=(",", ":"),
@@ -474,7 +482,9 @@ def main() -> int:
                             raise RuntimeError(
                                 "WEB-BROWSER-VISIBLE: Creator workspace is hidden"
                             )
-                        page.get_by_text("本机连接正常").wait_for(state="attached")
+                        page.locator(".environment-context").get_by_text(
+                            "ready", exact=True
+                        ).wait_for(state="attached")
                         page.get_by_text("browser.event").wait_for()
                         mobile_menu = page.get_by_role(
                             "button", name="打开导航", exact=True
@@ -609,10 +619,10 @@ def main() -> int:
                         with page.expect_response(
                             lambda item: item.url.endswith("/v1/runtime/status")
                         ):
-                            page.locator(".session-summary").get_by_role(
-                                "button", name="重新读取状态"
+                            page.locator(".component-console").get_by_role(
+                                "button", name="重新检测"
                             ).click()
-                        if page.get_by_text("ready").count() != 3:
+                        if page.get_by_text("健康", exact=True).count() != 3:
                             raise RuntimeError(
                                 "WEB-BROWSER-STATUS: authenticated state is missing"
                             )
@@ -687,7 +697,9 @@ def main() -> int:
                                 "SEC-WEB-IDEMPOTENCY-STORAGE: intent key persisted"
                             )
                         page.reload(wait_until="domcontentloaded")
-                        page.get_by_text("本机连接正常").wait_for(state="attached")
+                        page.locator(".environment-context").get_by_text(
+                            "ready", exact=True
+                        ).wait_for(state="attached")
                         page.get_by_text("browser.event").wait_for()
                         overflow = page.evaluate(
                             "() => document.documentElement.scrollWidth > "

@@ -79,7 +79,9 @@ class LiveVoiceRecoveryParticipant:
                 RecoveryMetricContribution(
                     "live_voice.ended_playback_attempt_count", len(playback_rows)
                 ),
-                RecoveryMetricContribution("live_voice.ended_turn_count", len(turn_rows)),
+                RecoveryMetricContribution(
+                    "live_voice.ended_turn_count", len(turn_rows)
+                ),
                 RecoveryMetricContribution("live_voice.ended_session_count", len(rows)),
             ),
         )

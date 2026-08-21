@@ -124,6 +124,7 @@ from armi_kernel.contracts import (
     SubjectId,
     TraceId,
 )
+from armi_live_voice.bootstrap import bootstrap_live_voice_context_read
 from armi_perception.api import (
     ExternalContentRecognitionResult,
     ExternalContentRecognitionStatus,
@@ -1880,7 +1881,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     self.assertEqual(creator_status["readiness"], "ready")
                     p1_read_projections = {
                         "/v1/scenes": "creator-scenes.v1",
-                        "/v1/scenes/default/timeline?limit=1": "scene-timeline.v5",
+                        "/v1/scenes/default/timeline?limit=1": "scene-timeline.v6",
                         "/v1/activities": "creator-activity.v1",
                         "/v1/life-records?limit=1": "life-record-query.v2",
                         "/v1/memories?limit=1": "creator-memory.v1",
@@ -2813,6 +2814,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         catalog=ArtifactCatalogRepository(),
                         codex=bootstrap_codex_read_ports().task_sources,
                     ),
+                    voice_responses=bootstrap_live_voice_context_read(),
                 )
                 await timeline_query.open()
                 try:
@@ -4976,6 +4978,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     catalog=ArtifactCatalogRepository(),
                     codex=bootstrap_codex_read_ports().task_sources,
                 ),
+                voice_responses=bootstrap_live_voice_context_read(),
             )
             await factory.open()
             await gateway.open()
@@ -6594,9 +6597,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             unit_of_work,
                             dispatch_snapshot,
                         )
-                    adapter = PostgreSQLLocalInbox(
-                        response_factory, PostgreSQLInteractionPerception()
-                    )
+                    response_timeline = PostgreSQLInteractionPerception()
+                    adapter = PostgreSQLLocalInbox(response_factory)
                     receipt = await adapter.dispatch(
                         dispatch_snapshot.request,
                         payloads["reply"],
@@ -6615,6 +6617,18 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             unit_of_work,
                             dispatch_snapshot,
                             receipt,
+                        )
+                        await response_timeline.record_party_response(
+                            unit_of_work.transaction,
+                            scene_id=dispatch_snapshot.request.scene_id,
+                            effect_id=dispatch_snapshot.request.effect_id.value,
+                            occurred_at=receipt.received_at,
+                        )
+                        await response_timeline.record_party_response(
+                            unit_of_work.transaction,
+                            scene_id=dispatch_snapshot.request.scene_id,
+                            effect_id=dispatch_snapshot.request.effect_id.value,
+                            occurred_at=receipt.received_at,
                         )
                 finally:
                     await response_factory.close()

@@ -486,7 +486,7 @@ class EvidenceAcceptanceTransaction(CreatorInputAcceptancePort):
                     resource_kind=CreatorResourceKind("scene_timeline"),
                     resource_ref=SceneKey(scene_key).value,
                     occurred_at=Instant(datetime.now(UTC)),
-                    projection_version="scene-timeline.v5",
+                    projection_version="scene-timeline.v6",
                 )
             )
         except Exception:

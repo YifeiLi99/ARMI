@@ -122,7 +122,7 @@ class SceneTimelineItemResponse(_StrictWireModel):
 
 class SceneTimelinePageResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["scene-timeline.v5"]
+    projection_version: Literal["scene-timeline.v6"]
     scene_key: Annotated[str, Field(pattern=_SCENE_KEY_PATTERN)]
     items: Annotated[list[SceneTimelineItemResponse], Field(max_length=100)]
     next_cursor: (
@@ -626,7 +626,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
         "creator-maintenance.v2",
         "life-record-query.v2",
         "creator-relationship.v2",
-        "scene-timeline.v5",
+        "scene-timeline.v6",
         "capability-request.v4",
         "creator-operation.v2",
         "other-human-record.v1",

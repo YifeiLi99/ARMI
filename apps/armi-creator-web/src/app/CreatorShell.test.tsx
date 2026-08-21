@@ -319,7 +319,7 @@ describe("Creator local connection shell", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           contract_version: "1.0",
-          projection_version: "scene-timeline.v5",
+          projection_version: "scene-timeline.v6",
           scene_key: "default",
           items: [],
         }),
@@ -418,7 +418,7 @@ describe("Creator local connection shell", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           contract_version: "1.0",
-          projection_version: "scene-timeline.v5",
+          projection_version: "scene-timeline.v6",
           scene_key: "default",
           items: [
             {
@@ -446,7 +446,7 @@ describe("Creator local connection shell", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           contract_version: "1.0",
-          projection_version: "scene-timeline.v5",
+          projection_version: "scene-timeline.v6",
           scene_key: "default",
           items: [
             {
@@ -493,7 +493,7 @@ describe("Creator local connection shell", () => {
       event_kind: "scene.timeline.invalidated",
       resource_kind: "scene_timeline",
       resource_ref: "default",
-      projection_version: "scene-timeline.v5",
+      projection_version: "scene-timeline.v6",
       occurred_at: "2026-07-30T10:02:00.000000Z",
     });
     const fetchMock = vi
@@ -504,7 +504,7 @@ describe("Creator local connection shell", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           contract_version: "1.0",
-          projection_version: "scene-timeline.v5",
+          projection_version: "scene-timeline.v6",
           scene_key: "default",
           items: [],
         }),
@@ -527,7 +527,7 @@ describe("Creator local connection shell", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           contract_version: "1.0",
-          projection_version: "scene-timeline.v5",
+          projection_version: "scene-timeline.v6",
           scene_key: "default",
           items: [
             {
@@ -585,7 +585,7 @@ describe("Creator local connection shell", () => {
       if (url.includes("/timeline?")) {
         return jsonResponse({
           contract_version: "1.0",
-          projection_version: "scene-timeline.v5",
+          projection_version: "scene-timeline.v6",
           scene_key: "default",
           items: [],
         });
@@ -650,7 +650,7 @@ describe("Creator local connection shell", () => {
       if (url.startsWith("/v1/scenes/default/timeline")) {
         return jsonResponse({
           contract_version: "1.0",
-          projection_version: "scene-timeline.v5",
+          projection_version: "scene-timeline.v6",
           scene_key: "default",
           items: [],
         });
@@ -730,7 +730,7 @@ describe("Creator local connection shell", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           contract_version: "1.0",
-          projection_version: "scene-timeline.v5",
+          projection_version: "scene-timeline.v6",
           scene_key: "default",
           items: [],
         }),
@@ -784,7 +784,7 @@ describe("Creator local connection shell", () => {
       if (url.includes("/timeline?")) {
         return jsonResponse({
           contract_version: "1.0",
-          projection_version: "scene-timeline.v5",
+          projection_version: "scene-timeline.v6",
           scene_key: "default",
           items: acceptedMessage
             ? [
@@ -914,7 +914,7 @@ describe("Creator local connection shell", () => {
       if (url.includes("/timeline?")) {
         return jsonResponse({
           contract_version: "1.0",
-          projection_version: "scene-timeline.v5",
+          projection_version: "scene-timeline.v6",
           scene_key: "default",
           items: [],
         });

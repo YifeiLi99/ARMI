@@ -425,9 +425,7 @@ class LiveVoiceService:
             await self._journal.settle_playback(
                 attempt_id=playback_attempt,
                 outcome=(
-                    AttemptOutcome.PARTIAL
-                    if written_frames
-                    else AttemptOutcome.UNKNOWN
+                    AttemptOutcome.PARTIAL if written_frames else AttemptOutcome.UNKNOWN
                 ),
                 frames_written=written_frames,
                 error_code="VOICE-PLAYBACK-UNKNOWN",

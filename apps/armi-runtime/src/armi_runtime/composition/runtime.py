@@ -84,6 +84,7 @@ from armi_live_vision.bootstrap import (
     compose_visual_observation_sink,
 )
 from armi_live_voice.api import LiveVoiceRuntimePort, LiveVoiceViolation
+from armi_live_voice.bootstrap import bootstrap_live_voice_context_read
 from armi_memory.api import MemoryViolation
 from armi_perception.bootstrap import bootstrap_visual_recognition_attempts
 from armi_prompt.api import CreatorPromptViolation
@@ -152,6 +153,7 @@ from .database import (
     compose_codex_read_ports,
     compose_cognition_exact_life_query,
     compose_context_candidate_read,
+    compose_context_dialogue_read,
     compose_context_embedding_pipeline,
     compose_context_pipeline,
     compose_context_projection_invalidation,
@@ -593,6 +595,7 @@ async def _serve(
             )
             await sleep_module.open()
             context_projection_invalidation = compose_context_projection_invalidation()
+            voice_context_read = bootstrap_live_voice_context_read()
             interaction_module = compose_interaction_module(
                 prepared,
                 unit_of_work_factory=runtime_unit_of_work_factory,
@@ -609,6 +612,7 @@ async def _serve(
                 identity=interaction_identity,
                 catalog=artifact_catalog,
                 timeline_projections=timeline_projections,
+                voice_responses=voice_context_read,
                 wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
                     event,
@@ -656,6 +660,14 @@ async def _serve(
             scene_timeline_query = interaction_module.scene_timeline
             creator_scenes = interaction_module.creator_scenes
             creator_input = interaction_module.creator_input
+            dialogue_read = compose_context_dialogue_read(
+                prepared,
+                catalog=artifact_catalog,
+                evidence=evidence_module.read,
+                interaction=interaction_module.context_read,
+                expression=expression_module.intents,
+                effects=effect_owner,
+            )
             if config.voice.enabled:
                 try:
                     live_voice_service = compose_runtime_live_voice(
@@ -664,6 +676,8 @@ async def _serve(
                         subject_id=authority.require_writable().subject_id,
                         creator=creator_context,
                         interaction=interaction_module.creator_input,
+                        timeline=interaction_module.effect_delivery,
+                        dialogue=dialogue_read,
                         subject_state=subject_state_module.read,
                         mood=mood_module.read,
                         prompt=prompt_module.read,
@@ -827,6 +841,7 @@ async def _serve(
                 cognition_context=cognition_context,
                 evidence_read=evidence_module.read,
                 interaction_context=interaction_module.context_read,
+                dialogue_read=dialogue_read,
                 interaction_cognition=interaction_module.cognition_read,
                 opportunity_cognition=opportunity_cognition,
                 runtime_subjects=runtime_cognition_state,

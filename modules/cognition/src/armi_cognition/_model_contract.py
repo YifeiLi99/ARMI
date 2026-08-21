@@ -1549,15 +1549,6 @@ def _dialogue_messages(
         if content:
             messages.append({"role": "system", "content": content})
     recent_dialogue = groups["recent_dialogue"]
-    if (
-        len(recent_dialogue) > 1
-        and _recent_dialogue_speaker(recent_dialogue[0]) == "armi"
-        and any(
-            _recent_dialogue_speaker(item) in {"creator", "other_human"}
-            for item in recent_dialogue[1:]
-        )
-    ):
-        recent_dialogue = recent_dialogue[1:]
     for item in recent_dialogue:
         content = item["content"]
         if not isinstance(content, dict):
@@ -1583,15 +1574,6 @@ def _dialogue_messages(
     if current_creator_text is not None:
         messages.append({"role": "user", "content": current_creator_text})
     return messages
-
-
-def _recent_dialogue_speaker(item: dict[str, object]) -> object:
-    content = item.get("content")
-    return (
-        cast(dict[str, object], content).get("speaker")
-        if isinstance(content, dict)
-        else None
-    )
 
 
 def _dialogue_request_value(

@@ -137,7 +137,7 @@ class SceneTimelineContractTests(unittest.TestCase):
             )
         self.assertEqual(missing_message.exception.code, "CON-SCENE-MESSAGE")
 
-    def test_creator_response_requires_a_public_effect_reference(self) -> None:
+    def test_creator_response_requires_effect_or_verified_voice_text(self) -> None:
         occurred = Instant(datetime(2026, 7, 30, 10, tzinfo=UTC))
         effect_ref = uuid7()
         item = SceneTimelineItem(
@@ -149,6 +149,17 @@ class SceneTimelineContractTests(unittest.TestCase):
             effect_ref=effect_ref,
         )
         self.assertEqual(item.effect_ref, effect_ref)
+        voice = SceneTimelineItem(
+            TimelineItemId(uuid7()),
+            "creator_response",
+            uuid7(),
+            AuditResultStatus.COMPLETED,
+            occurred,
+            message="已经真实播放",
+            modality="live_voice",
+        )
+        self.assertIsNone(voice.effect_ref)
+        self.assertEqual(voice.message, "已经真实播放")
         with self.assertRaises(SceneQueryViolation) as missing:
             SceneTimelineItem(
                 TimelineItemId(uuid7()),

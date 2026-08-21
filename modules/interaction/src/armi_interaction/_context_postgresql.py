@@ -77,7 +77,8 @@ class PostgreSQLInteractionContextRead:
         rows = await (
             await transaction.execute(
                 """SELECT item.timeline_item_id, item.source_event_no, item.source_kind,
-                      item.source_ref, item.occurred_at, party.display_label, party.party_kind
+                      item.source_ref, item.occurred_at, party.display_label,
+                      party.party_kind, input.modality
                FROM armi.scene_timeline_items AS item
                LEFT JOIN armi.party_input_interactions AS input
                  ON input.interaction_id=item.source_ref
@@ -108,6 +109,7 @@ class PostgreSQLInteractionContextRead:
                 r[4],
                 None if r[5] is None else str(r[5]),
                 None if r[6] is None else str(r[6]),
+                None if r[7] is None else str(r[7]),
             )
             for r in reversed(rows)
         )

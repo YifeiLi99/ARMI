@@ -1653,7 +1653,7 @@ export interface components {
         | "creator-maintenance.v2"
         | "life-record-query.v2"
         | "creator-relationship.v2"
-        | "scene-timeline.v5"
+        | "scene-timeline.v6"
         | "capability-request.v4"
         | "creator-operation.v2"
         | "other-human-record.v1"
@@ -3019,7 +3019,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "scene-timeline.v5";
+      projection_version: "scene-timeline.v6";
       /** Scene Key */
       scene_key: string;
     };

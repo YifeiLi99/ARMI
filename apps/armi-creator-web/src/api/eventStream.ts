@@ -21,7 +21,7 @@ const RESOURCES = {
   ],
   scene_timeline: [
     "scene.timeline.invalidated",
-    "scene-timeline.v5",
+    "scene-timeline.v6",
     SCENE_KEY,
   ],
   capability_request: [

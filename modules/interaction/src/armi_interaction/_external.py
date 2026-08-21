@@ -231,7 +231,7 @@ class ExternalMessageInputService(ExternalMessageInputPort):
                 command.conversation_kind.value,
                 command.conversation_key.value,
             )
-            projection = "scene-timeline.v5"
+            projection = "scene-timeline.v6"
         else:
             kind = CreatorResourceKind("other_human_record")
             resource_ref = str(context.sender_party_id)

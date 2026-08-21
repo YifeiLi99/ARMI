@@ -6,6 +6,7 @@ from uuid import UUID
 
 from armi_artifact_store.api import ArtifactCatalogPort
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
+from armi_context.api import ContextDialogueReadPort
 from armi_interaction.api import CreatorIdentityContext, CreatorInteractionPort
 from armi_kernel.application import CredentialPurpose
 from armi_live_voice.api import (
@@ -15,6 +16,7 @@ from armi_live_voice.api import (
     LiveVoiceViolation,
     VoiceProviderBinding,
     VoiceProviderService,
+    VoiceTimelinePort,
 )
 from armi_live_voice.bootstrap import compose_live_voice, compose_live_voice_journal
 from armi_mood.api import MoodReadPort
@@ -48,6 +50,8 @@ def compose_runtime_live_voice(
     subject_id: UUID,
     creator: CreatorIdentityContext,
     interaction: CreatorInteractionPort,
+    timeline: VoiceTimelinePort,
+    dialogue: ContextDialogueReadPort,
     subject_state: SubjectStateReadPort,
     mood: MoodReadPort,
     prompt: PromptReadPort,
@@ -61,7 +65,9 @@ def compose_runtime_live_voice(
     input_device = voice.input_device
     output_device = voice.output_device
     if input_device is None or output_device is None:
-        raise LiveVoiceViolation("VOICE-DEVICE-CONFIG", "voice device is not configured")
+        raise LiveVoiceViolation(
+            "VOICE-DEVICE-CONFIG", "voice device is not configured"
+        )
     model_locator = config.secret_locators.get("model.ark_api_key")
     speech_locator = config.secret_locators.get("speech.volc_credentials")
     if model_locator is None or speech_locator is None:
@@ -73,7 +79,9 @@ def compose_runtime_live_voice(
             model_key = handle.consume(
                 lambda value: value.tobytes().decode("utf-8", errors="strict").strip()
             )
-        with prepared.credential_port.resolve(speech_locator, _SPEECH_PURPOSE) as handle:
+        with prepared.credential_port.resolve(
+            speech_locator, _SPEECH_PURPOSE
+        ) as handle:
             speech_secret = handle.consume(lambda value: bytearray(value))
         try:
             speech_credentials = decode_volc_credentials(speech_secret)
@@ -131,6 +139,7 @@ def compose_runtime_live_voice(
         creator_party_id=creator.party_id,
         scene_id=creator.scene_id,
         binding=binding,
+        timeline=timeline,
     )
     bridge = RuntimeLiveVoiceInteraction(
         acceptance=interaction,
@@ -162,6 +171,8 @@ def compose_runtime_live_voice(
                 prepared.data_root / "artifacts",
                 max_object_bytes=config.artifacts.max_object_bytes,
             ),
+            dialogue=dialogue,
+            scene_id=creator.scene_id,
         ),
         inputs=bridge,
         expression=journal,

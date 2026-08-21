@@ -410,7 +410,7 @@ def register_scene_routes(
             )
         response = SceneTimelinePageResponse(
             contract_version="1.0",
-            projection_version="scene-timeline.v5",
+            projection_version="scene-timeline.v6",
             scene_key=page.scene_key.value,
             items=[
                 SceneTimelineItemResponse(

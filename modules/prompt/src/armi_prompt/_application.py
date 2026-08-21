@@ -15,4 +15,5 @@ class PromptApplication:
     def decode(self, payload: bytes) -> CandidatePromptDraft:
         return _codec.decode(payload)
 
+
 __all__ = ("PromptApplication",)

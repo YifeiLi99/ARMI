@@ -29,9 +29,7 @@ class FakeAudio:
     async def capture(self) -> AsyncIterator[bytes]:
         yield b"audio"
 
-    async def play(
-        self, frames: AsyncIterator[bytes], *, on_frame_written=None
-    ) -> int:
+    async def play(self, frames: AsyncIterator[bytes], *, on_frame_written=None) -> int:
         count = 0
         async for frame in frames:
             assert frame == b"pcm"

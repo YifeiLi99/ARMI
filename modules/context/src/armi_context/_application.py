@@ -21,9 +21,7 @@ from armi_attention.api import (
 )
 from armi_capability.api import CapabilityReadPort
 from armi_codex.api import CodexTaskSourceReadPort
-from armi_effect.api import EffectOperationReadPort
 from armi_evidence.api import EvidenceReadPort
-from armi_expression.api import ExpressionIntentReadPort
 from armi_interaction.api import InteractionContextReadPort
 from armi_kernel.application import (
     ArtifactId,
@@ -64,12 +62,13 @@ from ._postgresql import (
     ContextArtifactSource,
     ContextEpisodeSnapshot,
     ContextMaterialSource,
-    ContextSceneTurnSource,
     PostgreSQLContextRepository,
 )
 from ._profiles import ContextAssemblyProfile, context_profile
 from .api import (
     ContextArtifactCatalogPort,
+    ContextDialogueItem,
+    ContextDialogueReadPort,
     ContextEpisodePort,
     ContextItemCandidate,
     ContextRequest,
@@ -196,8 +195,7 @@ class ContextPipeline:
         opportunity_transitions: OpportunityCognitionSelectionPort,
         evidence_read: EvidenceReadPort,
         interaction_context: InteractionContextReadPort,
-        expression_read: ExpressionIntentReadPort,
-        effect_read: EffectOperationReadPort,
+        dialogue_read: ContextDialogueReadPort,
         codex_read: CodexTaskSourceReadPort,
         policy_version: str = CONTEXT_POLICY_VERSION,
         web_search_active: bool = False,
@@ -226,8 +224,7 @@ class ContextPipeline:
             opportunity_transitions=opportunity_transitions,
             evidence=evidence_read,
             interaction=interaction_context,
-            expression=expression_read,
-            effects=effect_read,
+            dialogue=dialogue_read,
             codex=codex_read,
         )
         self._catalog = catalog
@@ -312,10 +309,22 @@ class ContextPipeline:
                 material_payloads.append(
                     (source, await self._read_material_source(source, snapshot))
                 )
-            recent_scene_payloads: list[tuple[ContextSceneTurnSource, bytes]] = []
+            recent_scene_payloads: list[tuple[ContextDialogueItem, bytes]] = []
             for source in snapshot.recent_scene_sources:
                 recent_scene_payloads.append(
-                    (source, await self._read_recent_scene_source(source, snapshot))
+                    (
+                        source,
+                        rfc8785.dumps(
+                            {
+                                "speaker": source.speaker,
+                                "text": (
+                                    source.text
+                                    if source.speaker_label is None
+                                    else f"[{source.speaker_label}] {source.text}"
+                                ),
+                            }
+                        ),
+                    )
                 )
             request = _context_request(
                 snapshot,
@@ -515,39 +524,6 @@ class ContextPipeline:
             }
         )
 
-    async def _read_recent_scene_source(
-        self,
-        source: ContextSceneTurnSource,
-        snapshot: ContextEpisodeSnapshot,
-    ) -> bytes:
-        expected_kind, expected_privacy = _recent_scene_artifact_contract(
-            snapshot.purpose,
-            source.speaker,
-        )
-        if (
-            source.ref.integrity_status is not ArtifactIntegrityStatus.VERIFIED
-            or source.ref.media_type != "text/plain"
-            or source.ref.logical_kind != expected_kind
-            or source.ref.privacy_scope is not expected_privacy
-        ):
-            raise ContextViolation("CTX-SOURCE-READ-FAILED")
-        value = await self._read_source(
-            ContextArtifactSource(
-                source.ref,
-                source.timeline_item_id,
-                source.source_version,
-                "recent_scene_turn",
-            ),
-            snapshot,
-        )
-        return rfc8785.dumps(
-            {
-                "speaker": source.speaker,
-                "text": value.decode("utf-8", errors="strict"),
-                "occurred_at": source.occurred_at.isoformat(),
-            }
-        )
-
     async def _publish(
         self,
         value: bytes,
@@ -584,47 +560,10 @@ class ContextPipeline:
             self._diagnostic("context.prepare.failure_settlement_deferred")
 
 
-def _recent_scene_artifact_contract(
-    purpose: str,
-    speaker: str,
-) -> tuple[str, ArtifactPrivacyScope]:
-    if purpose == "consider_other_human_input":
-        if speaker == "other_human":
-            return "other_human.input.text", ArtifactPrivacyScope.PRIVATE
-        if speaker == "armi":
-            return "other-human.response.text", ArtifactPrivacyScope.PRIVATE
-    else:
-        if speaker == "creator":
-            return "creator.input.text", ArtifactPrivacyScope.CREATOR_VISIBLE
-        if speaker == "armi":
-            return "creator.response.text", ArtifactPrivacyScope.PRIVATE
-    raise ContextViolation("CTX-SOURCE-READ-FAILED")
-
-
-def _scene_turn_content(source: ContextSceneTurnSource, payload: bytes) -> str:
-    content = payload.decode("utf-8", errors="strict")
-    if source.speaker_label is None:
-        return content
-    return f"[{source.speaker_label}] {content}"
-
-
-def _complete_recent_turns(
-    values: tuple[tuple[ContextSceneTurnSource, bytes], ...],
-) -> tuple[tuple[ContextSceneTurnSource, bytes], ...]:
-    complete: list[tuple[ContextSceneTurnSource, bytes]] = []
-    index = 0
-    while index + 1 < len(values):
-        first = values[index]
-        second = values[index + 1]
-        if (
-            first[0].speaker in {"creator", "other_human"}
-            and second[0].speaker == "armi"
-        ):
-            complete.extend((first, second))
-            index += 2
-        else:
-            index += 1
-    return tuple(complete[-8:])
+def _recent_turns(
+    values: tuple[tuple[ContextDialogueItem, bytes], ...],
+) -> tuple[tuple[ContextDialogueItem, bytes], ...]:
+    return values[-8:]
 
 
 def _context_request(
@@ -634,7 +573,7 @@ def _context_request(
     material_payloads: tuple[tuple[ContextMaterialSource, bytes], ...] = (),
     creator_prompt_bytes: bytes | None = None,
     subject_prompt_bytes: bytes | None = None,
-    recent_scene_payloads: tuple[tuple[ContextSceneTurnSource, bytes], ...] = (),
+    recent_scene_payloads: tuple[tuple[ContextDialogueItem, bytes], ...] = (),
     *,
     web_search_active: bool,
     recalled_context: RecalledContext | None = None,
@@ -758,7 +697,7 @@ def _context_request(
                 relevance=80,
             )
         )
-        for source, payload in _complete_recent_turns(recent_scene_payloads):
+        for source, payload in _recent_turns(recent_scene_payloads):
             items.append(
                 _candidate(
                     profile,
@@ -779,7 +718,7 @@ def _context_request(
                         if snapshot.purpose == "consider_other_human_input"
                         else "creator_visible"
                     ),
-                    _scene_turn_content(source, payload),
+                    payload.decode("utf-8", errors="strict"),
                     requested_required=False,
                     relevance=88,
                     business_time=Instant(source.occurred_at),

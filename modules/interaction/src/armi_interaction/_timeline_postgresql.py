@@ -35,7 +35,10 @@ from ._scene_contract import (
     SceneTimelineQuery,
     TimelineItemId,
 )
-from .api import InteractionCreatorTimelineProjectionPort
+from .api import (
+    InteractionCreatorTimelineProjectionPort,
+    InteractionVoiceResponseReadPort,
+)
 
 
 def _b64encode(value: bytes) -> str:
@@ -175,6 +178,7 @@ class PostgreSQLSceneTimelineQuery:
         "_projections",
         "_storage",
         "_visibility",
+        "_voice_responses",
     )
 
     def __init__(
@@ -188,6 +192,7 @@ class PostgreSQLSceneTimelineQuery:
         codex_tasks: SceneTimelineCodexTaskProjectionPort,
         visibility: DataRightsVisibilityPort,
         projections: InteractionCreatorTimelineProjectionPort,
+        voice_responses: InteractionVoiceResponseReadPort,
     ) -> None:
         self._creator_party_id = creator_party_id
         self._factory = factory
@@ -195,6 +200,7 @@ class PostgreSQLSceneTimelineQuery:
         self._codex_tasks = codex_tasks
         self._visibility = visibility
         self._projections = projections
+        self._voice_responses = voice_responses
         self._codec = SceneTimelineCursorCodec(
             key=cursor_key,
             environment_id=environment_id,
@@ -251,11 +257,15 @@ class PostgreSQLSceneTimelineQuery:
                     await connection.execute(
                         """
                         SELECT item.timeline_item_id,
-                               CASE WHEN item.source_kind = 'party_response'
+                               CASE WHEN item.source_kind IN (
+                                            'party_response','live_voice_response')
                                     THEN 'creator_response' ELSE item.source_kind END,
                                item.source_ref, item.result_status, item.occurred_at,
                                interaction.purpose, interaction.content_digest,
-                               COALESCE(interaction.modality,'text')
+                               CASE WHEN item.source_kind='live_voice_response'
+                                    THEN 'live_voice'
+                                    ELSE COALESCE(interaction.modality,'text') END,
+                               item.source_kind
                         FROM armi.scene_timeline_items AS item
                         LEFT JOIN armi.party_input_interactions AS interaction
                           ON item.source_kind = 'creator_input'
@@ -304,7 +314,16 @@ class PostgreSQLSceneTimelineQuery:
                             context_party_id=self._creator_party_id,
                         )
                     elif source_kind == "creator_response":
-                        effects[item_id] = source_ref
+                        if str(row[8]) == "party_response":
+                            effects[item_id] = source_ref
+                        elif str(row[8]) == "live_voice_response":
+                            message = (
+                                await self._voice_responses.completed_response_text(
+                                    connection, turn_id=source_ref
+                                )
+                            )
+                            if message is not None:
+                                messages[item_id] = message
         except SceneQueryViolation:
             raise
         except RuntimeTransactionFailure as error:

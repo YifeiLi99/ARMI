@@ -39,6 +39,7 @@ from armi_subject_state.api import SubjectStateReadPort
 from ._application import ContextPipeline
 from ._candidate_read import PostgreSQLContextCandidateRead
 from ._data_rights import PostgreSQLContextDataRightsParticipant
+from ._dialogue import PostgreSQLContextDialogueRead
 from ._embedding_application import ContextEmbeddingPipeline
 from ._embedding_postgresql import (
     PostgreSQLContextProjectionInvalidation,
@@ -47,12 +48,14 @@ from ._embedding_postgresql import (
 from .api import (
     ContextArtifactCatalogPort,
     ContextCognitionReadPort,
+    ContextDialogueReadPort,
     ContextEmbeddingRuntimePort,
     ContextEpisodePort,
     ContextProjectionInvalidationPort,
     ContextRuntimePort,
     ContextRuntimeSubjectPort,
     ContextSelectionPort,
+    ContextVoiceResponseReadPort,
     ContextWakeupPort,
     EmbeddingPort,
 )
@@ -83,8 +86,7 @@ def bootstrap_context(
     opportunity_transitions: OpportunityCognitionSelectionPort,
     evidence_read: EvidenceReadPort,
     interaction_context: InteractionContextReadPort,
-    expression_read: ExpressionIntentReadPort,
-    effect_read: EffectOperationReadPort,
+    dialogue_read: ContextDialogueReadPort,
     codex_read: CodexTaskSourceReadPort,
     web_search_active: bool = False,
     wakeups: ContextWakeupPort | None = None,
@@ -113,13 +115,33 @@ def bootstrap_context(
         opportunity_transitions=opportunity_transitions,
         evidence_read=evidence_read,
         interaction_context=interaction_context,
-        expression_read=expression_read,
-        effect_read=effect_read,
+        dialogue_read=dialogue_read,
         codex_read=codex_read,
         web_search_active=web_search_active,
         wakeups=wakeups,
         diagnostic=diagnostic,
         embedding=embedding,
+    )
+
+
+def bootstrap_context_dialogue_read(
+    *,
+    storage: ContentAddressedArtifactStore,
+    catalog: ContextArtifactCatalogPort,
+    evidence: EvidenceReadPort,
+    interaction: InteractionContextReadPort,
+    expression: ExpressionIntentReadPort,
+    effects: EffectOperationReadPort,
+    voice: ContextVoiceResponseReadPort,
+) -> ContextDialogueReadPort:
+    return PostgreSQLContextDialogueRead(
+        storage=storage,
+        catalog=catalog,
+        evidence=evidence,
+        interaction=interaction,
+        expression=expression,
+        effects=effects,
+        voice=voice,
     )
 
 
@@ -175,6 +197,7 @@ __all__ = (
     "bootstrap_context",
     "bootstrap_context_candidate_read",
     "bootstrap_context_data_rights",
+    "bootstrap_context_dialogue_read",
     "bootstrap_context_embedding",
     "bootstrap_context_projection_invalidation",
     "bootstrap_context_recovery",

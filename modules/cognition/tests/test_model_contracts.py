@@ -615,25 +615,24 @@ def test_creator_dialogue_request_prioritizes_exact_recent_turns_and_local_refs(
     messages = request["messages"]
     assert [message["role"] for message in messages] == [
         "system",
+        "assistant",
         "user",
         "assistant",
         "system",
         "user",
     ]
-    assert "我们曾经聊过雨声。" in messages[3]["content"]
-    assert "[ctx:5]" in messages[3]["content"]
-    assert "uncertainty" not in messages[3]["content"]
-    assert "links" not in messages[3]["content"]
+    assert "我们曾经聊过雨声。" in messages[4]["content"]
+    assert "[ctx:5]" in messages[4]["content"]
+    assert "uncertainty" not in messages[4]["content"]
+    assert "links" not in messages[4]["content"]
     assert "runtime_identity" not in messages[0]["content"]
     assert "authorization status" not in messages[0]["content"]
     assert "remaining uses" not in messages[0]["content"]
-    assert "回复由 Runtime 在模型外核对发送权限" in messages[3]["content"]
-    assert "这是缺少前置 Creator 原话的半轮回复。" not in json.dumps(
-        messages, ensure_ascii=False
-    )
-    assert messages[1]["content"] == "窗外的光很好看。"
-    assert messages[2]["content"] == "我也想知道那片光落在哪里。"
-    assert messages[4]["content"] == "你想聊些什么?"
+    assert "回复由 Runtime 在模型外核对发送权限" in messages[4]["content"]
+    assert messages[1]["content"] == "这是缺少前置 Creator 原话的半轮回复。"
+    assert messages[2]["content"] == "窗外的光很好看。"
+    assert messages[3]["content"] == "我也想知道那片光落在哪里。"
+    assert messages[5]["content"] == "你想聊些什么?"
     assert request["available_refs"] == ["ctx:5"]
     assert request["prompt_version"] == "armi.dialogue-prompt.v4"
     assert request["diagnostics"]["section_bytes"]["memories"] > 0

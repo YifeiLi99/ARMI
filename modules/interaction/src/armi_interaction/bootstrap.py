@@ -54,6 +54,7 @@ from .api import (
     InteractionPerceptionPort,
     InteractionSceneTransitionPort,
     InteractionSubjectCommitPort,
+    InteractionVoiceResponseReadPort,
     InteractionWakeupPort,
     OtherHumanInputPort,
     SceneTimelineCodexTaskProjectionPort,
@@ -145,6 +146,7 @@ def bootstrap_interaction(
     fault_injector: Callable[[str], None] | None = None,
     identity: InteractionIdentityPort,
     timeline_projections: InteractionCreatorTimelineProjectionPort,
+    voice_responses: InteractionVoiceResponseReadPort,
 ) -> InteractionModule:
     creator_repository = CreatorInputRepository(evidence, evidence_read, opportunity)
     other_repository = OtherHumanInputRepository(evidence, evidence_read, opportunity)
@@ -198,6 +200,7 @@ def bootstrap_interaction(
         codex_tasks=codex_task_projection,
         visibility=visibility,
         projections=timeline_projections,
+        voice_responses=voice_responses,
     )
     perception = PostgreSQLInteractionPerception()
     actions = bootstrap_interaction_action_ports()

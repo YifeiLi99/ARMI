@@ -14,10 +14,8 @@ from armi_attention.api import (
 )
 from armi_capability.api import CapabilityContextStatePayload, CapabilityReadPort
 from armi_codex.api import CodexTaskSourceReadPort
-from armi_effect.api import EffectOperationReadPort
 from armi_evidence.api import EvidenceId, EvidenceReadPort
-from armi_expression.api import ExpressionIntentReadPort
-from armi_interaction.api import InteractionContextReadPort, InteractionContextTurn
+from armi_interaction.api import InteractionContextReadPort
 from armi_kernel.application import (
     ArtifactId,
     ArtifactRef,
@@ -53,6 +51,8 @@ from armi_subject_state.api import SubjectStateReadPort
 
 from .api import (
     ContextArtifactCatalogPort,
+    ContextDialogueItem,
+    ContextDialogueReadPort,
     ContextEpisodePort,
     ContextExperienceState,
     ContextResult,
@@ -71,16 +71,6 @@ class ContextArtifactSource:
     source_version: int
     source_kind: str
     task_manifest_digest: Digest | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class ContextSceneTurnSource:
-    ref: ArtifactRef
-    timeline_item_id: UUID
-    source_version: int
-    speaker: str
-    occurred_at: datetime
-    speaker_label: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,7 +124,7 @@ class ContextEpisodeSnapshot:
     fixed_prompt: ContextArtifactSource
     creator_prompt: ContextArtifactSource | None = None
     subject_prompt: ContextArtifactSource | None = None
-    recent_scene_sources: tuple[ContextSceneTurnSource, ...] = ()
+    recent_scene_sources: tuple[ContextDialogueItem, ...] = ()
 
 
 class PostgreSQLContextRepository:
@@ -153,13 +143,12 @@ class PostgreSQLContextRepository:
         opportunity_transitions: OpportunityCognitionSelectionPort,
         evidence: EvidenceReadPort,
         interaction: InteractionContextReadPort,
-        expression: ExpressionIntentReadPort,
-        effects: EffectOperationReadPort,
         codex: CodexTaskSourceReadPort,
         memories: MemoryReadPort,
         mood: MoodReadPort,
         prompts: PromptReadPort,
         subject_state: SubjectStateReadPort,
+        dialogue: ContextDialogueReadPort,
     ) -> None:
         self._relationships = relationships
         self._sleep = sleep
@@ -173,13 +162,12 @@ class PostgreSQLContextRepository:
         self._opportunity_transitions = opportunity_transitions
         self._evidence = evidence
         self._interaction = interaction
-        self._expression = expression
-        self._effects = effects
         self._codex = codex
         self._memories = memories
         self._mood = mood
         self._prompts = prompts
         self._subject_state = subject_state
+        self._dialogue = dialogue
 
     async def select_one(self) -> CognitiveEpisodeId | None:
         return await self._selection.select_once()
@@ -358,7 +346,7 @@ class PostgreSQLContextRepository:
             )
 
         scene_bytes = None
-        recent: tuple[ContextSceneTurnSource, ...] = ()
+        recent: tuple[ContextDialogueItem, ...] = ()
         if episode.scene_id is not None:
             scene = await self._interaction.context_scene(
                 tx,
@@ -381,13 +369,13 @@ class PostgreSQLContextRepository:
                     "addressed_to_subject": scene.addressed_to_subject,
                 }
             )
-            kinds = (
-                ("other_human_input", "party_response")
+            dialogue_method = (
+                self._dialogue.recent_other_human_dialogue
                 if other_human
-                else ("creator_input", "party_response")
+                else self._dialogue.recent_creator_dialogue
             )
-            turns = await self._interaction.recent_context_turns(
-                tx,
+            recent = await dialogue_method(
+                unit_of_work,
                 scene_id=episode.scene_id,
                 before_interaction_id=current_interaction_id,
                 before_time=(
@@ -395,15 +383,8 @@ class PostgreSQLContextRepository:
                     if episode.purpose == "consider_creator_outreach"
                     else None
                 ),
-                source_kinds=kinds,
                 limit=8,
             )
-            recent_items: list[ContextSceneTurnSource] = []
-            for turn in turns:
-                source = await self._turn_source(unit_of_work, turn)
-                if source is not None:
-                    recent_items.append(source)
-            recent = tuple(recent_items)
 
         outreach = (
             rfc8785.dumps(
@@ -575,48 +556,6 @@ class PostgreSQLContextRepository:
             raise ContextViolation("CTX-OPPORTUNITY-STATE")
         await unit_of_work.work.fail(lease, error_code=code)
 
-    async def _turn_source(
-        self, unit: PostgreSQLRuntimeUnitOfWork, turn: InteractionContextTurn
-    ) -> ContextSceneTurnSource | None:
-        artifact_id = None
-        if turn.source_kind in {"creator_input", "other_human_input"}:
-            evidence_id = await self._evidence.find_by_interaction(
-                unit.transaction, interaction_id=turn.source_ref
-            )
-            if evidence_id is not None:
-                artifact_id = (
-                    await self._evidence.snapshot(
-                        unit.transaction, evidence_id=evidence_id
-                    )
-                ).artifact_id
-        elif turn.source_kind == "party_response":
-            effect = await self._effects.by_effect_id(
-                unit.transaction, effect_id=turn.source_ref
-            )
-            if effect is not None:
-                intent = await self._expression.revision_snapshot(
-                    unit.transaction,
-                    action_intent_revision_id=effect.action_intent_revision_id,
-                )
-                artifact_id = intent.response_artifact_id
-        if artifact_id is None:
-            return None
-        speaker = (
-            "creator"
-            if turn.source_kind == "creator_input"
-            else "other_human"
-            if turn.source_kind == "other_human_input"
-            else "armi"
-        )
-        return ContextSceneTurnSource(
-            await self._artifact_ref(unit, artifact_id),
-            turn.timeline_item_id,
-            turn.source_event_no,
-            speaker,
-            turn.occurred_at,
-            turn.speaker_label,
-        )
-
     async def _prompt_source(
         self, unit: PostgreSQLRuntimeUnitOfWork, source: PromptContextSource, kind: str
     ) -> ContextArtifactSource:
@@ -643,6 +582,5 @@ __all__ = (
     "ContextArtifactSource",
     "ContextEpisodeSnapshot",
     "ContextMaterialSource",
-    "ContextSceneTurnSource",
     "PostgreSQLContextRepository",
 )

@@ -423,6 +423,65 @@ class ContextRuntimePort(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class ContextDialogueItem:
+    timeline_item_id: UUID
+    source_version: int
+    speaker: str
+    text: str
+    occurred_at: datetime
+    modality: str
+    speaker_label: str | None = None
+
+    def __post_init__(self) -> None:
+        _require_uuid7(self.timeline_item_id)
+        if (
+            type(self.source_version) is not int
+            or self.source_version <= 0
+            or self.speaker not in {"creator", "other_human", "armi"}
+            or type(self.text) is not str
+            or not self.text.strip()
+            or len(self.text.encode("utf-8")) > 65536
+            or type(self.occurred_at) is not datetime
+            or self.modality not in {"text", "live_voice"}
+            or (
+                self.speaker_label is not None
+                and (not self.speaker_label.strip() or len(self.speaker_label) > 256)
+            )
+        ):
+            raise ContextViolation("CTX-DIALOGUE")
+
+
+@runtime_checkable
+class ContextDialogueReadPort(Protocol):
+    async def recent_creator_dialogue(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        scene_id: UUID,
+        before_interaction_id: UUID | None = None,
+        before_time: datetime | None = None,
+        limit: int = 8,
+    ) -> tuple[ContextDialogueItem, ...]: ...
+
+    async def recent_other_human_dialogue(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        scene_id: UUID,
+        before_interaction_id: UUID | None = None,
+        before_time: datetime | None = None,
+        limit: int = 8,
+    ) -> tuple[ContextDialogueItem, ...]: ...
+
+
+@runtime_checkable
+class ContextVoiceResponseReadPort(Protocol):
+    async def completed_response_text(
+        self, transaction: PostgreSQLTransaction, *, turn_id: UUID
+    ) -> str | None: ...
+
+
+@dataclass(frozen=True, slots=True)
 class ContextExperienceState:
     experience_id: UUID
     fact_class: str
@@ -600,6 +659,8 @@ __all__ = (
     "ContextCandidateBasisSnapshot",
     "ContextCognitionReadPort",
     "ContextCompiler",
+    "ContextDialogueItem",
+    "ContextDialogueReadPort",
     "ContextEmbeddingRuntimePort",
     "ContextEpisodePort",
     "ContextEpisodeState",
@@ -622,6 +683,7 @@ __all__ = (
     "ContextSourceIdentity",
     "ContextTrustClass",
     "ContextViolation",
+    "ContextVoiceResponseReadPort",
     "ContextWakeupPort",
     "EmbeddingBinding",
     "EmbeddingPort",

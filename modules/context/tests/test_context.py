@@ -14,16 +14,14 @@ from armi_context._application import (
     _active_mood_episodes,
     _active_mood_gists,
     _context_request,
-    _recent_scene_artifact_contract,
 )
 from armi_context._compiler import DeterministicContextCompiler
+from armi_context._dialogue import PostgreSQLContextDialogueRead
 from armi_context._postgresql import (
     ContextEpisodeSnapshot,
     ContextMaterialSource,
-    ContextSceneTurnSource,
-    PostgreSQLContextRepository,
 )
-from armi_context.api import ContextItemDisposition, ContextViolation
+from armi_context.api import ContextDialogueItem, ContextItemDisposition
 from armi_interaction.api import InteractionContextTurn
 from armi_kernel.contracts import Digest, TraceId
 
@@ -560,7 +558,7 @@ def test_context_distinguishes_no_natural_recall_from_no_database_record() -> No
 
 @pytest.mark.asyncio
 async def test_optional_recent_turn_without_owner_source_is_omitted() -> None:
-    repository = object.__new__(PostgreSQLContextRepository)
+    repository = object.__new__(PostgreSQLContextDialogueRead)
     repository._evidence = AsyncMock()
     repository._evidence.find_by_interaction.return_value = None
     turn = InteractionContextTurn(
@@ -571,10 +569,13 @@ async def test_optional_recent_turn_without_owner_source_is_omitted() -> None:
         datetime.now(UTC),
         "Creator",
         "creator",
+        "text",
     )
 
-    source = await repository._turn_source(
-        cast(Any, SimpleNamespace(transaction=object())), turn
+    source = await repository._resolve(
+        cast(Any, SimpleNamespace(transaction=object())),
+        turn,
+        human_speaker="creator",
     )
 
     assert source is None
@@ -785,29 +786,25 @@ def test_commitment_context_crosses_scenes_without_copying_recent_scene_text() -
 
 def test_recent_scene_turns_are_scoped_to_the_supplied_scene_snapshot() -> None:
     def request(scene_key: str, text: str, speaker_label: str | None = None):
-        payload = rfc8785.dumps({"speaker": "creator", "text": text})
-        source = cast(
-            ContextSceneTurnSource,
-            SimpleNamespace(
-                timeline_item_id=uuid7(),
-                source_version=1,
-                speaker="creator",
-                speaker_label=speaker_label,
-                occurred_at=datetime(2026, 8, 6, 10, tzinfo=UTC),
-                ref=SimpleNamespace(content_digest=Digest.from_bytes(payload)),
-            ),
+        visible_text = text if speaker_label is None else f"[{speaker_label}] {text}"
+        payload = rfc8785.dumps({"speaker": "creator", "text": visible_text})
+        source = ContextDialogueItem(
+            uuid7(),
+            1,
+            "creator",
+            text,
+            datetime(2026, 8, 6, 10, tzinfo=UTC),
+            "text",
+            speaker_label,
         )
         reply_payload = rfc8785.dumps({"speaker": "armi", "text": "reply"})
-        reply_source = cast(
-            ContextSceneTurnSource,
-            SimpleNamespace(
-                timeline_item_id=uuid7(),
-                source_version=1,
-                speaker="armi",
-                speaker_label=None,
-                occurred_at=datetime(2026, 8, 6, 10, 1, tzinfo=UTC),
-                ref=SimpleNamespace(content_digest=Digest.from_bytes(reply_payload)),
-            ),
+        reply_source = ContextDialogueItem(
+            uuid7(),
+            1,
+            "armi",
+            "reply",
+            datetime(2026, 8, 6, 10, 1, tzinfo=UTC),
+            "text",
         )
         return _context_request(
             _snapshot(
@@ -841,30 +838,101 @@ def test_recent_scene_turns_are_scoped_to_the_supplied_scene_snapshot() -> None:
     labelled_turns = tuple(
         item.content for item in labelled.items if item.item_kind == "recent_scene_turn"
     )
-    assert cast(str, labelled_turns[0]).startswith("[小明] ")
+    assert "[小明] group turn" in cast(str, labelled_turns[0])
 
 
-def test_recent_scene_artifact_contract_separates_creator_and_other_human() -> None:
-    from armi_kernel.application import ArtifactPrivacyScope
-
-    assert _recent_scene_artifact_contract("consider_creator_input", "creator") == (
-        "creator.input.text",
-        ArtifactPrivacyScope.CREATOR_VISIBLE,
+def test_recent_scene_keeps_unpaired_input_and_proactive_response() -> None:
+    occurred_at = datetime(2026, 8, 6, 10, tzinfo=UTC)
+    proactive = ContextDialogueItem(
+        uuid7(), 1, "armi", "我先来找你。", occurred_at, "text"
     )
-    assert _recent_scene_artifact_contract("consider_creator_input", "armi") == (
-        "creator.response.text",
-        ArtifactPrivacyScope.PRIVATE,
+    unanswered = ContextDialogueItem(
+        uuid7(), 1, "creator", "你刚才为什么没回答。", occurred_at, "text"
     )
-    assert _recent_scene_artifact_contract(
-        "consider_other_human_input", "other_human"
-    ) == ("other_human.input.text", ArtifactPrivacyScope.PRIVATE)
-    assert _recent_scene_artifact_contract("consider_other_human_input", "armi") == (
-        "other-human.response.text",
-        ArtifactPrivacyScope.PRIVATE,
+    request = _context_request(
+        _snapshot(
+            (),
+            scene_id=uuid7(),
+            scene_bytes=rfc8785.dumps({"scene_key": "default"}),
+        ),
+        None,
+        b"fixed prompt",
+        recent_scene_payloads=(
+            (proactive, rfc8785.dumps({"speaker": "armi", "text": proactive.text})),
+            (
+                unanswered,
+                rfc8785.dumps({"speaker": "creator", "text": unanswered.text}),
+            ),
+        ),
+        web_search_active=False,
     )
 
-    with pytest.raises(ContextViolation, match="CTX-SOURCE-READ-FAILED"):
-        _recent_scene_artifact_contract("consider_other_human_input", "creator")
+    dialogue = [
+        item.content for item in request.items if item.item_kind == "recent_scene_turn"
+    ]
+    assert len(dialogue) == 2
+    assert "我先来找你" in cast(str, dialogue[0])
+    assert "为什么没回答" in cast(str, dialogue[1])
+
+
+def test_recent_scene_preserves_text_and_voice_channel_switches() -> None:
+    occurred_at = datetime(2026, 8, 6, 10, tzinfo=UTC)
+    sources = (
+        ContextDialogueItem(uuid7(), 1, "creator", "文字开场", occurred_at, "text"),
+        ContextDialogueItem(uuid7(), 1, "armi", "语音回答", occurred_at, "live_voice"),
+        ContextDialogueItem(
+            uuid7(), 1, "creator", "语音追问", occurred_at, "live_voice"
+        ),
+        ContextDialogueItem(uuid7(), 1, "armi", "文字收尾", occurred_at, "text"),
+    )
+    request = _context_request(
+        _snapshot(
+            (),
+            scene_id=uuid7(),
+            scene_bytes=rfc8785.dumps({"scene_key": "default"}),
+        ),
+        None,
+        b"fixed prompt",
+        recent_scene_payloads=tuple(
+            (source, rfc8785.dumps({"speaker": source.speaker, "text": source.text}))
+            for source in sources
+        ),
+        web_search_active=False,
+    )
+
+    dialogue = [
+        cast(str, item.content)
+        for item in request.items
+        if item.item_kind == "recent_scene_turn"
+    ]
+    assert len(dialogue) == 4
+    assert all(source.text in dialogue[index] for index, source in enumerate(sources))
+
+
+def test_recent_scene_artifact_contract_supports_text_voice_and_parties() -> None:
+    logical_kind = PostgreSQLContextDialogueRead._logical_kind
+    assert (
+        logical_kind(speaker="creator", modality="text", human_speaker="creator")
+        == "creator.input.text"
+    )
+    assert (
+        logical_kind(speaker="creator", modality="live_voice", human_speaker="creator")
+        == "creator.input.live_voice.transcript"
+    )
+    assert (
+        logical_kind(speaker="armi", modality="text", human_speaker="creator")
+        == "creator.response.text"
+    )
+    assert (
+        logical_kind(
+            speaker="other_human", modality="text", human_speaker="other_human"
+        )
+        == "other_human.input.text"
+    )
+    assert (
+        logical_kind(speaker="armi", modality="text", human_speaker="other_human")
+        == "other-human.response.text"
+    )
     assert callable(ContextPipeline._publish)
 
 

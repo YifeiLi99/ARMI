@@ -8,6 +8,7 @@ from uuid import UUID, uuid7
 import rfc8785
 from armi_artifact_store.api import ArtifactCatalogPort
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
+from armi_context.api import ContextDialogueReadPort
 from armi_interaction.api import (
     CreatorVoiceInputAcceptance,
     CreatorVoiceInputAcceptancePort,
@@ -51,9 +52,7 @@ class RuntimeLiveVoiceInteraction:
             CreatorVoiceInputCommand(
                 scene_key=self._scene_key,
                 transcript=transcript,
-                idempotency_key=IdempotencyKey(
-                    f"voice:{session_id.hex}:{turn_id.hex}"
-                ),
+                idempotency_key=IdempotencyKey(f"voice:{session_id.hex}:{turn_id.hex}"),
                 trace_id=TraceId(uuid7().hex),
             )
         )
@@ -77,10 +76,12 @@ class RuntimeLiveVoiceContext:
 
     __slots__ = (
         "_catalog",
+        "_dialogue",
         "_factory",
         "_mood",
         "_prompt",
         "_relationship",
+        "_scene_id",
         "_storage",
         "_subject_id",
         "_subject_state",
@@ -97,6 +98,8 @@ class RuntimeLiveVoiceContext:
         relationship: RelationshipReadPort,
         catalog: ArtifactCatalogPort,
         storage: ContentAddressedArtifactStore,
+        dialogue: ContextDialogueReadPort,
+        scene_id: UUID,
     ) -> None:
         self._factory = factory
         self._subject_id = subject_id
@@ -106,6 +109,8 @@ class RuntimeLiveVoiceContext:
         self._relationship = relationship
         self._catalog = catalog
         self._storage = storage
+        self._dialogue = dialogue
+        self._scene_id = scene_id
 
     async def compile(self) -> VoiceContext:
         await self._storage.prepare()
@@ -135,6 +140,11 @@ class RuntimeLiveVoiceContext:
                         await self._catalog.get(unit, ArtifactId(source.artifact_id))
                     )
                 refs = tuple(refs_list)
+                dialogue = await self._dialogue.recent_creator_dialogue(
+                    unit,
+                    scene_id=self._scene_id,
+                    limit=8,
+                )
             prompt_value_list: list[str] = []
             for ref in refs:
                 prompt_value_list.append(await self._read_prompt(ref))
@@ -226,6 +236,14 @@ class RuntimeLiveVoiceContext:
                         relationship.head_version,
                         str(relationship.current_revision_id),
                     ],
+                    "dialogue": [
+                        [
+                            str(item.timeline_item_id),
+                            item.source_version,
+                            item.modality,
+                        ]
+                        for item in dialogue
+                    ],
                 }
             )
         ).value
@@ -239,6 +257,14 @@ class RuntimeLiveVoiceContext:
             sections.append(
                 "与 Creator 的当前关系:"
                 + json.dumps(relationship_value, ensure_ascii=False)
+            )
+        if dialogue:
+            sections.append(
+                "最近对话:"
+                + json.dumps(
+                    [{"speaker": item.speaker, "text": item.text} for item in dialogue],
+                    ensure_ascii=False,
+                )
             )
         return VoiceContext(version=version, prompt="\n\n".join(sections))
 

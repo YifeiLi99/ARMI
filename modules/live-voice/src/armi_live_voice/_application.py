@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from uuid import UUID, uuid7
 
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWorkFactory
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    PostgreSQLTransaction,
+)
 
 from .api import (
     AttemptOutcome,
@@ -13,6 +16,7 @@ from .api import (
     LiveVoiceSessionState,
     LiveVoiceViolation,
     VoiceProviderBinding,
+    VoiceTimelinePort,
 )
 
 
@@ -23,7 +27,10 @@ def _require_voice_error(code: str | None, outcome: AttemptOutcome) -> str | Non
     if code is not None and (
         not code.startswith("VOICE-")
         or len(code) > 126
-        or not all(character.isupper() or character.isdigit() or character == "-" for character in code)
+        or not all(
+            character.isupper() or character.isdigit() or character == "-"
+            for character in code
+        )
     ):
         raise LiveVoiceViolation("VOICE-JOURNAL-ERROR", "voice error code is invalid")
     return code
@@ -38,6 +45,7 @@ class PostgreSQLLiveVoiceJournal:
         "_factory",
         "_scene_id",
         "_subject_id",
+        "_timeline",
     )
 
     def __init__(
@@ -48,6 +56,7 @@ class PostgreSQLLiveVoiceJournal:
         creator_party_id: UUID,
         scene_id: UUID,
         binding: LiveVoiceBinding,
+        timeline: VoiceTimelinePort,
     ) -> None:
         if any(
             type(value) is not UUID or value.version != 7
@@ -59,6 +68,7 @@ class PostgreSQLLiveVoiceJournal:
         self._creator_party_id = creator_party_id
         self._scene_id = scene_id
         self._binding = binding
+        self._timeline = timeline
 
     async def open_session(self, *, session_id: UUID) -> None:
         async with self._factory.unit_of_work() as unit:
@@ -97,7 +107,9 @@ class PostgreSQLLiveVoiceJournal:
                 (state.value, context_version, session_id),
             )
             if result.rowcount != 1:
-                raise LiveVoiceViolation("VOICE-JOURNAL-STATE", "voice session is closed")
+                raise LiveVoiceViolation(
+                    "VOICE-JOURNAL-STATE", "voice session is closed"
+                )
 
     async def close_session(
         self, *, session_id: UUID, error_code: str | None = None
@@ -182,11 +194,24 @@ class PostgreSQLLiveVoiceJournal:
                 """UPDATE armi.live_voice_turns
                    SET result_status=%s,spoken_text=%s,error_code=%s,
                        completed_at=statement_timestamp()
-                   WHERE turn_id=%s AND completed_at IS NULL""",
+                   WHERE turn_id=%s AND completed_at IS NULL
+                   RETURNING first_audio_at""",
                 (status, spoken_text, error_code, turn_id),
             )
-            if result.rowcount != 1:
+            row = await result.fetchone()
+            if row is None:
                 raise LiveVoiceViolation("VOICE-JOURNAL-TURN", "voice turn is closed")
+            if outcome is AttemptOutcome.COMPLETED and spoken_text:
+                if row[0] is None:
+                    raise LiveVoiceViolation(
+                        "VOICE-JOURNAL-PLAYBACK", "voice playback is invalid"
+                    )
+                await self._timeline.record_live_voice_response(
+                    unit.transaction,
+                    scene_id=self._scene_id,
+                    turn_id=turn_id,
+                    occurred_at=row[0],
+                )
 
     async def begin_provider_attempt(
         self, *, turn_id: UUID, binding: VoiceProviderBinding
@@ -234,7 +259,9 @@ class PostgreSQLLiveVoiceJournal:
                 (outcome.value, error_code, attempt_id),
             )
             if result.rowcount != 1:
-                raise LiveVoiceViolation("VOICE-JOURNAL-ATTEMPT", "voice attempt is closed")
+                raise LiveVoiceViolation(
+                    "VOICE-JOURNAL-ATTEMPT", "voice attempt is closed"
+                )
 
     async def register_fragment(
         self,
@@ -281,7 +308,9 @@ class PostgreSQLLiveVoiceJournal:
                 (attempt_id,),
             )
             if result.rowcount != 1:
-                raise LiveVoiceViolation("VOICE-JOURNAL-ATTEMPT", "voice attempt is closed")
+                raise LiveVoiceViolation(
+                    "VOICE-JOURNAL-ATTEMPT", "voice attempt is closed"
+                )
             await unit.transaction.execute(
                 """UPDATE armi.live_voice_turns AS turn
                    SET first_audio_at=COALESCE(turn.first_audio_at,statement_timestamp()),
@@ -305,7 +334,9 @@ class PostgreSQLLiveVoiceJournal:
         if frames_written < 0 or (
             outcome is AttemptOutcome.COMPLETED and frames_written == 0
         ):
-            raise LiveVoiceViolation("VOICE-JOURNAL-PLAYBACK", "voice playback is invalid")
+            raise LiveVoiceViolation(
+                "VOICE-JOURNAL-PLAYBACK", "voice playback is invalid"
+            )
         async with self._factory.unit_of_work() as unit:
             result = await unit.transaction.execute(
                 """UPDATE armi.live_voice_playback_attempts
@@ -315,7 +346,34 @@ class PostgreSQLLiveVoiceJournal:
                 (outcome.value, frames_written, error_code, attempt_id),
             )
             if result.rowcount != 1:
-                raise LiveVoiceViolation("VOICE-JOURNAL-ATTEMPT", "voice attempt is closed")
+                raise LiveVoiceViolation(
+                    "VOICE-JOURNAL-ATTEMPT", "voice attempt is closed"
+                )
 
 
-__all__ = ("PostgreSQLLiveVoiceJournal",)
+class PostgreSQLLiveVoiceContextRead:
+    async def completed_response_text(
+        self, transaction: PostgreSQLTransaction, *, turn_id: UUID
+    ) -> str | None:
+        row = await (
+            await transaction.execute(
+                """SELECT turn.spoken_text, turn.first_audio_at
+                   FROM armi.live_voice_turns AS turn
+                   WHERE turn.turn_id=%s
+                     AND turn.result_status='completed'
+                     AND length(turn.spoken_text)>0
+                     AND turn.first_audio_at IS NOT NULL
+                     AND EXISTS (
+                         SELECT 1 FROM armi.live_voice_playback_attempts AS playback
+                         WHERE playback.turn_id=turn.turn_id
+                           AND playback.result_status='completed'
+                     )""",
+                (turn_id,),
+            )
+        ).fetchone()
+        if row is None:
+            return None
+        return str(row[0])
+
+
+__all__ = ("PostgreSQLLiveVoiceContextRead", "PostgreSQLLiveVoiceJournal")

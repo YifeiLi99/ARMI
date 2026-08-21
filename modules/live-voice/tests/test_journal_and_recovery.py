@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 from uuid import uuid7
 
@@ -7,6 +8,7 @@ import pytest
 from armi_live_voice._application import PostgreSQLLiveVoiceJournal
 from armi_live_voice._recovery import LiveVoiceRecoveryParticipant
 from armi_live_voice.api import (
+    AttemptOutcome,
     LiveVoiceBinding,
     VoiceProviderBinding,
     VoiceProviderService,
@@ -59,6 +61,7 @@ async def test_turn_binds_model_and_first_playback_marks_turn() -> None:
         creator_party_id=uuid7(),
         scene_id=uuid7(),
         binding=_binding(),
+        timeline=AsyncMock(),
     )
 
     await journal.begin_turn(
@@ -74,6 +77,74 @@ async def test_turn_binds_model_and_first_playback_marks_turn() -> None:
 
 
 @pytest.mark.asyncio
+async def test_only_completed_spoken_turn_enters_scene_timeline() -> None:
+    first_audio_at = datetime.now(UTC)
+    completed = AsyncMock()
+    completed.fetchone.return_value = (first_audio_at,)
+    transaction = AsyncMock()
+    transaction.execute.return_value = completed
+    timeline = AsyncMock()
+    scene_id = uuid7()
+    turn_id = uuid7()
+    journal = PostgreSQLLiveVoiceJournal(
+        factory=_Factory(transaction),  # type: ignore[arg-type]
+        subject_id=uuid7(),
+        creator_party_id=uuid7(),
+        scene_id=scene_id,
+        binding=_binding(),
+        timeline=timeline,
+    )
+
+    await journal.settle_turn(
+        turn_id=turn_id,
+        outcome=AttemptOutcome.COMPLETED,
+        spoken_text="已经真实播放",
+    )
+
+    timeline.record_live_voice_response.assert_awaited_once()
+    call = timeline.record_live_voice_response.await_args
+    assert call.kwargs["scene_id"] == scene_id
+    assert call.kwargs["turn_id"] == turn_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("outcome", "spoken_text", "error_code", "silent"),
+    (
+        (AttemptOutcome.COMPLETED, "", None, True),
+        (AttemptOutcome.FAILED, "", "VOICE-PLAYBACK-FAILED", False),
+        (AttemptOutcome.UNKNOWN, "", "VOICE-PLAYBACK-UNKNOWN", False),
+    ),
+)
+async def test_silent_failed_and_unknown_turns_do_not_enter_scene_timeline(
+    outcome: AttemptOutcome, spoken_text: str, error_code: str | None, silent: bool
+) -> None:
+    result = AsyncMock()
+    result.fetchone.return_value = (None,)
+    transaction = AsyncMock()
+    transaction.execute.return_value = result
+    timeline = AsyncMock()
+    journal = PostgreSQLLiveVoiceJournal(
+        factory=_Factory(transaction),  # type: ignore[arg-type]
+        subject_id=uuid7(),
+        creator_party_id=uuid7(),
+        scene_id=uuid7(),
+        binding=_binding(),
+        timeline=timeline,
+    )
+
+    await journal.settle_turn(
+        turn_id=uuid7(),
+        outcome=outcome,
+        spoken_text=spoken_text,
+        error_code=error_code,
+        silent=silent,
+    )
+
+    timeline.record_live_voice_response.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_recovery_terminalizes_attempts_turns_then_session() -> None:
     result_sets = []
     for row in (uuid7(), uuid7(), uuid7(), uuid7()):
@@ -84,9 +155,7 @@ async def test_recovery_terminalizes_attempts_turns_then_session() -> None:
     transaction.execute.side_effect = result_sets
     scope = RecoveryScope(uuid7(), uuid7(), uuid7(), uuid7(), uuid7(), 1)
 
-    contribution = await LiveVoiceRecoveryParticipant().recover(
-        transaction, scope, ()
-    )
+    contribution = await LiveVoiceRecoveryParticipant().recover(transaction, scope, ())
 
     statements = [call.args[0] for call in transaction.execute.await_args_list]
     assert "provider_attempts" in statements[0]

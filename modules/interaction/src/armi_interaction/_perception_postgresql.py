@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID, uuid7
 
 from armi_kernel.contracts import Digest, Instant, TraceId
@@ -301,19 +302,62 @@ class PostgreSQLInteractionPerception:
         effect_id: UUID,
         occurred_at: Instant,
     ) -> None:
-        timeline_id = uuid7()
-        await transaction.execute(
-            """INSERT INTO armi.scene_timeline_items
-               (timeline_item_id,scene_id,source_kind,source_ref,source_event_no,
-                result_status,occurred_at)
-               VALUES (%s,%s,'party_response',%s,1,'completed',%s)""",
-            (timeline_id, scene_id, effect_id, occurred_at.value),
+        await self._record_response(
+            transaction,
+            scene_id=scene_id,
+            source_kind="party_response",
+            source_ref=effect_id,
+            occurred_at=occurred_at,
         )
+
+    async def record_live_voice_response(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        scene_id: UUID,
+        turn_id: UUID,
+        occurred_at: datetime,
+    ) -> None:
+        await self._record_response(
+            transaction,
+            scene_id=scene_id,
+            source_kind="live_voice_response",
+            source_ref=turn_id,
+            occurred_at=occurred_at,
+        )
+
+    async def _record_response(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        scene_id: UUID,
+        source_kind: str,
+        source_ref: UUID,
+        occurred_at: Instant | datetime,
+    ) -> None:
+        timeline_id = uuid7()
+        occurred_at_value = (
+            occurred_at.value if isinstance(occurred_at, Instant) else occurred_at
+        )
+        inserted = await (
+            await transaction.execute(
+                """INSERT INTO armi.scene_timeline_items
+                   (timeline_item_id,scene_id,source_kind,source_ref,source_event_no,
+                    result_status,occurred_at)
+                   VALUES (%s,%s,%s,%s,1,'completed',%s)
+                   ON CONFLICT (scene_id,source_kind,source_ref,source_event_no)
+                   DO NOTHING
+                   RETURNING timeline_item_id""",
+                (timeline_id, scene_id, source_kind, source_ref, occurred_at_value),
+            )
+        ).fetchone()
+        if inserted is None:
+            return
         await transaction.execute(
             """UPDATE armi.interaction_scenes
                SET recent_context_boundary=%s,scene_version=scene_version+1
-               WHERE scene_id=%s AND recent_context_boundary IS DISTINCT FROM %s""",
-            (timeline_id, scene_id, timeline_id),
+               WHERE scene_id=%s AND current_status='open'""",
+            (timeline_id, scene_id),
         )
 
 

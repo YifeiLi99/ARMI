@@ -2100,7 +2100,7 @@
               "creator-maintenance.v2",
               "life-record-query.v2",
               "creator-relationship.v2",
-              "scene-timeline.v5",
+              "scene-timeline.v6",
               "capability-request.v4",
               "creator-operation.v2",
               "other-human-record.v1",
@@ -5441,7 +5441,7 @@
             "title": "Next Cursor"
           },
           "projection_version": {
-            "const": "scene-timeline.v5",
+            "const": "scene-timeline.v6",
             "title": "Projection Version",
             "type": "string"
           },

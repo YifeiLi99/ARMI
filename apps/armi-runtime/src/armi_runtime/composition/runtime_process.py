@@ -453,9 +453,7 @@ class RuntimeProcessManager:
         response = self._send_control("voice", {"action": action})
         return cast(dict[str, Any], response["result"])
 
-    def other_human(
-        self, action: str, payload: dict[str, Any]
-    ) -> dict[str, Any]:
+    def other_human(self, action: str, payload: dict[str, Any]) -> dict[str, Any]:
         allowed = {
             "party_register",
             "scene_set",

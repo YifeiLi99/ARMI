@@ -191,6 +191,7 @@ class InteractionContextTurn:
     occurred_at: datetime
     speaker_label: str | None
     speaker_kind: str | None
+    modality: str | None
 
 
 @runtime_checkable
@@ -631,6 +632,22 @@ class InteractionEffectDeliveryPort(Protocol):
         occurred_at: Instant,
     ) -> None: ...
 
+    async def record_live_voice_response(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        scene_id: UUID,
+        turn_id: UUID,
+        occurred_at: datetime,
+    ) -> None: ...
+
+
+@runtime_checkable
+class InteractionVoiceResponseReadPort(Protocol):
+    async def completed_response_text(
+        self, transaction: PostgreSQLTransaction, *, turn_id: UUID
+    ) -> str | None: ...
+
 
 @dataclass(frozen=True, slots=True)
 class InteractionEffectRoute:
@@ -745,6 +762,7 @@ __all__ = (
     "InteractionSceneTransitionPort",
     "InteractionSubjectCommitPort",
     "InteractionSubjectCommitSnapshot",
+    "InteractionVoiceResponseReadPort",
     "InteractionWakeupPort",
     "ObservedExternalMessage",
     "OpportunityId",

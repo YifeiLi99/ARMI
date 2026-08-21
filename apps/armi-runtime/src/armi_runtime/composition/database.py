@@ -77,6 +77,7 @@ from armi_cognition.bootstrap import (
 )
 from armi_context.api import (
     ContextCognitionReadPort,
+    ContextDialogueReadPort,
     ContextEmbeddingRuntimePort,
     ContextProjectionInvalidationPort,
     ContextRuntimePort,
@@ -87,6 +88,7 @@ from armi_context.bootstrap import (
     ContextCandidateReadPorts,
     bootstrap_context,
     bootstrap_context_candidate_read,
+    bootstrap_context_dialogue_read,
     bootstrap_context_embedding,
     bootstrap_context_projection_invalidation,
     inspect_context_embedding_storage,
@@ -152,6 +154,7 @@ from armi_interaction.api import (
     InteractionPerceptionPort,
     InteractionSceneTransitionPort,
     InteractionSubjectCommitPort,
+    InteractionVoiceResponseReadPort,
 )
 from armi_interaction.bootstrap import (
     InteractionModule,
@@ -168,6 +171,7 @@ from armi_kernel.application import (
     ModelViolation,
     RuntimeFence,
 )
+from armi_live_voice.bootstrap import bootstrap_live_voice_context_read
 from armi_material.api import (
     MaterialCandidateContextPort,
     MaterialCognitionPort,
@@ -608,6 +612,7 @@ def compose_interaction_module(
     identity: InteractionIdentityPort,
     catalog: ArtifactCatalogPort,
     timeline_projections: InteractionCreatorTimelineProjectionPort,
+    voice_responses: InteractionVoiceResponseReadPort,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
     fault_injector: Callable[[str], None] | None = None,
@@ -630,6 +635,7 @@ def compose_interaction_module(
         data_rights=data_rights,
         visibility=visibility,
         timeline_projections=timeline_projections,
+        voice_responses=voice_responses,
         identity=identity,
         subject_state=subject_state_read,
         evidence=evidence,
@@ -1111,6 +1117,7 @@ def compose_context_pipeline(
     cognition_context: CognitionContextLifecyclePort,
     evidence_read: EvidenceReadPort,
     interaction_context: InteractionContextReadPort,
+    dialogue_read: ContextDialogueReadPort,
     interaction_cognition: InteractionCognitionReadPort,
     opportunity_cognition: OpportunityCognitionPort,
     runtime_subjects: RuntimeCognitionState,
@@ -1147,12 +1154,13 @@ def compose_context_pipeline(
         effects=effect_read,
         expression=expression_read,
     )
+    storage = ContentAddressedArtifactStore(
+        prepared.data_root / "artifacts",
+        max_object_bytes=config.artifacts.max_object_bytes,
+    )
     return bootstrap_context(
         factory=unit_of_work_factory,
-        storage=ContentAddressedArtifactStore(
-            prepared.data_root / "artifacts",
-            max_object_bytes=config.artifacts.max_object_bytes,
-        ),
+        storage=storage,
         catalog=catalog,
         work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
         activity_read=activity_read,
@@ -1172,8 +1180,7 @@ def compose_context_pipeline(
         opportunity_transitions=opportunity_cognition,
         evidence_read=evidence_read,
         interaction_context=interaction_context,
-        expression_read=expression_read,
-        effect_read=effect_read,
+        dialogue_read=dialogue_read,
         codex_read=codex_read,
         web_search_active=config.web.enabled,
         wakeups=wakeups,
@@ -1183,6 +1190,30 @@ def compose_context_pipeline(
             if config.model.semantic_recall_enabled
             else None
         ),
+    )
+
+
+def compose_context_dialogue_read(
+    prepared: PreparedEnvironment,
+    *,
+    catalog: ArtifactCatalogPort,
+    evidence: EvidenceReadPort,
+    interaction: InteractionContextReadPort,
+    expression: ExpressionIntentReadPort,
+    effects: EffectOperationReadPort,
+) -> ContextDialogueReadPort:
+    config = prepared.effective.config
+    return bootstrap_context_dialogue_read(
+        storage=ContentAddressedArtifactStore(
+            prepared.data_root / "artifacts",
+            max_object_bytes=config.artifacts.max_object_bytes,
+        ),
+        catalog=catalog,
+        evidence=evidence,
+        interaction=interaction,
+        expression=expression,
+        effects=effects,
+        voice=bootstrap_live_voice_context_read(),
     )
 
 
@@ -1723,6 +1754,7 @@ __all__ = (
     "compose_codex_pipeline",
     "compose_codex_read_ports",
     "compose_cognition_exact_life_query",
+    "compose_context_dialogue_read",
     "compose_context_pipeline",
     "compose_creator_operation_query",
     "compose_data_rights_core",

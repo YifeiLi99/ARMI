@@ -11,7 +11,7 @@ from uuid import UUID
 from armi_kernel.application import ArtifactRef, AuditResultStatus
 from armi_kernel.contracts import Instant, OpaqueCursor, TraceId
 
-PROJECTION_VERSION = "scene-timeline.v5"
+PROJECTION_VERSION = "scene-timeline.v6"
 SCENE_COLLECTION_PROJECTION_VERSION = "creator-scenes.v1"
 _KEY = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$", re.ASCII)
 _KIND = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
@@ -202,9 +202,15 @@ class SceneTimelineItem:
             raise SceneQueryViolation("CON-SCENE-OPERATION")
         if not operation_required and self.operation_ref is not None:
             raise SceneQueryViolation("CON-SCENE-OPERATION")
-        if (self.source_kind == "creator_response") != (self.effect_ref is not None):
+        if self.source_kind == "creator_response":
+            if (self.effect_ref is None) == (self.message is None):
+                raise SceneQueryViolation("CON-SCENE-EFFECT")
+        elif self.effect_ref is not None:
             raise SceneQueryViolation("CON-SCENE-EFFECT")
-        if (self.source_kind == "creator_input") != (self.message is not None):
+        if self.source_kind == "creator_input":
+            if self.message is None:
+                raise SceneQueryViolation("CON-SCENE-MESSAGE")
+        elif self.source_kind != "creator_response" and self.message is not None:
             raise SceneQueryViolation("CON-SCENE-MESSAGE")
         if self.message is not None:
             try:

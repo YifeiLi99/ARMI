@@ -20,7 +20,6 @@ from .api import (
     ActionAdapterPort,
     EffectAdapterReceipt,
     EffectDeliveryId,
-    EffectTimelinePort,
     EffectViolation,
     FrozenEffectRequest,
 )
@@ -29,15 +28,10 @@ from .api import (
 class PostgreSQLLocalInbox(ActionAdapterPort):
     """Receive one local party response without access to the effect ledger."""
 
-    __slots__ = ("_factory", "_interaction")
+    __slots__ = ("_factory",)
 
-    def __init__(
-        self,
-        factory: PostgreSQLRuntimeUnitOfWorkFactory,
-        interaction: EffectTimelinePort,
-    ) -> None:
+    def __init__(self, factory: PostgreSQLRuntimeUnitOfWorkFactory) -> None:
         self._factory = factory
-        self._interaction = interaction
 
     async def dispatch(
         self, request: FrozenEffectRequest, payload: bytes
@@ -91,12 +85,6 @@ class PostgreSQLLocalInbox(ActionAdapterPort):
                     Instant(existing[2]),
                     duplicate=True,
                 )
-            await self._interaction.record_party_response(
-                connection,
-                scene_id=request.scene_id,
-                effect_id=request.effect_id.value,
-                occurred_at=Instant(row[2]),
-            )
             await uow.audit.append(
                 AuditDraft(
                     AuditEventId(uuid7()),

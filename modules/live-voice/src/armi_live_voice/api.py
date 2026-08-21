@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
 from typing import ClassVar, Protocol, runtime_checkable
 from uuid import UUID
+
+from armi_runtime_foundation import PostgreSQLTransaction
 
 
 class LiveVoiceViolation(ValueError):
@@ -101,7 +104,9 @@ class VoiceContext:
 
     def __post_init__(self) -> None:
         if not self.version or len(self.version) > 128:
-            raise LiveVoiceViolation("VOICE-CONTEXT-VERSION", "voice context is invalid")
+            raise LiveVoiceViolation(
+                "VOICE-CONTEXT-VERSION", "voice context is invalid"
+            )
         if not self.prompt.strip() or len(self.prompt.encode("utf-8")) > 262_144:
             raise LiveVoiceViolation("VOICE-CONTEXT-SIZE", "voice context is invalid")
 
@@ -115,7 +120,9 @@ class VoiceProviderBinding:
 
     def __post_init__(self) -> None:
         if type(self.service) is not VoiceProviderService:
-            raise LiveVoiceViolation("VOICE-BINDING", "voice provider binding is invalid")
+            raise LiveVoiceViolation(
+                "VOICE-BINDING", "voice provider binding is invalid"
+            )
         for value, maximum in ((self.provider, 64), (self.resource_id, 128)):
             if value != value.strip() or not value or len(value) > maximum:
                 raise LiveVoiceViolation(
@@ -126,7 +133,9 @@ class VoiceProviderBinding:
             or not self.model_identity
             or len(self.model_identity) > 256
         ):
-            raise LiveVoiceViolation("VOICE-BINDING", "voice provider binding is invalid")
+            raise LiveVoiceViolation(
+                "VOICE-BINDING", "voice provider binding is invalid"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,13 +156,17 @@ class LiveVoiceBinding:
             (self.output_device_name, 512),
         ):
             if value != value.strip() or not value or len(value) > maximum:
-                raise LiveVoiceViolation("VOICE-BINDING", "voice device binding is invalid")
+                raise LiveVoiceViolation(
+                    "VOICE-BINDING", "voice device binding is invalid"
+                )
         if (
             self.asr.service is not VoiceProviderService.ASR
             or self.llm.service is not VoiceProviderService.LLM
             or self.tts.service is not VoiceProviderService.TTS
         ):
-            raise LiveVoiceViolation("VOICE-BINDING", "voice provider binding is invalid")
+            raise LiveVoiceViolation(
+                "VOICE-BINDING", "voice provider binding is invalid"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -275,6 +288,25 @@ class VoiceJournalPort(Protocol):
         outcome: AttemptOutcome,
         frames_written: int,
         error_code: str | None = None,
+    ) -> None: ...
+
+
+@runtime_checkable
+class VoiceContextReadPort(Protocol):
+    async def completed_response_text(
+        self, transaction: PostgreSQLTransaction, *, turn_id: UUID
+    ) -> str | None: ...
+
+
+@runtime_checkable
+class VoiceTimelinePort(Protocol):
+    async def record_live_voice_response(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        scene_id: UUID,
+        turn_id: UUID,
+        occurred_at: datetime,
     ) -> None: ...
 
 
@@ -437,11 +469,13 @@ __all__ = (
     "StreamingTtsPort",
     "VoiceContext",
     "VoiceContextPort",
+    "VoiceContextReadPort",
     "VoiceExpressionPort",
     "VoiceInputAcceptancePort",
     "VoiceJournalPort",
     "VoiceProviderBinding",
     "VoiceProviderService",
     "VoiceSuccessorPort",
+    "VoiceTimelinePort",
     "parse_fast_reply",
 )
