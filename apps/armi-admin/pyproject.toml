@@ -29,6 +29,7 @@ dependencies = [
 ]
 
 [project.scripts]
+armi-admin = "armi_admin.cli:main"
 armi-admin-mcp = "armi_admin.mcp.entrypoint:main"
 
 [tool.uv.sources]
