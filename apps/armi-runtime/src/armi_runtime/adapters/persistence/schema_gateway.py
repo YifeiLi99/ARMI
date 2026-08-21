@@ -91,6 +91,7 @@ class PostgreSQLSchemaGateway:
                 connection,
                 environment_id=environment_id,
                 role_class=role_class,
+                require_head_dml=self._uses_table_dml_policy(state.current_revision),
             )
             return state
 
@@ -126,12 +127,14 @@ class PostgreSQLSchemaGateway:
                     "DB-SCHEMA-INSTALL-FAILED",
                     "the Alembic schema install failed",
                 ) from None
+            state = self._inspect_schema(connection)
             role_gateway.verify(
                 connection,
                 environment_id=environment_id,
                 role_class="migrator",
+                require_head_dml=self._uses_table_dml_policy(state.current_revision),
             )
-            return self._inspect_schema(connection)
+            return state
 
     def migrate(self, conninfo: str, *, environment_id: UUID) -> SchemaStatus:
         with self._connect(conninfo, autocommit=True) as connection:
@@ -141,10 +144,19 @@ class PostgreSQLSchemaGateway:
                 connection,
                 environment_id=environment_id,
                 role_class="migrator",
+                require_head_dml=False,
             )
             self._acquire_lock(connection)
             state = self._inspect_schema(connection, allow_pending=True)
             if state.status == "current":
+                role_gateway.verify(
+                    connection,
+                    environment_id=environment_id,
+                    role_class="migrator",
+                    require_head_dml=self._uses_table_dml_policy(
+                        state.current_revision
+                    ),
+                )
                 return state
             self._reject_active_runtime(connection)
             try:
@@ -160,12 +172,25 @@ class PostgreSQLSchemaGateway:
                     "DB-SCHEMA-MIGRATION-FAILED",
                     "an Alembic revision failed",
                 ) from None
+            migrated = self._inspect_schema(connection)
             role_gateway.verify(
                 connection,
                 environment_id=environment_id,
                 role_class="migrator",
+                require_head_dml=self._uses_table_dml_policy(migrated.current_revision),
             )
-            return self._inspect_schema(connection)
+            return migrated
+
+    def _uses_table_dml_policy(self, revision_id: str) -> bool:
+        script = ScriptDirectory.from_config(self._config)
+        revision = script.get_revision(revision_id)
+        while True:
+            if revision.revision == "0002":
+                return True
+            down_revision = revision.down_revision
+            if not isinstance(down_revision, str):
+                return False
+            revision = script.get_revision(down_revision)
 
     def _upgrade(self, conninfo: str) -> None:
         engine = create_engine(

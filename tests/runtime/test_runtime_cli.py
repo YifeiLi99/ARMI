@@ -717,8 +717,8 @@ class RuntimeCliTests(unittest.TestCase):
                 safe_view=lambda: {
                     "status": "current",
                     "table_count": 43,
-                    "current_revision": "0001",
-                    "head_revision": "0001",
+                    "current_revision": "0002",
+                    "head_revision": "0002",
                 }
             )
             with (

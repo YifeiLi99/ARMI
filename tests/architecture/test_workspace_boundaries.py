@@ -13,8 +13,11 @@ from tools.check_workspace_boundaries import (
 )
 from tools.schema_ownership import (
     TABLE_OWNERSHIP,
+    database_capability_errors,
     ownership_registry_errors,
+    scan_repository_dml_accesses,
     scan_repository_foreign_table_accesses,
+    scan_source_dml_accesses,
     scan_source_foreign_table_accesses,
     schema_tables_at_head,
 )
@@ -153,6 +156,26 @@ class WorkspaceBoundaryTests(unittest.TestCase):
                 if item.source_owner == "data-rights"
                 or item.table_owner == "data-rights"
             )
+        )
+
+    def test_database_dml_paths_have_declared_table_capabilities(self) -> None:
+        self.assertEqual(database_capability_errors(ROOT), ())
+        self.assertGreater(len(scan_repository_dml_accesses(ROOT)), 100)
+
+    def test_database_capability_scanner_identifies_fixed_dml(self) -> None:
+        accesses = scan_source_dml_accesses(
+            """
+READ = "SELECT * FROM armi.opportunities"
+INSERT = "INSERT INTO armi.effects (effect_id) VALUES (%s)"
+UPDATE = "UPDATE armi.effects SET status = 'done'"
+DELETE = "DELETE FROM armi.effects WHERE effect_id = %s"
+""",
+            path="modules/effect/src/armi_effect/example.py",
+            role="armi_runtime",
+        )
+        self.assertEqual(
+            [(value.operation, value.table) for value in accesses],
+            [("INSERT", "effects"), ("UPDATE", "effects"), ("DELETE", "effects")],
         )
 
     def test_sql_owner_scanner_finds_reads_writes_and_ctes(self) -> None:

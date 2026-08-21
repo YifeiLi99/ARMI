@@ -10,6 +10,8 @@ import psycopg
 
 from armi_runtime.adapters.database_errors import DatabaseViolation
 
+from .database_capabilities import CURRENT_DML_CAPABILITIES
+
 _ROLE_CLASSES: Final = frozenset({"runtime", "admin", "migrator"})
 _SEARCH_PATH: Final = "pg_catalog, armi"
 _CAPABILITY_ROLES: Final = (
@@ -45,6 +47,7 @@ class PostgreSQLRolePolicyGateway:
         environment_id: UUID,
         role_class: str,
         require_objects: bool = True,
+        require_head_dml: bool = True,
     ) -> RolePolicyStatus:
         expected_role = physical_role_name(environment_id, role_class)
         self._verify_session(connection, expected_role)
@@ -52,7 +55,10 @@ class PostgreSQLRolePolicyGateway:
         self._verify_memberships(connection, environment_id)
         self._verify_database_grants(connection, environment_id)
         if require_objects:
-            self._verify_object_policy(connection)
+            self._verify_object_policy(
+                connection,
+                require_head_dml=require_head_dml,
+            )
         return RolePolicyStatus()
 
     def _verify_session(
@@ -258,6 +264,8 @@ class PostgreSQLRolePolicyGateway:
     @staticmethod
     def _verify_object_policy(
         connection: psycopg.Connection[tuple[Any, ...]],
+        *,
+        require_head_dml: bool,
     ) -> None:
         try:
             ownership = connection.execute(
@@ -358,6 +366,72 @@ class PostgreSQLRolePolicyGateway:
             raise DatabaseViolation(
                 "DB-ROLE-SECURITY-DEFINER",
                 "an unregistered security-definer entry exists",
+            )
+        if require_head_dml:
+            PostgreSQLRolePolicyGateway._verify_dml_capabilities(connection)
+
+    @staticmethod
+    def _verify_dml_capabilities(
+        connection: psycopg.Connection[tuple[Any, ...]],
+    ) -> None:
+        try:
+            table_rows = connection.execute(
+                """
+                SELECT grantee.rolname, relation.relname,
+                       privilege.privilege_type
+                FROM pg_catalog.pg_class AS relation
+                JOIN pg_catalog.pg_namespace AS namespace
+                  ON namespace.oid = relation.relnamespace
+                CROSS JOIN LATERAL pg_catalog.aclexplode(
+                    COALESCE(
+                        relation.relacl,
+                        pg_catalog.acldefault('r', relation.relowner)
+                    )
+                ) AS privilege
+                JOIN pg_catalog.pg_roles AS grantee
+                  ON grantee.oid = privilege.grantee
+                WHERE namespace.nspname = 'armi'
+                  AND relation.relkind IN ('r', 'p', 'v')
+                  AND grantee.rolname IN ('armi_runtime', 'armi_admin')
+                  AND privilege.privilege_type IN ('INSERT', 'UPDATE', 'DELETE')
+                ORDER BY grantee.rolname, relation.relname,
+                         privilege.privilege_type
+                """
+            ).fetchall()
+            column_row = connection.execute(
+                """
+                SELECT count(*)
+                FROM pg_catalog.pg_attribute AS attribute
+                JOIN pg_catalog.pg_class AS relation
+                  ON relation.oid = attribute.attrelid
+                JOIN pg_catalog.pg_namespace AS namespace
+                  ON namespace.oid = relation.relnamespace
+                CROSS JOIN LATERAL pg_catalog.aclexplode(
+                    attribute.attacl
+                ) AS privilege
+                JOIN pg_catalog.pg_roles AS grantee
+                  ON grantee.oid = privilege.grantee
+                WHERE namespace.nspname = 'armi'
+                  AND relation.relkind IN ('r', 'p', 'v')
+                  AND attribute.attnum > 0
+                  AND NOT attribute.attisdropped
+                  AND grantee.rolname IN ('armi_runtime', 'armi_admin')
+                  AND privilege.privilege_type IN ('INSERT', 'UPDATE')
+                """
+            ).fetchone()
+        except psycopg.Error:
+            raise DatabaseViolation(
+                "DB-ROLE-GRANT",
+                "database data-modification grants are unavailable",
+            ) from None
+        actual = frozenset(
+            (str(role), str(table), str(operation))
+            for role, table, operation in table_rows
+        )
+        if actual != CURRENT_DML_CAPABILITIES or column_row != (0,):
+            raise DatabaseViolation(
+                "DB-ROLE-GRANT",
+                "database data-modification grants have drifted",
             )
 
 

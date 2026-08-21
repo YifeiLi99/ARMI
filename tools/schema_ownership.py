@@ -10,6 +10,10 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from armi_runtime.adapters.persistence.database_capabilities import (
+    CURRENT_DML_CAPABILITIES,
+)
+
 _TABLE_CHANGE = re.compile(
     r"\b(?P<operation>CREATE|DROP)\s+TABLE(?:\s+IF\s+(?:NOT\s+)?EXISTS)?\s+"
     r"armi\.(?P<table>[a-z][a-z0-9_]*)",
@@ -35,6 +39,15 @@ class ForeignTableAccess:
     source_owner: str
     table: str
     table_owner: str
+    operation: str
+
+
+@dataclass(frozen=True, order=True, slots=True)
+class DatabaseDmlAccess:
+    path: str
+    line: int
+    role: str
+    table: str
     operation: str
 
 
@@ -200,6 +213,15 @@ def source_owner_for_path(path: Path) -> str | None:
     return None
 
 
+def execution_role_for_path(path: Path) -> str | None:
+    parts = path.as_posix().split("/")
+    if parts[:2] == ["apps", "armi-admin"] or path.name == "_admin.py":
+        return "armi_admin"
+    if parts and parts[0] in {"apps", "modules", "packages"}:
+        return "armi_runtime"
+    return None
+
+
 def scan_source_foreign_table_accesses(
     source: str,
     *,
@@ -253,6 +275,72 @@ def scan_repository_foreign_table_accesses(
     return tuple(sorted(accesses))
 
 
+def scan_source_dml_accesses(
+    source: str,
+    *,
+    path: str,
+    role: str,
+) -> tuple[DatabaseDmlAccess, ...]:
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return ()
+    accesses: list[DatabaseDmlAccess] = []
+    operations = {
+        "INSERT INTO": "INSERT",
+        "UPDATE": "UPDATE",
+        "DELETE FROM": "DELETE",
+    }
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
+            continue
+        for match in _SQL_TABLE_REFERENCE.finditer(node.value):
+            source_operation = " ".join(match.group("operation").upper().split())
+            operation = operations.get(source_operation)
+            if operation is None:
+                continue
+            accesses.append(
+                DatabaseDmlAccess(
+                    path=path,
+                    line=node.lineno + node.value[: match.start()].count("\n"),
+                    role=role,
+                    table=match.group("table").lower(),
+                    operation=operation,
+                )
+            )
+    return tuple(sorted(accesses))
+
+
+def scan_repository_dml_accesses(root: Path) -> tuple[DatabaseDmlAccess, ...]:
+    accesses: list[DatabaseDmlAccess] = []
+    for area in ("apps", "modules", "packages"):
+        for path in (root / area).glob("*/src/**/*.py"):
+            relative = path.relative_to(root)
+            role = execution_role_for_path(relative)
+            if role is None:
+                continue
+            accesses.extend(
+                scan_source_dml_accesses(
+                    path.read_text(encoding="utf-8"),
+                    path=relative.as_posix(),
+                    role=role,
+                )
+            )
+    return tuple(sorted(accesses))
+
+
+def database_capability_errors(root: Path) -> tuple[str, ...]:
+    errors = []
+    for access in scan_repository_dml_accesses(root):
+        capability = (access.role, access.table, access.operation)
+        if capability not in CURRENT_DML_CAPABILITIES:
+            errors.append(
+                f"{access.path}:{access.line}: missing {access.role} "
+                f"{access.operation} capability for armi.{access.table}"
+            )
+    return tuple(sorted(set(errors)))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Report cross-owner ARMI table access")
     parser.add_argument(
@@ -267,6 +355,7 @@ def main(argv: list[str] | None = None) -> int:
         root / "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
     )
     errors = ownership_registry_errors(schema_root)
+    errors = (*errors, *database_capability_errors(root))
     if errors:
         for error in errors:
             print(error)
@@ -283,11 +372,16 @@ def main(argv: list[str] | None = None) -> int:
 
 __all__ = (
     "TABLE_OWNERSHIP",
+    "DatabaseDmlAccess",
     "ForeignTableAccess",
     "TableOwnership",
+    "database_capability_errors",
+    "execution_role_for_path",
     "main",
     "ownership_registry_errors",
+    "scan_repository_dml_accesses",
     "scan_repository_foreign_table_accesses",
+    "scan_source_dml_accesses",
     "scan_source_foreign_table_accesses",
     "schema_tables_at_head",
     "source_owner_for_path",

@@ -16,12 +16,14 @@ from pathlib import Path
 try:
     from tools.schema_ownership import (
         TABLE_OWNERSHIP,
+        database_capability_errors,
         ownership_registry_errors,
         scan_repository_foreign_table_accesses,
     )
 except ModuleNotFoundError:  # Direct execution places tools/ first on sys.path.
     from schema_ownership import (
         TABLE_OWNERSHIP,
+        database_capability_errors,
         ownership_registry_errors,
         scan_repository_foreign_table_accesses,
     )
@@ -2654,6 +2656,15 @@ def check_repository(root: Path) -> list[Violation]:
             error,
         )
         for error in ownership_registry_errors(schema_root)
+    )
+    violations.extend(
+        Violation(
+            "ARC-DATABASE-CAPABILITY",
+            _relative(registry_path, root),
+            1,
+            error,
+        )
+        for error in database_capability_errors(root)
     )
     export_tables: dict[str, list[tuple[str, Path]]] = {}
     participant_sources = (

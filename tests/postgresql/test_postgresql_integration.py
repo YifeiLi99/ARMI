@@ -136,6 +136,9 @@ from armi_runtime.adapters.persistence.birth import (
     ContinuityState,
     probe_continuity,
 )
+from armi_runtime.adapters.persistence.database_capabilities import (
+    CURRENT_DML_CAPABILITIES,
+)
 from armi_runtime.adapters.persistence.durable_work import (
     PostgreSQLDurableWorkGateway,
 )
@@ -628,8 +631,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(installed.status, "current")
         self.assertEqual(installed.table_count, 97)
-        self.assertEqual(installed.current_revision, "0001")
-        self.assertEqual(installed.head_revision, "0001")
+        self.assertEqual(installed.current_revision, "0002")
+        self.assertEqual(installed.head_revision, "0002")
         status = PostgreSQLSchemaGateway().status(
             fixture.runtime_dsn,
             environment_id=fixture.environment_id,
@@ -648,23 +651,231 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 """,
                 (fixture.runtime_role,),
             ).fetchone()
-            external_observation_privilege = connection.execute(
+            table_dml = connection.execute(
                 """
-                SELECT has_column_privilege(
-                    %s, 'armi.effect_observations',
-                    'receiver_external_ref', 'INSERT'
-                )
+                SELECT grantee.rolname, relation.relname,
+                       privilege.privilege_type
+                FROM pg_catalog.pg_class AS relation
+                JOIN pg_catalog.pg_namespace AS namespace
+                  ON namespace.oid = relation.relnamespace
+                CROSS JOIN LATERAL pg_catalog.aclexplode(
+                    COALESCE(
+                        relation.relacl,
+                        pg_catalog.acldefault('r', relation.relowner)
+                    )
+                ) AS privilege
+                JOIN pg_catalog.pg_roles AS grantee
+                  ON grantee.oid = privilege.grantee
+                WHERE namespace.nspname = 'armi'
+                  AND grantee.rolname IN ('armi_runtime', 'armi_admin')
+                  AND privilege.privilege_type IN ('INSERT', 'UPDATE', 'DELETE')
+                ORDER BY grantee.rolname, relation.relname,
+                         privilege.privilege_type
+                """
+            ).fetchall()
+            column_dml = connection.execute(
+                """
+                SELECT count(*)
+                FROM pg_catalog.pg_attribute AS attribute
+                CROSS JOIN LATERAL pg_catalog.aclexplode(
+                    attribute.attacl
+                ) AS privilege
+                JOIN pg_catalog.pg_roles AS grantee
+                  ON grantee.oid = privilege.grantee
+                JOIN pg_catalog.pg_class AS relation
+                  ON relation.oid = attribute.attrelid
+                JOIN pg_catalog.pg_namespace AS namespace
+                  ON namespace.oid = relation.relnamespace
+                WHERE namespace.nspname = 'armi'
+                  AND grantee.rolname IN ('armi_runtime', 'armi_admin')
+                  AND privilege.privilege_type IN ('INSERT', 'UPDATE')
+                """
+            ).fetchone()
+            separated = connection.execute(
+                """
+                SELECT has_table_privilege(%s, 'armi.effect_observations', 'INSERT'),
+                       has_table_privilege(%s, 'armi.effect_observations', 'UPDATE'),
+                       has_table_privilege(%s, 'armi.effect_observations', 'DELETE'),
+                       has_table_privilege(%s, 'armi.effects', 'UPDATE')
                 """,
-                (fixture.runtime_role,),
+                (
+                    fixture.runtime_role,
+                    fixture.runtime_role,
+                    fixture.runtime_role,
+                    fixture.admin_role,
+                ),
             ).fetchone()
         self.assertEqual(extension, ("0.8.6", "armi_extensions", True))
-        self.assertEqual(external_observation_privilege, (True,))
+        self.assertEqual(frozenset(table_dml), CURRENT_DML_CAPABILITIES)
+        self.assertEqual(column_dml, (0,))
+        self.assertEqual(separated, (True, False, False, True))
         with self.assertRaises(DatabaseViolation) as repeated:
             self._install_current(
                 fixture.migrator_dsn,
                 environment_id=fixture.environment_id,
             )
         self.assertEqual(repeated.exception.code, "DB-SCHEMA-EXISTS")
+
+    def test_runtime_status_rejects_missing_head_dml_capability(self) -> None:
+        fixture = self.create_database()
+        self._install_current(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+        with psycopg.connect(fixture.provisioner_dsn, autocommit=True) as connection:
+            connection.execute(
+                "REVOKE INSERT ON TABLE armi.cognitive_attempts FROM armi_runtime"
+            )
+        with self.assertRaises(DatabaseViolation) as rejected:
+            PostgreSQLSchemaGateway().status(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+            )
+        self.assertEqual(rejected.exception.code, "DB-ROLE-GRANT")
+
+    def test_table_dml_allows_fixed_operations_without_implying_others(self) -> None:
+        fixture = self.create_database()
+        self._install_current(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+        with psycopg.connect(fixture.runtime_dsn) as connection:
+            connection.execute(
+                """
+                INSERT INTO armi.cognitive_attempts
+                SELECT * FROM armi.cognitive_attempts WHERE false
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO armi.effect_observations
+                SELECT * FROM armi.effect_observations WHERE false
+                """
+            )
+            with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                connection.execute(
+                    "UPDATE armi.effect_observations SET reliability=reliability "
+                    "WHERE false"
+                )
+            connection.rollback()
+            with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                connection.execute("DELETE FROM armi.cognitive_attempts WHERE false")
+            connection.rollback()
+        with psycopg.connect(fixture.admin_role_dsn) as connection:
+            connection.execute("UPDATE armi.effects SET status=status WHERE false")
+
+    def test_0002_migrates_column_dml_to_exact_table_capabilities(self) -> None:
+        fixture = self.create_database()
+        source = Path(
+            "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
+        )
+        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
+            old_schema = Path(temporary) / "schema"
+            shutil.copytree(source, old_schema)
+            old_schema.joinpath(
+                "alembic/versions/0002_table_level_dml_capabilities.py"
+            ).unlink()
+            old = PostgreSQLSchemaGateway(resource_root=old_schema).install(
+                fixture.migrator_dsn,
+                environment_id=fixture.environment_id,
+            )
+        self.assertEqual((old.current_revision, old.head_revision), ("0001", "0001"))
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            before = connection.execute(
+                """
+                SELECT count(*)
+                FROM pg_catalog.pg_attribute AS attribute
+                CROSS JOIN LATERAL pg_catalog.aclexplode(
+                    attribute.attacl
+                ) AS privilege
+                JOIN pg_catalog.pg_roles AS grantee
+                  ON grantee.oid = privilege.grantee
+                JOIN pg_catalog.pg_class AS relation
+                  ON relation.oid = attribute.attrelid
+                JOIN pg_catalog.pg_namespace AS namespace
+                  ON namespace.oid = relation.relnamespace
+                WHERE namespace.nspname = 'armi'
+                  AND grantee.rolname IN ('armi_runtime', 'armi_admin')
+                  AND privilege.privilege_type IN ('INSERT', 'UPDATE')
+                """
+            ).fetchone()
+        self.assertIsNotNone(before)
+        self.assertGreater(int(cast(tuple[Any, ...], before)[0]), 0)
+        migrated = PostgreSQLSchemaGateway().migrate(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+        self.assertEqual(
+            (migrated.status, migrated.current_revision, migrated.head_revision),
+            ("current", "0002", "0002"),
+        )
+        self.assertEqual(
+            PostgreSQLSchemaGateway().migrate(
+                fixture.migrator_dsn,
+                environment_id=fixture.environment_id,
+            ),
+            migrated,
+        )
+
+    def test_failed_0002_rolls_back_acl_and_revision_together(self) -> None:
+        fixture = self.create_database()
+        source = Path(
+            "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
+        )
+        revision_name = "0002_table_level_dml_capabilities.py"
+        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
+            old_schema = Path(temporary) / "schema"
+            shutil.copytree(source, old_schema)
+            revision_path = old_schema / "alembic/versions" / revision_name
+            revision_path.unlink()
+            installed = PostgreSQLSchemaGateway(resource_root=old_schema).install(
+                fixture.migrator_dsn,
+                environment_id=fixture.environment_id,
+            )
+            self.assertEqual(installed.current_revision, "0001")
+            shutil.copy2(source / "alembic/versions" / revision_name, revision_path)
+            revision_source = revision_path.read_text(encoding="utf-8")
+            revision_path.write_text(
+                revision_source.replace(
+                    "\n\ndef downgrade() -> None:",
+                    '\n    op.execute("SELECT missing_0002_test_function()")'
+                    "\n\ndef downgrade() -> None:",
+                ),
+                encoding="utf-8",
+                newline="\n",
+            )
+            with self.assertRaises(DatabaseViolation) as failed:
+                PostgreSQLSchemaGateway(resource_root=old_schema).migrate(
+                    fixture.migrator_dsn,
+                    environment_id=fixture.environment_id,
+                )
+            self.assertEqual(failed.exception.code, "DB-SCHEMA-MIGRATION-FAILED")
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            version = connection.execute(
+                "SELECT version_num FROM armi.alembic_version"
+            ).fetchall()
+            column_grants = connection.execute(
+                """
+                SELECT count(*)
+                FROM pg_catalog.pg_attribute AS attribute
+                CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) AS privilege
+                JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = privilege.grantee
+                JOIN pg_catalog.pg_class AS relation
+                  ON relation.oid = attribute.attrelid
+                JOIN pg_catalog.pg_namespace AS namespace
+                  ON namespace.oid = relation.relnamespace
+                WHERE namespace.nspname = 'armi'
+                  AND grantee.rolname IN ('armi_runtime', 'armi_admin')
+                  AND privilege.privilege_type IN ('INSERT', 'UPDATE')
+                """
+            ).fetchone()
+            table_insert = connection.execute(
+                "SELECT has_table_privilege(%s, 'armi.cognitive_attempts', 'INSERT')",
+                (fixture.runtime_role,),
+            ).fetchone()
+        self.assertEqual(version, [("0001",)])
+        self.assertGreater(int(cast(tuple[Any, ...], column_grants)[0]), 0)
+        self.assertEqual(table_insert, (False,))
 
     @pytest.mark.creator_system
     def test_creator_system_browser(self) -> None:
@@ -1553,10 +1764,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             schema_root = Path(temporary) / "schema"
             shutil.copytree(source, schema_root)
-            (schema_root / "alembic/versions/0002_probe.py").write_text(
+            (schema_root / "alembic/versions/0003_probe.py").write_text(
                 "from alembic import op\n"
-                "revision = '0002'\n"
-                "down_revision = '0001'\n"
+                "revision = '0003'\n"
+                "down_revision = '0002'\n"
                 "branch_labels = None\n"
                 "depends_on = None\n"
                 "def upgrade(): op.execute('CREATE TABLE armi.revision_probe (id bigint PRIMARY KEY)')\n"
@@ -1611,8 +1822,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(migrated.status, "current")
             self.assertEqual(migrated.table_count, installed.table_count + 1)
-            self.assertEqual(migrated.current_revision, "0002")
-            self.assertEqual(migrated.head_revision, "0002")
+            self.assertEqual(migrated.current_revision, "0003")
+            self.assertEqual(migrated.head_revision, "0003")
             self.assertEqual(
                 gateway.migrate(
                     fixture.migrator_dsn,
@@ -1633,10 +1844,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             schema_root = Path(temporary) / "schema"
             shutil.copytree(source, schema_root)
-            (schema_root / "alembic/versions/0002_failing_probe.py").write_text(
+            (schema_root / "alembic/versions/0003_failing_probe.py").write_text(
                 "from alembic import op\n"
-                "revision = '0002'\n"
-                "down_revision = '0001'\n"
+                "revision = '0003'\n"
+                "down_revision = '0002'\n"
                 "branch_labels = None\n"
                 "depends_on = None\n"
                 "def upgrade():\n"
@@ -1661,7 +1872,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "SELECT version_num FROM armi.alembic_version"
                 ).fetchall()
             self.assertEqual(table, (None,))
-            self.assertEqual(history, [("0001",)])
+            self.assertEqual(history, [("0002",)])
 
     def test_p0_clean_environment_cli_start_restart_and_capacity(self) -> None:
         fixture = self.create_database()
@@ -3402,10 +3613,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 self.assertEqual(head[2], replacement)
                 bootstrap_revision_id = str(head[3])
                 with self.assertRaises(psycopg.errors.InsufficientPrivilege):
-                    runtime.execute(
-                        "UPDATE armi.subjects "
-                        "SET birth_idempotency_key = 'forbidden-runtime-update'"
-                    )
+                    runtime.execute("DELETE FROM armi.subjects")
                 runtime.rollback()
 
             repair_preview = service.mutate(
@@ -4456,7 +4664,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
                 for statement in (
                     "CREATE TABLE armi.forbidden (id bigint)",
-                    "UPDATE armi.subjects SET status = 'retired'",
+                    "DELETE FROM armi.subjects",
                     "SET ROLE armi_owner",
                 ):
                     with self.assertRaises(psycopg.Error):
@@ -4723,11 +4931,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             self.assertTrue(all(row[2] == rows[0][0] for row in audit_rows))
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                 connection.execute("DELETE FROM armi.artifacts")
-            connection.rollback()
-            with self.assertRaises(psycopg.errors.InsufficientPrivilege):
-                connection.execute(
-                    "UPDATE armi.artifacts SET logical_kind = 'forbidden'"
-                )
             connection.rollback()
             for statement in (
                 "UPDATE armi.audit_events SET operation = 'forbidden'",
@@ -6946,8 +7149,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         "SELECT count(*) FROM armi.runtime_instances"
                     ).fetchone()
                     provisioner.execute(
-                        "REVOKE INSERT (audit_event_id) "
-                        "ON armi.audit_events FROM armi_runtime"
+                        "REVOKE INSERT ON armi.audit_events FROM armi_runtime"
                     )
                 with self.assertRaises(RuntimeAuthorityViolation) as audit_denied:
                     await authorities[0].acquire(
@@ -6963,8 +7165,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         "SELECT count(*) FROM armi.runtime_instances"
                     ).fetchone()
                     provisioner.execute(
-                        "GRANT INSERT (audit_event_id) "
-                        "ON armi.audit_events TO armi_runtime"
+                        "GRANT INSERT ON armi.audit_events TO armi_runtime"
                     )
                 self.assertEqual(before_count, after_count)
             finally:
@@ -7113,7 +7314,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 restored = connection.execute(
                     "SELECT version_num FROM armi.alembic_version"
                 ).fetchall()
-            self.assertEqual(restored, [("0000",)])
+            self.assertEqual(restored, [("0002",)])
 
             second_quarantine = root / "second-quarantine"
             second_quarantine.mkdir()

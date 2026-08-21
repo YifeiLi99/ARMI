@@ -41,12 +41,20 @@ def test_schema_resources_use_one_linear_alembic_history() -> None:
     assert not (RESOURCE / "migrations").exists()
     assert not list(RESOURCE.glob("**/manifest.json"))
     script = _script()
-    assert script.get_heads() == ["0001"]
+    assert script.get_heads() == ["0002"]
     revisions = list(script.walk_revisions(base="base", head="heads"))
-    assert [revision.revision for revision in reversed(revisions)] == ["0000", "0001"]
+    assert [revision.revision for revision in reversed(revisions)] == [
+        "0000",
+        "0001",
+        "0002",
+    ]
     assert sorted(
         path.name for path in (RESOURCE / "alembic" / "versions").glob("*.py")
-    ) == ["0000_baseline.py", "0001_creator_voice_appraisal.py"]
+    ) == [
+        "0000_baseline.py",
+        "0001_creator_voice_appraisal.py",
+        "0002_table_level_dml_capabilities.py",
+    ]
 
 
 def test_baseline_contains_authoritative_schema() -> None:

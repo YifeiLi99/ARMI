@@ -51,6 +51,8 @@ docs/                       私有叙述性设计与外部研究资料
 
 `docs/` 被 Git 忽略，用于本地继续设计；精确的字段、路由、状态值和依赖版本仍以当前代码、DDL、配置与锁文件为准。文档入口见 [`docs/README.md`](docs/README.md)。
 
+数据库当前唯一 head 是 `0002`。Runtime 与 Admin 的固定仓储写入按“角色—表—INSERT/UPDATE/DELETE”授权，不使用逐字段写权限；`db status` 与日常启动入口会在 Runtime 启动前核对必需权限、残留逐字段权限和未批准的额外写权限，漂移统一以 `DB-ROLE-GRANT` 拒绝。
+
 ## 本地开发入口
 
 环境已经完成数据库安装和出生初始化后，可从仓库根目录一键拉起 PostgreSQL 与 Runtime：
