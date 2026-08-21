@@ -5007,6 +5007,10 @@
             "title": "Channel",
             "type": "string"
           },
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
           "contract_version": {
             "const": "1.0",
             "title": "Contract Version",
@@ -5016,6 +5020,10 @@
             "const": "napcat",
             "title": "Driver",
             "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
           },
           "ingress_ready": {
             "title": "Ingress Ready",
@@ -5069,6 +5077,8 @@
           "projection_version",
           "channel",
           "driver",
+          "configured",
+          "enabled",
           "state",
           "ingress_ready",
           "api_reachable",
@@ -5211,6 +5221,44 @@
         ],
         "type": "string"
       },
+      "RuntimeComponentHealthResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "component": {
+            "enum": [
+              "database",
+              "runtime",
+              "creator_web"
+            ],
+            "title": "Component",
+            "type": "string"
+          },
+          "reason_codes": {
+            "items": {
+              "$ref": "#/components/schemas/ReasonCode"
+            },
+            "maxItems": 16,
+            "title": "Reason Codes",
+            "type": "array"
+          },
+          "state": {
+            "enum": [
+              "ready",
+              "degraded",
+              "unavailable"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "component",
+          "state",
+          "reason_codes"
+        ],
+        "title": "RuntimeComponentHealthResponse",
+        "type": "object"
+      },
       "RuntimeState": {
         "enum": [
           "unborn",
@@ -5228,6 +5276,15 @@
       "RuntimeStatusResponse": {
         "additionalProperties": false,
         "properties": {
+          "components": {
+            "items": {
+              "$ref": "#/components/schemas/RuntimeComponentHealthResponse"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "title": "Components",
+            "type": "array"
+          },
           "contract_version": {
             "const": "1.0",
             "title": "Contract Version",
@@ -5264,6 +5321,7 @@
           "runtime_state",
           "readiness",
           "reason_codes",
+          "components",
           "observed_at"
         ],
         "title": "RuntimeStatusResponse",
@@ -6121,6 +6179,29 @@
         "summary": "Decide Capability Request"
       }
     },
+    "/v1/channels/qq/start": {
+      "post": {
+        "operationId": "startQQChannel",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QQChannelHealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "Start Qq Channel"
+      }
+    },
     "/v1/channels/qq/status": {
       "get": {
         "operationId": "getQQChannelHealth",
@@ -6172,6 +6253,29 @@
           }
         ],
         "summary": "Qq Channel Health"
+      }
+    },
+    "/v1/channels/qq/stop": {
+      "post": {
+        "operationId": "stopQQChannel",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QQChannelHealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "Stop Qq Channel"
       }
     },
     "/v1/data-rights/orders": {

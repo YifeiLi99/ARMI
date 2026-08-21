@@ -7,6 +7,7 @@ import {
   getLiveVisionPreview,
   getLiveVisionStatus,
 } from "../../api/client";
+import { ComponentSwitch } from "./ComponentSwitch";
 
 type Props = { token: string; onUnauthorized: () => void };
 
@@ -86,13 +87,13 @@ export function LiveVisionCard({ token, onUnauthorized }: Props) {
           >
             立即观察
           </button>
-          <button
-            type="button"
-            disabled={status.data?.state === "disabled" || control.isPending}
-            onClick={() => control.mutate(active ? "stop" : "start")}
-          >
-            {active ? "暂停" : "恢复"}
-          </button>
+          <ComponentSwitch
+            label="常驻视觉"
+            checked={active}
+            disabled={!status.data?.enabled}
+            pending={control.isPending}
+            onChange={(running) => control.mutate(running ? "start" : "stop")}
+          />
         </div>
       </div>
       {status.isPending ? <p role="status">正在读取视觉状态</p> : null}

@@ -213,6 +213,21 @@ export async function getQQChannelHealth(
   return requireJson(response);
 }
 
+export async function setQQChannelEnabled(
+  token: string,
+  enabled: boolean,
+): Promise<QQChannelHealth> {
+  const response = await fetch(
+    `/v1/channels/qq/${enabled ? "start" : "stop"}`,
+    {
+      method: "POST",
+      credentials: "omit",
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  return requireJson(response);
+}
+
 export async function getLiveVoiceStatus(
   token: string,
   signal?: AbortSignal,

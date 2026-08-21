@@ -749,6 +749,10 @@ async def _unused_qq_health() -> QQChannelHealthResponse:
     raise AssertionError("schema construction must not invoke Runtime dependencies")
 
 
+async def _unused_qq_control(_action: str) -> QQChannelHealthResponse:
+    raise AssertionError("schema construction must not invoke Runtime dependencies")
+
+
 def _unused_sync() -> Any:
     raise AssertionError("schema construction must not invoke Runtime dependencies")
 
@@ -758,6 +762,7 @@ def create_creator_openapi_app() -> FastAPI:
         readiness=lambda: Readiness.NOT_READY,
         runtime_status=_unused_sync,
         qq_channel_health=_unused_qq_health,
+        qq_channel_control=_unused_qq_control,
         assets=StaticAssetStore({}),
         browser_sessions=None,
         expected_authority="127.0.0.1:6198",

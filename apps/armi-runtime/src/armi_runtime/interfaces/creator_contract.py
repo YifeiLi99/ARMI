@@ -650,12 +650,22 @@ class CreatorCodexTaskRequest(_StrictWireModel):
     web_search: bool = False
 
 
+class RuntimeComponentHealthResponse(_StrictWireModel):
+    component: Literal["database", "runtime", "creator_web"]
+    state: Literal["ready", "degraded", "unavailable"]
+    reason_codes: Annotated[list[ReasonCode], Field(max_length=16)]
+
+
 class RuntimeStatusResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
     environment_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     runtime_state: RuntimeState
     readiness: Readiness
     reason_codes: Annotated[list[ReasonCode], Field(max_length=32)]
+    components: Annotated[
+        list[RuntimeComponentHealthResponse],
+        Field(min_length=3, max_length=3),
+    ]
     observed_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
 
 
@@ -664,6 +674,8 @@ class QQChannelHealthResponse(_StrictWireModel):
     projection_version: Literal["creator-channel-health.v2"]
     channel: Literal["qq"]
     driver: Literal["napcat"]
+    configured: bool
+    enabled: bool
     state: Literal[
         "disabled",
         "starting",

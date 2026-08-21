@@ -96,6 +96,8 @@ from armi_web_observation.api import (
     WebResearchViolation,
 )
 from armi_web_observation.bootstrap import bootstrap_web_context_read
+from starlette.responses import Response as StarletteResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from armi_runtime.adapters.model.external_content import (
     VolcengineArkExternalContentRecognizer,
@@ -124,6 +126,7 @@ from armi_runtime.interfaces.creator_contract import (
     LiveVisionStatusResponse,
     LiveVoiceStatusResponse,
     QQChannelHealthResponse,
+    RuntimeComponentHealthResponse,
     RuntimeStatusResponse,
 )
 from armi_runtime.interfaces.creator_events import CreatorEventBroker
@@ -226,6 +229,27 @@ class _RuntimeServer(uvicorn.Server):
                 signal.signal(current, handler)
 
 
+class _SwitchableIngress:
+    """Keep the listener bound while explicitly pausing external admission."""
+
+    __slots__ = ("_app", "enabled")
+
+    def __init__(self, app: ASGIApp) -> None:
+        self._app = app
+        self.enabled = True
+
+    async def __call__(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+    ) -> None:
+        if not self.enabled:
+            await StarletteResponse(status_code=503)(scope, receive, send)
+            return
+        await self._app(scope, receive, send)
+
+
 async def _serve(
     prepared: PreparedEnvironment,
     *,
@@ -298,6 +322,7 @@ async def _serve(
     perception_module = None
     qq_channel: QQChannelBinding | None = None
     qq_server: _RuntimeServer | None = None
+    qq_ingress: _SwitchableIngress | None = None
     other_human_record_query = None
     life_opportunity_pipeline = None
     context_pipeline = None
@@ -1506,16 +1531,54 @@ async def _serve(
 
     def runtime_status() -> RuntimeStatusResponse:
         snapshot = lifecycle.snapshot()
+        observation = (
+            None if observation_driver is None else observation_driver.snapshot()
+        )
+        database_ready = (
+            observation is not None and observation.get("status") == "available"
+        )
+        database_reason = (
+            "DATABASE_OBSERVATION_UNAVAILABLE"
+            if observation is None
+            else str(
+                observation.get("reason_code") or "DATABASE_OBSERVATION_UNAVAILABLE"
+            )
+        )
+        database_reasons = [] if database_ready else [database_reason]
         return RuntimeStatusResponse(
             contract_version="1.0",
             environment_id=snapshot.environment_id,
             runtime_state=snapshot.runtime_state,
             readiness=snapshot.readiness,
             reason_codes=list(snapshot.reason_codes),
+            components=[
+                RuntimeComponentHealthResponse(
+                    component="database",
+                    state="ready" if database_ready else "unavailable",
+                    reason_codes=database_reasons,
+                ),
+                RuntimeComponentHealthResponse(
+                    component="runtime",
+                    state=(
+                        "ready"
+                        if snapshot.runtime_state.value == "ready"
+                        and snapshot.readiness.value == "ready"
+                        else "degraded"
+                    ),
+                    reason_codes=list(snapshot.reason_codes),
+                ),
+                RuntimeComponentHealthResponse(
+                    component="creator_web",
+                    state="ready",
+                    reason_codes=[],
+                ),
+            ],
             observed_at=snapshot.observed_at,
         )
 
     async def qq_health_status() -> QQChannelHealthResponse:
+        configured = qq_channel is not None
+        enabled = qq_ingress is not None and qq_ingress.enabled
         if qq_channel is None:
             health = disabled_qq_health()
         else:
@@ -1531,15 +1594,24 @@ async def _serve(
             projection_version="creator-channel-health.v2",
             channel="qq",
             driver="napcat",
-            state=health.state,
-            ingress_ready=health.ingress_ready,
+            configured=configured,
+            enabled=enabled,
+            state="disabled" if configured and not enabled else health.state,
+            ingress_ready=enabled and health.ingress_ready,
             api_reachable=health.api_reachable,
             account_online=health.account_online,
             account_matches=health.account_matches,
             webui_url=health.webui_url,
             observed_at=health.observed_at,
-            reason_codes=list(health.reason_codes),
+            reason_codes=[]
+            if configured and not enabled
+            else list(health.reason_codes),
         )
+
+    async def qq_channel_control(action: str) -> QQChannelHealthResponse:
+        if qq_ingress is not None:
+            qq_ingress.enabled = action == "start"
+        return await qq_health_status()
 
     async def live_voice_control(action: str) -> LiveVoiceStatusResponse:
         voice_config = config.voice
@@ -1902,6 +1974,7 @@ async def _serve(
         readiness=lambda: lifecycle.snapshot().readiness,
         runtime_status=runtime_status,
         qq_channel_health=qq_health_status,
+        qq_channel_control=qq_channel_control,
         live_voice_control=live_voice_control,
         live_vision_control=live_vision_control,
         live_vision_preview=live_vision_preview,
@@ -1958,9 +2031,10 @@ async def _serve(
         )
     )
     if qq_channel is not None:
+        qq_ingress = _SwitchableIngress(qq_channel.event_app)
         qq_server = _RuntimeServer(
             uvicorn.Config(
-                qq_channel.event_app,
+                qq_ingress,
                 host="127.0.0.1",
                 port=qq_channel.event_port,
                 workers=1,

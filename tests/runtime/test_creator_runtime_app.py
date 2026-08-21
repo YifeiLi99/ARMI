@@ -128,6 +128,7 @@ from armi_runtime.interfaces.creator_app import create_runtime_app
 from armi_runtime.interfaces.creator_contract import (
     QQChannelHealthResponse,
     Readiness,
+    RuntimeComponentHealthResponse,
     RuntimeStatusResponse,
 )
 from armi_runtime.interfaces.creator_events import CreatorEventBroker
@@ -974,6 +975,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.maintenance_query = _CreatorMaintenanceQuery()
         self.relationship_query = _CreatorRelationshipQuery()
         self.emergency_wake = _EmergencyWake(self.maintenance_query)
+        self.qq_enabled = True
 
     def test_every_creator_operation_phase_has_an_explicit_projection(self) -> None:
         acceptance = self.creator_input.acceptance
@@ -1136,6 +1138,19 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             runtime_state=snapshot.runtime_state,
             readiness=snapshot.readiness,
             reason_codes=list(snapshot.reason_codes),
+            components=[
+                RuntimeComponentHealthResponse(
+                    component="database", state="ready", reason_codes=[]
+                ),
+                RuntimeComponentHealthResponse(
+                    component="runtime",
+                    state="degraded",
+                    reason_codes=list(snapshot.reason_codes),
+                ),
+                RuntimeComponentHealthResponse(
+                    component="creator_web", state="ready", reason_codes=[]
+                ),
+            ],
             observed_at=snapshot.observed_at,
         )
 
@@ -1145,8 +1160,10 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             projection_version="creator-channel-health.v2",
             channel="qq",
             driver="napcat",
-            state="ready",
-            ingress_ready=True,
+            configured=True,
+            enabled=self.qq_enabled,
+            state="ready" if self.qq_enabled else "disabled",
+            ingress_ready=self.qq_enabled,
             api_reachable=True,
             account_online=True,
             account_matches=True,
@@ -1154,6 +1171,10 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             observed_at="2026-08-14T08:00:00.000000Z",
             reason_codes=[],
         )
+
+    async def _qq_control(self, action: str) -> QQChannelHealthResponse:
+        self.qq_enabled = action == "start"
+        return await self._qq_health()
 
     def _app(self, *, sessions: bool = True):
         async def started() -> None:
@@ -1168,6 +1189,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             readiness=lambda: self.lifecycle.snapshot().readiness,
             runtime_status=self._status,
             qq_channel_health=self._qq_health,
+            qq_channel_control=self._qq_control,
             assets=self.assets,
             browser_sessions=self.sessions if sessions else None,
             expected_authority=AUTHORITY,
@@ -1582,6 +1604,14 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                 "/v1/channels/qq/status",
                 headers=self._browser_headers(token),
             )
+            qq_stopped = client.post(
+                "/v1/channels/qq/stop",
+                headers=self._browser_headers(token),
+            )
+            qq_started = client.post(
+                "/v1/channels/qq/start",
+                headers=self._browser_headers(token),
+            )
 
         self.assertEqual(current.status_code, 200)
         self.assertEqual(current.json()["creator_party_id"], CREATOR_ID)
@@ -1591,6 +1621,10 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.assertEqual(status.json()["runtime_state"], "blocked")
         self.assertEqual(qq_status.status_code, 200)
         self.assertEqual(qq_status.json()["state"], "ready")
+        self.assertEqual(qq_stopped.json()["state"], "disabled")
+        self.assertFalse(qq_stopped.json()["enabled"])
+        self.assertEqual(qq_started.json()["state"], "ready")
+        self.assertTrue(qq_started.json()["enabled"])
         self.assertNotIn("account_id", qq_status.json())
 
     def test_timeline_is_authenticated_and_query_parameters_are_exact(self) -> None:

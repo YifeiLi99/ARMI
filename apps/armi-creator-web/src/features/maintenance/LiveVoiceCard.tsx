@@ -6,6 +6,7 @@ import {
   getLiveVoiceStatus,
   setLiveVoiceRunning,
 } from "../../api/client";
+import { ComponentSwitch } from "./ComponentSwitch";
 
 type LiveVoiceCardProps = {
   token: string;
@@ -73,13 +74,13 @@ export function LiveVoiceCard({ token, onUnauthorized }: LiveVoiceCardProps) {
           >
             刷新
           </button>
-          <button
-            type="button"
-            disabled={control.isPending || (!active && !canStart)}
-            onClick={() => control.mutate(!active)}
-          >
-            {control.isPending ? "正在处理" : active ? "结束语音" : "开始语音"}
-          </button>
+          <ComponentSwitch
+            label="实时语音"
+            checked={active}
+            disabled={!status.data?.enabled || (!active && !canStart)}
+            pending={control.isPending}
+            onChange={(running) => control.mutate(running)}
+          />
         </div>
       </div>
 

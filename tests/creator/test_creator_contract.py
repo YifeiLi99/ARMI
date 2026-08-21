@@ -44,6 +44,15 @@ def runtime_status() -> dict[str, object]:
         "runtime_state": "starting",
         "readiness": "not_ready",
         "reason_codes": ["RUNTIME_RECOVERING"],
+        "components": [
+            {"component": "database", "state": "ready", "reason_codes": []},
+            {
+                "component": "runtime",
+                "state": "degraded",
+                "reason_codes": ["RUNTIME_RECOVERING"],
+            },
+            {"component": "creator_web", "state": "ready", "reason_codes": []},
+        ],
         "observed_at": INSTANT,
     }
 
@@ -99,6 +108,8 @@ class CreatorContractTests(unittest.TestCase):
                 "/v1/browser-sessions",
                 "/v1/browser-sessions/current",
                 "/v1/channels/qq/status",
+                "/v1/channels/qq/start",
+                "/v1/channels/qq/stop",
                 "/v1/voice/status",
                 "/v1/voice/start",
                 "/v1/voice/stop",
@@ -160,6 +171,14 @@ class CreatorContractTests(unittest.TestCase):
         self.assertEqual(qq_health["operationId"], "getQQChannelHealth")
         self.assertEqual(qq_health["security"], [{"browserSessionBearer": []}])
         self.assertEqual(set(qq_health["responses"]), {"200", "401", "403", "503"})
+        self.assertEqual(
+            paths["/v1/channels/qq/start"]["post"]["operationId"],
+            "startQQChannel",
+        )
+        self.assertEqual(
+            paths["/v1/channels/qq/stop"]["post"]["operationId"],
+            "stopQQChannel",
+        )
         voice = paths["/v1/voice/status"]["get"]
         self.assertEqual(voice["operationId"], "getLiveVoiceStatus")
         self.assertEqual(voice["security"], [{"browserSessionBearer": []}])

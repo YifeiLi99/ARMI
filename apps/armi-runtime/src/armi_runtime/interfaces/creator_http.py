@@ -249,6 +249,7 @@ AsyncCallback = Callable[[], Awaitable[None]]
 ReadinessProvider = Callable[[], Readiness]
 RuntimeStatusProvider = Callable[[], RuntimeStatusResponse]
 QQChannelHealthProvider = Callable[[], Awaitable[QQChannelHealthResponse]]
+QQChannelControlProvider = Callable[[str], Awaitable[QQChannelHealthResponse]]
 LiveVoiceControlProvider = Callable[[str], Awaitable[LiveVoiceStatusResponse]]
 LiveVisionControlProvider = Callable[[str], Awaitable[LiveVisionStatusResponse]]
 LiveVisionPreviewProvider = Callable[[], bytes | None]
@@ -1599,6 +1600,7 @@ __all__ = (
     "OtherHumanTimelineRecordPageResponse",
     "OtherHumanTimelineRecordResponse",
     "PromptKind",
+    "QQChannelControlProvider",
     "QQChannelHealthProvider",
     "QQChannelHealthResponse",
     "ReadinessProvider",

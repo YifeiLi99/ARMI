@@ -140,6 +140,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/channels/qq/start": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Start Qq Channel */
+    post: operations["startQQChannel"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/channels/qq/status": {
     parameters: {
       query?: never;
@@ -151,6 +168,23 @@ export interface paths {
     get: operations["getQQChannelHealth"];
     put?: never;
     post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/channels/qq/stop": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Stop Qq Channel */
+    post: operations["stopQQChannel"];
     delete?: never;
     options?: never;
     head?: never;
@@ -2808,6 +2842,8 @@ export interface components {
        * @constant
        */
       channel: "qq";
+      /** Configured */
+      configured: boolean;
       /**
        * Contract Version
        * @constant
@@ -2818,6 +2854,8 @@ export interface components {
        * @constant
        */
       driver: "napcat";
+      /** Enabled */
+      enabled: boolean;
       /** Ingress Ready */
       ingress_ready: boolean;
       /** Observed At */
@@ -2896,6 +2934,21 @@ export interface components {
       "active" | "fulfilled" | "withdrawn" | "forgotten" | "violated";
     /** @enum {string} */
     RelationshipPartyRoleValue: "subject" | "other";
+    /** RuntimeComponentHealthResponse */
+    RuntimeComponentHealthResponse: {
+      /**
+       * Component
+       * @enum {string}
+       */
+      component: "database" | "runtime" | "creator_web";
+      /** Reason Codes */
+      reason_codes: components["schemas"]["ReasonCode"][];
+      /**
+       * State
+       * @enum {string}
+       */
+      state: "ready" | "degraded" | "unavailable";
+    };
     /**
      * RuntimeState
      * @enum {string}
@@ -2911,6 +2964,8 @@ export interface components {
       | "blocked";
     /** RuntimeStatusResponse */
     RuntimeStatusResponse: {
+      /** Components */
+      components: components["schemas"]["RuntimeComponentHealthResponse"][];
       /**
        * Contract Version
        * @constant
@@ -3463,6 +3518,26 @@ export interface operations {
       };
     };
   };
+  startQQChannel: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["QQChannelHealthResponse"];
+        };
+      };
+    };
+  };
   getQQChannelHealth: {
     parameters: {
       query?: never;
@@ -3506,6 +3581,26 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["UnavailableOutcomeResponse"];
+        };
+      };
+    };
+  };
+  stopQQChannel: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["QQChannelHealthResponse"];
         };
       };
     };

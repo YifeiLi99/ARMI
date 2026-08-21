@@ -66,7 +66,7 @@ describe("live voice card", () => {
     expect(
       await screen.findByText("实时语音配置或凭据当前不可用。"),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "开始语音" })).toBeDisabled();
+    expect(screen.getByRole("switch", { name: "实时语音" })).toBeDisabled();
   });
 
   it("sends an explicit start request", async () => {
@@ -78,7 +78,7 @@ describe("live voice card", () => {
     renderCard();
 
     await userEvent.click(
-      await screen.findByRole("button", { name: "开始语音" }),
+      await screen.findByRole("switch", { name: "实时语音" }),
     );
     expect(fetchMock).toHaveBeenLastCalledWith(
       "/v1/voice/start",

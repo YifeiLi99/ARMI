@@ -51,6 +51,22 @@ function sessionResponse(includeToken: boolean): object {
   };
 }
 
+function runtimeStatusResponse(): object {
+  return {
+    contract_version: "1.0",
+    environment_id: ENVIRONMENT_ID,
+    runtime_state: "ready",
+    readiness: "ready",
+    reason_codes: [],
+    components: [
+      { component: "database", state: "ready", reason_codes: [] },
+      { component: "runtime", state: "ready", reason_codes: [] },
+      { component: "creator_web", state: "ready", reason_codes: [] },
+    ],
+    observed_at: "2026-07-30T10:00:01.000000Z",
+  };
+}
+
 function acceptedOperation(): object {
   return {
     contract_version: "1.0",
@@ -299,16 +315,7 @@ describe("Creator local connection shell", () => {
       .fn<typeof fetch>()
       .mockResolvedValueOnce(jsonResponse(sessionResponse(true)))
       .mockResolvedValueOnce(jsonResponse(sessionResponse(false)))
-      .mockResolvedValueOnce(
-        jsonResponse({
-          contract_version: "1.0",
-          environment_id: ENVIRONMENT_ID,
-          runtime_state: "ready",
-          readiness: "ready",
-          reason_codes: [],
-          observed_at: "2026-07-30T10:00:01.000000Z",
-        }),
-      )
+      .mockResolvedValueOnce(jsonResponse(runtimeStatusResponse()))
       .mockResolvedValueOnce(
         jsonResponse({
           contract_version: "1.0",
@@ -332,8 +339,8 @@ describe("Creator local connection shell", () => {
     const user = userEvent.setup();
     render(<CreatorShell />);
 
-    expect(await screen.findByText("本机连接正常")).toBeInTheDocument();
-    expect(screen.getAllByText("ready")).toHaveLength(3);
+    expect(await screen.findByText("必需组件")).toBeInTheDocument();
+    expect(screen.getAllByText("健康")).toHaveLength(3);
     const stored = sessionStorage.getItem("armi.browser-session.v1");
     expect(stored).toContain(TOKEN);
     expect(document.body.textContent).not.toContain(TOKEN);
@@ -407,16 +414,7 @@ describe("Creator local connection shell", () => {
       .fn<typeof fetch>()
       .mockResolvedValueOnce(jsonResponse(sessionResponse(true)))
       .mockResolvedValueOnce(jsonResponse(sessionResponse(false)))
-      .mockResolvedValueOnce(
-        jsonResponse({
-          contract_version: "1.0",
-          environment_id: ENVIRONMENT_ID,
-          runtime_state: "ready",
-          readiness: "ready",
-          reason_codes: [],
-          observed_at: "2026-07-30T10:00:01.000000Z",
-        }),
-      )
+      .mockResolvedValueOnce(jsonResponse(runtimeStatusResponse()))
       .mockResolvedValueOnce(
         jsonResponse({
           contract_version: "1.0",
@@ -476,16 +474,7 @@ describe("Creator local connection shell", () => {
       .fn<typeof fetch>()
       .mockResolvedValueOnce(jsonResponse(sessionResponse(true)))
       .mockResolvedValueOnce(jsonResponse(sessionResponse(false)))
-      .mockResolvedValueOnce(
-        jsonResponse({
-          contract_version: "1.0",
-          environment_id: ENVIRONMENT_ID,
-          runtime_state: "ready",
-          readiness: "ready",
-          reason_codes: [],
-          observed_at: "2026-07-30T10:00:01.000000Z",
-        }),
-      )
+      .mockResolvedValueOnce(jsonResponse(runtimeStatusResponse()))
       .mockResolvedValueOnce(new Response(null, { status: 401 }));
     vi.stubGlobal("fetch", fetchMock);
     render(<CreatorShell />);
@@ -511,16 +500,7 @@ describe("Creator local connection shell", () => {
       .fn<typeof fetch>()
       .mockResolvedValueOnce(jsonResponse(sessionResponse(true)))
       .mockResolvedValueOnce(jsonResponse(sessionResponse(false)))
-      .mockResolvedValueOnce(
-        jsonResponse({
-          contract_version: "1.0",
-          environment_id: ENVIRONMENT_ID,
-          runtime_state: "ready",
-          readiness: "ready",
-          reason_codes: [],
-          observed_at: "2026-07-30T10:00:01.000000Z",
-        }),
-      )
+      .mockResolvedValueOnce(jsonResponse(runtimeStatusResponse()))
       .mockResolvedValueOnce(
         jsonResponse({
           contract_version: "1.0",
@@ -592,14 +572,7 @@ describe("Creator local connection shell", () => {
         return jsonResponse(sessionResponse(false));
       }
       if (url === "/v1/runtime/status") {
-        return jsonResponse({
-          contract_version: "1.0",
-          environment_id: ENVIRONMENT_ID,
-          runtime_state: "ready",
-          readiness: "ready",
-          reason_codes: [],
-          observed_at: "2026-07-30T10:00:01.000000Z",
-        });
+        return jsonResponse(runtimeStatusResponse());
       }
       if (url === "/v1/activities") {
         activityReads += 1;
@@ -672,14 +645,7 @@ describe("Creator local connection shell", () => {
         return jsonResponse(sessionResponse(false));
       }
       if (url === "/v1/runtime/status") {
-        return jsonResponse({
-          contract_version: "1.0",
-          environment_id: ENVIRONMENT_ID,
-          runtime_state: "ready",
-          readiness: "ready",
-          reason_codes: [],
-          observed_at: "2026-07-30T10:00:01.000000Z",
-        });
+        return jsonResponse(runtimeStatusResponse());
       }
       if (url.startsWith("/v1/scenes/default/timeline")) {
         return jsonResponse({
@@ -760,16 +726,7 @@ describe("Creator local connection shell", () => {
       .fn<typeof fetch>()
       .mockResolvedValueOnce(jsonResponse(sessionResponse(true)))
       .mockResolvedValueOnce(jsonResponse(sessionResponse(false)))
-      .mockResolvedValueOnce(
-        jsonResponse({
-          contract_version: "1.0",
-          environment_id: ENVIRONMENT_ID,
-          runtime_state: "ready",
-          readiness: "ready",
-          reason_codes: [],
-          observed_at: "2026-07-30T10:00:01.000000Z",
-        }),
-      )
+      .mockResolvedValueOnce(jsonResponse(runtimeStatusResponse()))
       .mockResolvedValueOnce(
         jsonResponse({
           contract_version: "1.0",
@@ -813,14 +770,7 @@ describe("Creator local connection shell", () => {
         return jsonResponse(sessionResponse(false));
       }
       if (url === "/v1/runtime/status") {
-        return jsonResponse({
-          contract_version: "1.0",
-          environment_id: ENVIRONMENT_ID,
-          runtime_state: "ready",
-          readiness: "ready",
-          reason_codes: [],
-          observed_at: "2026-07-30T10:00:01.000000Z",
-        });
+        return jsonResponse(runtimeStatusResponse());
       }
       if (url === "/v1/subject/summary") {
         return jsonResponse(subjectSummaryResponse());
@@ -950,14 +900,7 @@ describe("Creator local connection shell", () => {
         return jsonResponse(sessionResponse(false));
       }
       if (url === "/v1/runtime/status") {
-        return jsonResponse({
-          contract_version: "1.0",
-          environment_id: ENVIRONMENT_ID,
-          runtime_state: "ready",
-          readiness: "ready",
-          reason_codes: [],
-          observed_at: "2026-07-30T10:00:01.000000Z",
-        });
+        return jsonResponse(runtimeStatusResponse());
       }
       if (url === "/v1/subject/summary") {
         return jsonResponse(subjectSummaryResponse());

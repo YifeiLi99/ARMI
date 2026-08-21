@@ -113,7 +113,7 @@ const pageMeta: Record<WorkspacePage, { title: string; description: string }> =
     },
     maintenance: {
       title: "运行与维护",
-      description: "观察 Runtime 与维护阶段，必要时执行明确的恢复动作。",
+      description: "统一观察必需与可选组件，并控制本次运行中的能力入口。",
     },
     export: {
       title: "数据导出",

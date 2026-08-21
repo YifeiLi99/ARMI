@@ -73,7 +73,7 @@ describe("live vision card", () => {
       "/v1/vision/observe",
       expect.objectContaining({ method: "POST" }),
     );
-    await userEvent.click(screen.getByRole("button", { name: "暂停" }));
+    await userEvent.click(screen.getByRole("switch", { name: "常驻视觉" }));
     expect(fetchMock).toHaveBeenLastCalledWith(
       "/v1/vision/stop",
       expect.objectContaining({ method: "POST" }),

@@ -20,6 +20,7 @@ import { MaintenancePanel } from "../maintenance/MaintenancePanel";
 import { QQChannelHealthCard } from "../maintenance/QQChannelHealthCard";
 import { LiveVoiceCard } from "../maintenance/LiveVoiceCard";
 import { LiveVisionCard } from "../maintenance/LiveVisionCard";
+import { RequiredComponentsCard } from "../maintenance/RequiredComponentsCard";
 import { MaterialPanel } from "../material/MaterialPanel";
 import { MemoryPanel } from "../memory/MemoryPanel";
 import { RelationshipPanel } from "../relationship/RelationshipPanel";
@@ -320,42 +321,10 @@ export function SessionPanel() {
           </div>
           <div hidden={activePage !== "maintenance"}>
             <div className="page-stack">
-              <section
-                className="session-summary content-panel"
-                aria-labelledby="session-heading"
-              >
-                <div className="panel-heading-row">
-                  <div>
-                    <p className="eyebrow">连接</p>
-                    <h2 id="session-heading">本机 Runtime 状态</h2>
-                  </div>
-                  <span className="state-badge">
-                    <span className="status-dot" />
-                    本机连接正常
-                  </span>
-                </div>
-                <dl>
-                  <div>
-                    <dt>生命周期</dt>
-                    <dd>{view.runtime.runtime_state}</dd>
-                  </div>
-                  <div>
-                    <dt>接纳状态</dt>
-                    <dd>{view.runtime.readiness}</dd>
-                  </div>
-                  <div>
-                    <dt>会话到期</dt>
-                    <dd>{view.session.expires_at}</dd>
-                  </div>
-                </dl>
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => void loadAuthenticated(view.stored)}
-                >
-                  重新读取状态
-                </button>
-              </section>
+              <RequiredComponentsCard
+                runtime={view.runtime}
+                onRefresh={() => void loadAuthenticated(view.stored)}
+              />
               <MaintenancePanel
                 token={view.stored.token}
                 environmentId={view.session.environment_id}

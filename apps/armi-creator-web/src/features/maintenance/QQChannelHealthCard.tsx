@@ -1,7 +1,12 @@
 import { useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { ApiFailure, getQQChannelHealth } from "../../api/client";
+import {
+  ApiFailure,
+  getQQChannelHealth,
+  setQQChannelEnabled,
+} from "../../api/client";
+import { ComponentSwitch } from "./ComponentSwitch";
 
 type QQChannelHealthCardProps = {
   token: string;
@@ -35,17 +40,26 @@ export function QQChannelHealthCard({
   token,
   onUnauthorized,
 }: QQChannelHealthCardProps) {
+  const queryClient = useQueryClient();
+  const queryKey = ["qq-channel-health"] as const;
   const health = useQuery({
-    queryKey: ["qq-channel-health"],
+    queryKey,
     queryFn: ({ signal }) => getQQChannelHealth(token, signal),
     refetchInterval: 10_000,
   });
+  const control = useMutation({
+    mutationFn: (enabled: boolean) => setQQChannelEnabled(token, enabled),
+    onSuccess: (value) => queryClient.setQueryData(queryKey, value),
+  });
 
   useEffect(() => {
-    if (health.error instanceof ApiFailure && health.error.status === 401) {
+    if (
+      (health.error instanceof ApiFailure && health.error.status === 401) ||
+      (control.error instanceof ApiFailure && control.error.status === 401)
+    ) {
       onUnauthorized();
     }
-  }, [health.error, onUnauthorized]);
+  }, [control.error, health.error, onUnauthorized]);
 
   return (
     <section className="authority-panel" aria-labelledby="qq-health-heading">
@@ -72,11 +86,19 @@ export function QQChannelHealthCard({
           >
             刷新
           </button>
+          <ComponentSwitch
+            label="QQ 渠道"
+            checked={health.data?.enabled ?? false}
+            disabled={!health.data?.configured}
+            pending={control.isPending}
+            onChange={(enabled) => control.mutate(enabled)}
+          />
         </div>
       </div>
 
       {health.isPending ? <p role="status">正在检查 QQ 渠道</p> : null}
       {health.isError ? <p role="status">当前无法检查 QQ 渠道。</p> : null}
+      {control.isError ? <p role="status">QQ 渠道切换失败。</p> : null}
       {health.data === undefined ? null : (
         <>
           <p className="maintenance-state" role="status">

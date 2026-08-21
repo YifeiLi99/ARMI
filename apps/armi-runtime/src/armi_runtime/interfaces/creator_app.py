@@ -33,6 +33,7 @@ from .creator_http import (
     MemoryReadPort,
     OtherHumanInputPort,
     OtherHumanRecordQueryPort,
+    QQChannelControlProvider,
     QQChannelHealthProvider,
     ReadinessProvider,
     RedirectResponse,
@@ -94,6 +95,7 @@ def create_runtime_app(
     live_voice_control: LiveVoiceControlProvider | None = None,
     live_vision_control: LiveVisionControlProvider | None = None,
     live_vision_preview: LiveVisionPreviewProvider | None = None,
+    qq_channel_control: QQChannelControlProvider | None = None,
 ) -> FastAPI:
     """Create the fixed Runtime app without implementation discovery."""
 
@@ -182,6 +184,7 @@ def create_runtime_app(
         live_vision_control=live_vision_control,
         live_vision_preview=live_vision_preview,
         live_voice_control=live_voice_control,
+        qq_channel_control=qq_channel_control,
         qq_channel_health=qq_channel_health,
         readiness=readiness,
         runtime_status=runtime_status,

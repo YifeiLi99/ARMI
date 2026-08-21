@@ -13,6 +13,8 @@ function response(state: string, reasonCodes: string[] = []): Response {
       projection_version: "creator-channel-health.v2",
       channel: "qq",
       driver: "napcat",
+      configured: true,
+      enabled: true,
       state,
       ingress_ready: state !== "disabled",
       api_reachable: state === "ready" || state === "login_required",
@@ -88,5 +90,19 @@ describe("QQ channel health card", () => {
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noreferrer");
     expect(link.getAttribute("href")).not.toContain("token");
+  });
+
+  it("uses the switch to pause QQ admission", async () => {
+    const fetchMock = vi.fn(async () => response("ready"));
+    vi.stubGlobal("fetch", fetchMock);
+    renderCard();
+
+    await userEvent.click(
+      await screen.findByRole("switch", { name: "QQ 渠道" }),
+    );
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/v1/channels/qq/stop",
+      expect.objectContaining({ method: "POST" }),
+    );
   });
 });

@@ -17,6 +17,7 @@ from .creator_http import (
     LiveVisionStatusResponse,
     LiveVoiceControlProvider,
     LiveVoiceStatusResponse,
+    QQChannelControlProvider,
     QQChannelHealthProvider,
     QQChannelHealthResponse,
     ReadinessProvider,
@@ -48,6 +49,7 @@ def register_system_routes(
     live_vision_control: LiveVisionControlProvider | None,
     live_vision_preview: LiveVisionPreviewProvider | None,
     live_voice_control: LiveVoiceControlProvider | None,
+    qq_channel_control: QQChannelControlProvider | None,
     qq_channel_health: QQChannelHealthProvider,
     readiness: ReadinessProvider,
     runtime_status: RuntimeStatusProvider,
@@ -210,6 +212,48 @@ def register_system_routes(
             )
         return JSONResponse(content=(await qq_channel_health()).model_dump(mode="json"))
 
+    async def _qq_control(request: Request, action: str) -> JSONResponse:
+        if (
+            browser_sessions is None
+            or qq_channel_control is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_QQ_CHANNEL_CONTROL_UNAVAILABLE"),
+            )
+        token = _bearer(request)
+        try:
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            browser_sessions.verify(token)
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code,
+                content=_rejected(error.code),
+            )
+        return JSONResponse(
+            content=(await qq_channel_control(action)).model_dump(mode="json")
+        )
+
+    @app.post(
+        "/v1/channels/qq/start",
+        operation_id="startQQChannel",
+        response_model=QQChannelHealthResponse,
+        dependencies=[Security(bearer)],
+    )
+    async def start_qq_channel(request: Request) -> JSONResponse:
+        return await _qq_control(request, "start")
+
+    @app.post(
+        "/v1/channels/qq/stop",
+        operation_id="stopQQChannel",
+        response_model=QQChannelHealthResponse,
+        dependencies=[Security(bearer)],
+    )
+    async def stop_qq_channel(request: Request) -> JSONResponse:
+        return await _qq_control(request, "stop")
+
     async def _voice_control(request: Request, action: str) -> JSONResponse:
         if (
             browser_sessions is None
@@ -361,6 +405,8 @@ def register_system_routes(
         current_browser_session,
         get_runtime_status,
         get_qq_channel_health,
+        start_qq_channel,
+        stop_qq_channel,
         get_live_voice_status,
         start_live_voice,
         stop_live_voice,
