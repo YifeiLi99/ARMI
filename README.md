@@ -122,6 +122,8 @@ caller-declared 的本地其他人入口通过 `armi other-human` 调用运行�
 
 数据库结构只由唯一 Alembic `0000` 管理。`db install` 拒绝已有用户对象，并在一个事务中安装有序模块化基线、revision 与 `armi.schema-baseline.v1` 身份。ARMI 是本地单实例项目，不提供内部数据库迁移或历史兼容入口；基线变化时必须停止 Runtime、明确删除旧数据库并重新安装。Runtime 只接受与当前源码完全一致的 revision、基线身份和角色权限合同。
 
+已获明确授权的本地彻底重置在停止 Runtime 后使用 `tools/reset_local_environment_data.ps1 -EnvironmentRoot C:\path\to\environment -Apply` 清空并重建 artifacts、backups、Codex runner、exports、logs 与 run 目录。脚本不删除数据库卷，也不触碰环境配置、凭据、模型、工具、NapCat 或渠道配置；数据库卷仍须独立核对后删除。
+
 离线全量灾备与隔离恢复演练使用 `armi recovery create`、`armi recovery verify` 和 `armi recovery drill --apply`。备份保存 custom-format 数据库 dump、全部 retained+verified artifact、schema head 与 Runtime 权威身份；恢复到隔离数据库后通过正式 owner recovery roster 检查业务一致性。它与 Creator JSONL 数据导出是不同协议。
 
 日常开发从改动相关的最小检查开始。仓库提供三层确定性门禁：
