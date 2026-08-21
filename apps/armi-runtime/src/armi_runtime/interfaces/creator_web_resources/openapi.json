@@ -2106,7 +2106,7 @@
               "other-human-record.v1",
               "creator-effect.v3",
               "subject-summary.v1",
-              "data-rights-order.v2"
+              "data-rights-order-detail.v1"
             ],
             "title": "Projection Version",
             "type": "string"
@@ -3107,7 +3107,7 @@
             "type": "array"
           },
           "projection_version": {
-            "const": "data-rights-order.v2",
+            "const": "data-rights-order-collection.v1",
             "title": "Projection Version",
             "type": "string"
           }
@@ -3182,7 +3182,7 @@
             "type": "string"
           },
           "projection_version": {
-            "const": "data-rights-order.v2",
+            "const": "data-rights-order-detail.v1",
             "title": "Projection Version",
             "type": "string"
           },
@@ -3346,7 +3346,7 @@
             "type": "string"
           },
           "projection_version": {
-            "const": "data-rights-order.v1",
+            "const": "data-rights-order-summary.v1",
             "title": "Projection Version",
             "type": "string"
           },

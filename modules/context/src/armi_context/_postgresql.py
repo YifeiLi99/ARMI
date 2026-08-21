@@ -431,7 +431,7 @@ class PostgreSQLContextRepository:
             subject_version=episode.base_subject_version,
             state_epoch=episode.base_state_epoch,
             bundle_activation_id=episode.bundle_activation_id,
-            policy_version="armi.context-policy.v3",
+            policy_version="armi.context-policy.v4",
             mechanism_identity=episode.mechanism_identity,
             trace_id=episode.trace_id,
             component_payloads=component_payloads,

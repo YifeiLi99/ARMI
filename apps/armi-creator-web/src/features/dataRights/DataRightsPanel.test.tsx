@@ -25,7 +25,7 @@ describe("Creator data rights panel", () => {
         return new Response(
           JSON.stringify({
             contract_version: "1.0",
-            projection_version: "data-rights-order.v1",
+            projection_version: "data-rights-order-summary.v1",
             order_id: ORDER_ID,
             requester_party_id: ORDER_ID,
             requester_kind: "creator",
@@ -45,11 +45,11 @@ describe("Creator data rights panel", () => {
       return new Response(
         JSON.stringify({
           contract_version: "1.0",
-          projection_version: "data-rights-order.v2",
+          projection_version: "data-rights-order-collection.v1",
           orders: [
             {
               contract_version: "1.0",
-              projection_version: "data-rights-order.v2",
+              projection_version: "data-rights-order-detail.v1",
               order_id: ORDER_ID,
               requester_party_id: ORDER_ID,
               requester_kind: "creator",

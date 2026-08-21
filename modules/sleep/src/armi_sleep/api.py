@@ -343,7 +343,9 @@ class SleepCognitionPort(Protocol):
         self, payload: bytes
     ) -> CandidateSleepDecisionDraft | CandidateMaintenanceDecisionDraft: ...
 
-    def bind_wire(self, value: object, *, maintenance: bool) -> CandidateOwnerDraft: ...
+    def bind(
+        self, value: CandidateSleepDecisionDraft | CandidateMaintenanceDecisionDraft
+    ) -> CandidateOwnerDraft: ...
 
 
 @runtime_checkable

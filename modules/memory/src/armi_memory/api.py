@@ -398,7 +398,9 @@ class MemoryCognitionPort(Protocol):
     def decode(
         self, payload: bytes
     ) -> CandidateMemoryDraft | CandidateMemoryRevisionDraft: ...
-    def bind_wire(self, value: object, *, revision: bool) -> CandidateOwnerDraft: ...
+    def bind(
+        self, value: CandidateMemoryDraft | CandidateMemoryRevisionDraft
+    ) -> CandidateOwnerDraft: ...
 
 
 @dataclass(frozen=True, slots=True)

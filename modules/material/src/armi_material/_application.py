@@ -26,10 +26,5 @@ class MaterialApplication:
     def decode(self, payload: bytes) -> CandidateLifeMaterialDraft:
         return decode(payload)
 
-    def bind_wire(self, value: object) -> CandidateOwnerDraft:
-        if type(value) is not CandidateLifeMaterialDraft:
-            raise MaterialViolation("MATERIAL-CANDIDATE")
-        return self.bind(value)
-
 
 __all__ = ("MaterialApplication",)

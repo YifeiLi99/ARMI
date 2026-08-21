@@ -110,7 +110,7 @@ class CodexTaskSourceDraft:
         ):
             raise CodexDelegationViolation("CODEX-TASK-SOURCE")
         # Empty means the disposable workspace is writable; forbidden_paths is the
-        # authoritative blacklist. Non-empty values remain readable for legacy tasks.
+        # authoritative blacklist for the current task contract.
         _paths(self.allowed_paths, required=False)
         _paths(self.forbidden_paths, required=False)
 

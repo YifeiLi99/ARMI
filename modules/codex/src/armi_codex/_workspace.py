@@ -122,9 +122,8 @@ def changed_paths(
     if not changed or len(changed) > task.modified_file_limit:
         raise CodexRunnerViolation("CODEX-VALIDATION")
     for path in changed:
-        # An empty legacy allow-list means the whole disposable workspace is writable.
-        # The forbidden paths remain authoritative and the workspace boundary itself is
-        # enforced by archive extraction and the Codex sandbox.
+        # Empty means the whole disposable workspace is writable. Forbidden paths and
+        # the workspace sandbox remain authoritative.
         if task.allowed_paths and not any(
             _matches(path, allowed) for allowed in task.allowed_paths
         ):

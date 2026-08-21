@@ -632,7 +632,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
         "other-human-record.v1",
         "creator-effect.v3",
         "subject-summary.v1",
-        "data-rights-order.v2",
+        "data-rights-order-detail.v1",
     ]
     occurred_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
 
@@ -1228,7 +1228,7 @@ class DataRightsOrderRequest(_StrictWireModel):
 
 class DataRightsOrderResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["data-rights-order.v1"]
+    projection_version: Literal["data-rights-order-summary.v1"]
     order_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     requester_party_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     requester_kind: Literal["creator", "other_human"]
@@ -1278,7 +1278,7 @@ class DataRightsTimelineItemResponse(_StrictWireModel):
 
 class DataRightsOrderDetailResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["data-rights-order.v2"]
+    projection_version: Literal["data-rights-order-detail.v1"]
     order_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     requester_party_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     requester_kind: Literal["creator", "other_human"]
@@ -1307,7 +1307,7 @@ class DataRightsOrderDetailResponse(_StrictWireModel):
 
 class DataRightsOrderCollectionResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["data-rights-order.v2"]
+    projection_version: Literal["data-rights-order-collection.v1"]
     orders: list[DataRightsOrderDetailResponse]
 
 

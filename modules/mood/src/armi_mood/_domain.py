@@ -29,7 +29,6 @@ from .api import (
     AppraisalDemand,
     AppraisalDemandLevel,
     AppraisalDirection,
-    AppraisalEvent,
     AppraisalEventPhase,
     AppraisalExpectedness,
     AppraisalIntentionality,
@@ -43,7 +42,6 @@ from .api import (
     AppraisalTrajectory,
     AppraisalTransition,
     AppraisalUrgency,
-    AppraisalVector,
     CandidateMoodDraft,
     EffectiveActionTendency,
     EffectiveEmotion,
@@ -60,7 +58,6 @@ _REF = re.compile(r"^proposal:[1-9][0-9]{0,2}$", re.ASCII)
 _GROUP = re.compile(r"^group:[1-9][0-9]{0,2}$", re.ASCII)
 _DYNAMICS_VERSION = "recency-reappraisal.v1"
 _DERIVATION_VERSION = "cpm-fuzzy.v2"
-_HISTORICAL_DERIVATION_VERSION = "cpm-fuzzy.v1"
 _BASE_WEIGHT = 30.0
 
 
@@ -140,8 +137,7 @@ def parse_state(value: object) -> MoodState:
         != {"schema_version", "dynamics_version", "derivation_version", "home_base"}
         or raw["schema_version"] != "armi.mood.v3"
         or raw["dynamics_version"] != _DYNAMICS_VERSION
-        or raw["derivation_version"]
-        not in {_HISTORICAL_DERIVATION_VERSION, _DERIVATION_VERSION}
+        or raw["derivation_version"] != _DERIVATION_VERSION
     ):
         raise MoodViolation("MOOD-STATE")
     return MoodState(
@@ -217,101 +213,6 @@ def parse_component(value: object) -> EmotionComponent:
         )
     except TypeError, ValueError:
         raise MoodViolation("MOOD-COMPONENT") from None
-
-
-_APPRAISAL_UNSIGNED = (
-    "suddenness",
-    "predictability",
-    "outcome_certainty",
-    "self_relevance",
-    "relationship_relevance",
-    "social_order_relevance",
-    "urgency",
-    "effort",
-    "intentionality",
-    "control",
-    "power",
-    "adjustment",
-    "ego_involvement",
-)
-_APPRAISAL_SIGNED = (
-    "intrinsic_pleasantness",
-    "goal_conduciveness",
-    "self_compatibility",
-    "norm_compatibility",
-)
-
-
-def appraisal_to_wire(value: AppraisalEvent) -> dict[str, object]:
-    vector: dict[str, object] = {
-        name: cast(int, getattr(value.appraisal, name))
-        for name in (*_APPRAISAL_UNSIGNED, *_APPRAISAL_SIGNED)
-    }
-    vector.update(
-        {
-            "agency": value.appraisal.agency.value,
-            "self_scope": value.appraisal.self_scope.value,
-        }
-    )
-    return {
-        "schema_version": "armi.mood-appraisal.v1",
-        "transition": value.transition.value,
-        "previous_episode_id": (
-            None
-            if value.previous_episode_id is None
-            else str(value.previous_episode_id)
-        ),
-        "event_phase": value.phase.value,
-        "gist": value.gist,
-        "appraisal": vector,
-    }
-
-
-def parse_appraisal(value: object) -> AppraisalEvent:
-    if type(value) is not dict:
-        raise MoodViolation("MOOD-APPRAISAL")
-    raw = cast(dict[str, object], value)
-    expected = {
-        "schema_version",
-        "transition",
-        "previous_episode_id",
-        "event_phase",
-        "gist",
-        "appraisal",
-    }
-    vector_value = raw.get("appraisal")
-    if (
-        set(raw) != expected
-        or raw.get("schema_version") != "armi.mood-appraisal.v1"
-        or type(vector_value) is not dict
-    ):
-        raise MoodViolation("MOOD-APPRAISAL")
-    vector = cast(dict[str, object], vector_value)
-    if set(vector) != {
-        *_APPRAISAL_UNSIGNED,
-        *_APPRAISAL_SIGNED,
-        "agency",
-        "self_scope",
-    }:
-        raise MoodViolation("MOOD-APPRAISAL")
-    previous = raw["previous_episode_id"]
-    try:
-        previous_id = None if previous is None else UUID(cast(str, previous))
-        appraisal = AppraisalVector(
-            **{name: cast(int, vector[name]) for name in _APPRAISAL_UNSIGNED},
-            **{name: cast(int, vector[name]) for name in _APPRAISAL_SIGNED},
-            agency=AppraisalAgency(cast(str, vector["agency"])),
-            self_scope=AppraisalSelfScope(cast(str, vector["self_scope"])),
-        )
-        return AppraisalEvent(
-            AppraisalTransition(cast(str, raw["transition"])),
-            previous_id,
-            AppraisalEventPhase(cast(str, raw["event_phase"])),
-            cast(str, raw["gist"]),
-            appraisal,
-        )
-    except TypeError, ValueError:
-        raise MoodViolation("MOOD-APPRAISAL") from None
 
 
 def semantic_appraisal_to_wire(value: SemanticAppraisalEvent) -> dict[str, object]:
@@ -502,24 +403,8 @@ def parse_semantic_appraisal(value: object) -> SemanticAppraisalEvent:
         raise MoodViolation("MOOD-APPRAISAL") from None
 
 
-def parse_appraisal_any(value: object) -> AppraisalEvent | SemanticAppraisalEvent:
-    if type(value) is not dict:
-        raise MoodViolation("MOOD-APPRAISAL")
-    raw = cast(dict[str, object], value)
-    version = raw.get("schema_version")
-    if version == "armi.mood-appraisal.v1":
-        return parse_appraisal(raw)
-    if version == "armi.mood-appraisal.v2":
-        return parse_semantic_appraisal(raw)
-    raise MoodViolation("MOOD-APPRAISAL")
-
-
 def _round_to_five(value: float) -> int:
     return max(5, min(100, int((value + 2.5) // 5) * 5))
-
-
-def _normalized(value: int) -> float:
-    return value / 4.0
 
 
 def _positive(value: float) -> float:
@@ -544,243 +429,6 @@ def _agency(value: AppraisalAgency, *allowed: AppraisalAgency) -> float:
 
 def _scope(value: AppraisalSelfScope, expected: AppraisalSelfScope) -> float:
     return 1.0 if value is expected else 0.0
-
-
-def derive_appraisal(
-    event: AppraisalEvent,
-    *,
-    previous: AppraisalEvent | None = None,
-) -> DerivedAppraisal:
-    value = event.appraisal
-    sudden = _normalized(value.suddenness)
-    predictability = _normalized(value.predictability)
-    certainty = _normalized(value.outcome_certainty)
-    self_relevance = _normalized(value.self_relevance)
-    relationship_relevance = _normalized(value.relationship_relevance)
-    social_relevance = _normalized(value.social_order_relevance)
-    relevance = max(self_relevance, relationship_relevance, social_relevance)
-    urgency = _normalized(value.urgency)
-    effort = _normalized(value.effort)
-    intentionality = _normalized(value.intentionality)
-    control = _normalized(value.control)
-    power = _normalized(value.power)
-    adjustment = _normalized(value.adjustment)
-    ego = _normalized(value.ego_involvement)
-    pleasantness = _normalized(value.intrinsic_pleasantness)
-    goal = _normalized(value.goal_conduciveness)
-    self_compatibility = _normalized(value.self_compatibility)
-    norm_compatibility = _normalized(value.norm_compatibility)
-    novelty = max(sudden, 1.0 - predictability)
-    activation = (
-        0.20 * sudden
-        + 0.15 * (1.0 - predictability)
-        + 0.20 * urgency
-        + 0.15 * (1.0 - certainty)
-        + 0.15 * effort
-        + 0.15 * relevance
-    )
-    target = VAD(
-        max(
-            -100,
-            min(
-                100,
-                round(
-                    100
-                    * (
-                        0.55 * goal
-                        + 0.25 * pleasantness
-                        + 0.10 * self_compatibility
-                        + 0.10 * norm_compatibility
-                    )
-                ),
-            ),
-        ),
-        max(-100, min(100, round(200 * activation - 100))),
-        max(
-            -100,
-            min(
-                100,
-                round(
-                    100
-                    * (
-                        0.45 * (2 * control - 1)
-                        + 0.35 * (2 * power - 1)
-                        + 0.20 * (2 * adjustment - 1)
-                    )
-                ),
-            ),
-        ),
-    )
-    impact = max(
-        abs(goal),
-        abs(pleasantness),
-        abs(self_compatibility),
-        abs(norm_compatibility),
-    )
-    importance = _round_to_five(
-        100 * (0.65 * relevance + 0.25 * impact + 0.10 * urgency)
-    )
-    realized = _phase(event.phase, AppraisalEventPhase.REALIZED)
-    prospective = _phase(
-        event.phase, AppraisalEventPhase.ANTICIPATED, AppraisalEventPhase.ONGOING
-    )
-    ongoing = _phase(event.phase, AppraisalEventPhase.ONGOING)
-    self_agent = _agency(value.agency, AppraisalAgency.SELF)
-    other_agent = _agency(value.agency, AppraisalAgency.OTHER)
-    social_agent = _agency(value.agency, AppraisalAgency.OTHER, AppraisalAgency.SHARED)
-    low_capacity = 1.0 - max(control, power, adjustment)
-    signatures: dict[EmotionFamily, tuple[float, ...]] = {
-        EmotionFamily.JOY: (relevance, _positive(goal), realized, certainty),
-        EmotionFamily.CONTENTMENT: (
-            relevance,
-            _positive(goal),
-            realized,
-            certainty,
-            1.0 - urgency,
-            1.0 - novelty,
-        ),
-        EmotionFamily.INTEREST: (relevance, novelty, max(control, adjustment)),
-        EmotionFamily.HOPE: (
-            relevance,
-            _positive(goal),
-            prospective,
-            _mid(certainty),
-        ),
-        EmotionFamily.AFFECTION: (
-            relationship_relevance,
-            max(_positive(goal), _positive(pleasantness)),
-            social_agent,
-        ),
-        EmotionFamily.GRATITUDE: (
-            relevance,
-            _positive(goal),
-            other_agent,
-            intentionality,
-            realized,
-        ),
-        EmotionFamily.PRIDE: (
-            relevance,
-            _positive(goal),
-            self_agent,
-            _positive(self_compatibility),
-            ego,
-        ),
-        EmotionFamily.SURPRISE: (relevance, novelty),
-        EmotionFamily.SADNESS: (
-            relevance,
-            _negative(goal),
-            realized,
-            certainty,
-            low_capacity,
-        ),
-        EmotionFamily.FEAR: (
-            relevance,
-            _negative(goal),
-            prospective,
-            certainty,
-            1.0 - power,
-            urgency,
-        ),
-        EmotionFamily.ANXIETY: (
-            relevance,
-            _negative(goal),
-            prospective,
-            1.0 - certainty,
-            1.0 - control,
-            urgency,
-        ),
-        EmotionFamily.ANGER: (
-            relevance,
-            _negative(goal),
-            other_agent,
-            intentionality,
-            max(control, power),
-        ),
-        EmotionFamily.FRUSTRATION: (
-            relevance,
-            _negative(goal),
-            effort,
-            max(ongoing, float(event.transition is AppraisalTransition.REINFORCE)),
-            _mid(control),
-        ),
-        EmotionFamily.DISGUST: (
-            relevance,
-            _negative(pleasantness),
-            max(_negative(norm_compatibility), 1.0 - adjustment),
-        ),
-        EmotionFamily.SHAME: (
-            relevance,
-            self_agent,
-            _negative(self_compatibility),
-            _scope(value.self_scope, AppraisalSelfScope.GLOBAL),
-            ego,
-            1.0 - adjustment,
-        ),
-        EmotionFamily.GUILT: (
-            relevance,
-            self_agent,
-            _negative(self_compatibility),
-            _scope(value.self_scope, AppraisalSelfScope.ACTION),
-            adjustment,
-        ),
-        EmotionFamily.JEALOUSY: (
-            relationship_relevance,
-            _negative(goal),
-            social_agent,
-            prospective,
-            ego,
-        ),
-        EmotionFamily.BOREDOM: (
-            ongoing,
-            1.0 - novelty,
-            1.0 - urgency,
-            1.0 - effort,
-            1.0 - abs(goal),
-        ),
-        EmotionFamily.CONFUSION: (
-            relevance,
-            novelty,
-            1.0 - certainty,
-            1.0 - max(control, power),
-        ),
-    }
-    if event.transition is AppraisalTransition.RESOLVE and previous is not None:
-        old_goal = _normalized(previous.appraisal.goal_conduciveness)
-        resolution = max(
-            float(event.phase is AppraisalEventPhase.AVERTED), _positive(goal)
-        )
-        signatures[EmotionFamily.RELIEF] = (
-            _negative(old_goal),
-            resolution,
-            relevance,
-        )
-    components: list[StoredEmotionComponent] = []
-    salience = 0.55 * relevance + 0.25 * impact + 0.20 * activation
-    open_episode = float(
-        event.phase in {AppraisalEventPhase.ANTICIPATED, AppraisalEventPhase.ONGOING}
-    )
-    for family, terms in signatures.items():
-        score = min(terms)
-        if score < 0.5:
-            continue
-        intensity = _round_to_five(100 * salience * score)
-        normalized_importance = (importance - 5) / 95
-        normalized_intensity = (intensity - 5) / 95
-        persistence = (
-            0.55 * normalized_importance
-            + 0.25 * normalized_intensity
-            + 0.20 * open_episode
-        )
-        half_life = round(900 * (96**persistence))
-        components.append(
-            StoredEmotionComponent(
-                EmotionComponent(family, event.gist, target, intensity), half_life
-            )
-        )
-    components.sort(
-        key=lambda item: (-item.component.intensity, item.component.family.value)
-    )
-    return DerivedAppraisal(target, importance, tuple(components[:3]))
 
 
 _SIGNIFICANCE = {
@@ -1009,13 +657,11 @@ def _semantic_target(
 
 
 def _previous_negative_goal(
-    previous: AppraisalEvent | SemanticAppraisalEvent | None,
+    previous: SemanticAppraisalEvent | None,
     target: AppraisalConcernTarget,
 ) -> float:
     if previous is None:
         return 0.0
-    if isinstance(previous, AppraisalEvent):
-        return _negative(_normalized(previous.appraisal.goal_conduciveness))
     features = semantic_features(previous.appraisal)
     return max(
         (
@@ -1031,7 +677,7 @@ def _previous_negative_goal(
 def derive_semantic_appraisal(
     event: SemanticAppraisalEvent,
     *,
-    previous: AppraisalEvent | SemanticAppraisalEvent | None = None,
+    previous: SemanticAppraisalEvent | None = None,
 ) -> DerivedAppraisal:
     features = semantic_features(event.appraisal)
     relevance = max((item.relevance or 0.0 for item in features.concerns), default=0.0)
@@ -1577,7 +1223,7 @@ def validate_candidate(value: CandidateMoodDraft) -> None:
     )
     shape_invalid = (
         value.kind is MoodCandidateKind.APPRAISAL
-        and type(value.appraisal) not in {AppraisalEvent, SemanticAppraisalEvent}
+        and type(value.appraisal) is not SemanticAppraisalEvent
     ) or (
         value.kind is MoodCandidateKind.HOME_BASE_REFLECTION
         and value.appraisal is not None
@@ -1590,17 +1236,13 @@ __all__ = (
     "DerivedAppraisal",
     "StoredAffectiveEvent",
     "StoredEmotionComponent",
-    "appraisal_to_wire",
     "clamp_home_base",
     "component_to_wire",
-    "derive_appraisal",
     "derive_effective_snapshot",
     "derive_effective_state",
     "derive_semantic_appraisal",
     "half_life_seconds",
     "initial_state",
-    "parse_appraisal",
-    "parse_appraisal_any",
     "parse_component",
     "parse_semantic_appraisal",
     "parse_state",

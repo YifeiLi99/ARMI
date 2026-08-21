@@ -283,7 +283,7 @@ class DataRightsOrderService(DataRightsOrderPort):
                     CreatorResourceKind("data_rights"),
                     str(order_id),
                     Instant(datetime.now(UTC)),
-                    "data-rights-order.v2",
+                    "data-rights-order-collection.v1",
                 )
             )
         except Exception:

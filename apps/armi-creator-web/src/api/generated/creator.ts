@@ -1659,7 +1659,7 @@ export interface components {
         | "other-human-record.v1"
         | "creator-effect.v3"
         | "subject-summary.v1"
-        | "data-rights-order.v2";
+        | "data-rights-order-detail.v1";
       /**
        * Resource Kind
        * @enum {string}
@@ -2040,7 +2040,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "data-rights-order.v2";
+      projection_version: "data-rights-order-collection.v1";
     };
     /** DataRightsOrderDetailResponse */
     DataRightsOrderDetailResponse: {
@@ -2074,7 +2074,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "data-rights-order.v2";
+      projection_version: "data-rights-order-detail.v1";
       /** Remaining Locations */
       remaining_locations: (
         "shared_local_reference" | "objective_history" | "local_artifact_store"
@@ -2146,7 +2146,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "data-rights-order.v1";
+      projection_version: "data-rights-order-summary.v1";
       /** Request Digest */
       request_digest: string;
       /**

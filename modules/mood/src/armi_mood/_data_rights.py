@@ -28,12 +28,6 @@ _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
            ORDER BY to_jsonb(source)::text""",
     ),
     (
-        "mood_affective_events",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.mood_affective_events AS source
-           ORDER BY to_jsonb(source)::text""",
-    ),
-    (
         "mood_heads",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
            FROM armi.mood_heads AS source ORDER BY to_jsonb(source)::text""",

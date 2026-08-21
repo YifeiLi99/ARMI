@@ -46,7 +46,7 @@ def _compiled_context(*, purpose: str, items: list[dict[str, Any]]) -> bytes:
             cast(
                 Any,
                 {
-                    "schema_version": "armi.compiled-context.v1",
+                    "schema_version": "armi.compiled-context.v2",
                     "purpose": purpose,
                     "sections": items,
                 },

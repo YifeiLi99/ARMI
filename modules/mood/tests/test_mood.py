@@ -10,7 +10,6 @@ from armi_mood._domain import (
     StoredAffectiveEvent,
     StoredEmotionComponent,
     clamp_home_base,
-    derive_appraisal,
     derive_effective_snapshot,
     derive_effective_state,
     derive_semantic_appraisal,
@@ -30,7 +29,6 @@ from armi_mood.api import (
     AppraisalDemand,
     AppraisalDemandLevel,
     AppraisalDirection,
-    AppraisalEvent,
     AppraisalEventPhase,
     AppraisalExpectedness,
     AppraisalIntentionality,
@@ -44,7 +42,6 @@ from armi_mood.api import (
     AppraisalTrajectory,
     AppraisalTransition,
     AppraisalUrgency,
-    AppraisalVector,
     CandidateMoodDraft,
     EmotionComponent,
     EmotionFamily,
@@ -56,48 +53,6 @@ from armi_mood.api import (
 from armi_mood.bootstrap import bootstrap_mood_cognition
 
 
-def _vector(**overrides: Any) -> AppraisalVector:
-    values: dict[str, Any] = {
-        "suddenness": 0,
-        "predictability": 4,
-        "outcome_certainty": 4,
-        "self_relevance": 4,
-        "relationship_relevance": 0,
-        "social_order_relevance": 0,
-        "urgency": 0,
-        "effort": 0,
-        "intentionality": 0,
-        "control": 2,
-        "power": 2,
-        "adjustment": 2,
-        "ego_involvement": 0,
-        "intrinsic_pleasantness": 0,
-        "goal_conduciveness": 0,
-        "self_compatibility": 0,
-        "norm_compatibility": 0,
-        "agency": AppraisalAgency.CIRCUMSTANCE,
-        "self_scope": AppraisalSelfScope.NONE,
-    }
-    values.update(overrides)
-    return AppraisalVector(**values)
-
-
-def _event(
-    *,
-    vector: AppraisalVector | None = None,
-    transition: AppraisalTransition = AppraisalTransition.NEW,
-    phase: AppraisalEventPhase = AppraisalEventPhase.REALIZED,
-    gist: str = "这件事对我有意义",
-) -> AppraisalEvent:
-    return AppraisalEvent(
-        transition,
-        None if transition is AppraisalTransition.NEW else uuid7(),
-        phase,
-        gist,
-        vector or _vector(goal_conduciveness=4),
-    )
-
-
 def _candidate(**overrides: Any) -> CandidateMoodDraft:
     values: dict[str, Any] = {
         "proposal_ref": "proposal:1",
@@ -106,7 +61,7 @@ def _candidate(**overrides: Any) -> CandidateMoodDraft:
         "fact_class": CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
         "expected_version": 1,
         "kind": MoodCandidateKind.APPRAISAL,
-        "appraisal": _event(),
+        "appraisal": _semantic_event(),
     }
     values.update(overrides)
     return CandidateMoodDraft(**values)
@@ -418,9 +373,15 @@ def test_semantic_agency_and_persistence_distinguish_anger_and_frustration() -> 
     assert EmotionFamily.ANGER not in frustration_families
 
 
-def test_semantic_resolve_can_close_a_numeric_v1_episode() -> None:
-    previous = _event(
-        vector=_vector(goal_conduciveness=-4),
+def test_semantic_resolve_can_close_a_negative_episode() -> None:
+    previous = _semantic_event(
+        concerns=(
+            AppraisalConcern(
+                AppraisalConcernTarget.SELF_GOAL,
+                AppraisalSignificance.CORE,
+                AppraisalDirection.MAJOR_SETBACK,
+            ),
+        ),
         phase=AppraisalEventPhase.ANTICIPATED,
     )
     resolved = _semantic_event(
@@ -439,167 +400,6 @@ def test_semantic_resolve_can_close_a_numeric_v1_episode() -> None:
         for item in derive_semantic_appraisal(resolved, previous=previous).components
     }
     assert EmotionFamily.RELIEF in families
-
-
-_SIGNATURES: tuple[tuple[EmotionFamily, dict[str, Any], AppraisalEventPhase], ...] = (
-    (EmotionFamily.JOY, {"goal_conduciveness": 4}, AppraisalEventPhase.REALIZED),
-    (
-        EmotionFamily.CONTENTMENT,
-        {"goal_conduciveness": 4},
-        AppraisalEventPhase.REALIZED,
-    ),
-    (
-        EmotionFamily.INTEREST,
-        {"suddenness": 4, "predictability": 0, "control": 4},
-        AppraisalEventPhase.REALIZED,
-    ),
-    (
-        EmotionFamily.HOPE,
-        {"goal_conduciveness": 4, "outcome_certainty": 2},
-        AppraisalEventPhase.ANTICIPATED,
-    ),
-    (
-        EmotionFamily.AFFECTION,
-        {
-            "self_relevance": 0,
-            "relationship_relevance": 4,
-            "goal_conduciveness": 4,
-            "agency": AppraisalAgency.OTHER,
-        },
-        AppraisalEventPhase.REALIZED,
-    ),
-    (
-        EmotionFamily.GRATITUDE,
-        {"goal_conduciveness": 4, "agency": AppraisalAgency.OTHER, "intentionality": 4},
-        AppraisalEventPhase.REALIZED,
-    ),
-    (
-        EmotionFamily.PRIDE,
-        {
-            "goal_conduciveness": 4,
-            "agency": AppraisalAgency.SELF,
-            "self_compatibility": 4,
-            "ego_involvement": 4,
-        },
-        AppraisalEventPhase.REALIZED,
-    ),
-    (
-        EmotionFamily.SURPRISE,
-        {"suddenness": 4, "predictability": 0},
-        AppraisalEventPhase.REALIZED,
-    ),
-    (
-        EmotionFamily.SADNESS,
-        {"goal_conduciveness": -4, "control": 0, "power": 0, "adjustment": 0},
-        AppraisalEventPhase.REALIZED,
-    ),
-    (
-        EmotionFamily.FEAR,
-        {"goal_conduciveness": -4, "power": 0, "urgency": 4},
-        AppraisalEventPhase.ANTICIPATED,
-    ),
-    (
-        EmotionFamily.ANXIETY,
-        {"goal_conduciveness": -4, "outcome_certainty": 0, "control": 0, "urgency": 4},
-        AppraisalEventPhase.ANTICIPATED,
-    ),
-    (
-        EmotionFamily.ANGER,
-        {
-            "goal_conduciveness": -4,
-            "agency": AppraisalAgency.OTHER,
-            "intentionality": 4,
-            "control": 4,
-        },
-        AppraisalEventPhase.REALIZED,
-    ),
-    (
-        EmotionFamily.FRUSTRATION,
-        {"goal_conduciveness": -4, "effort": 4, "control": 2},
-        AppraisalEventPhase.ONGOING,
-    ),
-    (
-        EmotionFamily.DISGUST,
-        {"intrinsic_pleasantness": -4, "norm_compatibility": -4, "adjustment": 0},
-        AppraisalEventPhase.REALIZED,
-    ),
-    (
-        EmotionFamily.SHAME,
-        {
-            "agency": AppraisalAgency.SELF,
-            "self_compatibility": -4,
-            "self_scope": AppraisalSelfScope.GLOBAL,
-            "ego_involvement": 4,
-            "adjustment": 0,
-        },
-        AppraisalEventPhase.REALIZED,
-    ),
-    (
-        EmotionFamily.GUILT,
-        {
-            "agency": AppraisalAgency.SELF,
-            "self_compatibility": -4,
-            "self_scope": AppraisalSelfScope.ACTION,
-            "adjustment": 4,
-        },
-        AppraisalEventPhase.REALIZED,
-    ),
-    (
-        EmotionFamily.JEALOUSY,
-        {
-            "self_relevance": 0,
-            "relationship_relevance": 4,
-            "goal_conduciveness": -4,
-            "agency": AppraisalAgency.OTHER,
-            "ego_involvement": 4,
-        },
-        AppraisalEventPhase.ANTICIPATED,
-    ),
-    (EmotionFamily.BOREDOM, {"self_relevance": 0}, AppraisalEventPhase.ONGOING),
-    (
-        EmotionFamily.CONFUSION,
-        {
-            "suddenness": 4,
-            "predictability": 0,
-            "outcome_certainty": 0,
-            "control": 0,
-            "power": 0,
-        },
-        AppraisalEventPhase.REALIZED,
-    ),
-)
-
-
-@pytest.mark.parametrize(("family", "overrides", "phase"), _SIGNATURES)
-def test_each_non_relief_family_has_an_appraisal_signature(
-    family: EmotionFamily,
-    overrides: dict[str, Any],
-    phase: AppraisalEventPhase,
-) -> None:
-    result = derive_appraisal(_event(vector=_vector(**overrides), phase=phase))
-    assert family in {item.component.family for item in result.components}
-
-
-def test_resolve_derives_relief_from_prior_negative_expectation() -> None:
-    previous = _event(
-        vector=_vector(goal_conduciveness=-4, outcome_certainty=2),
-        phase=AppraisalEventPhase.ANTICIPATED,
-    )
-    resolved = _event(
-        vector=_vector(goal_conduciveness=4),
-        transition=AppraisalTransition.RESOLVE,
-        phase=AppraisalEventPhase.AVERTED,
-    )
-    result = derive_appraisal(resolved, previous=previous)
-    assert EmotionFamily.RELIEF in {item.component.family for item in result.components}
-
-
-def test_owner_derives_vad_importance_intensity_and_bounded_half_life() -> None:
-    result = derive_appraisal(_event(vector=_vector(goal_conduciveness=4, urgency=4)))
-    assert result.target == VAD(55, -30, 0)
-    assert result.importance == 100
-    assert all(5 <= item.component.intensity <= 100 for item in result.components)
-    assert all(900 <= item.half_life_seconds <= 86_400 for item in result.components)
 
 
 def test_opposing_emotions_mix_then_decay_to_home_base() -> None:
@@ -691,7 +491,7 @@ def test_state_contract_is_v3_and_rejects_extra_fields() -> None:
         {
             "schema_version": "armi.mood.v3",
             "dynamics_version": "recency-reappraisal.v1",
-            "derivation_version": "cpm-fuzzy.v1",
+            "derivation_version": "cpm-fuzzy.v2",
             "home_base": {"valence": 0, "arousal": 0, "dominance": 0},
         }
     )

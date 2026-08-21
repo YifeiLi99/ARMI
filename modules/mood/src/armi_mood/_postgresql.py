@@ -14,16 +14,14 @@ from ._application import MoodApplication
 from ._domain import (
     StoredAffectiveEvent,
     StoredEmotionComponent,
-    appraisal_to_wire,
     clamp_home_base,
     component_to_wire,
-    derive_appraisal,
     derive_effective_snapshot,
     derive_effective_state,
     derive_semantic_appraisal,
     initial_state,
-    parse_appraisal_any,
     parse_component,
+    parse_semantic_appraisal,
     parse_state_bytes,
     semantic_appraisal_to_wire,
     semantic_features_to_wire,
@@ -31,7 +29,6 @@ from ._domain import (
 )
 from .api import (
     VAD,
-    AppraisalEvent,
     AppraisalEventPhase,
     AppraisalTransition,
     CandidateMoodDraft,
@@ -114,16 +111,6 @@ class PostgreSQLMoodOwner:
         as_of: datetime,
         days: int = 7,
     ) -> tuple[StoredAffectiveEvent, ...]:
-        legacy_rows = await (
-            await transaction.execute(
-                """SELECT occurred_at, components
-                   FROM armi.mood_affective_events
-                   WHERE subject_id=%s AND occurred_at <= %s
-                     AND occurred_at >= %s - (%s * interval '1 day')
-                   ORDER BY occurred_at, mood_affective_event_id""",
-                (subject_id, as_of, as_of, days),
-            )
-        ).fetchall()
         appraisal_rows = await (
             await transaction.execute(
                 """SELECT mood_episode_id,transition,event_phase,gist,
@@ -137,12 +124,6 @@ class PostgreSQLMoodOwner:
         ).fetchall()
         events: list[StoredAffectiveEvent] = []
         try:
-            for occurred_at, raw_components in legacy_rows:
-                events.append(
-                    StoredAffectiveEvent(
-                        occurred_at, self._stored_components(raw_components)
-                    )
-                )
             for (
                 episode_id,
                 transition,
@@ -309,7 +290,7 @@ class PostgreSQLMoodOwner:
         subject_id: UUID,
         event: SemanticAppraisalEvent,
     ) -> bool:
-        previous: AppraisalEvent | SemanticAppraisalEvent | None = None
+        previous: SemanticAppraisalEvent | None = None
         if event.transition is not AppraisalTransition.NEW:
             row = await (
                 await transaction.execute(
@@ -323,7 +304,7 @@ class PostgreSQLMoodOwner:
             ).fetchone()
             if row is None or row[1] == AppraisalTransition.RESOLVE.value:
                 raise MoodViolation("MOOD-APPRAISAL-PREDECESSOR")
-            previous = parse_appraisal_any(cast(object, row[0]))
+            previous = parse_semantic_appraisal(cast(object, row[0]))
         derived = derive_semantic_appraisal(event, previous=previous)
         return bool(derived.components) or event.transition in {
             AppraisalTransition.REAPPRAISE,
@@ -342,7 +323,7 @@ class PostgreSQLMoodOwner:
         if event is None:
             raise MoodViolation("MOOD-CANDIDATE")
         predecessor_id: UUID | None = None
-        previous: AppraisalEvent | SemanticAppraisalEvent | None = None
+        previous: SemanticAppraisalEvent | None = None
         if event.transition is AppraisalTransition.NEW:
             episode_id = uuid7()
         else:
@@ -361,26 +342,15 @@ class PostgreSQLMoodOwner:
             if row is None or row[2] == AppraisalTransition.RESOLVE.value:
                 raise MoodViolation("MOOD-APPRAISAL-PREDECESSOR")
             predecessor_id = row[0]
-            previous = parse_appraisal_any(cast(object, row[1]))
+            previous = parse_semantic_appraisal(cast(object, row[1]))
             episode_id = event.previous_episode_id
-        if isinstance(event, SemanticAppraisalEvent):
-            derived = derive_semantic_appraisal(event, previous=previous)
-            raw_appraisal = semantic_appraisal_to_wire(event)
-            appraisal_mapping_version = "semantic-anchors.v1"
-            derived_appraisal = semantic_features_to_wire(event.appraisal)
-            derivation_version = "cpm-fuzzy.v2"
-        else:
-            derived = derive_appraisal(
-                event,
-                previous=previous if isinstance(previous, AppraisalEvent) else None,
-            )
-            raw_appraisal = appraisal_to_wire(event)
-            appraisal_mapping_version = "direct-scale.v1"
-            derived_appraisal = {
-                "schema_version": "armi.mood-derived-appraisal.v1",
-                "vector": raw_appraisal["appraisal"],
-            }
-            derivation_version = "cpm-fuzzy.v1"
+        if type(event) is not SemanticAppraisalEvent:
+            raise MoodViolation("MOOD-CANDIDATE")
+        derived = derive_semantic_appraisal(event, previous=previous)
+        raw_appraisal = semantic_appraisal_to_wire(event)
+        appraisal_mapping_version = "semantic-anchors.v1"
+        derived_appraisal = semantic_features_to_wire(event.appraisal)
+        derivation_version = "cpm-fuzzy.v2"
         if not derived.components and event.transition in {
             AppraisalTransition.NEW,
             AppraisalTransition.REINFORCE,

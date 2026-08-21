@@ -40,7 +40,7 @@ def test_subject_summary_is_private_and_ordered() -> None:
     assert summary.subject_version == 2
     assert all(value.content_visibility == "private" for value in summary.components)
     with pytest.raises(SubjectStateViolation, match="SUBJECT-STATE-SUMMARY"):
-        SubjectComponentSummary(SubjectStateKind.SELF, 2, "armi.mind.v1")
+        SubjectComponentSummary(SubjectStateKind.SELF, 2, "armi.self.unsupported")
 
 
 def test_commit_result_requires_exact_applied_shape_and_redacts_error() -> None:

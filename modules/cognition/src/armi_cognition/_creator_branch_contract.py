@@ -21,7 +21,6 @@ from pydantic import (
 
 from ._dialogue_contract import (
     DIALOGUE_CANDIDATE_VERSION,
-    WEB_DIALOGUE_CANDIDATE_VERSION,
     ContextRef,
     CreatorDialogueCandidate,
     DialogueCompactChange,
@@ -151,11 +150,7 @@ class CreatorResponseCandidate(_StrictModel):
             raise ValueError("web research is unavailable")
         return parse_dialogue_candidate(
             self.model_dump(mode="python"),
-            version=(
-                WEB_DIALOGUE_CANDIDATE_VERSION
-                if web_search
-                else DIALOGUE_CANDIDATE_VERSION
-            ),
+            version=DIALOGUE_CANDIDATE_VERSION,
         )
 
 
@@ -177,43 +172,6 @@ class CreatorAppraisalExperience(_StrictModel):
             uncertainty=self.uncertainty,
             memory_summary=self.memory_summary,
         )
-
-
-class AppraisalVectorSignal(_StrictModel):
-    suddenness: Annotated[int, Field(ge=0, le=4)]
-    predictability: Annotated[int, Field(ge=0, le=4)]
-    outcome_certainty: Annotated[int, Field(ge=0, le=4)]
-    self_relevance: Annotated[int, Field(ge=0, le=4)]
-    relationship_relevance: Annotated[int, Field(ge=0, le=4)]
-    social_order_relevance: Annotated[int, Field(ge=0, le=4)]
-    urgency: Annotated[int, Field(ge=0, le=4)]
-    effort: Annotated[int, Field(ge=0, le=4)]
-    intentionality: Annotated[int, Field(ge=0, le=4)]
-    control: Annotated[int, Field(ge=0, le=4)]
-    power: Annotated[int, Field(ge=0, le=4)]
-    adjustment: Annotated[int, Field(ge=0, le=4)]
-    ego_involvement: Annotated[int, Field(ge=0, le=4)]
-    intrinsic_pleasantness: Annotated[int, Field(ge=-4, le=4)]
-    goal_conduciveness: Annotated[int, Field(ge=-4, le=4)]
-    self_compatibility: Annotated[int, Field(ge=-4, le=4)]
-    norm_compatibility: Annotated[int, Field(ge=-4, le=4)]
-    agency: Literal["self", "other", "shared", "circumstance", "unknown"]
-    self_scope: Literal["none", "action", "global"]
-
-
-class AppraisalEventSignalV1(_StrictModel):
-    transition: Literal["new", "reinforce", "reappraise", "resolve"]
-    episode_ref: ContextRef | None = None
-    event_phase: Literal["anticipated", "ongoing", "realized", "averted"]
-    gist: Annotated[str, StringConstraints(min_length=1, max_length=64)]
-    appraisal: AppraisalVectorSignal
-    basis_refs: tuple[ContextRef, ...] = Field(min_length=1, max_length=8)
-
-    @model_validator(mode="after")
-    def validate_signal(self) -> AppraisalEventSignalV1:
-        if (self.transition == "new") != (self.episode_ref is None):
-            raise ValueError("appraisal transition and episode reference do not match")
-        return self
 
 
 class AppraisalConcernSignal(_StrictModel):
@@ -428,10 +386,8 @@ __all__ = (
     "CREATOR_DIALOGUE_AGGREGATE_VERSION",
     "CREATOR_RESPONSE_CANDIDATE_VERSION",
     "CREATOR_RESPONSE_INSTRUCTIONS",
-    "AppraisalEventSignalV1",
     "AppraisalEventSignalV2",
     "AppraisalSemanticSignal",
-    "AppraisalVectorSignal",
     "CreatorAppraisalCandidate",
     "CreatorDialogueAggregate",
     "CreatorResponseCandidate",

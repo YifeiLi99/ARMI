@@ -10,9 +10,6 @@ from uuid import UUID, uuid7
 import armi_cognition._model_contract as model_contract_module
 import armi_cognition._other_human_contract as other_human_contract_module
 import pytest
-from armi_cognition._dialogue_contract import (
-    HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION,
-)
 from armi_cognition._model_contract import (
     ACTIVE_MODEL_ID,
     ACTIVE_VERSION_POLICY,
@@ -21,8 +18,7 @@ from armi_cognition._model_contract import (
     AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
     DIALOGUE_CANDIDATE_VERSION,
     MAINTENANCE_WORK_CANDIDATE_VERSION,
-    WEB_DIALOGUE_CANDIDATE_VERSION,
-    CognitionCandidateV7,
+    CognitionCandidate,
     build_request_bytes,
     candidate_schema,
     checked_model_request,
@@ -31,8 +27,6 @@ from armi_cognition._model_contract import (
     parse_candidate,
 )
 from armi_cognition._other_human_contract import (
-    HISTORICAL_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
-    HISTORICAL_SCORED_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
     OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
     OTHER_HUMAN_DIALOGUE_INSTRUCTIONS,
 )
@@ -115,28 +109,11 @@ def test_other_human_social_contract_versions_relationship_context_refs() -> Non
             expected_version=OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
         )
 
-    historical = parse_candidate(
-        b'{"kind":"reply","content":"historical"}',
-        allowed_context_refs=frozenset(),
-        expected_version=HISTORICAL_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
-    )
-    assert getattr(historical, "content", None) == "historical"
-    assert "relationship_change" in historical.model_dump(mode="json")
-
-
-def test_other_human_v5_keeps_the_frozen_numeric_appraisal_schema() -> None:
-    historical = json.dumps(
-        other_human_contract_module.candidate_schema(
-            HISTORICAL_SCORED_OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION
-        )
-    )
     current = json.dumps(
         other_human_contract_module.candidate_schema(
             OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION
         )
     )
-    assert "suddenness" in historical
-    assert "concerns" not in historical
     assert "concerns" in current
     assert "suddenness" not in current
 
@@ -287,7 +264,7 @@ def test_maintenance_work_contract_is_phase_bounded_and_context_referenced() -> 
 
 def _candidate() -> dict[str, object]:
     return {
-        "schema_version": "armi.cognition-candidate.v7",
+        "schema_version": "armi.cognition-candidate.v8",
         "base": {
             "subject_version": 0,
             "state_epoch": 0,
@@ -430,10 +407,10 @@ def test_only_evolving_binding_is_active_and_request_is_stable() -> None:
 
 
 def test_creator_dialogue_uses_compact_purpose_contract() -> None:
-    legacy = load_active_binding()
+    active = load_active_binding()
     dialogue = load_purpose_binding("consider_creator_response")
     appraisal = load_purpose_binding("appraise_creator_input")
-    assert dialogue.model_id == appraisal.model_id == legacy.model_id == ACTIVE_MODEL_ID
+    assert dialogue.model_id == appraisal.model_id == active.model_id == ACTIVE_MODEL_ID
     assert dialogue.profile == "creator_response"
     assert appraisal.profile == "creator_appraisal"
     assert dialogue.response_contract_version == "armi.creator-response-candidate.v1"
@@ -447,8 +424,8 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     assert "binding" not in request
     assert "context_digest" not in request
     assert "output_contract" not in request
-    assert request["schema_version"] == "armi.creator-dialogue-input.v5"
-    assert request["prompt_version"] == "armi.dialogue-prompt.v3"
+    assert request["schema_version"] == "armi.creator-dialogue-input.v6"
+    assert request["prompt_version"] == "armi.dialogue-prompt.v4"
     assert request["task"] == "respond_to_creator"
     assert request["available_refs"] == []
     assert [message["role"] for message in request["messages"]] == [
@@ -479,9 +456,8 @@ def test_active_codex_capability_schema_matches_domain_fact_classes() -> None:
         "inference",
     ]
 
-    historical = _candidate()
-    historical["schema_version"] = "armi.cognition-candidate.v6"
-    historical["capability_requests"] = [
+    candidate = _candidate()
+    candidate["capability_requests"] = [
         {
             "proposal_ref": "proposal:1",
             "atomic_group_ref": "group:1",
@@ -499,17 +475,9 @@ def test_active_codex_capability_schema_matches_domain_fact_classes() -> None:
             },
         }
     ]
-    historical["action_choices"] = []
-    parse_candidate(
-        json.dumps(historical).encode(),
-        allowed_context_refs=frozenset({"ctx:1"}),
-        expected_version="armi.cognition-candidate.v6",
-    )
-
-    active = {**historical, "schema_version": "armi.cognition-candidate.v7"}
     with pytest.raises(ModelViolation):
         parse_candidate(
-            json.dumps(active).encode(),
+            json.dumps(candidate).encode(),
             allowed_context_refs=frozenset({"ctx:1"}),
         )
 
@@ -667,7 +635,7 @@ def test_creator_dialogue_request_prioritizes_exact_recent_turns_and_local_refs(
     assert messages[2]["content"] == "我也想知道那片光落在哪里。"
     assert messages[4]["content"] == "你想聊些什么?"
     assert request["available_refs"] == ["ctx:5"]
-    assert request["prompt_version"] == "armi.dialogue-prompt.v3"
+    assert request["prompt_version"] == "armi.dialogue-prompt.v4"
     assert request["diagnostics"]["section_bytes"]["memories"] > 0
     assert source_id not in json.dumps(request, ensure_ascii=False)
 
@@ -767,7 +735,7 @@ def test_other_human_dialogue_uses_the_same_compact_native_message_plan() -> Non
     )
 
     assert binding.response_contract_version == OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION
-    assert request["schema_version"] == "armi.creator-dialogue-input.v4"
+    assert request["schema_version"] == "armi.creator-dialogue-input.v6"
     assert request["task"] == "respond_to_other_human"
     assert [message["role"] for message in request["messages"]] == [
         "system",
@@ -808,8 +776,6 @@ def test_creator_dialogue_growth_contract_requires_same_turn_experience() -> Non
                 "field": "understanding",
                 "items": ["这次选择来自我现在的真实处境"],
             },
-            {"op": "mind.set", "field": "emotions", "items": ["认真而期待"]},
-            {"op": "mind.set", "field": "mood", "text": "期待"},
         ],
     }
     parsed = parse_candidate(
@@ -820,7 +786,9 @@ def test_creator_dialogue_growth_contract_requires_same_turn_experience() -> Non
     dumped = parsed.model_dump(mode="json")
     assert dumped["self_change"]["name"] == {"value": "阿米"}
     assert dumped["self_change"]["interests"] == {"values": ["持续理解自己的生活"]}
-    assert dumped["mind_change"]["mood"] == {"value": "期待"}
+    assert dumped["mind_change"]["understanding"] == {
+        "values": ["这次选择来自我现在的真实处境"]
+    }
 
     without_experience = dict(value)
     without_experience.pop("experience")
@@ -829,14 +797,6 @@ def test_creator_dialogue_growth_contract_requires_same_turn_experience() -> Non
             json.dumps(without_experience, ensure_ascii=False).encode(),
             allowed_context_refs=frozenset(),
         )
-
-    historical = parse_candidate(
-        b'{"kind":"reply","content":"historical"}',
-        allowed_context_refs=frozenset(),
-        expected_version="armi.creator-dialogue-candidate.v11",
-    )
-    assert historical.schema_version == "armi.creator-dialogue-candidate.v11"
-    assert "self_change" not in historical.model_dump(mode="json")
 
 
 @pytest.mark.parametrize(
@@ -943,7 +903,10 @@ def test_creator_dialogue_growth_contract_requires_same_turn_experience() -> Non
             {"op": "self.set", "field": "interests", "items": ["观察生活"]},
             "self_change",
         ),
-        ({"op": "mind.set", "field": "mood", "text": "平静"}, "mind_change"),
+        (
+            {"op": "mind.set", "field": "attention", "items": ["继续理解当前问题"]},
+            "mind_change",
+        ),
         (
             {
                 "op": "prompt.set",
@@ -984,7 +947,7 @@ def test_creator_dialogue_capability_request_is_context_bound() -> None:
             {
                 "kind": "reply",
                 "content": "我想申请使用受限执行能力。",
-                "capability_request": {"capability_ref": "ctx:6"},
+                "changes": [{"op": "codex.request", "target_ref": "ctx:6"}],
             },
             ensure_ascii=False,
         ).encode(),
@@ -1000,20 +963,12 @@ def test_creator_dialogue_capability_request_is_context_bound() -> None:
                 {
                     "kind": "reply",
                     "content": "这条申请引用了不存在的能力。",
-                    "capability_request": {"capability_ref": "ctx:7"},
+                    "changes": [{"op": "codex.request", "target_ref": "ctx:7"}],
                 },
                 ensure_ascii=False,
             ).encode(),
             allowed_context_refs=frozenset({"ctx:6"}),
         )
-
-    historical = parse_candidate(
-        b'{"schema_version":"armi.creator-dialogue-candidate.v9",'
-        b'"kind":"reply","content":"historical"}',
-        allowed_context_refs=frozenset(),
-    )
-    assert historical.schema_version == "armi.creator-dialogue-candidate.v9"
-    assert "capability_request" not in historical.model_dump(mode="json")
 
     with pytest.raises(ModelViolation, match="MODEL-RESPONSE-SCHEMA"):
         parse_candidate(
@@ -1030,127 +985,6 @@ def test_creator_dialogue_capability_request_is_context_bound() -> None:
             ).encode(),
             allowed_context_refs=frozenset({"ctx:6"}),
         )
-
-
-def test_creator_dialogue_material_contract_is_runtime_owned_and_context_bound() -> (
-    None
-):
-    created = parse_candidate(
-        json.dumps(
-            {
-                "kind": "reply",
-                "content": "我把它写成了一篇日记。",
-                "material_change": {
-                    "action": "create",
-                    "material_kind": "diary",
-                    "title": "今天",
-                    "body": "我今天第一次认真记录这件事。",
-                    "metadata": {"mood": "calm"},
-                },
-            },
-            ensure_ascii=False,
-        ).encode(),
-        allowed_context_refs=frozenset(),
-    )
-    assert created.schema_version == HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION
-    assert created.model_dump(mode="json")["material_change"]["action"] == "create"
-
-    updated = parse_candidate(
-        json.dumps(
-            {
-                "kind": "reply",
-                "content": "我更新了这篇日记。",
-                "material_change": {
-                    "action": "update",
-                    "material_ref": "ctx:4",
-                    "title": "今天-补记",
-                    "body": "这是完整替换后的正文。",
-                },
-            },
-            ensure_ascii=False,
-        ).encode(),
-        allowed_context_refs=frozenset({"ctx:4"}),
-    )
-    assert updated.model_dump(mode="json")["material_change"]["material_ref"] == (
-        "ctx:4"
-    )
-
-    for action in ("set_private", "set_creator_visible", "delete"):
-        state_change = parse_candidate(
-            json.dumps(
-                {
-                    "kind": "reply",
-                    "content": "这是我对自己资料作出的决定。",
-                    "material_change": {
-                        "action": action,
-                        "material_ref": "ctx:4",
-                    },
-                },
-                ensure_ascii=False,
-            ).encode(),
-            allowed_context_refs=frozenset({"ctx:4"}),
-        )
-        assert (
-            state_change.model_dump(mode="json")["material_change"]["action"] == action
-        )
-
-    for invalid in (
-        {
-            "kind": "reply",
-            "content": "越权",
-            "material_change": {
-                "action": "create",
-                "material_kind": "diary",
-                "title": "标题",
-                "body": "正文",
-                "owner_party_id": str(uuid7()),
-            },
-        },
-        {
-            "kind": "reply",
-            "content": "越权",
-            "material_change": {
-                "action": "update",
-                "material_ref": "ctx:4",
-                "material_kind": "diary",
-                "title": "标题",
-                "body": "正文",
-            },
-        },
-        {
-            "kind": "reply",
-            "content": "无效内容",
-            "material_change": {
-                "action": "create",
-                "material_kind": "diary",
-                "title": "标题",
-                "body": "正文",
-                "metadata": {"note": "含有\u0000空字符"},
-            },
-        },
-        {
-            "kind": "reply",
-            "content": "越权公开",
-            "material_change": {
-                "action": "publish",
-                "material_ref": "ctx:4",
-            },
-        },
-        {
-            "kind": "reply",
-            "content": "越权共享",
-            "material_change": {
-                "action": "set_private",
-                "material_ref": "ctx:4",
-                "privacy_status": "shared",
-            },
-        },
-    ):
-        with pytest.raises(ModelViolation):
-            parse_candidate(
-                json.dumps(invalid, ensure_ascii=False).encode(),
-                allowed_context_refs=frozenset({"ctx:4"}),
-            )
 
 
 def test_creator_dialogue_memory_is_optional_and_cannot_claim_authority() -> None:
@@ -1199,14 +1033,18 @@ def test_creator_dialogue_memory_revision_is_narrow_and_strict() -> None:
             {
                 "kind": "reply",
                 "content": "我现在有了不同的理解。",
-                "memory_change": {
-                    "action": "reinterpret",
-                    "memory_ref": "ctx:4",
-                    "summary": "我现在把那次表达理解为一种仍可讨论的偏好。",
-                    "uncertainty": "这只是我当前的理解。",
-                    "related_memory_ref": "ctx:5",
-                    "relation_kind": "contradicts",
-                },
+                "changes": [
+                    {
+                        "op": "memory.reinterpret",
+                        "target_ref": "ctx:4",
+                        "related_ref": "ctx:5",
+                        "text": "我现在把那次表达理解为一种仍可讨论的偏好。",
+                        "metadata": {
+                            "uncertainty": "这只是我当前的理解。",
+                            "relation_kind": "contradicts",
+                        },
+                    }
+                ],
             },
             ensure_ascii=False,
         ).encode(),
@@ -1254,19 +1092,23 @@ def test_creator_dialogue_relationship_change_is_narrow_and_experience_bound() -
                 "kind": "reply",
                 "content": "我会尊重这个边界。",
                 "experience": {"first_person_gist": "创造者明确要求我停止联系。"},
-                "relationship_change": {
-                    "interpretation": "我理解这段接触现在应当结束。",
-                    "fact": {
-                        "kind": "party_expression",
-                        "summary": "创造者表达了结束接触的决定。",
+                "changes": [
+                    {
+                        "op": "relationship.interpret",
+                        "text": "我理解这段接触现在应当结束。",
                     },
-                    "boundary": {
+                    {
+                        "op": "relationship.fact",
+                        "text": "创造者表达了结束接触的决定。",
+                    },
+                    {
+                        "op": "relationship.boundary",
+                        "field": "exit",
                         "party": "creator",
-                        "kind": "exit",
-                        "action": "end_contact",
-                        "summary": "创造者要求结束接触。",
+                        "text": "创造者要求结束接触。",
+                        "metadata": {"action": "end_contact"},
                     },
-                },
+                ],
             },
             ensure_ascii=False,
         ).encode(),
@@ -1321,16 +1163,21 @@ def test_creator_dialogue_commitment_change_is_narrow_and_context_bound() -> Non
                 "kind": "reply",
                 "content": "我答应联系前先问你是否方便。",
                 "experience": {"first_person_gist": "我作出了一个明确承担。"},
-                "relationship_change": {
-                    "interpretation": "我愿意尊重创造者当时的状态。",
-                    "commitment_change": {
-                        "action": "establish",
-                        "party": "armi",
-                        "scope": "主动联系",
-                        "content": "联系前先询问是否方便。",
-                        "event_summary": "我明确作出了联系前先询问的承诺。",
+                "changes": [
+                    {
+                        "op": "relationship.interpret",
+                        "text": "我愿意尊重创造者当时的状态。",
                     },
-                },
+                    {
+                        "op": "commitment.establish",
+                        "field": "主动联系",
+                        "party": "armi",
+                        "text": "联系前先询问是否方便。",
+                        "metadata": {
+                            "event_summary": "我明确作出了联系前先询问的承诺。"
+                        },
+                    },
+                ],
             },
             ensure_ascii=False,
         ).encode(),
@@ -1383,8 +1230,8 @@ def test_creator_dialogue_commitment_change_is_narrow_and_context_bound() -> Non
             )
 
 
-def test_web_dialogue_v6_is_compact_versioned_and_rejects_urls() -> None:
-    schema = candidate_schema(WEB_DIALOGUE_CANDIDATE_VERSION)
+def test_web_dialogue_is_current_compact_contract_and_rejects_urls() -> None:
+    schema = candidate_schema(DIALOGUE_CANDIDATE_VERSION)
     schema_text = json.dumps(schema, separators=(",", ":"))
     assert '"web_research"' in schema_text
     assert '"schema_version"' not in schema_text
@@ -1396,9 +1243,9 @@ def test_web_dialogue_v6_is_compact_versioned_and_rejects_urls() -> None:
             ensure_ascii=False,
         ).encode(),
         allowed_context_refs=frozenset(),
-        expected_version=WEB_DIALOGUE_CANDIDATE_VERSION,
+        expected_version=DIALOGUE_CANDIDATE_VERSION,
     )
-    assert parsed.schema_version == WEB_DIALOGUE_CANDIDATE_VERSION
+    assert parsed.schema_version == DIALOGUE_CANDIDATE_VERSION
     assert parsed.model_dump(mode="json") == {
         "kind": "web_research",
         "query": "PostgreSQL 18 正式发布说明",
@@ -1408,7 +1255,7 @@ def test_web_dialogue_v6_is_compact_versioned_and_rejects_urls() -> None:
         parse_candidate(
             b'{"kind":"web_research","query":"https://example.com/"}',
             allowed_context_refs=frozenset(),
-            expected_version=WEB_DIALOGUE_CANDIDATE_VERSION,
+            expected_version=DIALOGUE_CANDIDATE_VERSION,
         )
 
 
@@ -1457,12 +1304,12 @@ def test_manifest_rejects_a_second_binding_or_fixed_model(tmp_path: Path) -> Non
         load_active_binding(path)
 
 
-def test_branch_manifest_rejects_legacy_dialogue_contract(tmp_path: Path) -> None:
+def test_branch_manifest_rejects_unsupported_dialogue_contract(tmp_path: Path) -> None:
     source = Path("configs/model-bindings.yaml")
     manifest = cast(dict[str, Any], load_yaml_file(source))
     manifest["purpose_profiles"]["consider_creator_response"][
         "response_contract_version"
-    ] = WEB_DIALOGUE_CANDIDATE_VERSION
+    ] = "armi.creator-dialogue-candidate.unsupported"
     path = tmp_path / "model-bindings.yaml"
     path.write_text(json.dumps(manifest), encoding="utf-8")
 
@@ -1522,5 +1369,5 @@ def test_codex_observation_may_omit_nullable_uncertainty() -> None:
         allowed_context_refs=frozenset({"ctx:1"}),
     )
 
-    assert isinstance(parsed, CognitionCandidateV7)
+    assert isinstance(parsed, CognitionCandidate)
     assert parsed.experiences[0].payload.uncertainty is None

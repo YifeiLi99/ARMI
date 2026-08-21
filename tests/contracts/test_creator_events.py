@@ -106,7 +106,7 @@ class CreatorEventContractTests(unittest.TestCase):
             resource_kind=CreatorResourceKind("data_rights"),
             resource_ref=str(order_id),
             occurred_at=Instant(datetime(2026, 8, 8, tzinfo=UTC)),
-            projection_version="data-rights-order.v2",
+            projection_version="data-rights-order-detail.v1",
         )
         self.assertEqual(invalidation.resource_ref, str(order_id))
 

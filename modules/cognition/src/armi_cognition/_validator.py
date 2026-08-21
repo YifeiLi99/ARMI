@@ -80,7 +80,6 @@ from armi_mood.api import (
     AppraisalDemand,
     AppraisalDemandLevel,
     AppraisalDirection,
-    AppraisalEvent,
     AppraisalEventPhase,
     AppraisalExpectedness,
     AppraisalIntentionality,
@@ -94,7 +93,6 @@ from armi_mood.api import (
     AppraisalTrajectory,
     AppraisalTransition,
     AppraisalUrgency,
-    AppraisalVector,
     CandidateMoodDraft,
     MoodCandidateKind,
     MoodCognitionPort,
@@ -162,65 +160,22 @@ from ._autonomous_activity_contract import (
 )
 from ._creator_branch_contract import (
     CREATOR_DIALOGUE_AGGREGATE_VERSION,
-    AppraisalEventSignalV1,
     AppraisalEventSignalV2,
     CreatorDialogueAggregate,
 )
 from ._dialogue_contract import (
     DIALOGUE_CANDIDATE_VERSION,
-    WEB_DIALOGUE_CANDIDATE_VERSION,
     CreatorDialogueCandidate,
     DialogueCommitmentChange,
     DialogueExactLifeQueryDecision,
-    DialogueExactLifeQueryDecisionV18,
-    DialogueExactLifeQueryDecisionV19,
-    DialogueExactLifeQueryDecisionV20,
     DialogueExperience,
     DialogueMaterialChange,
-    DialogueMaterialChangeV7,
     DialogueMaterialContentChange,
     DialogueMemoryChange,
     DialogueRelationshipChange,
     DialogueReplyDecision,
-    DialogueReplyDecisionV5,
-    DialogueReplyDecisionV6,
-    DialogueReplyDecisionV7,
-    DialogueReplyDecisionV8,
-    DialogueReplyDecisionV9,
-    DialogueReplyDecisionV10,
-    DialogueReplyDecisionV11,
-    DialogueReplyDecisionV12,
-    DialogueReplyDecisionV13,
-    DialogueReplyDecisionV14,
-    DialogueReplyDecisionV15,
-    DialogueReplyDecisionV16,
-    DialogueReplyDecisionV18,
-    DialogueReplyDecisionV19,
-    DialogueReplyDecisionV20,
     DialogueTerminalDecision,
-    DialogueTerminalDecisionV5,
-    DialogueTerminalDecisionV6,
-    DialogueTerminalDecisionV7,
-    DialogueTerminalDecisionV8,
-    DialogueTerminalDecisionV9,
-    DialogueTerminalDecisionV10,
-    DialogueTerminalDecisionV11,
-    DialogueTerminalDecisionV12,
-    DialogueTerminalDecisionV13,
-    DialogueTerminalDecisionV14,
-    DialogueTerminalDecisionV15,
-    DialogueTerminalDecisionV16,
-    DialogueTerminalDecisionV18,
-    DialogueTerminalDecisionV19,
-    DialogueTerminalDecisionV20,
     DialogueWebResearchDecision,
-    DialogueWebResearchDecisionV8,
-    DialogueWebResearchDecisionV10,
-    DialogueWebResearchDecisionV12,
-    DialogueWebResearchDecisionV14,
-    DialogueWebResearchDecisionV16,
-    DialogueWebResearchDecisionV18,
-    DialogueWebResearchDecisionV20,
     parse_dialogue_candidate,
     translate_compact_change_set,
 )
@@ -236,20 +191,15 @@ from ._model_contract import (
     ActionChoiceProposal,
     CodexDelegationPayload,
     CognitionCandidate,
-    CognitionCandidateV5,
-    CognitionCandidateV6,
-    CognitionCandidateV7,
     ComponentChangeProposal,
-    CreatorReplyPayload,
-    CreatorSceneReplyRequestPayload,
     ExperienceProposal,
     FormalNoActionPayload,
     MemoryChangeProposal,
     MindState,
-    MoodAppraisalCommand,
     MoodSemanticAppraisalCommand,
     MoodState,
     RuntimeBoundCreatorReplyPayload,
+    RuntimeBoundCreatorSceneReplyRequestPayload,
     SelfState,
     WebResearchRequestProposal,
     parse_candidate,
@@ -285,20 +235,7 @@ from .api import (
 
 CANDIDATE_POLICY_VERSION = "armi.cognition-candidate-policy.v3"
 CANDIDATE_VALIDATOR_IDENTITY = "armi.candidate-validator.deterministic-v1"
-CHANGE_SET_VERSION = "armi.subject-change-set.v3"
-WEB_CHANGE_SET_VERSION = "armi.subject-change-set.v4"
-CODEX_CHANGE_SET_VERSION = "armi.subject-change-set.v5"
-RUNTIME_BOUND_CHANGE_SET_VERSION = "armi.subject-change-set.v6"
-ACTIVITY_CHANGE_SET_VERSION = "armi.subject-change-set.v7"
-ACTIVITY_ATTENTION_CHANGE_SET_VERSION = "armi.subject-change-set.v8"
-MEMORY_CHANGE_SET_VERSION = "armi.subject-change-set.v10"
-MEMORY_REVISION_CHANGE_SET_VERSION = "armi.subject-change-set.v11"
-RELATIONSHIP_CHANGE_SET_VERSION = "armi.subject-change-set.v22"
 ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v29"
-MATERIAL_CHANGE_SET_VERSION = "armi.subject-change-set.v15"
-PROMPT_CHANGE_SET_VERSION = "armi.subject-change-set.v16"
-EXACT_LIFE_QUERY_CHANGE_SET_VERSION = "armi.subject-change-set.v17"
-MAINTENANCE_CHANGE_SET_VERSION = "armi.subject-change-set.v19"
 _CODEX_CAPABILITY_ID = UUID("01985d00-0000-7000-8000-000000000038")
 
 
@@ -664,22 +601,7 @@ class DeterministicCandidateValidator:
                 )
             )
         except ModelViolation, ValidationError, ValueError, json.JSONDecodeError:
-            try:
-                raw = cast(dict[str, Any], json.loads(candidate_bytes))
-            except UnicodeDecodeError, json.JSONDecodeError:
-                raw = None
-            code = (
-                "CANDIDATE-CONTRACT-OBSOLETE"
-                if isinstance(raw, dict)
-                and raw.get("schema_version")
-                in {
-                    "armi.cognition-candidate.v1",
-                    "armi.cognition-candidate.v2",
-                    "armi.cognition-candidate.v3",
-                }
-                else "CANDIDATE-CONTRACT"
-            )
-            return _rejected(code)
+            return _rejected("CANDIDATE-CONTRACT")
         if isinstance(parsed_candidate, SleepDecisionCandidate):
             return self._validate_sleep(
                 parsed_candidate,
@@ -770,24 +692,7 @@ class DeterministicCandidateValidator:
             )
             if candidate is None and isinstance(
                 parsed_candidate,
-                (
-                    DialogueReplyDecision,
-                    DialogueReplyDecisionV5,
-                    DialogueReplyDecisionV6,
-                    DialogueReplyDecisionV7,
-                    DialogueReplyDecisionV8,
-                    DialogueReplyDecisionV9,
-                    DialogueReplyDecisionV10,
-                    DialogueReplyDecisionV11,
-                    DialogueReplyDecisionV12,
-                    DialogueReplyDecisionV13,
-                    DialogueReplyDecisionV14,
-                    DialogueReplyDecisionV15,
-                    DialogueReplyDecisionV16,
-                    DialogueReplyDecisionV18,
-                    DialogueReplyDecisionV19,
-                    DialogueReplyDecisionV20,
-                ),
+                DialogueReplyDecision,
             ):
                 candidate, dialogue_bound_changes = _recover_dialogue_expression(
                     parsed_candidate,
@@ -822,7 +727,6 @@ class DeterministicCandidateValidator:
                     and isinstance(
                         proposal.payload,
                         (
-                            CreatorReplyPayload,
                             RuntimeBoundCreatorReplyPayload,
                             FormalNoActionPayload,
                         ),
@@ -974,17 +878,11 @@ class DeterministicCandidateValidator:
                 failure = _component_failure(component, proposal_bases, component_state)
                 if failure is None:
                     command = component.payload.next_state
-                    if not isinstance(
-                        command, (MoodAppraisalCommand, MoodSemanticAppraisalCommand)
-                    ):
+                    if not isinstance(command, MoodSemanticAppraisalCommand):
                         failure = "CANDIDATE-MOOD-COMMAND"
                     else:
                         try:
-                            appraisal = (
-                                _mood_semantic_appraisal_from_command(command)
-                                if isinstance(command, MoodSemanticAppraisalCommand)
-                                else _mood_appraisal_from_command(command)
-                            )
+                            appraisal = _mood_semantic_appraisal_from_command(command)
                         except TypeError, ValueError:
                             failure = "CANDIDATE-MOOD-COMMAND"
                         else:
@@ -1035,7 +933,7 @@ class DeterministicCandidateValidator:
                 failure = _action_failure(action, proposal_bases, context=self._context)
                 if failure is None and isinstance(
                     action.payload,
-                    (CreatorReplyPayload, RuntimeBoundCreatorReplyPayload),
+                    RuntimeBoundCreatorReplyPayload,
                 ):
                     content = action.payload.content.encode("utf-8", errors="strict")
                     accepted[proposal.proposal_ref] = CreatorReplyDraft(
@@ -1240,14 +1138,8 @@ class DeterministicCandidateValidator:
                 for _, value in sorted(accepted.items())
                 if isinstance(value, CandidateOwnerDraft)
             ),
-            *(
-                self._memory_cognition.bind_wire(value, revision=False)
-                for value in memories
-            ),
-            *(
-                self._memory_cognition.bind_wire(value, revision=True)
-                for value in memory_revisions
-            ),
+            *(self._memory_cognition.bind(value) for value in memories),
+            *(self._memory_cognition.bind(value) for value in memory_revisions),
             *(self._bind_relationship(value) for value in relationships),
         )
         materials = tuple(
@@ -2457,7 +2349,7 @@ class DeterministicCandidateValidator:
         memory_owner_drafts = (
             ()
             if memory_revision is None
-            else (self._memory_cognition.bind_wire(memory_revision, revision=True),)
+            else (self._memory_cognition.bind(memory_revision),)
         )
         sleep_owner_draft = self._sleep_cognition.bind_maintenance(decision)
         owner_drafts = (*memory_owner_drafts, sleep_owner_draft)
@@ -2513,12 +2405,7 @@ class DeterministicCandidateValidator:
 
     def _base_matches(
         self,
-        candidate: (
-            CognitionCandidate
-            | CognitionCandidateV5
-            | CognitionCandidateV6
-            | CognitionCandidateV7
-        ),
+        candidate: (CognitionCandidate),
     ) -> bool:
         base = candidate.base
         return (
@@ -2535,7 +2422,7 @@ def _recover_dialogue_expression(
     error_code: str | None,
     bases: tuple[CandidateBasis, ...],
     context: CandidateValidationContext,
-) -> tuple[CognitionCandidateV7 | None, DialogueBoundChanges | None]:
+) -> tuple[CognitionCandidate | None, DialogueBoundChanges | None]:
     owner = _optional_dialogue_failure_owner(source, error_code)
     content = getattr(source, "content", None)
     if owner is None or type(content) is not str:
@@ -2571,9 +2458,7 @@ def _recover_dialogue_expression(
         CandidateOwnerIdentity(owner.value),
         cast(str, error_code),
     )
-    return cast(CognitionCandidateV7, candidate), replace(
-        bound, rejections=(rejection,)
-    )
+    return candidate, replace(bound, rejections=(rejection,))
 
 
 def _optional_dialogue_failure_owner(
@@ -2616,7 +2501,7 @@ def _expand_creator_dialogue_aggregate(
     bases: tuple[CandidateBasis, ...],
     context: CandidateValidationContext,
 ) -> tuple[
-    CognitionCandidateV5 | CognitionCandidateV7 | None,
+    CognitionCandidate | None,
     DialogueBoundChanges | None,
     str | None,
 ]:
@@ -2626,11 +2511,7 @@ def _expand_creator_dialogue_aggregate(
             if source.response is not None
             else parse_dialogue_candidate(
                 {"kind": "no_change"},
-                version=(
-                    WEB_DIALOGUE_CANDIDATE_VERSION
-                    if context.web_search_active
-                    else DIALOGUE_CANDIDATE_VERSION
-                ),
+                version=DIALOGUE_CANDIDATE_VERSION,
             )
         )
     except ValidationError, ValueError:
@@ -2767,42 +2648,6 @@ def _expand_creator_dialogue_aggregate(
     return candidate, replace(bound, relationship=relationship), None
 
 
-def _mood_appraisal_from_command(command: MoodAppraisalCommand) -> AppraisalEvent:
-    previous_id = (
-        None
-        if command.previous_episode_id is None
-        else UUID(command.previous_episode_id)
-    )
-    vector = command.appraisal
-    return AppraisalEvent(
-        AppraisalTransition(command.transition),
-        previous_id,
-        AppraisalEventPhase(command.event_phase),
-        command.gist,
-        AppraisalVector(
-            vector.suddenness,
-            vector.predictability,
-            vector.outcome_certainty,
-            vector.self_relevance,
-            vector.relationship_relevance,
-            vector.social_order_relevance,
-            vector.urgency,
-            vector.effort,
-            vector.intentionality,
-            vector.control,
-            vector.power,
-            vector.adjustment,
-            vector.ego_involvement,
-            vector.intrinsic_pleasantness,
-            vector.goal_conduciveness,
-            vector.self_compatibility,
-            vector.norm_compatibility,
-            AppraisalAgency(vector.agency),
-            AppraisalSelfScope(vector.self_scope),
-        ),
-    )
-
-
 def _mood_semantic_appraisal_from_command(
     command: MoodSemanticAppraisalCommand,
 ) -> SemanticAppraisalEvent:
@@ -2864,7 +2709,7 @@ def _mood_semantic_appraisal_from_command(
 
 
 def _bind_appraisal_event(
-    signal: AppraisalEventSignalV1 | AppraisalEventSignalV2,
+    signal: AppraisalEventSignalV2,
     *,
     proposal_ref: str,
     bases: tuple[CandidateBasis, ...],
@@ -2922,11 +2767,7 @@ def _bind_appraisal_event(
     except ValidationError:
         return None, "CANDIDATE-MOOD-STATE"
     event_command = {
-        "schema_version": (
-            "armi.mood-appraisal.v2"
-            if type(signal) is AppraisalEventSignalV2
-            else "armi.mood-appraisal.v1"
-        ),
+        "schema_version": "armi.mood-appraisal.v2",
         "transition": signal.transition,
         "previous_episode_id": (
             None if episode_basis is None else str(episode_basis.source_ref)
@@ -2935,8 +2776,7 @@ def _bind_appraisal_event(
         "gist": signal.gist,
         "appraisal": signal.appraisal.model_dump(mode="python"),
     }
-    if type(signal) is AppraisalEventSignalV2:
-        event_command["change_from_previous"] = signal.change_from_previous
+    event_command["change_from_previous"] = signal.change_from_previous
     return (
         {
             "proposal_ref": proposal_ref,
@@ -2955,7 +2795,7 @@ def _bind_appraisal_event(
 
 
 def _bind_appraisal_draft(
-    signal: AppraisalEventSignalV1 | AppraisalEventSignalV2,
+    signal: AppraisalEventSignalV2,
     *,
     proposal_ref: str,
     bases: tuple[CandidateBasis, ...],
@@ -2973,10 +2813,8 @@ def _bind_appraisal_draft(
     try:
         payload = cast(dict[str, object], proposal["payload"])
         command_value = payload["next_state"]
-        command = (
-            MoodSemanticAppraisalCommand.model_validate(command_value, strict=True)
-            if type(signal) is AppraisalEventSignalV2
-            else MoodAppraisalCommand.model_validate(command_value, strict=True)
+        command = MoodSemanticAppraisalCommand.model_validate(
+            command_value, strict=True
         )
         basis_refs = cast(tuple[str, ...], proposal["basis_refs"])
         ordinals = tuple(int(ref.partition(":")[2]) for ref in basis_refs)
@@ -2989,9 +2827,7 @@ def _bind_appraisal_draft(
                     CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
                     cast(int, payload["expected_version"]),
                     MoodCandidateKind.APPRAISAL,
-                    _mood_semantic_appraisal_from_command(command)
-                    if isinstance(command, MoodSemanticAppraisalCommand)
-                    else _mood_appraisal_from_command(command),
+                    _mood_semantic_appraisal_from_command(command),
                 )
             ),
             None,
@@ -3006,7 +2842,7 @@ def _expand_dialogue_candidate(
     bases: tuple[CandidateBasis, ...],
     context: CandidateValidationContext,
 ) -> tuple[
-    CognitionCandidateV5 | CognitionCandidateV7 | None,
+    CognitionCandidate | None,
     DialogueBoundChanges | None,
     str | None,
 ]:
@@ -3045,49 +2881,9 @@ def _expand_dialogue_candidate(
         source,
         (
             DialogueReplyDecision,
-            DialogueReplyDecisionV5,
-            DialogueReplyDecisionV6,
-            DialogueReplyDecisionV7,
-            DialogueReplyDecisionV8,
-            DialogueReplyDecisionV9,
-            DialogueReplyDecisionV10,
-            DialogueReplyDecisionV11,
-            DialogueReplyDecisionV12,
-            DialogueReplyDecisionV13,
-            DialogueReplyDecisionV14,
-            DialogueReplyDecisionV15,
-            DialogueReplyDecisionV16,
-            DialogueReplyDecisionV18,
-            DialogueReplyDecisionV19,
-            DialogueReplyDecisionV20,
             DialogueTerminalDecision,
-            DialogueTerminalDecisionV5,
-            DialogueTerminalDecisionV6,
-            DialogueTerminalDecisionV7,
-            DialogueTerminalDecisionV8,
-            DialogueTerminalDecisionV9,
-            DialogueTerminalDecisionV10,
-            DialogueTerminalDecisionV11,
-            DialogueTerminalDecisionV12,
-            DialogueTerminalDecisionV13,
-            DialogueTerminalDecisionV14,
-            DialogueTerminalDecisionV15,
-            DialogueTerminalDecisionV16,
-            DialogueTerminalDecisionV18,
-            DialogueTerminalDecisionV19,
-            DialogueTerminalDecisionV20,
             DialogueExactLifeQueryDecision,
-            DialogueExactLifeQueryDecisionV18,
-            DialogueExactLifeQueryDecisionV19,
-            DialogueExactLifeQueryDecisionV20,
             DialogueWebResearchDecision,
-            DialogueWebResearchDecisionV8,
-            DialogueWebResearchDecisionV10,
-            DialogueWebResearchDecisionV12,
-            DialogueWebResearchDecisionV14,
-            DialogueWebResearchDecisionV16,
-            DialogueWebResearchDecisionV18,
-            DialogueWebResearchDecisionV20,
         ),
     ):
         return None, None, "CANDIDATE-CONTRACT"
@@ -3111,29 +2907,12 @@ def _expand_dialogue_candidate(
             return None, None, "CANDIDATE-CREATOR-OUTREACH-SCOPE"
     if context.purpose == "consider_life_query_result" and not isinstance(
         decision,
-        (
-            DialogueReplyDecision,
-            DialogueReplyDecisionV18,
-            DialogueReplyDecisionV19,
-            DialogueReplyDecisionV20,
-            DialogueTerminalDecision,
-            DialogueTerminalDecisionV18,
-            DialogueTerminalDecisionV19,
-            DialogueTerminalDecisionV20,
-        ),
+        (DialogueReplyDecision, DialogueTerminalDecision),
     ):
         return None, None, "CANDIDATE-LIFE-QUERY-RESULT-SCOPE"
     if (
         context.purpose == "consider_life_query_result"
-        and isinstance(
-            decision,
-            (
-                DialogueReplyDecision,
-                DialogueReplyDecisionV18,
-                DialogueReplyDecisionV19,
-                DialogueReplyDecisionV20,
-            ),
-        )
+        and isinstance(decision, DialogueReplyDecision)
         and any(
             value is not None
             for value in (
@@ -3171,27 +2950,7 @@ def _expand_dialogue_candidate(
     prompt: CandidatePromptDraft | None = None
     experience_ref: str | None = None
     understanding_basis_refs = (evidence_ref,)
-    if isinstance(
-        decision,
-        (
-            DialogueReplyDecisionV5,
-            DialogueReplyDecisionV6,
-            DialogueReplyDecisionV7,
-            DialogueReplyDecision,
-            DialogueReplyDecisionV8,
-            DialogueReplyDecisionV9,
-            DialogueReplyDecisionV10,
-            DialogueReplyDecisionV11,
-            DialogueReplyDecisionV12,
-            DialogueReplyDecisionV13,
-            DialogueReplyDecisionV14,
-            DialogueReplyDecisionV15,
-            DialogueReplyDecisionV16,
-            DialogueReplyDecisionV18,
-            DialogueReplyDecisionV19,
-            DialogueReplyDecisionV20,
-        ),
-    ):
+    if isinstance(decision, DialogueReplyDecision):
         catalog = next(
             (
                 item
@@ -3447,15 +3206,7 @@ def _expand_dialogue_candidate(
                 },
             }
         )
-    elif isinstance(
-        decision,
-        (
-            DialogueExactLifeQueryDecision,
-            DialogueExactLifeQueryDecisionV18,
-            DialogueExactLifeQueryDecisionV19,
-            DialogueExactLifeQueryDecisionV20,
-        ),
-    ):
+    elif isinstance(decision, DialogueExactLifeQueryDecision):
         purpose = next(
             (
                 item
@@ -3478,9 +3229,9 @@ def _expand_dialogue_candidate(
         understanding_basis_refs = tuple(f"ctx:{ordinal}" for ordinal in query_bases)
         try:
             return (
-                CognitionCandidateV7.model_validate(
+                CognitionCandidate.model_validate(
                     {
-                        "schema_version": "armi.cognition-candidate.v7",
+                        "schema_version": "armi.cognition-candidate.v8",
                         "base": {
                             "subject_version": context.base_subject_version,
                             "state_epoch": context.base_state_epoch,
@@ -3510,17 +3261,7 @@ def _expand_dialogue_candidate(
             )
         except ValidationError:
             return None, None, "CANDIDATE-CONTRACT"
-    elif isinstance(
-        decision,
-        (
-            DialogueWebResearchDecision,
-            DialogueWebResearchDecisionV8,
-            DialogueWebResearchDecisionV10,
-            DialogueWebResearchDecisionV12,
-            DialogueWebResearchDecisionV14,
-            DialogueWebResearchDecisionV16,
-        ),
-    ):
+    elif isinstance(decision, DialogueWebResearchDecision):
         purpose = next(
             (
                 item
@@ -3549,9 +3290,9 @@ def _expand_dialogue_candidate(
         )
         try:
             return (
-                CognitionCandidateV5.model_validate(
+                CognitionCandidate.model_validate(
                     {
-                        "schema_version": "armi.cognition-candidate.v5",
+                        "schema_version": "armi.cognition-candidate.v8",
                         "base": {
                             "subject_version": context.base_subject_version,
                             "state_epoch": context.base_state_epoch,
@@ -3597,9 +3338,9 @@ def _expand_dialogue_candidate(
             return None, None, "CANDIDATE-CONTRACT"
     try:
         return (
-            CognitionCandidateV7.model_validate(
+            CognitionCandidate.model_validate(
                 {
-                    "schema_version": "armi.cognition-candidate.v7",
+                    "schema_version": "armi.cognition-candidate.v8",
                     "base": {
                         "subject_version": context.base_subject_version,
                         "state_epoch": context.base_state_epoch,
@@ -3838,7 +3579,7 @@ def _nested_text_values(value: object) -> tuple[str, ...]:
 
 
 def _bind_dialogue_material(
-    change: DialogueMaterialChange | DialogueMaterialChangeV7,
+    change: DialogueMaterialChange,
     *,
     proposal_ref: str,
     evidence: CandidateBasis,
@@ -3847,10 +3588,7 @@ def _bind_dialogue_material(
 ) -> tuple[CandidateLifeMaterialDraft | None, str | None]:
     if context.subject_party_id is None:
         return None, "CANDIDATE-MATERIAL-OWNER"
-    if (
-        isinstance(change, (DialogueMaterialContentChange, DialogueMaterialChangeV7))
-        and change.action == "create"
-    ):
+    if isinstance(change, DialogueMaterialContentChange) and change.action == "create":
         body_bytes = change.body.encode("utf-8", errors="strict")
         return (
             CandidateLifeMaterialDraft(
@@ -3896,7 +3634,7 @@ def _bind_dialogue_material(
         return None, "CANDIDATE-MATERIAL-STALE"
     if current.owner_party_id != context.subject_party_id:
         return None, "CANDIDATE-MATERIAL-OWNER"
-    if isinstance(change, (DialogueMaterialContentChange, DialogueMaterialChangeV7)):
+    if isinstance(change, DialogueMaterialContentChange):
         body_bytes = change.body.encode("utf-8", errors="strict")
         metadata = tuple(sorted(change.metadata.items()))
         material_status = LifeMaterialStatus(change.material_status)
@@ -4665,12 +4403,7 @@ def _derived_uuid7(model_attempt_id: UUID, label: bytes) -> UUID:
 
 
 def _all_proposals(
-    candidate: (
-        CognitionCandidate
-        | CognitionCandidateV5
-        | CognitionCandidateV6
-        | CognitionCandidateV7
-    ),
+    candidate: (CognitionCandidate),
 ) -> tuple[tuple[CandidateOwner, Any], ...]:
     return (
         *((CandidateOwner.EXPERIENCE, item) for item in candidate.experiences),
@@ -4758,10 +4491,8 @@ def _component_failure(
     next_state = proposal.payload.next_state.model_dump(mode="json")
     schema_owner = {
         "armi.self.v1": CandidateOwner.SELF,
-        "armi.mind.v1": CandidateOwner.MIND,
         "armi.mind.v2": CandidateOwner.MIND,
         "armi.mood.v3": CandidateOwner.MOOD,
-        "armi.mood-appraisal.v1": CandidateOwner.MOOD,
         "armi.mood-appraisal.v2": CandidateOwner.MOOD,
         "armi.life-mode.v1": CandidateOwner.LIFE_MODE,
     }.get(str(next_state.get("schema_version")))
@@ -4773,10 +4504,10 @@ def _component_failure(
         )
     except UnicodeDecodeError, json.JSONDecodeError, TypeError:
         return "CANDIDATE-COMPONENT-STATE"
-    if owner is CandidateOwner.MOOD and next_state.get("schema_version") in {
-        "armi.mood-appraisal.v1",
-        "armi.mood-appraisal.v2",
-    }:
+    if (
+        owner is CandidateOwner.MOOD
+        and next_state.get("schema_version") == "armi.mood-appraisal.v2"
+    ):
         if current_schema != "armi.mood.v3":
             return "CANDIDATE-COMPONENT-STATE"
     elif current_schema != next_state.get("schema_version"):
@@ -4824,11 +4555,7 @@ def _capability_failure(
     ):
         return "CANDIDATE-CAPABILITY-EVIDENCE-BASIS"
     if payload.capability_kind == "creator.scene.reply":
-        if isinstance(payload, CreatorSceneReplyRequestPayload) and (
-            UUID(payload.subject_id) != context.subject_id
-            or UUID(payload.scene_id) != context.scene_id
-            or UUID(payload.creator_party_id) != context.creator_party_id
-        ):
+        if not isinstance(payload, RuntimeBoundCreatorSceneReplyRequestPayload):
             return "CANDIDATE-CAPABILITY-SCOPE"
         return None
     if payload.capability_kind == "codex.delegated-work":
@@ -4879,7 +4606,7 @@ def _action_failure(
         for basis in bases
     ):
         return "CANDIDATE-ACTION-EVIDENCE-BASIS"
-    if isinstance(payload, (CreatorReplyPayload, RuntimeBoundCreatorReplyPayload)):
+    if isinstance(payload, RuntimeBoundCreatorReplyPayload):
         if (
             context.current_relationship is not None
             and context.current_relationship.status is RelationshipStatus.ENDED
@@ -4901,12 +4628,6 @@ def _action_failure(
             for basis in bases
         ):
             return "CANDIDATE-ACTION-CAPABILITY-BASIS"
-        if isinstance(payload, CreatorReplyPayload) and (
-            UUID(payload.subject_id) != context.subject_id
-            or UUID(payload.scene_id) != context.scene_id
-            or UUID(payload.creator_party_id) != context.creator_party_id
-        ):
-            return "CANDIDATE-ACTION-SCOPE"
         return None
     expected_reason = {
         "decline": "subjective_refusal",
@@ -5281,14 +5002,9 @@ def _action_wire(
 
 
 __all__ = (
-    "ACTIVITY_CHANGE_SET_VERSION",
+    "ACTIVE_CHANGE_SET_VERSION",
     "CANDIDATE_POLICY_VERSION",
     "CANDIDATE_VALIDATOR_IDENTITY",
-    "CHANGE_SET_VERSION",
-    "CODEX_CHANGE_SET_VERSION",
-    "MATERIAL_CHANGE_SET_VERSION",
-    "PROMPT_CHANGE_SET_VERSION",
-    "RUNTIME_BOUND_CHANGE_SET_VERSION",
     "CandidateLifeMaterialContext",
     "CandidateMemoryContext",
     "CandidateRelationshipContext",

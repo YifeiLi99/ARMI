@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Protocol, cast
+from typing import Any, cast
 from uuid import UUID
 
 import rfc8785
@@ -87,73 +87,6 @@ def decode(payload: bytes) -> CandidateActivityDraft | CandidateActivityDecision
     )
 
 
-class _LegacyActivity(Protocol):
-    proposal_ref: str
-    atomic_group_ref: str
-    basis_ordinals: tuple[int, ...]
-    fact_class: object
-    activity_id: UUID
-    goal: str
-    next_safe_step: str
-    status: object
-    activity_kind: str
-    privacy_scope: str
-    current_revision_id: UUID
-    expected_head_version: int
-    decision_kind: object
-    progress_summary: str | None
-    waiting_summary: str | None
-    resumption_cue: str | None
-    waiting_kind: object | None
-    delay_seconds: int | None
-    terminal_reason: str | None
-
-
-def decode_wire(
-    value: object, *, decision: bool
-) -> CandidateActivityDraft | CandidateActivityDecisionDraft:
-    required = ("proposal_ref", "atomic_group_ref", "basis_ordinals", "activity_id")
-    if any(not hasattr(value, name) for name in required):
-        raise ActivityViolation("ACTIVITY-CODEC-LEGACY")
-    item = cast(_LegacyActivity, value)
-    try:
-        if decision:
-            return CandidateActivityDecisionDraft(
-                proposal_ref=item.proposal_ref,
-                atomic_group_ref=item.atomic_group_ref,
-                basis_ordinals=item.basis_ordinals,
-                activity_id=item.activity_id,
-                current_revision_id=item.current_revision_id,
-                expected_head_version=item.expected_head_version,
-                decision_kind=ActivityAttentionDecisionKind(str(item.decision_kind)),
-                progress_summary=item.progress_summary,
-                next_safe_step=item.next_safe_step,
-                waiting_summary=item.waiting_summary,
-                resumption_cue=item.resumption_cue,
-                waiting_kind=(
-                    None
-                    if item.waiting_kind is None
-                    else ActivityWaitingKind(str(item.waiting_kind))
-                ),
-                delay_seconds=item.delay_seconds,
-                terminal_reason=item.terminal_reason,
-            )
-        return CandidateActivityDraft(
-            proposal_ref=item.proposal_ref,
-            atomic_group_ref=item.atomic_group_ref,
-            basis_ordinals=item.basis_ordinals,
-            fact_class=CandidateFactClass(str(item.fact_class)),
-            activity_id=item.activity_id,
-            goal=item.goal,
-            next_safe_step=item.next_safe_step,
-            status=ActivityStatus(str(item.status)),
-            activity_kind=item.activity_kind,
-            privacy_scope=item.privacy_scope,
-        )
-    except AttributeError, TypeError, ValueError:
-        raise ActivityViolation("ACTIVITY-CODEC-LEGACY") from None
-
-
 def _from_mapping(
     value: dict[str, Any],
     *,
@@ -228,4 +161,4 @@ def _from_mapping(
     raise ActivityViolation("ACTIVITY-CODEC-PAYLOAD")
 
 
-__all__ = ("decode", "decode_wire", "encode")
+__all__ = ("decode", "encode")

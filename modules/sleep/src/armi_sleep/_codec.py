@@ -1,4 +1,4 @@
-"""Canonical sleep owner payloads and historical codecs."""
+"""Canonical owner payload codec for current sleep drafts."""
 
 from __future__ import annotations
 
@@ -60,21 +60,6 @@ def decode(
         raise SleepViolation("SLEEP-CODEC") from None
 
 
-def decode_wire(
-    value: object, *, maintenance: bool
-) -> CandidateSleepDecisionDraft | CandidateMaintenanceDecisionDraft:
-    if maintenance and type(value) is CandidateMaintenanceDecisionDraft:
-        return value
-    if not maintenance and type(value) is CandidateSleepDecisionDraft:
-        return value
-    try:
-        item = cast(dict[str, object], value)
-        operation = "record_maintenance" if maintenance else "decide"
-        return _decode_mapping({**item, "operation": operation})
-    except KeyError, TypeError, ValueError, SleepViolation:
-        raise SleepViolation("SLEEP-CODEC-LEGACY") from None
-
-
 def _decode_mapping(
     item: dict[str, object],
 ) -> CandidateSleepDecisionDraft | CandidateMaintenanceDecisionDraft:
@@ -113,4 +98,4 @@ def _decode_mapping(
     )
 
 
-__all__ = ("decode", "decode_wire", "encode")
+__all__ = ("decode", "encode")

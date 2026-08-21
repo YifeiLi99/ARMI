@@ -1,9 +1,4 @@
-"""Compact model output contract for ordinary Creator dialogue.
-
-Historical wire generations stay beside the active union because durable model attempts
-must be parsed by their recorded contract version; splitting them would duplicate the
-strict dispatch table and make compatibility drift easier.
-"""
+"""Current compact model output contract for Creator dialogue."""
 
 from __future__ import annotations
 
@@ -20,32 +15,7 @@ from pydantic import (
 
 from ._strict_model_json import strict_model_value
 
-HISTORICAL_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v5"
-HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v6"
-HISTORICAL_MATERIAL_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v7"
-HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION = (
-    "armi.creator-dialogue-candidate.v8"
-)
-HISTORICAL_PRIVATE_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v9"
-HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION = (
-    "armi.creator-dialogue-candidate.v10"
-)
-HISTORICAL_CAPABILITY_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v11"
-HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION = (
-    "armi.creator-dialogue-candidate.v12"
-)
-HISTORICAL_GROWTH_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v13"
-HISTORICAL_GROWTH_WEB_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v14"
-HISTORICAL_PROMPT_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v15"
-HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v16"
-HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v17"
-HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v18"
-HISTORICAL_COMPACT_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v19"
-HISTORICAL_COMPACT_WEB_DIALOGUE_CANDIDATE_VERSION = (
-    "armi.creator-dialogue-candidate.v20"
-)
-DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v21"
-WEB_DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v22"
+DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v23"
 DIALOGUE_MODEL_OUTPUT_VERSION = "armi.creator-dialogue-model-output.v2"
 
 Summary = Annotated[str, StringConstraints(min_length=1, max_length=512)]
@@ -114,11 +84,9 @@ class DialogueSelfChange(_StrictModel):
 class DialogueMindChange(_StrictModel):
     understanding: DialogueSummaryListReplacement | None = None
     attention: DialogueSummaryListReplacement | None = None
-    emotions: DialogueSummaryListReplacement | None = None
     thoughts: DialogueSummaryListReplacement | None = None
     wishes: DialogueSummaryListReplacement | None = None
     motivations: DialogueSummaryListReplacement | None = None
-    mood: DialogueNameReplacement | None = None
 
     @model_validator(mode="after")
     def validate_change(self) -> DialogueMindChange:
@@ -286,36 +254,6 @@ class DialogueRelationshipChange(_StrictModel):
         return self
 
 
-class DialogueMaterialChangeV7(_StrictModel):
-    action: Literal["create", "update"]
-    material_ref: ContextRef | None = None
-    material_kind: Literal["diary", "work", "collection", "draft"] | None = None
-    title: Annotated[str, StringConstraints(min_length=1, max_length=256)]
-    body: Annotated[str, StringConstraints(min_length=1, max_length=65536)]
-    metadata: dict[
-        Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9._-]{0,63}$")],
-        Annotated[str, StringConstraints(max_length=512)],
-    ] = Field(default_factory=dict, max_length=32)
-    material_status: Literal["active", "archived"] = "active"
-
-    @model_validator(mode="after")
-    def validate_shape(self) -> DialogueMaterialChangeV7:
-        if self.action == "create":
-            if self.material_ref is not None or self.material_kind is None:
-                raise ValueError("material create shape is invalid")
-        elif self.material_ref is None or self.material_kind is not None:
-            raise ValueError("material update shape is invalid")
-        if (
-            not self.title.strip()
-            or "\x00" in self.title
-            or not self.body.strip()
-            or "\x00" in self.body
-            or any("\x00" in value for value in self.metadata.values())
-        ):
-            raise ValueError("material content is invalid")
-        return self
-
-
 class DialogueMaterialContentChange(_StrictModel):
     action: Literal["create", "update"]
     material_ref: ContextRef | None = None
@@ -362,261 +300,10 @@ class CreatorDialogueCandidate(_StrictModel):
 
     @property
     def schema_version(self) -> str:
-        raise NotImplementedError
+        return DIALOGUE_CANDIDATE_VERSION
 
 
-class _CreatorDialogueCandidateV5(CreatorDialogueCandidate):
-    @property
-    def schema_version(self) -> str:
-        return HISTORICAL_DIALOGUE_CANDIDATE_VERSION
-
-
-class _CreatorDialogueCandidateV6(CreatorDialogueCandidate):
-    @property
-    def schema_version(self) -> str:
-        return HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION
-
-
-class _CreatorDialogueCandidateV7(CreatorDialogueCandidate):
-    @property
-    def schema_version(self) -> str:
-        return HISTORICAL_MATERIAL_DIALOGUE_CANDIDATE_VERSION
-
-
-class _CreatorDialogueCandidateV8(CreatorDialogueCandidate):
-    @property
-    def schema_version(self) -> str:
-        return HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION
-
-
-class _CreatorDialogueCandidateV9(CreatorDialogueCandidate):
-    @property
-    def schema_version(self) -> str:
-        return HISTORICAL_PRIVATE_DIALOGUE_CANDIDATE_VERSION
-
-
-class _CreatorDialogueCandidateV10(CreatorDialogueCandidate):
-    @property
-    def schema_version(self) -> str:
-        return HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION
-
-
-class _CreatorDialogueCandidateV11(CreatorDialogueCandidate):
-    @property
-    def schema_version(self) -> str:
-        return HISTORICAL_CAPABILITY_DIALOGUE_CANDIDATE_VERSION
-
-
-class _CreatorDialogueCandidateV12(CreatorDialogueCandidate):
-    @property
-    def schema_version(self) -> str:
-        return HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION
-
-
-class DialogueReplyDecisionV5(_CreatorDialogueCandidateV5):
-    kind: Literal["reply"]
-    content: Annotated[str, StringConstraints(min_length=1, max_length=65536)]
-    experience: DialogueExperience | None = None
-    memory_change: DialogueMemoryChange | None = None
-    relationship_change: DialogueRelationshipChange | None = None
-
-    @model_validator(mode="after")
-    def validate_relationship_source(self) -> DialogueReplyDecisionV5:
-        if self.relationship_change is not None and self.experience is None:
-            raise ValueError("relationship change requires an experience")
-        return self
-
-
-class DialogueTerminalDecisionV5(_CreatorDialogueCandidateV5):
-    kind: Literal[
-        "decline",
-        "no_action",
-        "no_change",
-        "defer",
-        "need_information",
-    ]
-
-
-DialogueDecisionV5 = Annotated[
-    DialogueReplyDecisionV5 | DialogueTerminalDecisionV5,
-    Field(discriminator="kind"),
-]
-
-
-class DialogueReplyDecisionV6(_CreatorDialogueCandidateV6):
-    kind: Literal["reply"]
-    content: Annotated[str, StringConstraints(min_length=1, max_length=65536)]
-    experience: DialogueExperience | None = None
-    memory_change: DialogueMemoryChange | None = None
-    relationship_change: DialogueRelationshipChange | None = None
-
-    @model_validator(mode="after")
-    def validate_relationship_source(self) -> DialogueReplyDecisionV6:
-        if self.relationship_change is not None and self.experience is None:
-            raise ValueError("relationship change requires an experience")
-        return self
-
-
-class DialogueTerminalDecisionV6(_CreatorDialogueCandidateV6):
-    kind: Literal[
-        "decline",
-        "no_action",
-        "no_change",
-        "defer",
-        "need_information",
-    ]
-
-
-class DialogueWebResearchDecision(_CreatorDialogueCandidateV6):
-    kind: Literal["web_research"]
-    query: Annotated[str, StringConstraints(min_length=1, max_length=16384)]
-
-
-DialogueDecisionV6 = Annotated[
-    DialogueReplyDecisionV6 | DialogueTerminalDecisionV6 | DialogueWebResearchDecision,
-    Field(discriminator="kind"),
-]
-
-
-class DialogueReplyDecisionV7(_CreatorDialogueCandidateV7):
-    kind: Literal["reply"]
-    content: Annotated[str, StringConstraints(min_length=1, max_length=65536)]
-    experience: DialogueExperience | None = None
-    memory_change: DialogueMemoryChange | None = None
-    relationship_change: DialogueRelationshipChange | None = None
-    material_change: DialogueMaterialChangeV7 | None = None
-
-    @model_validator(mode="after")
-    def validate_relationship_source(self) -> DialogueReplyDecisionV7:
-        if self.relationship_change is not None and self.experience is None:
-            raise ValueError("relationship change requires an experience")
-        return self
-
-
-class DialogueTerminalDecisionV7(_CreatorDialogueCandidateV7):
-    kind: Literal[
-        "decline",
-        "no_action",
-        "no_change",
-        "defer",
-        "need_information",
-    ]
-
-
-DialogueDecisionV7 = Annotated[
-    DialogueReplyDecisionV7 | DialogueTerminalDecisionV7,
-    Field(discriminator="kind"),
-]
-
-
-class DialogueReplyDecisionV8(_CreatorDialogueCandidateV8):
-    kind: Literal["reply"]
-    content: Annotated[str, StringConstraints(min_length=1, max_length=65536)]
-    experience: DialogueExperience | None = None
-    memory_change: DialogueMemoryChange | None = None
-    relationship_change: DialogueRelationshipChange | None = None
-    material_change: DialogueMaterialChangeV7 | None = None
-
-    @model_validator(mode="after")
-    def validate_relationship_source(self) -> DialogueReplyDecisionV8:
-        if self.relationship_change is not None and self.experience is None:
-            raise ValueError("relationship change requires an experience")
-        return self
-
-
-class DialogueTerminalDecisionV8(_CreatorDialogueCandidateV8):
-    kind: Literal[
-        "decline",
-        "no_action",
-        "no_change",
-        "defer",
-        "need_information",
-    ]
-
-
-class DialogueWebResearchDecisionV8(_CreatorDialogueCandidateV8):
-    kind: Literal["web_research"]
-    query: Annotated[str, StringConstraints(min_length=1, max_length=16384)]
-
-
-DialogueDecisionV8 = Annotated[
-    DialogueReplyDecisionV8
-    | DialogueTerminalDecisionV8
-    | DialogueWebResearchDecisionV8,
-    Field(discriminator="kind"),
-]
-
-
-class DialogueReplyDecisionV9(_CreatorDialogueCandidateV9):
-    kind: Literal["reply"]
-    content: Annotated[str, StringConstraints(min_length=1, max_length=65536)]
-    experience: DialogueExperience | None = None
-    memory_change: DialogueMemoryChange | None = None
-    relationship_change: DialogueRelationshipChange | None = None
-    material_change: DialogueMaterialChange | None = None
-
-    @model_validator(mode="after")
-    def validate_relationship_source(self) -> DialogueReplyDecisionV9:
-        if self.relationship_change is not None and self.experience is None:
-            raise ValueError("relationship change requires an experience")
-        return self
-
-
-class DialogueTerminalDecisionV9(_CreatorDialogueCandidateV9):
-    kind: Literal[
-        "decline",
-        "no_action",
-        "no_change",
-        "defer",
-        "need_information",
-    ]
-
-
-DialogueDecisionV9 = Annotated[
-    DialogueReplyDecisionV9 | DialogueTerminalDecisionV9,
-    Field(discriminator="kind"),
-]
-
-
-class DialogueReplyDecisionV10(_CreatorDialogueCandidateV10):
-    kind: Literal["reply"]
-    content: Annotated[str, StringConstraints(min_length=1, max_length=65536)]
-    experience: DialogueExperience | None = None
-    memory_change: DialogueMemoryChange | None = None
-    relationship_change: DialogueRelationshipChange | None = None
-    material_change: DialogueMaterialChange | None = None
-
-    @model_validator(mode="after")
-    def validate_relationship_source(self) -> DialogueReplyDecisionV10:
-        if self.relationship_change is not None and self.experience is None:
-            raise ValueError("relationship change requires an experience")
-        return self
-
-
-class DialogueTerminalDecisionV10(_CreatorDialogueCandidateV10):
-    kind: Literal[
-        "decline",
-        "no_action",
-        "no_change",
-        "defer",
-        "need_information",
-    ]
-
-
-class DialogueWebResearchDecisionV10(_CreatorDialogueCandidateV10):
-    kind: Literal["web_research"]
-    query: Annotated[str, StringConstraints(min_length=1, max_length=16384)]
-
-
-DialogueDecisionV10 = Annotated[
-    DialogueReplyDecisionV10
-    | DialogueTerminalDecisionV10
-    | DialogueWebResearchDecisionV10,
-    Field(discriminator="kind"),
-]
-
-
-class DialogueReplyDecisionV11(_CreatorDialogueCandidateV11):
+class DialogueReplyDecision(CreatorDialogueCandidate):
     kind: Literal["reply"]
     content: Annotated[str, StringConstraints(min_length=1, max_length=65536)]
     experience: DialogueExperience | None = None
@@ -624,76 +311,24 @@ class DialogueReplyDecisionV11(_CreatorDialogueCandidateV11):
     relationship_change: DialogueRelationshipChange | None = None
     material_change: DialogueMaterialChange | None = None
     capability_request: DialogueCapabilityRequest | None = None
-
-    @model_validator(mode="after")
-    def validate_relationship_source(self) -> DialogueReplyDecisionV11:
-        if self.relationship_change is not None and self.experience is None:
-            raise ValueError("relationship change requires an experience")
-        return self
-
-
-class DialogueTerminalDecisionV11(_CreatorDialogueCandidateV11):
-    kind: Literal[
-        "decline",
-        "no_action",
-        "no_change",
-        "defer",
-        "need_information",
-    ]
-
-
-DialogueDecisionV11 = Annotated[
-    DialogueReplyDecisionV11 | DialogueTerminalDecisionV11,
-    Field(discriminator="kind"),
-]
-
-
-class DialogueReplyDecisionV13(DialogueReplyDecisionV11):
     self_change: DialogueSelfChange | None = None
     mind_change: DialogueMindChange | None = None
-
-    @property
-    def schema_version(self) -> str:
-        return HISTORICAL_GROWTH_DIALOGUE_CANDIDATE_VERSION
+    subject_prompt_change: DialogueSubjectPromptChange | None = None
 
     @model_validator(mode="after")
-    def validate_growth_source(self) -> DialogueReplyDecisionV13:
+    def validate_experience_basis(self) -> DialogueReplyDecision:
+        if self.relationship_change is not None and self.experience is None:
+            raise ValueError("relationship change requires an experience")
         if (
-            self.self_change is not None or self.mind_change is not None
+            self.self_change is not None
+            or self.mind_change is not None
+            or self.subject_prompt_change is not None
         ) and self.experience is None:
             raise ValueError("subject growth requires an experience")
         return self
 
 
-class DialogueTerminalDecisionV13(DialogueTerminalDecisionV11):
-    @property
-    def schema_version(self) -> str:
-        return HISTORICAL_GROWTH_DIALOGUE_CANDIDATE_VERSION
-
-
-DialogueDecisionV13 = Annotated[
-    DialogueReplyDecisionV13 | DialogueTerminalDecisionV13,
-    Field(discriminator="kind"),
-]
-
-
-class DialogueReplyDecisionV12(_CreatorDialogueCandidateV12):
-    kind: Literal["reply"]
-    content: Annotated[str, StringConstraints(min_length=1, max_length=65536)]
-    experience: DialogueExperience | None = None
-    memory_change: DialogueMemoryChange | None = None
-    relationship_change: DialogueRelationshipChange | None = None
-    material_change: DialogueMaterialChange | None = None
-    capability_request: DialogueCapabilityRequest | None = None
-
-    @model_validator(mode="after")
-    def validate_relationship_source(self) -> DialogueReplyDecisionV12:
-        if self.relationship_change is not None and self.experience is None:
-            raise ValueError("relationship change requires an experience")
-        return self
-
-
-class DialogueTerminalDecisionV12(_CreatorDialogueCandidateV12):
+class DialogueTerminalDecision(CreatorDialogueCandidate):
     kind: Literal[
         "decline",
         "no_action",
@@ -703,114 +338,9 @@ class DialogueTerminalDecisionV12(_CreatorDialogueCandidateV12):
     ]
 
 
-class DialogueWebResearchDecisionV12(_CreatorDialogueCandidateV12):
+class DialogueWebResearchDecision(CreatorDialogueCandidate):
     kind: Literal["web_research"]
     query: Annotated[str, StringConstraints(min_length=1, max_length=16384)]
-
-
-DialogueDecisionV12 = Annotated[
-    DialogueReplyDecisionV12
-    | DialogueTerminalDecisionV12
-    | DialogueWebResearchDecisionV12,
-    Field(discriminator="kind"),
-]
-
-
-class DialogueReplyDecisionV14(DialogueReplyDecisionV12):
-    self_change: DialogueSelfChange | None = None
-    mind_change: DialogueMindChange | None = None
-
-    @property
-    def schema_version(self) -> str:
-        return HISTORICAL_GROWTH_WEB_DIALOGUE_CANDIDATE_VERSION
-
-    @model_validator(mode="after")
-    def validate_growth_source(self) -> DialogueReplyDecisionV14:
-        if (
-            self.self_change is not None or self.mind_change is not None
-        ) and self.experience is None:
-            raise ValueError("subject growth requires an experience")
-        return self
-
-
-class DialogueTerminalDecisionV14(DialogueTerminalDecisionV12):
-    @property
-    def schema_version(self) -> str:
-        return HISTORICAL_GROWTH_WEB_DIALOGUE_CANDIDATE_VERSION
-
-
-class DialogueWebResearchDecisionV14(DialogueWebResearchDecisionV12):
-    @property
-    def schema_version(self) -> str:
-        return HISTORICAL_GROWTH_WEB_DIALOGUE_CANDIDATE_VERSION
-
-
-DialogueDecisionV14 = Annotated[
-    DialogueReplyDecisionV14
-    | DialogueTerminalDecisionV14
-    | DialogueWebResearchDecisionV14,
-    Field(discriminator="kind"),
-]
-
-
-class DialogueReplyDecisionV15(DialogueReplyDecisionV13):
-    subject_prompt_change: DialogueSubjectPromptChange | None = None
-
-    @property
-    def schema_version(self) -> str:
-        return HISTORICAL_PROMPT_DIALOGUE_CANDIDATE_VERSION
-
-    @model_validator(mode="after")
-    def validate_prompt_source(self) -> DialogueReplyDecisionV15:
-        if self.subject_prompt_change is not None and self.experience is None:
-            raise ValueError("subject prompt change requires an experience")
-        return self
-
-
-class DialogueTerminalDecisionV15(DialogueTerminalDecisionV13):
-    @property
-    def schema_version(self) -> str:
-        return HISTORICAL_PROMPT_DIALOGUE_CANDIDATE_VERSION
-
-
-DialogueDecisionV15 = Annotated[
-    DialogueReplyDecisionV15 | DialogueTerminalDecisionV15,
-    Field(discriminator="kind"),
-]
-
-
-class DialogueReplyDecisionV16(DialogueReplyDecisionV14):
-    subject_prompt_change: DialogueSubjectPromptChange | None = None
-
-    @property
-    def schema_version(self) -> str:
-        return HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION
-
-    @model_validator(mode="after")
-    def validate_prompt_source(self) -> DialogueReplyDecisionV16:
-        if self.subject_prompt_change is not None and self.experience is None:
-            raise ValueError("subject prompt change requires an experience")
-        return self
-
-
-class DialogueTerminalDecisionV16(DialogueTerminalDecisionV14):
-    @property
-    def schema_version(self) -> str:
-        return HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION
-
-
-class DialogueWebResearchDecisionV16(DialogueWebResearchDecisionV14):
-    @property
-    def schema_version(self) -> str:
-        return HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION
-
-
-DialogueDecisionV16 = Annotated[
-    DialogueReplyDecisionV16
-    | DialogueTerminalDecisionV16
-    | DialogueWebResearchDecisionV16,
-    Field(discriminator="kind"),
-]
 
 
 class DialogueExactLifeQueryDecision(CreatorDialogueCandidate):
@@ -827,10 +357,6 @@ class DialogueExactLifeQueryDecision(CreatorDialogueCandidate):
         Annotated[str, StringConstraints(min_length=1, max_length=1024)] | None
     ) = None
 
-    @property
-    def schema_version(self) -> str:
-        return HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION
-
     @model_validator(mode="after")
     def validate_query_text(self) -> DialogueExactLifeQueryDecision:
         if self.query_text is not None and (
@@ -840,53 +366,11 @@ class DialogueExactLifeQueryDecision(CreatorDialogueCandidate):
         return self
 
 
-class DialogueReplyDecision(DialogueReplyDecisionV15):
-    @property
-    def schema_version(self) -> str:
-        return HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION
-
-
-class DialogueTerminalDecision(DialogueTerminalDecisionV15):
-    @property
-    def schema_version(self) -> str:
-        return HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION
-
-
 DialogueDecision = Annotated[
-    DialogueReplyDecision | DialogueTerminalDecision | DialogueExactLifeQueryDecision,
-    Field(discriminator="kind"),
-]
-
-
-class DialogueReplyDecisionV18(DialogueReplyDecisionV16):
-    @property
-    def schema_version(self) -> str:
-        return HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION
-
-
-class DialogueTerminalDecisionV18(DialogueTerminalDecisionV16):
-    @property
-    def schema_version(self) -> str:
-        return HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION
-
-
-class DialogueWebResearchDecisionV18(DialogueWebResearchDecisionV16):
-    @property
-    def schema_version(self) -> str:
-        return HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION
-
-
-class DialogueExactLifeQueryDecisionV18(DialogueExactLifeQueryDecision):
-    @property
-    def schema_version(self) -> str:
-        return HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION
-
-
-DialogueDecisionV18 = Annotated[
-    DialogueReplyDecisionV18
-    | DialogueTerminalDecisionV18
-    | DialogueWebResearchDecisionV18
-    | DialogueExactLifeQueryDecisionV18,
+    DialogueReplyDecision
+    | DialogueTerminalDecision
+    | DialogueWebResearchDecision
+    | DialogueExactLifeQueryDecision,
     Field(discriminator="kind"),
 ]
 
@@ -995,123 +479,17 @@ class _CompactDialogueEnvelope(_StrictModel):
         return self
 
 
-class _CompactDialogueEnvelopeNoWeb(_CompactDialogueEnvelope):
-    kind: Literal[  # pyright: ignore[reportIncompatibleVariableOverride]
-        "reply",
-        "decline",
-        "no_action",
-        "no_change",
-        "defer",
-        "need_information",
-        "exact_life_query",
-    ]
-
-
-class DialogueReplyDecisionV19(DialogueReplyDecisionV15):
-    @property
-    def schema_version(self) -> str:
-        return DIALOGUE_CANDIDATE_VERSION
-
-
-class DialogueTerminalDecisionV19(DialogueTerminalDecisionV15):
-    @property
-    def schema_version(self) -> str:
-        return DIALOGUE_CANDIDATE_VERSION
-
-
-class DialogueExactLifeQueryDecisionV19(DialogueExactLifeQueryDecision):
-    @property
-    def schema_version(self) -> str:
-        return DIALOGUE_CANDIDATE_VERSION
-
-
-class DialogueReplyDecisionV20(DialogueReplyDecisionV16):
-    @property
-    def schema_version(self) -> str:
-        return WEB_DIALOGUE_CANDIDATE_VERSION
-
-
-class DialogueTerminalDecisionV20(DialogueTerminalDecisionV16):
-    @property
-    def schema_version(self) -> str:
-        return WEB_DIALOGUE_CANDIDATE_VERSION
-
-
-class DialogueWebResearchDecisionV20(DialogueWebResearchDecisionV16):
-    @property
-    def schema_version(self) -> str:
-        return WEB_DIALOGUE_CANDIDATE_VERSION
-
-
-class DialogueExactLifeQueryDecisionV20(DialogueExactLifeQueryDecision):
-    @property
-    def schema_version(self) -> str:
-        return WEB_DIALOGUE_CANDIDATE_VERSION
-
-
-_COMPACT_ADAPTER: TypeAdapter[_CompactDialogueEnvelopeNoWeb] = TypeAdapter(
-    _CompactDialogueEnvelopeNoWeb
-)
-_COMPACT_WEB_ADAPTER: TypeAdapter[_CompactDialogueEnvelope] = TypeAdapter(
+_COMPACT_ADAPTER: TypeAdapter[_CompactDialogueEnvelope] = TypeAdapter(
     _CompactDialogueEnvelope
 )
-
-_ADAPTER_V5: TypeAdapter[DialogueDecisionV5] = TypeAdapter(DialogueDecisionV5)
-_ADAPTER_V6: TypeAdapter[DialogueDecisionV6] = TypeAdapter(DialogueDecisionV6)
-_ADAPTER_V7: TypeAdapter[DialogueDecisionV7] = TypeAdapter(DialogueDecisionV7)
-_ADAPTER_V8: TypeAdapter[DialogueDecisionV8] = TypeAdapter(DialogueDecisionV8)
-_ADAPTER_V9: TypeAdapter[DialogueDecisionV9] = TypeAdapter(DialogueDecisionV9)
-_ADAPTER_V10: TypeAdapter[DialogueDecisionV10] = TypeAdapter(DialogueDecisionV10)
-_ADAPTER_V11: TypeAdapter[DialogueDecisionV11] = TypeAdapter(DialogueDecisionV11)
-_ADAPTER_V12: TypeAdapter[DialogueDecisionV12] = TypeAdapter(DialogueDecisionV12)
-_ADAPTER_V13: TypeAdapter[DialogueDecisionV13] = TypeAdapter(DialogueDecisionV13)
-_ADAPTER_V14: TypeAdapter[DialogueDecisionV14] = TypeAdapter(DialogueDecisionV14)
-_ADAPTER_V15: TypeAdapter[DialogueDecisionV15] = TypeAdapter(DialogueDecisionV15)
-_ADAPTER_V16: TypeAdapter[DialogueDecisionV16] = TypeAdapter(DialogueDecisionV16)
-_ADAPTER_V17: TypeAdapter[DialogueDecision] = TypeAdapter(DialogueDecision)
-_ADAPTER_V18: TypeAdapter[DialogueDecisionV18] = TypeAdapter(DialogueDecisionV18)
 
 
 def dialogue_candidate_schema(
     version: str = DIALOGUE_CANDIDATE_VERSION,
 ) -> dict[str, Any]:
-    if version == DIALOGUE_CANDIDATE_VERSION:
-        return _COMPACT_ADAPTER.json_schema()
-    if version == WEB_DIALOGUE_CANDIDATE_VERSION:
-        return _COMPACT_WEB_ADAPTER.json_schema()
-    if version == HISTORICAL_COMPACT_DIALOGUE_CANDIDATE_VERSION:
-        return _COMPACT_ADAPTER.json_schema()
-    if version == HISTORICAL_COMPACT_WEB_DIALOGUE_CANDIDATE_VERSION:
-        return _COMPACT_WEB_ADAPTER.json_schema()
-    if version == HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V17.json_schema()
-    if version == HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V18.json_schema()
-    if version == HISTORICAL_PROMPT_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V15.json_schema()
-    if version == HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V16.json_schema()
-    if version == HISTORICAL_GROWTH_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V13.json_schema()
-    if version == HISTORICAL_GROWTH_WEB_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V14.json_schema()
-    if version == HISTORICAL_CAPABILITY_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V11.json_schema()
-    if version == HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V12.json_schema()
-    if version == HISTORICAL_PRIVATE_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V9.json_schema()
-    if version == HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V10.json_schema()
-    if version == HISTORICAL_MATERIAL_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V7.json_schema()
-    if version == HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V8.json_schema()
-    if version == HISTORICAL_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V5.json_schema()
-    if version == HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V6.json_schema()
-    raise ValueError("unsupported dialogue candidate version")
+    if version != DIALOGUE_CANDIDATE_VERSION:
+        raise ValueError("unsupported dialogue candidate version")
+    return _COMPACT_ADAPTER.json_schema()
 
 
 def _compact_metadata(
@@ -1378,8 +756,6 @@ def translate_compact_change_set(
 
 def _translate_compact_dialogue(
     envelope: _CompactDialogueEnvelope,
-    *,
-    web: bool,
 ) -> CreatorDialogueCandidate:
     if envelope.kind == "reply":
         values: dict[str, object] = {
@@ -1388,15 +764,9 @@ def _translate_compact_dialogue(
             "experience": envelope.experience,
             **translate_compact_change_set(envelope.changes),
         }
-        reply_type = DialogueReplyDecisionV20 if web else DialogueReplyDecisionV19
-        return reply_type.model_validate(values)
+        return DialogueReplyDecision.model_validate(values)
     if envelope.kind == "exact_life_query":
-        query_type = (
-            DialogueExactLifeQueryDecisionV20
-            if web
-            else DialogueExactLifeQueryDecisionV19
-        )
-        return query_type.model_validate(
+        return DialogueExactLifeQueryDecision.model_validate(
             {
                 "kind": envelope.kind,
                 "record_kind": envelope.record_kind,
@@ -1404,13 +774,10 @@ def _translate_compact_dialogue(
             }
         )
     if envelope.kind == "web_research":
-        if not web:
-            raise ValueError("web research is unavailable")
-        return DialogueWebResearchDecisionV20.model_validate(
+        return DialogueWebResearchDecision.model_validate(
             {"kind": envelope.kind, "query": envelope.query}
         )
-    terminal_type = DialogueTerminalDecisionV20 if web else DialogueTerminalDecisionV19
-    return terminal_type.model_validate({"kind": envelope.kind})
+    return DialogueTerminalDecision.model_validate({"kind": envelope.kind})
 
 
 def parse_dialogue_candidate(
@@ -1419,82 +786,23 @@ def parse_dialogue_candidate(
     version: str = DIALOGUE_CANDIDATE_VERSION,
 ) -> CreatorDialogueCandidate:
     value = strict_model_value(value)
-    if version == DIALOGUE_CANDIDATE_VERSION:
-        return _translate_compact_dialogue(
-            _COMPACT_ADAPTER.validate_python(value, strict=True), web=False
-        )
-    if version == WEB_DIALOGUE_CANDIDATE_VERSION:
-        return _translate_compact_dialogue(
-            _COMPACT_WEB_ADAPTER.validate_python(value, strict=True), web=True
-        )
-    if version == HISTORICAL_COMPACT_DIALOGUE_CANDIDATE_VERSION:
-        return _translate_compact_dialogue(
-            _COMPACT_ADAPTER.validate_python(value, strict=True), web=False
-        )
-    if version == HISTORICAL_COMPACT_WEB_DIALOGUE_CANDIDATE_VERSION:
-        return _translate_compact_dialogue(
-            _COMPACT_WEB_ADAPTER.validate_python(value, strict=True), web=True
-        )
-    if version == HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V17.validate_python(value, strict=True)
-    if version == HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V18.validate_python(value, strict=True)
-    if version == HISTORICAL_PROMPT_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V15.validate_python(value, strict=True)
-    if version == HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V16.validate_python(value, strict=True)
-    if version == HISTORICAL_GROWTH_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V13.validate_python(value, strict=True)
-    if version == HISTORICAL_GROWTH_WEB_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V14.validate_python(value, strict=True)
-    if version == HISTORICAL_CAPABILITY_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V11.validate_python(value, strict=True)
-    if version == HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V12.validate_python(value, strict=True)
-    if version == HISTORICAL_PRIVATE_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V9.validate_python(value, strict=True)
-    if version == HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V10.validate_python(value, strict=True)
-    if version == HISTORICAL_MATERIAL_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V7.validate_python(value, strict=True)
-    if version == HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V8.validate_python(value, strict=True)
-    if version == HISTORICAL_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V5.validate_python(value, strict=True)
-    if version == HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION:
-        return _ADAPTER_V6.validate_python(value, strict=True)
-    raise ValueError("unsupported dialogue candidate version")
+    if version != DIALOGUE_CANDIDATE_VERSION:
+        raise ValueError("unsupported dialogue candidate version")
+    return _translate_compact_dialogue(
+        _COMPACT_ADAPTER.validate_python(value, strict=True)
+    )
 
 
 __all__ = (
     "DIALOGUE_CANDIDATE_VERSION",
     "DIALOGUE_MODEL_OUTPUT_VERSION",
-    "HISTORICAL_ACTIVE_DIALOGUE_CANDIDATE_VERSION",
-    "HISTORICAL_ACTIVE_WEB_DIALOGUE_CANDIDATE_VERSION",
-    "HISTORICAL_CAPABILITY_DIALOGUE_CANDIDATE_VERSION",
-    "HISTORICAL_CAPABILITY_WEB_DIALOGUE_CANDIDATE_VERSION",
-    "HISTORICAL_DIALOGUE_CANDIDATE_VERSION",
-    "HISTORICAL_GROWTH_DIALOGUE_CANDIDATE_VERSION",
-    "HISTORICAL_GROWTH_WEB_DIALOGUE_CANDIDATE_VERSION",
-    "HISTORICAL_MATERIAL_DIALOGUE_CANDIDATE_VERSION",
-    "HISTORICAL_MATERIAL_WEB_DIALOGUE_CANDIDATE_VERSION",
-    "HISTORICAL_PRIVATE_DIALOGUE_CANDIDATE_VERSION",
-    "HISTORICAL_PRIVATE_WEB_DIALOGUE_CANDIDATE_VERSION",
-    "HISTORICAL_PROMPT_DIALOGUE_CANDIDATE_VERSION",
-    "HISTORICAL_PROMPT_WEB_DIALOGUE_CANDIDATE_VERSION",
-    "HISTORICAL_WEB_DIALOGUE_CANDIDATE_VERSION",
-    "WEB_DIALOGUE_CANDIDATE_VERSION",
     "CreatorDialogueCandidate",
     "DialogueCapabilityRequest",
     "DialogueCommitmentChange",
     "DialogueExactLifeQueryDecision",
-    "DialogueExactLifeQueryDecisionV18",
-    "DialogueExactLifeQueryDecisionV19",
-    "DialogueExactLifeQueryDecisionV20",
     "DialogueExperience",
     "DialogueLongTextReplacement",
     "DialogueMaterialChange",
-    "DialogueMaterialChangeV7",
     "DialogueMaterialContentChange",
     "DialogueMaterialStateChange",
     "DialogueMemoryChange",
@@ -1504,48 +812,11 @@ __all__ = (
     "DialogueRelationshipChange",
     "DialogueRelationshipFact",
     "DialogueReplyDecision",
-    "DialogueReplyDecisionV5",
-    "DialogueReplyDecisionV6",
-    "DialogueReplyDecisionV7",
-    "DialogueReplyDecisionV8",
-    "DialogueReplyDecisionV9",
-    "DialogueReplyDecisionV10",
-    "DialogueReplyDecisionV11",
-    "DialogueReplyDecisionV12",
-    "DialogueReplyDecisionV13",
-    "DialogueReplyDecisionV14",
-    "DialogueReplyDecisionV15",
-    "DialogueReplyDecisionV16",
-    "DialogueReplyDecisionV18",
-    "DialogueReplyDecisionV19",
-    "DialogueReplyDecisionV20",
     "DialogueSelfChange",
     "DialogueSubjectPromptChange",
     "DialogueSummaryListReplacement",
     "DialogueTerminalDecision",
-    "DialogueTerminalDecisionV5",
-    "DialogueTerminalDecisionV6",
-    "DialogueTerminalDecisionV7",
-    "DialogueTerminalDecisionV8",
-    "DialogueTerminalDecisionV9",
-    "DialogueTerminalDecisionV10",
-    "DialogueTerminalDecisionV11",
-    "DialogueTerminalDecisionV12",
-    "DialogueTerminalDecisionV13",
-    "DialogueTerminalDecisionV14",
-    "DialogueTerminalDecisionV15",
-    "DialogueTerminalDecisionV16",
-    "DialogueTerminalDecisionV18",
-    "DialogueTerminalDecisionV19",
-    "DialogueTerminalDecisionV20",
     "DialogueWebResearchDecision",
-    "DialogueWebResearchDecisionV8",
-    "DialogueWebResearchDecisionV10",
-    "DialogueWebResearchDecisionV12",
-    "DialogueWebResearchDecisionV14",
-    "DialogueWebResearchDecisionV16",
-    "DialogueWebResearchDecisionV18",
-    "DialogueWebResearchDecisionV20",
     "dialogue_candidate_schema",
     "parse_dialogue_candidate",
     "translate_compact_change_set",

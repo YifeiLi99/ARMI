@@ -209,7 +209,7 @@ function promptResponse(): object {
 function dataRightsResponse(): object {
   return {
     contract_version: "1.0",
-    projection_version: "data-rights-order.v2",
+    projection_version: "data-rights-order-collection.v1",
     orders: [],
   };
 }
@@ -271,7 +271,7 @@ function subjectSummaryResponse(): object {
       {
         kind: "mind",
         version: 1,
-        schema_version: "armi.mind.v1",
+        schema_version: "armi.mind.v2",
         content_visibility: "private",
       },
       {

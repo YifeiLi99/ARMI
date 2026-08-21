@@ -108,31 +108,6 @@ def _self(value: dict[str, object]) -> None:
 
 
 def _mind(value: dict[str, object]) -> None:
-    if value.get("schema_version") == "armi.mind.v1":
-        if set(value) != {
-            "schema_version",
-            "understanding",
-            "attention",
-            "emotions",
-            "thoughts",
-            "wishes",
-            "motivations",
-            "mood",
-        }:
-            raise ValueError
-        if not all(
-            _texts(value[key])
-            for key in (
-                "understanding",
-                "attention",
-                "emotions",
-                "thoughts",
-                "wishes",
-                "motivations",
-            )
-        ) or not _text_or_none(value["mood"], 128):
-            raise ValueError
-        return
     if (
         set(value)
         != {

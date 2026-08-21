@@ -8,13 +8,8 @@ from typing import Any, cast
 import rfc8785
 from armi_kernel.application import CandidateFactClass, CandidateOwnerDraft
 
-from ._domain import (
-    appraisal_to_wire,
-    parse_appraisal_any,
-    semantic_appraisal_to_wire,
-)
+from ._domain import parse_semantic_appraisal, semantic_appraisal_to_wire
 from .api import (
-    AppraisalEvent,
     CandidateMoodDraft,
     MoodCandidateKind,
     MoodViolation,
@@ -37,15 +32,9 @@ def encode(value: CandidateMoodDraft) -> bytes:
     if value.kind is MoodCandidateKind.APPRAISAL:
         if value.appraisal is None:
             raise MoodViolation("MOOD-CODEC")
-        command = (
-            appraisal_to_wire(value.appraisal)
-            if type(value.appraisal) is AppraisalEvent
-            else semantic_appraisal_to_wire(value.appraisal)
-            if type(value.appraisal) is SemanticAppraisalEvent
-            else None
-        )
-        if command is None:
+        if type(value.appraisal) is not SemanticAppraisalEvent:
             raise MoodViolation("MOOD-CODEC")
+        command = semantic_appraisal_to_wire(value.appraisal)
     else:
         if value.appraisal is not None:
             raise MoodViolation("MOOD-CODEC")
@@ -77,8 +66,7 @@ def decode(payload: bytes) -> CandidateMoodDraft:
         command: object = raw["command"]
         if (
             set(raw) != _COMMON_KEYS | {"command"}
-            or raw["schema_version"]
-            not in {"armi.mood-candidate.v3", "armi.mood-candidate.v4"}
+            or raw["schema_version"] != "armi.mood-candidate.v4"
             or rfc8785.dumps(cast(Any, raw)) != payload
             or type(ordinals) is not list
             or any(type(item) is not int for item in cast(list[object], ordinals))
@@ -95,7 +83,7 @@ def decode(payload: bytes) -> CandidateMoodDraft:
         if kind is MoodCandidateKind.APPRAISAL:
             if command is None:
                 raise ValueError
-            appraisal = parse_appraisal_any(cast(dict[str, object], command))
+            appraisal = parse_semantic_appraisal(cast(dict[str, object], command))
         else:
             if command is not None:
                 raise ValueError

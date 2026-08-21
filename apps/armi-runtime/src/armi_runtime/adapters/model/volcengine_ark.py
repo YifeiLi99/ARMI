@@ -34,12 +34,7 @@ _FINGERPRINT_DOMAIN = b"armi.model.credential-fingerprint.v1\0"
 _EVOLVING_MODEL_ID = "doubao-seed-evolving"
 _PROVIDER_MODEL_ID = re.compile(r"^doubao-seed-[a-z0-9-]{1,96}$", re.ASCII)
 _CONTEXT_REF_PATTERN = r"^ctx:[1-9][0-9]{0,2}$"
-_DIALOGUE_INPUT_VERSIONS = frozenset(
-    {
-        "armi.creator-dialogue-input.v4",
-        "armi.creator-dialogue-input.v5",
-    }
-)
+_DIALOGUE_INPUT_VERSION = "armi.creator-dialogue-input.v6"
 _INSTRUCTIONS = (
     "你是 ARMI 的不可信认知候选生成器。只能返回符合给定 JSON Schema 的候选。"
     "必须逐字段原样回显请求中的 candidate_base 到输出 base,不能推测或改写。"
@@ -269,7 +264,7 @@ def _provider_input(request_bytes: bytes) -> str | list[dict[str, str]]:
     if not isinstance(request_value, dict):
         return text_value
     request_document = cast(dict[object, object], request_value)
-    if request_document.get("schema_version") not in _DIALOGUE_INPUT_VERSIONS:
+    if request_document.get("schema_version") != _DIALOGUE_INPUT_VERSION:
         return text_value
     messages_value = request_document.get("messages")
     if not isinstance(messages_value, list) or not messages_value:

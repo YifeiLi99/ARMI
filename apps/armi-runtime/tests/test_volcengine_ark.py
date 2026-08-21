@@ -12,10 +12,7 @@ from armi_runtime.adapters.model.volcengine_ark import (
 
 @pytest.mark.parametrize(
     "schema_version",
-    (
-        "armi.creator-dialogue-input.v4",
-        "armi.creator-dialogue-input.v5",
-    ),
+    ("armi.creator-dialogue-input.v6",),
 )
 def test_provider_input_preserves_dialogue_roles(schema_version: str) -> None:
     request = json.dumps(
@@ -38,7 +35,7 @@ def test_provider_input_preserves_dialogue_roles(schema_version: str) -> None:
 def test_provider_input_rejects_invalid_dialogue_message() -> None:
     request = json.dumps(
         {
-            "schema_version": "armi.creator-dialogue-input.v5",
+            "schema_version": "armi.creator-dialogue-input.v6",
             "messages": [{"role": "tool", "content": "不允许"}],
         },
         ensure_ascii=False,

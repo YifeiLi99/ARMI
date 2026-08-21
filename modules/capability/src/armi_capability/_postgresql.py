@@ -1573,6 +1573,8 @@ def _decode_cursor(
         if type(raw_document) is not dict:
             raise ValueError
         document = cast(dict[str, object], raw_document)
+        if document.get("schema_version") != "armi.capability-request-cursor.v4":
+            raise CapabilityViolation("CONFLICT-CAPABILITY-CURSOR-STALE")
         if (
             set(document)
             != {
@@ -1584,18 +1586,11 @@ def _decode_cursor(
                 "capability_request_id",
                 "projection_version",
             }
-            or document["schema_version"] != "armi.capability-request-cursor.v4"
             or document["projection_version"] != "capability-request.v4"
             or document["environment_id"] != str(environment_id)
             or document["creator_party_id"] != str(creator_party_id)
             or document["limit"] != limit
         ):
-            if document.get("schema_version") in {
-                "armi.capability-request-cursor.v1",
-                "armi.capability-request-cursor.v2",
-                "armi.capability-request-cursor.v3",
-            }:
-                raise CapabilityViolation("CONFLICT-CAPABILITY-CURSOR-STALE")
             raise ValueError
         request_id_text = document["capability_request_id"]
         if type(request_id_text) is not str:

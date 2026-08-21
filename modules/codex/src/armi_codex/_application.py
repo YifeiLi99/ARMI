@@ -798,7 +798,6 @@ def _task_manifest(snapshot: CodexDispatchSnapshot, value: bytes) -> CodexTaskMa
         if type(raw) is not dict:
             raise ValueError
         document = cast(dict[str, Any], raw)
-        version = document.get("schema_version")
         expected_keys = {
             "schema_version",
             "objective",
@@ -808,12 +807,14 @@ def _task_manifest(snapshot: CodexDispatchSnapshot, value: bytes) -> CodexTaskMa
             "validator_id",
             "deadline_seconds",
             "source_tree_digest",
+            "model_id",
+            "reasoning_effort",
+            "web_search",
         }
-        if version == "armi.codex-task-source.v2":
-            expected_keys.update({"model_id", "reasoning_effort", "web_search"})
-            if type(document.get("web_search")) is not bool:
-                raise ValueError
-        elif version != "armi.codex-task-source.v1":
+        if (
+            document.get("schema_version") != "armi.codex-task-source.v2"
+            or type(document.get("web_search")) is not bool
+        ):
             raise ValueError
         if set(document) != expected_keys:
             raise ValueError
@@ -838,21 +839,9 @@ def _task_manifest(snapshot: CodexDispatchSnapshot, value: bytes) -> CodexTaskMa
             forbidden,
             snapshot.validator_id,
             snapshot.deadline_seconds,
-            model_id=(
-                CodexModel(document["model_id"])
-                if version == "armi.codex-task-source.v2"
-                else CodexModel.SOL
-            ),
-            reasoning_effort=(
-                CodexReasoningEffort(document["reasoning_effort"])
-                if version == "armi.codex-task-source.v2"
-                else CodexReasoningEffort.MEDIUM
-            ),
-            web_search=(
-                document["web_search"]
-                if version == "armi.codex-task-source.v2"
-                else False
-            ),
+            model_id=CodexModel(document["model_id"]),
+            reasoning_effort=CodexReasoningEffort(document["reasoning_effort"]),
+            web_search=document["web_search"],
         )
     except TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError:
         raise CodexDelegationViolation("CODEX-TASK-MANIFEST") from None

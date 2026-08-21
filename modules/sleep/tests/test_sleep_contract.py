@@ -89,7 +89,7 @@ def test_maintenance_result_round_trip_preserves_exact_head_and_memory_ref() -> 
     draft = cognition.bind_maintenance(decision)
 
     assert cognition.decode(draft.canonical_payload) == decision
-    assert cognition.bind_wire(decision, maintenance=True) == draft
+    assert cognition.bind(decision) == draft
 
 
 def test_maintenance_result_rejects_cross_phase_or_missing_memory_reference() -> None:
@@ -166,23 +166,3 @@ def test_maintenance_lifecycle_is_ordered_interruptible_and_terminal() -> None:
     assert interrupted is not None
     assert interrupted.terminal
     assert interrupted.following.result_status is MaintenanceResultStatus.INTERRUPTED
-
-
-def test_historical_sleep_shape_is_normalized_to_current_owner_payload() -> None:
-    cognition = bootstrap_sleep_cognition()
-    cycle_anchor_ref = uuid7()
-    owner = cognition.bind_wire(
-        {
-            "proposal_ref": "proposal:1",
-            "atomic_group_ref": "group:1",
-            "basis_ordinals": [1],
-            "decision_kind": "defer",
-            "cycle_anchor_ref": str(cycle_anchor_ref),
-        },
-        maintenance=False,
-    )
-
-    decoded = cognition.decode(owner.canonical_payload)
-    assert isinstance(decoded, CandidateSleepDecisionDraft)
-    assert decoded.decision_kind is SleepDecisionKind.DEFER
-    assert decoded.cycle_anchor_ref == cycle_anchor_ref

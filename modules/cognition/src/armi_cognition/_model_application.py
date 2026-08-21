@@ -76,7 +76,6 @@ from ._model_contract import (
     SUBJECT_SELF_CHECK_INSTRUCTIONS,
     VISUAL_OBSERVATION_CANDIDATE_VERSION,
     VISUAL_OBSERVATION_INSTRUCTIONS,
-    WEB_DIALOGUE_CANDIDATE_VERSION,
     build_request_bytes,
     candidate_schema,
     checked_model_request,
@@ -265,11 +264,7 @@ class ModelPipeline:
         wakeups: CognitionWakeupPort | None = None,
         diagnostic: Diagnostic | None = None,
     ) -> None:
-        dialogue_version = (
-            WEB_DIALOGUE_CANDIDATE_VERSION
-            if web_search_active
-            else DIALOGUE_CANDIDATE_VERSION
-        )
+        dialogue_version = DIALOGUE_CANDIDATE_VERSION
         load_active_binding(
             binding_path,
             expected_dialogue_version=dialogue_version,
@@ -1081,13 +1076,8 @@ class ModelPipeline:
             aggregate_bytes, logical_kind="model.response.aggregate", snapshot=current
         )
         primary_attempt = (
-            (
-                None
-                if response_branch is None
-                else response_branch.selected_attempt_id
-            )
-            or appraisal_branch.selected_attempt_id
-        )
+            None if response_branch is None else response_branch.selected_attempt_id
+        ) or appraisal_branch.selected_attempt_id
         if primary_attempt is None:
             raise ModelViolation("MODEL-AGGREGATE")
         async with self._factory.unit_of_work() as unit_of_work:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from armi_kernel.application import CandidateFactClass, CandidateOwnerDraft
 
-from ._codec import decode, decode_wire, encode
+from ._codec import decode, encode
 from .api import CandidateActivityDecisionDraft, CandidateActivityDraft
 
 
@@ -36,12 +36,13 @@ class ActivityApplication:
     def decode(self, payload: bytes):
         return decode(payload)
 
-    def bind_wire(self, value: object, *, decision: bool) -> CandidateOwnerDraft:
-        candidate = decode_wire(value, decision=decision)
-        if type(candidate) is CandidateActivityDraft:
-            return self.bind_create(candidate)
-        if type(candidate) is CandidateActivityDecisionDraft:
-            return self.bind_decision(candidate)
+    def bind(
+        self, value: CandidateActivityDraft | CandidateActivityDecisionDraft
+    ) -> CandidateOwnerDraft:
+        if type(value) is CandidateActivityDraft:
+            return self.bind_create(value)
+        if type(value) is CandidateActivityDecisionDraft:
+            return self.bind_decision(value)
         raise TypeError("unsupported Activity candidate")
 
 

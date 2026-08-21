@@ -51,8 +51,8 @@ def test_activity_create_and_decision_round_trip_as_opaque_owner_drafts() -> Non
     assert decision_owner.owner == "activity"
     assert cognition.decode(created_owner.canonical_payload) == created
     assert cognition.decode(decision_owner.canonical_payload) == decision
-    assert cognition.bind_wire(created, decision=False) == created_owner
-    assert cognition.bind_wire(decision, decision=True) == decision_owner
+    assert cognition.bind(created) == created_owner
+    assert cognition.bind(decision) == decision_owner
 
 
 def test_activity_codec_rejects_noncanonical_or_wrong_shape() -> None:

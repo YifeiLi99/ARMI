@@ -14,7 +14,7 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import Digest
 
-_BASE_KEYS = frozenset(
+_TASK_SOURCE_KEYS = frozenset(
     {
         "schema_version",
         "objective",
@@ -25,12 +25,8 @@ _BASE_KEYS = frozenset(
         "deadline_seconds",
         "source_tree_digest",
     }
+    | {"model_id", "reasoning_effort", "web_search"}
 )
-_V2_KEYS = _BASE_KEYS | {
-    "model_id",
-    "reasoning_effort",
-    "web_search",
-}
 _MAX_MANIFEST_BYTES = 64 * 1024
 _MAX_OBJECTIVE_BYTES = 16 * 1024
 
@@ -72,15 +68,9 @@ class CodexTaskTimelineProjection(SceneTimelineCodexTaskProjectionPort):
             if type(decoded) is not dict:
                 raise ValueError
             document = cast(dict[str, object], decoded)
-            version = document.get("schema_version")
-            expected: frozenset[str]
-            if version == "armi.codex-task-source.v2":
-                expected = _V2_KEYS
-            elif version == "armi.codex-task-source.v1":
-                expected = _BASE_KEYS
-            else:
+            if document.get("schema_version") != "armi.codex-task-source.v2":
                 raise ValueError
-            if frozenset(document) != expected:
+            if frozenset(document) != _TASK_SOURCE_KEYS:
                 raise ValueError
             if rfc8785.dumps(cast(Any, document)) != content:
                 raise ValueError
@@ -94,7 +84,7 @@ class CodexTaskTimelineProjection(SceneTimelineCodexTaskProjectionPort):
                 or not any(not character.isspace() for character in objective)
             ):
                 raise ValueError
-            if version == "armi.codex-task-source.v2" and (
+            if (
                 type(document["model_id"]) is not str
                 or type(document["reasoning_effort"]) is not str
                 or type(document["web_search"]) is not bool

@@ -579,7 +579,9 @@ class ActivityCognitionPort(Protocol):
     def decode(
         self, payload: bytes
     ) -> CandidateActivityDraft | CandidateActivityDecisionDraft: ...
-    def bind_wire(self, value: object, *, decision: bool) -> CandidateOwnerDraft: ...
+    def bind(
+        self, value: CandidateActivityDraft | CandidateActivityDecisionDraft
+    ) -> CandidateOwnerDraft: ...
 
 
 @runtime_checkable

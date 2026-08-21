@@ -24,7 +24,7 @@
         "dominance": 0,
         "valence": 0
       },
-      "schema_version": "armi.mood.v2"
+      "schema_version": "armi.mood.v3"
     },
     "self": {
       "creator_role_awareness": "unique_primary_creator",

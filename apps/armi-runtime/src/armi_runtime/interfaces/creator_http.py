@@ -759,7 +759,7 @@ async def _data_rights_request(
 def _data_rights_response(result: DataRightsOrderResult) -> DataRightsOrderResponse:
     return DataRightsOrderResponse(
         contract_version="1.0",
-        projection_version="data-rights-order.v1",
+        projection_version="data-rights-order-summary.v1",
         order_id=str(result.order_id),
         requester_party_id=str(result.requester_party_id),
         requester_kind=result.requester_kind.value,
@@ -815,7 +815,7 @@ def _data_rights_detail_response(
     timeline.sort(key=lambda item: (item.occurred_at, item.item_id or ""))
     return DataRightsOrderDetailResponse(
         contract_version="1.0",
-        projection_version="data-rights-order.v2",
+        projection_version="data-rights-order-detail.v1",
         order_id=str(order.order_id),
         requester_party_id=str(order.requester_party_id),
         requester_kind=order.requester_kind.value,

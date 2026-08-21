@@ -160,7 +160,7 @@ def test_old_or_cpu_profile_requires_calibration(
     tool_root.mkdir(parents=True)
     (tool_root / "install.json").write_text("{}", encoding="utf-8")
     (tool_root / "profile.json").write_text(
-        '{"schema_version":"armi.semantic-recall-profile.v1","gpu_layers":0}',
+        '{"schema_version":"armi.semantic-recall-profile.unsupported","gpu_layers":0}',
         encoding="utf-8",
     )
     monkeypatch.setattr(

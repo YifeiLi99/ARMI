@@ -61,7 +61,7 @@ async def _verify(environment_root: Path) -> dict[str, object]:
         cast(
             Any,
             {
-                "schema_version": "armi.compiled-context.v1",
+                "schema_version": "armi.compiled-context.v2",
                 "purpose": "consider_creator_input",
                 "sections": [
                     {

@@ -1,4 +1,4 @@
-"""Canonical owner payloads and historical memory codecs."""
+"""Canonical owner payload codec for current memory drafts."""
 
 from __future__ import annotations
 
@@ -111,62 +111,4 @@ def decode(payload: bytes) -> CandidateMemoryDraft | CandidateMemoryRevisionDraf
         raise MemoryViolation("MEMORY-CODEC") from None
 
 
-def decode_wire(
-    value: object, *, revision: bool
-) -> CandidateMemoryDraft | CandidateMemoryRevisionDraft:
-    if revision and type(value) is CandidateMemoryRevisionDraft:
-        return value
-    if not revision and type(value) is CandidateMemoryDraft:
-        return value
-    try:
-        item = cast(dict[str, object], value)
-        proposal_ref = str(item["proposal_ref"])
-        atomic_group_ref = str(item["atomic_group_ref"])
-        basis_ordinals = tuple(cast(list[int], item["basis_ordinals"]))
-        fact_class = CandidateFactClass(str(item["fact_class"]))
-        source_kind = MemorySourceKind(str(item["source_kind"]))
-        summary = str(item["summary"])
-        mechanism_identity = str(item["mechanism_identity"])
-        privacy_scope = str(item["privacy_scope"])
-        if not revision:
-            return CandidateMemoryDraft(
-                proposal_ref,
-                atomic_group_ref,
-                basis_ordinals,
-                fact_class,
-                str(item["source_experience_ref"]),
-                source_kind,
-                summary,
-                mechanism_identity,
-                privacy_scope,
-            )
-        related = item.get("related_memory_id")
-        relation = item.get("relation_kind")
-        return CandidateMemoryRevisionDraft(
-            proposal_ref,
-            atomic_group_ref,
-            basis_ordinals,
-            fact_class,
-            memory_id=UUID(str(item["memory_id"])),
-            current_revision_id=UUID(str(item["current_revision_id"])),
-            expected_head_version=cast(int, item["expected_head_version"]),
-            revision_kind=MemoryRevisionKind(str(item["revision_kind"])),
-            accessibility=MemoryAccessibility(str(item["accessibility"])),
-            uncertainty=(
-                None if item.get("uncertainty") is None else str(item["uncertainty"])
-            ),
-            related_memory_id=None if related is None else UUID(str(related)),
-            relation_kind=None
-            if relation is None
-            else MemoryRelationKind(str(relation)),
-            source_kind=source_kind,
-            summary=summary,
-            mechanism_identity=mechanism_identity,
-            mechanism_config_identity=str(item["mechanism_config_identity"]),
-            privacy_scope=privacy_scope,
-        )
-    except KeyError, TypeError, ValueError, MemoryViolation:
-        raise MemoryViolation("MEMORY-CODEC-LEGACY") from None
-
-
-__all__ = ("decode", "decode_wire", "encode")
+__all__ = ("decode", "encode")

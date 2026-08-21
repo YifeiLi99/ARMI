@@ -21,7 +21,7 @@ def test_life_material_artifact_round_trips_canonical_utf8_body() -> None:
         b'{"schema_version":"armi.life-material-content.v1","body":"x"}',
         b'{"body":"x","schema_version":"armi.life-material-content.v1"}\n',
         b'{"body":"x","extra":true,"schema_version":"armi.life-material-content.v1"}',
-        b'{"body":"x","schema_version":"armi.life-material-content.v0"}',
+        b'{"body":"x","schema_version":"armi.life-material-content.unsupported"}',
     ),
 )
 def test_life_material_artifact_rejects_noncanonical_or_corrupt_content(

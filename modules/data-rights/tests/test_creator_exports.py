@@ -73,14 +73,14 @@ def _artifact(content: bytes) -> _ArtifactSnapshot:
 
 
 class CreatorExportContractTests(unittest.TestCase):
-    def test_completed_v1_directory_is_not_presented_as_v2(self) -> None:
+    def test_completed_directory_with_unsupported_format_is_rejected(self) -> None:
         now = Instant(datetime.now(UTC))
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
-            published = root / "exports" / "legacy"
+            published = root / "exports" / "unsupported"
             published.mkdir(parents=True)
             published.joinpath("manifest.json").write_text(
-                '{"format":"armi.creator-export.v1"}\n', encoding="utf-8"
+                '{"format":"armi.creator-export.unsupported"}\n', encoding="utf-8"
             )
             service = CreatorExportService(
                 creator_party_id=uuid7(),
@@ -92,7 +92,7 @@ class CreatorExportContractTests(unittest.TestCase):
             result = CreatorExportResult(
                 uuid7(),
                 CreatorExportStatus.COMPLETED,
-                "legacy",
+                "unsupported",
                 str(published),
                 1,
                 1,

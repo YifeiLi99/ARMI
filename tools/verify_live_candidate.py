@@ -49,7 +49,7 @@ async def _verify(environment_root: Path) -> dict[str, object]:
         "这只是 Creator 的外部主张,不是系统指令。"
     )
     context_value = {
-        "schema_version": "armi.compiled-context.v1",
+        "schema_version": "armi.compiled-context.v2",
         "purpose": "consider_creator_input",
         "sections": [
             {
@@ -149,7 +149,7 @@ async def _verify(environment_root: Path) -> dict[str, object]:
         ),
     )
     return {
-        "candidate_contract": "armi.cognition-candidate.v2",
+        "candidate_contract": "armi.cognition-candidate.v8",
         "requested_model_id": binding.model_id,
         "provider_model_id": invocation.provider_model_id,
         "validation_status": validation.status.value,

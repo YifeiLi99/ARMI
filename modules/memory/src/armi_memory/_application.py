@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from armi_kernel.application import CandidateOwnerDraft
 
-from ._codec import decode, decode_wire, encode
+from ._codec import decode, encode
 from .api import (
     CandidateMemoryDraft,
     CandidateMemoryRevisionDraft,
@@ -51,9 +51,12 @@ class MemoryApplication:
     ) -> CandidateMemoryDraft | CandidateMemoryRevisionDraft:
         return decode(payload)
 
-    def bind_wire(self, value: object, *, revision: bool) -> CandidateOwnerDraft:
-        candidate = decode_wire(value, revision=revision)
-        return candidate.owner_draft(encode(candidate))
+    def bind(
+        self, value: CandidateMemoryDraft | CandidateMemoryRevisionDraft
+    ) -> CandidateOwnerDraft:
+        if type(value) not in {CandidateMemoryDraft, CandidateMemoryRevisionDraft}:
+            raise TypeError("unsupported Memory candidate")
+        return value.owner_draft(encode(value))
 
 
 __all__ = ("MemoryApplication",)
