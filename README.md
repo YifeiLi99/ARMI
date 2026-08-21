@@ -116,6 +116,8 @@ uv run armi stop --environment-root C:\path\to\environment
 
 自动化 Creator 对话不需要驱动浏览器。运行中的环境可通过 `armi creator send` 把输入送入与工作台相同的正式 Creator intake；重复调用需要自行传入稳定的 `--idempotency-key`。消息也可通过 `--message-file <path>` 读取，或用 `--message-file -` 从标准输入读取。Codex 管理会话可使用 Admin MCP 的 `inject_creator_input`，两条入口最终进入同一 Runtime intake，不直接写数据库。
 
+真实部署验收不能只看健康状态。Runtime 启动后运行 `uv run python tools/verify_live_creator_roundtrip.py --environment-root C:\path\to\environment`：该检查会通过正式 Creator intake 发送一条带唯一幂等键的真实消息，等待认知 episode 完成、回复 effect 完成并核验、outbox 交付，再校验回复制品的类型、长度、摘要与非空 UTF-8 正文。它会产生一条真实对话记录和真实模型调用；任一环节失败或超时均以非零状态退出。
+
 caller-declared 的本地其他人入口通过 `armi other-human` 调用运行中 Runtime 的私有本机控制面，不进入 Creator 公共 OpenAPI，也不直写数据库。命令覆盖 party 注册、scene 开关、带稳定幂等键的消息接纳，以及 `data-rights request/list/get`；该入口只声明调用方提供的本地身份，不能证明现实平台身份或真实送达。
 
 日常及安装后的 Creator 工作台只在 Runtime 的本机地址上提供。页面打开后会自动建立进程内连接并直接进入工作台，不需要登录、bootstrap code 或手动注销。Vite 地址仅用于源码前端开发。
