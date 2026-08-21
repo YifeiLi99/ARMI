@@ -381,7 +381,10 @@ class PostgreSQLLifeOpportunityRepository:
                             %s, NULL, %s, NULL, NULL,
                             'consider_activity_attention', 'eligible', 'open',
                             %s, %s, 1, 'activity_revision', %s, %s, %s)
-                        ON CONFLICT (predecessor_opportunity_id) DO NOTHING
+                        ON CONFLICT (
+                            subject_id, source_kind, source_ref, source_version,
+                            purpose, reconsideration_no
+                        ) DO NOTHING
                         RETURNING opportunity_id
                         """,
                         (

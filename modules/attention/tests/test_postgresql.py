@@ -409,6 +409,7 @@ class _AttentionRetryConnection:
         self.revision_id = revision_id
         self.root_id = uuid7()
         self.retry_id: UUID | None = None
+        self.retry_statement: str | None = None
         self.saw_signal_query = False
         self.insert_count = 0
 
@@ -440,6 +441,7 @@ class _AttentionRetryConnection:
             self.insert_count += 1
             if self.insert_count == 1:
                 return _Cursor(None)
+            self.retry_statement = statement
             self.retry_id = cast(UUID, parameters[0])
             return _Cursor((self.retry_id,))
         if "SELECT root.opportunity_id" in statement:
@@ -465,6 +467,12 @@ def test_attention_need_information_retries_after_new_creator_input() -> None:
     assert outcome.status is OpportunityAdmissionStatus.ADMITTED
     assert outcome.opportunity_id == connection.retry_id
     assert connection.saw_signal_query
+    assert connection.retry_statement is not None
+    assert (
+        "subject_id, source_kind, source_ref, source_version,"
+        in connection.retry_statement
+    )
+    assert "purpose, reconsideration_no" in connection.retry_statement
     assert len(unit_of_work.audit.events) == 1
 
 
