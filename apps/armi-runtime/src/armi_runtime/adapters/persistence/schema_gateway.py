@@ -138,6 +138,28 @@ class PostgreSQLSchemaGateway:
             )
             return state
 
+    def reset(self, conninfo: str, *, environment_id: UUID) -> None:
+        """Remove the sole ARMI schema after verifying the migrator boundary."""
+
+        with self._connect(conninfo, autocommit=True) as connection:
+            self._verify_database_identity(connection)
+            PostgreSQLRolePolicyGateway().verify(
+                connection,
+                environment_id=environment_id,
+                role_class="migrator",
+                require_objects=False,
+            )
+            self._acquire_lock(connection)
+            try:
+                with connection.transaction():
+                    connection.execute("SET LOCAL ROLE armi_owner")
+                    connection.execute("DROP SCHEMA IF EXISTS armi CASCADE")
+            except psycopg.Error:
+                raise DatabaseViolation(
+                    "DB-SCHEMA-RESET-FAILED",
+                    "the authoritative schema reset failed",
+                ) from None
+
     def _upgrade(self, conninfo: str) -> None:
         engine = create_engine(
             "postgresql+psycopg://",

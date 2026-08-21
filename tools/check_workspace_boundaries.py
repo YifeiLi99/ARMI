@@ -829,10 +829,7 @@ def validate_workspace_metadata(root: Path) -> list[Violation]:
                     }
                     if distribution.name == "armi-runtime"
                     else (
-                        {
-                            "armi-admin": "armi_admin.cli:main",
-                            "armi-admin-mcp": "armi_admin.mcp.entrypoint:main",
-                        }
+                        {"armi-admin-mcp": "armi_admin.mcp.entrypoint:main"}
                         if distribution.name == "armi-admin"
                         else None
                     )

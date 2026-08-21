@@ -484,6 +484,50 @@ def install_operator_schema(prepared: PreparedEnvironment) -> SchemaStatus:
     )
 
 
+def reset_operator_schema(prepared: PreparedEnvironment) -> None:
+    locator = prepared.effective.config.secret_locators.get(MIGRATOR_LOCATOR_NAME)
+    if locator is None:
+        raise DatabaseViolation(
+            "DB-CONNECTION-UNAVAILABLE",
+            "the required database credential locator is unavailable",
+            status="unavailable",
+            exit_code=3,
+        )
+    try:
+        with prepared.credential_port.resolve(
+            locator, CredentialPurpose("database.migrator")
+        ) as handle:
+
+            def invoke(value: memoryview) -> None:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise DatabaseViolation(
+                        "DB-CONNECTION-UNAVAILABLE",
+                        "the configured PostgreSQL connection is unavailable",
+                        status="unavailable",
+                        exit_code=3,
+                    ) from None
+                PostgreSQLSchemaGateway().reset(
+                    conninfo,
+                    environment_id=prepared.effective.config.environment.environment_id,
+                )
+
+            handle.consume(invoke)
+    except ConfigurationViolation as error:
+        code = (
+            "DB-ROLE-CREDENTIAL-SCOPE"
+            if error.code == "SEC-SECRET-PURPOSE"
+            else "DB-CONNECTION-UNAVAILABLE"
+        )
+        raise DatabaseViolation(
+            code,
+            "the configured PostgreSQL connection is unavailable",
+            status="unavailable",
+            exit_code=3,
+        ) from None
+
+
 def runtime_database_reason(prepared: PreparedEnvironment) -> tuple[str, ...]:
     try:
         inspect_runtime_schema(prepared)
@@ -1794,5 +1838,6 @@ __all__ = (
     "inspect_runtime_schema",
     "inspect_semantic_recall_storage",
     "install_operator_schema",
+    "reset_operator_schema",
     "runtime_database_reason",
 )

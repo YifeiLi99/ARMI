@@ -30,6 +30,7 @@ from armi_runtime.composition.database import (
     install_operator_schema,
 )
 from armi_runtime.composition.environment import prepare_environment
+from armi_runtime.composition.environment_reset import reset_environment
 from armi_runtime.composition.napcat_process import NapCatProcessManager
 from armi_runtime.composition.operational_maintenance import (
     run_artifact_retention,
@@ -75,6 +76,9 @@ def _parser() -> argparse.ArgumentParser:
         lifecycle.add_argument("--environment-root", type=Path)
         if lifecycle_command == "start":
             lifecycle.add_argument("--creator-web-resources", type=Path)
+    reset = command.add_parser("reset")
+    reset.add_argument("--environment-root", type=Path)
+    reset.add_argument("--apply", action="store_true", required=True)
     creator = command.add_parser("creator")
     creator_command = creator.add_subparsers(dest="creator_command", required=True)
     creator_send = creator_command.add_parser("send")
@@ -433,6 +437,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         credential_scope = {"database.recovery": "database.migrator"}
     elif args.command == "bootstrap":
         credential_scope = {"database.birth": "database.runtime"}
+    elif args.command == "reset":
+        credential_scope = {
+            "database.migrator": "database.migrator",
+            "database.birth": "database.runtime",
+        }
     elif args.command == "channel":
         credential_scope = (
             {}
@@ -544,6 +553,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             else:
                 result = run_database_maintenance(prepared)
         except (DatabaseViolation, RuntimeViolation) as error:
+            _safe_failure(error)
+            return error.exit_code if isinstance(error, DatabaseViolation) else 4
+        print(
+            json.dumps(
+                result.safe_view(),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+        return 0
+    if args.command == "reset":
+        try:
+            result = reset_environment(prepared)
+        except (DatabaseViolation, RuntimeViolation, BirthViolation) as error:
             _safe_failure(error)
             return error.exit_code if isinstance(error, DatabaseViolation) else 4
         print(

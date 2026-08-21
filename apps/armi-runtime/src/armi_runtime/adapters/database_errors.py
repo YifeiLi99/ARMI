@@ -19,6 +19,7 @@ KNOWN_DATABASE_CODES = frozenset(
         "DB-SCHEMA-INVARIANT",
         "DB-SCHEMA-LOCK",
         "DB-SCHEMA-RESOURCE",
+        "DB-SCHEMA-RESET-FAILED",
         "DB-ROLE-IDENTITY",
         "DB-ROLE-ATTRIBUTES",
         "DB-ROLE-MEMBERSHIP",

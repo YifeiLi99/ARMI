@@ -126,7 +126,7 @@ caller-declared 的本地其他人入口通过 `armi other-human` 调用运行�
 
 已获明确授权的本地彻底重置在停止 Runtime 后使用 `tools/reset_local_environment_data.ps1 -EnvironmentRoot C:\path\to\environment -Apply` 清空并重建 artifacts、backups、Codex runner、exports、logs 与 run 目录。脚本不删除数据库卷，也不触碰环境配置、凭据、模型、工具、NapCat 或渠道配置；数据库卷仍须独立核对后删除。
 
-已通过 Admin 配置明确标记为可重置的 development、system_test 或 acceptance 环境，可在停止 Runtime 后使用 `uv run armi-admin reset --apply` 一次完成受控重置。命令读取 `ARMI_ADMIN_CONFIG` 指向的唯一管理绑定，复用 Admin MCP 的预览约束，先把数据库 dump 和原环境根归档到实验目录的 `.armi-admin-recovery/`，再恢复固定模板、重建空 schema 并执行 `db install`；它不会自动执行 `bootstrap birth`。成功后环境 incarnation 前进一代，继续使用 Admin 时必须把配置更新到返回的新 incarnation 并重新启动管理进程。
+需要把本地 ARMI 恢复到出生后的初始状态时，显式运行 `uv run armi reset --environment-root C:\path\to\environment --apply`。命令先优雅停止 Runtime 与语义召回，只清空权威数据库以及 artifacts、backups、Codex runner、exports、logs、run，再安装当前唯一基线并执行固定出生 manifest；环境配置、凭据、模型、工具、NapCat 与渠道配置保持不变。该操作不会自动备份，`--apply` 即表示操作者已经确认目标环境和不可恢复的数据删除。
 
 离线全量灾备与隔离恢复演练使用 `armi recovery create`、`armi recovery verify` 和 `armi recovery drill --apply`。备份保存 custom-format 数据库 dump、全部 retained+verified artifact、schema head 与 Runtime 权威身份；恢复到隔离数据库后通过正式 owner recovery roster 检查业务一致性。它与 Creator JSONL 数据导出是不同协议。
 
