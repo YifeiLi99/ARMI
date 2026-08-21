@@ -33,6 +33,27 @@ PYTHON_RANGE = ">=3.14,<3.15"
 BUILD_REQUIREMENTS = ["uv_build>=0.11.33,<0.12"]
 BUILD_BACKEND = "uv_build"
 
+_CONTRACT_SCAN_ROOTS = (
+    "apps",
+    "modules",
+    "packages",
+    "configs",
+    "schema",
+    "tests",
+    "tools",
+)
+_CONTRACT_SCAN_SUFFIXES = frozenset(
+    {".cjs", ".js", ".json", ".mjs", ".py", ".sql", ".ts", ".tsx", ".yaml", ".yml"}
+)
+_INTERNAL_CONTRACT_VERSION = re.compile(
+    r"\barmi\.([a-z0-9][a-z0-9.-]*?)\.v([1-9][0-9]*)\b"
+)
+_COMPATIBILITY_ENTRY = re.compile(
+    r"\b(?:Legacy|Historical)[A-Za-z0-9_]*\b|"
+    r"\b(?:decode|bind)_wire\b|\bdecode_legacy\b|"
+    r"\blegacy_(?:adapter|contract|decoder|parser|payload|schema|version|wire)\b",
+)
+
 
 @dataclass(frozen=True)
 class Distribution:
@@ -49,6 +70,64 @@ class Distribution:
     @property
     def module_dir(self) -> Path:
         return self.source_dir / self.module
+
+
+def validate_contract_single_version(root: Path) -> list[Violation]:
+    """Reject parallel versions and compatibility entries for ARMI-owned contracts."""
+
+    occurrences: dict[str, dict[int, list[tuple[Path, int]]]] = {}
+    violations: list[Violation] = []
+    for directory_name in _CONTRACT_SCAN_ROOTS:
+        directory = root / directory_name
+        if not directory.exists():
+            continue
+        for path in directory.rglob("*"):
+            if (
+                not path.is_file()
+                or path.suffix.casefold() not in _CONTRACT_SCAN_SUFFIXES
+                or path.name in {"pnpm-lock.yaml", "package-lock.json"}
+                or "node_modules" in path.parts
+            ):
+                continue
+            try:
+                source = path.read_text(encoding="utf-8")
+            except OSError, UnicodeError:
+                continue
+            for line_no, line in enumerate(source.splitlines(), start=1):
+                for match in _INTERNAL_CONTRACT_VERSION.finditer(line):
+                    family = match.group(1)
+                    version = int(match.group(2))
+                    occurrences.setdefault(family, {}).setdefault(version, []).append(
+                        (path, line_no)
+                    )
+                if path.name == "check_workspace_boundaries.py":
+                    continue
+                if _relative(path, root) == "tests/admin/test_admin_mcp.py":
+                    continue
+                match = _COMPATIBILITY_ENTRY.search(line)
+                if match is not None:
+                    violations.append(
+                        Violation(
+                            "ARC-CONTRACT-COMPATIBILITY",
+                            _relative(path, root),
+                            line_no,
+                            f"internal compatibility entry {match.group(0)!r} is forbidden",
+                        )
+                    )
+    for family, versions in occurrences.items():
+        if len(versions) <= 1:
+            continue
+        for version, locations in versions.items():
+            path, line_no = locations[0]
+            violations.append(
+                Violation(
+                    "ARC-CONTRACT-VERSION",
+                    _relative(path, root),
+                    line_no,
+                    f"armi.{family} has parallel numeric versions {sorted(versions)}; found v{version}",
+                )
+            )
+    return sorted(set(violations))
 
 
 DISTRIBUTIONS = (
@@ -2644,6 +2723,7 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
 def check_repository(root: Path) -> list[Violation]:
     violations = validate_workspace_metadata(root)
     violations.extend(validate_source_boundaries(root))
+    violations.extend(validate_contract_single_version(root))
     schema_root = (
         root / "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
     )

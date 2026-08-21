@@ -10,6 +10,7 @@ from tools.check_workspace_boundaries import (
     analyze_source,
     check_repository,
     exit_code_for,
+    validate_contract_single_version,
 )
 from tools.schema_ownership import (
     TABLE_OWNERSHIP,
@@ -114,6 +115,32 @@ class WorkspaceBoundaryTests(unittest.TestCase):
 
     def test_current_repository_satisfies_boundaries(self) -> None:
         self.assertEqual(check_repository(ROOT), [])
+
+    def test_parallel_internal_contract_versions_are_rejected(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "modules/example.py"
+            source.parent.mkdir(parents=True)
+            source.write_text(
+                'A = "armi.example.v" + "4"\nB = "armi.example.v" + "5"\n'.replace(
+                    '" + "', ""
+                ),
+                encoding="utf-8",
+            )
+            self.assert_rejected(
+                validate_contract_single_version(root), "ARC-CONTRACT-VERSION"
+            )
+
+    def test_internal_compatibility_entry_is_rejected(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "modules/example.py"
+            source.parent.mkdir(parents=True)
+            source.write_text("def bind_" + "wire(value): pass\n", encoding="utf-8")
+            self.assert_rejected(
+                validate_contract_single_version(root),
+                "ARC-CONTRACT-COMPATIBILITY",
+            )
 
     def test_schema_owner_registry_matches_effective_head(self) -> None:
         schema_root = (

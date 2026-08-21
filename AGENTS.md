@@ -34,9 +34,10 @@
 ## 4. 数据库与机器合同
 
 - PostgreSQL 是唯一权威关系数据库。开发与测试服务端固定使用 Docker 中的 PostgreSQL 18.4 + pgvector 0.8.6；Runtime 只通过 DSN 连接，容器不是第二事实源。
-- 数据库结构由 Alembic 的单线 revision 管理，只允许一个 head，不使用 autogenerate 或 ORM metadata，也不提供 downgrade。`0000` 在同一事务中执行 `schema/baseline/` 的有序领域模块并直接形成当前基线；这些模块只是一个 revision 的职责拆分，冻结后不得回头改写。后续持久结构变化新增普通 Python revision，并同步写入/查询代码与相关测试。
-- `armi db install` 只允许空数据库并直接升级到 Alembic head；后续升级使用 `armi db migrate --apply`。Runtime 和普通启动脚本只检查 PostgreSQL/扩展身份、角色安全策略与当前 revision，不自动安装或迁移，也不以完整 catalog 指纹作为 readiness 门禁。
-- 正式环境的唯一权威数据库不得因源码或 DDL 变化而重建。测试数据库仍可丢弃重建，但必须与正式环境隔离；迁移前停止 Runtime，并按数据风险完成可核验备份与恢复准备。
+- ARMI 是本地单实例项目，没有需要兼容的已发布内部消费者。同一 ARMI 自有合同族只能有一个当前数字版本；同时存在但语义不同的数据形态必须使用不同合同族名称，不能用同族 v1/v2 表示。
+- 内部合同升级必须原子更新生产者、消费者、数据库约束、配置、测试、验证工具、OpenAPI 与生成代码，并删除旧类型、旧解析器、旧别名、双读双写和缺字段补默认值逻辑。第三方 MCP、NapCat 与模型供应商协议可遵循其当前标准协商版本，但不得恢复 ARMI 内部旧合同。
+- 数据库结构只保留可重做的唯一 Alembic `0000` 基线，不使用 autogenerate、后续 revision、downgrade 或迁移兼容路径。结构变化直接更新 `schema/baseline/`、更换唯一基线身份，并要求显式删库重装；历史数据库、消息和制品不迁移、不恢复。
+- `armi db install` 只允许空数据库并原子安装唯一 `0000` 与当前基线身份。Runtime 和普通启动脚本必须检查 PostgreSQL/扩展身份、角色安全策略、唯一 revision、基线身份和精确 ACL，不自动安装或迁移。
 - 只有具备独立 owner、生命周期、一对多关系、权限/保留策略或显著独立查询模式时才新增表；渠道、party kind、枚举值或 adapter 差异本身不构成建表理由。
 - 只有产品当前直接读取的机器合同才保留 JSON，例如外部 wire/schema、实际 provider/model binding、静态前端资源索引和包管理锁文件。内部策略、阶段状态、候选身份与验收结果不维护 JSON 镜像。
 - 仓库中的 JSON 使用 UTF-8、2 空格缩进和结尾换行。RFC 8785 只用于摘要输入或 wire 编码；配置 schema 默认由代码按需导出，不提交重复副本。
