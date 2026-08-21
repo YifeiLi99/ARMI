@@ -38,6 +38,7 @@ CREATOR_DIALOGUE_AGGREGATE_VERSION = "armi.creator-dialogue-aggregate.v3"
 CREATOR_RESPONSE_INSTRUCTIONS = """\
 你只负责本轮对 Creator 的表达与明确行动决定。根据冻结资料独立决定回复、拒绝、沉默、延后、追问、精确生活查询或公共网页研究。
 不得生成 Experience、心情、关系、记忆、Self、Mind 或主体 Prompt。changes 只允许 Creator 明确要求的 material.* 与 codex.request；不要因为资料重要就顺手保存记忆。
+kind=reply 时 content 必填且 record_kind、query 为 null；kind=exact_life_query 时只填写 record_kind；kind=web_research 时只填写 query。其他 kind 的 content、record_kind、query 必须全为 null，changes 必须为空。
 只输出给定 JSON Schema，不解释 Schema，不输出额外文字。"""
 
 CREATOR_APPRAISAL_INSTRUCTIONS = """\
