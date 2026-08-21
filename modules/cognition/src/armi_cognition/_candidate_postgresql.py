@@ -412,15 +412,7 @@ class PostgreSQLCandidateValidationRepository:
         memory_rows = await self._memories.candidate_context(
             connection, subject_id=row[2], sources=memory_context_sources
         )
-        relationship_basis = next(
-            (
-                item
-                for item in bases
-                if item.section == "relationship"
-                and item.item_kind == "current_relationship"
-            ),
-            None,
-        )
+        relationship_basis = _stored_relationship_basis(bases)
         relationship_snapshot = (
             None
             if relationship_basis is None or row[8] is None
@@ -955,6 +947,23 @@ def _relationship_party_ids(
     if purpose == "consider_other_human_input":
         return None, context_party_id
     return context_party_id, None
+
+
+def _stored_relationship_basis(
+    bases: tuple[CandidateBasis, ...],
+) -> CandidateBasis | None:
+    """Return an actual persisted relationship, not the explicit empty slot."""
+
+    return next(
+        (
+            item
+            for item in bases
+            if item.section == "relationship"
+            and item.item_kind == "current_relationship"
+            and item.trust_class == "subjective_state"
+        ),
+        None,
+    )
 
 
 __all__ = (

@@ -19,6 +19,7 @@ from armi_codex.api import CodexDelegationDraft
 from armi_cognition._candidate_postgresql import (
     PostgreSQLCandidateValidationRepository,
     _relationship_party_ids,
+    _stored_relationship_basis,
     _validation_drafts,
 )
 from armi_cognition._change_set_codec import (
@@ -286,6 +287,30 @@ def test_relationship_party_ids_assign_context_party_to_exact_role() -> None:
         None,
         party_id,
     )
+
+
+def test_empty_relationship_slot_is_not_loaded_as_persisted_relationship() -> None:
+    empty_slot = CandidateBasis(
+        1,
+        "relationship",
+        "current_relationship",
+        uuid7(),
+        1,
+        "runtime_authority",
+        "private",
+    )
+    relationship = CandidateBasis(
+        2,
+        "relationship",
+        "current_relationship",
+        uuid7(),
+        1,
+        "subjective_state",
+        "private",
+    )
+
+    assert _stored_relationship_basis((empty_slot,)) is None
+    assert _stored_relationship_basis((empty_slot, relationship)) is relationship
 
 
 def test_terminal_validation_failure_also_fails_owning_episode() -> None:
