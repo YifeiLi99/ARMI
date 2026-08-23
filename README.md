@@ -95,6 +95,7 @@ uv run armi semantic-recall install --approved-official-direct --environment-roo
 uv run armi semantic-recall calibrate --environment-root C:\path\to\environment
 uv run armi semantic-recall status --environment-root C:\path\to\environment
 uv run armi start --environment-root C:\path\to\environment
+uv run armi restart --environment-root C:\path\to\environment
 uv run armi status --environment-root C:\path\to\environment
 uv run armi channel qq status --environment-root C:\path\to\environment
 uv run armi channel qq start --environment-root C:\path\to\environment

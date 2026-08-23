@@ -255,6 +255,31 @@ class RuntimeCliTests(unittest.TestCase):
             creator_web_resources=resources.resolve()
         )
 
+    def test_background_restart_uses_strict_process_manager_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            make_environment(root)
+            output = io.StringIO()
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch("armi_runtime.cli.RuntimeProcessManager") as manager_type,
+                patch("armi_runtime.cli.SemanticRecallProcessManager") as semantic_type,
+                redirect_stdout(output),
+            ):
+                semantic_type.return_value.start.return_value = {
+                    "status": "already_running"
+                }
+                manager_type.return_value.restart.return_value = {
+                    "status": "started",
+                    "pid": 2345,
+                    "runtime": {"runtime_state": "ready"},
+                }
+                exit_code = main(("restart", "--environment-root", str(root.resolve())))
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(json.loads(output.getvalue())["status"], "started")
+        manager_type.return_value.restart.assert_called_once_with()
+
     def test_background_start_continues_when_semantic_recall_is_unavailable(
         self,
     ) -> None:

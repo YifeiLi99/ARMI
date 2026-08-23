@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, BinaryIO, cast
 from uuid import uuid7
 
+import psutil
 from armi_interaction.api import CreatorInputCommand, CreatorInputViolation
 from armi_kernel.contracts import ContractViolation, IdempotencyKey, TraceId
 
@@ -29,6 +30,7 @@ _MAX_RESPONSE = 1024 * 1024
 _START_TIMEOUT_SECONDS = 30.0
 _STOP_TIMEOUT_SECONDS = 30.0
 _START_CLEANUP_TIMEOUT_SECONDS = 5.0
+_RESIDUAL_STOP_TIMEOUT_SECONDS = 10.0
 _STILL_ACTIVE = 259
 _BACKGROUND_ENVIRONMENT_NAMES = frozenset(
     {
@@ -260,6 +262,7 @@ class RuntimeProcessManager:
                 return {**current, "status": "already_running"}
             if current["status"] == "starting":
                 return current
+            self._assert_no_residual_runtime()
             self._clear_stale_files()
             self._control_root.mkdir(parents=True, exist_ok=True)
             self._control_root.chmod(0o700)
@@ -355,6 +358,24 @@ class RuntimeProcessManager:
                 "CLI-RUNTIME-START-TIMEOUT",
                 "runtime did not become controllable before the startup deadline",
             )
+
+    def restart(
+        self,
+        *,
+        creator_web_resources: Path | None = None,
+    ) -> dict[str, Any]:
+        """Stop the managed Runtime, reap verified leftovers, then start cleanly."""
+
+        try:
+            self.stop()
+        except RuntimeViolation as error:
+            if error.code == "CLI-RUNTIME-CONTROL-BUSY":
+                raise
+        with self._exclusive():
+            self._terminate_residual_runtime()
+            self._assert_no_residual_runtime()
+            self._clear_stale_files()
+        return self.start(creator_web_resources=creator_web_resources)
 
     def status(self) -> dict[str, Any]:
         descriptor = self._read_optional(
@@ -587,6 +608,96 @@ class RuntimeProcessManager:
             self._state_path,
         ):
             path.unlink(missing_ok=True)
+
+    def _assert_no_residual_runtime(self) -> None:
+        residual = self._matching_runtime_processes()
+        if residual:
+            pids = ",".join(str(process.pid) for process in residual)
+            raise RuntimeViolation(
+                "CLI-RUNTIME-RESIDUAL",
+                f"verified Runtime process remains for this environment (pid={pids})",
+            )
+
+    def _terminate_residual_runtime(self) -> None:
+        residual = self._matching_runtime_processes()
+        for process in residual:
+            try:
+                if self._matches_runtime_process(process):
+                    process.terminate()
+            except psutil.NoSuchProcess:
+                continue
+            except (psutil.AccessDenied, OSError) as exc:
+                raise RuntimeViolation(
+                    "CLI-RUNTIME-RESIDUAL-STOP",
+                    "verified residual Runtime process could not be terminated",
+                ) from exc
+        _, alive = psutil.wait_procs(
+            residual,
+            timeout=_RESIDUAL_STOP_TIMEOUT_SECONDS,
+        )
+        for process in alive:
+            try:
+                if self._matches_runtime_process(process):
+                    process.kill()
+            except psutil.NoSuchProcess:
+                continue
+            except (psutil.AccessDenied, OSError) as exc:
+                raise RuntimeViolation(
+                    "CLI-RUNTIME-RESIDUAL-STOP",
+                    "verified residual Runtime process could not be killed",
+                ) from exc
+        if alive:
+            _, still_alive = psutil.wait_procs(
+                alive,
+                timeout=_START_CLEANUP_TIMEOUT_SECONDS,
+            )
+            if any(self._matches_runtime_process(process) for process in still_alive):
+                raise RuntimeViolation(
+                    "CLI-RUNTIME-RESIDUAL-STOP",
+                    "verified residual Runtime process did not exit",
+                )
+
+    def _matching_runtime_processes(self) -> list[psutil.Process]:
+        result: list[psutil.Process] = []
+        try:
+            processes = psutil.process_iter(("name",))
+            for process in processes:
+                name = str(process.info.get("name") or "").casefold()
+                if name not in {"python.exe", "pythonw.exe", "python", "pythonw"}:
+                    continue
+                try:
+                    if self._matches_runtime_process(process):
+                        result.append(process)
+                except psutil.NoSuchProcess:
+                    continue
+                except psutil.AccessDenied as exc:
+                    raise RuntimeViolation(
+                        "CLI-RUNTIME-PROCESS-INSPECTION",
+                        "a Python process could not be inspected for Runtime identity",
+                    ) from exc
+        except RuntimeViolation:
+            raise
+        except (psutil.Error, OSError) as exc:
+            raise RuntimeViolation(
+                "CLI-RUNTIME-PROCESS-INSPECTION",
+                "running processes could not be inspected for Runtime leftovers",
+            ) from exc
+        return result
+
+    def _matches_runtime_process(self, process: psutil.Process) -> bool:
+        command = process.cmdline()
+        marker = ("-m", "armi_runtime.cli", "runtime", "start")
+        if tuple(command[1 : 1 + len(marker)]) != marker:
+            return False
+        arguments = command[1 + len(marker) :]
+        try:
+            root_index = arguments.index("--environment-root")
+            candidate = Path(arguments[root_index + 1]).resolve(strict=True)
+        except ValueError, IndexError, OSError:
+            return False
+        return os.path.normcase(os.fspath(candidate)) == os.path.normcase(
+            os.fspath(self._environment_root)
+        )
 
     def _descriptor_path(self) -> Path:
         return self._control_root / "runtime-control.json"

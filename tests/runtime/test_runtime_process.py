@@ -9,6 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import psutil
 from armi_runtime.composition.runtime_errors import RuntimeViolation
 from armi_runtime.composition.runtime_process import RuntimeProcessManager
 
@@ -95,6 +96,163 @@ class RuntimeProcessManagerTests(unittest.TestCase):
                 manager.start(creator_web_resources=(root / "missing").resolve())
 
         self.assertEqual(raised.exception.code, "WEB-ASSET-ROOT")
+
+    def test_start_refuses_verified_residual_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manager = RuntimeProcessManager(root, "environment-1")
+            residual = Mock(spec=psutil.Process)
+            residual.pid = 4321
+            with (
+                patch.object(
+                    RuntimeProcessManager,
+                    "status",
+                    return_value={"status": "stopped", "pid": None},
+                ),
+                patch.object(
+                    RuntimeProcessManager,
+                    "_matching_runtime_processes",
+                    return_value=[residual],
+                ),
+                patch(
+                    "armi_runtime.composition.runtime_process.subprocess.Popen"
+                ) as popen,
+                self.assertRaises(RuntimeViolation) as raised,
+            ):
+                manager.start()
+
+        self.assertEqual(raised.exception.code, "CLI-RUNTIME-RESIDUAL")
+        popen.assert_not_called()
+
+    def test_process_identity_requires_runtime_entry_and_exact_environment(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            manager = RuntimeProcessManager(root, "environment-1")
+            matching = Mock(spec=psutil.Process)
+            matching.cmdline.return_value = [
+                "pythonw.exe",
+                "-m",
+                "armi_runtime.cli",
+                "runtime",
+                "start",
+                "--environment-root",
+                str(root),
+            ]
+            other_environment = Mock(spec=psutil.Process)
+            other_environment.cmdline.return_value = [
+                "pythonw.exe",
+                "-m",
+                "armi_runtime.cli",
+                "runtime",
+                "start",
+                "--environment-root",
+                str(root.parent / "other"),
+            ]
+            embedded_marker = Mock(spec=psutil.Process)
+            embedded_marker.cmdline.return_value = [
+                "python.exe",
+                "-c",
+                "print('not a Runtime')",
+                "-m",
+                "armi_runtime.cli",
+                "runtime",
+                "start",
+                "--environment-root",
+                str(root),
+            ]
+
+            self.assertTrue(manager._matches_runtime_process(matching))
+            self.assertFalse(manager._matches_runtime_process(other_environment))
+            self.assertFalse(manager._matches_runtime_process(embedded_marker))
+
+    def test_restart_reaps_verified_residual_before_starting(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manager = RuntimeProcessManager(root, "environment-1")
+            calls: list[str] = []
+            with (
+                patch.object(
+                    RuntimeProcessManager,
+                    "stop",
+                    side_effect=lambda: calls.append("stop") or {"status": "stopped"},
+                ),
+                patch.object(
+                    RuntimeProcessManager,
+                    "_terminate_residual_runtime",
+                    side_effect=lambda: calls.append("reap"),
+                ),
+                patch.object(
+                    RuntimeProcessManager,
+                    "_assert_no_residual_runtime",
+                    side_effect=lambda: calls.append("verify"),
+                ),
+                patch.object(RuntimeProcessManager, "_clear_stale_files"),
+                patch.object(
+                    RuntimeProcessManager,
+                    "start",
+                    side_effect=lambda **_kwargs: (
+                        calls.append("start") or {"status": "started"}
+                    ),
+                ),
+            ):
+                result = manager.restart()
+
+        self.assertEqual(result["status"], "started")
+        self.assertEqual(calls, ["stop", "reap", "verify", "start"])
+
+    def test_restart_does_not_start_when_residual_cleanup_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            manager = RuntimeProcessManager(Path(temporary), "environment-1")
+            with (
+                patch.object(
+                    RuntimeProcessManager,
+                    "stop",
+                    return_value={"status": "stopped"},
+                ),
+                patch.object(
+                    RuntimeProcessManager,
+                    "_terminate_residual_runtime",
+                    side_effect=RuntimeViolation(
+                        "CLI-RUNTIME-RESIDUAL-STOP",
+                        "private process detail",
+                    ),
+                ),
+                patch.object(RuntimeProcessManager, "start") as start,
+                self.assertRaises(RuntimeViolation) as raised,
+            ):
+                manager.restart()
+
+        self.assertEqual(raised.exception.code, "CLI-RUNTIME-RESIDUAL-STOP")
+        start.assert_not_called()
+
+    def test_residual_cleanup_escalates_and_waits_for_verified_process(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            manager = RuntimeProcessManager(Path(temporary), "environment-1")
+            residual = Mock(spec=psutil.Process)
+            residual.pid = 4321
+            with (
+                patch.object(
+                    RuntimeProcessManager,
+                    "_matching_runtime_processes",
+                    return_value=[residual],
+                ),
+                patch.object(
+                    RuntimeProcessManager,
+                    "_matches_runtime_process",
+                    return_value=True,
+                ),
+                patch(
+                    "armi_runtime.composition.runtime_process.psutil.wait_procs",
+                    side_effect=(([], [residual]), ([residual], [])),
+                ) as wait,
+            ):
+                manager._terminate_residual_runtime()
+
+        residual.terminate.assert_called_once_with()
+        residual.kill.assert_called_once_with()
+        self.assertEqual(wait.call_count, 2)
 
     def test_spawn_failure_is_safe_and_cleans_control_material(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

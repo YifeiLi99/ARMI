@@ -37,6 +37,7 @@ dependencies = [
     "httpx==0.28.1",
     "openai==2.49.0",
     "openai-codex==0.144.4",
+    "psutil==7.2.2",
     "psycopg[binary]==3.3.4",
     "psycopg-pool==3.3.1",
     "pydantic==2.13.4",

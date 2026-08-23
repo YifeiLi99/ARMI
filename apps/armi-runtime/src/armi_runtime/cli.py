@@ -71,10 +71,10 @@ def _parser() -> argparse.ArgumentParser:
     runtime_start = runtime_command.add_parser("start")
     runtime_start.add_argument("--environment-root", type=Path, required=True)
     runtime_start.add_argument("--creator-web-resources", type=Path)
-    for lifecycle_command in ("start", "status", "stop"):
+    for lifecycle_command in ("start", "restart", "status", "stop"):
         lifecycle = command.add_parser(lifecycle_command)
         lifecycle.add_argument("--environment-root", type=Path)
-        if lifecycle_command == "start":
+        if lifecycle_command in {"start", "restart"}:
             lifecycle.add_argument("--creator-web-resources", type=Path)
     reset = command.add_parser("reset")
     reset.add_argument("--environment-root", type=Path)
@@ -713,7 +713,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         )
         return 0 if result.get("state") not in {"unavailable", "failed"} else 3
-    if args.command in {"start", "status", "stop"}:
+    if args.command in {"start", "restart", "status", "stop"}:
         process = RuntimeProcessManager(
             prepared.root,
             str(prepared.effective.config.environment.environment_id),
@@ -723,7 +723,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             enabled=prepared.effective.config.model.semantic_recall_enabled,
         )
         try:
-            if args.command == "start":
+            if args.command in {"start", "restart"}:
                 try:
                     semantic_status = semantic_recall.start()
                 except RuntimeViolation as error:
@@ -732,10 +732,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "reason_code": error.code,
                     }
                 try:
+                    lifecycle = (
+                        process.start if args.command == "start" else process.restart
+                    )
                     result = (
-                        process.start()
+                        lifecycle()
                         if args.creator_web_resources is None
-                        else process.start(
+                        else lifecycle(
                             creator_web_resources=args.creator_web_resources,
                         )
                     )
