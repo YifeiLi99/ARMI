@@ -38,6 +38,7 @@ from armi_data_rights.api import (
     DataRightsOrderKind,
     DataRightsOrderPort,
     DataRightsOrderResult,
+    DataRightsRetryCommand,
     DataRightsViolation,
 )
 from armi_effect.api import (
@@ -691,7 +692,7 @@ def _creator_prompt_error(error: CreatorPromptViolation) -> JSONResponse:
 def _creator_export_response(result: CreatorExportResult) -> CreatorExportResponse:
     return CreatorExportResponse(
         contract_version="1.0",
-        projection_version="creator-export.v2",
+        projection_version="creator-export.v3",
         export_id=str(result.export_id),
         status=result.status.value,
         directory_name=result.directory_name,
@@ -759,7 +760,7 @@ async def _data_rights_request(
 def _data_rights_response(result: DataRightsOrderResult) -> DataRightsOrderResponse:
     return DataRightsOrderResponse(
         contract_version="1.0",
-        projection_version="data-rights-order-summary.v1",
+        projection_version="data-rights-order-summary.v2",
         order_id=str(result.order_id),
         requester_party_id=str(result.requester_party_id),
         requester_kind=result.requester_kind.value,
@@ -792,6 +793,14 @@ def _data_rights_detail_response(
             completed_at=None
             if item.completed_at is None
             else item.completed_at.to_wire(),
+            artifact_deletion_id=(
+                None
+                if item.artifact_deletion_id is None
+                else str(item.artifact_deletion_id)
+            ),
+            retryable=item.retryable,
+            deletion_attempt_count=item.deletion_attempt_count,
+            last_error_code=item.last_error_code,
         )
         for item in detail.items
     ]
@@ -815,7 +824,7 @@ def _data_rights_detail_response(
     timeline.sort(key=lambda item: (item.occurred_at, item.item_id or ""))
     return DataRightsOrderDetailResponse(
         contract_version="1.0",
-        projection_version="data-rights-order-detail.v1",
+        projection_version="data-rights-order-detail.v2",
         order_id=str(order.order_id),
         requester_party_id=str(order.requester_party_id),
         requester_kind=order.requester_kind.value,
@@ -1553,6 +1562,7 @@ __all__ = (
     "DataRightsOrderKind",
     "DataRightsOrderPort",
     "DataRightsOrderResponse",
+    "DataRightsRetryCommand",
     "DataRightsViolation",
     "EffectArtifactKind",
     "EffectId",

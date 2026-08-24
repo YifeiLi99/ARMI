@@ -33,6 +33,7 @@ from armi_data_rights.api import (
     DataRightsOrderResult,
     DataRightsPartyKey,
     DataRightsRequesterKind,
+    DataRightsRetryCommand,
     DataRightsScopeKind,
     DataRightsViolation,
 )
@@ -886,6 +887,27 @@ class _DataRightsOrders:
     ) -> DataRightsOrderDetail | None:
         result = await self.get_other_human(party_key, order_id)
         return None if result is None else DataRightsOrderDetail(result, ())
+
+    async def retry_creator(
+        self, order_id: UUID, command: DataRightsRetryCommand
+    ) -> DataRightsOrderResult:
+        del command
+        result = await self.get_creator(order_id)
+        if result is None:
+            raise DataRightsViolation("DATA-RIGHTS-ORDER-NOT-FOUND")
+        return result
+
+    async def retry_other_human(
+        self,
+        party_key: DataRightsPartyKey,
+        order_id: UUID,
+        command: DataRightsRetryCommand,
+    ) -> DataRightsOrderResult:
+        del command
+        result = await self.get_other_human(party_key, order_id)
+        if result is None:
+            raise DataRightsViolation("DATA-RIGHTS-ORDER-NOT-FOUND")
+        return result
 
     def _request(
         self,

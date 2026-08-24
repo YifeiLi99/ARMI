@@ -31,6 +31,7 @@ from .creator_http import (
     DataRightsOrderKind,
     DataRightsOrderPort,
     DataRightsOrderResponse,
+    DataRightsRetryCommand,
     DataRightsViolation,
     FastAPI,
     HTTPBearer,
@@ -243,7 +244,7 @@ def register_governance_routes(
         return JSONResponse(
             content=DataRightsOrderCollectionResponse(
                 contract_version="1.0",
-                projection_version="data-rights-order-collection.v1",
+                projection_version="data-rights-order-collection.v2",
                 orders=[_data_rights_detail_response(detail) for detail in details],
             ).model_dump(mode="json")
         )
@@ -371,8 +372,55 @@ def register_governance_routes(
             content=_data_rights_detail_response(result).model_dump(mode="json")
         )
 
+    @app.post(
+        "/v1/data-rights/orders/{order_id}/retry",
+        operation_id="retryDataRightsOrder",
+        response_model=DataRightsOrderResponse,
+        dependencies=[Security(bearer)],
+    )
+    async def retry_creator_data_rights_order(
+        request: Request, order_id: str
+    ) -> JSONResponse:
+        if (
+            browser_sessions is None
+            or data_rights is None
+            or not _browser_boundary(request, canonical_origin=canonical_origin)
+        ):
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_DATA_RIGHTS_UNAVAILABLE"),
+            )
+        try:
+            token = _bearer(request)
+            if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            browser_sessions.verify(token)
+            key = request.headers.get("idempotency-key")
+            if key is None:
+                raise DataRightsViolation("DATA-RIGHTS-RETRY-COMMAND")
+            result = await data_rights.retry_creator(
+                UUID(order_id),
+                DataRightsRetryCommand(
+                    IdempotencyKey.from_wire(key), TraceId(secrets.token_hex(16))
+                ),
+            )
+        except ValueError, ContractViolation:
+            return JSONResponse(
+                status_code=400, content=_rejected("INPUT_DATA_RIGHTS_INVALID")
+            )
+        except BrowserSessionViolation as error:
+            return JSONResponse(
+                status_code=error.status_code, content=_rejected(error.code)
+            )
+        except DataRightsViolation as error:
+            return _data_rights_error(error)
+        return JSONResponse(
+            content=_data_rights_response(result).model_dump(mode="json")
+        )
+
     del list_creator_data_rights_orders, create_creator_data_rights_order
     del get_creator_data_rights_order
+    del retry_creator_data_rights_order
 
     @app.get(
         "/v1/capability-requests",

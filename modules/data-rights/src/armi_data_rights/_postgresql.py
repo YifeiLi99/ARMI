@@ -43,6 +43,10 @@ class DataRightsDeletionItemSnapshot:
     remaining_location: str | None
     created_at: Instant
     completed_at: Instant | None
+    artifact_deletion_id: UUID | None
+    retryable: bool
+    deletion_attempt_count: int
+    last_error_code: str | None
 
 
 class DataRightsOrderRepository(DataRightsVisibilityPort):
@@ -196,11 +200,12 @@ class DataRightsOrderRepository(DataRightsVisibilityPort):
         rows = await (
             await connection.execute(
                 """
-                SELECT deletion_item_id, target_kind, required_action,
-                       result_status, remaining_location, created_at, completed_at
-                FROM armi.deletion_items
-                WHERE deletion_order_id = %s
-                ORDER BY created_at, deletion_item_id
+                SELECT i.deletion_item_id,i.target_kind,i.required_action,
+                       i.result_status,i.remaining_location,i.created_at,i.completed_at,
+                       i.artifact_object_deletion_id
+                FROM armi.deletion_items i
+                WHERE i.deletion_order_id = %s
+                ORDER BY i.created_at,i.deletion_item_id
                 """,
                 (order_id,),
             )
@@ -214,6 +219,10 @@ class DataRightsOrderRepository(DataRightsVisibilityPort):
                 remaining_location=None if row[4] is None else str(row[4]),
                 created_at=Instant(row[5]),
                 completed_at=None if row[6] is None else Instant(row[6]),
+                artifact_deletion_id=row[7],
+                retryable=False,
+                deletion_attempt_count=0,
+                last_error_code=None,
             )
             for row in rows
         )

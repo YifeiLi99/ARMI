@@ -11,6 +11,7 @@ from armi_kernel.application import (
     ArtifactId,
     ArtifactPolicy,
     ArtifactPrivacyScope,
+    ArtifactPublication,
     ArtifactRef,
     ArtifactViolation,
     AuditDraft,
@@ -19,7 +20,6 @@ from armi_kernel.application import (
     AuditResultStatus,
     AuditSensitivity,
     AuditViolation,
-    PublishedArtifact,
 )
 from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
 from armi_runtime_foundation import (
@@ -187,7 +187,7 @@ class CreatorPromptService(CreatorPromptPort):
         self,
         *,
         command: CreatorPromptRevisionCommand,
-        published: PublishedArtifact,
+        published: ArtifactPublication,
         revision_kind: PromptRevisionKind,
     ) -> CreatorPromptSnapshot:
         async with self._uow_factory.unit_of_work() as unit_of_work:

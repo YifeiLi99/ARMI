@@ -170,6 +170,9 @@ def compose_runtime_live_voice(
             storage=ContentAddressedArtifactStore(
                 prepared.data_root / "artifacts",
                 max_object_bytes=config.artifacts.max_object_bytes,
+                publication_catalog=catalog,
+                publication_uow_factory=factory,
+                orphan_grace_seconds=config.artifacts.orphan_grace_seconds,
             ),
             dialogue=dialogue,
             scene_id=creator.scene_id,

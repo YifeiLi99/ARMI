@@ -30,7 +30,7 @@ from .environment import PreparedEnvironment
 from .runtime_errors import RuntimeViolation
 from .runtime_process import RuntimeProcessManager
 
-_MANIFEST_SCHEMA: Final = "armi.recovery-backup.v1"
+_MANIFEST_SCHEMA: Final = "armi.recovery-backup.v2"
 _MAX_CONNINFO_BYTES: Final = 64 * 1024
 
 
@@ -167,7 +167,7 @@ def _database_evidence(
     ]
     artifact_rows = [
         {
-            "artifact_id": str(item.artifact_id),
+            "artifact_object_id": str(item.artifact_object_id),
             "content_digest": item.content_digest,
             "byte_size": item.byte_size,
             "storage_locator": item.storage_locator,

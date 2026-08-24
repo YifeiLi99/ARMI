@@ -226,6 +226,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/data-rights/orders/{order_id}/retry": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Retry Data Rights Order */
+    post: operations["retryDataRightsOrder"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/effects/{effect_id}": {
     parameters: {
       query?: never;
@@ -1291,7 +1308,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "creator-export.v2";
+      projection_version: "creator-export.v3";
       /** Record Count */
       record_count: number;
       /** Segment Count */
@@ -1300,7 +1317,13 @@ export interface components {
        * Status
        * @enum {string}
        */
-      status: "running" | "completed" | "partial" | "failed";
+      status:
+        | "building"
+        | "published_unsettled"
+        | "completed"
+        | "partial"
+        | "failed"
+        | "unknown";
     };
     /** CreatorInputAcceptanceDetails */
     CreatorInputAcceptanceDetails: {
@@ -1659,7 +1682,7 @@ export interface components {
         | "other-human-record.v1"
         | "creator-effect.v3"
         | "subject-summary.v1"
-        | "data-rights-order-detail.v1";
+        | "data-rights-order-detail.v2";
       /**
        * Resource Kind
        * @enum {string}
@@ -1988,12 +2011,18 @@ export interface components {
     };
     /** DataRightsDeletionItemResponse */
     DataRightsDeletionItemResponse: {
+      /** Artifact Deletion Id */
+      artifact_deletion_id: string | null;
       /** Completed At */
       completed_at: string | null;
       /** Created At */
       created_at: string;
+      /** Deletion Attempt Count */
+      deletion_attempt_count: number;
       /** Item Id */
       item_id: string;
+      /** Last Error Code */
+      last_error_code: string | null;
       /** Remaining Location */
       remaining_location:
         | (
@@ -2013,6 +2042,8 @@ export interface components {
        */
       result_status:
         "pending" | "completed" | "partial" | "too_late" | "unknown";
+      /** Retryable */
+      retryable: boolean;
       /**
        * Target Kind
        * @enum {string}
@@ -2040,7 +2071,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "data-rights-order-collection.v1";
+      projection_version: "data-rights-order-collection.v2";
     };
     /** DataRightsOrderDetailResponse */
     DataRightsOrderDetailResponse: {
@@ -2074,7 +2105,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "data-rights-order-detail.v1";
+      projection_version: "data-rights-order-detail.v2";
       /** Remaining Locations */
       remaining_locations: (
         "shared_local_reference" | "objective_history" | "local_artifact_store"
@@ -2146,7 +2177,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "data-rights-order-summary.v1";
+      projection_version: "data-rights-order-summary.v2";
       /** Request Digest */
       request_digest: string;
       /**
@@ -3804,6 +3835,30 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["UnavailableOutcomeResponse"];
+        };
+      };
+    };
+  };
+  retryDataRightsOrder: {
+    parameters: {
+      query?: never;
+      header: {
+        "Idempotency-Key": string;
+      };
+      path: {
+        order_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DataRightsOrderResponse"];
         };
       };
     };

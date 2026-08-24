@@ -94,6 +94,7 @@ from armi_context.bootstrap import (
     inspect_context_embedding_storage,
 )
 from armi_data_rights.api import (
+    DataRightsArtifactLifecyclePort,
     DataRightsCognitionGate,
     DataRightsEffectGate,
     DataRightsInteractionGate,
@@ -670,10 +671,7 @@ def compose_interaction_module(
         subject_id=subject_id,
         creator_party_id=creator_party_id,
         cursor_key=cursor_key,
-        storage=ContentAddressedArtifactStore(
-            prepared.data_root / "artifacts",
-            max_object_bytes=config.artifacts.max_object_bytes,
-        ),
+        storage=_artifact_storage(prepared, unit_of_work_factory, catalog),
         codex_task_projection=bootstrap_codex_timeline_projection(),
         catalog=catalog,
         data_rights=data_rights,
@@ -818,6 +816,7 @@ def compose_exact_life_query_pipeline(
         unit_of_work_factory,
         data_root=prepared.data_root,
         max_object_bytes=config.artifacts.max_object_bytes,
+        orphan_grace_seconds=config.artifacts.orphan_grace_seconds,
         catalog=catalog,
         query=query,
         cognition=cognition,
@@ -1007,13 +1006,9 @@ def compose_perception_module(
         recognition_binding = load_external_recognition_binding(
             runtime_config_path("model-bindings.yaml")
         )
-        config = prepared.effective.config
         return bootstrap_perception(
             unit_of_work_factory=unit_of_work_factory,
-            storage=ContentAddressedArtifactStore(
-                prepared.data_root / "artifacts",
-                max_object_bytes=config.artifacts.max_object_bytes,
-            ),
+            storage=_artifact_storage(prepared, unit_of_work_factory, catalog),
             catalog=catalog,
             work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
             evidence=evidence,
@@ -1051,14 +1046,10 @@ def compose_prompt_module(
 ) -> PromptModule:
     """Resolve the Runtime credential for the T-04 Creator Prompt owner."""
 
-    config = prepared.effective.config
     return bootstrap_prompt(
         subject_id=subject_id,
         creator_party_id=creator_party_id,
-        storage=ContentAddressedArtifactStore(
-            prepared.data_root / "artifacts",
-            max_object_bytes=config.artifacts.max_object_bytes,
-        ),
+        storage=_artifact_storage(prepared, unit_of_work_factory, catalog),
         catalog=catalog,
         unit_of_work_factory=unit_of_work_factory,
     )
@@ -1077,9 +1068,9 @@ def compose_data_rights_module(
     business_participants: tuple[DataRightsParticipant, ...],
     catalog: ArtifactCatalogPort,
     parties: InteractionIdentityPort,
+    artifact_lifecycle: DataRightsArtifactLifecyclePort,
     notifier: CreatorProjectionNotifier | None = None,
 ) -> DataRightsModule:
-    config = prepared.effective.config
     participants = compose_data_rights_participants(
         business=business_participants,
         catalog=catalog,
@@ -1088,10 +1079,8 @@ def compose_data_rights_module(
         creator_party_id=creator_party_id,
         data_root=prepared.data_root,
         unit_of_work_factory=unit_of_work_factory,
-        storage=ContentAddressedArtifactStore(
-            prepared.data_root / "artifacts",
-            max_object_bytes=config.artifacts.max_object_bytes,
-        ),
+        storage=_artifact_storage(prepared, unit_of_work_factory, catalog),
+        lifecycle=artifact_lifecycle,
         core=core,
         parties=parties,
         catalog=catalog,
@@ -1198,10 +1187,7 @@ def compose_context_pipeline(
         effects=effect_read,
         expression=expression_read,
     )
-    storage = ContentAddressedArtifactStore(
-        prepared.data_root / "artifacts",
-        max_object_bytes=config.artifacts.max_object_bytes,
-    )
+    storage = _artifact_storage(prepared, unit_of_work_factory, catalog)
     return bootstrap_context(
         factory=unit_of_work_factory,
         storage=storage,
@@ -1246,11 +1232,10 @@ def compose_context_dialogue_read(
     expression: ExpressionIntentReadPort,
     effects: EffectOperationReadPort,
 ) -> ContextDialogueReadPort:
-    config = prepared.effective.config
     return bootstrap_context_dialogue_read(
         storage=ContentAddressedArtifactStore(
             prepared.data_root / "artifacts",
-            max_object_bytes=config.artifacts.max_object_bytes,
+            max_object_bytes=prepared.effective.config.artifacts.max_object_bytes,
         ),
         catalog=catalog,
         evidence=evidence,
@@ -1268,12 +1253,11 @@ def compose_context_embedding_pipeline(
     memory_projection: MemoryProjectionPort,
     material_projection: MaterialProjectionPort,
 ) -> ContextEmbeddingRuntimePort:
-    config = prepared.effective.config
     return bootstrap_context_embedding(
         factory=unit_of_work_factory,
         storage=ContentAddressedArtifactStore(
             prepared.data_root / "artifacts",
-            max_object_bytes=config.artifacts.max_object_bytes,
+            max_object_bytes=prepared.effective.config.artifacts.max_object_bytes,
         ),
         adapter=_compose_embedding(prepared),
         work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
@@ -1330,10 +1314,7 @@ def compose_model_pipeline(
 
     return bootstrap_cognition_model(
         factory=unit_of_work_factory,
-        storage=ContentAddressedArtifactStore(
-            prepared.data_root / "artifacts",
-            max_object_bytes=config.artifacts.max_object_bytes,
-        ),
+        storage=_artifact_storage(prepared, unit_of_work_factory, catalog),
         catalog=catalog,
         context=context,
         opportunities=opportunities,
@@ -1364,13 +1345,9 @@ def compose_web_search_pipeline(
         manifest_bytes = runtime_config_path("web-search.yaml").read_bytes()
     except OSError:
         raise WebObservationViolation("WEB-MANIFEST") from None
-    config = prepared.effective.config
     return bootstrap_web_observation(
         factory=unit_of_work_factory,
-        storage=ContentAddressedArtifactStore(
-            prepared.data_root / "artifacts",
-            max_object_bytes=config.artifacts.max_object_bytes,
-        ),
+        storage=_artifact_storage(prepared, unit_of_work_factory, catalog),
         catalog=catalog,
         work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
         credential_port=prepared.credential_port,
@@ -1394,13 +1371,9 @@ def compose_web_research_admission_pipeline(
 ) -> WebResearchRuntimePort:
     """Resolve the active S034 intent-to-custody worker."""
 
-    config = prepared.effective.config
     return bootstrap_web_research(
         factory=unit_of_work_factory,
-        storage=ContentAddressedArtifactStore(
-            prepared.data_root / "artifacts",
-            max_object_bytes=config.artifacts.max_object_bytes,
-        ),
+        storage=_artifact_storage(prepared, unit_of_work_factory, catalog),
         catalog=catalog,
         work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
         custody=custody,
@@ -1448,10 +1421,7 @@ def compose_candidate_validation_pipeline(
     config = prepared.effective.config
     return bootstrap_cognition_candidate(
         factory=unit_of_work_factory,
-        storage=ContentAddressedArtifactStore(
-            prepared.data_root / "artifacts",
-            max_object_bytes=config.artifacts.max_object_bytes,
-        ),
+        storage=_artifact_storage(prepared, unit_of_work_factory, catalog),
         catalog=catalog,
         work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
         activity_cognition=activity_cognition,
@@ -1530,6 +1500,7 @@ def compose_subject_commit_pipeline(
         unit_of_work_factory,
         data_root=prepared.data_root,
         max_object_bytes=config.artifacts.max_object_bytes,
+        orphan_grace_seconds=config.artifacts.orphan_grace_seconds,
         catalog=catalog,
         change_set_codec=bootstrap_cognition_change_set_codec(
             activity=activity_cognition,
@@ -1631,13 +1602,9 @@ def compose_response_admission_pipeline(
 ) -> ResponseAdmissionRuntimePort:
     """Resolve the Runtime credential for the S028 admission worker."""
 
-    config = prepared.effective.config
     return bootstrap_response_admission(
         factory=unit_of_work_factory,
-        storage=ContentAddressedArtifactStore(
-            prepared.data_root / "artifacts",
-            max_object_bytes=config.artifacts.max_object_bytes,
-        ),
+        storage=_artifact_storage(prepared, unit_of_work_factory, catalog),
         work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
         artifacts=catalog,
         capability=capability,
@@ -1690,12 +1657,11 @@ def compose_effect_registration_pipeline(
 ) -> EffectRuntimePort:
     """Resolve the Runtime credential for the S029 T-05 worker."""
 
-    config = prepared.effective.config
     return bootstrap_effect_runtime(
         factory=unit_of_work_factory,
         storage=ContentAddressedArtifactStore(
             prepared.data_root / "artifacts",
-            max_object_bytes=config.artifacts.max_object_bytes,
+            max_object_bytes=prepared.effective.config.artifacts.max_object_bytes,
         ),
         work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
         authorization=authorization,
@@ -1760,14 +1726,10 @@ def compose_codex_pipeline(
     auth_locator = prepared.effective.config.secret_locators.get(CODEX_LOCATOR_NAME)
     if auth_locator is None:
         raise CodexDelegationViolation("CODEX-DELEGATION-CREDENTIAL")
-    config = prepared.effective.config
     run_root = prepared.data_root / "codex-runner"
     return bootstrap_codex(
         factory=unit_of_work_factory,
-        storage=ContentAddressedArtifactStore(
-            prepared.data_root / "artifacts",
-            max_object_bytes=config.artifacts.max_object_bytes,
-        ),
+        storage=_artifact_storage(prepared, unit_of_work_factory, catalog),
         catalog=catalog,
         environment_root=prepared.root,
         run_root=run_root,
@@ -1841,3 +1803,18 @@ __all__ = (
     "reset_operator_schema",
     "runtime_database_reason",
 )
+
+
+def _artifact_storage(
+    prepared: PreparedEnvironment,
+    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
+    catalog: ArtifactCatalogPort,
+) -> ContentAddressedArtifactStore:
+    config = prepared.effective.config.artifacts
+    return ContentAddressedArtifactStore(
+        prepared.data_root / "artifacts",
+        max_object_bytes=config.max_object_bytes,
+        publication_catalog=catalog,
+        publication_uow_factory=unit_of_work_factory,
+        orphan_grace_seconds=config.orphan_grace_seconds,
+    )

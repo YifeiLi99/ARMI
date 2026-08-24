@@ -9,6 +9,7 @@ from .creator_http import (
     DataRightsOrderCommand,
     DataRightsOrderKind,
     DataRightsOrderPort,
+    DataRightsRetryCommand,
     DataRightsViolation,
     FastAPI,
     IdempotencyKey,
@@ -252,7 +253,7 @@ def register_local_other_human_routes(
         return JSONResponse(
             content=DataRightsOrderCollectionResponse(
                 contract_version="1.0",
-                projection_version="data-rights-order-collection.v1",
+                projection_version="data-rights-order-collection.v2",
                 orders=[_data_rights_detail_response(detail) for detail in details],
             ).model_dump(mode="json")
         )
@@ -289,9 +290,45 @@ def register_local_other_human_routes(
             content=_data_rights_detail_response(result).model_dump(mode="json")
         )
 
+    @app.post(
+        "/v1/local/other-humans/{party_key}/data-rights/orders/{order_id}/retry",
+        include_in_schema=False,
+    )
+    async def retry_other_human_data_rights_order(
+        party_key: str, order_id: str, request: Request
+    ) -> JSONResponse:
+        if data_rights is None:
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_DATA_RIGHTS_UNAVAILABLE"),
+            )
+        key = _single_header(request, b"idempotency-key")
+        if key is None:
+            return JSONResponse(
+                status_code=400, content=_rejected("INPUT_IDEMPOTENCY_KEY")
+            )
+        try:
+            result = await data_rights.retry_other_human(
+                OtherHumanPartyKey(party_key),
+                UUID(order_id),
+                DataRightsRetryCommand(
+                    IdempotencyKey(key), TraceId(secrets.token_hex(16))
+                ),
+            )
+        except (ValueError, ContractViolation, DataRightsViolation) as error:
+            if isinstance(error, DataRightsViolation):
+                return _data_rights_error(error)
+            return JSONResponse(
+                status_code=400, content=_rejected("INPUT_DATA_RIGHTS_INVALID")
+            )
+        return JSONResponse(
+            content=_data_rights_response(result).model_dump(mode="json")
+        )
+
     del register_other_human_party, set_other_human_scene, accept_other_human_message
     del create_other_human_data_rights_order, list_other_human_data_rights_orders
     del get_other_human_data_rights_order
+    del retry_other_human_data_rights_order
 
 
 __all__ = ("register_local_other_human_routes",)

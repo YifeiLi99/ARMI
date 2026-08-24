@@ -153,6 +153,27 @@ _OPERATION_OVERRIDES: dict[str, dict[str, object]] = {
         },
         "summary": "Create Data Rights Order",
     },
+    "retryDataRightsOrder": {
+        "parameters": [
+            {
+                "in": "path",
+                "name": "order_id",
+                "required": True,
+                "schema": {
+                    "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+                    "title": "Order Id",
+                    "type": "string",
+                },
+            },
+            {
+                "in": "header",
+                "name": "Idempotency-Key",
+                "required": True,
+                "schema": {"title": "Idempotency-Key", "type": "string"},
+            },
+        ],
+        "summary": "Retry Data Rights Order",
+    },
     "deactivateCreatorPrompt": {
         "requestBody": {
             "content": {

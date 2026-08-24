@@ -2790,12 +2790,19 @@ def check_repository(root: Path) -> list[Violation]:
                 export_tables.setdefault(tables[0], []).append(
                     (segment_name, participant_path)
                 )
-    export_tables["artifacts"] = [
-        (
-            "artifacts",
-            root / "apps/armi-runtime/src/armi_runtime/composition/data_rights.py",
-        )
-    ]
+    for table in (
+        "artifacts",
+        "artifact_objects",
+        "artifact_publications",
+        "artifact_object_deletions",
+        "artifact_object_deletion_attempts",
+    ):
+        export_tables[table] = [
+            (
+                table,
+                root / "apps/armi-runtime/src/armi_runtime/composition/data_rights.py",
+            )
+        ]
     for table in TABLE_OWNERSHIP:
         mappings = export_tables.get(table, [])
         if len(mappings) != 1:

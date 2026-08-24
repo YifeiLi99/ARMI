@@ -1188,7 +1188,7 @@
             "type": "boolean"
           },
           "projection_version": {
-            "const": "creator-export.v2",
+            "const": "creator-export.v3",
             "title": "Projection Version",
             "type": "string"
           },
@@ -1204,10 +1204,12 @@
           },
           "status": {
             "enum": [
-              "running",
+              "building",
+              "published_unsettled",
               "completed",
               "partial",
-              "failed"
+              "failed",
+              "unknown"
             ],
             "title": "Status",
             "type": "string"
@@ -2106,7 +2108,7 @@
               "other-human-record.v1",
               "creator-effect.v3",
               "subject-summary.v1",
-              "data-rights-order-detail.v1"
+              "data-rights-order-detail.v2"
             ],
             "title": "Projection Version",
             "type": "string"
@@ -3006,6 +3008,18 @@
       "DataRightsDeletionItemResponse": {
         "additionalProperties": false,
         "properties": {
+          "artifact_deletion_id": {
+            "anyOf": [
+              {
+                "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact Deletion Id"
+          },
           "completed_at": {
             "anyOf": [
               {
@@ -3023,10 +3037,26 @@
             "title": "Created At",
             "type": "string"
           },
+          "deletion_attempt_count": {
+            "minimum": 0.0,
+            "title": "Deletion Attempt Count",
+            "type": "integer"
+          },
           "item_id": {
             "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
             "title": "Item Id",
             "type": "string"
+          },
+          "last_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error Code"
           },
           "remaining_location": {
             "anyOf": [
@@ -3064,6 +3094,10 @@
             "title": "Result Status",
             "type": "string"
           },
+          "retryable": {
+            "title": "Retryable",
+            "type": "boolean"
+          },
           "target_kind": {
             "enum": [
               "interaction",
@@ -3086,7 +3120,11 @@
           "result_status",
           "remaining_location",
           "created_at",
-          "completed_at"
+          "completed_at",
+          "artifact_deletion_id",
+          "retryable",
+          "deletion_attempt_count",
+          "last_error_code"
         ],
         "title": "DataRightsDeletionItemResponse",
         "type": "object"
@@ -3107,7 +3145,7 @@
             "type": "array"
           },
           "projection_version": {
-            "const": "data-rights-order-collection.v1",
+            "const": "data-rights-order-collection.v2",
             "title": "Projection Version",
             "type": "string"
           }
@@ -3182,7 +3220,7 @@
             "type": "string"
           },
           "projection_version": {
-            "const": "data-rights-order-detail.v1",
+            "const": "data-rights-order-detail.v2",
             "title": "Projection Version",
             "type": "string"
           },
@@ -3346,7 +3384,7 @@
             "type": "string"
           },
           "projection_version": {
-            "const": "data-rights-order-summary.v1",
+            "const": "data-rights-order-summary.v2",
             "title": "Projection Version",
             "type": "string"
           },
@@ -6525,6 +6563,50 @@
           }
         ],
         "summary": "Get Data Rights Order"
+      }
+    },
+    "/v1/data-rights/orders/{order_id}/retry": {
+      "post": {
+        "operationId": "retryDataRightsOrder",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "order_id",
+            "required": true,
+            "schema": {
+              "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+              "title": "Order Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataRightsOrderResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "Retry Data Rights Order"
       }
     },
     "/v1/effects/{effect_id}": {

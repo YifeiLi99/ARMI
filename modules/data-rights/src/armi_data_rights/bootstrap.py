@@ -18,6 +18,7 @@ from ._deletion_postgresql import LocalDataDeletionRepository
 from ._postgresql import DataRightsOrderRepository
 from .api import (
     CreatorExportPort,
+    DataRightsArtifactLifecyclePort,
     DataRightsArtifactStorePort,
     DataRightsCognitionGate,
     DataRightsEffectGate,
@@ -91,6 +92,12 @@ class DataRightsModule:
         await self._orders.close()
         await self._exports.close()
 
+    async def run(self) -> None:
+        await self._orders.run()
+
+    def stop(self) -> None:
+        self._orders.stop()
+
 
 def bootstrap_data_rights_core() -> DataRightsCore:
     return DataRightsCore()
@@ -102,6 +109,7 @@ def bootstrap_data_rights(
     data_root: Path,
     unit_of_work_factory: DataRightsUnitOfWorkFactory,
     storage: DataRightsArtifactStorePort,
+    lifecycle: DataRightsArtifactLifecyclePort,
     core: DataRightsCore,
     parties: DataRightsPartyIdentityPort,
     catalog: ArtifactCatalogPort,
@@ -112,9 +120,10 @@ def bootstrap_data_rights(
     deletion = LocalDataDeletionExecutor(
         repository=LocalDataDeletionRepository(
             catalog,
+            lifecycle,
             participants,
         ),
-        storage=storage,
+        lifecycle=lifecycle,
         unit_of_work_factory=unit_of_work_factory,
     )
     orders = DataRightsOrderService(
@@ -124,6 +133,7 @@ def bootstrap_data_rights(
         unit_of_work_factory=unit_of_work_factory,
         notifier=notifier,
         parties=parties,
+        lifecycle=lifecycle,
     )
     exports = CreatorExportService(
         creator_party_id=creator_party_id,

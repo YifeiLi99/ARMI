@@ -21,7 +21,11 @@ from armi_adapter_esp32_display import (
     MoodDisplayViolation,
     load_mood_display_config,
 )
-from armi_artifact_store.bootstrap import bootstrap_artifact_catalog
+from armi_artifact_store.api import ArtifactLifecyclePort
+from armi_artifact_store.bootstrap import (
+    bootstrap_artifact_catalog,
+    bootstrap_artifact_lifecycle,
+)
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_attention.api import LifeViolation
 from armi_attention.bootstrap import (
@@ -81,6 +85,7 @@ from armi_live_vision.api import (
 )
 from armi_live_vision.bootstrap import (
     compose_live_vision,
+    compose_live_vision_retention,
     compose_visual_observation_sink,
 )
 from armi_live_voice.api import LiveVoiceRuntimePort, LiveVoiceViolation
@@ -104,6 +109,7 @@ from armi_runtime.adapters.model.external_content import (
     VolcengineArkExternalContentRecognizer,
     load_external_recognition_binding,
 )
+from armi_runtime.adapters.persistence.durable_work import PostgreSQLDurableWorkGateway
 from armi_runtime.adapters.persistence.runtime_observability import (
     RuntimeObservationError,
 )
@@ -294,6 +300,7 @@ async def _serve(
     authority: RuntimeAuthorityController | None = None
     recovery_port = None
     runtime_unit_of_work_factory: PostgreSQLUnitOfWorkFactory | None = None
+    artifact_lifecycle: ArtifactLifecyclePort | None = None
     observation_port = None
     observation_driver: RuntimeObservationDriver | None = None
     recovery_reasons: tuple[str, ...] = ()
@@ -342,6 +349,7 @@ async def _serve(
     work_wakeups = WorkWakeupBus()
     live_voice_service: LiveVoiceRuntimePort | None = None
     live_vision_service: LiveVisionRuntimePort | None = None
+    live_vision_retention = None
 
     def inject_admin_fault(name: str) -> None:
         if admin_control is not None:
@@ -387,6 +395,22 @@ async def _serve(
                     mood_display_config, read_mood_display_snapshot
                 )
             artifact_catalog = bootstrap_artifact_catalog()
+            artifact_storage = ContentAddressedArtifactStore(
+                prepared.data_root / "artifacts",
+                max_object_bytes=config.artifacts.max_object_bytes,
+            )
+            await artifact_storage.prepare()
+            artifact_lifecycle = bootstrap_artifact_lifecycle(
+                artifact_storage,
+                runtime_unit_of_work_factory,
+                PostgreSQLDurableWorkGateway(runtime_unit_of_work_factory),
+            )
+            live_vision_retention = compose_live_vision_retention(
+                runtime_unit_of_work_factory,
+                artifact_catalog,
+            )
+            await live_vision_retention.purge_once()
+            await artifact_lifecycle.recover()
             effect_owner = bootstrap_effect_operation_read()
             interaction_identity = compose_interaction_identity()
             creator_context = await inspect_creator_context(
@@ -643,6 +667,7 @@ async def _serve(
                 catalog=artifact_catalog,
                 parties=interaction_module.identity,
                 notifier=creator_events,
+                artifact_lifecycle=artifact_lifecycle,
             )
             await data_rights_module.open()
             expression_module = compose_expression_module(
@@ -765,6 +790,9 @@ async def _serve(
                             storage=ContentAddressedArtifactStore(
                                 prepared.data_root / "artifacts",
                                 max_object_bytes=config.artifacts.max_object_bytes,
+                                publication_catalog=artifact_catalog,
+                                publication_uow_factory=runtime_unit_of_work_factory,
+                                orphan_grace_seconds=config.artifacts.orphan_grace_seconds,
                             ),
                             catalog=artifact_catalog,
                             recognizer=VolcengineArkExternalContentRecognizer(
@@ -1301,6 +1329,21 @@ async def _serve(
                 name="runtime-authority-heartbeat",
                 heartbeat=True,
             )
+        if artifact_lifecycle is not None:
+            supervisor.start(
+                artifact_lifecycle.run(),
+                name="artifact-lifecycle-worker",
+            )
+        if data_rights_module is not None:
+            supervisor.start(
+                data_rights_module.run(),
+                name="data-rights-reconciliation",
+            )
+        if live_vision_retention is not None:
+            supervisor.start(
+                live_vision_retention.run(),
+                name="live-vision-retention",
+            )
         if observation_driver is not None:
             supervisor.start(
                 observation_driver.run(),
@@ -1467,6 +1510,12 @@ async def _serve(
             codex_pipeline.stop()
         if capability_policy is not None:
             capability_policy.stop()
+        if artifact_lifecycle is not None:
+            artifact_lifecycle.stop()
+        if data_rights_module is not None:
+            data_rights_module.stop()
+        if live_vision_retention is not None:
+            live_vision_retention.stop()
         released = await supervisor.drain(
             deadline_seconds=config.lifecycle.graceful_shutdown_seconds,
         )

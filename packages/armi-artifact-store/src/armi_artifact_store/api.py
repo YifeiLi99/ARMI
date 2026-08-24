@@ -10,9 +10,10 @@ from armi_kernel.application import (
     ArtifactId,
     ArtifactIntegrityStatus,
     ArtifactPrivacyScope,
+    ArtifactPublication,
     ArtifactRef,
     ArtifactRegistration,
-    PublishedArtifact,
+    StagedArtifact,
 )
 from armi_runtime_foundation import (
     PostgreSQLAdminTransaction,
@@ -34,10 +35,38 @@ class ArtifactAdminSnapshot:
 
 @dataclass(frozen=True, slots=True)
 class ArtifactBackupSnapshot:
-    artifact_id: UUID
+    artifact_object_id: UUID
     content_digest: str
     byte_size: int
     storage_locator: str
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactRetirement:
+    artifact_id: UUID
+    artifact_object_id: UUID
+    object_generation: int
+    deletion_id: UUID | None
+    shared_local_reference: bool
+    changed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactAdminRetirement:
+    changed: bool
+    deletion_id: UUID | None
+    shared_local_reference: bool
+    artifact_object_id: UUID | None = None
+    content_digest: str | None = None
+    trace_id: UUID | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactDeletionState:
+    deletion_id: UUID
+    status: str
+    attempt_count: int
+    last_error_code: str | None
 
 
 @runtime_checkable
@@ -50,8 +79,12 @@ class ArtifactAdminPort(Protocol):
     ) -> ArtifactAdminSnapshot | None: ...
     def read_verified_bytes(self, snapshot: ArtifactAdminSnapshot) -> bytes: ...
     def delete(
-        self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
-    ) -> bool: ...
+        self,
+        transaction: PostgreSQLAdminTransaction,
+        *,
+        artifact_id: UUID,
+        deletion_id: UUID | None = None,
+    ) -> ArtifactAdminRetirement: ...
     def inspect_ids(
         self, transaction: PostgreSQLAdminTransaction, *, object_ids: tuple[UUID, ...]
     ) -> tuple[UUID, ...]: ...
@@ -63,11 +96,35 @@ class ArtifactCatalogPort(Protocol):
         self, transaction: PostgreSQLTransaction
     ) -> tuple[tuple[tuple[str, int], ...], int]: ...
 
+    async def export_records(
+        self, transaction: PostgreSQLTransaction
+    ) -> tuple[tuple[str, tuple[bytes, ...]], ...]: ...
+
+    async def reserve_publication(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        staged: StagedArtifact,
+        *,
+        orphan_grace_seconds: int,
+    ) -> ArtifactPublication: ...
+
+    async def mark_publication_published(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        publication: ArtifactPublication,
+    ) -> None: ...
+
+    async def abandon_publication(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        publication: ArtifactPublication,
+    ) -> None: ...
+
     async def register(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         artifact_id: ArtifactId,
-        published: PublishedArtifact,
+        published: ArtifactPublication,
     ) -> ArtifactRegistration: ...
 
     async def get(
@@ -96,11 +153,11 @@ class ArtifactCatalogPort(Protocol):
         artifact_id: ArtifactId,
     ) -> ArtifactRef | None: ...
 
-    async def mark_deleted(
+    async def retire_artifact(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         artifact_id: ArtifactId,
-    ) -> bool: ...
+    ) -> ArtifactRetirement: ...
 
     async def mark_integrity(
         self,
@@ -110,9 +167,35 @@ class ArtifactCatalogPort(Protocol):
     ) -> bool: ...
 
 
+@runtime_checkable
+class ArtifactLifecyclePort(Protocol):
+    async def recover(self) -> int: ...
+
+    async def run(self) -> None: ...
+
+    def stop(self) -> None: ...
+
+    async def run_once(self) -> bool: ...
+
+    async def deletion_states(
+        self, transaction: PostgreSQLTransaction, deletion_ids: tuple[UUID, ...]
+    ) -> tuple[ArtifactDeletionState, ...]: ...
+
+    async def retry_blocked(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        deletion_ids: tuple[UUID, ...],
+        retry_cycle: int,
+    ) -> int: ...
+
+
 __all__ = (
     "ArtifactAdminPort",
+    "ArtifactAdminRetirement",
     "ArtifactAdminSnapshot",
     "ArtifactBackupSnapshot",
     "ArtifactCatalogPort",
+    "ArtifactDeletionState",
+    "ArtifactLifecyclePort",
+    "ArtifactRetirement",
 )

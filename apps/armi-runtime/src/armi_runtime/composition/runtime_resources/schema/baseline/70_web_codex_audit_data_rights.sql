@@ -139,18 +139,24 @@ CREATE TABLE armi.creator_exports (
     row_count bigint DEFAULT 0 NOT NULL,
     artifact_count bigint DEFAULT 0 NOT NULL,
     missing_artifacts jsonb DEFAULT '[]'::jsonb NOT NULL,
+    manifest_digest text,
+    expected_segment_count integer,
+    expected_record_count bigint,
+    expected_artifact_count bigint,
     error_code text,
     created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
     completed_at timestamp(6) with time zone,
     CONSTRAINT creator_exports_artifact_count_check CHECK ((artifact_count >= 0)),
-    CONSTRAINT creator_exports_check CHECK ((((status = 'running'::text) AND (completed_at IS NULL)) OR ((status <> 'running'::text) AND (completed_at IS NOT NULL)))),
+    CONSTRAINT creator_exports_check CHECK ((((status = ANY (ARRAY['building'::text, 'published_unsettled'::text, 'unknown'::text])) AND (completed_at IS NULL)) OR ((status = ANY (ARRAY['completed'::text, 'partial'::text, 'failed'::text])) AND (completed_at IS NOT NULL)))),
     CONSTRAINT creator_exports_creator_export_id_check CHECK ((uuid_extract_version(creator_export_id) = 7)),
     CONSTRAINT creator_exports_directory_name_check CHECK (((directory_name ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'::text) AND (directory_name <> ALL (ARRAY['.'::text, '..'::text])))),
     CONSTRAINT creator_exports_idempotency_key_check CHECK ((idempotency_key ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'::text)),
     CONSTRAINT creator_exports_missing_artifacts_check CHECK ((jsonb_typeof(missing_artifacts) = 'array'::text)),
+    CONSTRAINT creator_exports_manifest_digest_check CHECK (((manifest_digest IS NULL) OR (manifest_digest ~ '^sha256:[0-9a-f]{64}$'::text))),
+    CONSTRAINT creator_exports_expected_counts_check CHECK ((((expected_segment_count IS NULL) OR (expected_segment_count >= 0)) AND ((expected_record_count IS NULL) OR (expected_record_count >= 0)) AND ((expected_artifact_count IS NULL) OR (expected_artifact_count >= 0)))),
     CONSTRAINT creator_exports_request_digest_check CHECK ((request_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT creator_exports_row_count_check CHECK ((row_count >= 0)),
-    CONSTRAINT creator_exports_status_check CHECK ((status = ANY (ARRAY['running'::text, 'completed'::text, 'partial'::text, 'failed'::text]))),
+    CONSTRAINT creator_exports_status_check CHECK ((status = ANY (ARRAY['building'::text, 'published_unsettled'::text, 'completed'::text, 'partial'::text, 'failed'::text, 'unknown'::text]))),
     CONSTRAINT creator_exports_table_count_check CHECK ((table_count >= 0))
 );
 
@@ -166,10 +172,12 @@ CREATE TABLE armi.deletion_items (
     required_action text NOT NULL,
     result_status text NOT NULL,
     remaining_location text,
+    artifact_object_deletion_id uuid,
     created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
     completed_at timestamp(6) with time zone,
     CONSTRAINT deletion_items_check CHECK ((((result_status = 'pending'::text) AND (completed_at IS NULL)) OR ((result_status <> 'pending'::text) AND (completed_at IS NOT NULL)))),
     CONSTRAINT deletion_items_deletion_item_id_check CHECK ((uuid_extract_version(deletion_item_id) = 7)),
+    CONSTRAINT deletion_items_artifact_deletion_check CHECK (((artifact_object_deletion_id IS NULL) OR ((target_kind = 'artifact'::text) AND (required_action = 'delete'::text)))),
     CONSTRAINT deletion_items_remaining_location_check CHECK (((remaining_location IS NULL) OR (remaining_location = ANY (ARRAY['shared_local_reference'::text, 'objective_history'::text, 'local_artifact_store'::text])))),
     CONSTRAINT deletion_items_required_action_check CHECK ((required_action = ANY (ARRAY['delete'::text, 'tombstone'::text, 'retain'::text]))),
     CONSTRAINT deletion_items_result_status_check CHECK ((result_status = ANY (ARRAY['pending'::text, 'completed'::text, 'partial'::text, 'too_late'::text, 'unknown'::text]))),
@@ -210,6 +218,20 @@ CREATE TABLE armi.deletion_orders (
     CONSTRAINT deletion_orders_scope_kind_check CHECK ((scope_kind = ANY (ARRAY['party_contact'::text, 'party_local_data'::text]))),
     CONSTRAINT deletion_orders_status_check CHECK ((status = 'effective'::text)),
     CONSTRAINT deletion_orders_trace_id_check CHECK ((trace_id ~ '^[0-9a-f]{32}$'::text))
+);
+
+-- Append-only explicit retry cycles for blocked local deletion work.
+CREATE TABLE armi.deletion_order_retry_attempts (
+    deletion_order_retry_attempt_id uuid NOT NULL,
+    deletion_order_id uuid NOT NULL,
+    retry_cycle integer NOT NULL,
+    idempotency_key text NOT NULL,
+    trace_id text NOT NULL,
+    created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
+    CONSTRAINT deletion_order_retry_attempts_id_check CHECK ((uuid_extract_version(deletion_order_retry_attempt_id) = 7)),
+    CONSTRAINT deletion_order_retry_attempts_cycle_check CHECK ((retry_cycle >= 2)),
+    CONSTRAINT deletion_order_retry_attempts_key_check CHECK ((idempotency_key ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'::text)),
+    CONSTRAINT deletion_order_retry_attempts_trace_check CHECK (((trace_id ~ '^[0-9a-f]{32}$'::text) AND (trace_id <> repeat('0'::text, 32))))
 );
 
 --

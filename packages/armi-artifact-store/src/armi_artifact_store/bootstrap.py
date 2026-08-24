@@ -2,9 +2,14 @@
 
 from pathlib import Path
 
+from armi_kernel.application import DurableWorkPort
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWorkFactory
+
 from ._admin import PostgreSQLArtifactAdmin
+from ._lifecycle import ArtifactLifecycleCoordinator
 from ._postgresql import PostgreSQLArtifactCatalog
-from .api import ArtifactAdminPort, ArtifactCatalogPort
+from .api import ArtifactAdminPort, ArtifactCatalogPort, ArtifactLifecyclePort
+from .content_store import ContentAddressedArtifactStore
 
 
 def bootstrap_artifact_catalog() -> ArtifactCatalogPort:
@@ -19,4 +24,16 @@ def bootstrap_artifact_admin(
     )
 
 
-__all__ = ("bootstrap_artifact_admin", "bootstrap_artifact_catalog")
+def bootstrap_artifact_lifecycle(
+    storage: ContentAddressedArtifactStore,
+    unit_of_work_factory: PostgreSQLRuntimeUnitOfWorkFactory,
+    durable_work: DurableWorkPort,
+) -> ArtifactLifecyclePort:
+    return ArtifactLifecycleCoordinator(storage, unit_of_work_factory, durable_work)
+
+
+__all__ = (
+    "bootstrap_artifact_admin",
+    "bootstrap_artifact_catalog",
+    "bootstrap_artifact_lifecycle",
+)

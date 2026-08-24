@@ -80,19 +80,28 @@ class StagedArtifact:
 
 
 @dataclass(frozen=True, slots=True)
-class PublishedArtifact:
-    stage_id: ArtifactId
+class ArtifactPublication:
+    publication_id: ArtifactId
+    artifact_object_id: UUID
+    object_generation: int
     content_digest: Digest
     byte_size: int
     policy: ArtifactPolicy
 
     def __post_init__(self) -> None:
         _validate_content_descriptor(
-            self.stage_id,
+            self.publication_id,
             self.content_digest,
             self.byte_size,
             self.policy,
         )
+        if (
+            type(self.artifact_object_id) is not UUID
+            or self.artifact_object_id.version != 7
+            or type(self.object_generation) is not int
+            or self.object_generation < 1
+        ):
+            raise ArtifactViolation("ART-DECLARATION")
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,7 +182,7 @@ class ArtifactPort(Protocol):
         policy: ArtifactPolicy,
     ) -> StagedArtifact: ...
 
-    async def publish(self, staged: StagedArtifact) -> PublishedArtifact: ...
+    async def publish(self, staged: StagedArtifact) -> ArtifactPublication: ...
 
     async def discard(self, staged: StagedArtifact) -> None: ...
 
@@ -214,10 +223,10 @@ __all__ = (
     "ArtifactPolicy",
     "ArtifactPort",
     "ArtifactPrivacyScope",
+    "ArtifactPublication",
     "ArtifactRef",
     "ArtifactRegistration",
     "ArtifactViolation",
-    "PublishedArtifact",
     "StagedArtifact",
     "VerifiedByteStream",
 )

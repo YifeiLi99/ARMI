@@ -24,8 +24,8 @@ from armi_kernel.application import (
     ArtifactId,
     ArtifactPolicy,
     ArtifactPrivacyScope,
+    ArtifactPublication,
     ArtifactViolation,
-    PublishedArtifact,
     WorkLease,
     WorkResultRef,
     WorkViolation,
@@ -496,7 +496,7 @@ class ExternalContentPipeline:
         trace_id: TraceId,
         creator_visible: bool,
         logical_kind: str = "external.message.interpretation",
-    ) -> PublishedArtifact:
+    ) -> ArtifactPublication:
         return await self._publish(
             value.encode("utf-8"),
             media_type="text/plain",
@@ -513,7 +513,7 @@ class ExternalContentPipeline:
         logical_kind: str,
         trace_id: TraceId,
         creator_visible: bool,
-    ) -> PublishedArtifact:
+    ) -> ArtifactPublication:
         staged = await self._storage.stage(
             _one_chunk(value),
             ArtifactPolicy(

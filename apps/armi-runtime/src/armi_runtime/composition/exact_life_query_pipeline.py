@@ -379,6 +379,7 @@ def build_exact_life_query_pipeline(
     *,
     data_root: Path,
     max_object_bytes: int,
+    orphan_grace_seconds: int,
     catalog: ArtifactCatalogPort,
     query: LifeRecordQueryPort,
     cognition: CognitionExactLifeQueryPort,
@@ -391,6 +392,9 @@ def build_exact_life_query_pipeline(
         storage=ContentAddressedArtifactStore(
             data_root / "artifacts",
             max_object_bytes=max_object_bytes,
+            publication_catalog=catalog,
+            publication_uow_factory=factory,
+            orphan_grace_seconds=orphan_grace_seconds,
         ),
         catalog=catalog,
         query=query,

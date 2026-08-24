@@ -12,9 +12,7 @@ from typing import Any, cast
 from uuid import uuid7
 
 import rfc8785
-from armi_artifact_store import ContentAddressedArtifactStore
-from armi_kernel.application import ArtifactViolation, CredentialPurpose
-from armi_kernel.contracts import Digest
+from armi_kernel.application import CredentialPurpose
 
 from armi_admin.persistence import (
     AdminCorrectionGateway,
@@ -175,11 +173,11 @@ class AdminCorrectionCoordinator:
         gateway = self._gateway
         try:
             work = gateway.side_work(side_work_id)
-            state = self._settle_artifact_file(work)
-            settled = gateway.settle_side_work(
-                side_work_id, str(work["content_digest"])
-            )
-            return {**settled, "file_result": state}
+            return {
+                "side_work_id": side_work_id,
+                "status": work["status"],
+                "file_result": "artifact_lifecycle_owned",
+            }
         except AdminCorrectionGatewayError as exc:
             raise AdminCorrectionError(exc.code) from None
 
@@ -264,20 +262,6 @@ class AdminCorrectionCoordinator:
         if parsed.tzinfo is None:
             raise AdminCorrectionError("ADMIN-CORRECTION-PREVIEW-TIME")
         return parsed.astimezone(UTC)
-
-    def _settle_artifact_file(self, work: dict[str, Any]) -> str:
-        artifact_root = self._config.environment_root / "data" / "artifacts"
-        try:
-            return (
-                ContentAddressedArtifactStore(
-                    artifact_root,
-                    max_object_bytes=104_857_600,
-                )
-                .settle_unregistered(Digest(str(work["content_digest"])))
-                .value
-            )
-        except ArtifactViolation, ValueError:
-            raise AdminCorrectionError("ADMIN-CORRECTION-ARTIFACT-FILE") from None
 
 
 __all__ = ("AdminCorrectionCoordinator", "AdminCorrectionError")

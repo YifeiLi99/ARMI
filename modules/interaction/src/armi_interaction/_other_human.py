@@ -12,6 +12,7 @@ from armi_kernel.application import (
     ArtifactId,
     ArtifactPolicy,
     ArtifactPrivacyScope,
+    ArtifactPublication,
     ArtifactViolation,
     AuditDraft,
     AuditEventId,
@@ -21,7 +22,6 @@ from armi_kernel.application import (
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
     CreatorResourceKind,
-    PublishedArtifact,
 )
 from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId
 from armi_runtime_foundation import (
@@ -270,7 +270,7 @@ class OtherHumanInputService(OtherHumanInputPort):
         command: OtherHumanInputCommand,
         expected: OtherHumanInputContext,
         request_digest: Digest,
-        published: PublishedArtifact,
+        published: ArtifactPublication,
     ) -> OtherHumanInputAcceptance:
         async with self._uow_factory.unit_of_work() as unit_of_work:
             current = await self._repository.context(

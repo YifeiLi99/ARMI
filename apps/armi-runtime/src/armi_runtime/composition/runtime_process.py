@@ -600,6 +600,11 @@ class RuntimeProcessManager:
     def _exclusive(self) -> _RuntimeProcessLock:
         return _RuntimeProcessLock(self._lock_path)
 
+    def exclusive_environment(self) -> _RuntimeProcessLock:
+        """Fence Runtime start/stop while one stopped-only operation is active."""
+
+        return self._exclusive()
+
     def _clear_stale_files(self) -> None:
         for path in (
             self._descriptor_path(),

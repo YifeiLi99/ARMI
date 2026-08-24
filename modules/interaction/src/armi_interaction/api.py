@@ -9,9 +9,9 @@ from uuid import UUID
 
 from armi_kernel.application import (
     ArtifactId,
+    ArtifactPublication,
     ArtifactRef,
     ArtifactRegistration,
-    PublishedArtifact,
 )
 from armi_kernel.contracts import Digest, Instant, TraceId
 from armi_runtime_foundation import (
@@ -123,7 +123,7 @@ class InteractionArtifactCatalogPort(Protocol):
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         artifact_id: ArtifactId,
-        published: PublishedArtifact,
+        published: ArtifactPublication,
     ) -> ArtifactRegistration: ...
 
 

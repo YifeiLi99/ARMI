@@ -203,6 +203,10 @@ class DurableWorkWriter(Protocol):
         """Create or idempotently return one work item in the active transaction."""
         ...
 
+    async def reset_ready(self, work_ids: tuple[WorkId, ...]) -> int:
+        """Start an explicit retry cycle for failed work in the active transaction."""
+        ...
+
     async def release(
         self,
         lease: WorkLease,

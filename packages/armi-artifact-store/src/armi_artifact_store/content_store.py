@@ -5,28 +5,57 @@ from __future__ import annotations
 import asyncio
 import ctypes
 import hashlib
+import msvcrt
 import os
 import re
 import stat
 from collections.abc import AsyncIterable
-from contextlib import suppress
+from contextlib import AbstractContextManager, suppress
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from types import TracebackType
-from typing import BinaryIO, Final, Self
+from typing import BinaryIO, Final, Protocol, Self
 from uuid import UUID, uuid7
 
 from armi_kernel.application import (
     ArtifactId,
     ArtifactPolicy,
+    ArtifactPublication,
     ArtifactRef,
     ArtifactViolation,
-    PublishedArtifact,
     StagedArtifact,
 )
 from armi_kernel.contracts import Digest
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWork,
+    PostgreSQLRuntimeUnitOfWorkFactory,
+    RuntimeTransactionFailure,
+)
+
+
+class _PublicationCatalog(Protocol):
+    async def reserve_publication(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        staged: StagedArtifact,
+        *,
+        orphan_grace_seconds: int,
+    ) -> ArtifactPublication: ...
+
+    async def mark_publication_published(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        publication: ArtifactPublication,
+    ) -> None: ...
+
+    async def abandon_publication(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        publication: ArtifactPublication,
+    ) -> None: ...
+
 
 _OBJECT_NAME = re.compile(r"^[0-9a-f]{64}$", re.ASCII)
 _SHARD_NAME = re.compile(r"^[0-9a-f]{2}$", re.ASCII)
@@ -58,6 +87,49 @@ class UnregisteredArtifactDisposition(StrEnum):
     DELETED = "deleted"
     ALREADY_ABSENT = "already_absent"
     QUARANTINED = "quarantined"
+
+
+class _DigestFileLock(AbstractContextManager[None]):
+    __slots__ = ("_file", "_path")
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self._file: BinaryIO | None = None
+
+    def __enter__(self) -> None:
+        file_value: BinaryIO | None = None
+        try:
+            file_value = self._path.open("a+b")
+            file_value.seek(0, os.SEEK_END)
+            if file_value.tell() == 0:
+                file_value.write(b"0")
+                file_value.flush()
+            file_value.seek(0)
+            msvcrt.locking(file_value.fileno(), msvcrt.LK_LOCK, 1)
+        except OSError:
+            if file_value is not None:
+                with suppress(OSError):
+                    file_value.close()
+            raise ArtifactViolation("ART-LOCK-IO") from None
+        self._file = file_value
+
+    def __exit__(
+        self,
+        exception_type: type[BaseException] | None,
+        exception: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> bool:
+        if self._file is None:
+            return False
+        try:
+            self._file.seek(0)
+            msvcrt.locking(self._file.fileno(), msvcrt.LK_UNLCK, 1)
+            self._file.close()
+        except OSError:
+            raise ArtifactViolation("ART-LOCK-IO") from None
+        finally:
+            self._file = None
+        return False
 
 
 class _ByHandleFileInformation(ctypes.Structure):
@@ -114,27 +186,48 @@ class ContentAddressedArtifactStore:
     """Store immutable bytes below one explicit artifact root."""
 
     __slots__ = (
+        "_locks",
         "_max_object_bytes",
         "_objects",
+        "_orphan_grace_seconds",
+        "_publication_catalog",
+        "_publication_uow_factory",
         "_quarantine",
+        "_retiring",
         "_root",
         "_staged",
         "_staging",
     )
 
-    def __init__(self, artifact_root: object, *, max_object_bytes: int) -> None:
+    def __init__(
+        self,
+        artifact_root: object,
+        *,
+        max_object_bytes: int,
+        publication_catalog: _PublicationCatalog | None = None,
+        publication_uow_factory: PostgreSQLRuntimeUnitOfWorkFactory | None = None,
+        orphan_grace_seconds: int = 86_400,
+    ) -> None:
         if (
             not isinstance(artifact_root, Path)
             or not artifact_root.is_absolute()
             or type(max_object_bytes) is not int
             or max_object_bytes <= 0
+            or type(orphan_grace_seconds) is not int
+            or orphan_grace_seconds <= 0
+            or (publication_catalog is None) != (publication_uow_factory is None)
         ):
             raise ArtifactViolation("ART-DECLARATION")
         self._root = artifact_root
         self._objects = artifact_root / "objects"
+        self._locks = artifact_root / "locks"
         self._staging = artifact_root / "staging"
         self._quarantine = artifact_root / "quarantine"
+        self._retiring = artifact_root / "retiring"
         self._max_object_bytes = max_object_bytes
+        self._publication_catalog = publication_catalog
+        self._publication_uow_factory = publication_uow_factory
+        self._orphan_grace_seconds = orphan_grace_seconds
         self._staged: dict[ArtifactId, Path] = {}
 
     async def prepare(self) -> None:
@@ -191,64 +284,95 @@ class ContentAddressedArtifactStore:
         self._staged[stage_id] = stage_path
         return staged
 
-    async def publish(self, staged: StagedArtifact) -> PublishedArtifact:
+    async def publish(self, staged: StagedArtifact) -> ArtifactPublication:
         stage_path = self._staged.get(staged.stage_id)
         if stage_path is None:
             raise ArtifactViolation("ART-STATE")
         digest_hex = staged.content_digest.value.removeprefix("sha256:")
         target = self._object_path(digest_hex)
+        if self._publication_catalog is None or self._publication_uow_factory is None:
+            raise ArtifactViolation("ART-PUBLICATION-COORDINATOR")
+        publication: ArtifactPublication | None = None
+        file_published = False
+        digest_lock = self._digest_lock(digest_hex)
         try:
-            file_value = await asyncio.to_thread(
-                self._open_verified_sync,
-                stage_path,
-                staged.content_digest,
-                staged.byte_size,
-                self._staging,
+            await asyncio.to_thread(digest_lock.__enter__)
+            async with self._publication_uow_factory.unit_of_work() as unit:
+                publication = await self._publication_catalog.reserve_publication(
+                    unit,
+                    staged,
+                    orphan_grace_seconds=self._orphan_grace_seconds,
+                )
+            await asyncio.to_thread(
+                self._publish_unlocked_sync, stage_path, target, staged
             )
-            file_value.close()
-            await asyncio.to_thread(target.parent.mkdir, parents=True, exist_ok=True)
-            await asyncio.to_thread(self._assert_safe_tree)
-            await asyncio.to_thread(self._assert_safe_directory_chain, target.parent)
-            if stage_path.stat().st_dev != target.parent.stat().st_dev:
-                raise ArtifactViolation("ART-PATH-UNSAFE")
-            try:
-                await asyncio.to_thread(os.rename, stage_path, target)
-            except OSError:
-                if not target.exists():
-                    raise ArtifactViolation("ART-PUBLISH-IO") from None
-                try:
-                    file_value = await asyncio.to_thread(
-                        self._open_verified_sync,
-                        target,
-                        staged.content_digest,
-                        staged.byte_size,
-                        self._objects,
-                    )
-                    file_value.close()
-                except ArtifactViolation:
-                    quarantine = (
-                        self._quarantine / f"{digest_hex}.{uuid7().hex}.corrupt"
-                    )
-                    try:
-                        await asyncio.to_thread(os.rename, target, quarantine)
-                    except OSError:
-                        raise ArtifactViolation("ART-DIGEST-CONFLICT") from None
-                    await asyncio.to_thread(stage_path.unlink, missing_ok=True)
-                    raise ArtifactViolation("ART-DIGEST-CONFLICT") from None
-                await asyncio.to_thread(stage_path.unlink, missing_ok=True)
+            file_published = True
+            async with self._publication_uow_factory.unit_of_work() as unit:
+                await self._publication_catalog.mark_publication_published(
+                    unit, publication
+                )
         except ArtifactViolation:
+            if publication is not None and not file_published:
+                await self._abandon_failed_publication(publication)
             self._staged.pop(staged.stage_id, None)
             raise
+        except RuntimeTransactionFailure as error:
+            self._staged.pop(staged.stage_id, None)
+            raise ArtifactViolation(
+                "ART-COMMIT-UNKNOWN"
+                if error.code == "DB-TX-COMMIT-UNKNOWN"
+                else "ART-DATABASE"
+            ) from None
         except OSError:
+            if publication is not None and not file_published:
+                await self._abandon_failed_publication(publication)
             self._staged.pop(staged.stage_id, None)
             raise ArtifactViolation("ART-PUBLISH-IO") from None
+        finally:
+            await asyncio.to_thread(digest_lock.__exit__, None, None, None)
         self._staged.pop(staged.stage_id, None)
-        return PublishedArtifact(
-            stage_id=staged.stage_id,
-            content_digest=staged.content_digest,
-            byte_size=staged.byte_size,
-            policy=staged.policy,
-        )
+        return publication
+
+    async def publish_reserved(
+        self, staged: StagedArtifact, publication: ArtifactPublication
+    ) -> ArtifactPublication:
+        """Publish bytes only for an already durable, matching reservation."""
+
+        if (
+            publication.publication_id != staged.stage_id
+            or publication.content_digest != staged.content_digest
+            or publication.byte_size != staged.byte_size
+            or publication.policy != staged.policy
+        ):
+            raise ArtifactViolation("ART-PUBLICATION-CONFLICT")
+        stage_path = self._staged.get(staged.stage_id)
+        if stage_path is None:
+            raise ArtifactViolation("ART-STATE")
+        digest_hex = staged.content_digest.value.removeprefix("sha256:")
+        try:
+            await asyncio.to_thread(
+                self._publish_with_lock_sync,
+                stage_path,
+                self._object_path(digest_hex),
+                staged,
+                digest_hex,
+            )
+        except OSError:
+            raise ArtifactViolation("ART-PUBLISH-IO") from None
+        finally:
+            self._staged.pop(staged.stage_id, None)
+        return publication
+
+    async def _abandon_failed_publication(
+        self, publication: ArtifactPublication
+    ) -> None:
+        if self._publication_catalog is None or self._publication_uow_factory is None:
+            return
+        try:
+            async with self._publication_uow_factory.unit_of_work() as unit:
+                await self._publication_catalog.abandon_publication(unit, publication)
+        except RuntimeTransactionFailure:
+            raise ArtifactViolation("ART-COMMIT-UNKNOWN") from None
 
     async def discard(self, staged: StagedArtifact) -> None:
         path = self._staged.pop(staged.stage_id, None)
@@ -261,6 +385,21 @@ class ContentAddressedArtifactStore:
     async def open_verified(self, ref: ArtifactRef) -> VerifiedFileStream:
         file_value = await asyncio.to_thread(self._open_registered_sync, ref)
         return VerifiedFileStream(file_value)
+
+    async def publication_object_exists(self, digest: Digest, byte_size: int) -> bool:
+        digest_hex = digest.value.removeprefix("sha256:")
+        try:
+            file_value = await asyncio.to_thread(
+                self._open_verified_sync,
+                self._object_path(digest_hex),
+                digest,
+                byte_size,
+                self._objects,
+            )
+        except FileNotFoundError:
+            return False
+        file_value.close()
+        return True
 
     def read_verified_bytes(self, ref: ArtifactRef) -> bytes:
         """Read one registered object through the same verified storage boundary."""
@@ -317,13 +456,31 @@ class ContentAddressedArtifactStore:
             raise ArtifactViolation("ART-DELETE-IO") from None
         return UnregisteredArtifactDisposition.DELETED
 
-    async def delete_verified(self, ref: ArtifactRef) -> bool:
-        """Delete one exact registered object after revalidating its identity."""
+    async def retire_verified(self, ref: ArtifactRef, deletion_id: UUID) -> bool:
+        """Fence one object by digest and move it to its deletion token directory."""
 
         try:
-            return await asyncio.to_thread(self._delete_verified_sync, ref)
-        except FileNotFoundError:
-            return False
+            return await asyncio.to_thread(self._retire_verified_sync, ref, deletion_id)
+        except ArtifactViolation:
+            raise
+        except OSError:
+            raise ArtifactViolation("ART-DELETE-IO") from None
+
+    async def delete_retired(self, ref: ArtifactRef, deletion_id: UUID) -> bool:
+        """Unlink only the token file created for this deletion responsibility."""
+
+        try:
+            return await asyncio.to_thread(self._delete_retired_sync, ref, deletion_id)
+        except ArtifactViolation:
+            raise
+        except OSError:
+            raise ArtifactViolation("ART-DELETE-IO") from None
+
+    async def restore_retired(self, ref: ArtifactRef, deletion_id: UUID) -> bool:
+        """Restore a token when database revalidation finds a live/new reference."""
+
+        try:
+            return await asyncio.to_thread(self._restore_retired_sync, ref, deletion_id)
         except ArtifactViolation:
             raise
         except OSError:
@@ -369,8 +526,10 @@ class ContentAddressedArtifactStore:
         try:
             self._root.mkdir(parents=True, exist_ok=True)
             self._objects.mkdir(exist_ok=True)
+            self._locks.mkdir(exist_ok=True)
             self._staging.mkdir(exist_ok=True)
             self._quarantine.mkdir(exist_ok=True)
+            self._retiring.mkdir(exist_ok=True)
             self._assert_safe_tree()
             if self._objects.stat().st_dev != self._staging.stat().st_dev:
                 raise ArtifactViolation("ART-PATH-UNSAFE")
@@ -378,33 +537,6 @@ class ContentAddressedArtifactStore:
             raise
         except OSError:
             raise ArtifactViolation("ART-STAGING-IO") from None
-
-    def _delete_verified_sync(self, ref: ArtifactRef) -> bool:
-        self._prepare_sync()
-        digest_hex = ref.content_digest.value.removeprefix("sha256:")
-        path = self._object_path(digest_hex)
-        file_value = self._open_verified_sync(
-            path,
-            ref.content_digest,
-            ref.byte_size,
-            self._objects,
-        )
-        try:
-            opened = os.fstat(file_value.fileno())
-        finally:
-            file_value.close()
-        current = path.lstat()
-        if (
-            current.st_dev != opened.st_dev
-            or current.st_ino != opened.st_ino
-            or not stat.S_ISREG(current.st_mode)
-            or current.st_nlink != 1
-            or path.is_symlink()
-            or getattr(current, "st_file_attributes", 0) & _FILE_ATTRIBUTE_REPARSE_POINT
-        ):
-            raise ArtifactViolation("ART-PATH-UNSAFE")
-        path.unlink()
-        return True
 
     def _open_registered_sync(self, ref: ArtifactRef) -> BinaryIO:
         self._prepare_sync()
@@ -432,6 +564,8 @@ class ContentAddressedArtifactStore:
             self._objects,
             self._staging,
             self._quarantine,
+            self._locks,
+            self._retiring,
         ):
             metadata = path.lstat()
             attributes = getattr(metadata, "st_file_attributes", 0)
@@ -448,6 +582,110 @@ class ContentAddressedArtifactStore:
         if _OBJECT_NAME.fullmatch(digest_hex) is None:
             raise ArtifactViolation("ART-DECLARATION")
         return self._objects / "sha256" / digest_hex[:2] / digest_hex[2:4] / digest_hex
+
+    def _digest_lock(self, digest_hex: str) -> AbstractContextManager[None]:
+        if _OBJECT_NAME.fullmatch(digest_hex) is None:
+            raise ArtifactViolation("ART-DECLARATION")
+        return _DigestFileLock(self._locks / f"sha256-{digest_hex}.lock")
+
+    def _token_path(self, digest_hex: str, deletion_id: UUID) -> Path:
+        return self._retiring / str(deletion_id) / digest_hex
+
+    def _publish_unlocked_sync(
+        self,
+        stage_path: Path,
+        target: Path,
+        staged: StagedArtifact,
+    ) -> None:
+        digest_hex = staged.content_digest.value.removeprefix("sha256:")
+        file_value = self._open_verified_sync(
+            stage_path, staged.content_digest, staged.byte_size, self._staging
+        )
+        file_value.close()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        self._assert_safe_tree()
+        self._assert_safe_directory_chain(target.parent)
+        if stage_path.stat().st_dev != target.parent.stat().st_dev:
+            raise ArtifactViolation("ART-PATH-UNSAFE")
+        try:
+            os.rename(stage_path, target)
+        except OSError:
+            if not target.exists():
+                raise ArtifactViolation("ART-PUBLISH-IO") from None
+            try:
+                file_value = self._open_verified_sync(
+                    target, staged.content_digest, staged.byte_size, self._objects
+                )
+                file_value.close()
+            except ArtifactViolation:
+                quarantine = self._quarantine / f"{digest_hex}.{uuid7().hex}.corrupt"
+                try:
+                    os.rename(target, quarantine)
+                except OSError:
+                    raise ArtifactViolation("ART-DIGEST-CONFLICT") from None
+                stage_path.unlink(missing_ok=True)
+                raise ArtifactViolation("ART-DIGEST-CONFLICT") from None
+            stage_path.unlink(missing_ok=True)
+
+    def _publish_with_lock_sync(
+        self,
+        stage_path: Path,
+        target: Path,
+        staged: StagedArtifact,
+        digest_hex: str,
+    ) -> None:
+        with self._digest_lock(digest_hex):
+            self._publish_unlocked_sync(stage_path, target, staged)
+
+    def _retire_verified_sync(self, ref: ArtifactRef, deletion_id: UUID) -> bool:
+        self._prepare_sync()
+        digest_hex = ref.content_digest.value.removeprefix("sha256:")
+        active = self._object_path(digest_hex)
+        token = self._token_path(digest_hex, deletion_id)
+        with self._digest_lock(digest_hex):
+            if token.exists():
+                return False
+            if not active.exists():
+                return False
+            file_value = self._open_verified_sync(
+                active, ref.content_digest, ref.byte_size, self._objects
+            )
+            file_value.close()
+            token.parent.mkdir(parents=False, exist_ok=True)
+            self._assert_safe_tree()
+            os.rename(active, token)
+            return True
+
+    def _delete_retired_sync(self, ref: ArtifactRef, deletion_id: UUID) -> bool:
+        self._prepare_sync()
+        digest_hex = ref.content_digest.value.removeprefix("sha256:")
+        token = self._token_path(digest_hex, deletion_id)
+        with self._digest_lock(digest_hex):
+            if not token.exists():
+                return False
+            file_value = self._open_verified_sync(
+                token, ref.content_digest, ref.byte_size, self._retiring
+            )
+            file_value.close()
+            token.unlink()
+            token.parent.rmdir()
+            return True
+
+    def _restore_retired_sync(self, ref: ArtifactRef, deletion_id: UUID) -> bool:
+        self._prepare_sync()
+        digest_hex = ref.content_digest.value.removeprefix("sha256:")
+        active = self._object_path(digest_hex)
+        token = self._token_path(digest_hex, deletion_id)
+        with self._digest_lock(digest_hex):
+            if not token.exists():
+                return False
+            if active.exists():
+                raise ArtifactViolation("ART-GENERATION-CONFLICT")
+            active.parent.mkdir(parents=True, exist_ok=True)
+            self._assert_safe_directory_chain(active.parent)
+            os.rename(token, active)
+            token.parent.rmdir()
+            return True
 
     def _assert_safe_directory_chain(self, leaf: Path) -> None:
         root = self._objects.resolve(strict=True)

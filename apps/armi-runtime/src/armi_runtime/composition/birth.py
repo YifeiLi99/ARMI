@@ -16,6 +16,7 @@ from armi_kernel.application import (
     ArtifactId,
     ArtifactPolicy,
     ArtifactPrivacyScope,
+    ArtifactPublication,
     ArtifactRegistration,
     ArtifactViolation,
     AuditDraft,
@@ -27,7 +28,6 @@ from armi_kernel.application import (
     BirthManifest,
     BirthResult,
     BirthViolation,
-    PublishedArtifact,
     TransactionIsolation,
 )
 from armi_kernel.contracts import Purpose, SubjectId, TraceId
@@ -134,7 +134,7 @@ class BirthTransaction:
     async def _attempt(
         self,
         manifest: BirthManifest,
-        anchor: PublishedArtifact,
+        anchor: ArtifactPublication,
         trace_id: TraceId,
     ) -> BirthResult:
         async with self._uow_factory.bootstrap_birth_unit_of_work(
@@ -183,7 +183,7 @@ class BirthTransaction:
     async def _register_artifact(
         self,
         unit_of_work: PostgreSQLUnitOfWork,
-        published: PublishedArtifact,
+        published: ArtifactPublication,
         manifest: BirthManifest,
         trace_id: TraceId,
     ) -> ArtifactRegistration:
@@ -237,14 +237,19 @@ async def execute_birth_with_conninfo(
         pool_max=config.database.pool_max,
         acquire_timeout_seconds=config.database.pool_acquire_timeout_seconds,
         statement_timeout_seconds=config.database.statement_timeout_seconds,
+        require_runtime_fence=False,
     )
+    catalog = bootstrap_artifact_catalog()
     storage = ContentAddressedArtifactStore(
         prepared.data_root / "artifacts",
         max_object_bytes=config.artifacts.max_object_bytes,
+        publication_catalog=catalog,
+        publication_uow_factory=factory,
+        orphan_grace_seconds=config.artifacts.orphan_grace_seconds,
     )
     transaction = BirthTransaction(
         storage,
-        bootstrap_artifact_catalog(),
+        catalog,
         BirthRepository(
             bootstrap_subject_state().birth,
             bootstrap_mood().birth,

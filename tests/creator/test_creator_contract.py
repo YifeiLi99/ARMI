@@ -141,6 +141,7 @@ class CreatorContractTests(unittest.TestCase):
                 "/v1/exports/{export_id}",
                 "/v1/data-rights/orders",
                 "/v1/data-rights/orders/{order_id}",
+                "/v1/data-rights/orders/{order_id}/retry",
                 "/v1/effects/{effect_id}",
                 "/v1/effects/{effect_id}/artifacts/{artifact_kind}",
                 "/v1/subject/summary",
@@ -231,6 +232,9 @@ class CreatorContractTests(unittest.TestCase):
             set(data_rights_query["responses"]),
             {"200", "400", "401", "403", "404", "503"},
         )
+        data_rights_retry = paths["/v1/data-rights/orders/{order_id}/retry"]["post"]
+        self.assertEqual(data_rights_retry["operationId"], "retryDataRightsOrder")
+        self.assertEqual(data_rights_retry["security"], [{"browserSessionBearer": []}])
         timeline = paths["/v1/scenes/{scene_key}/timeline"]["get"]
         self.assertEqual(timeline["operationId"], "getSceneTimeline")
         self.assertEqual(timeline["security"], [{"browserSessionBearer": []}])

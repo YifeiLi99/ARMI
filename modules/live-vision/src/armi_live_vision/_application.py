@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid7
 
+from armi_artifact_store.api import ArtifactCatalogPort
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_attention.api import (
     ExternalEvidenceOpportunityDraft,
@@ -115,7 +118,7 @@ class DurableVisualObservationCoordinator:
                        WHERE artifact_id IS NOT NULL AND purge_after<=statement_timestamp()"""
                 )
                 for row in rows:
-                    await self._catalog.mark_deleted(unit, ArtifactId(row[0]))
+                    await self._catalog.retire_artifact(unit, ArtifactId(row[0]))
         return len(rows)
 
     async def observe(
@@ -357,8 +360,68 @@ class DurableVisualObservationCoordinator:
         return await self._storage.publish(staged)
 
 
+class LiveVisionRetentionCoordinator:
+    """Expire frame logical artifacts even when camera capability is disabled."""
+
+    __slots__ = ("_catalog", "_factory", "_stop")
+
+    def __init__(
+        self,
+        factory: PostgreSQLRuntimeUnitOfWorkFactory,
+        catalog: ArtifactCatalogPort,
+    ) -> None:
+        self._factory = factory
+        self._catalog = catalog
+        self._stop = asyncio.Event()
+
+    async def purge_once(self) -> int:
+        async with self._factory.unit_of_work() as unit:
+            rows = await (
+                await unit.transaction.execute(
+                    """SELECT observation_id,ordinal,artifact_id
+                       FROM armi.live_vision_observation_frames
+                       WHERE artifact_id IS NOT NULL
+                         AND purge_after<=statement_timestamp()
+                       ORDER BY purge_after,observation_id,ordinal
+                       FOR UPDATE SKIP LOCKED"""
+                )
+            ).fetchall()
+            for observation_id, ordinal, artifact_id in rows:
+                await self._catalog.retire_artifact(unit, ArtifactId(artifact_id))
+                await unit.transaction.execute(
+                    """UPDATE armi.live_vision_observation_frames
+                       SET artifact_id=NULL,purged_at=statement_timestamp()
+                       WHERE observation_id=%s AND ordinal=%s AND artifact_id=%s""",
+                    (observation_id, ordinal, artifact_id),
+                )
+        return len(rows)
+
+    async def run(self) -> None:
+        while not self._stop.is_set():
+            await self.purge_once()
+            async with self._factory.unit_of_work(read_only=True) as unit:
+                row = await (
+                    await unit.transaction.execute(
+                        """SELECT min(purge_after)
+                           FROM armi.live_vision_observation_frames
+                           WHERE artifact_id IS NOT NULL"""
+                    )
+                ).fetchone()
+            delay = 60.0
+            if row is not None and row[0] is not None:
+                delay = max(
+                    0.1,
+                    min(60.0, (row[0] - datetime.now(UTC)).total_seconds()),
+                )
+            with suppress(TimeoutError):
+                await asyncio.wait_for(self._stop.wait(), timeout=delay)
+
+    def stop(self) -> None:
+        self._stop.set()
+
+
 async def _one_chunk(value: bytes) -> AsyncIterator[bytes]:
     yield value
 
 
-__all__ = ("DurableVisualObservationCoordinator",)
+__all__ = ("DurableVisualObservationCoordinator", "LiveVisionRetentionCoordinator")

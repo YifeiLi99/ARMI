@@ -1,35 +1,117 @@
 -- Current ARMI schema tables owned by this baseline module.
 
 --
+-- Name: artifact_objects; Type: TABLE; Schema: armi; Owner: -
+--
+
+CREATE TABLE armi.artifact_objects (
+    artifact_object_id uuid NOT NULL,
+    content_digest text NOT NULL,
+    byte_size bigint NOT NULL,
+    storage_locator text NOT NULL,
+    generation bigint DEFAULT 1 NOT NULL,
+    object_status text DEFAULT 'available'::text NOT NULL,
+    integrity_status text DEFAULT 'verified'::text NOT NULL,
+    created_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
+    updated_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
+    CONSTRAINT artifact_objects_artifact_object_id_check CHECK ((uuid_extract_version(artifact_object_id) = 7)),
+    CONSTRAINT artifact_objects_byte_size_check CHECK ((byte_size > 0)),
+    CONSTRAINT artifact_objects_content_digest_check CHECK ((content_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT artifact_objects_generation_check CHECK ((generation >= 1)),
+    CONSTRAINT artifact_objects_integrity_status_check CHECK ((integrity_status = ANY (ARRAY['verified'::text, 'missing'::text, 'corrupt'::text]))),
+    CONSTRAINT artifact_objects_object_status_check CHECK ((object_status = ANY (ARRAY['publishing'::text, 'available'::text, 'retiring'::text, 'absent'::text, 'corrupt'::text]))),
+    CONSTRAINT artifact_objects_storage_locator_check CHECK ((storage_locator = ((((('objects/sha256/'::text || SUBSTRING(content_digest FROM 8 FOR 2)) || '/'::text) || SUBSTRING(content_digest FROM 10 FOR 2)) || '/'::text) || SUBSTRING(content_digest FROM 8))))
+);
+
+--
 -- Name: artifacts; Type: TABLE; Schema: armi; Owner: -
 --
 
 CREATE TABLE armi.artifacts (
     artifact_id uuid NOT NULL,
-    content_digest text NOT NULL,
+    artifact_object_id uuid NOT NULL,
+    object_generation bigint NOT NULL,
     media_type text NOT NULL,
-    byte_size bigint NOT NULL,
-    storage_locator text NOT NULL,
     logical_kind text NOT NULL,
     producer_kind text NOT NULL,
     producer_trace_id text NOT NULL,
     privacy_scope text NOT NULL,
-    integrity_status text DEFAULT 'verified'::text NOT NULL,
     retention_status text DEFAULT 'retained'::text NOT NULL,
     created_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
     deleted_at timestamp(6) with time zone,
     CONSTRAINT artifacts_artifact_id_check CHECK ((uuid_extract_version(artifact_id) = 7)),
-    CONSTRAINT artifacts_byte_size_check CHECK ((byte_size > 0)),
     CONSTRAINT artifacts_check CHECK ((((retention_status = 'retained'::text) AND (deleted_at IS NULL)) OR ((retention_status = 'deleted'::text) AND (deleted_at IS NOT NULL)))),
-    CONSTRAINT artifacts_check1 CHECK ((storage_locator = ((((('objects/sha256/'::text || SUBSTRING(content_digest FROM 8 FOR 2)) || '/'::text) || SUBSTRING(content_digest FROM 10 FOR 2)) || '/'::text) || SUBSTRING(content_digest FROM 8)))),
-    CONSTRAINT artifacts_content_digest_check CHECK ((content_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
-    CONSTRAINT artifacts_integrity_status_check CHECK ((integrity_status = ANY (ARRAY['verified'::text, 'missing'::text, 'corrupt'::text]))),
     CONSTRAINT artifacts_logical_kind_check CHECK ((logical_kind ~ '^[a-z][a-z0-9._-]{0,63}$'::text)),
     CONSTRAINT artifacts_media_type_check CHECK (((length(media_type) <= 127) AND (media_type ~ '^[a-z0-9][a-z0-9!#$&^_.+-]{0,62}/[a-z0-9][a-z0-9!#$&^_.+-]{0,62}$'::text))),
+    CONSTRAINT artifacts_object_generation_check CHECK ((object_generation >= 1)),
     CONSTRAINT artifacts_privacy_scope_check CHECK ((privacy_scope = ANY (ARRAY['creator_visible'::text, 'private'::text, 'shared'::text, 'restricted'::text]))),
     CONSTRAINT artifacts_producer_kind_check CHECK ((producer_kind ~ '^[a-z][a-z0-9._-]{0,63}$'::text)),
     CONSTRAINT artifacts_producer_trace_id_check CHECK (((producer_trace_id ~ '^[0-9a-f]{32}$'::text) AND (producer_trace_id <> repeat('0'::text, 32)))),
     CONSTRAINT artifacts_retention_status_check CHECK ((retention_status = ANY (ARRAY['retained'::text, 'deleted'::text])))
+);
+
+--
+-- Name: artifact_publications; Type: TABLE; Schema: armi; Owner: -
+--
+
+CREATE TABLE armi.artifact_publications (
+    publication_id uuid NOT NULL,
+    artifact_object_id uuid NOT NULL,
+    object_generation bigint NOT NULL,
+    declaration_digest text NOT NULL,
+    status text NOT NULL,
+    expires_at timestamp(6) with time zone NOT NULL,
+    published_at timestamp(6) with time zone,
+    consumed_at timestamp(6) with time zone,
+    created_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
+    CONSTRAINT artifact_publications_declaration_digest_check CHECK ((declaration_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT artifact_publications_generation_check CHECK ((object_generation >= 1)),
+    CONSTRAINT artifact_publications_id_check CHECK ((uuid_extract_version(publication_id) = 7)),
+    CONSTRAINT artifact_publications_status_check CHECK ((status = ANY (ARRAY['reserved'::text, 'published'::text, 'consumed'::text, 'abandoned'::text]))),
+    CONSTRAINT artifact_publications_state_check CHECK ((((status = 'reserved'::text) AND (published_at IS NULL) AND (consumed_at IS NULL)) OR ((status = 'published'::text) AND (published_at IS NOT NULL) AND (consumed_at IS NULL)) OR ((status = 'consumed'::text) AND (published_at IS NOT NULL) AND (consumed_at IS NOT NULL)) OR ((status = 'abandoned'::text) AND (consumed_at IS NULL))))
+);
+
+--
+-- Name: artifact_object_deletions; Type: TABLE; Schema: armi; Owner: -
+--
+
+CREATE TABLE armi.artifact_object_deletions (
+    artifact_object_deletion_id uuid NOT NULL,
+    artifact_object_id uuid NOT NULL,
+    object_generation bigint NOT NULL,
+    status text NOT NULL,
+    retry_cycle integer DEFAULT 1 NOT NULL,
+    attempt_count integer DEFAULT 0 NOT NULL,
+    last_error_code text,
+    created_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
+    updated_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
+    completed_at timestamp(6) with time zone,
+    CONSTRAINT artifact_object_deletions_attempt_count_check CHECK (((attempt_count >= 0) AND (attempt_count <= 8))),
+    CONSTRAINT artifact_object_deletions_generation_check CHECK ((object_generation >= 1)),
+    CONSTRAINT artifact_object_deletions_id_check CHECK ((uuid_extract_version(artifact_object_deletion_id) = 7)),
+    CONSTRAINT artifact_object_deletions_retry_cycle_check CHECK ((retry_cycle >= 1)),
+    CONSTRAINT artifact_object_deletions_status_check CHECK ((status = ANY (ARRAY['ready'::text, 'retry_wait'::text, 'retiring'::text, 'completed'::text, 'cancelled'::text, 'blocked'::text]))),
+    CONSTRAINT artifact_object_deletions_terminal_check CHECK (((status = ANY (ARRAY['completed'::text, 'cancelled'::text, 'blocked'::text])) = (completed_at IS NOT NULL)))
+);
+
+--
+-- Name: artifact_object_deletion_attempts; Type: TABLE; Schema: armi; Owner: -
+--
+
+CREATE TABLE armi.artifact_object_deletion_attempts (
+    artifact_object_deletion_attempt_id uuid NOT NULL,
+    artifact_object_deletion_id uuid NOT NULL,
+    retry_cycle integer NOT NULL,
+    attempt_no integer NOT NULL,
+    result_status text NOT NULL,
+    error_code text,
+    started_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
+    settled_at timestamp(6) with time zone,
+    CONSTRAINT artifact_object_deletion_attempts_attempt_no_check CHECK (((attempt_no >= 1) AND (attempt_no <= 8))),
+    CONSTRAINT artifact_object_deletion_attempts_id_check CHECK ((uuid_extract_version(artifact_object_deletion_attempt_id) = 7)),
+    CONSTRAINT artifact_object_deletion_attempts_result_check CHECK ((result_status = ANY (ARRAY['started'::text, 'retryable'::text, 'completed'::text, 'cancelled'::text, 'blocked'::text, 'unknown'::text]))),
+    CONSTRAINT artifact_object_deletion_attempts_retry_cycle_check CHECK ((retry_cycle >= 1)),
+    CONSTRAINT artifact_object_deletion_attempts_state_check CHECK ((((result_status = 'started'::text) AND (settled_at IS NULL) AND (error_code IS NULL)) OR ((result_status <> 'started'::text) AND (settled_at IS NOT NULL))))
 );
 
 --

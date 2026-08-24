@@ -46,6 +46,7 @@ from armi_kernel.application import (
     ArtifactId,
     ArtifactPolicy,
     ArtifactPrivacyScope,
+    ArtifactPublication,
     ArtifactRef,
     ArtifactViolation,
     AuditDraft,
@@ -57,7 +58,6 @@ from armi_kernel.application import (
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
     CreatorResourceKind,
-    PublishedArtifact,
     SubjectCommitResult,
     SubjectCommitViolation,
     WorkLease,
@@ -292,7 +292,7 @@ class SubjectCommitPipeline:
                 else None
             )
             material_drafts = owner_drafts.material
-            published_materials: list[tuple[str, PublishedArtifact]] = []
+            published_materials: list[tuple[str, ArtifactPublication]] = []
             for material in material_drafts:
                 if material.body_bytes is None:
                     continue
@@ -646,7 +646,7 @@ class SubjectCommitPipeline:
 
     async def _publish_material(
         self, body_bytes: bytes, snapshot: SubjectCommitSnapshot
-    ) -> PublishedArtifact:
+    ) -> ArtifactPublication:
         try:
             content = build_life_material_artifact(body_bytes)
             staged = await self._storage.stage(
@@ -665,7 +665,7 @@ class SubjectCommitPipeline:
 
     async def _publish_prompt(
         self, content_bytes: bytes, snapshot: SubjectCommitSnapshot
-    ) -> PublishedArtifact:
+    ) -> ArtifactPublication:
         try:
             staged = await self._storage.stage(
                 _one_chunk(content_bytes),
@@ -838,6 +838,7 @@ def build_subject_commit_pipeline(
     *,
     data_root: Path,
     max_object_bytes: int,
+    orphan_grace_seconds: int,
     catalog: ArtifactCatalogPort,
     change_set_codec: SubjectChangeSetCodec,
     activity_cognition: ActivityCognitionPort,
@@ -877,7 +878,11 @@ def build_subject_commit_pipeline(
     return SubjectCommitPipeline(
         factory=factory,
         storage=ContentAddressedArtifactStore(
-            data_root / "artifacts", max_object_bytes=max_object_bytes
+            data_root / "artifacts",
+            max_object_bytes=max_object_bytes,
+            publication_catalog=catalog,
+            publication_uow_factory=factory,
+            orphan_grace_seconds=orphan_grace_seconds,
         ),
         catalog=catalog,
         change_set_codec=change_set_codec,

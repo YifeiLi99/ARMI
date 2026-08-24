@@ -134,6 +134,22 @@ export async function getDataRightsOrders(
   return requireJson(response);
 }
 
+export async function retryDataRightsOrder(
+  token: string,
+  orderId: string,
+  idempotencyKey: string,
+): Promise<DataRightsOrder> {
+  const response = await fetch(`/v1/data-rights/orders/${orderId}/retry`, {
+    method: "POST",
+    credentials: "omit",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Idempotency-Key": idempotencyKey,
+    },
+  });
+  return requireJson(response);
+}
+
 async function safeErrorCode(
   response: globalThis.Response,
 ): Promise<string | undefined> {

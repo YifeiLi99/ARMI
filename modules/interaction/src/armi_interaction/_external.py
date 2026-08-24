@@ -12,6 +12,7 @@ from armi_kernel.application import (
     ArtifactId,
     ArtifactPolicy,
     ArtifactPrivacyScope,
+    ArtifactPublication,
     ArtifactViolation,
     AuditDraft,
     AuditEventId,
@@ -21,7 +22,6 @@ from armi_kernel.application import (
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
     CreatorResourceKind,
-    PublishedArtifact,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, Purpose, SubjectId
 from armi_runtime_foundation import (
@@ -304,7 +304,7 @@ class ExternalMessageInputService(ExternalMessageInputPort):
         idempotency_key: IdempotencyKey,
         request_digest: Digest,
         content_digest: Digest,
-        published: PublishedArtifact | None,
+        published: ArtifactPublication | None,
         deferred: str | None,
     ) -> ExternalMessageInputAcceptance:
         async with self._factory.unit_of_work() as unit_of_work:

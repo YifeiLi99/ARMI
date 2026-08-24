@@ -16,7 +16,8 @@ def _capabilities(
 
 _RUNTIME_INSERT = """
 accepted_experiences action_intent_revisions action_intents activities
-activity_decisions activity_revisions artifacts audit_events
+activity_decisions activity_revisions artifact_object_deletion_attempts
+artifact_object_deletions artifact_objects artifact_publications artifacts audit_events
 capability_request_basis_links capability_request_decisions capability_requests
 codex_result_sources codex_task_sources codex_verification_results
 cognition_maintenance_batch_sources cognition_maintenance_batches
@@ -25,7 +26,8 @@ cognitive_candidate_applications cognitive_candidate_basis_links
 cognitive_candidate_validation_items cognitive_candidate_validations
 cognitive_context_items cognitive_dialogue_aggregates cognitive_episodes
 context_embedding_attempts context_embedding_coverage
-context_embedding_projections creator_exports deletion_items deletion_orders
+context_embedding_projections creator_exports deletion_items
+deletion_order_retry_attempts deletion_orders
 dialogue_decisions durable_work effect_attempts effect_observations
 effect_outbox_items effects exact_life_query_intents experience_evidence_links
 external_channel_bindings external_content_recognition_attempts
@@ -48,7 +50,8 @@ web_observation_requests web_research_intents
 """
 
 _RUNTIME_UPDATE = """
-action_intent_revisions action_intents activities activity_decisions artifacts
+action_intent_revisions action_intents activities activity_decisions
+artifact_object_deletions artifact_objects artifact_publications artifacts
 capability_requests cognition_maintenance_batch_sources
 cognition_maintenance_batches cognition_maintenance_cursors cognitive_attempts
 cognitive_branches cognitive_dialogue_aggregates cognitive_episodes
@@ -69,12 +72,14 @@ visual_recognition_attempts web_observation_requests web_research_intents
 
 _ADMIN_INSERT = """
 deployment_environments durable_work effect_observations mood_revisions
-subject_component_revisions
+subject_component_revisions artifact_object_deletion_attempts
+artifact_object_deletions artifact_objects artifact_publications artifacts
 """
 
 _ADMIN_UPDATE = """
 durable_work effect_outbox_items effects mood_heads runtime_instances
-subject_component_heads subjects
+subject_component_heads subjects artifact_object_deletions artifact_objects
+artifact_publications artifacts
 """
 
 _ADMIN_DELETE = """

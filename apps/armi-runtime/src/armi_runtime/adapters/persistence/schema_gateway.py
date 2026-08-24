@@ -30,7 +30,7 @@ _EXPECTED_ENCODING: Final = "UTF8"
 _EXPECTED_TIMEZONE: Final = "UTC"
 _EXPECTED_LOCALE: Final = "C.UTF-8"
 _VERSION_TABLE: Final = "alembic_version"
-_BASELINE_IDENTITY: Final = "armi.schema-baseline.v1"
+_BASELINE_IDENTITY: Final = "armi.schema-baseline.v2"
 
 
 @dataclass(frozen=True, slots=True)

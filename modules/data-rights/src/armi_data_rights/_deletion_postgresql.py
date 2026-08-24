@@ -5,10 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID, uuid7
 
-from armi_artifact_store.api import ArtifactCatalogPort
+from armi_artifact_store.api import ArtifactCatalogPort, ArtifactLifecyclePort
 from armi_kernel.application import (
     ArtifactId,
-    ArtifactRef,
     AuditDraft,
     AuditEventId,
     AuditReference,
@@ -32,19 +31,21 @@ from .api import (
 @dataclass(frozen=True, slots=True)
 class DeletionArtifactItem:
     item_id: UUID
-    ref: ArtifactRef
-    exclusive: bool
+    artifact_id: UUID
+    deletion_id: UUID
 
 
 class LocalDataDeletionRepository:
-    __slots__ = ("_catalog", "_participants")
+    __slots__ = ("_catalog", "_lifecycle", "_participants")
 
     def __init__(
         self,
         catalog: ArtifactCatalogPort,
+        lifecycle: ArtifactLifecyclePort,
         participants: tuple[DataRightsParticipant, ...],
     ) -> None:
         self._catalog = catalog
+        self._lifecycle = lifecycle
         self._participants = participants
 
     async def pending_order_ids(
@@ -86,7 +87,7 @@ class LocalDataDeletionRepository:
             return ()
         existing_items = await (
             await transaction.execute(
-                """SELECT deletion_item_id, target_ref
+                """SELECT deletion_item_id,target_ref,artifact_object_deletion_id
                    FROM armi.deletion_items
                    WHERE deletion_order_id = %s
                      AND target_kind = 'artifact'
@@ -107,12 +108,11 @@ class LocalDataDeletionRepository:
             raise DataRightsViolation("DATA-RIGHTS-ITEM-STATE")
         if int(item_count[0]) > 0:
             pending: list[DeletionArtifactItem] = []
-            for item_id, artifact_id in existing_items:
-                ref = await self._catalog.retained_ref(
-                    unit_of_work, ArtifactId(artifact_id)
-                )
-                if ref is not None:
-                    pending.append(DeletionArtifactItem(item_id, ref, True))
+            for item_id, artifact_id, deletion_id in existing_items:
+                if deletion_id is not None:
+                    pending.append(
+                        DeletionArtifactItem(item_id, artifact_id, deletion_id)
+                    )
             return tuple(pending)
         await transaction.execute(
             """UPDATE armi.deletion_orders SET execution_status = 'executing'
@@ -190,7 +190,37 @@ class LocalDataDeletionRepository:
                     unit_of_work, ArtifactId(artifact_id)
                 )
                 if ref is not None:
-                    artifact_items.append(DeletionArtifactItem(item_id, ref, True))
+                    retirement = await self._catalog.retire_artifact(
+                        unit_of_work, ArtifactId(artifact_id)
+                    )
+                    if retirement.shared_local_reference:
+                        await transaction.execute(
+                            """UPDATE armi.deletion_items
+                               SET result_status='completed',
+                                   remaining_location='shared_local_reference',
+                                   completed_at=statement_timestamp()
+                               WHERE deletion_item_id=%s""",
+                            (item_id,),
+                        )
+                    elif retirement.deletion_id is not None:
+                        await transaction.execute(
+                            """UPDATE armi.deletion_items
+                               SET artifact_object_deletion_id=%s
+                               WHERE deletion_item_id=%s""",
+                            (retirement.deletion_id, item_id),
+                        )
+                        artifact_items.append(
+                            DeletionArtifactItem(
+                                item_id, artifact_id, retirement.deletion_id
+                            )
+                        )
+                else:
+                    await transaction.execute(
+                        """UPDATE armi.deletion_items
+                           SET result_status='completed',completed_at=statement_timestamp()
+                           WHERE deletion_item_id=%s""",
+                        (item_id,),
+                    )
         return tuple(artifact_items)
 
     async def _insert_target(
@@ -227,35 +257,41 @@ class LocalDataDeletionRepository:
             raise DataRightsViolation("DATA-RIGHTS-ITEM-STATE")
         return row[0]
 
-    async def settle_artifact(
+    async def reconcile_artifacts(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         *,
         order_id: UUID,
-        item_id: UUID,
-        artifact_id: UUID,
-        completed: bool,
     ) -> None:
-        if completed:
-            await self._catalog.mark_deleted(unit_of_work, ArtifactId(artifact_id))
-        row = await (
+        rows = await (
+            await unit_of_work.transaction.execute(
+                """SELECT artifact_object_deletion_id FROM armi.deletion_items
+                   WHERE deletion_order_id=%s AND result_status='pending'
+                     AND artifact_object_deletion_id IS NOT NULL""",
+                (order_id,),
+            )
+        ).fetchall()
+        deletion_ids = tuple(row[0] for row in rows)
+        states = await self._lifecycle.deletion_states(
+            unit_of_work.transaction, deletion_ids
+        )
+        for state in states:
+            if state.status not in {"completed", "cancelled", "blocked"}:
+                continue
+            blocked = state.status == "blocked"
             await unit_of_work.transaction.execute(
                 """UPDATE armi.deletion_items
-                   SET result_status = %s, remaining_location = %s,
-                       completed_at = statement_timestamp()
-                   WHERE deletion_item_id = %s AND deletion_order_id = %s
-                     AND result_status = 'pending'
-                   RETURNING deletion_item_id""",
+                   SET result_status=%s,remaining_location=%s,
+                       completed_at=statement_timestamp()
+                   WHERE deletion_order_id=%s AND result_status='pending'
+                     AND artifact_object_deletion_id=%s""",
                 (
-                    "completed" if completed else "partial",
-                    None if completed else "local_artifact_store",
-                    item_id,
+                    "partial" if blocked else "completed",
+                    "local_artifact_store" if blocked else None,
                     order_id,
+                    state.deletion_id,
                 ),
             )
-        ).fetchone()
-        if row is None:
-            raise DataRightsViolation("DATA-RIGHTS-ITEM-STATE")
 
     async def finalize(
         self,

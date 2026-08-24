@@ -135,6 +135,26 @@ class PostgreSQLDurableWorkWriter:
         except psycopg.Error:
             raise WorkViolation("WORK-DATABASE") from None
 
+    async def reset_ready(self, work_ids: tuple[WorkId, ...]) -> int:
+        if not work_ids:
+            return 0
+        try:
+            result = await self._connection.execute(
+                """UPDATE armi.durable_work
+                   SET status='ready',attempt_count=0,current_attempt_id=NULL,
+                       lease_owner=NULL,lease_expires_at=NULL,last_error_code=NULL,
+                       not_before=statement_timestamp(),
+                       deadline_at=statement_timestamp()+interval '59 minutes',
+                       updated_at=clock_timestamp()
+                   WHERE work_id=ANY(%s::uuid[])
+                     AND work_kind='artifact.object.delete'
+                     AND status='failed'""",
+                (tuple(item.value for item in work_ids),),
+            )
+            return result.rowcount
+        except psycopg.Error:
+            raise WorkViolation("WORK-DATABASE") from None
+
     async def _select_by_identity(self, draft: WorkDraft) -> WorkRecord | None:
         row = await (
             await self._connection.execute(

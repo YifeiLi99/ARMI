@@ -291,31 +291,29 @@ class RuntimeFoundationAdminAdapter:
         self, transaction: PostgreSQLAdminTransaction, *, work_id: UUID
     ) -> UUID | None:
         row = transaction.execute(
-            "SELECT work_id FROM armi.durable_work WHERE work_id=%s AND work_kind='admin.correction.artifact-cleanup'",
+            "SELECT work_id FROM armi.durable_work WHERE work_id=%s AND work_kind='artifact.object.delete'",
             (work_id,),
         ).fetchone()
         return None if row is None else cast(UUID, row[0])
 
-    def create_cleanup_work(
+    def create_artifact_deletion_work(
         self,
         transaction: PostgreSQLAdminTransaction,
         *,
-        work_id: UUID,
-        result_id: UUID,
-        subject_id: UUID,
-        artifact_id: UUID,
+        deletion_id: UUID,
+        artifact_object_id: UUID,
         content_digest: str,
+        trace_id: UUID,
     ) -> None:
         transaction.execute(
-            "INSERT INTO armi.durable_work (work_id,work_kind,owner_kind,owner_ref,subject_id,idempotency_key,payload_kind,payload_ref,payload_digest,priority,not_before,deadline_at,status,max_attempts,attempt_count,lease_token,trace_id) VALUES (%s,'admin.correction.artifact-cleanup','admin_correction',%s,%s,%s,'artifact',%s,%s,100,statement_timestamp(),statement_timestamp()+interval '24 hours','ready',1,0,0,%s)",
+            "INSERT INTO armi.durable_work (work_id,work_kind,owner_kind,owner_ref,idempotency_key,payload_kind,payload_ref,payload_digest,priority,not_before,deadline_at,status,max_attempts,attempt_count,lease_token,trace_id) VALUES (%s,'artifact.object.delete','artifact_object_deletion',%s,%s,'artifact_object',%s,%s,50,statement_timestamp(),statement_timestamp()+interval '59 minutes','ready',8,0,0,%s) ON CONFLICT (work_id) DO NOTHING",
             (
-                work_id,
-                result_id,
-                subject_id,
-                str(result_id),
-                artifact_id,
+                deletion_id,
+                deletion_id,
+                f"artifact-delete:{deletion_id.hex}",
+                artifact_object_id,
                 content_digest,
-                work_id.hex,
+                trace_id,
             ),
         )
 
@@ -323,7 +321,7 @@ class RuntimeFoundationAdminAdapter:
         self, transaction: PostgreSQLAdminTransaction, *, work_id: UUID
     ) -> tuple[UUID, UUID, str, str] | None:
         row = transaction.execute(
-            "SELECT work_id,payload_ref,payload_digest,status FROM armi.durable_work WHERE work_id=%s AND work_kind='admin.correction.artifact-cleanup' AND owner_kind='admin_correction'",
+            "SELECT work_id,payload_ref,payload_digest,status FROM armi.durable_work WHERE work_id=%s AND work_kind='artifact.object.delete' AND owner_kind='artifact_object_deletion'",
             (work_id,),
         ).fetchone()
         return (
@@ -331,29 +329,6 @@ class RuntimeFoundationAdminAdapter:
             if row is None
             else (cast(UUID, row[0]), cast(UUID, row[1]), str(row[2]), str(row[3]))
         )
-
-    def settle_cleanup(
-        self,
-        transaction: PostgreSQLAdminTransaction,
-        *,
-        work_id: UUID,
-        content_digest: str,
-    ) -> str | None:
-        row = transaction.execute(
-            "SELECT status,payload_digest FROM armi.durable_work WHERE work_id=%s AND work_kind='admin.correction.artifact-cleanup' FOR UPDATE",
-            (work_id,),
-        ).fetchone()
-        if row is None or row[1] != content_digest:
-            return None
-        if row[0] == "completed":
-            return "completed"
-        if row[0] != "ready":
-            return str(row[0])
-        changed = transaction.execute(
-            "UPDATE armi.durable_work SET status='completed',result_kind='artifact_cleanup',result_ref=work_id,last_error_code=NULL,updated_at=statement_timestamp() WHERE work_id=%s AND status='ready'",
-            (work_id,),
-        ).rowcount
-        return "completed" if changed == 1 else None
 
     def inspect_work_ids(
         self, transaction: PostgreSQLAdminTransaction, *, object_ids: tuple[UUID, ...]

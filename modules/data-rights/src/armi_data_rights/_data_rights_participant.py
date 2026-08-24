@@ -33,6 +33,11 @@ _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
            FROM armi.deletion_items AS source ORDER BY to_jsonb(source)::text""",
     ),
     (
+        "deletion_order_retry_attempts",
+        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
+           FROM armi.deletion_order_retry_attempts AS source ORDER BY to_jsonb(source)::text""",
+    ),
+    (
         "deletion_orders",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
            FROM armi.deletion_orders AS source ORDER BY to_jsonb(source)::text""",

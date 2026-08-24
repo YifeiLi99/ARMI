@@ -74,6 +74,19 @@ class DataRightsOrderCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class DataRightsRetryCommand:
+    idempotency_key: IdempotencyKey
+    trace_id: TraceId
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.idempotency_key) is not IdempotencyKey
+            or type(self.trace_id) is not TraceId
+        ):
+            raise DataRightsViolation("DATA-RIGHTS-RETRY-COMMAND")
+
+
+@dataclass(frozen=True, slots=True)
 class DataRightsOrderResult:
     order_id: UUID
     requester_party_id: UUID
@@ -138,6 +151,10 @@ class DataRightsDeletionItemResult:
     remaining_location: str | None
     created_at: Instant
     completed_at: Instant | None
+    artifact_deletion_id: UUID | None = None
+    retryable: bool = False
+    deletion_attempt_count: int = 0
+    last_error_code: str | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -169,6 +186,14 @@ class DataRightsDeletionItemResult:
             )
             or (self.result_status is DataRightsItemStatus.PENDING)
             != (self.completed_at is None)
+            or (
+                self.artifact_deletion_id is not None
+                and self.artifact_deletion_id.version != 7
+            )
+            or type(self.retryable) is not bool
+            or type(self.deletion_attempt_count) is not int
+            or self.deletion_attempt_count < 0
+            or (self.last_error_code is not None and not self.last_error_code)
         ):
             raise DataRightsViolation("DATA-RIGHTS-ITEM-RESULT")
 
@@ -222,6 +247,17 @@ class DataRightsOrderPort(Protocol):
         self, party_key: DataRightsPartyKey, order_id: UUID
     ) -> DataRightsOrderDetail | None: ...
 
+    async def retry_creator(
+        self, order_id: UUID, command: DataRightsRetryCommand
+    ) -> DataRightsOrderResult: ...
+
+    async def retry_other_human(
+        self,
+        party_key: DataRightsPartyKey,
+        order_id: UUID,
+        command: DataRightsRetryCommand,
+    ) -> DataRightsOrderResult: ...
+
 
 __all__ = (
     "DataRightsDeletionItemResult",
@@ -234,6 +270,7 @@ __all__ = (
     "DataRightsOrderResult",
     "DataRightsPartyKey",
     "DataRightsRequesterKind",
+    "DataRightsRetryCommand",
     "DataRightsScopeKind",
     "DataRightsViolation",
 )

@@ -6,6 +6,7 @@ from contextlib import AbstractAsyncContextManager
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
+from armi_artifact_store.api import ArtifactLifecyclePort
 from armi_kernel.application import (
     ArtifactRef,
     TransactionIsolation,
@@ -54,6 +55,7 @@ from ._rights_contract import (
     DataRightsOrderResult,
     DataRightsPartyKey,
     DataRightsRequesterKind,
+    DataRightsRetryCommand,
     DataRightsScopeKind,
     DataRightsViolation,
 )
@@ -63,7 +65,10 @@ from ._rights_contract import (
 class DataRightsArtifactStorePort(Protocol):
     async def open_verified(self, ref: ArtifactRef) -> VerifiedByteStream: ...
 
-    async def delete_verified(self, ref: ArtifactRef) -> bool: ...
+
+@runtime_checkable
+class DataRightsArtifactLifecyclePort(ArtifactLifecyclePort, Protocol):
+    pass
 
 
 @runtime_checkable
@@ -148,6 +153,7 @@ __all__ = (
     "CreatorExportViolation",
     "DataRightsApplyContribution",
     "DataRightsApplyRequest",
+    "DataRightsArtifactLifecyclePort",
     "DataRightsArtifactStorePort",
     "DataRightsArtifactUsage",
     "DataRightsCanonicalRecord",
@@ -175,6 +181,7 @@ __all__ = (
     "DataRightsRecordBatchStream",
     "DataRightsRelatedRef",
     "DataRightsRequesterKind",
+    "DataRightsRetryCommand",
     "DataRightsScopeKind",
     "DataRightsSubjectCommitGate",
     "DataRightsTargetRef",

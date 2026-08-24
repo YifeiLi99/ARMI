@@ -209,7 +209,7 @@ function promptResponse(): object {
 function dataRightsResponse(): object {
   return {
     contract_version: "1.0",
-    projection_version: "data-rights-order-collection.v1",
+    projection_version: "data-rights-order-collection.v2",
     orders: [],
   };
 }

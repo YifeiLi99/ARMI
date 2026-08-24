@@ -58,7 +58,7 @@ PUBLIC_EXPORTS = {
             "BirthViolation",
             "PostCommitAction",
             "PersonalityAnchor",
-            "PublishedArtifact",
+            "ArtifactPublication",
             "RuntimeAuthorityPort",
             "RuntimeAuthorityRecord",
             "RuntimeAuthorityStatus",

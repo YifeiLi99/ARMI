@@ -134,11 +134,32 @@ ALTER TABLE ONLY armi.activity_revisions
     ADD CONSTRAINT activity_revisions_pkey PRIMARY KEY (activity_revision_id);
 
 --
--- Name: artifacts artifacts_content_digest_key; Type: CONSTRAINT; Schema: armi; Owner: -
+-- Name: artifact_objects artifact_objects_content_digest_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.artifacts
-    ADD CONSTRAINT artifacts_content_digest_key UNIQUE (content_digest);
+ALTER TABLE ONLY armi.artifact_objects
+    ADD CONSTRAINT artifact_objects_content_digest_key UNIQUE (content_digest);
+
+--
+-- Name: artifact_objects artifact_objects_locator_key; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.artifact_objects
+    ADD CONSTRAINT artifact_objects_locator_key UNIQUE (storage_locator);
+
+--
+-- Name: artifact_objects artifact_objects_generation_key; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.artifact_objects
+    ADD CONSTRAINT artifact_objects_generation_key UNIQUE (artifact_object_id, generation);
+
+--
+-- Name: artifact_objects artifact_objects_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.artifact_objects
+    ADD CONSTRAINT artifact_objects_pkey PRIMARY KEY (artifact_object_id);
 
 --
 -- Name: artifacts artifacts_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -148,11 +169,39 @@ ALTER TABLE ONLY armi.artifacts
     ADD CONSTRAINT artifacts_pkey PRIMARY KEY (artifact_id);
 
 --
--- Name: artifacts artifacts_storage_locator_key; Type: CONSTRAINT; Schema: armi; Owner: -
+-- Name: artifact_publications artifact_publications_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.artifacts
-    ADD CONSTRAINT artifacts_storage_locator_key UNIQUE (storage_locator);
+ALTER TABLE ONLY armi.artifact_publications
+    ADD CONSTRAINT artifact_publications_pkey PRIMARY KEY (publication_id);
+
+--
+-- Name: artifact_object_deletions artifact_object_deletions_object_generation_key; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.artifact_object_deletions
+    ADD CONSTRAINT artifact_object_deletions_object_generation_key UNIQUE (artifact_object_id, object_generation);
+
+--
+-- Name: artifact_object_deletions artifact_object_deletions_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.artifact_object_deletions
+    ADD CONSTRAINT artifact_object_deletions_pkey PRIMARY KEY (artifact_object_deletion_id);
+
+--
+-- Name: artifact_object_deletion_attempts artifact_object_deletion_attempts_cycle_attempt_key; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.artifact_object_deletion_attempts
+    ADD CONSTRAINT artifact_object_deletion_attempts_cycle_attempt_key UNIQUE (artifact_object_deletion_id, retry_cycle, attempt_no);
+
+--
+-- Name: artifact_object_deletion_attempts artifact_object_deletion_attempts_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.artifact_object_deletion_attempts
+    ADD CONSTRAINT artifact_object_deletion_attempts_pkey PRIMARY KEY (artifact_object_deletion_attempt_id);
 
 --
 -- Name: audit_events audit_events_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -559,6 +608,15 @@ ALTER TABLE ONLY armi.deletion_items
 
 ALTER TABLE ONLY armi.deletion_items
     ADD CONSTRAINT deletion_items_pkey PRIMARY KEY (deletion_item_id);
+
+ALTER TABLE ONLY armi.deletion_order_retry_attempts
+    ADD CONSTRAINT deletion_order_retry_attempts_pkey PRIMARY KEY (deletion_order_retry_attempt_id);
+
+ALTER TABLE ONLY armi.deletion_order_retry_attempts
+    ADD CONSTRAINT deletion_order_retry_attempts_order_cycle_key UNIQUE (deletion_order_id,retry_cycle);
+
+ALTER TABLE ONLY armi.deletion_order_retry_attempts
+    ADD CONSTRAINT deletion_order_retry_attempts_order_key_key UNIQUE (deletion_order_id,idempotency_key);
 
 --
 -- Name: deletion_orders deletion_orders_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -2110,6 +2168,18 @@ CREATE INDEX subjective_memory_revisions_summary_trgm_idx ON armi.subjective_mem
 -- Name: accepted_experiences accepted_experiences_cognitive_episode_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
+ALTER TABLE ONLY armi.artifacts
+    ADD CONSTRAINT artifacts_object_fkey FOREIGN KEY (artifact_object_id) REFERENCES armi.artifact_objects(artifact_object_id);
+
+ALTER TABLE ONLY armi.artifact_publications
+    ADD CONSTRAINT artifact_publications_object_fkey FOREIGN KEY (artifact_object_id) REFERENCES armi.artifact_objects(artifact_object_id);
+
+ALTER TABLE ONLY armi.artifact_object_deletions
+    ADD CONSTRAINT artifact_object_deletions_object_fkey FOREIGN KEY (artifact_object_id) REFERENCES armi.artifact_objects(artifact_object_id);
+
+ALTER TABLE ONLY armi.artifact_object_deletion_attempts
+    ADD CONSTRAINT artifact_object_deletion_attempts_deletion_fkey FOREIGN KEY (artifact_object_deletion_id) REFERENCES armi.artifact_object_deletions(artifact_object_deletion_id);
+
 ALTER TABLE ONLY armi.accepted_experiences
     ADD CONSTRAINT accepted_experiences_cognitive_episode_id_fkey FOREIGN KEY (cognitive_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);
 
@@ -2868,6 +2938,12 @@ ALTER TABLE ONLY armi.creator_exports
 
 ALTER TABLE ONLY armi.deletion_items
     ADD CONSTRAINT deletion_items_deletion_order_id_fkey FOREIGN KEY (deletion_order_id) REFERENCES armi.deletion_orders(deletion_order_id);
+
+ALTER TABLE ONLY armi.deletion_order_retry_attempts
+    ADD CONSTRAINT deletion_order_retry_attempts_order_fkey FOREIGN KEY (deletion_order_id) REFERENCES armi.deletion_orders(deletion_order_id);
+
+ALTER TABLE ONLY armi.deletion_items
+    ADD CONSTRAINT deletion_items_artifact_object_deletion_fkey FOREIGN KEY (artifact_object_deletion_id) REFERENCES armi.artifact_object_deletions(artifact_object_deletion_id);
 
 --
 -- Name: deletion_orders deletion_orders_requester_party_id_requester_kind_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -

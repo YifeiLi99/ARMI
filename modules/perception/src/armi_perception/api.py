@@ -17,8 +17,8 @@ from armi_interaction.api import (
 )
 from armi_kernel.application import (
     ArtifactId,
+    ArtifactPublication,
     ArtifactRegistration,
-    PublishedArtifact,
     WorkLease,
     WorkRecord,
 )
@@ -297,14 +297,14 @@ class PerceptionArtifactCatalogPort(Protocol):
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         artifact_id: ArtifactId,
-        published: PublishedArtifact,
+        published: ArtifactPublication,
     ) -> ArtifactRegistration: ...
 
-    async def mark_deleted(
+    async def retire_artifact(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         artifact_id: ArtifactId,
-    ) -> bool: ...
+    ) -> object: ...
 
 
 @runtime_checkable

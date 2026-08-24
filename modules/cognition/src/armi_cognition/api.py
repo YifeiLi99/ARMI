@@ -15,6 +15,7 @@ from armi_codex.api import CodexDelegationDraft
 from armi_expression.api import ResponseChoiceDraft
 from armi_kernel.application import (
     ArtifactId,
+    ArtifactPublication,
     ArtifactRef,
     ArtifactRegistration,
     CandidateApplicationId,
@@ -31,7 +32,6 @@ from armi_kernel.application import (
     ModelBinding,
     ModelInvocationResult,
     ModelRequest,
-    PublishedArtifact,
 )
 from armi_kernel.contracts import Digest, TraceId
 from armi_runtime_foundation import (
@@ -189,7 +189,7 @@ class CognitionArtifactCatalogPort(Protocol):
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         artifact_id: ArtifactId,
-        published: PublishedArtifact,
+        published: ArtifactPublication,
     ) -> ArtifactRegistration: ...
 
     async def retained_ref(

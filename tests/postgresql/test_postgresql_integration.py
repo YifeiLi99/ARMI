@@ -324,6 +324,21 @@ def _birth_repository() -> BirthRepository:
     )
 
 
+def _publishing_artifact_store(
+    root: Path,
+    factory: PostgreSQLUnitOfWorkFactory,
+    *,
+    max_object_bytes: int = 1024 * 1024,
+) -> ContentAddressedArtifactStore:
+    return ContentAddressedArtifactStore(
+        root,
+        max_object_bytes=max_object_bytes,
+        publication_catalog=ArtifactCatalogRepository(),
+        publication_uow_factory=factory,
+        orphan_grace_seconds=86_400,
+    )
+
+
 _SUMMARY_ENVIRONMENT_ID = UUID("01980f7d-7b8f-7e2a-8a11-2ab8e1234567")
 _ADMIN_PACKAGE_DIGEST = "sha256:" + "1" * 64
 _REMOVED_REDUNDANT_DIGEST_COLUMNS = {
@@ -631,7 +646,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             environment_id=fixture.environment_id,
         )
         self.assertEqual(installed.status, "current")
-        self.assertEqual(installed.table_count, 97)
+        self.assertEqual(installed.table_count, 102)
         self.assertEqual(installed.current_revision, "0000")
         self.assertEqual(installed.head_revision, "0000")
         status = PostgreSQLSchemaGateway().status(
@@ -1052,9 +1067,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
 
         async def exercise(root: Path) -> tuple[Any, ...]:
-            storage = ContentAddressedArtifactStore(
-                root / "artifacts", max_object_bytes=1024 * 1024
-            )
             factory = PostgreSQLUnitOfWorkFactory(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
@@ -1064,6 +1076,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 statement_timeout_seconds=5,
                 require_runtime_fence=False,
             )
+            storage = _publishing_artifact_store(root / "artifacts", factory)
             await factory.open()
             try:
                 born = await BirthTransaction(
@@ -1083,6 +1096,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 statement_timeout_seconds=5,
                 require_runtime_fence=False,
             )
+            storage = _publishing_artifact_store(root / "artifacts", input_factory)
             service = ExternalMessageInputService(
                 storage=storage,
                 catalog=ArtifactCatalogRepository(),
@@ -1371,7 +1385,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             ).fetchone()
             shared_artifact = connection.execute(
                 """
-                SELECT count(DISTINCT evidence.artifact_id), count(*),
+                SELECT count(DISTINCT evidence.artifact_id),
+                       count(DISTINCT artifact.artifact_object_id), count(*),
                        min(artifact.logical_kind), min(artifact.privacy_scope)
                 FROM armi.external_evidence AS evidence
                 JOIN armi.artifacts AS artifact
@@ -1451,7 +1466,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(
             shared_artifact,
-            (1, 2, "creator.input.text", "creator_visible"),
+            (2, 1, 2, "creator.input.text", "creator_visible"),
         )
         self.assertEqual(media_state, ("succeeded", 2, 1, 1, 1))
         self.assertEqual(
@@ -1889,7 +1904,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         "/v1/relationships/current": "creator-relationship.v2",
                         "/v1/prompts/creator-guidance": "creator-prompt.v1",
                         "/v1/other-human-records?limit=1": "other-human-record.v1",
-                        "/v1/data-rights/orders": "data-rights-order-collection.v1",
+                        "/v1/data-rights/orders": "data-rights-order-collection.v2",
                         "/v1/subject/summary": "subject-summary.v1",
                         "/v1/capability-requests?limit=1": "capability-request.v4",
                     }
@@ -2272,7 +2287,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             await birth_factory.open()
             try:
                 born = await BirthTransaction(
-                    ContentAddressedArtifactStore(root, max_object_bytes=1024 * 1024),
+                    _publishing_artifact_store(root, birth_factory),
                     ArtifactCatalogRepository(),
                     _birth_repository(),
                     birth_factory,
@@ -2456,7 +2471,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             await birth_factory.open()
             try:
                 born = await BirthTransaction(
-                    ContentAddressedArtifactStore(root, max_object_bytes=1024 * 1024),
+                    _publishing_artifact_store(root, birth_factory),
                     ArtifactCatalogRepository(),
                     _birth_repository(),
                     birth_factory,
@@ -2757,7 +2772,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 statement_timeout_seconds=5,
                 require_runtime_fence=False,
             )
-            storage = ContentAddressedArtifactStore(root, max_object_bytes=1024 * 1024)
+            storage = _publishing_artifact_store(root, factory)
             await factory.open()
             await storage.prepare()
             try:
@@ -3158,11 +3173,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 pool_max=1,
                 acquire_timeout_seconds=2,
                 statement_timeout_seconds=5,
+                require_runtime_fence=False,
             )
             transaction = BirthTransaction(
-                ContentAddressedArtifactStore(
-                    artifact_root, max_object_bytes=1024 * 1024
-                ),
+                _publishing_artifact_store(artifact_root, factory),
                 ArtifactCatalogRepository(),
                 _birth_repository(),
                 factory,
@@ -3542,6 +3556,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
             content = b"s037 uncommitted creator input"
             content_digest = hashlib.sha256(content).hexdigest()
+            artifact_object_id = _uuid7()
             artifact_id = _uuid7()
             interaction_id = _uuid7()
             evidence_id = _uuid7()
@@ -3561,15 +3576,26 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     f"{content_digest}"
                 )
                 provisioner.execute(
-                    "INSERT INTO armi.artifacts (artifact_id, content_digest, media_type, "
-                    "byte_size, storage_locator, logical_kind, producer_kind, "
-                    "producer_trace_id, privacy_scope) VALUES (%s, %s, 'text/plain', %s, "
-                    "%s, 'creator.input.text', 's037_conformance', %s, 'creator_visible')",
+                    "INSERT INTO armi.artifact_objects (artifact_object_id, "
+                    "content_digest, byte_size, storage_locator, generation, "
+                    "object_status, integrity_status) VALUES (%s, %s, %s, %s, 1, "
+                    "'available', 'verified')",
                     (
-                        artifact_id,
+                        artifact_object_id,
                         f"sha256:{content_digest}",
                         len(content),
                         locator,
+                    ),
+                )
+                provisioner.execute(
+                    "INSERT INTO armi.artifacts (artifact_id, artifact_object_id, "
+                    "object_generation, media_type, logical_kind, producer_kind, "
+                    "producer_trace_id, privacy_scope) VALUES (%s, %s, 1, "
+                    "'text/plain', 'creator.input.text', 's037_conformance', %s, "
+                    "'creator_visible')",
+                    (
+                        artifact_id,
+                        artifact_object_id,
                         interaction_id.hex,
                     ),
                 )
@@ -3697,16 +3723,21 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ),
             )
             self.assertEqual(settle.status, "succeeded")
-            self.assertFalse(object_path.exists())
+            assert settle.result is not None
+            self.assertEqual(settle.result["status"], "ready")
+            self.assertEqual(settle.result["file_result"], "artifact_lifecycle_owned")
+            self.assertTrue(object_path.exists())
             with psycopg.connect(fixture.runtime_dsn) as runtime:
                 facts = runtime.execute(
                     "SELECT (SELECT state_epoch FROM armi.subjects), "
                     "(SELECT count(*) FROM armi.party_input_interactions WHERE "
                     "interaction_id = %s), (SELECT status FROM armi.durable_work "
-                    "WHERE work_id = %s)",
-                    (interaction_id, side_work_id),
+                    "WHERE work_id = %s), (SELECT status FROM "
+                    "armi.artifact_object_deletions WHERE "
+                    "artifact_object_deletion_id = %s)",
+                    (interaction_id, side_work_id, side_work_id),
                 ).fetchone()
-                self.assertEqual(facts, (4, 0, "completed"))
+                self.assertEqual(facts, (4, 0, "ready", "ready"))
 
     def test_web_observation_admission_attempt_and_result_are_atomic(self) -> None:
         live_environment_root = os.environ.get("S033_LIVE_ENVIRONMENT_ROOT")
@@ -3748,10 +3779,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 pool_max=2,
                 acquire_timeout_seconds=2,
                 statement_timeout_seconds=5,
+                require_runtime_fence=False,
             )
             birth = BirthTransaction(
-                ContentAddressedArtifactStore(
-                    data_root / "artifacts", max_object_bytes=2 * 1024 * 1024
+                _publishing_artifact_store(
+                    data_root / "artifacts",
+                    birth_factory,
+                    max_object_bytes=2 * 1024 * 1024,
                 ),
                 ArtifactCatalogRepository(),
                 _birth_repository(),
@@ -3791,8 +3825,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             pipeline = bootstrap_web_observation(
                 factory=web_factory,
-                storage=ContentAddressedArtifactStore(
-                    data_root / "artifacts", max_object_bytes=2 * 1024 * 1024
+                storage=_publishing_artifact_store(
+                    data_root / "artifacts",
+                    web_factory,
+                    max_object_bytes=2 * 1024 * 1024,
                 ),
                 catalog=ArtifactCatalogRepository(),
                 work=PostgreSQLDurableWorkGateway(web_factory),
@@ -4574,13 +4610,17 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 statement_timeout_seconds=5,
                 require_runtime_fence=False,
             )
+            catalog = ArtifactCatalogRepository()
             storage = ContentAddressedArtifactStore(
                 root,
                 max_object_bytes=1024,
+                publication_catalog=catalog,
+                publication_uow_factory=factory,
+                orphan_grace_seconds=86_400,
             )
             coordinator = ContentAddressedArtifactCoordinator(
                 storage,
-                ArtifactCatalogRepository(),
+                catalog,
                 factory,
                 orphan_grace_seconds=86_400,
             )
@@ -4603,7 +4643,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         policy,
                     ),
                 )
-                self.assertEqual(duplicate, first)
+                self.assertNotEqual(duplicate.artifact_id, first.artifact_id)
+                self.assertEqual(duplicate.content_digest, first.content_digest)
 
                 stream = await coordinator.open_verified(
                     first.artifact_id,
@@ -4619,14 +4660,21 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     producer_trace_id=policy.producer_trace_id,
                     privacy_scope=policy.privacy_scope,
                 )
-                with self.assertRaisesRegex(
-                    ArtifactViolation,
-                    "ART-METADATA-CONFLICT",
-                ):
-                    await coordinator.put(
-                        _artifact_chunks(b"authoritative-bytes"),
-                        conflicting,
-                    )
+                independent = await coordinator.put(
+                    _artifact_chunks(b"authoritative-bytes"),
+                    conflicting,
+                )
+                self.assertNotEqual(independent.artifact_id, first.artifact_id)
+                self.assertEqual(independent.content_digest, first.content_digest)
+                self.assertEqual(independent.logical_kind, "test.other")
+                async with factory.unit_of_work(read_only=True) as unit_of_work:
+                    counts = await (
+                        await unit_of_work.transaction.execute(
+                            """SELECT (SELECT count(*) FROM armi.artifact_objects),
+                                      (SELECT count(*) FROM armi.artifacts)"""
+                        )
+                    ).fetchone()
+                self.assertEqual(counts, (1, 3))
 
                 digest_hex = first.content_digest.value.removeprefix("sha256:")
                 object_path = (
@@ -4652,6 +4700,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 self.assertEqual(
                     [record.draft.operation for record in query_result.records],
                     [
+                        "artifact.catalog.registered",
+                        "artifact.catalog.registered",
                         "artifact.catalog.registered",
                         "artifact.integrity.missing",
                     ],
@@ -4711,12 +4761,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with psycopg.connect(fixture.runtime_dsn) as connection:
             rows = connection.execute(
                 """
-                SELECT artifact_id, integrity_status, retention_status, deleted_at
-                FROM armi.artifacts
+                SELECT a.artifact_id,o.integrity_status,a.retention_status,a.deleted_at
+                FROM armi.artifacts a JOIN armi.artifact_objects o
+                  USING (artifact_object_id)
                 """
             ).fetchall()
-            self.assertEqual(len(rows), 1)
-            self.assertEqual(rows[0][1:], ("missing", "retained", None))
+            self.assertEqual(len(rows), 3)
+            self.assertTrue(
+                all(row[1:] == ("missing", "retained", None) for row in rows)
+            )
             audit_rows = connection.execute(
                 """
                 SELECT operation, result_status, target_ref
@@ -4728,11 +4781,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 [row[0] for row in audit_rows],
                 [
                     "artifact.catalog.registered",
+                    "artifact.catalog.registered",
+                    "artifact.catalog.registered",
                     "artifact.integrity.missing",
                 ],
             )
             self.assertTrue(all(row[1] == "applied" for row in audit_rows))
-            self.assertTrue(all(row[2] == rows[0][0] for row in audit_rows))
+            self.assertEqual({row[2] for row in audit_rows}, {row[0] for row in rows})
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                 connection.execute("DELETE FROM armi.artifacts")
             connection.rollback()
@@ -4746,11 +4801,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 connection.rollback()
         with psycopg.connect(fixture.admin_role_dsn) as connection:
             self.assertEqual(
-                len(connection.execute("SELECT * FROM armi.artifacts").fetchall()), 1
+                len(connection.execute("SELECT * FROM armi.artifacts").fetchall()), 3
             )
             self.assertEqual(
                 len(connection.execute("SELECT * FROM armi.audit_events").fetchall()),
-                2,
+                4,
             )
         with (
             psycopg.connect(fixture.migrator_dsn) as connection,
@@ -4808,9 +4863,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 pool_max=2,
                 acquire_timeout_seconds=2,
                 statement_timeout_seconds=5,
+                require_runtime_fence=False,
             )
             transaction = BirthTransaction(
-                ContentAddressedArtifactStore(root, max_object_bytes=1024 * 1024),
+                _publishing_artifact_store(root, factory),
                 ArtifactCatalogRepository(),
                 _birth_repository(),
                 factory,
@@ -5138,9 +5194,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 pool_max=1,
                 acquire_timeout_seconds=2,
                 statement_timeout_seconds=5,
+                require_runtime_fence=False,
             )
             transaction = BirthTransaction(
-                ContentAddressedArtifactStore(root, max_object_bytes=1024 * 1024),
+                _publishing_artifact_store(root, factory),
                 ArtifactCatalogRepository(),
                 _birth_repository(),
                 factory,
@@ -5574,6 +5631,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             return f"objects/sha256/{value[:2]}/{value[2:4]}/{value}"
 
         artifact_ids = {name: _uuid7() for name in payloads}
+        artifact_object_ids = {name: _uuid7() for name in payloads}
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             row = connection.execute(
                 """
@@ -5605,18 +5663,31 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 media_type = "text/plain" if name == "reply" else "application/json"
                 connection.execute(
                     """
+                    INSERT INTO armi.artifact_objects (
+                        artifact_object_id, content_digest, byte_size,
+                        storage_locator, generation, object_status,
+                        integrity_status) VALUES (%s, %s, %s, %s, 1,
+                              'available', 'verified')
+                    """,
+                    (
+                        artifact_object_ids[name],
+                        digest.value,
+                        len(content),
+                        locator(digest),
+                    ),
+                )
+                connection.execute(
+                    """
                     INSERT INTO armi.artifacts (
-                        artifact_id, content_digest, media_type, byte_size,
-                        storage_locator, logical_kind, producer_kind,
-                        producer_trace_id, privacy_scope) VALUES (%s, %s, %s, %s, %s, %s,
+                        artifact_id, artifact_object_id, object_generation,
+                        media_type, logical_kind, producer_kind,
+                        producer_trace_id, privacy_scope) VALUES (%s, %s, 1, %s, %s,
                               's026_conformance', %s, 'private')
                     """,
                     (
                         artifact_ids[name],
-                        digest.value,
+                        artifact_object_ids[name],
                         media_type,
-                        len(content),
-                        locator(digest),
                         "creator.response.text" if name == "reply" else f"s026.{name}",
                         trace,
                     ),
@@ -6827,9 +6898,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 pool_max=2,
                 acquire_timeout_seconds=2,
                 statement_timeout_seconds=5,
+                require_runtime_fence=False,
             )
             birth = BirthTransaction(
-                ContentAddressedArtifactStore(root, max_object_bytes=1024 * 1024),
+                _publishing_artifact_store(root, birth_factory),
                 ArtifactCatalogRepository(),
                 _birth_repository(),
                 birth_factory,
@@ -7195,9 +7267,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 pool_max=2,
                 acquire_timeout_seconds=2,
                 statement_timeout_seconds=5,
+                require_runtime_fence=False,
             )
             birth = BirthTransaction(
-                ContentAddressedArtifactStore(root, max_object_bytes=1024 * 1024),
+                _publishing_artifact_store(root, birth_factory),
                 ArtifactCatalogRepository(),
                 _birth_repository(),
                 birth_factory,
@@ -7787,10 +7860,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 self.assertEqual(context_facts[2:], (4, 0))
                 artifact_identity = database.execute(
                     """
-                    SELECT artifact.content_digest, artifact.storage_locator
+                    SELECT object.content_digest, object.storage_locator
                     FROM armi.external_evidence AS evidence
                     JOIN armi.artifacts AS artifact
                       ON artifact.artifact_id = evidence.artifact_id
+                    JOIN armi.artifact_objects AS object
+                      ON object.artifact_object_id = artifact.artifact_object_id
                     """
                 ).fetchone()
                 assert artifact_identity is not None

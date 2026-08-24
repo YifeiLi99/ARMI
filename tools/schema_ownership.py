@@ -65,6 +65,10 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "subject_commits": TableOwnership("runtime"),
     "subjects": TableOwnership("runtime"),
     # Technical artifact catalog.
+    "artifact_object_deletion_attempts": TableOwnership("artifact-store"),
+    "artifact_object_deletions": TableOwnership("artifact-store"),
+    "artifact_objects": TableOwnership("artifact-store"),
+    "artifact_publications": TableOwnership("artifact-store"),
     "artifacts": TableOwnership("artifact-store"),
     # Interaction.
     "external_channel_bindings": TableOwnership("interaction"),
@@ -159,6 +163,7 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "codex_verification_results": TableOwnership("codex"),
     "creator_exports": TableOwnership("data-rights"),
     "deletion_items": TableOwnership("data-rights"),
+    "deletion_order_retry_attempts": TableOwnership("data-rights"),
     "deletion_orders": TableOwnership("data-rights"),
 }
 

@@ -255,39 +255,12 @@ class AdminCorrectionGateway:
             row = self._runtime.side_work(connection, work_id=UUID(side_work_id))
             if row is None:
                 raise AdminCorrectionGatewayError("ADMIN-CORRECTION-WORK-NOT-FOUND")
-            if row[3] not in {"ready", "completed"}:
-                raise AdminCorrectionGatewayError("ADMIN-CORRECTION-WORK-STATE")
-            if self._artifacts.snapshot(connection, artifact_id=row[1]) is not None:
-                raise AdminCorrectionGatewayError(
-                    "ADMIN-CORRECTION-ARTIFACT-REFERENCED"
-                )
             return {
                 "work_id": str(row[0]),
-                "artifact_id": str(row[1]),
+                "artifact_object_id": str(row[1]),
                 "content_digest": str(row[2]),
                 "status": str(row[3]),
             }
-
-    def settle_side_work(
-        self, side_work_id: str, content_digest: str
-    ) -> dict[str, Any]:
-        try:
-            with self._factory.serializable() as unit_of_work:
-                status = self._runtime.settle_cleanup(
-                    unit_of_work.transaction,
-                    work_id=UUID(side_work_id),
-                    content_digest=content_digest,
-                )
-                if status is None:
-                    raise AdminCorrectionGatewayError("ADMIN-CORRECTION-WORK-STALE")
-                if status == "completed":
-                    unit_of_work.commit()
-                    return {"side_work_id": side_work_id, "status": "completed"}
-                raise AdminCorrectionGatewayError("ADMIN-CORRECTION-WORK-STATE")
-        except AdminCorrectionGatewayError:
-            raise
-        except AdminRoleSessionError as exc:
-            raise AdminCorrectionGatewayError("ADMIN-CORRECTION-WORK-FAILED") from exc
 
     def _snapshot(
         self,
@@ -694,6 +667,7 @@ class AdminCorrectionGateway:
         spec: dict[str, Any],
         snapshot: dict[str, Any],
     ) -> dict[str, Any]:
+        cleanup_id: UUID | None = None
         kind = cast(CorrectionKind, spec["correction_kind"])
         handler = cast(dict[str, Any], snapshot["handler"])
         if kind == "replace_subject_component":
@@ -721,7 +695,7 @@ class AdminCorrectionGateway:
             ):
                 raise AdminCorrectionGatewayError("ADMIN-CORRECTION-COMPONENT-CAS")
         elif kind == "delete_uncommitted_creator_input":
-            self._delete_input(connection, snapshot, handler)
+            cleanup_id = self._delete_input(connection, snapshot, handler)
         elif kind == "requeue_stuck_work":
             if not self._runtime.requeue(
                 connection,
@@ -732,8 +706,8 @@ class AdminCorrectionGateway:
         elif kind == "reconcile_unknown_creator_effect":
             self._reconcile_effect(connection, handler)
         return {
-            "side_work_id": handler.get("side_work_id")
-            if snapshot["side_work_required"]
+            "side_work_id": str(cleanup_id)
+            if kind == "delete_uncommitted_creator_input" and cleanup_id is not None
             else None
         }
 
@@ -742,7 +716,7 @@ class AdminCorrectionGateway:
         connection: PostgreSQLAdminTransaction,
         snapshot: dict[str, Any],
         handler: dict[str, Any],
-    ) -> None:
+    ) -> UUID | None:
         ids = (
             UUID(str(handler["interaction_id"])),
             UUID(str(handler["evidence_id"])),
@@ -754,20 +728,33 @@ class AdminCorrectionGateway:
         self._evidence.delete(connection, evidence_id=ids[1])
         self._interaction.delete_input_chain(connection, interaction_id=ids[0])
         if not handler["artifact_shared"]:
-            if not self._artifacts.delete(
-                connection, artifact_id=UUID(str(handler["artifact_id"]))
-            ):
+            retirement = self._artifacts.delete(
+                connection,
+                artifact_id=UUID(str(handler["artifact_id"])),
+                deletion_id=UUID(str(handler["side_work_id"])),
+            )
+            if not retirement.changed:
                 raise AdminCorrectionGatewayError(
                     "ADMIN-CORRECTION-ARTIFACT-REFERENCED"
                 )
-            self._runtime.create_cleanup_work(
-                connection,
-                work_id=UUID(str(handler["side_work_id"])),
-                result_id=UUID(str(snapshot["result_id"])),
-                subject_id=UUID(str(snapshot["subject_id"])),
-                artifact_id=UUID(str(handler["artifact_id"])),
-                content_digest=str(handler["content_digest"]),
-            )
+            if retirement.deletion_id is not None:
+                if (
+                    retirement.artifact_object_id is None
+                    or retirement.content_digest is None
+                    or retirement.trace_id is None
+                ):
+                    raise AdminCorrectionGatewayError(
+                        "ADMIN-CORRECTION-ARTIFACT-LIFECYCLE"
+                    )
+                self._runtime.create_artifact_deletion_work(
+                    connection,
+                    deletion_id=retirement.deletion_id,
+                    artifact_object_id=retirement.artifact_object_id,
+                    content_digest=retirement.content_digest,
+                    trace_id=retirement.trace_id,
+                )
+            return retirement.deletion_id
+        return None
 
     def _reconcile_effect(
         self, connection: PostgreSQLAdminTransaction, handler: dict[str, Any]

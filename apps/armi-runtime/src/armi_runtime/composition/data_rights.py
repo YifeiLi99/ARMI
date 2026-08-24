@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import LiteralString
 
-import rfc8785
 from armi_artifact_store.api import ArtifactCatalogPort
 from armi_data_rights.api import (
     DataRightsApplyContribution,
@@ -149,32 +148,18 @@ class ArtifactStoreDataRightsParticipant:
     ) -> tuple[DataRightsExportSegment, ...]:
         del scope
         refs = await self._catalog.all_refs_in(transaction)
-        records = tuple(
-            DataRightsCanonicalRecord(
-                rfc8785.dumps(
-                    {
-                        "artifact_id": str(ref.artifact_id.value),
-                        "content_digest": ref.content_digest.value,
-                        "byte_size": ref.byte_size,
-                        "media_type": ref.media_type,
-                        "logical_kind": ref.logical_kind,
-                        "privacy_scope": ref.privacy_scope.value,
-                        "integrity_status": ref.integrity_status.value,
-                    }
-                )
-                + b"\n"
-            )
-            for ref in refs
-        )
-        return (
+        return tuple(
             DataRightsExportSegment(
                 _ARTIFACT_OWNER,
                 _VERSION,
-                "artifacts",
+                name,
                 "application/x-ndjson",
-                DataRightsTupleRecordStream(records),
-                tuple(refs),
-            ),
+                DataRightsTupleRecordStream(
+                    tuple(DataRightsCanonicalRecord(record) for record in records)
+                ),
+                tuple(refs) if name == "artifacts" else (),
+            )
+            for name, records in await self._catalog.export_records(transaction)
         )
 
 

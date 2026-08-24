@@ -39,7 +39,7 @@ from .api import (
     DataRightsUnitOfWorkFactory,
 )
 
-_EXPORT_FORMAT = "armi.creator-export.v2"
+_EXPORT_FORMAT = "armi.creator-export.v3"
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,15 +98,18 @@ class CreatorExportService(CreatorExportPort):
     async def open(self) -> None:
         try:
             await asyncio.to_thread(self._prepare_root)
-            async with self._uow_factory.unit_of_work() as unit_of_work:
-                await unit_of_work.transaction.execute(
-                    """UPDATE armi.creator_exports
-                       SET status = 'failed',
-                           error_code = 'CREATOR-EXPORT-INTERRUPTED',
-                           completed_at = statement_timestamp()
-                       WHERE creator_party_id = %s AND status = 'running'""",
-                    (self._creator_party_id,),
-                )
+            async with self._uow_factory.unit_of_work(read_only=True) as unit_of_work:
+                rows = await (
+                    await unit_of_work.transaction.execute(
+                        """SELECT creator_export_id FROM armi.creator_exports
+                           WHERE creator_party_id=%s AND status IN
+                                 ('building','published_unsettled','unknown')
+                           ORDER BY created_at""",
+                        (self._creator_party_id,),
+                    )
+                ).fetchall()
+            for row in rows:
+                await self._recover(UUID(str(row[0])))
         except RuntimeTransactionFailure, OSError:
             raise CreatorExportViolation("CREATOR-EXPORT-UNAVAILABLE") from None
 
@@ -131,6 +134,7 @@ class CreatorExportService(CreatorExportPort):
 
         destination = self._destination(command.directory_name)
         staging = self._exports_root / f".{export_id}.staging"
+        published = False
         try:
             await asyncio.to_thread(self._create_staging, staging, destination)
             snapshot = await self._write_snapshot(staging)
@@ -153,7 +157,16 @@ class CreatorExportService(CreatorExportPort):
                 (staging / "manifest.json").write_bytes,
                 manifest_bytes,
             )
+            await self._record_manifest(
+                export_id,
+                Digest.from_bytes(manifest_bytes),
+                segment_count=len(snapshot.segments),
+                record_count=snapshot.record_count,
+                artifact_count=copied,
+            )
             await asyncio.to_thread(os.replace, staging, destination)
+            published = True
+            await self._mark_published(export_id)
             return await self._settle(
                 export_id=export_id,
                 trace_id=command.trace_id,
@@ -165,10 +178,12 @@ class CreatorExportService(CreatorExportPort):
                 error_code=None,
             )
         except CreatorExportViolation:
-            await self._settle_failed(export_id, command.trace_id)
+            if not published and not destination.exists():
+                await self._settle_failed(export_id, command.trace_id)
             raise
         except ArtifactViolation, RuntimeTransactionFailure, OSError, ValueError:
-            await self._settle_failed(export_id, command.trace_id)
+            if not published and not destination.exists():
+                await self._settle_failed(export_id, command.trace_id)
             raise CreatorExportViolation("CREATOR-EXPORT-FAILED") from None
         finally:
             await asyncio.to_thread(_remove_staging, staging, self._exports_root)
@@ -183,7 +198,9 @@ class CreatorExportService(CreatorExportPort):
                         SELECT creator_export_id, status, directory_name,
                                destination_path, table_count,
                                row_count, artifact_count, missing_artifacts,
-                               error_code, created_at, completed_at
+                               error_code, created_at, completed_at,
+                               manifest_digest,expected_segment_count,
+                               expected_record_count,expected_artifact_count
                         FROM armi.creator_exports
                         WHERE creator_export_id = %s AND creator_party_id = %s
                         """,
@@ -196,10 +213,28 @@ class CreatorExportService(CreatorExportPort):
             return None
         result = self._result(row, newly_created=False)
         if result.status in {
+            CreatorExportStatus.BUILDING,
+            CreatorExportStatus.PUBLISHED_UNSETTLED,
+            CreatorExportStatus.UNKNOWN,
+        }:
+            changed = await self._recover(export_id)
+            if changed:
+                return await self.get(export_id)
+        if result.status in {
             CreatorExportStatus.COMPLETED,
             CreatorExportStatus.PARTIAL,
         }:
-            await asyncio.to_thread(self._verify_published_format, result)
+            if row[11] is None or any(value is None for value in row[12:15]):
+                raise CreatorExportViolation("CREATOR-EXPORT-FORMAT-UNSUPPORTED")
+            await asyncio.to_thread(
+                self._verify_bundle,
+                export_id,
+                self._destination(result.directory_name),
+                Digest(str(row[11])),
+                int(row[12]),
+                int(row[13]),
+                int(row[14]),
+            )
         return result
 
     async def _register(
@@ -250,7 +285,7 @@ class CreatorExportService(CreatorExportPort):
                         INSERT INTO armi.creator_exports (
                             creator_export_id, creator_party_id, directory_name,
                             idempotency_key, request_digest, status, destination_path
-                        ) VALUES (%s, %s, %s, %s, %s, 'running', %s)
+                        ) VALUES (%s, %s, %s, %s, %s, 'building', %s)
                         RETURNING creator_export_id
                         """,
                         (
@@ -285,7 +320,7 @@ class CreatorExportService(CreatorExportPort):
         segments: list[_SegmentSnapshot] = []
         artifacts: tuple[_ArtifactSnapshot, ...] = ()
         total_rows = 0
-        artifact_by_id: dict[UUID, _ArtifactSnapshot] = {}
+        artifact_by_digest: dict[str, _ArtifactSnapshot] = {}
         seen_paths: set[str] = set()
         try:
             async with self._uow_factory.unit_of_work(
@@ -333,11 +368,12 @@ class CreatorExportService(CreatorExportPort):
                         )
                         total_rows += len(records)
                         for ref in segment.artifact_refs:
-                            artifact_by_id[ref.artifact_id.value] = _ArtifactSnapshot(
-                                ref, ref.logical_kind
+                            artifact_by_digest.setdefault(
+                                ref.content_digest.value,
+                                _ArtifactSnapshot(ref, ref.logical_kind),
                             )
                 artifacts = tuple(
-                    artifact_by_id[key] for key in sorted(artifact_by_id, key=str)
+                    artifact_by_digest[key] for key in sorted(artifact_by_digest)
                 )
         except RuntimeTransactionFailure:
             raise
@@ -373,6 +409,139 @@ class CreatorExportService(CreatorExportPort):
             copied += 1
         return copied, tuple(sorted(set(missing)))
 
+    async def _record_manifest(
+        self,
+        export_id: UUID,
+        manifest_digest: Digest,
+        *,
+        segment_count: int,
+        record_count: int,
+        artifact_count: int,
+    ) -> None:
+        try:
+            async with self._uow_factory.unit_of_work() as unit:
+                result = await unit.transaction.execute(
+                    """UPDATE armi.creator_exports
+                       SET manifest_digest=%s,expected_segment_count=%s,
+                           expected_record_count=%s,expected_artifact_count=%s
+                       WHERE creator_export_id=%s AND creator_party_id=%s
+                         AND status='building'""",
+                    (
+                        manifest_digest.value,
+                        segment_count,
+                        record_count,
+                        artifact_count,
+                        export_id,
+                        self._creator_party_id,
+                    ),
+                )
+                if result.rowcount != 1:
+                    raise CreatorExportViolation("CREATOR-EXPORT-STATE")
+        except RuntimeTransactionFailure:
+            raise CreatorExportViolation("CREATOR-EXPORT-UNAVAILABLE") from None
+
+    async def _mark_published(self, export_id: UUID) -> None:
+        try:
+            async with self._uow_factory.unit_of_work() as unit:
+                result = await unit.transaction.execute(
+                    """UPDATE armi.creator_exports SET status='published_unsettled'
+                       WHERE creator_export_id=%s AND creator_party_id=%s
+                         AND status='building' AND manifest_digest IS NOT NULL""",
+                    (export_id, self._creator_party_id),
+                )
+                if result.rowcount != 1:
+                    raise CreatorExportViolation("CREATOR-EXPORT-STATE")
+        except RuntimeTransactionFailure:
+            raise CreatorExportViolation("CREATOR-EXPORT-UNAVAILABLE") from None
+
+    async def _recover(self, export_id: UUID) -> bool:
+        try:
+            async with self._uow_factory.unit_of_work(read_only=True) as unit:
+                row = await (
+                    await unit.transaction.execute(
+                        """SELECT status,directory_name,manifest_digest,
+                                  expected_segment_count,expected_record_count,
+                                  expected_artifact_count
+                           FROM armi.creator_exports
+                           WHERE creator_export_id=%s AND creator_party_id=%s""",
+                        (export_id, self._creator_party_id),
+                    )
+                ).fetchone()
+            if row is None or str(row[0]) not in {
+                "building",
+                "published_unsettled",
+                "unknown",
+            }:
+                return False
+            destination = self._destination(str(row[1]))
+            if not destination.exists():
+                next_status = "failed" if str(row[0]) == "building" else "unknown"
+                async with self._uow_factory.unit_of_work() as unit:
+                    await unit.transaction.execute(
+                        """UPDATE armi.creator_exports SET status=%s,error_code=%s,
+                                  completed_at=CASE WHEN %s='failed'
+                                                    THEN clock_timestamp() END
+                           WHERE creator_export_id=%s AND creator_party_id=%s""",
+                        (
+                            next_status,
+                            "CREATOR-EXPORT-NOT-PUBLISHED"
+                            if next_status == "failed"
+                            else "CREATOR-EXPORT-PUBLICATION-UNKNOWN",
+                            next_status,
+                            export_id,
+                            self._creator_party_id,
+                        ),
+                    )
+                return next_status != str(row[0])
+            if row[2] is None or any(value is None for value in row[3:6]):
+                await self._mark_unknown(export_id, "CREATOR-EXPORT-MANIFEST-UNKNOWN")
+                return str(row[0]) != "unknown"
+            try:
+                verified = await asyncio.to_thread(
+                    self._verify_bundle,
+                    export_id,
+                    destination,
+                    Digest(str(row[2])),
+                    int(row[3]),
+                    int(row[4]),
+                    int(row[5]),
+                )
+            except CreatorExportViolation, OSError, ValueError:
+                await self._mark_unknown(export_id, "CREATOR-EXPORT-VERIFY-UNKNOWN")
+                return str(row[0]) != "unknown"
+            status, segments, records, artifacts, missing = verified
+            async with self._uow_factory.unit_of_work() as unit:
+                await unit.transaction.execute(
+                    """UPDATE armi.creator_exports
+                       SET status=%s,table_count=%s,row_count=%s,artifact_count=%s,
+                           missing_artifacts=%s::jsonb,error_code=NULL,
+                           completed_at=clock_timestamp()
+                       WHERE creator_export_id=%s AND creator_party_id=%s
+                         AND status IN ('building','published_unsettled','unknown')""",
+                    (
+                        status.value,
+                        segments,
+                        records,
+                        artifacts,
+                        json.dumps(missing),
+                        export_id,
+                        self._creator_party_id,
+                    ),
+                )
+            return True
+        except RuntimeTransactionFailure:
+            raise CreatorExportViolation("CREATOR-EXPORT-UNAVAILABLE") from None
+
+    async def _mark_unknown(self, export_id: UUID, error_code: str) -> None:
+        async with self._uow_factory.unit_of_work() as unit:
+            await unit.transaction.execute(
+                """UPDATE armi.creator_exports
+                   SET status='unknown',error_code=%s,completed_at=NULL
+                   WHERE creator_export_id=%s AND creator_party_id=%s
+                     AND status IN ('building','published_unsettled','unknown')""",
+                (error_code, export_id, self._creator_party_id),
+            )
+
     async def _settle(
         self,
         *,
@@ -397,7 +566,7 @@ class CreatorExportService(CreatorExportPort):
                             missing_artifacts = %s::jsonb, error_code = %s,
                             completed_at = clock_timestamp()
                         WHERE creator_export_id = %s AND creator_party_id = %s
-                          AND status = 'running'
+                          AND status IN ('building','published_unsettled')
                         RETURNING creator_export_id, status, directory_name,
                                   destination_path, table_count,
                                   row_count, artifact_count, missing_artifacts,
@@ -492,6 +661,16 @@ class CreatorExportService(CreatorExportPort):
                 "copied": copied,
                 "missing_or_corrupt": list(missing),
                 "path": "artifacts/<sha256-hex>",
+                "objects": [
+                    {
+                        "digest": artifact.ref.content_digest.value,
+                        "byte_size": artifact.ref.byte_size,
+                        "path": "artifacts/"
+                        + artifact.ref.content_digest.value.removeprefix("sha256:"),
+                    }
+                    for artifact in snapshot.artifacts
+                    if artifact.ref.content_digest.value not in missing
+                ],
             },
         }
 
@@ -519,6 +698,93 @@ class CreatorExportService(CreatorExportPort):
         manifest = cast(dict[str, object], manifest_value)
         if manifest.get("format") != _EXPORT_FORMAT:
             raise CreatorExportViolation("CREATOR-EXPORT-FORMAT-UNSUPPORTED")
+
+    def _verify_bundle(
+        self,
+        export_id: UUID,
+        destination: Path,
+        manifest_digest: Digest,
+        expected_segments: int,
+        expected_records: int,
+        expected_artifacts: int,
+    ) -> tuple[CreatorExportStatus, int, int, int, tuple[str, ...]]:
+        root = self._exports_root.resolve(strict=True)
+        resolved = destination.resolve(strict=True)
+        if destination.is_symlink() or resolved.parent != root:
+            raise CreatorExportViolation("CREATOR-EXPORT-PATH")
+        manifest_path = resolved / "manifest.json"
+        manifest_bytes = manifest_path.read_bytes()
+        if Digest.from_bytes(manifest_bytes) != manifest_digest:
+            raise CreatorExportViolation("CREATOR-EXPORT-MANIFEST-DIGEST")
+        manifest_value = json.loads(manifest_bytes)
+        if not isinstance(manifest_value, dict):
+            raise CreatorExportViolation("CREATOR-EXPORT-FORMAT-UNSUPPORTED")
+        manifest = cast(dict[str, object], manifest_value)
+        if manifest.get("format") != _EXPORT_FORMAT or manifest.get("export_id") != str(
+            export_id
+        ):
+            raise CreatorExportViolation("CREATOR-EXPORT-FORMAT-UNSUPPORTED")
+        segments = manifest.get("segments")
+        artifacts = manifest.get("artifacts")
+        if not isinstance(segments, list) or not isinstance(artifacts, dict):
+            raise CreatorExportViolation("CREATOR-EXPORT-FORMAT-UNSUPPORTED")
+        segment_entries = cast(list[object], segments)
+        record_count = 0
+        for raw_value in segment_entries:
+            if not isinstance(raw_value, dict):
+                raise CreatorExportViolation("CREATOR-EXPORT-FORMAT-UNSUPPORTED")
+            raw = cast(dict[str, object], raw_value)
+            path = self._verified_export_path(resolved, raw.get("path"))
+            if Digest.from_bytes(path.read_bytes()).value != raw.get("digest"):
+                raise CreatorExportViolation("CREATOR-EXPORT-SEGMENT-DIGEST")
+            record_count += int(cast(int, raw.get("record_count")))
+        artifact_manifest = cast(dict[str, object], artifacts)
+        objects = artifact_manifest.get("objects")
+        missing = artifact_manifest.get("missing_or_corrupt")
+        if not isinstance(objects, list) or not isinstance(missing, list):
+            raise CreatorExportViolation("CREATOR-EXPORT-FORMAT-UNSUPPORTED")
+        object_entries = cast(list[object], objects)
+        missing_entries = cast(list[object], missing)
+        for raw_value in object_entries:
+            if not isinstance(raw_value, dict):
+                raise CreatorExportViolation("CREATOR-EXPORT-FORMAT-UNSUPPORTED")
+            raw = cast(dict[str, object], raw_value)
+            path = self._verified_export_path(resolved, raw.get("path"))
+            content = path.read_bytes()
+            if Digest.from_bytes(content).value != raw.get("digest") or len(
+                content
+            ) != int(cast(int, raw.get("byte_size"))):
+                raise CreatorExportViolation("CREATOR-EXPORT-ARTIFACT-DIGEST")
+        if (
+            len(segment_entries) != expected_segments
+            or record_count != expected_records
+            or len(object_entries) != expected_artifacts
+        ):
+            raise CreatorExportViolation("CREATOR-EXPORT-EXPECTED-COUNTS")
+        status = CreatorExportStatus(str(manifest.get("status")))
+        if status not in {CreatorExportStatus.COMPLETED, CreatorExportStatus.PARTIAL}:
+            raise CreatorExportViolation("CREATOR-EXPORT-FORMAT-UNSUPPORTED")
+        return (
+            status,
+            len(segment_entries),
+            record_count,
+            len(object_entries),
+            tuple(str(item) for item in missing_entries),
+        )
+
+    @staticmethod
+    def _verified_export_path(root: Path, value: object) -> Path:
+        if type(value) is not str:
+            raise CreatorExportViolation("CREATOR-EXPORT-PATH")
+        candidate = root / value
+        resolved = candidate.resolve(strict=True)
+        try:
+            resolved.relative_to(root)
+        except ValueError:
+            raise CreatorExportViolation("CREATOR-EXPORT-PATH") from None
+        if candidate.is_symlink() or not resolved.is_file():
+            raise CreatorExportViolation("CREATOR-EXPORT-PATH")
+        return resolved
 
     @staticmethod
     def _create_staging(staging: Path, destination: Path) -> None:

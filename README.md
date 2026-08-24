@@ -22,7 +22,7 @@ ARMI 以真实人类的心理、生活和社会行为作为参照，但承认自
 
 ## 当前软件形态
 
-ARMI 目前是运行在单机上的模块化单体。Python workspace 包含稳定内核、Runtime/Admin 共用的 PostgreSQL catalog 合同、普通 Runtime、隔离的管理 MCP，以及独立 QQ 适配器和 NapCat 渠道驱动；Creator 工作台是由 Runtime 同源托管的 React 静态应用。PostgreSQL 是唯一权威关系数据库，文件制品只保存不适合直接进入关系表的大正文或执行产物。
+ARMI 目前是运行在单机上的模块化单体。Python workspace 包含稳定内核、Runtime/Admin 共用的 PostgreSQL catalog 合同、普通 Runtime、隔离的管理 MCP，以及独立 QQ 适配器和 NapCat 渠道驱动；Creator 工作台是由 Runtime 同源托管的 React 静态应用。PostgreSQL 是唯一权威关系数据库，文件制品只保存不适合直接进入关系表的大正文或执行产物。制品的 SHA-256 只标识物理字节；每次业务接纳拥有独立逻辑 artifact，发布预约、共享引用、删除代际与物理清理由 Artifact Store 统一协调。
 
 二十三个业务领域均为独立 workspace distribution，其中 `armi-live-voice` 独占本机实时语音会话、轮次与 Provider attempt，`armi-live-vision` 独占常驻 USB 摄像头会话、选帧和观察记录。生产与跨模块测试只通过各模块 `api.py` 的冻结 DTO/Protocol 协作；业务 SQL 由表 owner 独占，Runtime 只在共享 PostgreSQL UoW 中协调顺序、CAS、durable work 与审计。Kernel 和 Runtime Foundation 保持业务中性，不维护业务 owner、表名或 Creator 投影版本枚举。
 
@@ -51,7 +51,7 @@ docs/                       私有叙述性设计与外部研究资料
 
 `docs/` 被 Git 忽略，用于本地继续设计；精确的字段、路由、状态值和依赖版本仍以当前代码、DDL、配置与锁文件为准。文档入口见 [`docs/README.md`](docs/README.md)。
 
-数据库只保留唯一 Alembic `0000` 基线，并以 `armi.schema-baseline.v1` 标识当前数据库身份。Runtime 与 Admin 的固定仓储写入按“角色—表—INSERT/UPDATE/DELETE”授权，不使用逐字段写权限；`db status` 与日常启动入口会同时核对 revision、基线身份和完整权限合同，身份漂移以 `DB-SCHEMA-CONTRACT` 拒绝，权限漂移以 `DB-ROLE-GRANT` 拒绝。
+数据库只保留唯一 Alembic `0000` 基线，并以 `armi.schema-baseline.v2` 标识当前数据库身份。Runtime 与 Admin 的固定仓储写入按“角色—表—INSERT/UPDATE/DELETE”授权，不使用逐字段写权限；`db status` 与日常启动入口会同时核对 revision、基线身份和完整权限合同，身份漂移以 `DB-SCHEMA-CONTRACT` 拒绝，权限漂移以 `DB-ROLE-GRANT` 拒绝。
 
 ## 本地开发入口
 
@@ -123,13 +123,13 @@ caller-declared 的本地其他人入口通过 `armi other-human` 调用运行�
 
 日常及安装后的 Creator 工作台只在 Runtime 的本机地址上提供。页面打开后会自动建立进程内连接并直接进入工作台，不需要登录、bootstrap code 或手动注销。Vite 地址仅用于源码前端开发。
 
-数据库结构只由唯一 Alembic `0000` 管理。`db install` 拒绝已有用户对象，并在一个事务中安装有序模块化基线、revision 与 `armi.schema-baseline.v1` 身份。ARMI 是本地单实例项目，不提供内部数据库迁移或历史兼容入口；基线变化时必须停止 Runtime、明确删除旧数据库并重新安装。Runtime 只接受与当前源码完全一致的 revision、基线身份和角色权限合同。
+数据库结构只由唯一 Alembic `0000` 管理。`db install` 拒绝已有用户对象，并在一个事务中安装有序模块化基线、revision 与 `armi.schema-baseline.v2` 身份。ARMI 是本地单实例项目，不提供内部数据库迁移或历史兼容入口；基线变化时必须停止 Runtime、明确删除旧数据库并重新安装。Runtime 只接受与当前源码完全一致的 revision、基线身份和角色权限合同。
 
 已获明确授权的本地彻底重置在停止 Runtime 后使用 `tools/reset_local_environment_data.ps1 -EnvironmentRoot C:\path\to\environment -Apply` 清空并重建 artifacts、backups、Codex runner、exports、logs 与 run 目录。脚本不删除数据库卷，也不触碰环境配置、凭据、模型、工具、NapCat 或渠道配置；数据库卷仍须独立核对后删除。
 
 需要把本地 ARMI 恢复到出生后的初始状态时，显式运行 `uv run armi reset --environment-root C:\path\to\environment --apply`。命令先优雅停止 Runtime 与语义召回，只清空权威数据库以及 artifacts、backups、Codex runner、exports、logs、run，再安装当前唯一基线并执行固定出生 manifest；环境配置、凭据、模型、工具、NapCat 与渠道配置保持不变。该操作不会自动备份，`--apply` 即表示操作者已经确认目标环境和不可恢复的数据删除。
 
-离线全量灾备与隔离恢复演练使用 `armi recovery create`、`armi recovery verify` 和 `armi recovery drill --apply`。备份保存 custom-format 数据库 dump、全部 retained+verified artifact、schema head 与 Runtime 权威身份；恢复到隔离数据库后通过正式 owner recovery roster 检查业务一致性。它与 Creator JSONL 数据导出是不同协议。
+离线全量灾备与隔离恢复演练使用 `armi recovery create`、`armi recovery verify` 和 `armi recovery drill --apply`。`armi.recovery-backup.v2` 按物理对象去重保存 custom-format 数据库 dump、全部仍被引用且 verified 的对象、schema head 与 Runtime 权威身份；恢复到隔离数据库后通过正式 owner recovery roster 检查业务一致性。它与 `armi.creator-export.v3` Creator 数据导出是不同协议。
 
 日常开发从改动相关的最小检查开始。仓库提供三层确定性门禁：
 

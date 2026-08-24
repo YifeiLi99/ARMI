@@ -20,8 +20,10 @@ from armi_kernel.application import (
     ArtifactIntegrityStatus,
     ArtifactPolicy,
     ArtifactPrivacyScope,
+    ArtifactPublication,
     ArtifactRef,
     ArtifactViolation,
+    StagedArtifact,
 )
 from armi_kernel.contracts import Digest, TraceId
 
@@ -66,12 +68,23 @@ class ContentStoreTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self) -> None:
         self.temporary.cleanup()
 
+    async def _publish(self, staged: StagedArtifact) -> ArtifactPublication:
+        publication = ArtifactPublication(
+            staged.stage_id,
+            uuid7(),
+            1,
+            staged.content_digest,
+            staged.byte_size,
+            staged.policy,
+        )
+        return await self.store.publish_reserved(staged, publication)
+
     async def test_stage_publish_verified_read_and_exact_reuse(self) -> None:
         content = b"immutable"
         first = await self.store.stage(_chunks(b"immu", b"table"), _policy())
-        published = await self.store.publish(first)
+        published = await self._publish(first)
         second = await self.store.stage(_chunks(content), _policy())
-        reused = await self.store.publish(second)
+        reused = await self._publish(second)
 
         self.assertEqual(published.content_digest, reused.content_digest)
         digest_hex = published.content_digest.value.removeprefix("sha256:")
@@ -111,22 +124,10 @@ class ContentStoreTests(unittest.IsolatedAsyncioTestCase):
         staging = self.root / "staging"
         self.assertEqual(list(staging.iterdir()), [])
 
-    async def test_exact_verified_delete_is_idempotent_and_removes_only_target(
-        self,
-    ) -> None:
-        content = b"erase-me"
-        staged = await self.store.stage(_chunks(content), _policy())
-        await self.store.publish(staged)
-
-        self.assertTrue(await self.store.delete_verified(_reference(content)))
-        self.assertFalse(await self.store.delete_verified(_reference(content)))
-        with self.assertRaisesRegex(ArtifactViolation, "ART-MISSING"):
-            await self.store.open_verified(_reference(content))
-
     async def test_sync_read_and_unregistered_settlement_share_verifier(self) -> None:
         content = b"shared-owner"
         staged = await self.store.stage(_chunks(content), _policy())
-        published = await self.store.publish(staged)
+        published = await self._publish(staged)
 
         self.assertEqual(self.store.read_verified_bytes(_reference(content)), content)
         self.assertEqual(
@@ -141,7 +142,7 @@ class ContentStoreTests(unittest.IsolatedAsyncioTestCase):
     async def test_unregistered_corruption_is_quarantined(self) -> None:
         content = b"cleanup-corrupt"
         staged = await self.store.stage(_chunks(content), _policy())
-        published = await self.store.publish(staged)
+        published = await self._publish(staged)
         digest_hex = published.content_digest.value.removeprefix("sha256:")
         object_path = (
             self.root
@@ -165,7 +166,7 @@ class ContentStoreTests(unittest.IsolatedAsyncioTestCase):
     ) -> None:
         content = b"original"
         staged = await self.store.stage(_chunks(content), _policy())
-        published = await self.store.publish(staged)
+        published = await self._publish(staged)
         digest_hex = published.content_digest.value.removeprefix("sha256:")
         object_path = (
             self.root
@@ -191,10 +192,10 @@ class ContentStoreTests(unittest.IsolatedAsyncioTestCase):
         stage_path = self.root / "staging" / f"stage-{staged.stage_id.value.hex}.tmp"
         stage_path.write_bytes(b"tampered")
         with self.assertRaisesRegex(ArtifactViolation, "ART-CORRUPT"):
-            await self.store.publish(staged)
+            await self._publish(staged)
 
         valid = await self.store.stage(_chunks(content), _policy())
-        published = await self.store.publish(valid)
+        published = await self._publish(valid)
         digest_hex = published.content_digest.value.removeprefix("sha256:")
         object_path = (
             self.root
@@ -212,7 +213,7 @@ class ContentStoreTests(unittest.IsolatedAsyncioTestCase):
     async def test_scan_is_deterministic_and_never_deletes_orphans(self) -> None:
         content = b"orphan"
         staged = await self.store.stage(_chunks(content), _policy())
-        published = await self.store.publish(staged)
+        published = await self._publish(staged)
         digest = published.content_digest.value
         digest_hex = digest.removeprefix("sha256:")
         object_path = (
@@ -238,7 +239,7 @@ class ContentStoreTests(unittest.IsolatedAsyncioTestCase):
     async def test_cleanup_removes_only_revalidated_unregistered_objects(self) -> None:
         content = b"cleanup-orphan"
         staged = await self.store.stage(_chunks(content), _policy())
-        published = await self.store.publish(staged)
+        published = await self._publish(staged)
         digest = published.content_digest.value
         digest_hex = digest.removeprefix("sha256:")
         object_path = (

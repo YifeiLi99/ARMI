@@ -14,10 +14,12 @@ _DIRECTORY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$", re.ASCII)
 
 
 class CreatorExportStatus(StrEnum):
-    RUNNING = "running"
+    BUILDING = "building"
+    PUBLISHED_UNSETTLED = "published_unsettled"
     COMPLETED = "completed"
     PARTIAL = "partial"
     FAILED = "failed"
+    UNKNOWN = "unknown"
 
 
 class CreatorExportViolation(RuntimeError):
@@ -90,11 +92,21 @@ class CreatorExportResult:
             )
             or type(self.newly_created) is not bool
             or (
-                self.status is CreatorExportStatus.RUNNING
+                self.status
+                in {
+                    CreatorExportStatus.BUILDING,
+                    CreatorExportStatus.PUBLISHED_UNSETTLED,
+                    CreatorExportStatus.UNKNOWN,
+                }
                 and self.completed_at is not None
             )
             or (
-                self.status is not CreatorExportStatus.RUNNING
+                self.status
+                not in {
+                    CreatorExportStatus.BUILDING,
+                    CreatorExportStatus.PUBLISHED_UNSETTLED,
+                    CreatorExportStatus.UNKNOWN,
+                }
                 and self.completed_at is None
             )
         ):

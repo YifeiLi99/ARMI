@@ -5,6 +5,7 @@ import {
   ApiFailure,
   createDataRightsOrder,
   getDataRightsOrders,
+  retryDataRightsOrder,
 } from "../../api/client";
 
 type OrderKind = "stop_contact" | "stop_use" | "delete_related";
@@ -33,6 +34,7 @@ export function DataRightsPanel({
   const [confirmed, setConfirmed] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const requestIdentity = useRef<{ kind: OrderKind; key: string } | null>(null);
+  const retryIdentity = useRef<Record<string, string>>({});
   const queryKey = ["data-rights-orders", environmentId, creatorPartyId];
   const orders = useQuery({
     queryKey,
@@ -71,6 +73,29 @@ export function DataRightsPanel({
         return;
       }
       setMessage("当前无法提交数据权利命令。");
+    },
+  });
+  const retryDeletion = useMutation({
+    mutationFn: async (orderId: string) => {
+      retryIdentity.current[orderId] ??=
+        `creator-data-rights-retry-${crypto.randomUUID()}`;
+      return retryDataRightsOrder(
+        token,
+        orderId,
+        retryIdentity.current[orderId],
+      );
+    },
+    onSuccess: async (result) => {
+      delete retryIdentity.current[result.order_id];
+      await queryClient.resetQueries({ queryKey, exact: true });
+      setMessage("已登记新的物理删除重试周期。");
+    },
+    onError: (error) => {
+      if (error instanceof ApiFailure && error.status === 401) {
+        onUnauthorized();
+        return;
+      }
+      setMessage("当前无法重试物理删除。");
     },
   });
   const resultOrders = Array.isArray(orders.data?.orders)
@@ -158,6 +183,16 @@ export function DataRightsPanel({
           </dl>
           {order.remaining_locations.length > 0 ? (
             <p>仍保留于：{order.remaining_locations.join("、")}</p>
+          ) : null}
+          {order.execution_status === "partial" &&
+          order.items.some((item) => item.retryable) ? (
+            <button
+              type="button"
+              disabled={retryDeletion.isPending}
+              onClick={() => retryDeletion.mutate(order.order_id)}
+            >
+              {retryDeletion.isPending ? "正在重试" : "重试物理删除"}
+            </button>
           ) : null}
           <ol className="data-rights-timeline">
             {order.timeline.map((event, index) => (

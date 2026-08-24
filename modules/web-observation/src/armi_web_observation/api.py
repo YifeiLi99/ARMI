@@ -9,9 +9,9 @@ from uuid import UUID
 from armi_kernel.application import (
     ArtifactId,
     ArtifactPort,
+    ArtifactPublication,
     ArtifactRef,
     ArtifactRegistration,
-    PublishedArtifact,
 )
 from armi_kernel.contracts import TraceId
 from armi_runtime_foundation import (
@@ -132,7 +132,7 @@ class WebArtifactCatalogPort(Protocol):
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         artifact_id: ArtifactId,
-        published: PublishedArtifact,
+        published: ArtifactPublication,
     ) -> ArtifactRegistration: ...
 
     async def get(

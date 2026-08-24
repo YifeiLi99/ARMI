@@ -15,6 +15,7 @@ from armi_kernel.application import (
     ArtifactId,
     ArtifactPolicy,
     ArtifactPrivacyScope,
+    ArtifactPublication,
     ArtifactViolation,
     AuditDraft,
     AuditEventId,
@@ -25,7 +26,6 @@ from armi_kernel.application import (
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
     CreatorResourceKind,
-    PublishedArtifact,
 )
 from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId
 from armi_runtime_foundation import (
@@ -338,7 +338,7 @@ class EvidenceAcceptanceTransaction(CreatorInputAcceptancePort):
         command: CreatorInputCommand,
         expected_context: CreatorInputContext,
         request_digest: Digest,
-        published: PublishedArtifact,
+        published: ArtifactPublication,
     ) -> CreatorInputAcceptance:
         async with self._uow_factory.unit_of_work() as unit_of_work:
             await self._repository.lock_scene(
