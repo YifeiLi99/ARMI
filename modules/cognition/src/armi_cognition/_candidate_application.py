@@ -43,6 +43,7 @@ from armi_kernel.application import (
     DurableWorkPort,
     WorkLease,
     WorkRecord,
+    WorkType,
     WorkViolation,
 )
 from armi_kernel.contracts import Purpose, SubjectId
@@ -108,7 +109,7 @@ from .api import (
     CognitionWakeupPort,
 )
 
-_WORK_KIND = "cognition.candidate.validate"
+_WORK_KIND = WorkType.COGNITION_CANDIDATE_VALIDATE
 CANDIDATE_VALIDATE = _WORK_KIND
 SUBJECT_COMMIT = "cognition.subject.commit"
 _LEASE_SECONDS = 30
@@ -481,11 +482,8 @@ class CandidateValidationPipeline:
             )
 
     async def _snapshot(self, work: WorkRecord) -> CandidateEpisodeSnapshot:
-        try:
-            async with self._factory.unit_of_work() as unit_of_work:
-                return await self._repository.snapshot(unit_of_work, work)
-        except RuntimeTransactionFailure:
-            raise CandidateViolation("CANDIDATE-DATABASE") from None
+        async with self._factory.unit_of_work() as unit_of_work:
+            return await self._repository.snapshot(unit_of_work, work)
 
     async def _read_response(self, snapshot: CandidateEpisodeSnapshot) -> bytes:
         value = b""

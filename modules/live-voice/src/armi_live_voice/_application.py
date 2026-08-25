@@ -221,8 +221,8 @@ class PostgreSQLLiveVoiceJournal:
             await unit.transaction.execute(
                 """INSERT INTO armi.live_voice_provider_attempts
                    (provider_attempt_id,turn_id,service_kind,provider,
-                    resource_id,model_identity,result_status)
-                   VALUES (%s,%s,%s,%s,%s,%s,'started')""",
+                    resource_id,model_identity,dispatch_state,result_status)
+                   VALUES (%s,%s,%s,%s,%s,%s,'prepared','started')""",
                 (
                     attempt_id,
                     turn_id,
@@ -233,6 +233,21 @@ class PostgreSQLLiveVoiceJournal:
                 ),
             )
         return attempt_id
+
+    async def mark_provider_dispatched(self, *, attempt_id: UUID) -> None:
+        async with self._factory.unit_of_work() as unit:
+            result = await unit.transaction.execute(
+                """UPDATE armi.live_voice_provider_attempts
+                   SET dispatch_state='dispatched',
+                       dispatched_at=statement_timestamp()
+                   WHERE provider_attempt_id=%s AND dispatch_state='prepared'
+                     AND settled_at IS NULL""",
+                (attempt_id,),
+            )
+            if result.rowcount != 1:
+                raise LiveVoiceViolation(
+                    "VOICE-JOURNAL-ATTEMPT", "voice attempt is closed"
+                )
 
     async def mark_provider_first_result(self, *, attempt_id: UUID) -> None:
         async with self._factory.unit_of_work() as unit:
@@ -254,7 +269,8 @@ class PostgreSQLLiveVoiceJournal:
         async with self._factory.unit_of_work() as unit:
             result = await unit.transaction.execute(
                 """UPDATE armi.live_voice_provider_attempts
-                   SET result_status=%s,error_code=%s,settled_at=statement_timestamp()
+                   SET dispatch_state='settled',result_status=%s,error_code=%s,
+                       settled_at=statement_timestamp()
                    WHERE provider_attempt_id=%s AND settled_at IS NULL""",
                 (outcome.value, error_code, attempt_id),
             )
@@ -293,11 +309,26 @@ class PostgreSQLLiveVoiceJournal:
         async with self._factory.unit_of_work() as unit:
             await unit.transaction.execute(
                 """INSERT INTO armi.live_voice_playback_attempts
-                   (playback_attempt_id,turn_id,result_status)
-                   VALUES (%s,%s,'registered')""",
+                   (playback_attempt_id,turn_id,dispatch_state,result_status)
+                   VALUES (%s,%s,'prepared','registered')""",
                 (attempt_id, turn_id),
             )
         return attempt_id
+
+    async def mark_playback_dispatched(self, *, attempt_id: UUID) -> None:
+        async with self._factory.unit_of_work() as unit:
+            result = await unit.transaction.execute(
+                """UPDATE armi.live_voice_playback_attempts
+                   SET dispatch_state='dispatched',
+                       dispatched_at=statement_timestamp()
+                   WHERE playback_attempt_id=%s AND dispatch_state='prepared'
+                     AND settled_at IS NULL""",
+                (attempt_id,),
+            )
+            if result.rowcount != 1:
+                raise LiveVoiceViolation(
+                    "VOICE-JOURNAL-ATTEMPT", "voice attempt is closed"
+                )
 
     async def mark_playback_first_frame(self, *, attempt_id: UUID) -> None:
         async with self._factory.unit_of_work() as unit:
@@ -340,7 +371,8 @@ class PostgreSQLLiveVoiceJournal:
         async with self._factory.unit_of_work() as unit:
             result = await unit.transaction.execute(
                 """UPDATE armi.live_voice_playback_attempts
-                   SET result_status=%s,frames_written=%s,error_code=%s,
+                   SET dispatch_state='settled',result_status=%s,
+                       frames_written=%s,error_code=%s,
                        settled_at=statement_timestamp()
                    WHERE playback_attempt_id=%s AND settled_at IS NULL""",
                 (outcome.value, frames_written, error_code, attempt_id),

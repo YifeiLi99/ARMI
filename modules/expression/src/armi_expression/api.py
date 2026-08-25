@@ -402,6 +402,13 @@ class ExpressionOperationSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class ResponseAdmissionSnapshot:
+    response_admission_id: UUID
+    status: str
+    reason_code: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class DelegatedActionIntentDraft:
     operation_ref: UUID
     subject_id: UUID
@@ -424,9 +431,34 @@ class ExpressionResponseAdmissionPort(Protocol):
         work: WorkRecord,
     ) -> ExpressionIntentSnapshot: ...
 
+    async def settle_response_admission(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        work_id: UUID,
+        action_intent_id: UUID | None,
+        status: str,
+        permission_grant_id: UUID | None,
+        reason_code: str,
+    ) -> UUID | None: ...
+
+    async def response_admission_by_intent(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        action_intent_id: UUID,
+    ) -> ResponseAdmissionSnapshot | None: ...
+
 
 @runtime_checkable
 class ExpressionIntentReadPort(Protocol):
+    async def response_admission_by_intent(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        action_intent_id: UUID,
+    ) -> ResponseAdmissionSnapshot | None: ...
+
     async def outreach_intents(
         self,
         transaction: PostgreSQLTransaction,
@@ -566,6 +598,7 @@ __all__ = (
     "OtherHumanReplyDraft",
     "ResponseAdmissionPort",
     "ResponseAdmissionResult",
+    "ResponseAdmissionSnapshot",
     "ResponseAdmissionStatus",
     "ResponseChoiceDraft",
     "ResponseViolation",

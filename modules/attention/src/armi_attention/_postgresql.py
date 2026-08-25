@@ -523,6 +523,65 @@ class PostgreSQLLifeOpportunityRepository:
                 None,
                 "LIFE-SCHEDULER-IDLE",
             )
+        previous = await (
+            await connection.execute(
+                """SELECT opportunity_id,root_opportunity_id,
+                          current_disposition,reconsideration_no
+                   FROM armi.opportunities
+                   WHERE subject_id=%s AND source_kind='activity_revision'
+                     AND source_ref=%s AND source_version=%s
+                     AND purpose='consider_activity_internal_work'
+                   ORDER BY reconsideration_no DESC LIMIT 1""",
+                (fence.subject_id, row.revision_id, row.revision_no),
+            )
+        ).fetchone()
+        if previous is not None:
+            if str(previous[2]) in {"open", "selected"}:
+                return OpportunityAdmissionOutcome(
+                    OpportunityAdmissionStatus.DUPLICATE, previous[0]
+                )
+            if int(previous[3]) >= 1:
+                await self._activities.pause_failed_internal_work(
+                    connection,
+                    subject_id=fence.subject_id,
+                    activity_id=row.activity_id,
+                    expected_revision_id=row.revision_id,
+                )
+                return OpportunityAdmissionOutcome(
+                    OpportunityAdmissionStatus.REJECTED,
+                    None,
+                    "LIFE-ACTIVITY-INTERNAL-WORK-PAUSED",
+                )
+            successor_id = uuid7()
+            successor = await (
+                await connection.execute(
+                    """INSERT INTO armi.opportunities (
+                         opportunity_id,evidence_id,subject_id,scene_id,
+                         context_party_id,purpose,eligibility_status,
+                         current_disposition,available_after,root_opportunity_id,
+                         predecessor_opportunity_id,reconsideration_no,
+                         source_kind,source_ref,source_version,activity_id)
+                       VALUES (%s,NULL,%s,NULL,NULL,
+                         'consider_activity_internal_work','eligible','open',
+                         statement_timestamp(),%s,%s,1,'activity_revision',%s,%s,%s)
+                       ON CONFLICT (predecessor_opportunity_id) DO NOTHING
+                       RETURNING opportunity_id""",
+                    (
+                        successor_id,
+                        fence.subject_id,
+                        previous[1],
+                        previous[0],
+                        row.revision_id,
+                        row.revision_no,
+                        row.activity_id,
+                    ),
+                )
+            ).fetchone()
+            if successor is None:
+                raise LifeViolation("LIFE-ADMISSION-CONFLICT")
+            return OpportunityAdmissionOutcome(
+                OpportunityAdmissionStatus.ADMITTED, successor[0]
+            )
         opportunity_id = uuid7()
         inserted = await (
             await connection.execute(

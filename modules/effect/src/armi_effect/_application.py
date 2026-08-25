@@ -21,6 +21,7 @@ from armi_kernel.application import (
     DurableWorkPort,
     WorkLease,
     WorkRecord,
+    WorkType,
     WorkViolation,
 )
 from armi_kernel.contracts import ContractViolation
@@ -58,7 +59,7 @@ from .api import (
 
 Diagnostic = Callable[[str], None]
 FaultInjector = Callable[[str], None]
-EFFECT_REGISTER = "effect.register"
+EFFECT_REGISTER = WorkType.EFFECT_REGISTER
 
 
 def _ignore_diagnostic(event: str) -> None:
@@ -151,7 +152,7 @@ class EffectRegistrationPipeline:
     async def register_once(self) -> bool:
         try:
             records = await self._work.claim(
-                work_kind="effect.register",
+                work_kind=WorkType.EFFECT_REGISTER,
                 lease_owner=self._lease_owner,
                 lease_seconds=30,
                 limit=1,
@@ -318,6 +319,10 @@ class EffectRegistrationPipeline:
     async def recover_once(self) -> bool:
         try:
             async with self._factory.unit_of_work() as uow:
+                overdue_settled = await self._dispatcher.settle_overdue_ready(uow)
+                if overdue_settled is True:
+                    return True
+            async with self._factory.unit_of_work() as uow:
                 snapshot = await self._dispatcher.expired(uow)
             if snapshot is not None:
                 await self._reconcile(snapshot)
@@ -408,7 +413,7 @@ class EffectRegistrationPipeline:
             (
                 CreatorResourceKind("operation"),
                 str(snapshot.operation_ref),
-                "creator-operation.v2",
+                "creator-operation.v3",
             )
         ]
         if result is not None:
@@ -449,7 +454,7 @@ class EffectRegistrationPipeline:
             (
                 CreatorResourceKind("operation"),
                 str(intent.operation_ref),
-                "creator-operation.v2",
+                "creator-operation.v3",
             ),
         ]
         if include_scene:

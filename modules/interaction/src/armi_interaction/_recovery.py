@@ -14,7 +14,7 @@ from armi_runtime_foundation import (
 
 class InteractionRecoveryParticipant:
     owner_identity = RecoveryOwnerIdentity("interaction")
-    work_scopes: tuple[tuple[str, str], ...] = ()
+    work_scopes = (("external_message", "external.content.finalize"),)
 
     async def recover(
         self,

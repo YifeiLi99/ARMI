@@ -41,6 +41,7 @@ from armi_kernel.application import (
     WorkId,
     WorkOwner,
     WorkPayloadRef,
+    WorkType,
 )
 from armi_kernel.contracts import (
     Digest,
@@ -258,7 +259,7 @@ class RuntimeCognitionCycleSelector:
                 await unit.work.enqueue(
                     WorkDraft(
                         WorkId(uuid7()),
-                        "cognition.context.prepare",
+                        WorkType.COGNITION_CONTEXT_PREPARE,
                         WorkOwner("cognitive_episode", episode_id),
                         IdempotencyKey(f"context:{candidate.opportunity_id}"),
                         work_digest,

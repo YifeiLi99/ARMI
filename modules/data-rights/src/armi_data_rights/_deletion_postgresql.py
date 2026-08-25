@@ -159,6 +159,7 @@ class LocalDataDeletionRepository:
         apply_request = DataRightsApplyRequest(
             order_id,
             party_id,
+            "delete_related",
             tuple(related),
             tuple(targets.values()),
             exclusive_ids,

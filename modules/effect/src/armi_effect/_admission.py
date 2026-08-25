@@ -36,6 +36,7 @@ from armi_kernel.application import (
     WorkPayloadRef,
     WorkRecord,
     WorkResultRef,
+    WorkType,
 )
 from armi_kernel.contracts import (
     Digest,
@@ -46,6 +47,8 @@ from armi_kernel.contracts import (
     TraceId,
 )
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
+
+from .api import EffectResponsibilityPort
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,7 +67,13 @@ class ResponseAdmissionSnapshot:
 class PostgreSQLResponseAdmissionRepository:
     """Coordinate admission while every owner retains its own SQL."""
 
-    __slots__ = ("_artifacts", "_capability", "_data_rights", "_expression")
+    __slots__ = (
+        "_artifacts",
+        "_capability",
+        "_data_rights",
+        "_expression",
+        "_registrations",
+    )
 
     def __init__(
         self,
@@ -73,11 +82,13 @@ class PostgreSQLResponseAdmissionRepository:
         capability: CapabilityAdmissionPort,
         data_rights: DataRightsEffectGate,
         expression: ExpressionResponseAdmissionPort,
+        registrations: EffectResponsibilityPort,
     ) -> None:
         self._artifacts = artifacts
         self._capability = capability
         self._data_rights = data_rights
         self._expression = expression
+        self._registrations = registrations
 
     async def settle_current_work(
         self,
@@ -85,6 +96,14 @@ class PostgreSQLResponseAdmissionRepository:
         work: WorkRecord,
     ) -> None:
         if work.lease is not None:
+            await self._expression.settle_response_admission(
+                unit_of_work.transaction,
+                work_id=work.draft.work_id.value,
+                action_intent_id=None,
+                status="cancelled",
+                permission_grant_id=None,
+                reason_code="RESPONSE-ADMISSION-STALE",
+            )
             await unit_of_work.work.fail(
                 work.lease,
                 error_code="RESPONSE-ADMISSION-STATE",
@@ -98,6 +117,14 @@ class PostgreSQLResponseAdmissionRepository:
         code: str,
     ) -> None:
         if work.lease is not None:
+            await self._expression.settle_response_admission(
+                unit_of_work.transaction,
+                work_id=work.draft.work_id.value,
+                action_intent_id=None,
+                status="failed",
+                permission_grant_id=None,
+                reason_code=code,
+            )
             await unit_of_work.work.fail(work.lease, error_code=code)
 
     async def snapshot(
@@ -202,12 +229,22 @@ class PostgreSQLResponseAdmissionRepository:
                 }
             )
         )
+        response_admission_id = await self._expression.settle_response_admission(
+            unit_of_work.transaction,
+            work_id=work.draft.work_id.value,
+            action_intent_id=snapshot.action_intent_id,
+            status=status.value,
+            permission_grant_id=grant_id,
+            reason_code=reason or "RESPONSE-ADMISSION-ACCEPTED",
+        )
+        if response_admission_id is None:
+            raise ResponseViolation("RESPONSE-WORK-STALE")
         if status is ResponseAdmissionStatus.ACCEPTED:
             now = datetime.now(UTC)
-            await unit_of_work.work.enqueue(
+            registration_work = await unit_of_work.work.enqueue(
                 WorkDraft(
                     WorkId(uuid7()),
-                    "effect.register",
+                    WorkType.EFFECT_REGISTER,
                     WorkOwner("action_intent", snapshot.action_intent_id),
                     IdempotencyKey(f"effect-register:{snapshot.action_intent_id}"),
                     digest,
@@ -219,6 +256,12 @@ class PostgreSQLResponseAdmissionRepository:
                     subject_id=SubjectId(snapshot.subject_id),
                     payload=WorkPayloadRef("action_intent", snapshot.action_intent_id),
                 )
+            )
+            await self._registrations.schedule_registration(
+                unit_of_work.transaction,
+                action_intent_id=snapshot.action_intent_id,
+                work_id=registration_work.draft.work_id.value,
+                response_admission_id=response_admission_id,
             )
         await unit_of_work.work.complete(
             lease,

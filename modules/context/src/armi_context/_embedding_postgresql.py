@@ -15,6 +15,7 @@ from armi_kernel.application import (
     WorkOwner,
     WorkPayloadRef,
     WorkStatus,
+    WorkType,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId, TraceId
 from armi_material.api import (
@@ -52,7 +53,7 @@ from ._embedding import (
 from ._postgresql import ContextMaterialSource
 from .api import ContextProjectionSourceRef, EmbeddingResponse, RecallStatus
 
-_WORK_KIND = "context.embedding.project"
+_WORK_KIND = WorkType.CONTEXT_EMBEDDING_PROJECT
 _RECONCILIATION_PAGE_SIZE = 256
 
 
@@ -120,7 +121,7 @@ class PostgreSQLContextEmbeddingRepository:
         if row is None:
             return False
         state, epoch, scanning_epoch, source_kind, after_source_ref = row
-        if str(state) == "complete":
+        if str(state) in {"complete", "degraded"}:
             return False
         if str(state) == "dirty":
             scanning_epoch = int(epoch)

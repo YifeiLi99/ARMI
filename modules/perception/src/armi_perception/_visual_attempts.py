@@ -6,6 +6,25 @@ from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
 
 class PostgreSQLVisualRecognitionAttempts:
+    async def settle_interrupted(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        observation_ids: tuple[UUID, ...],
+        error_code: str,
+    ) -> None:
+        if not observation_ids:
+            return
+        await unit_of_work.transaction.execute(
+            """UPDATE armi.visual_recognition_attempts
+               SET status=CASE status WHEN 'prepared' THEN 'failed'
+                                      ELSE 'unknown' END,
+                   error_code=%s,settled_at=statement_timestamp()
+               WHERE observation_id=ANY(%s::uuid[])
+                 AND status IN ('prepared','dispatched')""",
+            (error_code, list(observation_ids)),
+        )
+
     async def begin(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,

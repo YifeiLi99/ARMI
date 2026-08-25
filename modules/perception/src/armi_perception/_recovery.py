@@ -1,6 +1,9 @@
 """Perception-owned startup recovery contribution."""
 
+from uuid import UUID
+
 from armi_runtime_foundation import (
+    OwnerReconciliationContext,
     PostgreSQLTransaction,
     RecoveryContribution,
     RecoveryFindingContribution,
@@ -8,8 +11,6 @@ from armi_runtime_foundation import (
     RecoveryMetricContribution,
     RecoveryOwnerIdentity,
     RecoveryScope,
-    RecoveryWorkCommand,
-    RecoveryWorkCommandKind,
     RecoveryWorkSnapshot,
 )
 
@@ -38,20 +39,24 @@ class PerceptionRecoveryParticipant:
             SET status='unknown',error_code='VISION-OUTCOME-UNKNOWN',settled_at=statement_timestamp()
             WHERE status='dispatched' RETURNING visual_attempt_id""")
         ).fetchall()
-        by_id = {item.work_id: item for item in work}
-        commands = tuple(
-            RecoveryWorkCommand(
-                RecoveryWorkCommandKind.FAIL,
-                item.work_id,
-                item.work_kind,
-                item.owner_kind,
-                item.owner_ref,
-                "REC-PERCEPTION-OUTCOME-UNKNOWN",
-            )
-            for row in rows
-            if (item := by_id.get(row[0])) is not None
-            and item.status in {"ready", "leased"}
+        reconciliation = OwnerReconciliationContext(
+            transaction, self.owner_identity, work
         )
+        unknown_ids: set[UUID] = {row[0] for row in rows}
+        for item in work:
+            if not item.reconciliation_required:
+                continue
+            if item.work_id in unknown_ids:
+                await reconciliation.complete(
+                    item.work_id,
+                    result_kind="external_message",
+                    result_ref=item.owner_ref,
+                )
+            else:
+                await reconciliation.fail(
+                    item.work_id,
+                    reason_code="REC-PERCEPTION-WORK-EXHAUSTED",
+                )
         return RecoveryContribution(
             self.owner_identity,
             findings=()
@@ -71,5 +76,4 @@ class PerceptionRecoveryParticipant:
                     "perception.unknown_visual_attempt_count", len(visual_rows)
                 ),
             ),
-            work_commands=commands,
         )

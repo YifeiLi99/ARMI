@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any, Literal, cast
-from uuid import UUID
+from uuid import UUID, uuid7
 
 import rfc8785
 from armi_runtime_foundation import (
@@ -413,6 +413,57 @@ class PostgreSQLActivityRead:
             created_at=row[12],
             updated_at=row[13],
         )
+
+    async def pause_failed_internal_work(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        activity_id: UUID,
+        expected_revision_id: UUID,
+    ) -> UUID | None:
+        revision_id = uuid7()
+        row = await (
+            await transaction.execute(
+                """WITH current AS (
+                     SELECT activity.head_version, revision.*
+                     FROM armi.activities AS activity
+                     JOIN armi.activity_revisions AS revision
+                       ON revision.activity_revision_id=activity.current_revision_id
+                     WHERE activity.subject_id=%s AND activity.activity_id=%s
+                       AND activity.current_revision_id=%s
+                       AND revision.status='in_progress'
+                     FOR UPDATE OF activity
+                   ), inserted AS (
+                     INSERT INTO armi.activity_revisions (
+                       activity_revision_id,activity_id,revision_no,
+                       previous_revision_id,subject_commit_id,
+                       candidate_validation_id,proposal_ref,goal,
+                       progress_summary,waiting_condition,resumption_cue,
+                       next_safe_step,status,terminal_reason,related_scene_id,
+                       transition_kind,waiting_condition_kind,resume_not_before)
+                     SELECT %s,activity_id,revision_no+1,
+                       activity_revision_id,NULL,NULL,NULL,goal,progress_summary,
+                       '内部工作连续失败;等待定时复查',
+                       '定时复查后重新判断是否继续',next_safe_step,
+                       'paused',NULL,related_scene_id,'system_pause',
+                       'scheduled_review',statement_timestamp()+interval '60 seconds'
+                     FROM current RETURNING activity_id
+                   )
+                   UPDATE armi.activities AS activity
+                   SET current_revision_id=%s,head_version=head_version+1
+                   FROM inserted WHERE activity.activity_id=inserted.activity_id
+                   RETURNING activity.current_revision_id""",
+                (
+                    subject_id,
+                    activity_id,
+                    expected_revision_id,
+                    revision_id,
+                    revision_id,
+                ),
+            )
+        ).fetchone()
+        return None if row is None else row[0]
 
     @staticmethod
     def _timeline_item(row: tuple[Any, ...]) -> CreatorActivityTimelineItem:

@@ -293,8 +293,25 @@ class SleepOpportunityResult:
     inserted: bool
 
 
+@dataclass(frozen=True, slots=True)
+class SleepOpportunityState:
+    opportunity_id: UUID
+    root_opportunity_id: UUID
+    disposition: str
+    reconsideration_no: int
+
+
 @runtime_checkable
 class SleepOpportunityPort(Protocol):
+    async def maintenance_work_state(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        source_ref: UUID,
+        source_version: int,
+        purpose: str,
+    ) -> SleepOpportunityState | None: ...
     async def admit_sleep(
         self,
         transaction: PostgreSQLTransaction,
@@ -412,6 +429,13 @@ class SleepMaintenancePort(Protocol):
         session_id: UUID,
         request_id: UUID,
     ) -> UUID: ...
+
+    async def request_creator_input_wake(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        source_ref: UUID,
+    ) -> UUID | None: ...
 
     async def active_session_id(
         self, unit_of_work: PostgreSQLRuntimeUnitOfWork
@@ -664,6 +688,7 @@ __all__ = (
     "SleepOpportunityDraft",
     "SleepOpportunityPort",
     "SleepOpportunityResult",
+    "SleepOpportunityState",
     "SleepReadPort",
     "SleepRuntimeFactsPort",
     "SleepRuntimeSnapshot",

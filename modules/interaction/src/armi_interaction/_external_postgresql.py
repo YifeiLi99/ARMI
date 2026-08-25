@@ -14,6 +14,7 @@ from armi_kernel.application import (
     WorkId,
     WorkOwner,
     WorkPayloadRef,
+    WorkType,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
@@ -421,7 +422,7 @@ class ExternalMessageInputRepository:
             await unit_of_work.work.enqueue(
                 WorkDraft(
                     WorkId(uuid7()),
-                    "external.content.recognize",
+                    WorkType.EXTERNAL_CONTENT_RECOGNIZE,
                     WorkOwner("external_message", interaction_id),
                     idempotency_key,
                     request_digest,

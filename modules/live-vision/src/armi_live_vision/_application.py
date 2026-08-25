@@ -102,6 +102,27 @@ class DurableVisualObservationCoordinator:
             )
         self._session_id = None
 
+    async def settle_interrupted_observations(self, *, error_code: str) -> None:
+        if self._session_id is None:
+            return
+        async with self._factory.unit_of_work() as unit:
+            observation_rows = await (
+                await unit.transaction.execute(
+                    """UPDATE armi.live_vision_observations
+                       SET status='unknown',error_code=%s,
+                           settled_at=statement_timestamp()
+                       WHERE session_id=%s AND status='recognizing'
+                       RETURNING observation_id""",
+                    (error_code, self._session_id),
+                )
+            ).fetchall()
+            if observation_rows:
+                await self._attempts.settle_interrupted(
+                    unit,
+                    observation_ids=tuple(row[0] for row in observation_rows),
+                    error_code=error_code,
+                )
+
     async def purge_expired_frames(self) -> int:
         async with self._factory.unit_of_work() as unit:
             rows = await (

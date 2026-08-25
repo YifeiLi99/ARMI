@@ -1283,7 +1283,7 @@ class PostgreSQLCreatorGrantPolicy:
                         CreatorResourceKind("operation"),
                         str(root_operation_id),
                         now,
-                        "creator-operation.v2",
+                        "creator-operation.v3",
                     ),
                 )
             )

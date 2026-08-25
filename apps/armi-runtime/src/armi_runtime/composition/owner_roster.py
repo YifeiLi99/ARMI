@@ -9,6 +9,7 @@ from armi_activity.bootstrap import (
     bootstrap_activity_recovery,
 )
 from armi_attention.bootstrap import (
+    bootstrap_opportunity_cognition,
     bootstrap_opportunity_data_rights,
     bootstrap_opportunity_recovery,
 )
@@ -184,7 +185,7 @@ def compose_runtime_owner_roster(
         "evidence": bootstrap_evidence_recovery(),
         "opportunity": bootstrap_opportunity_recovery(),
         "experience": bootstrap_experience_recovery(),
-        "cognition": bootstrap_cognition_recovery(),
+        "cognition": bootstrap_cognition_recovery(bootstrap_opportunity_cognition()),
         "memory": bootstrap_memory_recovery(),
         "relationship": bootstrap_relationship_recovery(),
         "activity": bootstrap_activity_recovery(),

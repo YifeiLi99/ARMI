@@ -53,6 +53,8 @@ class FakeSink:
         self.open_count = 0
         self.closes: list[str | None] = []
         self.triggers: list[ObservationTrigger] = []
+        self.interruptions: list[str] = []
+        self.fail_observation = False
 
     async def open_session(self) -> None:
         self.open_count += 1
@@ -60,9 +62,15 @@ class FakeSink:
     async def close_session(self, *, error_code: str | None = None) -> None:
         self.closes.append(error_code)
 
+    async def settle_interrupted_observations(self, *, error_code: str) -> None:
+        self.interruptions.append(error_code)
+
     async def observe(self, *, trigger, frames, change_score) -> VisualObservation:
         assert 1 <= len(frames) <= 4
         self.triggers.append(trigger)
+        if self.fail_observation:
+            self.fail_observation = False
+            raise RuntimeError("database unavailable")
         return VisualObservation(
             uuid7(),
             trigger,
@@ -143,6 +151,27 @@ def test_missing_configured_device_is_retried_without_switching_identity() -> No
             assert camera.open_count == 1
             assert sink.open_count == 1
             assert service.status().state.value == "observing"
+        finally:
+            await service.stop()
+
+    asyncio.run(scenario())
+
+
+def test_scheduled_observation_failure_is_consumed_and_degrades_service() -> None:
+    async def scenario() -> None:
+        device = CameraDevice("USB Camera", "path", "location")
+        camera, sink = FakeCamera(device), FakeSink()
+        service = _service(camera, sink)
+        try:
+            await service.start()
+            sink.fail_observation = True
+            service._schedule(ObservationTrigger.MANUAL)
+            task = service._observation_task
+            assert task is not None
+            await task
+            assert service.status().state.value == "degraded"
+            assert service.status().reason_code == "VISION-OBSERVATION-FAILED"
+            assert sink.interruptions[-1] == "VISION-OBSERVATION-FAILED"
         finally:
             await service.stop()
 

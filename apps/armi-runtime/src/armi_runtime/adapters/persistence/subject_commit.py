@@ -83,6 +83,7 @@ from armi_kernel.application import (
     WorkOwner,
     WorkPayloadRef,
     WorkResultRef,
+    WorkType,
 )
 from armi_kernel.contracts import (
     Digest,
@@ -131,7 +132,7 @@ from armi_web_observation.api import (
 
 from .unit_of_work import PostgreSQLUnitOfWork
 
-_WORK_KIND = "cognition.subject.commit"
+_WORK_KIND = WorkType.COGNITION_SUBJECT_COMMIT
 
 
 @dataclass(frozen=True, slots=True)
@@ -1504,7 +1505,7 @@ async def _insert_exact_life_query_intent(
     await unit_of_work.work.enqueue(
         WorkDraft(
             work_id,
-            "life.query.execute",
+            WorkType.LIFE_QUERY_EXECUTE,
             WorkOwner("exact_life_query_intent", intent_id),
             IdempotencyKey(f"life-query:{snapshot.opportunity_id}"),
             query_digest,

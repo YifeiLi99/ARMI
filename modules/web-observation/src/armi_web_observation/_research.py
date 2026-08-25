@@ -13,6 +13,7 @@ from armi_kernel.application import (
     ArtifactViolation,
     DurableWorkPort,
     WorkLease,
+    WorkType,
     WorkViolation,
 )
 from armi_runtime_foundation import (
@@ -32,7 +33,7 @@ from ._observation_contract import (
 from ._research_contract import WebResearchIntentPort, WebResearchViolation
 from .api import WebArtifactCatalogPort, WebArtifactStorePort
 
-_WORK_KIND = "web.observation.admit"
+_WORK_KIND = WorkType.WEB_OBSERVATION_ADMIT
 Diagnostic = Callable[[str], None]
 
 

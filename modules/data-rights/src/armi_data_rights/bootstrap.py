@@ -134,6 +134,7 @@ def bootstrap_data_rights(
         notifier=notifier,
         parties=parties,
         lifecycle=lifecycle,
+        participants=participants,
     )
     exports = CreatorExportService(
         creator_party_id=creator_party_id,

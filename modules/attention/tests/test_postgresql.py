@@ -365,6 +365,8 @@ class _InternalWorkConnection:
                     "draft one section",
                 )
             )
+        if "SELECT opportunity_id,root_opportunity_id" in statement:
+            return _Cursor(None)
         if "INSERT INTO armi.opportunities" in statement:
             if self._opportunity_id is None:
                 self._opportunity_id = cast(UUID, parameters[0])

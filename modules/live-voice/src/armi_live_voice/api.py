@@ -39,6 +39,7 @@ class FastReplyKind(StrEnum):
 
 
 class AttemptOutcome(StrEnum):
+    CANCELLED = "cancelled"
     COMPLETED = "completed"
     FAILED = "failed"
     PARTIAL = "partial"
@@ -271,6 +272,7 @@ class VoiceJournalPort(Protocol):
     async def begin_provider_attempt(
         self, *, turn_id: UUID, binding: VoiceProviderBinding
     ) -> UUID: ...
+    async def mark_provider_dispatched(self, *, attempt_id: UUID) -> None: ...
     async def mark_provider_first_result(self, *, attempt_id: UUID) -> None: ...
     async def settle_provider_attempt(
         self,
@@ -280,6 +282,7 @@ class VoiceJournalPort(Protocol):
         error_code: str | None = None,
     ) -> None: ...
     async def begin_playback(self, *, turn_id: UUID) -> UUID: ...
+    async def mark_playback_dispatched(self, *, attempt_id: UUID) -> None: ...
     async def mark_playback_first_frame(self, *, attempt_id: UUID) -> None: ...
     async def settle_playback(
         self,

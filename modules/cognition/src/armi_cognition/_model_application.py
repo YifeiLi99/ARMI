@@ -39,6 +39,7 @@ from armi_kernel.application import (
     ModelViolation,
     WorkLease,
     WorkRecord,
+    WorkType,
     WorkViolation,
 )
 from armi_kernel.contracts import Instant, Purpose, SubjectId
@@ -110,7 +111,7 @@ from .api import (
     CognitiveBranchRole,
 )
 
-_WORK_KIND = "cognition.model.invoke"
+_WORK_KIND = WorkType.COGNITION_MODEL_INVOKE
 MODEL_INVOKE = _WORK_KIND
 CANDIDATE_VALIDATE = "cognition.candidate.validate"
 _LEASE_SECONDS = 30

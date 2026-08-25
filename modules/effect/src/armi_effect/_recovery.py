@@ -4,6 +4,7 @@ from uuid import uuid7
 
 from armi_kernel.contracts import Digest
 from armi_runtime_foundation import (
+    OwnerReconciliationContext,
     PostgreSQLTransaction,
     RecoveryAuditContribution,
     RecoveryContribution,
@@ -18,7 +19,7 @@ from armi_runtime_foundation import (
 
 class EffectRecoveryParticipant:
     owner_identity = RecoveryOwnerIdentity("effect")
-    work_scopes = (("action_intent", "effect.register"), ("effect", "effect.dispatch"))
+    work_scopes = (("action_intent", "effect.register"),)
 
     async def recover(
         self,
@@ -26,7 +27,48 @@ class EffectRecoveryParticipant:
         scope: RecoveryScope,
         work: tuple[RecoveryWorkSnapshot, ...],
     ) -> RecoveryContribution:
-        del work
+        reconciliation = OwnerReconciliationContext(
+            transaction, self.owner_identity, work
+        )
+        for item in work:
+            if not item.reconciliation_required:
+                continue
+            row = await (
+                await transaction.execute(
+                    """SELECT registration.effect_registration_id,
+                              registration.status,registration.effect_id,
+                              registration.action_intent_id
+                       FROM armi.effect_registrations AS registration
+                       WHERE registration.work_id=%s
+                       FOR UPDATE OF registration""",
+                    (item.work_id,),
+                )
+            ).fetchone()
+            if row is None:
+                raise ValueError("effect registration responsibility is missing")
+            if str(row[1]) == "succeeded" and row[2] is not None:
+                await reconciliation.complete(
+                    item.work_id, result_kind="effect", result_ref=row[2]
+                )
+            elif str(row[1]) != "pending":
+                await reconciliation.complete(
+                    item.work_id,
+                    result_kind="creator_response_operation",
+                    result_ref=row[3],
+                )
+            else:
+                await transaction.execute(
+                    """UPDATE armi.effect_registrations
+                       SET status='failed',reason_code='EFFECT-WORK-EXHAUSTED',
+                           attempt_count=attempt_count+1,
+                           settled_at=statement_timestamp()
+                       WHERE effect_registration_id=%s""",
+                    (row[0],),
+                )
+                await reconciliation.fail(
+                    item.work_id,
+                    reason_code="REC-EFFECT-WORK-EXHAUSTED",
+                )
         dispatched = await (
             await transaction.execute(
                 """

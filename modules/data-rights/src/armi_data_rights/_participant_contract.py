@@ -132,9 +132,14 @@ class DataRightsDiscoveryContribution:
 class DataRightsApplyRequest:
     order_id: UUID
     party_id: UUID
+    order_kind: str
     related_refs: tuple[DataRightsRelatedRef, ...]
     targets: tuple[DataRightsTargetRef, ...]
     exclusive_artifact_ids: tuple[ArtifactId, ...]
+
+    def __post_init__(self) -> None:
+        if self.order_kind not in {"stop_contact", "stop_use", "delete_related"}:
+            raise DataRightsParticipantViolation("DATA-RIGHTS-PARTICIPANT-APPLY")
 
 
 @dataclass(frozen=True, slots=True)

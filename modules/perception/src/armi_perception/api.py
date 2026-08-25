@@ -21,6 +21,7 @@ from armi_kernel.application import (
     ArtifactRegistration,
     WorkLease,
     WorkRecord,
+    WorkType,
 )
 from armi_kernel.contracts import Instant, TraceId
 from armi_runtime_foundation import (
@@ -266,6 +267,14 @@ class VisualRecognitionPort(Protocol):
 
 @runtime_checkable
 class VisualRecognitionAttemptPort(Protocol):
+    async def settle_interrupted(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        observation_ids: tuple[UUID, ...],
+        error_code: str,
+    ) -> None: ...
+
     async def begin(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
@@ -309,16 +318,18 @@ class PerceptionArtifactCatalogPort(Protocol):
 
 @runtime_checkable
 class PerceptionDurableWorkPort(Protocol):
-    async def failed_owner_refs(self, *, work_kind: str) -> tuple[UUID, ...]: ...
+    async def failed_owner_refs(self, *, work_kind: WorkType) -> tuple[UUID, ...]: ...
 
     async def claim(
         self,
         *,
-        work_kind: str,
+        work_kind: WorkType,
         lease_owner: UUID,
         lease_seconds: int,
         limit: int = 1,
     ) -> tuple[WorkRecord, ...]: ...
+
+    async def renew(self, lease: WorkLease, *, lease_seconds: int) -> WorkLease: ...
 
     async def fail(self, lease: WorkLease, *, error_code: str) -> WorkRecord: ...
 

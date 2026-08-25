@@ -92,6 +92,16 @@ from ._scene_contract import (
 )
 
 
+@runtime_checkable
+class CreatorInputWakePort(Protocol):
+    async def register_creator_input(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        source_ref: UUID,
+    ) -> None: ...
+
+
 @dataclass(frozen=True, slots=True)
 class InteractionAdminInputSnapshot:
     interaction_id: UUID
@@ -698,6 +708,7 @@ __all__ = (
     "CreatorInputContext",
     "CreatorInputTransactionPort",
     "CreatorInputViolation",
+    "CreatorInputWakePort",
     "CreatorInteractionId",
     "CreatorInteractionPort",
     "CreatorOperation",

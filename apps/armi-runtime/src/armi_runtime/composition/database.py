@@ -144,6 +144,7 @@ from armi_expression.bootstrap import (
 from armi_interaction.api import (
     CreatorIdentityContext,
     CreatorInputTransactionPort,
+    CreatorInputWakePort,
     CreatorOperationQueryPort,
     InteractionCognitionReadPort,
     InteractionContextReadPort,
@@ -221,6 +222,7 @@ from armi_relationship.bootstrap import (
     RelationshipModule,
     bootstrap_relationship,
 )
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 from armi_sleep.api import (
     SleepCognitionPort,
     SleepCommitPort,
@@ -658,6 +660,7 @@ def compose_interaction_module(
     catalog: ArtifactCatalogPort,
     timeline_projections: InteractionCreatorTimelineProjectionPort,
     voice_responses: InteractionVoiceResponseReadPort,
+    sleep_maintenance: SleepMaintenancePort,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
     fault_injector: Callable[[str], None] | None = None,
@@ -680,6 +683,7 @@ def compose_interaction_module(
         voice_responses=voice_responses,
         identity=identity,
         subject_state=subject_state_read,
+        maintenance_wake=_RuntimeCreatorInputWake(sleep_maintenance),
         evidence=evidence,
         evidence_read=evidence_read,
         opportunity=opportunity,
@@ -688,6 +692,24 @@ def compose_interaction_module(
         diagnostic=diagnostic,
         fault_injector=fault_injector,
     )
+
+
+class _RuntimeCreatorInputWake(CreatorInputWakePort):
+    __slots__ = ("_maintenance",)
+
+    def __init__(self, maintenance: SleepMaintenancePort) -> None:
+        self._maintenance = maintenance
+
+    async def register_creator_input(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        source_ref: UUID,
+    ) -> None:
+        await self._maintenance.request_creator_input_wake(
+            unit_of_work,
+            source_ref=source_ref,
+        )
 
 
 def compose_activity_module(

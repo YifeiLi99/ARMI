@@ -40,6 +40,7 @@ from armi_kernel.application import (
     LifeRecordRetrievalKind,
     WorkLease,
     WorkResultRef,
+    WorkType,
     WorkViolation,
 )
 from armi_kernel.contracts import Purpose, SubjectId
@@ -59,7 +60,7 @@ from .work_wakeup import (
     WorkWakeupBus,
 )
 
-_WORK_KIND = "life.query.execute"
+_WORK_KIND = WorkType.LIFE_QUERY_EXECUTE
 Diagnostic = Callable[[str], None]
 
 

@@ -61,6 +61,7 @@ from armi_kernel.application import (
     SubjectCommitResult,
     SubjectCommitViolation,
     WorkLease,
+    WorkType,
     WorkViolation,
 )
 from armi_kernel.contracts import ContractViolation, Digest, Instant, Purpose, SubjectId
@@ -119,7 +120,7 @@ from .work_wakeup import (
     WorkWakeupBus,
 )
 
-_WORK_KIND = "cognition.subject.commit"
+_WORK_KIND = WorkType.COGNITION_SUBJECT_COMMIT
 _LEASE_SECONDS = 30
 Diagnostic = Callable[[str], None]
 FaultInjector = Callable[[str], None]
@@ -703,7 +704,7 @@ class SubjectCommitPipeline:
                 CreatorResourceKind("operation"),
                 str(snapshot.root_opportunity_id),
                 now,
-                "creator-operation.v2",
+                "creator-operation.v3",
             )
         ]
         if result.subject_commit_id is not None:

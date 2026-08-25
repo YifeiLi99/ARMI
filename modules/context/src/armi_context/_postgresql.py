@@ -32,6 +32,7 @@ from armi_kernel.application import (
     WorkOwner,
     WorkPayloadRef,
     WorkResultRef,
+    WorkType,
 )
 from armi_kernel.contracts import (
     Digest,
@@ -61,7 +62,7 @@ from .api import (
     ContextViolation,
 )
 
-_MODEL_WORK_KIND = "cognition.model.invoke"
+_MODEL_WORK_KIND = WorkType.COGNITION_MODEL_INVOKE
 
 
 @dataclass(frozen=True, slots=True)

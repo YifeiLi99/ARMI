@@ -11,6 +11,7 @@ from armi_runtime_foundation import PostgreSQLTransaction
 from .api import (
     ExpressionIntentSnapshot,
     ExpressionOperationSnapshot,
+    ResponseAdmissionSnapshot,
     ResponseViolation,
 )
 
@@ -78,6 +79,74 @@ class PostgreSQLExpressionActionOwner:
             validator_id=str(row[16]) if row[16] is not None else None,
             created_at=row[17],
         )
+
+    async def settle_response_admission(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        work_id: UUID,
+        action_intent_id: UUID | None,
+        status: str,
+        permission_grant_id: UUID | None,
+        reason_code: str,
+    ) -> UUID | None:
+        if status not in {
+            "accepted",
+            "cancelled",
+            "failed",
+            "unauthorized",
+            "unavailable",
+        }:
+            raise ResponseViolation("CON-RESPONSE-RESULT")
+        if action_intent_id is None:
+            row = await (
+                await transaction.execute(
+                    """UPDATE armi.response_admissions
+                       SET status=%s,permission_grant_id=%s,reason_code=%s,
+                           attempt_count=attempt_count+1,
+                           settled_at=statement_timestamp()
+                       WHERE work_id=%s AND status='pending'
+                       RETURNING response_admission_id""",
+                    (status, permission_grant_id, reason_code, work_id),
+                )
+            ).fetchone()
+        else:
+            row = await (
+                await transaction.execute(
+                    """UPDATE armi.response_admissions
+                       SET status=%s,permission_grant_id=%s,reason_code=%s,
+                           attempt_count=attempt_count+1,
+                           settled_at=statement_timestamp()
+                       WHERE work_id=%s AND action_intent_id=%s
+                         AND status='pending'
+                       RETURNING response_admission_id""",
+                    (
+                        status,
+                        permission_grant_id,
+                        reason_code,
+                        work_id,
+                        action_intent_id,
+                    ),
+                )
+            ).fetchone()
+        return None if row is None else row[0]
+
+    async def response_admission_by_intent(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        action_intent_id: UUID,
+    ) -> ResponseAdmissionSnapshot | None:
+        row = await (
+            await transaction.execute(
+                """SELECT response_admission_id,status,reason_code
+                   FROM armi.response_admissions WHERE action_intent_id=%s""",
+                (action_intent_id,),
+            )
+        ).fetchone()
+        if row is None:
+            return None
+        return ResponseAdmissionSnapshot(row[0], str(row[1]), row[2])
 
     async def intent_snapshot(
         self,

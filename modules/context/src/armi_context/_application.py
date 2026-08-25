@@ -39,6 +39,7 @@ from armi_kernel.application import (
     DurableWorkPort,
     ModelViolation,
     WorkLease,
+    WorkType,
     WorkViolation,
 )
 from armi_kernel.contracts import Instant, Purpose, SubjectId
@@ -87,7 +88,7 @@ from .api import (
 CONTEXT_PREPARE = "cognition.context.prepare"
 MODEL_INVOKE = "cognition.model.invoke"
 OPPORTUNITY_AVAILABLE = "opportunity.available"
-_WORK_KIND = "cognition.context.prepare"
+_WORK_KIND = WorkType.COGNITION_CONTEXT_PREPARE
 Diagnostic = Callable[[str], None]
 
 

@@ -29,6 +29,7 @@ from armi_kernel.application import (
     WorkRecord,
     WorkResultRef,
     WorkStatus,
+    WorkType,
 )
 from armi_kernel.contracts import (
     Digest,
@@ -45,8 +46,8 @@ from armi_runtime_foundation import (
 
 from .api import CognitionArtifactCatalogPort
 
-_WORK_KIND = "cognition.model.invoke"
-_VALIDATION_WORK_KIND = "cognition.candidate.validate"
+_WORK_KIND = WorkType.COGNITION_MODEL_INVOKE
+_VALIDATION_WORK_KIND = WorkType.COGNITION_CANDIDATE_VALIDATE
 
 
 @dataclass(frozen=True, slots=True)

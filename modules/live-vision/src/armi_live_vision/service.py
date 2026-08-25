@@ -72,6 +72,7 @@ class LiveVisionService:
         self._last_auto_at: datetime | None = None
         self._observation_task: asyncio.Task[VisualObservation | None] | None = None
         self._observation_baseline: CameraFrame | None = None
+        self._observation_failed = False
 
     async def start(self) -> LiveVisionStatus:
         if self._expected:
@@ -81,6 +82,7 @@ class LiveVisionService:
         try:
             await self._connect_exact()
             self._state = LiveVisionState.OBSERVING
+            self._observation_failed = False
             self._reason = None
             self._capture_task = asyncio.create_task(self._capture_loop())
             await asyncio.sleep(self._warmup.total_seconds())
@@ -91,6 +93,7 @@ class LiveVisionService:
             if task is not None:
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
+            await self._settle_interrupted("VISION-START-INTERRUPTED")
             await self._camera.close()
             if self._session_open:
                 await self._sink.close_session(
@@ -110,14 +113,15 @@ class LiveVisionService:
         if task is not None:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
-        await self._camera.close()
-        if self._session_open:
-            await self._sink.close_session()
-            self._session_open = False
         if self._observation_task is not None:
             self._observation_task.cancel()
             await asyncio.gather(self._observation_task, return_exceptions=True)
             self._observation_task = None
+        await self._settle_interrupted("VISION-RUNTIME-STOPPED")
+        await self._camera.close()
+        if self._session_open:
+            await self._sink.close_session()
+            self._session_open = False
         self._buffer.clear()
         self._state = LiveVisionState.IDLE
         return self.status()
@@ -148,8 +152,9 @@ class LiveVisionService:
             try:
                 frame = await self._camera.next_frame()
                 self._buffer.put(frame)
-                self._state = LiveVisionState.OBSERVING
-                self._reason = None
+                if not self._observation_failed:
+                    self._state = LiveVisionState.OBSERVING
+                    self._reason = None
                 self._consider_automatic(frame)
             except asyncio.CancelledError:
                 raise
@@ -220,9 +225,26 @@ class LiveVisionService:
     ) -> VisualObservation | None:
         try:
             return await self._request(trigger, score)
+        except asyncio.CancelledError:
+            raise
         except LiveVisionViolation as error:
             self._reason = error.code
             return None
+        except Exception as error:
+            self._observation_failed = True
+            self._state = LiveVisionState.DEGRADED
+            self._reason = getattr(error, "code", "VISION-OBSERVATION-FAILED")
+            await self._settle_interrupted("VISION-OBSERVATION-FAILED")
+            return None
+
+    async def _settle_interrupted(self, code: str) -> None:
+        if not self._session_open:
+            return
+        try:
+            await self._sink.settle_interrupted_observations(error_code=code)
+        except Exception:
+            self._state = LiveVisionState.UNAVAILABLE
+            self._reason = "VISION-SETTLEMENT-FAILED"
 
     async def _request(
         self, trigger: ObservationTrigger, change_score: float | None = None
@@ -243,6 +265,9 @@ class LiveVisionService:
                 result = await self._sink.observe(
                     trigger=current_trigger, frames=frames, change_score=current_score
                 )
+                self._observation_failed = False
+                self._state = LiveVisionState.OBSERVING
+                self._reason = None
                 self._last_observation = result
                 if frames:
                     self._observation_baseline = frames[-1]

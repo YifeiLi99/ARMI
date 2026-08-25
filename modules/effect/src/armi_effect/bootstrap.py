@@ -50,6 +50,7 @@ from .api import (
     EffectGrantCancellationPort,
     EffectReadPort,
     EffectRegistrationContextPort,
+    EffectResponsibilityPort,
     EffectRuntimePort,
     EffectTimelinePort,
     EffectWakeupPort,
@@ -83,6 +84,10 @@ def bootstrap_effect_codex_lifecycle(
 
 
 def bootstrap_expression_effect_registration() -> ExpressionEffectRegistrationPort:
+    return PostgreSQLDeclaredResponseEffectRegistration()
+
+
+def bootstrap_effect_responsibility() -> EffectResponsibilityPort:
     return PostgreSQLDeclaredResponseEffectRegistration()
 
 
@@ -145,6 +150,7 @@ def bootstrap_response_admission(
         capability=capability,
         data_rights=data_rights,
         expression=expression,
+        registrations=bootstrap_effect_responsibility(),
         wakeups=wakeups,
         diagnostic=diagnostic,
     )
@@ -169,6 +175,7 @@ __all__ = (
     "bootstrap_effect_grant_cancellation",
     "bootstrap_effect_operation_read",
     "bootstrap_effect_recovery",
+    "bootstrap_effect_responsibility",
     "bootstrap_effect_runtime",
     "bootstrap_expression_effect_registration",
     "bootstrap_response_admission",

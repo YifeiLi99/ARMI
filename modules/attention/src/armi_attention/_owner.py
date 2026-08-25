@@ -7,7 +7,11 @@ from typing import cast
 from uuid import UUID, uuid7
 
 from armi_runtime_foundation import PostgreSQLTransaction
-from armi_sleep.api import SleepOpportunityDraft, SleepOpportunityResult
+from armi_sleep.api import (
+    SleepOpportunityDraft,
+    SleepOpportunityResult,
+    SleepOpportunityState,
+)
 
 from .api import (
     ExternalEvidenceOpportunityDraft,
@@ -26,6 +30,31 @@ from .api import (
 
 
 class PostgreSQLOpportunityOwner:
+    async def maintenance_work_state(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        source_ref: UUID,
+        source_version: int,
+        purpose: str,
+    ) -> SleepOpportunityState | None:
+        row = await (
+            await transaction.execute(
+                """SELECT opportunity_id,root_opportunity_id,
+                          current_disposition,reconsideration_no
+                   FROM armi.opportunities
+                   WHERE subject_id=%s
+                     AND source_kind='maintenance_phase_revision'
+                     AND source_ref=%s AND source_version=%s AND purpose=%s
+                   ORDER BY reconsideration_no DESC LIMIT 1""",
+                (subject_id, source_ref, source_version, purpose),
+            )
+        ).fetchone()
+        if row is None:
+            return None
+        return SleepOpportunityState(row[0], row[1], str(row[2]), int(row[3]))
+
     async def admit_sleep(
         self,
         transaction: PostgreSQLTransaction,
@@ -88,7 +117,8 @@ class PostgreSQLOpportunityOwner:
     ) -> None:
         await transaction.execute(
             """UPDATE armi.opportunities SET current_disposition='cancelled',
-                      resolved_at=statement_timestamp()
+                      resolved_at=statement_timestamp(),
+                      resolution_reason_code='SLEEP-SOURCE-CANCELLED'
                WHERE subject_id=%s AND source_kind=%s AND source_ref=%s
                  AND current_disposition IN ('open','selected')""",
             (subject_id, source_kind, source_ref),
@@ -174,7 +204,8 @@ class PostgreSQLOpportunityOwner:
         row = await (
             await transaction.execute(
                 """UPDATE armi.opportunities SET current_disposition='resolved',
-                      resolved_at=statement_timestamp()
+                      resolved_at=statement_timestamp(),
+                      resolution_reason_code='COGNITION-FAILED'
                WHERE opportunity_id=%s AND current_disposition='selected'
                RETURNING opportunity_id""",
                 (opportunity_id,),
@@ -275,11 +306,18 @@ class PostgreSQLOpportunityOwner:
             await transaction.execute(
                 """
                 UPDATE armi.opportunities
-                SET current_disposition = %s, resolved_at = statement_timestamp()
+                SET current_disposition = %s, resolved_at = statement_timestamp(),
+                    resolution_reason_code = %s
                 WHERE opportunity_id = %s AND current_disposition = 'selected'
                 RETURNING opportunity_id
                 """,
-                (disposition, opportunity_id),
+                (
+                    disposition,
+                    "SUBJECT-COMMIT-SUPERSEDED"
+                    if disposition == "superseded"
+                    else "SUBJECT-COMMIT-RESOLVED",
+                    opportunity_id,
+                ),
             )
         ).fetchone()
         if row is None:

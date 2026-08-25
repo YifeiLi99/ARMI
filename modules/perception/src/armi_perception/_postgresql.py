@@ -34,6 +34,7 @@ from armi_kernel.application import (
     WorkOwner,
     WorkPayloadRef,
     WorkResultRef,
+    WorkType,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
@@ -77,7 +78,7 @@ class PostgreSQLExternalContentRepository:
             await unit.work.enqueue(
                 WorkDraft(
                     WorkId(uuid7()),
-                    "external.content.finalize",
+                    WorkType.EXTERNAL_CONTENT_FINALIZE,
                     WorkOwner("external_message", recovered.interaction_id),
                     IdempotencyKey(f"external-finalize:{recovered.interaction_id}"),
                     Digest.from_bytes(str(recovered.interaction_id).encode("ascii")),
@@ -142,6 +143,7 @@ class PostgreSQLExternalContentRepository:
         provider: str,
         model_id: str,
     ) -> UUID:
+        await unit.work.validate_lease(lease)
         await self.attach_raw(unit, part_id=part_id, raw_artifact_id=raw_artifact_id)
         connection = unit.transaction
         attempt_id = uuid7()
@@ -172,6 +174,7 @@ class PostgreSQLExternalContentRepository:
         self,
         unit: PostgreSQLRuntimeUnitOfWork,
         *,
+        lease: WorkLease,
         part_id: UUID,
         raw_artifact_id: UUID,
         interpretation_artifact_id: UUID,
@@ -180,6 +183,7 @@ class PostgreSQLExternalContentRepository:
         response_artifact_id: UUID | None = None,
         result: ExternalContentRecognitionResult | None = None,
     ) -> None:
+        await unit.work.validate_lease(lease)
         connection = unit.transaction
         await self._interaction.settle_part_success(
             connection,
@@ -215,12 +219,14 @@ class PostgreSQLExternalContentRepository:
         self,
         unit: PostgreSQLRuntimeUnitOfWork,
         *,
+        lease: WorkLease,
         part_id: UUID,
         status: str,
         error_code: str,
         attempt_id: UUID | None = None,
         result: ExternalContentRecognitionResult | None = None,
     ) -> None:
+        await unit.work.validate_lease(lease)
         if status not in {"failed", "unknown"}:
             raise ExternalMessageViolation("EXTERNAL-MESSAGE-RECOGNITION")
         connection = unit.transaction
@@ -266,7 +272,7 @@ class PostgreSQLExternalContentRepository:
         await unit.work.enqueue(
             WorkDraft(
                 WorkId(uuid7()),
-                "external.content.finalize",
+                WorkType.EXTERNAL_CONTENT_FINALIZE,
                 WorkOwner("external_message", snapshot.interaction_id),
                 IdempotencyKey(f"external-finalize:{snapshot.interaction_id}"),
                 Digest.from_bytes(str(snapshot.interaction_id).encode("ascii")),

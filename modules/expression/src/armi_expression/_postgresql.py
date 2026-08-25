@@ -21,6 +21,7 @@ from armi_kernel.application import (
     WorkId,
     WorkOwner,
     WorkPayloadRef,
+    WorkType,
 )
 from armi_kernel.contracts import IdempotencyKey, Instant, Purpose, SubjectId
 from armi_relationship.api import RelationshipPolicyPort, RelationshipReadPort
@@ -39,7 +40,7 @@ from .api import (
     ResponseViolation,
 )
 
-_RESPONSE_WORK_KIND = "cognition.response.admit"
+_RESPONSE_WORK_KIND = WorkType.COGNITION_RESPONSE_ADMIT
 
 
 class PostgreSQLExpressionOwner:
@@ -642,6 +643,12 @@ class PostgreSQLExpressionOwner:
                 SubjectId(context.subject_id),
                 WorkPayloadRef("action_intent", action_id),
             )
+        )
+        await connection.execute(
+            """INSERT INTO armi.response_admissions (
+                   response_admission_id,action_intent_id,work_id,operation_ref)
+               VALUES (%s,%s,%s,%s)""",
+            (uuid7(), action_id, work_id.value, context.root_opportunity_id),
         )
         await unit_of_work.audit.append(
             _audit(

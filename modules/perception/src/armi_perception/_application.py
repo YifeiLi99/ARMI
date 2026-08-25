@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
+from typing import TypeVar, cast
 from uuid import UUID, uuid7
 
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
@@ -28,6 +29,7 @@ from armi_kernel.application import (
     ArtifactViolation,
     WorkLease,
     WorkResultRef,
+    WorkType,
     WorkViolation,
 )
 from armi_kernel.contracts import Digest, Instant, TraceId
@@ -54,8 +56,8 @@ from .api import (
     PerceptionWakeupPort,
 )
 
-_RECOGNIZE_WORK = "external.content.recognize"
-_FINALIZE_WORK = "external.content.finalize"
+_RECOGNIZE_WORK = WorkType.EXTERNAL_CONTENT_RECOGNIZE
+_FINALIZE_WORK = WorkType.EXTERNAL_CONTENT_FINALIZE
 EXTERNAL_CONTENT = "external.content"
 OPPORTUNITY_AVAILABLE = "opportunity.available"
 _MAX_BYTES = {
@@ -67,6 +69,7 @@ _MAX_BYTES = {
 _MAX_LOCAL_FILE_BYTES = 25 * 1024 * 1024
 _MAX_PROJECTION_BYTES = 256 * 1024
 Diagnostic = Callable[[str], None]
+_T = TypeVar("_T")
 
 
 def _ignore_diagnostic(_event: str) -> None:
@@ -175,7 +178,7 @@ class ExternalContentPipeline:
             for part in snapshot.parts:
                 if part.status != "pending":
                     continue
-                await self._recognize_part(lease, snapshot, part)
+                lease = await self._recognize_part(lease, snapshot, part)
             async with self._factory.unit_of_work() as unit:
                 await self._repository.finish_recognition(
                     unit, lease=lease, snapshot=snapshot
@@ -194,7 +197,7 @@ class ExternalContentPipeline:
         lease: WorkLease,
         snapshot: ExternalRecognitionSnapshot,
         part: ExternalContentPartSnapshot,
-    ) -> None:
+    ) -> WorkLease:
         attempt_id: UUID | None = None
         try:
             if (
@@ -202,12 +205,15 @@ class ExternalContentPipeline:
                 and part.declared_byte_size > _MAX_BYTES[part.kind]
             ):
                 raise ExternalMessageViolation("EXTERNAL-MESSAGE-MEDIA-TOO-LARGE")
-            downloaded = await self._fetch.fetch(
-                channel=ExternalChannel(snapshot.channel),
-                account_key=ExternalAccountKey(snapshot.account_key),
-                kind=part.kind,
-                locator=part.locator,
-                max_bytes=_download_limit(part),
+            downloaded, lease = await self._await_with_lease(
+                lease,
+                self._fetch.fetch(
+                    channel=ExternalChannel(snapshot.channel),
+                    account_key=ExternalAccountKey(snapshot.account_key),
+                    kind=part.kind,
+                    locator=part.locator,
+                    max_bytes=_download_limit(part),
+                ),
             )
             extracted = extract_external_content(
                 kind=part.kind,
@@ -230,6 +236,7 @@ class ExternalContentPipeline:
                 creator_visible=snapshot.purpose == "creator_message",
             )
             async with self._factory.unit_of_work() as unit:
+                await unit.work.validate_lease(lease)
                 raw_registration = await self._catalog.register(
                     unit, ArtifactId(uuid7()), raw
                 )
@@ -260,17 +267,19 @@ class ExternalContentPipeline:
                     creator_visible=snapshot.purpose == "creator_message",
                 )
                 async with self._factory.unit_of_work() as unit:
+                    await unit.work.validate_lease(lease)
                     interpretation_registration = await self._catalog.register(
                         unit, ArtifactId(uuid7()), interpretation
                     )
                     await self._repository.settle_success(
                         unit,
+                        lease=lease,
                         part_id=part.part_id,
                         raw_artifact_id=raw_registration.ref.artifact_id.value,
                         interpretation_artifact_id=interpretation_registration.ref.artifact_id.value,
                         interpretation_text=extracted.text,
                     )
-                return
+                return lease
             provider, model_id = self._target_for(part.kind)
             request_evidence = await self._publish(
                 json.dumps(
@@ -317,6 +326,7 @@ class ExternalContentPipeline:
                 creator_visible=False,
             )
             async with self._factory.unit_of_work() as unit:
+                await unit.work.validate_lease(lease)
                 request_registration = await self._catalog.register(
                     unit, ArtifactId(uuid7()), request_evidence
                 )
@@ -329,18 +339,21 @@ class ExternalContentPipeline:
                     provider=provider,
                     model_id=model_id,
                 )
-            result = await self._recognizer.recognize(
-                ExternalContentRecognitionRequest(
-                    kind=part.kind,
-                    content=downloaded.content,
-                    file_name=downloaded.file_name,
-                    media_type=extracted.media_type,
-                    trace_id=snapshot.trace_id,
-                    visual_role=part.visual_role,
-                    source_kind=part.source_kind,
-                    source_summary=part.source_summary,
-                    visual_inputs=extracted.visual_inputs,
-                )
+            result, lease = await self._await_with_lease(
+                lease,
+                self._recognizer.recognize(
+                    ExternalContentRecognitionRequest(
+                        kind=part.kind,
+                        content=downloaded.content,
+                        file_name=downloaded.file_name,
+                        media_type=extracted.media_type,
+                        trace_id=snapshot.trace_id,
+                        visual_role=part.visual_role,
+                        source_kind=part.source_kind,
+                        source_summary=part.source_summary,
+                        visual_inputs=extracted.visual_inputs,
+                    )
+                ),
             )
             if result.status is ExternalContentRecognitionStatus.SUCCEEDED:
                 assert result.text is not None and result.raw_response is not None
@@ -357,6 +370,7 @@ class ExternalContentPipeline:
                     creator_visible=False,
                 )
                 async with self._factory.unit_of_work() as unit:
+                    await unit.work.validate_lease(lease)
                     interpretation_registration = await self._catalog.register(
                         unit, ArtifactId(uuid7()), interpretation
                     )
@@ -365,6 +379,7 @@ class ExternalContentPipeline:
                     )
                     await self._repository.settle_success(
                         unit,
+                        lease=lease,
                         part_id=part.part_id,
                         raw_artifact_id=raw_registration.ref.artifact_id.value,
                         interpretation_artifact_id=interpretation_registration.ref.artifact_id.value,
@@ -375,6 +390,7 @@ class ExternalContentPipeline:
                     )
             else:
                 await self._settle_failure(
+                    lease,
                     part.part_id,
                     "unknown"
                     if result.status is ExternalContentRecognitionStatus.UNKNOWN
@@ -383,20 +399,24 @@ class ExternalContentPipeline:
                     attempt_id=attempt_id,
                     result=result,
                 )
+            return lease
         except ExternalMessageViolation as error:
             await self._settle_failure(
-                part.part_id, "failed", error.code, attempt_id=attempt_id
+                lease, part.part_id, "failed", error.code, attempt_id=attempt_id
             )
         except ArtifactViolation, OSError:
             await self._settle_failure(
+                lease,
                 part.part_id,
                 "failed",
                 "EXTERNAL-MESSAGE-ARTIFACT",
                 attempt_id=attempt_id,
             )
+        return lease
 
     async def _settle_failure(
         self,
+        lease: WorkLease,
         part_id: UUID,
         status: str,
         code: str,
@@ -407,12 +427,30 @@ class ExternalContentPipeline:
         async with self._factory.unit_of_work() as unit:
             await self._repository.settle_failure(
                 unit,
+                lease=lease,
                 part_id=part_id,
                 status=status,
                 error_code=code,
                 attempt_id=attempt_id,
                 result=result,
             )
+
+    async def _await_with_lease(
+        self, lease: WorkLease, operation: Awaitable[_T]
+    ) -> tuple[_T, WorkLease]:
+        task = asyncio.ensure_future(operation)
+        current = lease
+        try:
+            while True:
+                done, _ = await asyncio.wait((task,), timeout=10)
+                if done:
+                    return task.result(), current
+                current = await self._work.renew(current, lease_seconds=600)
+        except BaseException:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+            raise
 
     async def _finalize(self, lease: WorkLease, interaction_id: UUID) -> None:
         try:
@@ -441,6 +479,7 @@ class ExternalContentPipeline:
                 ),
             )
             async with self._factory.unit_of_work() as unit:
+                await unit.work.validate_lease(lease)
                 registration = await self._catalog.register(
                     unit, ArtifactId(uuid7()), published
                 )

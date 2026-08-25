@@ -30,6 +30,7 @@ from armi_kernel.application import (
     WorkOwner,
     WorkPayloadRef,
     WorkRecord,
+    WorkType,
     WorkViolation,
 )
 from armi_kernel.contracts import (
@@ -70,7 +71,7 @@ from ._observation_postgresql import (
 from ._research_contract import WebResearchViolation
 from .api import WebArtifactCatalogPort, WebArtifactStorePort
 
-_WORK_KIND = "web.search.invoke"
+_WORK_KIND = WorkType.WEB_SEARCH_INVOKE
 _LEASE_SECONDS = 30
 _RENEW_SECONDS = 20
 Diagnostic = Callable[[str], None]

@@ -13,6 +13,7 @@ from armi_kernel.application import (
     WorkLease,
     WorkRecord,
     WorkResultRef,
+    WorkType,
 )
 from armi_kernel.contracts import Digest, SubjectId, TraceId
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
@@ -30,7 +31,7 @@ from ._observation_contract import (
 )
 from .api import WebArtifactCatalogPort
 
-_WORK_KIND = "web.search.invoke"
+_WORK_KIND = WorkType.WEB_SEARCH_INVOKE
 _BINDING = "armi.model-tool.volcengine-ark-web-search-v1"
 
 

@@ -51,7 +51,17 @@ class PostgreSQLOpportunityDataRightsParticipant:
         transaction: PostgreSQLTransaction,
         request: DataRightsApplyRequest,
     ) -> DataRightsApplyContribution:
-        del transaction, request
+        await transaction.execute(
+            """UPDATE armi.opportunities
+               SET current_disposition='cancelled',
+                   resolved_at=statement_timestamp(),
+                   resolution_reason_code=%s
+               WHERE context_party_id=%s AND current_disposition='open'""",
+            (
+                f"DATA-RIGHTS-{request.order_kind.upper().replace('_', '-')}",
+                request.party_id,
+            ),
+        )
         return DataRightsApplyContribution(_OWNER)
 
     async def export(

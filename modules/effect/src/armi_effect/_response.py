@@ -14,6 +14,7 @@ from armi_kernel.application import (
     ArtifactViolation,
     DurableWorkPort,
     WorkRecord,
+    WorkType,
     WorkViolation,
 )
 from armi_kernel.contracts import ContractViolation
@@ -26,9 +27,9 @@ from ._admission import (
     PostgreSQLResponseAdmissionRepository,
     ResponseAdmissionSnapshot,
 )
-from .api import EffectArtifactStorePort, EffectWakeupPort
+from .api import EffectArtifactStorePort, EffectResponsibilityPort, EffectWakeupPort
 
-_WORK_KIND = "cognition.response.admit"
+_WORK_KIND = WorkType.COGNITION_RESPONSE_ADMIT
 _LEASE_SECONDS = 30
 _EFFECT_REGISTER = "effect.register"
 _RESPONSE_ADMIT = "cognition.response.admit"
@@ -61,6 +62,7 @@ class ResponseAdmissionPipeline:
         capability: CapabilityAdmissionPort,
         data_rights: DataRightsEffectGate,
         expression: ExpressionResponseAdmissionPort,
+        registrations: EffectResponsibilityPort,
         wakeups: EffectWakeupPort,
         diagnostic: Diagnostic | None = None,
     ) -> None:
@@ -71,6 +73,7 @@ class ResponseAdmissionPipeline:
             capability=capability,
             data_rights=data_rights,
             expression=expression,
+            registrations=registrations,
         )
         self._work = work
         self._lease_owner = uuid7()

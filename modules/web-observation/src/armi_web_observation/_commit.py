@@ -16,6 +16,7 @@ from armi_kernel.application import (
     WorkId,
     WorkOwner,
     WorkPayloadRef,
+    WorkType,
 )
 from armi_kernel.contracts import IdempotencyKey, Instant, Purpose, SubjectId
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
@@ -56,7 +57,7 @@ class PostgreSQLWebResearchCommit:
         await unit_of_work.work.enqueue(
             WorkDraft(
                 work_id,
-                "web.observation.admit",
+                WorkType.WEB_OBSERVATION_ADMIT,
                 WorkOwner("web_research_intent", intent_id),
                 IdempotencyKey(f"web-intent:{context.opportunity_id}"),
                 query_artifact.content_digest,

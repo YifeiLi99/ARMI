@@ -17,6 +17,7 @@ from armi_kernel.application import (
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
     CreatorResourceKind,
+    TransactionIsolation,
 )
 from armi_kernel.contracts import Digest, Instant, Purpose
 from armi_runtime_foundation import (
@@ -27,6 +28,7 @@ from armi_runtime_foundation import (
 from ._deletion import LocalDataDeletionExecutor
 from ._postgresql import DataRightsOrderRepository, DataRightsOrderSnapshot
 from .api import (
+    DataRightsApplyRequest,
     DataRightsArtifactLifecyclePort,
     DataRightsDeletionItemResult,
     DataRightsExecutionStatus,
@@ -36,6 +38,7 @@ from .api import (
     DataRightsOrderKind,
     DataRightsOrderPort,
     DataRightsOrderResult,
+    DataRightsParticipant,
     DataRightsPartyIdentityPort,
     DataRightsPartyKey,
     DataRightsRequesterKind,
@@ -52,6 +55,7 @@ class DataRightsOrderService(DataRightsOrderPort):
         "_deletion",
         "_lifecycle",
         "_notifier",
+        "_order_participant",
         "_parties",
         "_repository",
         "_stop",
@@ -67,6 +71,7 @@ class DataRightsOrderService(DataRightsOrderPort):
         unit_of_work_factory: DataRightsUnitOfWorkFactory,
         parties: DataRightsPartyIdentityPort,
         lifecycle: DataRightsArtifactLifecyclePort,
+        participants: tuple[DataRightsParticipant, ...],
         notifier: CreatorProjectionNotifier | None = None,
     ) -> None:
         if creator_party_id.version != 7:
@@ -78,6 +83,14 @@ class DataRightsOrderService(DataRightsOrderPort):
         self._uow_factory = unit_of_work_factory
         self._notifier = notifier
         self._parties = parties
+        order_participants = tuple(
+            participant
+            for participant in participants
+            if participant.owner_identity.value == "opportunity"
+        )
+        if len(order_participants) != 1:
+            raise DataRightsViolation("DATA-RIGHTS-COMPOSITION")
+        self._order_participant = order_participants[0]
         self._stop = asyncio.Event()
 
     async def open(self) -> None:
@@ -482,9 +495,12 @@ class DataRightsOrderService(DataRightsOrderPort):
         requester_kind: DataRightsRequesterKind,
         party_key: DataRightsPartyKey | None,
         command: DataRightsOrderCommand,
+        _transaction_retry: int = 0,
     ) -> DataRightsOrderResult:
         try:
-            async with self._uow_factory.unit_of_work() as unit_of_work:
+            async with self._uow_factory.unit_of_work(
+                isolation=TransactionIsolation.SERIALIZABLE
+            ) as unit_of_work:
                 requester_party_id = await self._requester_party(
                     unit_of_work, requester_kind, party_key
                 )
@@ -533,6 +549,22 @@ class DataRightsOrderService(DataRightsOrderPort):
                     request_digest=request_digest,
                     trace_id=command.trace_id.value,
                 )
+                apply_request = DataRightsApplyRequest(
+                    snapshot.order_id,
+                    requester_party_id,
+                    command.order_kind.value,
+                    (),
+                    (),
+                    (),
+                )
+                contribution = await self._order_participant.apply(
+                    unit_of_work.transaction, apply_request
+                )
+                if (
+                    contribution.owner_identity
+                    != self._order_participant.owner_identity
+                ):
+                    raise DataRightsViolation("DATA-RIGHTS-PARTICIPANT-OWNER-MISMATCH")
                 await unit_of_work.audit.append(
                     AuditDraft(
                         AuditEventId(uuid7()),
@@ -548,7 +580,18 @@ class DataRightsOrderService(DataRightsOrderPort):
                 return self._result(snapshot, newly_created=True)
         except DataRightsViolation:
             raise
-        except RuntimeTransactionFailure:
+        except RuntimeTransactionFailure as error:
+            if (
+                error.code in {"DB-TX-SERIALIZATION", "DB-TX-DEADLOCK"}
+                and _transaction_retry < 2
+            ):
+                await asyncio.sleep(0)
+                return await self._record_request(
+                    requester_kind=requester_kind,
+                    party_key=party_key,
+                    command=command,
+                    _transaction_retry=_transaction_retry + 1,
+                )
             raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE") from None
 
     async def _get(

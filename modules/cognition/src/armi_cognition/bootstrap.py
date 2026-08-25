@@ -8,6 +8,7 @@ from pathlib import Path
 from armi_activity.api import ActivityCognitionPort, ActivityReadPort
 from armi_artifact_store import ContentAddressedArtifactStore
 from armi_attention.api import (
+    OpportunityCognitionPort,
     OpportunityCognitionSelectionPort,
     OpportunityContextReadPort,
 )
@@ -310,8 +311,10 @@ def bootstrap_cognition_data_rights() -> DataRightsParticipant:
     return PostgreSQLCognitionDataRightsParticipant()
 
 
-def bootstrap_cognition_recovery() -> RecoveryParticipant:
-    return CognitionRecoveryParticipant()
+def bootstrap_cognition_recovery(
+    opportunity: OpportunityCognitionPort,
+) -> RecoveryParticipant:
+    return CognitionRecoveryParticipant(opportunity)
 
 
 __all__ = (

@@ -76,6 +76,7 @@ async def test_creator_input_lookup_failure_discards_stage_without_publish(
         unit_of_work_factory=cast(Any, SimpleNamespace(environment_id=uuid7())),
         data_rights=cast(Any, object()),
         subject_state=cast(Any, object()),
+        maintenance_wake=cast(Any, object()),
         notifier=None,
     )
 

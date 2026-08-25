@@ -126,7 +126,7 @@ class MoodDisplayAdapter:
                     await self._session(connection)
                 except asyncio.CancelledError:
                     raise
-                except OSError, MoodDisplayViolation:
+                except (OSError, MoodDisplayViolation) as error:
                     if (
                         connected_at is not None
                         and time.monotonic() - connected_at >= 30
@@ -134,7 +134,13 @@ class MoodDisplayAdapter:
                         attempt = 0
                     self._set_status(
                         MoodDisplayStatus(
-                            "unavailable", reason_code="connection_failed"
+                            "unavailable",
+                            reason_code=(
+                                "snapshot_failed"
+                                if isinstance(error, MoodDisplayViolation)
+                                and error.code == "MOOD-DISPLAY-SNAPSHOT"
+                                else "connection_failed"
+                            ),
                         )
                     )
                 finally:
@@ -151,7 +157,12 @@ class MoodDisplayAdapter:
         last_state = None
         last_ping = time.monotonic()
         while True:
-            snapshot = await self._snapshot()
+            try:
+                snapshot = await self._snapshot()
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:
+                raise MoodDisplayViolation("MOOD-DISPLAY-SNAPSHOT") from error
             state = map_mood_snapshot(snapshot)
             if state != last_state:
                 state_id = str(uuid4())

@@ -144,6 +144,9 @@ class FakeJournal:
     async def begin_provider_attempt(self, **_: object):
         return uuid7()
 
+    async def mark_provider_dispatched(self, **_: object) -> None:
+        return None
+
     async def mark_provider_first_result(self, **_: object) -> None:
         return None
 
@@ -152,6 +155,9 @@ class FakeJournal:
 
     async def begin_playback(self, **_: object):
         return uuid7()
+
+    async def mark_playback_dispatched(self, **_: object) -> None:
+        return None
 
     async def mark_playback_first_frame(self, **_: object) -> None:
         return None

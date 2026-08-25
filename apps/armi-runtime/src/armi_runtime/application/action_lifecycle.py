@@ -9,7 +9,11 @@ import rfc8785
 from armi_artifact_store.api import ArtifactCatalogPort
 from armi_capability.api import CapabilityViolation
 from armi_codex.api import CodexArtifactReadPort, CodexTaskSourceReadPort
-from armi_effect.api import EffectRegistrationContext, EffectViolation
+from armi_effect.api import (
+    EffectRegistrationContext,
+    EffectResponsibilityPort,
+    EffectViolation,
+)
 from armi_expression.api import ExpressionIntentReadPort
 from armi_interaction.api import InteractionEffectRoutePort
 from armi_kernel.application import (
@@ -20,6 +24,7 @@ from armi_kernel.application import (
     WorkPayloadRef,
     WorkRecord,
     WorkStatus,
+    WorkType,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId, TraceId
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
@@ -28,10 +33,15 @@ from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 class RuntimeCodexGrantActivation:
     """Turn an accepted Codex grant into Runtime work without owner SQL leakage."""
 
-    __slots__ = ("_expression",)
+    __slots__ = ("_expression", "_registrations")
 
-    def __init__(self, expression: ExpressionIntentReadPort) -> None:
+    def __init__(
+        self,
+        expression: ExpressionIntentReadPort,
+        registrations: EffectResponsibilityPort,
+    ) -> None:
         self._expression = expression
+        self._registrations = registrations
 
     async def activate_codex_registration(
         self,
@@ -75,10 +85,10 @@ class RuntimeCodexGrantActivation:
             )
         )
         work_id = WorkId(uuid7())
-        await unit_of_work.work.enqueue(
+        registration_work = await unit_of_work.work.enqueue(
             WorkDraft(
                 work_id,
-                "effect.register",
+                WorkType.EFFECT_REGISTER,
                 WorkOwner("action_intent", intent.action_intent_id),
                 IdempotencyKey(f"effect-register:{intent.action_intent_id}"),
                 digest,
@@ -90,6 +100,11 @@ class RuntimeCodexGrantActivation:
                 subject_id=SubjectId(intent.subject_id),
                 payload=WorkPayloadRef("action_intent", intent.action_intent_id),
             )
+        )
+        await self._registrations.schedule_registration(
+            transaction,
+            action_intent_id=intent.action_intent_id,
+            work_id=registration_work.draft.work_id.value,
         )
 
 
@@ -120,7 +135,7 @@ class RuntimeEffectRegistrationContext:
         if (
             work.status is not WorkStatus.LEASED
             or work.lease is None
-            or work.draft.work_kind != "effect.register"
+            or work.draft.work_kind is not WorkType.EFFECT_REGISTER
             or work.draft.owner.kind != "action_intent"
         ):
             raise EffectViolation("EFFECT-WORK-STALE")

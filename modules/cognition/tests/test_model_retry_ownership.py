@@ -233,8 +233,20 @@ def test_recovery_fails_episode_when_model_work_exhausted() -> None:
             return cast(Any, _RowsCursor([]))
         return _Cursor()
 
+    async def resolve_cognition_failure(
+        _transaction: object, *, opportunity_id: object
+    ) -> None:
+        del opportunity_id
+
     contribution = asyncio.run(
-        CognitionRecoveryParticipant().recover(
+        CognitionRecoveryParticipant(
+            cast(
+                Any,
+                SimpleNamespace(
+                    resolve_cognition_failure=resolve_cognition_failure,
+                ),
+            )
+        ).recover(
             cast(Any, SimpleNamespace(execute=execute)),
             cast(Any, None),
             (

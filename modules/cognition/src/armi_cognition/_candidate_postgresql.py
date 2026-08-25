@@ -45,6 +45,7 @@ from armi_kernel.application import (
     WorkRecord,
     WorkResultRef,
     WorkStatus,
+    WorkType,
 )
 from armi_kernel.contracts import (
     Digest,
@@ -86,8 +87,8 @@ from .api import (
     SubjectChangeSet,
 )
 
-_WORK_KIND = "cognition.candidate.validate"
-_COMMIT_WORK_KIND = "cognition.subject.commit"
+_WORK_KIND = WorkType.COGNITION_CANDIDATE_VALIDATE
+_COMMIT_WORK_KIND = WorkType.COGNITION_SUBJECT_COMMIT
 
 
 @dataclass(frozen=True, slots=True)

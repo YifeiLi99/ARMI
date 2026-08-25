@@ -465,12 +465,14 @@ class PostgreSQLMaintenanceRepository:
                 """
                 UPDATE armi.maintenance_sessions
                 SET wake_request_id = %s,
-                    wake_requested_at = statement_timestamp()
+                    wake_requested_at = statement_timestamp(),
+                    wake_source_kind = 'creator_request',
+                    wake_source_ref = %s
                 WHERE maintenance_session_id = %s
                   AND wake_request_id IS NULL
                   AND finished_at IS NULL
                 """,
-                (request_id, session_id),
+                (request_id, request_id, session_id),
             )
             await unit_of_work.audit.append(
                 AuditDraft(
@@ -487,6 +489,34 @@ class PostgreSQLMaintenanceRepository:
                 )
             )
         return session_id
+
+    async def request_creator_input_wake(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        source_ref: UUID,
+    ) -> UUID | None:
+        fence = unit_of_work.runtime_fence
+        if source_ref.version != 7 or fence is None:
+            raise SleepViolation("SLEEP-WAKE-REQUEST")
+        row = await (
+            await unit_of_work.transaction.execute(
+                """UPDATE armi.maintenance_sessions
+                   SET wake_request_id=%s,wake_requested_at=statement_timestamp(),
+                       wake_source_kind='creator_input',wake_source_ref=%s
+                   WHERE maintenance_session_id=(
+                     SELECT maintenance_session_id
+                     FROM armi.maintenance_sessions
+                     WHERE subject_id=%s AND life_generation_id=%s
+                       AND finished_at IS NULL
+                     ORDER BY started_at DESC LIMIT 1 FOR UPDATE
+                   )
+                     AND wake_request_id IS NULL
+                   RETURNING maintenance_session_id""",
+                (source_ref, source_ref, fence.subject_id, fence.life_generation_id),
+            )
+        ).fetchone()
+        return None if row is None else row[0]
 
     async def active_session_id(
         self,
@@ -529,6 +559,33 @@ class PostgreSQLMaintenanceRepository:
             MaintenancePhase.REFLECT_MOOD: "reflect_mood",
             MaintenancePhase.REFLECT_PROMPT: "reflect_prompt",
         }[phase]
+        current = await self._opportunities.maintenance_work_state(
+            unit_of_work.transaction,
+            subject_id=subject_id,
+            source_ref=revision_id,
+            source_version=head_version,
+            purpose=purpose,
+        )
+        if current is not None:
+            if current.disposition in {"open", "selected"}:
+                return current.opportunity_id, False
+            if current.reconsideration_no >= 1:
+                return None, False
+            successor = await self._opportunities.admit_sleep(
+                unit_of_work.transaction,
+                SleepOpportunityDraft(
+                    subject_id,
+                    purpose,
+                    "maintenance_phase_revision",
+                    revision_id,
+                    head_version,
+                    datetime.now(UTC),
+                    predecessor_id=current.opportunity_id,
+                    root_id=current.root_opportunity_id,
+                    reconsideration_no=1,
+                ),
+            )
+            return successor.opportunity_id, successor.inserted
         first = await self._opportunities.admit_sleep(
             unit_of_work.transaction,
             SleepOpportunityDraft(

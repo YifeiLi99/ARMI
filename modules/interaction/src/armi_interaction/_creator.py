@@ -51,6 +51,7 @@ from ._creator_postgresql import (
 from ._dependencies import NullInteractionWakeup
 from ._scene_contract import SceneKey
 from .api import (
+    CreatorInputWakePort,
     InteractionArtifactCatalogPort,
     InteractionDataRightsGate,
     InteractionWakeupPort,
@@ -79,6 +80,7 @@ class EvidenceAcceptanceTransaction(CreatorInputAcceptancePort):
         "_data_rights",
         "_diagnostic",
         "_fault_injector",
+        "_maintenance_wake",
         "_notifier",
         "_repository",
         "_storage",
@@ -98,6 +100,7 @@ class EvidenceAcceptanceTransaction(CreatorInputAcceptancePort):
         data_rights: InteractionDataRightsGate,
         notifier: CreatorProjectionNotifier | None,
         subject_state: SubjectStateReadPort,
+        maintenance_wake: CreatorInputWakePort,
         wakeups: InteractionWakeupPort | None = None,
         diagnostic: Diagnostic | None = None,
         fault_injector: FaultInjector | None = None,
@@ -112,6 +115,7 @@ class EvidenceAcceptanceTransaction(CreatorInputAcceptancePort):
         self._uow_factory = unit_of_work_factory
         self._notifier = notifier
         self._subject_state = subject_state
+        self._maintenance_wake = maintenance_wake
         self._wakeups = wakeups or NullInteractionWakeup()
         self._diagnostic = diagnostic or _ignore_diagnostic
         self._fault_injector = fault_injector or _ignore_diagnostic
@@ -274,6 +278,10 @@ class EvidenceAcceptanceTransaction(CreatorInputAcceptancePort):
                     artifact_id=registration.ref.artifact_id.value,
                     trace_id=command.trace_id.value,
                 )
+                await self._maintenance_wake.register_creator_input(
+                    unit,
+                    source_ref=acceptance.interaction_id.value,
+                )
                 await unit.audit.append(
                     AuditDraft(
                         audit_event_id=AuditEventId(uuid7()),
@@ -386,6 +394,10 @@ class EvidenceAcceptanceTransaction(CreatorInputAcceptancePort):
                 content_digest=registration.ref.content_digest,
                 artifact_id=registration.ref.artifact_id.value,
                 trace_id=command.trace_id.value,
+            )
+            await self._maintenance_wake.register_creator_input(
+                unit_of_work,
+                source_ref=acceptance.interaction_id.value,
             )
             await unit_of_work.audit.append(
                 AuditDraft(

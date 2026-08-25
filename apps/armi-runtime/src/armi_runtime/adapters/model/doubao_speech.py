@@ -32,6 +32,7 @@ _PROVIDER = "volcengine_doubao_speech"
 _QUEUED = "20000001"
 _PROCESSING = "20000002"
 _SUCCEEDED = "20000000"
+_POLL_ERROR_DELAYS = (1.0, 2.0, 5.0, 10.0)
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +82,7 @@ class DoubaoSpeechRecognizer(ExternalContentRecognitionPort):
         if request.kind is not ExternalMessagePartKind.AUDIO:
             raise ExternalMessageViolation("EXTERNAL-MESSAGE-RECOGNITION-KIND")
         secret = self._copy_secret()
+        accepted = False
         try:
             credentials = _decode_credentials(secret)
             request_id = str(uuid4())
@@ -122,25 +124,43 @@ class DoubaoSpeechRecognizer(ExternalContentRecognitionPort):
                     rejection = self._provider_rejection(submitted)
                     if rejection is not None:
                         return rejection
+                    accepted = True
                     log_id = submitted.headers.get("X-Tt-Logid")
                     query_headers = dict(headers)
                     if log_id:
                         query_headers["X-Tt-Logid"] = log_id
+                    poll_error_index = 0
                     while True:
-                        response = await client.post(
-                            self._binding.query_url,
-                            headers=query_headers,
-                            json={},
-                        )
-                        response.raise_for_status()
-                        status_code = response.headers.get("X-Api-Status-Code")
-                        if status_code == _SUCCEEDED:
-                            return self._decode_response(
-                                response, fallback_log_id=log_id
+                        try:
+                            response = await client.post(
+                                self._binding.query_url,
+                                headers=query_headers,
+                                json={},
                             )
-                        if status_code not in {_QUEUED, _PROCESSING}:
-                            return self._provider_failure(response)
-                        await asyncio.sleep(self._binding.poll_interval_seconds)
+                            response.raise_for_status()
+                            status_code = response.headers.get("X-Api-Status-Code")
+                            if status_code == _SUCCEEDED:
+                                return self._decode_response(
+                                    response, fallback_log_id=log_id
+                                )
+                            if status_code not in {_QUEUED, _PROCESSING}:
+                                return self._provider_failure(response)
+                            poll_error_index = 0
+                            await asyncio.sleep(self._binding.poll_interval_seconds)
+                        except (
+                            httpx.HTTPStatusError,
+                            httpx.TimeoutException,
+                            httpx.TransportError,
+                            UnicodeDecodeError,
+                            json.JSONDecodeError,
+                            ValueError,
+                            TypeError,
+                        ):
+                            delay = _POLL_ERROR_DELAYS[
+                                min(poll_error_index, len(_POLL_ERROR_DELAYS) - 1)
+                            ]
+                            poll_error_index += 1
+                            await asyncio.sleep(delay)
         except TimeoutError, httpx.TimeoutException, httpx.TransportError:
             return _failure(
                 ExternalContentRecognitionStatus.UNKNOWN,
@@ -148,8 +168,17 @@ class DoubaoSpeechRecognizer(ExternalContentRecognitionPort):
                 "EXTERNAL-MESSAGE-RECOGNITION-UNKNOWN",
             )
         except httpx.HTTPStatusError as error:
+            deterministic_rejection = (
+                not accepted
+                and 400 <= error.response.status_code < 500
+                and error.response.status_code not in {408, 429}
+            )
             return _failure(
-                ExternalContentRecognitionStatus.FAILED,
+                (
+                    ExternalContentRecognitionStatus.FAILED
+                    if deterministic_rejection
+                    else ExternalContentRecognitionStatus.UNKNOWN
+                ),
                 self._binding.model_identity,
                 f"EXTERNAL-MESSAGE-RECOGNITION-HTTP-{error.response.status_code}",
             )
@@ -161,7 +190,11 @@ class DoubaoSpeechRecognizer(ExternalContentRecognitionPort):
             )
         except UnicodeDecodeError, json.JSONDecodeError, ValueError, TypeError:
             return _failure(
-                ExternalContentRecognitionStatus.FAILED,
+                (
+                    ExternalContentRecognitionStatus.UNKNOWN
+                    if accepted
+                    else ExternalContentRecognitionStatus.FAILED
+                ),
                 self._binding.model_identity,
                 "EXTERNAL-MESSAGE-RECOGNITION-RESPONSE",
             )

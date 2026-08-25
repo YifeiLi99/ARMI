@@ -12,6 +12,7 @@ from .api import (
     EffectObservationKind,
     EffectObservationReliability,
     EffectObservationSnapshot,
+    EffectResponsibilitySnapshot,
     EffectStatus,
     EffectVerificationStatus,
 )
@@ -19,6 +20,23 @@ from .api import (
 
 class PostgreSQLEffectOperationRead:
     __slots__ = ()
+
+    async def registration_by_intent(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        action_intent_id: UUID,
+    ) -> EffectResponsibilitySnapshot | None:
+        row = await (
+            await transaction.execute(
+                """SELECT effect_registration_id,status,reason_code
+                   FROM armi.effect_registrations WHERE action_intent_id=%s""",
+                (action_intent_id,),
+            )
+        ).fetchone()
+        if row is None:
+            return None
+        return EffectResponsibilitySnapshot(row[0], str(row[1]), row[2])
 
     async def observe(
         self, transaction: PostgreSQLTransaction

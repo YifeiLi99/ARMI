@@ -53,12 +53,19 @@ class OpportunityRecoveryParticipant:
                     """
                     UPDATE armi.opportunities
                     SET current_disposition = %s,
-                        resolved_at = statement_timestamp()
+                        resolved_at = statement_timestamp(),
+                        resolution_reason_code = %s
                     WHERE opportunity_id = %s
                       AND current_disposition = 'selected'
                     RETURNING opportunity_id
                     """,
-                    (disposition, finding.reference),
+                    (
+                        disposition,
+                        "REC-OPPORTUNITY-COGNITION-CANCELLED"
+                        if disposition == "cancelled"
+                        else "REC-OPPORTUNITY-COGNITION-RESOLVED",
+                        finding.reference,
+                    ),
                 )
             ).fetchone()
             if row is not None:

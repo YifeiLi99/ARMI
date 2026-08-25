@@ -178,6 +178,143 @@ class PostgreSQLEffectDispatchRepository:
             request,
         )
 
+    async def settle_overdue_ready(self, uow: PostgreSQLRuntimeUnitOfWork) -> bool:
+        """Close one ready Effect whose dispatch deadline passed before dispatch."""
+
+        connection = uow.transaction
+        row = await (
+            await connection.execute(
+                """
+                SELECT outbox.effect_outbox_item_id, outbox.attempt_count,
+                       effect.effect_id, effect.subject_id, effect.purpose,
+                       effect.trace_id, effect.authorization_basis,
+                       effect.policy_decision_id, effect.action_intent_revision_id,
+                       effect.destination_kind
+                FROM armi.effect_outbox_items AS outbox
+                JOIN armi.effects AS effect ON effect.effect_id=outbox.effect_id
+                WHERE outbox.status='ready'
+                  AND outbox.dispatch_deadline<=statement_timestamp()
+                  AND effect.status='registered'
+                  AND effect.destination_kind IN (
+                      'creator_inbox', 'other_human_inbox', 'external_group',
+                      'external_private'
+                  )
+                ORDER BY outbox.dispatch_deadline, outbox.effect_outbox_item_id
+                FOR UPDATE OF outbox, effect SKIP LOCKED
+                LIMIT 1
+                """
+            )
+        ).fetchone()
+        if row is None:
+            return False
+        cancelled = False
+        grant_id: UUID | None = None
+        if str(row[6]) == "creator_grant":
+            if row[7] is None:
+                raise EffectViolation("EFFECT-SETTLEMENT-STALE")
+            authorization = await self._authorization.authorize_dispatch(
+                connection,
+                policy_decision_id=row[7],
+                action_intent_revision_id=row[8],
+                before_dispatch_deadline=False,
+            )
+            cancelled = authorization.reason_code == "POLICY-GRANT-REVOKED"
+            grant_id = authorization.grant_id
+        attempt_id = uuid7()
+        observation_id = uuid7()
+        attempt_no = int(row[1]) + 1
+        error_code = None if cancelled else "EFFECT-DISPATCH-DEADLINE"
+        result_status = "cancelled" if cancelled else "failed"
+        effect_status = "cancelled" if cancelled else "failed"
+        outbox_status = "cancelled" if cancelled else "dead"
+        adapter_binding = _adapter_binding(str(row[9]))
+        digest = Digest.from_bytes(
+            rfc8785.dumps(
+                {
+                    "schema_version": "armi.effect-predispatch-settlement.v1",
+                    "effect_id": str(row[2]),
+                    "result_status": result_status,
+                    "error_code": error_code,
+                }
+            )
+        )
+        settled = await (
+            await connection.execute(
+                """
+                INSERT INTO armi.effect_attempts (
+                    effect_attempt_id,effect_id,attempt_no,adapter_binding,
+                    claim_token,dispatch_state,result_status,error_code,settled_at)
+                VALUES (%s,%s,%s,%s,1,'settled',%s,%s,statement_timestamp())
+                RETURNING settled_at
+                """,
+                (
+                    attempt_id,
+                    row[2],
+                    attempt_no,
+                    adapter_binding,
+                    result_status,
+                    error_code,
+                ),
+            )
+        ).fetchone()
+        if settled is None:
+            raise EffectViolation("EFFECT-SETTLEMENT-STALE")
+        settled_at = settled[0]
+        await connection.execute(
+            """
+            INSERT INTO armi.effect_observations (
+                effect_observation_id,effect_id,effect_attempt_id,
+                observation_kind,reliability,observation_digest)
+            VALUES (%s,%s,%s,'rejection','reliable',%s)
+            """,
+            (observation_id, row[2], attempt_id, digest.value),
+        )
+        await connection.execute(
+            """
+            UPDATE armi.effects SET status=%s,verification_status='verified',
+                current_attempt_id=%s,current_observation_id=%s,settled_at=%s,
+                cancelled_at=CASE WHEN %s='cancelled' THEN %s ELSE NULL END
+            WHERE effect_id=%s AND status='registered'
+            """,
+            (
+                effect_status,
+                attempt_id,
+                observation_id,
+                settled_at,
+                effect_status,
+                settled_at,
+                row[2],
+            ),
+        )
+        await connection.execute(
+            """
+            UPDATE armi.effect_outbox_items SET status=%s,
+                attempt_count=%s,claim_token=1,last_error_code=%s,
+                cancelled_at=CASE WHEN %s='cancelled' THEN %s ELSE NULL END
+            WHERE effect_outbox_item_id=%s AND status='ready'
+            """,
+            (outbox_status, attempt_no, error_code, outbox_status, settled_at, row[0]),
+        )
+        await uow.audit.append(
+            AuditDraft(
+                AuditEventId(uuid7()),
+                AuditReference("runtime", uow.environment_id),
+                Purpose(str(row[4])),
+                f"effect.{effect_status}",
+                AuditReference("effect", row[2]),
+                (AuditResultStatus.APPLIED if cancelled else AuditResultStatus.FAILED),
+                TraceId(str(row[5])),
+                AuditSensitivity.PRIVATE,
+                subject_id=SubjectId(row[3]),
+                grant=(
+                    None
+                    if grant_id is None
+                    else AuditReference("permission_grant", grant_id)
+                ),
+            )
+        )
+        return True
+
     async def expired(
         self, uow: PostgreSQLRuntimeUnitOfWork
     ) -> EffectDispatchSnapshot | None:

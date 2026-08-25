@@ -37,6 +37,7 @@ from ._subject_commit import PostgreSQLInteractionSubjectCommit
 from ._timeline_postgresql import PostgreSQLSceneTimelineQuery
 from .api import (
     CreatorInputTransactionPort,
+    CreatorInputWakePort,
     CreatorInteractionPort,
     CreatorScenePort,
     ExternalMessageInputPort,
@@ -137,6 +138,7 @@ def bootstrap_interaction(
     data_rights: InteractionDataRightsGate,
     visibility: DataRightsVisibilityPort,
     subject_state: SubjectStateReadPort,
+    maintenance_wake: CreatorInputWakePort,
     evidence: EvidenceWritePort,
     evidence_read: EvidenceReadPort,
     opportunity: OpportunityAdmissionPort,
@@ -159,6 +161,7 @@ def bootstrap_interaction(
         data_rights=data_rights,
         notifier=notifier,
         subject_state=subject_state,
+        maintenance_wake=maintenance_wake,
         wakeups=wakeups,
         diagnostic=diagnostic,
         fault_injector=fault_injector,

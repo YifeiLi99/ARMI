@@ -530,6 +530,15 @@ class ActivityFocusReadPort(Protocol):
 
 @runtime_checkable
 class ActivityReadPort(Protocol):
+    async def pause_failed_internal_work(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        activity_id: UUID,
+        expected_revision_id: UUID,
+    ) -> UUID | None: ...
+
     async def need_information_after(
         self,
         transaction: PostgreSQLTransaction,

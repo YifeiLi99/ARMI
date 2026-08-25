@@ -29,7 +29,6 @@ from armi_mood.api import MoodReadPort
 from armi_prompt.api import PromptReadPort
 from armi_relationship.api import RelationshipReadPort
 from armi_runtime_foundation import (
-    EmptyRecoveryParticipant,
     PostgreSQLRuntimeUnitOfWorkFactory,
     RecoveryParticipant,
 )
@@ -45,6 +44,7 @@ from ._embedding_postgresql import (
     PostgreSQLContextProjectionInvalidation,
     inspect_embedding_storage,
 )
+from ._recovery import ContextRecoveryParticipant
 from .api import (
     ContextArtifactCatalogPort,
     ContextCognitionReadPort,
@@ -177,7 +177,7 @@ def bootstrap_context_data_rights() -> DataRightsParticipant:
 
 
 def bootstrap_context_recovery() -> RecoveryParticipant:
-    return EmptyRecoveryParticipant("context")
+    return ContextRecoveryParticipant()
 
 
 @dataclass(frozen=True, slots=True)

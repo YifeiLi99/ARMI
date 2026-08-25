@@ -28,8 +28,13 @@ class LiveVoiceRecoveryParticipant:
         provider_rows = await (
             await transaction.execute(
                 """UPDATE armi.live_voice_provider_attempts
-                   SET result_status='unknown',settled_at=statement_timestamp(),
-                       error_code='VOICE-RUNTIME-RESTARTED'
+                   SET dispatch_state='settled',
+                       result_status=CASE dispatch_state
+                           WHEN 'prepared' THEN 'cancelled' ELSE 'unknown' END,
+                       settled_at=statement_timestamp(),
+                       error_code=CASE dispatch_state
+                           WHEN 'prepared' THEN 'VOICE-PRE-DISPATCH-CANCELLED'
+                           ELSE 'VOICE-RUNTIME-RESTARTED' END
                    WHERE settled_at IS NULL
                    RETURNING provider_attempt_id"""
             )
@@ -37,8 +42,13 @@ class LiveVoiceRecoveryParticipant:
         playback_rows = await (
             await transaction.execute(
                 """UPDATE armi.live_voice_playback_attempts
-                   SET result_status='unknown',settled_at=statement_timestamp(),
-                       error_code='VOICE-RUNTIME-RESTARTED'
+                   SET dispatch_state='settled',
+                       result_status=CASE dispatch_state
+                           WHEN 'prepared' THEN 'cancelled' ELSE 'unknown' END,
+                       settled_at=statement_timestamp(),
+                       error_code=CASE dispatch_state
+                           WHEN 'prepared' THEN 'VOICE-PRE-DISPATCH-CANCELLED'
+                           ELSE 'VOICE-RUNTIME-RESTARTED' END
                    WHERE settled_at IS NULL
                    RETURNING playback_attempt_id"""
             )

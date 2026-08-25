@@ -231,6 +231,45 @@ def test_reconnect_uses_bounded_backoff(monkeypatch: pytest.MonkeyPatch) -> None
     assert delays == [1, 2, 5, 10, 30, 30]
 
 
+def test_snapshot_failure_revokes_available_and_reconnects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hello = (
+        b'{"boot_id":"boot-1","device_id":"mood-window-1",'
+        b'"firmware_version":"0.1.0",'
+        b'"protocol_version":"armi.mood-display.v2","type":"hello"}\n'
+    )
+    connections: list[_ScriptedSerial] = []
+
+    def connect(_port: str) -> _ScriptedSerial:
+        connection = _ScriptedSerial([hello])
+        connections.append(connection)
+        return connection
+
+    async def unavailable_snapshot() -> MoodSnapshot:
+        raise RuntimeError("database unavailable")
+
+    adapter = MoodDisplayAdapter(
+        MoodDisplayConfig(True, "COM7", "mood-window-1"),
+        unavailable_snapshot,
+        serial_factory=connect,
+    )
+
+    async def stop_after_reconnect_delay(_delay: float) -> None:
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(
+        "armi_adapter_esp32_display.service.asyncio.sleep",
+        stop_after_reconnect_delay,
+    )
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(adapter.run())
+
+    assert adapter.status.availability == "unavailable"
+    assert adapter.status.reason_code == "snapshot_failed"
+    assert connections[0].closed
+
+
 def test_heartbeat_requires_matching_pong(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("armi_adapter_esp32_display.service.uuid4", lambda: "ping-1")
     pong = (

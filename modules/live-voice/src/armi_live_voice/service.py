@@ -188,6 +188,7 @@ class LiveVoiceService:
         transcript = ""
         received_asr = False
         try:
+            await self._journal.mark_provider_dispatched(attempt_id=asr_attempt)
             async for event in self._asr.recognize(self._audio.capture()):
                 if not received_asr:
                     await self._journal.mark_provider_first_result(
@@ -247,6 +248,7 @@ class LiveVoiceService:
         llm_attempt = await self._journal.begin_provider_attempt(
             turn_id=turn_id, binding=self._binding.llm
         )
+        await self._journal.mark_provider_dispatched(attempt_id=llm_attempt)
         stream = self._observed_model_stream(
             llm_attempt, self._model.generate(context, transcript)
         )
@@ -375,6 +377,8 @@ class LiveVoiceService:
                 written_frames += 1
 
         try:
+            await self._journal.mark_provider_dispatched(attempt_id=tts_attempt)
+            await self._journal.mark_playback_dispatched(attempt_id=playback_attempt)
             reported_frames = await self._audio.play(
                 observed_audio(), on_frame_written=frame_written
             )

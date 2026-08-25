@@ -175,6 +175,10 @@ class CreatorOperationPhase(StrEnum):
     RESPONSE_ADMISSION = "response_admission"
     RESPONSE_ACCEPTED = "response_accepted"
     EFFECT_REGISTRATION = "effect_registration"
+    EFFECT_REGISTRATION_UNAUTHORIZED = "effect_registration_unauthorized"
+    EFFECT_REGISTRATION_UNAVAILABLE = "effect_registration_unavailable"
+    EFFECT_REGISTRATION_FAILED = "effect_registration_failed"
+    EFFECT_REGISTRATION_CANCELLED = "effect_registration_cancelled"
     EFFECT_REGISTERED = "effect_registered"
     EFFECT_DISPATCHING = "effect_dispatching"
     EFFECT_COMPLETED = "effect_completed"
@@ -246,6 +250,8 @@ class CreatorOperation:
     failure_code: str | None = None
     subject_version: int | None = None
     effect_ref: UUID | None = None
+    response_admission_ref: UUID | None = None
+    effect_registration_ref: UUID | None = None
     intent_ref: UUID | None = None
     dialogue_decision_ref: UUID | None = None
     policy_decision_ref: UUID | None = None
@@ -293,6 +299,8 @@ class CreatorOperation:
             self.dialogue_decision_ref,
             self.policy_decision_ref,
             self.work_ref,
+            self.response_admission_ref,
+            self.effect_registration_ref,
         ):
             if owner_ref is not None and (
                 type(owner_ref) is not UUID or owner_ref.version != 7
@@ -338,6 +346,10 @@ class CreatorOperation:
             CreatorOperationPhase.RESPONSE_UNAUTHORIZED,
             CreatorOperationPhase.RESPONSE_UNAVAILABLE,
             CreatorOperationPhase.RESPONSE_FAILED,
+            CreatorOperationPhase.EFFECT_REGISTRATION_UNAUTHORIZED,
+            CreatorOperationPhase.EFFECT_REGISTRATION_UNAVAILABLE,
+            CreatorOperationPhase.EFFECT_REGISTRATION_FAILED,
+            CreatorOperationPhase.EFFECT_REGISTRATION_CANCELLED,
             CreatorOperationPhase.EFFECT_FAILED,
             CreatorOperationPhase.EFFECT_UNKNOWN,
             CreatorOperationPhase.CODEX_FAILED,

@@ -18,20 +18,28 @@ from armi_kernel.application import (
     ArtifactViolation,
     DurableWorkPort,
     ModelViolation,
+    WorkDraft,
+    WorkId,
     WorkLease,
+    WorkOwner,
+    WorkPayloadRef,
+    WorkRecord,
     WorkResultRef,
+    WorkType,
     WorkViolation,
 )
-from armi_kernel.contracts import Instant
+from armi_kernel.contracts import IdempotencyKey, Instant
 from armi_material.api import MaterialProjectionPort
 from armi_memory.api import MemoryProjectionPort
 from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWork,
     PostgreSQLRuntimeUnitOfWorkFactory,
     RuntimeTransactionFailure,
 )
 
 from ._embedding import (
     DOCUMENT_BATCH_SIZE,
+    EMBEDDING_BINDING_ID,
     chunk_life_material,
     material_retrieval_text,
 )
@@ -39,9 +47,9 @@ from ._embedding_postgresql import (
     EmbeddingProjectionSource,
     PostgreSQLContextEmbeddingRepository,
 )
-from .api import EmbeddingPort
+from .api import EmbeddingPort, EmbeddingResponse
 
-_WORK_KIND = "context.embedding.project"
+_WORK_KIND = WorkType.CONTEXT_EMBEDDING_PROJECT
 
 
 class ContextEmbeddingPipeline:
@@ -113,9 +121,21 @@ class ContextEmbeddingPipeline:
                 )
                 await self._repository.note_projection_work_settled(unit_of_work)
             return True
-        chunks = await self._source_chunks(source)
+        try:
+            chunks = await self._source_chunks(source)
+        except ArtifactViolation as error:
+            await self._terminal_or_successor(
+                records[0], lease, source, error.code, deterministic=True
+            )
+            return True
         if not chunks:
-            await self._fail_work(lease, "MODEL-EMBEDDING-INPUT")
+            await self._terminal_or_successor(
+                records[0],
+                lease,
+                source,
+                "MODEL-EMBEDDING-INPUT",
+                deterministic=True,
+            )
             return True
         last_projection: UUID | None = None
         for batch_start in range(0, len(chunks), DOCUMENT_BATCH_SIZE):
@@ -125,32 +145,43 @@ class ContextEmbeddingPipeline:
                 lease = await self._work.renew(lease, lease_seconds=30)
                 ordinal = batch_start + offset
                 async with self._factory.unit_of_work() as unit_of_work:
+                    await _guard_lease(unit_of_work, lease)
                     attempt_id = await self._repository.prepare_attempt(
                         unit_of_work, source, ordinal, retrieval_text
                     )
                     await self._repository.mark_dispatched(unit_of_work, attempt_id)
                 attempts.append(attempt_id)
+            lease_box: list[WorkLease] = [lease]
             try:
-                responses = await self._adapter.embed_documents(
-                    tuple(item[1] for item in batch)
+                responses = await self._embed_with_renewal(
+                    lease_box, tuple(item[1] for item in batch)
                 )
+                lease = lease_box[0]
             except ModelViolation as error:
+                lease = lease_box[0]
                 async with self._factory.unit_of_work() as unit_of_work:
+                    await _guard_lease(unit_of_work, lease)
                     for attempt_id in attempts:
                         await self._repository.settle_failure(
                             unit_of_work, attempt_id, error.code
                         )
-                await self._fail_work(
-                    lease,
-                    error.code,
-                    retry=records[0].attempt_count < records[0].draft.max_attempts,
-                )
+                if records[0].attempt_count < records[0].draft.max_attempts:
+                    await self._work.release(
+                        lease,
+                        not_before=Instant(datetime.now(UTC) + timedelta(seconds=5)),
+                        error_code=error.code,
+                    )
+                else:
+                    await self._terminal_or_successor(
+                        records[0], lease, source, error.code, deterministic=False
+                    )
                 return True
             for offset, (attempt_id, response) in enumerate(
                 zip(attempts, responses, strict=True)
             ):
                 display_text, retrieval_text = batch[offset]
                 async with self._factory.unit_of_work() as unit_of_work:
+                    await _guard_lease(unit_of_work, lease)
                     projection = await self._repository.settle_success(
                         unit_of_work,
                         attempt_id=attempt_id,
@@ -230,23 +261,125 @@ class ContextEmbeddingPipeline:
             for chunk in chunk_life_material(body)
         )
 
-    async def _fail_work(
+    async def _embed_with_renewal(
         self,
+        lease_box: list[WorkLease],
+        texts: tuple[str, ...],
+    ) -> tuple[EmbeddingResponse, ...]:
+        task = asyncio.create_task(self._adapter.embed_documents(texts))
+        try:
+            while not task.done():
+                done, _ = await asyncio.wait({task}, timeout=10)
+                if done:
+                    break
+                lease_box[0] = await self._work.renew(lease_box[0], lease_seconds=30)
+            return await task
+        finally:
+            if not task.done():
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
+
+    async def _terminal_or_successor(
+        self,
+        record: WorkRecord,
         lease: WorkLease,
+        source: EmbeddingProjectionSource,
         code: str,
         *,
-        retry: bool = False,
+        deterministic: bool,
     ) -> None:
-        if retry:
-            await self._work.release(
-                lease,
-                not_before=Instant(datetime.now(UTC) + timedelta(seconds=5)),
-                error_code=code,
-            )
-            return
+        successor_generation = None if deterministic else record.draft.generation + 1
+        if successor_generation is not None and successor_generation > 3:
+            successor_generation = None
+        delay_seconds = (
+            None
+            if successor_generation is None
+            else {2: 60, 3: 300}.get(successor_generation)
+        )
         async with self._factory.unit_of_work() as unit_of_work:
+            await _guard_lease(unit_of_work, lease)
+            disposition = (
+                "terminal"
+                if deterministic
+                else "retry_wait"
+                if successor_generation is not None
+                else "degraded"
+            )
+            retry_at = (
+                datetime.now(UTC) + timedelta(seconds=delay_seconds)
+                if delay_seconds is not None
+                else None
+            )
+            await unit_of_work.transaction.execute(
+                """INSERT INTO armi.context_embedding_failures (
+                       context_embedding_failure_id,work_id,subject_id,
+                       life_generation_id,source_kind,source_ref,source_version,
+                       model_binding,work_generation,disposition,error_code,retry_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (
+                    uuid7(),
+                    record.draft.work_id.value,
+                    source.subject_id,
+                    source.life_generation_id,
+                    source.source_kind,
+                    source.source_ref,
+                    source.source_version,
+                    EMBEDDING_BINDING_ID,
+                    record.draft.generation,
+                    disposition,
+                    code,
+                    retry_at,
+                ),
+            )
             await unit_of_work.work.fail(lease, error_code=code)
-            await self._repository.note_projection_work_settled(unit_of_work)
+            if successor_generation is not None:
+                assert retry_at is not None
+                await unit_of_work.work.enqueue(
+                    WorkDraft(
+                        work_id=WorkId(uuid7()),
+                        work_kind=record.draft.work_kind,
+                        owner=WorkOwner(source.source_kind, source.source_ref),
+                        idempotency_key=IdempotencyKey(
+                            record.draft.idempotency_key.value
+                        ),
+                        payload_digest=record.draft.payload_digest,
+                        priority=record.draft.priority,
+                        not_before=Instant(retry_at),
+                        deadline_at=Instant(retry_at + timedelta(hours=1)),
+                        max_attempts=3,
+                        trace_id=record.draft.trace_id,
+                        subject_id=record.draft.subject_id,
+                        payload=(
+                            WorkPayloadRef(
+                                record.draft.payload.kind,
+                                record.draft.payload.reference,
+                            )
+                            if record.draft.payload is not None
+                            else None
+                        ),
+                        generation=successor_generation,
+                        predecessor_work_id=record.draft.work_id,
+                    )
+                )
+            else:
+                await self._repository.note_projection_work_settled(unit_of_work)
+                if not deterministic:
+                    await unit_of_work.transaction.execute(
+                        """UPDATE armi.context_embedding_coverage
+                           SET coverage_state='degraded',scanning_epoch=NULL,
+                               source_kind=NULL,after_source_ref=NULL,
+                               updated_at=statement_timestamp()
+                           WHERE model_binding=%s""",
+                        (EMBEDDING_BINDING_ID,),
+                    )
+
+
+async def _guard_lease(
+    unit_of_work: PostgreSQLRuntimeUnitOfWork, lease: WorkLease
+) -> None:
+    await unit_of_work.work.validate_lease(lease)
+    unit_of_work.add_before_commit(lambda: unit_of_work.work.validate_lease(lease))
 
 
 __all__ = ("ContextEmbeddingPipeline",)

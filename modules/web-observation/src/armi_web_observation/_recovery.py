@@ -1,6 +1,9 @@
 """Web-observation-owned startup recovery contribution."""
 
+from uuid import UUID
+
 from armi_runtime_foundation import (
+    OwnerReconciliationContext,
     PostgreSQLTransaction,
     RecoveryContribution,
     RecoveryFindingContribution,
@@ -8,8 +11,6 @@ from armi_runtime_foundation import (
     RecoveryMetricContribution,
     RecoveryOwnerIdentity,
     RecoveryScope,
-    RecoveryWorkCommand,
-    RecoveryWorkCommandKind,
     RecoveryWorkSnapshot,
 )
 
@@ -18,7 +19,7 @@ class WebObservationRecoveryParticipant:
     owner_identity = RecoveryOwnerIdentity("web-observation")
     work_scopes = (
         ("web_observation", "web.search.invoke"),
-        ("web_research_intent", "web.research.admit"),
+        ("web_research_intent", "web.observation.admit"),
     )
 
     async def recover(
@@ -58,6 +59,15 @@ class WebObservationRecoveryParticipant:
             """,
                 ([row[0] for row in unknown],),
             )
+            await transaction.execute(
+                """UPDATE armi.web_research_intents AS intent
+                   SET status='unknown',completed_at=statement_timestamp()
+                   FROM armi.web_observation_requests AS request
+                   WHERE request.web_observation_request_id=ANY(%s::uuid[])
+                     AND request.web_research_intent_id=intent.web_research_intent_id
+                     AND intent.status='admitted'""",
+                ([row[0] for row in unknown],),
+            )
         row = await (
             await transaction.execute(
                 """
@@ -67,20 +77,48 @@ class WebObservationRecoveryParticipant:
                 (scope.subject_id,),
             )
         ).fetchone()
-        by_id = {item.work_id: item for item in work}
-        commands = tuple(
-            RecoveryWorkCommand(
-                RecoveryWorkCommandKind.FAIL,
-                item.work_id,
-                item.work_kind,
-                item.owner_kind,
-                item.owner_ref,
-                "REC-WEB-OUTCOME-UNKNOWN",
-            )
-            for result in unknown
-            if (item := by_id.get(result[1])) is not None
-            and item.status in {"ready", "leased"}
+        reconciliation = OwnerReconciliationContext(
+            transaction, self.owner_identity, work
         )
+        unknown_by_work: dict[UUID, UUID] = {result[1]: result[0] for result in unknown}
+        for item in work:
+            if not item.reconciliation_required:
+                continue
+            request_id = unknown_by_work.get(item.work_id)
+            if request_id is not None:
+                await reconciliation.complete(
+                    item.work_id,
+                    result_kind="web_observation_request",
+                    result_ref=request_id,
+                )
+                continue
+            if item.work_kind == "web.search.invoke":
+                await transaction.execute(
+                    """UPDATE armi.web_observation_requests
+                       SET status='failed',last_error_code='WEB-WORK-EXHAUSTED',
+                           completed_at=statement_timestamp()
+                       WHERE work_id=%s AND status IN ('pending','running')""",
+                    (item.work_id,),
+                )
+                await transaction.execute(
+                    """UPDATE armi.web_research_intents AS intent
+                       SET status='failed',completed_at=statement_timestamp()
+                       FROM armi.web_observation_requests AS request
+                       WHERE request.work_id=%s
+                         AND request.web_research_intent_id=intent.web_research_intent_id
+                         AND intent.status='admitted'""",
+                    (item.work_id,),
+                )
+            else:
+                await transaction.execute(
+                    """UPDATE armi.web_research_intents
+                       SET status='failed',completed_at=statement_timestamp()
+                       WHERE admission_work_id=%s AND status='pending'""",
+                    (item.work_id,),
+                )
+            await reconciliation.fail(
+                item.work_id, reason_code="REC-WEB-WORK-EXHAUSTED"
+            )
         return RecoveryContribution(
             self.owner_identity,
             findings=()
@@ -101,5 +139,4 @@ class WebObservationRecoveryParticipant:
                     "web_observation.unknown_attempt_count", len(unknown)
                 ),
             ),
-            work_commands=commands,
         )

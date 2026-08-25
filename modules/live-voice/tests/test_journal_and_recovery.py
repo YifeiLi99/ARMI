@@ -159,7 +159,9 @@ async def test_recovery_terminalizes_attempts_turns_then_session() -> None:
 
     statements = [call.args[0] for call in transaction.execute.await_args_list]
     assert "provider_attempts" in statements[0]
+    assert "WHEN 'prepared' THEN 'cancelled'" in statements[0]
     assert "playback_attempts" in statements[1]
+    assert "WHEN 'prepared' THEN 'cancelled'" in statements[1]
     assert "live_voice_turns" in statements[2]
     assert "live_voice_sessions" in statements[3]
     assert [metric.value for metric in contribution.metrics] == [1, 1, 1, 1]

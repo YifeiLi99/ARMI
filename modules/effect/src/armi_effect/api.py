@@ -282,6 +282,32 @@ class EffectRegistrationResult:
 
 
 @dataclass(frozen=True, slots=True)
+class EffectResponsibilitySnapshot:
+    effect_registration_id: UUID
+    status: str
+    reason_code: str | None
+
+
+@runtime_checkable
+class EffectResponsibilityPort(Protocol):
+    async def schedule_registration(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        action_intent_id: UUID,
+        work_id: UUID,
+        response_admission_id: UUID | None = None,
+    ) -> UUID: ...
+
+    async def registration_by_intent(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        action_intent_id: UUID,
+    ) -> EffectResponsibilitySnapshot | None: ...
+
+
+@dataclass(frozen=True, slots=True)
 class EffectView:
     effect_id: EffectId
     action_intent_ref: UUID
@@ -479,6 +505,13 @@ class EffectCodexLifecyclePort(Protocol):
 
 @runtime_checkable
 class EffectOperationReadPort(Protocol):
+    async def registration_by_intent(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        action_intent_id: UUID,
+    ) -> EffectResponsibilitySnapshot | None: ...
+
     async def by_action_intent(
         self,
         transaction: PostgreSQLTransaction,
@@ -654,6 +687,8 @@ __all__ = (
     "EffectRegistrationContextPort",
     "EffectRegistrationDraft",
     "EffectRegistrationResult",
+    "EffectResponsibilityPort",
+    "EffectResponsibilitySnapshot",
     "EffectRuntimePort",
     "EffectStatus",
     "EffectTimelinePort",

@@ -39,6 +39,7 @@ from .api import (
     EffectObservationReliability,
     EffectRegistrationContext,
     EffectRegistrationResult,
+    EffectResponsibilitySnapshot,
     EffectStatus,
     EffectVerificationStatus,
     EffectView,
@@ -51,6 +52,41 @@ class PostgreSQLDeclaredResponseEffectRegistration:
     """Own immediate effect registration for already-admitted social responses."""
 
     __slots__ = ()
+
+    async def schedule_registration(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        action_intent_id: UUID,
+        work_id: UUID,
+        response_admission_id: UUID | None = None,
+    ) -> UUID:
+        registration_id = uuid7()
+        await transaction.execute(
+            """INSERT INTO armi.effect_registrations (
+                   effect_registration_id,action_intent_id,work_id,
+                   response_admission_id)
+               VALUES (%s,%s,%s,%s)""",
+            (registration_id, action_intent_id, work_id, response_admission_id),
+        )
+        return registration_id
+
+    async def registration_by_intent(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        action_intent_id: UUID,
+    ) -> EffectResponsibilitySnapshot | None:
+        row = await (
+            await transaction.execute(
+                """SELECT effect_registration_id,status,reason_code
+                   FROM armi.effect_registrations WHERE action_intent_id=%s""",
+                (action_intent_id,),
+            )
+        ).fetchone()
+        if row is None:
+            return None
+        return EffectResponsibilitySnapshot(row[0], str(row[1]), row[2])
 
     async def register_declared_response(
         self,
@@ -228,6 +264,14 @@ class PostgreSQLEffectLedgerRepository:
             )
         ).fetchone()
         if row is not None:
+            await connection.execute(
+                """UPDATE armi.effect_registrations
+                   SET status='succeeded',effect_id=%s,
+                       attempt_count=attempt_count+1,
+                       settled_at=statement_timestamp()
+                   WHERE work_id=%s AND status='pending'""",
+                (row[0], lease.work_id.value),
+            )
             await unit_of_work.work.complete(
                 lease,
                 WorkResultRef("effect", row[0]),
@@ -253,6 +297,14 @@ class PostgreSQLEffectLedgerRepository:
         lease: WorkLease,
         code: str,
     ) -> None:
+        await unit_of_work.transaction.execute(
+            """UPDATE armi.effect_registrations
+               SET status='failed',reason_code=%s,
+                   attempt_count=attempt_count+1,
+                   settled_at=statement_timestamp()
+               WHERE work_id=%s AND status='pending'""",
+            (code, lease.work_id.value),
+        )
         await unit_of_work.work.fail(lease, error_code=code)
 
     async def settle(
@@ -266,6 +318,17 @@ class PostgreSQLEffectLedgerRepository:
         connection = uow.transaction
         if uow.runtime_fence is None:
             raise EffectViolation("EFFECT-FENCE")
+        registration = await (
+            await connection.execute(
+                """SELECT effect_registration_id
+                   FROM armi.effect_registrations
+                   WHERE work_id=%s AND action_intent_id=%s AND status='pending'
+                   FOR UPDATE""",
+                (lease.work_id.value, snapshot.action_intent_id),
+            )
+        ).fetchone()
+        if registration is None:
+            raise EffectViolation("EFFECT-WORK-STALE")
         intent = await self._intents.intent_snapshot(
             connection,
             action_intent_id=snapshot.action_intent_id,
@@ -275,6 +338,14 @@ class PostgreSQLEffectLedgerRepository:
         registration_digest = _registration_digest(snapshot)
         existing = await self._existing(connection, snapshot, registration_digest)
         if existing is not None:
+            await connection.execute(
+                """UPDATE armi.effect_registrations
+                   SET status='succeeded',effect_id=%s,
+                       attempt_count=attempt_count+1,
+                       settled_at=statement_timestamp()
+                   WHERE effect_registration_id=%s""",
+                (existing.effect_id.value, registration[0]),
+            )
             await uow.work.complete(
                 lease, WorkResultRef("effect", existing.effect_id.value)
             )
@@ -384,6 +455,14 @@ class PostgreSQLEffectLedgerRepository:
                     else 2,
                 ),
             )
+            await connection.execute(
+                """UPDATE armi.effect_registrations
+                   SET status='succeeded',effect_id=%s,
+                       attempt_count=attempt_count+1,
+                       settled_at=statement_timestamp()
+                   WHERE effect_registration_id=%s""",
+                (effect_id, registration[0]),
+            )
             await uow.work.complete(lease, WorkResultRef("effect", effect_id))
             result = EffectRegistrationResult(
                 EffectId(effect_id),
@@ -394,6 +473,18 @@ class PostgreSQLEffectLedgerRepository:
                 Instant(row[0]),
             )
         else:
+            await connection.execute(
+                """UPDATE armi.effect_registrations
+                   SET status=%s,reason_code=%s,
+                       attempt_count=attempt_count+1,
+                       settled_at=statement_timestamp()
+                   WHERE effect_registration_id=%s""",
+                (
+                    "unauthorized" if outcome == "denied" else "unavailable",
+                    authorization.reason_code,
+                    registration[0],
+                ),
+            )
             await uow.work.complete(
                 lease,
                 WorkResultRef("creator_response_operation", snapshot.operation_ref),
