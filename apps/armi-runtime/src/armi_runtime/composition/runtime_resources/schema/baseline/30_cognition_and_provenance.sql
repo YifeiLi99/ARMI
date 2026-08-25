@@ -340,6 +340,29 @@ CREATE TABLE armi.context_embedding_attempts (
     CONSTRAINT context_embedding_attempts_status_check CHECK ((status = ANY (ARRAY['prepared'::text, 'dispatched'::text, 'succeeded'::text, 'failed'::text])))
 );
 
+CREATE TABLE armi.context_embedding_failures (
+    context_embedding_failure_id uuid NOT NULL,
+    work_id uuid NOT NULL,
+    subject_id uuid NOT NULL,
+    life_generation_id uuid NOT NULL,
+    source_kind text NOT NULL,
+    source_ref uuid NOT NULL,
+    source_version bigint NOT NULL,
+    model_binding text NOT NULL,
+    work_generation integer NOT NULL,
+    disposition text NOT NULL,
+    error_code text NOT NULL,
+    retry_at timestamp(6) with time zone,
+    created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
+    CONSTRAINT context_embedding_failures_id_check CHECK ((uuid_extract_version(context_embedding_failure_id) = 7)),
+    CONSTRAINT context_embedding_failures_source_check CHECK ((source_kind = ANY (ARRAY['subjective_memory'::text, 'life_material'::text]))),
+    CONSTRAINT context_embedding_failures_source_ref_check CHECK ((uuid_extract_version(source_ref) = 7)),
+    CONSTRAINT context_embedding_failures_version_check CHECK (((source_version > 0) AND (work_generation > 0))),
+    CONSTRAINT context_embedding_failures_disposition_check CHECK ((disposition = ANY (ARRAY['retry_wait'::text, 'degraded'::text, 'terminal'::text]))),
+    CONSTRAINT context_embedding_failures_retry_check CHECK (((disposition = 'retry_wait'::text) = (retry_at IS NOT NULL))),
+    CONSTRAINT context_embedding_failures_error_check CHECK ((error_code ~ '^[A-Z][A-Z0-9-]{0,127}$'::text))
+);
+
 --
 -- Name: context_embedding_coverage; Type: TABLE; Schema: armi; Owner: -
 --
@@ -355,10 +378,10 @@ CREATE TABLE armi.context_embedding_coverage (
     updated_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
     pending_work_count bigint DEFAULT 0 NOT NULL,
     CONSTRAINT context_embedding_coverage_binding_check CHECK ((model_binding = 'armi.embedding.qwen3-0_6b-q8_0-local-1024.v1'::text)),
-    CONSTRAINT context_embedding_coverage_cursor_check CHECK ((((coverage_state = 'dirty'::text) AND (scanning_epoch IS NULL) AND (source_kind IS NULL) AND (after_source_ref IS NULL)) OR ((coverage_state = 'reconciling'::text) AND (scanning_epoch IS NOT NULL) AND (source_kind = ANY (ARRAY['life_material'::text, 'subjective_memory'::text]))) OR ((coverage_state = 'complete'::text) AND (scanning_epoch IS NULL) AND (source_kind IS NULL) AND (after_source_ref IS NULL)))),
+    CONSTRAINT context_embedding_coverage_cursor_check CHECK ((((coverage_state = ANY (ARRAY['dirty'::text, 'degraded'::text])) AND (scanning_epoch IS NULL) AND (source_kind IS NULL) AND (after_source_ref IS NULL)) OR ((coverage_state = 'reconciling'::text) AND (scanning_epoch IS NOT NULL) AND (source_kind = ANY (ARRAY['life_material'::text, 'subjective_memory'::text]))) OR ((coverage_state = 'complete'::text) AND (scanning_epoch IS NULL) AND (source_kind IS NULL) AND (after_source_ref IS NULL)))),
     CONSTRAINT context_embedding_coverage_epoch_check CHECK (((epoch > 0) AND ((scanning_epoch IS NULL) OR (scanning_epoch > 0)))),
     CONSTRAINT context_embedding_coverage_pending_check CHECK ((pending_work_count >= 0)),
-    CONSTRAINT context_embedding_coverage_state_check CHECK ((coverage_state = ANY (ARRAY['dirty'::text, 'reconciling'::text, 'complete'::text])))
+    CONSTRAINT context_embedding_coverage_state_check CHECK ((coverage_state = ANY (ARRAY['dirty'::text, 'reconciling'::text, 'complete'::text, 'degraded'::text])))
 );
 
 --
@@ -589,6 +612,7 @@ CREATE TABLE armi.opportunities (
     predecessor_opportunity_id uuid,
     reconsideration_no smallint DEFAULT 0 NOT NULL,
     resolved_at timestamp(6) with time zone,
+    resolution_reason_code text,
     source_kind text NOT NULL,
     source_ref uuid NOT NULL,
     source_version bigint NOT NULL,
@@ -600,7 +624,8 @@ CREATE TABLE armi.opportunities (
     CONSTRAINT opportunities_opportunity_id_check CHECK ((uuid_extract_version(opportunity_id) = 7)),
     CONSTRAINT opportunities_purpose_check CHECK ((purpose = ANY (ARRAY['consider_creator_input'::text, 'consider_creator_voice_appraisal'::text, 'consider_web_evidence'::text, 'consider_codex_task'::text, 'consider_codex_result'::text, 'consider_autonomous_life'::text, 'consider_activity_attention'::text, 'consider_activity_internal_work'::text, 'consider_sleep'::text, 'consider_life_query_result'::text, 'maintain_subjective_memory'::text, 'perform_subject_self_check'::text, 'consider_creator_outreach'::text, 'consider_other_human_input'::text, 'consider_visual_observation'::text]))),
     CONSTRAINT opportunities_reconsideration_check CHECK (((reconsideration_no >= 0) AND (reconsideration_no <= 1))),
-    CONSTRAINT opportunities_resolution_state_check CHECK ((((current_disposition = 'open'::text) AND (selected_at IS NULL) AND (resolved_at IS NULL)) OR ((current_disposition = 'selected'::text) AND (selected_at IS NOT NULL) AND (resolved_at IS NULL)) OR ((current_disposition = ANY (ARRAY['resolved'::text, 'superseded'::text])) AND (selected_at IS NOT NULL) AND (resolved_at IS NOT NULL)) OR ((current_disposition = 'cancelled'::text) AND (resolved_at IS NOT NULL)))),
+    CONSTRAINT opportunities_resolution_state_check CHECK ((((current_disposition = 'open'::text) AND (selected_at IS NULL) AND (resolved_at IS NULL) AND (resolution_reason_code IS NULL)) OR ((current_disposition = 'selected'::text) AND (selected_at IS NOT NULL) AND (resolved_at IS NULL) AND (resolution_reason_code IS NULL)) OR ((current_disposition = ANY (ARRAY['resolved'::text, 'superseded'::text])) AND (selected_at IS NOT NULL) AND (resolved_at IS NOT NULL) AND (resolution_reason_code IS NOT NULL)) OR ((current_disposition = 'cancelled'::text) AND (resolved_at IS NOT NULL) AND (resolution_reason_code IS NOT NULL)))),
+    CONSTRAINT opportunities_resolution_reason_check CHECK (((resolution_reason_code IS NULL) OR (resolution_reason_code ~ '^[A-Z][A-Z0-9-]{0,127}$'::text))),
     CONSTRAINT opportunities_source_kind_check CHECK ((source_kind = ANY (ARRAY['external_evidence'::text, 'life_generation_available'::text, 'subject_component_revision'::text, 'activity_revision'::text, 'maintenance_window'::text, 'maintenance_phase_revision'::text, 'life_material_revision'::text, 'life_query_result'::text, 'creator_outreach_absence'::text, 'creator_outreach_activity'::text, 'creator_outreach_relationship'::text]))),
     CONSTRAINT opportunities_source_shape_check CHECK ((((source_kind = 'external_evidence'::text) AND (evidence_id = source_ref) AND (activity_id IS NULL) AND (((purpose = 'consider_visual_observation'::text) AND (scene_id IS NULL) AND (context_party_id IS NULL)) OR ((purpose <> 'consider_visual_observation'::text) AND (scene_id IS NOT NULL) AND (context_party_id IS NOT NULL)))) OR ((source_kind = ANY (ARRAY['life_generation_available'::text, 'subject_component_revision'::text, 'maintenance_window'::text, 'maintenance_phase_revision'::text, 'life_material_revision'::text])) AND (evidence_id IS NULL) AND (scene_id IS NULL) AND (context_party_id IS NULL) AND (activity_id IS NULL)) OR ((source_kind = 'activity_revision'::text) AND (evidence_id IS NULL) AND (scene_id IS NULL) AND (context_party_id IS NULL) AND (activity_id IS NOT NULL)) OR ((source_kind = ANY (ARRAY['life_query_result'::text, 'creator_outreach_absence'::text, 'creator_outreach_relationship'::text])) AND (evidence_id IS NULL) AND (scene_id IS NOT NULL) AND (context_party_id IS NOT NULL) AND (activity_id IS NULL)) OR ((source_kind = 'creator_outreach_activity'::text) AND (evidence_id IS NULL) AND (scene_id IS NOT NULL) AND (context_party_id IS NOT NULL) AND (activity_id IS NOT NULL)))),
     CONSTRAINT opportunities_source_version_check CHECK ((source_version > 0))

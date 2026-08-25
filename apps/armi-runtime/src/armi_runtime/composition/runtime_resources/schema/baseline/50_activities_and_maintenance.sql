@@ -54,9 +54,9 @@ CREATE TABLE armi.activity_revisions (
     activity_id uuid NOT NULL,
     revision_no bigint NOT NULL,
     previous_revision_id uuid,
-    subject_commit_id uuid NOT NULL,
-    candidate_validation_id uuid NOT NULL,
-    proposal_ref text NOT NULL,
+    subject_commit_id uuid,
+    candidate_validation_id uuid,
+    proposal_ref text,
     goal text NOT NULL,
     progress_summary text,
     waiting_condition text,
@@ -75,11 +75,12 @@ CREATE TABLE armi.activity_revisions (
     CONSTRAINT activity_revisions_goal_check CHECK (((octet_length(goal) >= 1) AND (octet_length(goal) <= 8192))),
     CONSTRAINT activity_revisions_next_safe_step_check CHECK (((octet_length(next_safe_step) >= 1) AND (octet_length(next_safe_step) <= 4096))),
     CONSTRAINT activity_revisions_payload_shape_check CHECK ((((status = ANY (ARRAY['completed'::text, 'abandoned'::text, 'failed'::text])) AND (terminal_reason IS NOT NULL) AND (next_safe_step IS NULL) AND (waiting_condition IS NULL) AND (waiting_condition_kind IS NULL) AND (resumption_cue IS NULL) AND (resume_not_before IS NULL)) OR ((status = ANY (ARRAY['ready'::text, 'in_progress'::text, 'resuming'::text])) AND (terminal_reason IS NULL) AND (next_safe_step IS NOT NULL) AND (waiting_condition IS NULL) AND (waiting_condition_kind IS NULL) AND (resumption_cue IS NULL) AND (resume_not_before IS NULL)) OR ((status = 'waiting'::text) AND (terminal_reason IS NULL) AND (next_safe_step IS NOT NULL) AND (waiting_condition IS NOT NULL) AND (waiting_condition_kind = ANY (ARRAY['time'::text, 'creator_input'::text, 'external_evidence'::text])) AND (resumption_cue IS NOT NULL) AND ((waiting_condition_kind = 'time'::text) = (resume_not_before IS NOT NULL))) OR ((status = 'paused'::text) AND (terminal_reason IS NULL) AND (next_safe_step IS NOT NULL) AND (waiting_condition IS NOT NULL) AND (waiting_condition_kind = 'scheduled_review'::text) AND (resumption_cue IS NOT NULL) AND (resume_not_before IS NOT NULL)))),
-    CONSTRAINT activity_revisions_proposal_ref_check CHECK ((proposal_ref ~ '^proposal:[1-9][0-9]{0,2}$'::text)),
+    CONSTRAINT activity_revisions_proposal_ref_check CHECK (((proposal_ref IS NULL) OR (proposal_ref ~ '^proposal:[1-9][0-9]{0,2}$'::text))),
+    CONSTRAINT activity_revisions_provenance_check CHECK ((((transition_kind = 'system_pause'::text) AND (subject_commit_id IS NULL) AND (candidate_validation_id IS NULL) AND (proposal_ref IS NULL)) OR ((transition_kind <> 'system_pause'::text) AND (subject_commit_id IS NOT NULL) AND (candidate_validation_id IS NOT NULL) AND (proposal_ref IS NOT NULL)))),
     CONSTRAINT activity_revisions_revision_no_check CHECK ((revision_no > 0)),
     CONSTRAINT activity_revisions_status_check CHECK ((status = ANY (ARRAY['considering'::text, 'ready'::text, 'in_progress'::text, 'waiting'::text, 'paused'::text, 'resuming'::text, 'completed'::text, 'abandoned'::text, 'failed'::text]))),
-    CONSTRAINT activity_revisions_transition_kind_check CHECK ((transition_kind = ANY (ARRAY['created'::text, 'engage'::text, 'progress'::text, 'wait'::text, 'pause'::text, 'resume'::text, 'complete'::text, 'abandon'::text, 'system_fail'::text]))),
-    CONSTRAINT activity_revisions_transition_state_check CHECK ((((transition_kind = 'created'::text) AND (revision_no = 1) AND (status = 'ready'::text)) OR ((transition_kind = 'engage'::text) AND (status = 'in_progress'::text)) OR ((transition_kind = 'progress'::text) AND (status = 'in_progress'::text)) OR ((transition_kind = 'wait'::text) AND (status = 'waiting'::text)) OR ((transition_kind = 'pause'::text) AND (status = 'paused'::text)) OR ((transition_kind = 'resume'::text) AND (status = 'resuming'::text)) OR ((transition_kind = 'complete'::text) AND (status = 'completed'::text)) OR ((transition_kind = 'abandon'::text) AND (status = 'abandoned'::text)) OR ((transition_kind = 'system_fail'::text) AND (status = 'failed'::text)))),
+    CONSTRAINT activity_revisions_transition_kind_check CHECK ((transition_kind = ANY (ARRAY['created'::text, 'engage'::text, 'progress'::text, 'wait'::text, 'pause'::text, 'resume'::text, 'complete'::text, 'abandon'::text, 'system_fail'::text, 'system_pause'::text]))),
+    CONSTRAINT activity_revisions_transition_state_check CHECK ((((transition_kind = 'created'::text) AND (revision_no = 1) AND (status = 'ready'::text)) OR ((transition_kind = 'engage'::text) AND (status = 'in_progress'::text)) OR ((transition_kind = 'progress'::text) AND (status = 'in_progress'::text)) OR ((transition_kind = 'wait'::text) AND (status = 'waiting'::text)) OR ((transition_kind = ANY (ARRAY['pause'::text, 'system_pause'::text])) AND (status = 'paused'::text)) OR ((transition_kind = 'resume'::text) AND (status = 'resuming'::text)) OR ((transition_kind = 'complete'::text) AND (status = 'completed'::text)) OR ((transition_kind = 'abandon'::text) AND (status = 'abandoned'::text)) OR ((transition_kind = 'system_fail'::text) AND (status = 'failed'::text)))),
     CONSTRAINT activity_revisions_waiting_kind_check CHECK (((waiting_condition_kind IS NULL) OR (waiting_condition_kind = ANY (ARRAY['time'::text, 'creator_input'::text, 'external_evidence'::text, 'scheduled_review'::text]))))
 );
 
@@ -208,6 +209,8 @@ CREATE TABLE armi.maintenance_sessions (
     finished_at timestamp(6) with time zone,
     wake_request_id uuid,
     wake_requested_at timestamp(6) with time zone,
+    wake_source_kind text,
+    wake_source_ref uuid,
     quiet_until timestamp(6) with time zone,
     CONSTRAINT maintenance_sessions_check CHECK ((consideration_at < deadline_at)),
     CONSTRAINT maintenance_sessions_check1 CHECK (((trigger_kind = 'subject_choice'::text) = (sleep_decision_id IS NOT NULL))),
@@ -221,7 +224,9 @@ CREATE TABLE armi.maintenance_sessions (
     CONSTRAINT maintenance_sessions_started_subject_version_check CHECK ((started_subject_version >= 0)),
     CONSTRAINT maintenance_sessions_trigger_kind_check CHECK ((trigger_kind = ANY (ARRAY['subject_choice'::text, 'system_deadline'::text]))),
     CONSTRAINT maintenance_sessions_wake_request_id_check CHECK (((wake_request_id IS NULL) OR (uuid_extract_version(wake_request_id) = 7))),
-    CONSTRAINT maintenance_sessions_wake_request_shape CHECK (((wake_request_id IS NULL) = (wake_requested_at IS NULL)))
+    CONSTRAINT maintenance_sessions_wake_request_shape CHECK (((wake_request_id IS NULL) = (wake_requested_at IS NULL) AND (wake_requested_at IS NULL) = (wake_source_kind IS NULL) AND (wake_source_kind IS NULL) = (wake_source_ref IS NULL))),
+    CONSTRAINT maintenance_sessions_wake_source_kind_check CHECK (((wake_source_kind IS NULL) OR (wake_source_kind = ANY (ARRAY['creator_request'::text, 'creator_input'::text])))),
+    CONSTRAINT maintenance_sessions_wake_source_ref_check CHECK (((wake_source_ref IS NULL) OR (uuid_extract_version(wake_source_ref) = 7)))
 );
 
 --

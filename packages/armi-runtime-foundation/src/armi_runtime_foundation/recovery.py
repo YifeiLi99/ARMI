@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
@@ -67,6 +68,19 @@ class RecoveryWorkSnapshot:
     payload_kind: str | None = None
     payload_ref: UUID | None = None
     payload_digest: str | None = None
+    reconciliation_required: bool = False
+    generation: int = 1
+    predecessor_work_id: UUID | None = None
+    deadline_at: datetime | None = None
+    current_attempt_id: UUID | None = None
+    lease_owner: UUID | None = None
+    lease_expires_at: datetime | None = None
+    lease_token: int = 0
+    result_kind: str | None = None
+    result_ref: UUID | None = None
+    last_error_code: str | None = None
+    subject_id: UUID | None = None
+    idempotency_key: str | None = None
 
     def __post_init__(self) -> None:
         _uuid7(self.work_id)
@@ -81,6 +95,164 @@ class RecoveryWorkSnapshot:
             or self.max_attempts < 1
         ):
             raise ValueError("recovery work attempt count is invalid")
+        if type(self.reconciliation_required) is not bool:
+            raise ValueError("recovery work reconciliation state is invalid")
+        if type(self.generation) is not int or self.generation < 1:
+            raise ValueError("recovery work generation is invalid")
+        if (self.generation == 1) != (self.predecessor_work_id is None):
+            raise ValueError("recovery work predecessor is invalid")
+        if self.predecessor_work_id is not None:
+            _uuid7(self.predecessor_work_id)
+        for value in (
+            self.current_attempt_id,
+            self.lease_owner,
+            self.result_ref,
+            self.subject_id,
+        ):
+            if value is not None:
+                _uuid7(value)
+        if type(self.lease_token) is not int or self.lease_token < 0:
+            raise ValueError("recovery work lease token is invalid")
+
+
+class OwnerReconciliationContext:
+    """Fence work settlement to the participant's declared owner scope."""
+
+    __slots__ = ("_by_id", "_owner", "_transaction")
+
+    def __init__(
+        self,
+        transaction: PostgreSQLTransaction,
+        owner: RecoveryOwnerIdentity,
+        work: tuple[RecoveryWorkSnapshot, ...],
+    ) -> None:
+        self._transaction = transaction
+        self._owner = owner
+        self._by_id = {item.work_id: item for item in work}
+        if len(self._by_id) != len(work):
+            raise ValueError("reconciliation work is duplicated")
+
+    async def complete(
+        self, work_id: UUID, *, result_kind: str, result_ref: UUID
+    ) -> None:
+        _token(result_kind, _TOKEN, "reconciliation result kind is invalid")
+        _uuid7(result_ref)
+        await self._settle(
+            work_id,
+            status="completed",
+            reason_code=None,
+            result_kind=result_kind,
+            result_ref=result_ref,
+        )
+
+    async def fail(self, work_id: UUID, *, reason_code: str) -> None:
+        _token(reason_code, _REASON, "reconciliation reason is invalid")
+        await self._settle(
+            work_id,
+            status="failed",
+            reason_code=reason_code,
+            result_kind=None,
+            result_ref=None,
+        )
+
+    async def fail_with_successor(
+        self,
+        work_id: UUID,
+        *,
+        successor_work_id: UUID,
+        reason_code: str,
+        not_before: datetime,
+        deadline_at: datetime,
+        max_attempts: int,
+    ) -> None:
+        _uuid7(successor_work_id)
+        _token(reason_code, _REASON, "reconciliation reason is invalid")
+        if deadline_at <= not_before or type(max_attempts) is not int:
+            raise ValueError("reconciliation successor declaration is invalid")
+        snapshot = self._by_id.get(work_id)
+        if snapshot is None or not snapshot.reconciliation_required:
+            raise ValueError("reconciliation work is outside owner custody")
+        row = await (
+            await self._transaction.execute(
+                """WITH predecessor AS (
+                     UPDATE armi.durable_work
+                     SET status='failed',reconciliation_required=false,
+                         current_attempt_id=NULL,lease_owner=NULL,
+                         lease_expires_at=NULL,last_error_code=%s,
+                         updated_at=clock_timestamp()
+                     WHERE work_id=%s AND owner_kind=%s AND work_kind=%s
+                       AND status IN ('ready','leased')
+                       AND reconciliation_required=true
+                     RETURNING *
+                   )
+                   INSERT INTO armi.durable_work (
+                     work_id,work_kind,generation,predecessor_work_id,
+                     owner_kind,owner_ref,subject_id,idempotency_key,
+                     payload_kind,payload_ref,payload_digest,priority,
+                     not_before,deadline_at,status,reconciliation_required,
+                     max_attempts,attempt_count,lease_token,trace_id)
+                   SELECT %s,work_kind,generation+1,work_id,owner_kind,owner_ref,
+                          subject_id,idempotency_key,payload_kind,payload_ref,
+                          payload_digest,priority,%s,%s,'ready',false,%s,0,0,trace_id
+                   FROM predecessor RETURNING work_id""",
+                (
+                    reason_code,
+                    snapshot.work_id,
+                    snapshot.owner_kind,
+                    snapshot.work_kind,
+                    successor_work_id,
+                    not_before,
+                    deadline_at,
+                    max_attempts,
+                ),
+            )
+        ).fetchone()
+        if row is None:
+            raise ValueError("reconciliation successor custody is stale")
+
+    async def cancel(self, work_id: UUID, *, reason_code: str) -> None:
+        _token(reason_code, _REASON, "reconciliation reason is invalid")
+        await self._settle(
+            work_id,
+            status="cancelled",
+            reason_code=reason_code,
+            result_kind=None,
+            result_ref=None,
+        )
+
+    async def _settle(
+        self,
+        work_id: UUID,
+        *,
+        status: str,
+        reason_code: str | None,
+        result_kind: str | None,
+        result_ref: UUID | None,
+    ) -> None:
+        snapshot = self._by_id.get(work_id)
+        if snapshot is None or not snapshot.reconciliation_required:
+            raise ValueError("reconciliation work is outside owner custody")
+        result = await self._transaction.execute(
+            """UPDATE armi.durable_work
+               SET status=%s,reconciliation_required=false,
+                   current_attempt_id=NULL,lease_owner=NULL,
+                   lease_expires_at=NULL,result_kind=%s,result_ref=%s,
+                   last_error_code=%s,updated_at=clock_timestamp()
+               WHERE work_id=%s AND owner_kind=%s AND work_kind=%s
+                 AND status IN ('ready','leased')
+                 AND reconciliation_required=true""",
+            (
+                status,
+                result_kind,
+                result_ref,
+                reason_code,
+                snapshot.work_id,
+                snapshot.owner_kind,
+                snapshot.work_kind,
+            ),
+        )
+        if result.rowcount != 1:
+            raise ValueError("reconciliation work custody is stale")
 
 
 class RecoveryFindingDecision(StrEnum):
@@ -132,40 +304,11 @@ class RecoveryAuditContribution:
         _token(self.reason_code, _REASON, "recovery audit reason is invalid")
 
 
-class RecoveryWorkCommandKind(StrEnum):
-    ENQUEUE = "enqueue"
-    FAIL = "fail"
-    CANCEL = "cancel"
-
-
-@dataclass(frozen=True, slots=True)
-class RecoveryWorkCommand:
-    kind: RecoveryWorkCommandKind
-    work_id: UUID
-    work_kind: str
-    owner_kind: str
-    owner_ref: UUID
-    reason_code: str
-    payload_kind: str | None = None
-    payload_ref: UUID | None = None
-    payload_digest: str | None = None
-
-    def __post_init__(self) -> None:
-        if type(self.kind) is not RecoveryWorkCommandKind:
-            raise ValueError("recovery work command is invalid")
-        _uuid7(self.work_id)
-        _uuid7(self.owner_ref)
-        _token(self.work_kind, _TOKEN, "recovery command work kind is invalid")
-        _token(self.owner_kind, _TOKEN, "recovery command owner is invalid")
-        _token(self.reason_code, _REASON, "recovery command reason is invalid")
-
-
 @dataclass(frozen=True, slots=True)
 class RecoveryContribution:
     owner: RecoveryOwnerIdentity
     findings: tuple[RecoveryFindingContribution, ...] = ()
     metrics: tuple[RecoveryMetricContribution, ...] = ()
-    work_commands: tuple[RecoveryWorkCommand, ...] = ()
     audits: tuple[RecoveryAuditContribution, ...] = ()
     critical_artifact_ids: tuple[UUID, ...] = ()
 
@@ -235,6 +378,7 @@ class EmptyRecoveryParticipant:
 
 __all__ = (
     "EmptyRecoveryParticipant",
+    "OwnerReconciliationContext",
     "RecoveryAuditContribution",
     "RecoveryContribution",
     "RecoveryDependentParticipant",
@@ -244,7 +388,5 @@ __all__ = (
     "RecoveryOwnerIdentity",
     "RecoveryParticipant",
     "RecoveryScope",
-    "RecoveryWorkCommand",
-    "RecoveryWorkCommandKind",
     "RecoveryWorkSnapshot",
 )

@@ -9,6 +9,7 @@ from uuid import UUID, uuid7
 from armi_artifact_store.api import ArtifactCatalogPort
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_kernel.application import (
+    RESPONSIBILITY_BINDINGS,
     ArtifactId,
     ArtifactIntegrityStatus,
     ArtifactRef,
@@ -41,8 +42,6 @@ from armi_runtime_foundation import (
     RecoveryOwnerIdentity,
     RecoveryParticipant,
     RecoveryScope,
-    RecoveryWorkCommand,
-    RecoveryWorkCommandKind,
     RecoveryWorkSnapshot,
     RuntimeTransactionFailure,
 )
@@ -120,6 +119,37 @@ class PostgreSQLRuntimeRecovery:
         actual = tuple(participant.owner_identity for participant in self._participants)
         if actual != self._expected_owners or len(set(actual)) != len(actual):
             raise RecoveryViolation("REC-PARTICIPANT-ROSTER")
+        expected_scopes = {
+            (
+                binding.reconciliation_owner,
+                binding.owner_kind,
+                binding.work_type.value,
+            )
+            for binding in RESPONSIBILITY_BINDINGS
+            if binding.reconciliation_owner != "artifact-store"
+        }
+        actual_scopes = {
+            (participant.owner_identity.value, owner_kind, work_kind)
+            for participant in self._participants
+            for owner_kind, work_kind in participant.work_scopes
+        }
+        if actual_scopes != expected_scopes:
+            raise RecoveryViolation("REC-WORK-RESPONSIBILITY-COVERAGE")
+
+    async def _validate_existing_work(self, transaction: PostgreSQLTransaction) -> None:
+        rows = await (
+            await transaction.execute(
+                """SELECT DISTINCT owner_kind,work_kind
+                   FROM armi.durable_work
+                   ORDER BY owner_kind,work_kind"""
+            )
+        ).fetchall()
+        registered = {
+            (binding.owner_kind, binding.work_type.value)
+            for binding in RESPONSIBILITY_BINDINGS
+        }
+        if any((str(row[0]), str(row[1])) not in registered for row in rows):
+            raise RecoveryViolation("REC-WORK-RESPONSIBILITY-UNKNOWN")
 
     async def _recover_owners(
         self, fence: RuntimeFence, scope: RecoveryScope
@@ -129,6 +159,7 @@ class PostgreSQLRuntimeRecovery:
         ) as unit:
             transaction = unit.transaction
             await self._verify_fence(transaction, fence)
+            await self._validate_existing_work(transaction)
             await self._abandon_old_runs(transaction, fence)
             run_id = await self._running_row(transaction, fence)
             runtime = await self._recover_runtime_work(transaction, scope)
@@ -179,8 +210,6 @@ class PostgreSQLRuntimeRecovery:
                 else:
                     refs.append(ref)
             for contribution in contributions:
-                for command in contribution.work_commands:
-                    await self._apply_work_command(transaction, command)
                 for audit in contribution.audits:
                     await unit.audit.append(_owner_audit(fence, audit))
             await unit.audit.append(
@@ -192,26 +221,35 @@ class PostgreSQLRuntimeRecovery:
     async def _recover_runtime_work(
         self, transaction: PostgreSQLTransaction, scope: RecoveryScope
     ) -> RecoveryContribution:
-        rows = await (
+        marked = await (
             await transaction.execute(
                 """
                 UPDATE armi.durable_work
-                SET status = CASE
-                        WHEN attempt_count < max_attempts THEN 'ready'
-                        ELSE 'failed'
-                    END,
-                    current_attempt_id = NULL,
-                    lease_owner = NULL,
-                    lease_expires_at = NULL,
+                SET reconciliation_required = true,
                     last_error_code = CASE
-                        WHEN attempt_count < max_attempts THEN 'WORK-LEASE-EXPIRED'
+                        WHEN status='leased' AND lease_owner<>%s
+                            THEN 'WORK-RUNTIME-HANDOFF'
+                        WHEN deadline_at <= statement_timestamp()
+                            THEN 'WORK-DEADLINE'
                         ELSE 'WORK-ATTEMPTS-EXHAUSTED'
                     END,
                     updated_at = clock_timestamp()
-                WHERE status = 'leased'
-                  AND lease_expires_at <= statement_timestamp()
-                RETURNING status
-                """
+                WHERE status IN ('ready','leased')
+                  AND reconciliation_required = false
+                  AND (
+                    (status='leased' AND lease_owner<>%s)
+                    OR deadline_at <= statement_timestamp()
+                    OR (
+                        attempt_count >= max_attempts
+                        AND (
+                            status = 'ready'
+                            OR lease_expires_at <= statement_timestamp()
+                        )
+                    )
+                  )
+                RETURNING work_id
+                """,
+                (scope.runtime_instance_id, scope.runtime_instance_id),
             )
         ).fetchall()
         continuity = await (
@@ -240,8 +278,6 @@ class PostgreSQLRuntimeRecovery:
                 ),
             )
         ).fetchone()
-        requeued = sum(str(row[0]) == "ready" for row in rows)
-        terminal = sum(str(row[0]) == "failed" for row in rows)
         findings = ()
         if continuity is None or int(continuity[0]) != 1:
             findings = (
@@ -254,10 +290,7 @@ class PostgreSQLRuntimeRecovery:
         return RecoveryContribution(
             RecoveryOwnerIdentity("runtime"),
             findings=findings,
-            metrics=(
-                _metric("runtime.requeued_work_count", requeued),
-                _metric("runtime.terminal_work_count", terminal),
-            ),
+            metrics=(_metric("runtime.reconciliation_required_count", len(marked)),),
         )
 
     async def _work_snapshots(
@@ -266,9 +299,12 @@ class PostgreSQLRuntimeRecovery:
         rows = await (
             await transaction.execute(
                 """
-                SELECT work_id, work_kind, owner_kind, owner_ref, status,
-                       attempt_count, max_attempts, payload_kind, payload_ref,
-                       payload_digest
+                SELECT work_id,work_kind,owner_kind,owner_ref,status,
+                       attempt_count,max_attempts,payload_kind,payload_ref,
+                       payload_digest,reconciliation_required,generation,
+                       predecessor_work_id,deadline_at,current_attempt_id,
+                       lease_owner,lease_expires_at,lease_token,result_kind,
+                       result_ref,last_error_code,subject_id,idempotency_key
                 FROM armi.durable_work
                 ORDER BY work_id
                 """
@@ -276,16 +312,29 @@ class PostgreSQLRuntimeRecovery:
         ).fetchall()
         return tuple(
             RecoveryWorkSnapshot(
-                row[0],
-                str(row[1]),
-                str(row[2]),
-                row[3],
-                str(row[4]),
-                int(row[5]),
-                int(row[6]),
-                None if row[7] is None else str(row[7]),
-                row[8],
-                None if row[9] is None else str(row[9]),
+                work_id=row[0],
+                work_kind=str(row[1]),
+                owner_kind=str(row[2]),
+                owner_ref=row[3],
+                status=str(row[4]),
+                attempt_count=int(row[5]),
+                max_attempts=int(row[6]),
+                payload_kind=None if row[7] is None else str(row[7]),
+                payload_ref=row[8],
+                payload_digest=None if row[9] is None else str(row[9]),
+                reconciliation_required=bool(row[10]),
+                generation=int(row[11]),
+                predecessor_work_id=row[12],
+                deadline_at=row[13],
+                current_attempt_id=row[14],
+                lease_owner=row[15],
+                lease_expires_at=row[16],
+                lease_token=int(row[17]),
+                result_kind=None if row[18] is None else str(row[18]),
+                result_ref=row[19],
+                last_error_code=None if row[20] is None else str(row[20]),
+                subject_id=row[21],
+                idempotency_key=str(row[22]),
             )
             for row in rows
         )
@@ -298,36 +347,6 @@ class PostgreSQLRuntimeRecovery:
         prefix = value.owner.value.replace("-", "_") + "."
         if any(not metric.kind.startswith(prefix) for metric in value.metrics):
             raise RecoveryViolation("REC-PARTICIPANT-METRIC")
-
-    async def _apply_work_command(
-        self, transaction: PostgreSQLTransaction, command: RecoveryWorkCommand
-    ) -> None:
-        if command.kind is RecoveryWorkCommandKind.ENQUEUE:
-            raise RecoveryViolation("REC-WORK-COMMAND")
-        target = (
-            "failed" if command.kind is RecoveryWorkCommandKind.FAIL else "cancelled"
-        )
-        result = await transaction.execute(
-            """
-            UPDATE armi.durable_work
-            SET status = %s, current_attempt_id = NULL, lease_owner = NULL,
-                lease_expires_at = NULL, last_error_code = %s,
-                updated_at = clock_timestamp()
-            WHERE work_id = %s AND work_kind = %s
-              AND owner_kind = %s AND owner_ref = %s
-              AND status IN ('ready', 'leased')
-            """,
-            (
-                target,
-                command.reason_code,
-                command.work_id,
-                command.work_kind,
-                command.owner_kind,
-                command.owner_ref,
-            ),
-        )
-        if result.rowcount != 1:
-            raise RecoveryViolation("REC-WORK-COMMAND")
 
     async def _verify_artifacts(
         self, refs: tuple[ArtifactRef, ...]

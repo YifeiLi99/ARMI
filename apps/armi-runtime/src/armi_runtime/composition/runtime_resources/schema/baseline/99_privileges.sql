@@ -205,3 +205,7 @@ GRANT UPDATE ON TABLE armi.action_intent_revisions, armi.action_intents, armi.ac
 GRANT INSERT ON TABLE armi.artifact_object_deletion_attempts, armi.artifact_object_deletions, armi.artifact_objects, armi.artifact_publications TO armi_runtime;
 GRANT INSERT ON TABLE armi.deletion_order_retry_attempts TO armi_runtime;
 GRANT UPDATE ON TABLE armi.artifact_object_deletions, armi.artifact_objects, armi.artifact_publications TO armi_runtime;
+GRANT SELECT ON TABLE armi.response_admissions, armi.effect_registrations TO armi_admin;
+GRANT SELECT, INSERT, UPDATE ON TABLE armi.response_admissions, armi.effect_registrations TO armi_runtime;
+GRANT SELECT ON TABLE armi.context_embedding_failures TO armi_admin;
+GRANT SELECT, INSERT ON TABLE armi.context_embedding_failures TO armi_runtime;

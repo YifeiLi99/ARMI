@@ -98,6 +98,7 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "cognitive_context_items": TableOwnership("context"),
     "context_embedding_attempts": TableOwnership("context"),
     "context_embedding_coverage": TableOwnership("context"),
+    "context_embedding_failures": TableOwnership("context"),
     "context_embedding_projections": TableOwnership("context"),
     # Experience and cognition.
     "accepted_experiences": TableOwnership("experience"),
@@ -150,8 +151,10 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "effect_attempts": TableOwnership("effect"),
     "effect_observations": TableOwnership("effect"),
     "effect_outbox_items": TableOwnership("effect"),
+    "effect_registrations": TableOwnership("effect"),
     "effects": TableOwnership("effect"),
     "local_inbox_deliveries": TableOwnership("effect"),
+    "response_admissions": TableOwnership("expression"),
     # Web, Codex, and Data Rights.
     "observation_attempts": TableOwnership("web-observation"),
     "observation_tool_calls": TableOwnership("web-observation"),

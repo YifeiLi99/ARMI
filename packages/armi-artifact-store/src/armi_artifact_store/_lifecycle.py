@@ -14,9 +14,10 @@ from armi_kernel.application import (
     ArtifactRef,
     ArtifactViolation,
     DurableWorkPort,
-    WorkId,
+    WorkOwner,
     WorkRecord,
     WorkResultRef,
+    WorkType,
     WorkViolation,
 )
 from armi_kernel.contracts import Digest, Instant
@@ -136,7 +137,7 @@ class ArtifactLifecycleCoordinator:
     async def run_once(self) -> bool:
         try:
             claimed = await self._work.claim(
-                work_kind="artifact.object.delete",
+                work_kind=WorkType.ARTIFACT_OBJECT_DELETE,
                 lease_owner=self._worker_id,
                 lease_seconds=120,
             )
@@ -207,12 +208,17 @@ class ArtifactLifecycleCoordinator:
                 (retry_cycle, list(deletion_ids)),
             )
         ).fetchall()
-        work_ids = tuple(WorkId(row[0]) for row in rows)
-        if work_ids:
-            reset = await unit_of_work.work.reset_ready(work_ids)
-            if reset != len(work_ids):
-                raise ArtifactViolation("ART-WORK-STATE")
-        return len(work_ids)
+        for row in rows:
+            deletion_id = row[0]
+            now = datetime.now(UTC)
+            await unit_of_work.work.successor(
+                owner=WorkOwner("artifact_object_deletion", deletion_id),
+                work_kind=WorkType.ARTIFACT_OBJECT_DELETE,
+                not_before=Instant(now),
+                deadline_at=Instant(now + timedelta(minutes=59)),
+                max_attempts=8,
+            )
+        return len(rows)
 
     async def _prepare_deletion(
         self, record: WorkRecord

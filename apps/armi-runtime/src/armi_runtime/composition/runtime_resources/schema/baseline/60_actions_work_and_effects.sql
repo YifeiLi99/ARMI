@@ -54,6 +54,26 @@ CREATE TABLE armi.action_intents (
     CONSTRAINT action_intents_shape_check CHECK ((((action_kind = 'party_response'::text) AND (purpose = ANY (ARRAY['respond_to_creator'::text, 'respond_to_other_human'::text]))) OR ((action_kind = 'codex_delegation'::text) AND (purpose = 'delegate_codex_work'::text))))
 );
 
+-- Expression owns the complete outcome of one response-admission responsibility.
+CREATE TABLE armi.response_admissions (
+    response_admission_id uuid NOT NULL,
+    action_intent_id uuid NOT NULL,
+    work_id uuid NOT NULL,
+    operation_ref uuid NOT NULL,
+    status text DEFAULT 'pending'::text NOT NULL,
+    permission_grant_id uuid,
+    reason_code text,
+    attempt_count integer DEFAULT 0 NOT NULL,
+    created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
+    settled_at timestamp(6) with time zone,
+    CONSTRAINT response_admissions_id_check CHECK ((uuid_extract_version(response_admission_id) = 7)),
+    CONSTRAINT response_admissions_operation_check CHECK ((uuid_extract_version(operation_ref) = 7)),
+    CONSTRAINT response_admissions_attempt_check CHECK ((attempt_count >= 0)),
+    CONSTRAINT response_admissions_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'accepted'::text, 'unauthorized'::text, 'unavailable'::text, 'failed'::text, 'cancelled'::text]))),
+    CONSTRAINT response_admissions_settlement_check CHECK ((((status = 'pending'::text) AND (settled_at IS NULL) AND (reason_code IS NULL)) OR ((status <> 'pending'::text) AND (settled_at IS NOT NULL)))),
+    CONSTRAINT response_admissions_grant_check CHECK (((status = 'accepted'::text) = (permission_grant_id IS NOT NULL)))
+);
+
 --
 -- Name: capabilities; Type: TABLE; Schema: armi; Owner: -
 --
@@ -178,6 +198,8 @@ CREATE TABLE armi.dialogue_decisions (
 CREATE TABLE armi.durable_work (
     work_id uuid NOT NULL,
     work_kind text NOT NULL,
+    generation integer DEFAULT 1 NOT NULL,
+    predecessor_work_id uuid,
     owner_kind text NOT NULL,
     owner_ref uuid NOT NULL,
     subject_id uuid,
@@ -189,6 +211,7 @@ CREATE TABLE armi.durable_work (
     not_before timestamp(6) with time zone NOT NULL,
     deadline_at timestamp(6) with time zone NOT NULL,
     status text DEFAULT 'ready'::text NOT NULL,
+    reconciliation_required boolean DEFAULT false NOT NULL,
     max_attempts smallint NOT NULL,
     attempt_count smallint DEFAULT 0 NOT NULL,
     current_attempt_id uuid,
@@ -207,6 +230,10 @@ CREATE TABLE armi.durable_work (
     CONSTRAINT durable_work_check3 CHECK ((deadline_at > not_before)),
     CONSTRAINT durable_work_check4 CHECK ((((status = 'leased'::text) AND (current_attempt_id IS NOT NULL) AND (lease_owner IS NOT NULL) AND (lease_expires_at IS NOT NULL) AND (lease_token > 0) AND (attempt_count > 0)) OR ((status <> 'leased'::text) AND (current_attempt_id IS NULL) AND (lease_owner IS NULL) AND (lease_expires_at IS NULL)))),
     CONSTRAINT durable_work_check5 CHECK ((((status = 'completed'::text) AND (result_ref IS NOT NULL)) OR ((status <> 'completed'::text) AND (result_ref IS NULL)))),
+    CONSTRAINT durable_work_generation_check CHECK ((generation >= 1)),
+    CONSTRAINT durable_work_generation_predecessor_check CHECK ((((generation = 1) AND (predecessor_work_id IS NULL)) OR ((generation > 1) AND (predecessor_work_id IS NOT NULL)))),
+    CONSTRAINT durable_work_predecessor_work_id_check CHECK (((predecessor_work_id IS NULL) OR (uuid_extract_version(predecessor_work_id) = 7))),
+    CONSTRAINT durable_work_reconciliation_check CHECK ((NOT ((status = ANY (ARRAY['completed'::text, 'failed'::text, 'cancelled'::text])) AND reconciliation_required))),
     CONSTRAINT durable_work_current_attempt_id_check CHECK (((current_attempt_id IS NULL) OR (uuid_extract_version(current_attempt_id) = 7))),
     CONSTRAINT durable_work_idempotency_key_check CHECK (((length(idempotency_key) >= 1) AND (length(idempotency_key) <= 128) AND (idempotency_key ~ '^[A-Za-z0-9._:-]+$'::text))),
     CONSTRAINT durable_work_last_error_code_check CHECK (((last_error_code IS NULL) OR (last_error_code ~ '^[A-Z][A-Z0-9-]{0,127}$'::text))),
@@ -225,7 +252,25 @@ CREATE TABLE armi.durable_work (
     CONSTRAINT durable_work_subject_id_check CHECK (((subject_id IS NULL) OR (uuid_extract_version(subject_id) = 7))),
     CONSTRAINT durable_work_trace_id_check CHECK (((trace_id ~ '^[0-9a-f]{32}$'::text) AND (trace_id <> repeat('0'::text, 32)))),
     CONSTRAINT durable_work_work_id_check CHECK ((uuid_extract_version(work_id) = 7)),
-    CONSTRAINT durable_work_work_kind_check CHECK ((work_kind ~ '^[a-z][a-z0-9._-]{0,63}$'::text))
+    CONSTRAINT durable_work_work_kind_check CHECK ((work_kind = ANY (ARRAY['cognition.context.prepare'::text, 'cognition.model.invoke'::text, 'cognition.candidate.validate'::text, 'cognition.subject.commit'::text, 'cognition.response.admit'::text, 'effect.register'::text, 'web.observation.admit'::text, 'web.search.invoke'::text, 'external.content.recognize'::text, 'external.content.finalize'::text, 'life.query.execute'::text, 'context.embedding.project'::text, 'artifact.object.delete'::text])))
+);
+
+-- Effect owns registration independently from the existence of an Effect row.
+CREATE TABLE armi.effect_registrations (
+    effect_registration_id uuid NOT NULL,
+    action_intent_id uuid NOT NULL,
+    work_id uuid NOT NULL,
+    response_admission_id uuid,
+    status text DEFAULT 'pending'::text NOT NULL,
+    effect_id uuid,
+    reason_code text,
+    attempt_count integer DEFAULT 0 NOT NULL,
+    created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
+    settled_at timestamp(6) with time zone,
+    CONSTRAINT effect_registrations_id_check CHECK ((uuid_extract_version(effect_registration_id) = 7)),
+    CONSTRAINT effect_registrations_attempt_check CHECK ((attempt_count >= 0)),
+    CONSTRAINT effect_registrations_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'succeeded'::text, 'unauthorized'::text, 'unavailable'::text, 'failed'::text, 'cancelled'::text]))),
+    CONSTRAINT effect_registrations_settlement_check CHECK ((((status = 'pending'::text) AND (settled_at IS NULL) AND (effect_id IS NULL) AND (reason_code IS NULL)) OR ((status = 'succeeded'::text) AND (settled_at IS NOT NULL) AND (effect_id IS NOT NULL) AND (reason_code IS NULL)) OR ((status NOT IN ('pending','succeeded')) AND (settled_at IS NOT NULL) AND (effect_id IS NULL) AND (reason_code IS NOT NULL))))
 );
 
 --

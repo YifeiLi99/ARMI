@@ -56,8 +56,10 @@ from .credentials import (
     SecretHandle,
 )
 from .durable_work import (
+    RESPONSIBILITY_BINDINGS,
     DurableWorkPort,
     DurableWorkWriter,
+    ResponsibilityBinding,
     WorkAttemptId,
     WorkDraft,
     WorkId,
@@ -67,7 +69,9 @@ from .durable_work import (
     WorkRecord,
     WorkResultRef,
     WorkStatus,
+    WorkType,
     WorkViolation,
+    responsibility_binding,
 )
 from .life_records import (
     LIFE_RECORD_PROJECTION_VERSION,
@@ -136,6 +140,7 @@ from .transactions import (
 __all__: tuple[str, ...] = (
     "LIFE_RECORD_PROJECTION_VERSION",
     "OTHER_HUMAN_RECORD_PROJECTION_VERSION",
+    "RESPONSIBILITY_BINDINGS",
     "ArtifactId",
     "ArtifactIntegrityStatus",
     "ArtifactPolicy",
@@ -215,6 +220,7 @@ __all__: tuple[str, ...] = (
     "RecoveryStatus",
     "RecoverySummary",
     "RecoveryViolation",
+    "ResponsibilityBinding",
     "RuntimeAuthorityPort",
     "RuntimeAuthorityRecord",
     "RuntimeAuthorityStatus",
@@ -237,5 +243,7 @@ __all__: tuple[str, ...] = (
     "WorkRecord",
     "WorkResultRef",
     "WorkStatus",
+    "WorkType",
     "WorkViolation",
+    "responsibility_binding",
 )

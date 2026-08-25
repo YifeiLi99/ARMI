@@ -19,12 +19,110 @@ from armi_kernel.contracts import (
 _TOKEN = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 
 
+def _require_token(value: object) -> None:
+    if type(value) is not str or _TOKEN.fullmatch(value) is None:
+        raise WorkViolation("WORK-DECLARATION")
+
+
 class WorkStatus(StrEnum):
     READY = "ready"
     LEASED = "leased"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+
+class WorkType(StrEnum):
+    """Closed set of durable responsibilities admitted by this Runtime."""
+
+    COGNITION_CONTEXT_PREPARE = "cognition.context.prepare"
+    COGNITION_MODEL_INVOKE = "cognition.model.invoke"
+    COGNITION_CANDIDATE_VALIDATE = "cognition.candidate.validate"
+    COGNITION_SUBJECT_COMMIT = "cognition.subject.commit"
+    COGNITION_RESPONSE_ADMIT = "cognition.response.admit"
+    EFFECT_REGISTER = "effect.register"
+    WEB_OBSERVATION_ADMIT = "web.observation.admit"
+    WEB_SEARCH_INVOKE = "web.search.invoke"
+    EXTERNAL_CONTENT_RECOGNIZE = "external.content.recognize"
+    EXTERNAL_CONTENT_FINALIZE = "external.content.finalize"
+    LIFE_QUERY_EXECUTE = "life.query.execute"
+    CONTEXT_EMBEDDING_PROJECT = "context.embedding.project"
+    ARTIFACT_OBJECT_DELETE = "artifact.object.delete"
+
+
+@dataclass(frozen=True, slots=True)
+class ResponsibilityBinding:
+    owner_kind: str
+    work_type: WorkType
+    reconciliation_owner: str
+
+    def __post_init__(self) -> None:
+        _require_token(self.owner_kind)
+        if type(self.work_type) is not WorkType:
+            raise WorkViolation("WORK-RESPONSIBILITY-REGISTRY")
+        _require_token(self.reconciliation_owner)
+
+
+RESPONSIBILITY_BINDINGS: tuple[ResponsibilityBinding, ...] = (
+    ResponsibilityBinding(
+        "cognitive_episode", WorkType.COGNITION_CONTEXT_PREPARE, "cognition"
+    ),
+    ResponsibilityBinding(
+        "cognitive_episode", WorkType.COGNITION_MODEL_INVOKE, "cognition"
+    ),
+    ResponsibilityBinding(
+        "cognitive_episode", WorkType.COGNITION_CANDIDATE_VALIDATE, "cognition"
+    ),
+    ResponsibilityBinding(
+        "cognitive_episode", WorkType.COGNITION_SUBJECT_COMMIT, "cognition"
+    ),
+    ResponsibilityBinding(
+        "action_intent", WorkType.COGNITION_RESPONSE_ADMIT, "expression"
+    ),
+    ResponsibilityBinding("action_intent", WorkType.EFFECT_REGISTER, "effect"),
+    ResponsibilityBinding(
+        "web_research_intent", WorkType.WEB_OBSERVATION_ADMIT, "web-observation"
+    ),
+    ResponsibilityBinding(
+        "web_observation", WorkType.WEB_SEARCH_INVOKE, "web-observation"
+    ),
+    ResponsibilityBinding(
+        "external_message", WorkType.EXTERNAL_CONTENT_RECOGNIZE, "perception"
+    ),
+    ResponsibilityBinding(
+        "external_message", WorkType.EXTERNAL_CONTENT_FINALIZE, "interaction"
+    ),
+    ResponsibilityBinding(
+        "exact_life_query_intent", WorkType.LIFE_QUERY_EXECUTE, "cognition"
+    ),
+    ResponsibilityBinding(
+        "life_material", WorkType.CONTEXT_EMBEDDING_PROJECT, "context"
+    ),
+    ResponsibilityBinding(
+        "subjective_memory", WorkType.CONTEXT_EMBEDDING_PROJECT, "context"
+    ),
+    ResponsibilityBinding(
+        "artifact_object_deletion", WorkType.ARTIFACT_OBJECT_DELETE, "artifact-store"
+    ),
+)
+
+_RESPONSIBILITY_BY_SCOPE = {
+    (binding.owner_kind, binding.work_type): binding
+    for binding in RESPONSIBILITY_BINDINGS
+}
+if len(_RESPONSIBILITY_BY_SCOPE) != len(RESPONSIBILITY_BINDINGS):
+    raise RuntimeError("WORK-RESPONSIBILITY-REGISTRY")
+
+
+def responsibility_binding(
+    owner_kind: str, work_type: WorkType
+) -> ResponsibilityBinding:
+    """Resolve the unique owner-bound reconciliation contract."""
+
+    try:
+        return _RESPONSIBILITY_BY_SCOPE[(owner_kind, work_type)]
+    except KeyError:
+        raise WorkViolation("WORK-RESPONSIBILITY-UNKNOWN") from None
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,7 +180,7 @@ class WorkResultRef:
 @dataclass(frozen=True, slots=True)
 class WorkDraft:
     work_id: WorkId
-    work_kind: str
+    work_kind: WorkType
     owner: WorkOwner
     idempotency_key: IdempotencyKey
     payload_digest: Digest
@@ -93,11 +191,14 @@ class WorkDraft:
     trace_id: TraceId
     subject_id: SubjectId | None = None
     payload: WorkPayloadRef | None = None
+    generation: int = 1
+    predecessor_work_id: WorkId | None = None
 
     def __post_init__(self) -> None:
         if type(self.work_id) is not WorkId:
             raise WorkViolation("WORK-DECLARATION")
-        _require_token(self.work_kind)
+        if type(self.work_kind) is not WorkType:
+            raise WorkViolation("WORK-DECLARATION")
         if type(self.owner) is not WorkOwner:
             raise WorkViolation("WORK-DECLARATION")
         if type(self.idempotency_key) is not IdempotencyKey:
@@ -123,6 +224,14 @@ class WorkDraft:
             raise WorkViolation("WORK-DECLARATION")
         if self.payload is not None and type(self.payload) is not WorkPayloadRef:
             raise WorkViolation("WORK-DECLARATION")
+        if type(self.generation) is not int or self.generation < 1:
+            raise WorkViolation("WORK-DECLARATION")
+        if self.predecessor_work_id is not None:
+            if type(self.predecessor_work_id) is not WorkId or self.generation == 1:
+                raise WorkViolation("WORK-DECLARATION")
+        elif self.generation != 1:
+            raise WorkViolation("WORK-DECLARATION")
+        responsibility_binding(self.owner.kind, self.work_kind)
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +263,7 @@ class WorkRecord:
     lease: WorkLease | None = None
     result: WorkResultRef | None = None
     last_error_code: str | None = None
+    reconciliation_required: bool = False
 
     def __post_init__(self) -> None:
         if type(self.draft) is not WorkDraft or type(self.status) is not WorkStatus:
@@ -163,6 +273,18 @@ class WorkRecord:
             or not 0 <= self.attempt_count <= self.draft.max_attempts
         ):
             raise WorkViolation("WORK-DECLARATION")
+        if type(self.reconciliation_required) is not bool:
+            raise WorkViolation("WORK-DECLARATION")
+        if (
+            self.status
+            in (
+                WorkStatus.COMPLETED,
+                WorkStatus.FAILED,
+                WorkStatus.CANCELLED,
+            )
+            and self.reconciliation_required
+        ):
+            raise WorkViolation("WORK-STATE")
         if self.status is WorkStatus.LEASED:
             if type(self.lease) is not WorkLease:
                 raise WorkViolation("WORK-STATE")
@@ -203,8 +325,20 @@ class DurableWorkWriter(Protocol):
         """Create or idempotently return one work item in the active transaction."""
         ...
 
-    async def reset_ready(self, work_ids: tuple[WorkId, ...]) -> int:
-        """Start an explicit retry cycle for failed work in the active transaction."""
+    async def successor(
+        self,
+        *,
+        owner: WorkOwner,
+        work_kind: WorkType,
+        not_before: Instant,
+        deadline_at: Instant,
+        max_attempts: int,
+    ) -> WorkRecord:
+        """Create the next generation from the latest terminal owner work."""
+        ...
+
+    async def validate_lease(self, lease: WorkLease) -> None:
+        """Fence business writes with the caller's live work custody."""
         ...
 
     async def release(
@@ -235,7 +369,7 @@ class DurableWorkPort(Protocol):
     async def claim(
         self,
         *,
-        work_kind: str,
+        work_kind: WorkType,
         lease_owner: UUID,
         lease_seconds: int,
         limit: int = 1,
@@ -267,14 +401,11 @@ def _require_uuid7(value: object) -> None:
         raise WorkViolation("WORK-DECLARATION")
 
 
-def _require_token(value: object) -> None:
-    if type(value) is not str or _TOKEN.fullmatch(value) is None:
-        raise WorkViolation("WORK-DECLARATION")
-
-
 __all__ = (
+    "RESPONSIBILITY_BINDINGS",
     "DurableWorkPort",
     "DurableWorkWriter",
+    "ResponsibilityBinding",
     "WorkAttemptId",
     "WorkDraft",
     "WorkId",
@@ -284,5 +415,7 @@ __all__ = (
     "WorkRecord",
     "WorkResultRef",
     "WorkStatus",
+    "WorkType",
     "WorkViolation",
+    "responsibility_binding",
 )

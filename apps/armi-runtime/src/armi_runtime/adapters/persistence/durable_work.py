@@ -25,6 +25,7 @@ from armi_kernel.application import (
     WorkRecord,
     WorkResultRef,
     WorkStatus,
+    WorkType,
     WorkViolation,
 )
 from armi_kernel.contracts import (
@@ -39,12 +40,14 @@ from armi_kernel.contracts import (
 from armi_runtime.adapters.transaction_errors import DatabaseTransactionError
 
 if TYPE_CHECKING:
-    from .unit_of_work import PostgreSQLUnitOfWork, PostgreSQLUnitOfWorkFactory
+    from .unit_of_work import PostgreSQLUnitOfWorkFactory
 
 _ERROR_CODE = re.compile(r"^[A-Z][A-Z0-9-]{0,127}$", re.ASCII)
 _WORK_COLUMNS = """
     work_id,
     work_kind,
+    generation,
+    predecessor_work_id,
     owner_kind,
     owner_ref,
     subject_id,
@@ -56,6 +59,7 @@ _WORK_COLUMNS = """
     not_before,
     deadline_at,
     status,
+    reconciliation_required,
     max_attempts,
     attempt_count,
     current_attempt_id,
@@ -86,12 +90,33 @@ class PostgreSQLDurableWorkWriter:
 
     async def enqueue(self, draft: WorkDraft) -> WorkRecord:
         try:
+            if draft.predecessor_work_id is not None:
+                predecessor = await (
+                    await self._connection.execute(
+                        """SELECT generation,owner_kind,owner_ref,work_kind,
+                                  idempotency_key,status
+                           FROM armi.durable_work WHERE work_id=%s FOR UPDATE""",
+                        (draft.predecessor_work_id.value,),
+                    )
+                ).fetchone()
+                if (
+                    predecessor is None
+                    or int(predecessor[0]) + 1 != draft.generation
+                    or str(predecessor[1]) != draft.owner.kind
+                    or predecessor[2] != draft.owner.reference
+                    or str(predecessor[3]) != draft.work_kind.value
+                    or str(predecessor[4]) != draft.idempotency_key.value
+                    or str(predecessor[5]) not in {"completed", "failed", "cancelled"}
+                ):
+                    raise WorkViolation("WORK-SUCCESSOR-INVALID")
             inserted = await (
                 await self._connection.execute(
                     """
                     INSERT INTO armi.durable_work (
                         work_id,
                         work_kind,
+                        generation,
+                        predecessor_work_id,
                         owner_kind,
                         owner_ref,
                         subject_id,
@@ -103,18 +128,20 @@ class PostgreSQLDurableWorkWriter:
                         not_before,
                         deadline_at,
                         status,
+                        reconciliation_required,
                         max_attempts,
                         attempt_count,
                         lease_token,
                         trace_id)
                     VALUES (
                         %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, 'ready', %s, 0, 0, %s)
+                        %s, %s, %s, %s, %s, 'ready', false, %s, 0, 0, %s)
                     ON CONFLICT (
                         owner_kind,
                         owner_ref,
                         work_kind,
-                        idempotency_key
+                        idempotency_key,
+                        generation
                     ) DO NOTHING
                     RETURNING work_id
                     """,
@@ -135,25 +162,46 @@ class PostgreSQLDurableWorkWriter:
         except psycopg.Error:
             raise WorkViolation("WORK-DATABASE") from None
 
-    async def reset_ready(self, work_ids: tuple[WorkId, ...]) -> int:
-        if not work_ids:
-            return 0
-        try:
-            result = await self._connection.execute(
-                """UPDATE armi.durable_work
-                   SET status='ready',attempt_count=0,current_attempt_id=NULL,
-                       lease_owner=NULL,lease_expires_at=NULL,last_error_code=NULL,
-                       not_before=statement_timestamp(),
-                       deadline_at=statement_timestamp()+interval '59 minutes',
-                       updated_at=clock_timestamp()
-                   WHERE work_id=ANY(%s::uuid[])
-                     AND work_kind='artifact.object.delete'
-                     AND status='failed'""",
-                (tuple(item.value for item in work_ids),),
+    async def successor(
+        self,
+        *,
+        owner: WorkOwner,
+        work_kind: WorkType,
+        not_before: Instant,
+        deadline_at: Instant,
+        max_attempts: int,
+    ) -> WorkRecord:
+        row = await (
+            await self._connection.execute(
+                f"""SELECT {_WORK_COLUMNS} FROM armi.durable_work
+                    WHERE owner_kind=%s AND owner_ref=%s AND work_kind=%s
+                      AND status IN ('completed','failed','cancelled')
+                    ORDER BY generation DESC LIMIT 1 FOR UPDATE""",
+                (owner.kind, owner.reference, work_kind.value),
             )
-            return result.rowcount
-        except psycopg.Error:
-            raise WorkViolation("WORK-DATABASE") from None
+        ).fetchone()
+        if row is None:
+            raise WorkViolation("WORK-SUCCESSOR-INVALID")
+        predecessor = _row_to_record(row)
+        draft = predecessor.draft
+        return await self.enqueue(
+            WorkDraft(
+                work_id=WorkId(uuid7()),
+                work_kind=draft.work_kind,
+                owner=draft.owner,
+                idempotency_key=draft.idempotency_key,
+                payload_digest=draft.payload_digest,
+                priority=draft.priority,
+                not_before=not_before,
+                deadline_at=deadline_at,
+                max_attempts=max_attempts,
+                trace_id=draft.trace_id,
+                subject_id=draft.subject_id,
+                payload=draft.payload,
+                generation=draft.generation + 1,
+                predecessor_work_id=draft.work_id,
+            )
+        )
 
     async def _select_by_identity(self, draft: WorkDraft) -> WorkRecord | None:
         row = await (
@@ -165,16 +213,45 @@ class PostgreSQLDurableWorkWriter:
                   AND owner_ref = %s
                   AND work_kind = %s
                   AND idempotency_key = %s
+                  AND generation = %s
                 """,
                 (
                     draft.owner.kind,
                     draft.owner.reference,
                     draft.work_kind,
                     draft.idempotency_key.value,
+                    draft.generation,
                 ),
             )
         ).fetchone()
         return _row_to_record(row) if row is not None else None
+
+    async def validate_lease(self, lease: WorkLease) -> None:
+        try:
+            row = await (
+                await self._connection.execute(
+                    """SELECT 1 FROM armi.durable_work
+                       WHERE work_id=%s AND status='leased'
+                         AND current_attempt_id=%s AND lease_owner=%s
+                         AND lease_token=%s
+                         AND lease_expires_at >= statement_timestamp()
+                         AND deadline_at > statement_timestamp()
+                         AND reconciliation_required=false
+                       FOR UPDATE""",
+                    (
+                        lease.work_id.value,
+                        lease.attempt_id.value,
+                        lease.owner,
+                        lease.token,
+                    ),
+                )
+            ).fetchone()
+            if row is None:
+                raise WorkViolation("WORK-LEASE-STALE")
+        except WorkViolation:
+            raise
+        except psycopg.Error:
+            raise WorkViolation("WORK-DATABASE") from None
 
     async def release(
         self,
@@ -315,7 +392,7 @@ class PostgreSQLDurableWorkGateway:
     def __init__(self, factory: PostgreSQLUnitOfWorkFactory) -> None:
         self._factory = factory
 
-    async def failed_owner_refs(self, *, work_kind: str) -> tuple[UUID, ...]:
+    async def failed_owner_refs(self, *, work_kind: WorkType) -> tuple[UUID, ...]:
         try:
             async with self._factory.unit_of_work(read_only=True) as unit_of_work:
                 rows = await (
@@ -333,7 +410,7 @@ class PostgreSQLDurableWorkGateway:
     async def claim(
         self,
         *,
-        work_kind: str,
+        work_kind: WorkType,
         lease_owner: UUID,
         lease_seconds: int,
         limit: int = 1,
@@ -346,7 +423,7 @@ class PostgreSQLDurableWorkGateway:
                     if unit_of_work.runtime_fence is not None
                     else lease_owner
                 )
-                await _expire_unclaimable(connection, unit_of_work)
+                await _mark_reconciliation_required(connection, work_kind)
                 candidates = await (
                     await connection.execute(
                         """
@@ -354,6 +431,7 @@ class PostgreSQLDurableWorkGateway:
                         FROM armi.durable_work
                         WHERE status IN ('ready', 'leased')
                           AND work_kind = %s
+                          AND reconciliation_required = false
                           AND not_before <= statement_timestamp()
                           AND deadline_at > statement_timestamp()
                           AND attempt_count < max_attempts
@@ -622,18 +700,14 @@ class PostgreSQLDurableWorkGateway:
             raise _translate_transaction_error(error) from None
 
 
-async def _expire_unclaimable(
+async def _mark_reconciliation_required(
     connection: psycopg.AsyncConnection[tuple[Any, ...]],
-    unit_of_work: PostgreSQLUnitOfWork,
+    work_kind: WorkType,
 ) -> None:
-    rows = await (
-        await connection.execute(
-            f"""
+    await connection.execute(
+        """
             UPDATE armi.durable_work
-            SET status = 'failed',
-                current_attempt_id = NULL,
-                lease_owner = NULL,
-                lease_expires_at = NULL,
+            SET reconciliation_required = true,
                 last_error_code = CASE
                     WHEN deadline_at <= statement_timestamp()
                         THEN 'WORK-DEADLINE'
@@ -641,6 +715,8 @@ async def _expire_unclaimable(
                 END,
                 updated_at = clock_timestamp()
             WHERE status IN ('ready', 'leased')
+              AND work_kind = %s
+              AND reconciliation_required = false
               AND (
                   deadline_at <= statement_timestamp()
                   OR (
@@ -651,25 +727,21 @@ async def _expire_unclaimable(
                       )
                   )
               )
-            RETURNING {_WORK_COLUMNS}
-            """
-        )
-    ).fetchall()
-    for row in rows:
-        record = _row_to_record(row)
-        await unit_of_work.audit.append(
-            _record_audit(
-                unit_of_work.environment_id,
-                record,
-                "failed",
-            )
-        )
+            """,
+        (work_kind.value,),
+    )
 
 
 def _draft_parameters(draft: WorkDraft) -> tuple[object, ...]:
     return (
         draft.work_id.value,
-        draft.work_kind,
+        draft.work_kind.value,
+        draft.generation,
+        (
+            draft.predecessor_work_id.value
+            if draft.predecessor_work_id is not None
+            else None
+        ),
         draft.owner.kind,
         draft.owner.reference,
         draft.subject_id.value if draft.subject_id is not None else None,
@@ -688,6 +760,8 @@ def _draft_parameters(draft: WorkDraft) -> tuple[object, ...]:
 def _same_declaration(existing: WorkDraft, requested: WorkDraft) -> bool:
     return (
         existing.work_kind,
+        existing.generation,
+        existing.predecessor_work_id,
         existing.owner,
         existing.idempotency_key,
         existing.payload,
@@ -700,6 +774,8 @@ def _same_declaration(existing: WorkDraft, requested: WorkDraft) -> bool:
         existing.subject_id,
     ) == (
         requested.work_kind,
+        requested.generation,
+        requested.predecessor_work_id,
         requested.owner,
         requested.idempotency_key,
         requested.payload,
@@ -717,39 +793,42 @@ def _row_to_record(row: Sequence[Any]) -> WorkRecord:
     try:
         draft = WorkDraft(
             work_id=WorkId(row[0]),
-            work_kind=str(row[1]),
-            owner=WorkOwner(str(row[2]), row[3]),
-            subject_id=SubjectId(row[4]) if row[4] is not None else None,
-            idempotency_key=IdempotencyKey(str(row[5])),
+            work_kind=WorkType(str(row[1])),
+            generation=int(row[2]),
+            predecessor_work_id=WorkId(row[3]) if row[3] is not None else None,
+            owner=WorkOwner(str(row[4]), row[5]),
+            subject_id=SubjectId(row[6]) if row[6] is not None else None,
+            idempotency_key=IdempotencyKey(str(row[7])),
             payload=(
-                WorkPayloadRef(str(row[6]), row[7]) if row[6] is not None else None
+                WorkPayloadRef(str(row[8]), row[9]) if row[8] is not None else None
             ),
-            payload_digest=Digest(str(row[8])),
-            priority=int(row[9]),
-            not_before=Instant(row[10]),
-            deadline_at=Instant(row[11]),
-            max_attempts=int(row[13]),
-            trace_id=TraceId(str(row[22])),
+            payload_digest=Digest(str(row[10])),
+            priority=int(row[11]),
+            not_before=Instant(row[12]),
+            deadline_at=Instant(row[13]),
+            max_attempts=int(row[16]),
+            trace_id=TraceId(str(row[25])),
         )
         lease = (
             WorkLease(
                 WorkId(row[0]),
-                WorkAttemptId(row[15]),
-                row[16],
-                Instant(row[17]),
-                int(row[18]),
+                WorkAttemptId(row[18]),
+                row[19],
+                Instant(row[20]),
+                int(row[21]),
             )
-            if row[12] == WorkStatus.LEASED.value
+            if row[14] == WorkStatus.LEASED.value
             else None
         )
-        result = WorkResultRef(str(row[19]), row[20]) if row[19] is not None else None
+        result = WorkResultRef(str(row[22]), row[23]) if row[22] is not None else None
         return WorkRecord(
             draft,
-            WorkStatus(str(row[12])),
-            int(row[14]),
+            WorkStatus(str(row[14])),
+            int(row[17]),
             lease,
             result,
-            str(row[21]) if row[21] is not None else None,
+            str(row[24]) if row[24] is not None else None,
+            bool(row[15]),
         )
     except TypeError, ValueError:
         raise WorkViolation("WORK-DATABASE") from None

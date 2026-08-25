@@ -21,6 +21,7 @@ from armi_kernel.application import (
     WorkId,
     WorkOwner,
     WorkPayloadRef,
+    WorkType,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, TraceId
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
@@ -404,7 +405,7 @@ class PostgreSQLArtifactCatalog:
         await unit_of_work.work.enqueue(
             WorkDraft(
                 work_id=WorkId(deletion_id),
-                work_kind="artifact.object.delete",
+                work_kind=WorkType.ARTIFACT_OBJECT_DELETE,
                 owner=WorkOwner("artifact_object_deletion", deletion_id),
                 idempotency_key=IdempotencyKey(f"artifact-delete:{deletion_id.hex}"),
                 payload_digest=payload_digest,

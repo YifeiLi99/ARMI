@@ -539,6 +539,12 @@ ALTER TABLE ONLY armi.cognitive_episodes
 ALTER TABLE ONLY armi.context_embedding_attempts
     ADD CONSTRAINT context_embedding_attempts_pkey PRIMARY KEY (context_embedding_attempt_id);
 
+ALTER TABLE ONLY armi.context_embedding_failures
+    ADD CONSTRAINT context_embedding_failures_pkey PRIMARY KEY (context_embedding_failure_id);
+
+ALTER TABLE ONLY armi.context_embedding_failures
+    ADD CONSTRAINT context_embedding_failures_work_key UNIQUE (work_id);
+
 --
 -- Name: context_embedding_attempts context_embedding_attempts_source_kind_source_ref_source_ve_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
@@ -679,7 +685,7 @@ ALTER TABLE ONLY armi.dialogue_decisions
 --
 
 ALTER TABLE ONLY armi.durable_work
-    ADD CONSTRAINT durable_work_owner_kind_owner_ref_work_kind_idempotency_key_key UNIQUE (owner_kind, owner_ref, work_kind, idempotency_key);
+    ADD CONSTRAINT durable_work_owner_kind_owner_ref_work_kind_idempotency_key_generation_key UNIQUE (owner_kind, owner_ref, work_kind, idempotency_key, generation);
 
 --
 -- Name: durable_work durable_work_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -687,6 +693,24 @@ ALTER TABLE ONLY armi.durable_work
 
 ALTER TABLE ONLY armi.durable_work
     ADD CONSTRAINT durable_work_pkey PRIMARY KEY (work_id);
+
+ALTER TABLE ONLY armi.response_admissions
+    ADD CONSTRAINT response_admissions_pkey PRIMARY KEY (response_admission_id);
+
+ALTER TABLE ONLY armi.response_admissions
+    ADD CONSTRAINT response_admissions_action_key UNIQUE (action_intent_id);
+
+ALTER TABLE ONLY armi.response_admissions
+    ADD CONSTRAINT response_admissions_work_key UNIQUE (work_id);
+
+ALTER TABLE ONLY armi.effect_registrations
+    ADD CONSTRAINT effect_registrations_pkey PRIMARY KEY (effect_registration_id);
+
+ALTER TABLE ONLY armi.effect_registrations
+    ADD CONSTRAINT effect_registrations_action_key UNIQUE (action_intent_id);
+
+ALTER TABLE ONLY armi.effect_registrations
+    ADD CONSTRAINT effect_registrations_work_key UNIQUE (work_id);
 
 --
 -- Name: effect_attempts effect_attempts_attempt_owner_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -1930,6 +1954,9 @@ CREATE INDEX durable_work_claim_idx ON armi.durable_work USING btree (status, no
 
 CREATE INDEX durable_work_expired_lease_idx ON armi.durable_work USING btree (lease_expires_at, work_id) WHERE (status = 'leased'::text);
 
+ALTER TABLE ONLY armi.durable_work
+    ADD CONSTRAINT durable_work_predecessor_fk FOREIGN KEY (predecessor_work_id) REFERENCES armi.durable_work(work_id) ON DELETE RESTRICT;
+
 --
 -- Name: effect_outbox_items_claim_expiry_idx; Type: INDEX; Schema: armi; Owner: -
 --
@@ -2904,6 +2931,15 @@ ALTER TABLE ONLY armi.context_embedding_attempts
 ALTER TABLE ONLY armi.context_embedding_attempts
     ADD CONSTRAINT context_embedding_attempts_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
+ALTER TABLE ONLY armi.context_embedding_failures
+    ADD CONSTRAINT context_embedding_failures_work_fk FOREIGN KEY (work_id) REFERENCES armi.durable_work(work_id) ON DELETE RESTRICT;
+
+ALTER TABLE ONLY armi.context_embedding_failures
+    ADD CONSTRAINT context_embedding_failures_subject_fk FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id) ON DELETE RESTRICT;
+
+ALTER TABLE ONLY armi.context_embedding_failures
+    ADD CONSTRAINT context_embedding_failures_generation_fk FOREIGN KEY (life_generation_id) REFERENCES armi.life_generations(life_generation_id) ON DELETE RESTRICT;
+
 --
 -- Name: context_embedding_projections context_embedding_projections_context_embedding_attempt_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
@@ -3035,6 +3071,27 @@ ALTER TABLE ONLY armi.dialogue_decisions
 
 ALTER TABLE ONLY armi.durable_work
     ADD CONSTRAINT durable_work_subject_fk FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id) ON DELETE RESTRICT;
+
+ALTER TABLE ONLY armi.response_admissions
+    ADD CONSTRAINT response_admissions_action_fk FOREIGN KEY (action_intent_id) REFERENCES armi.action_intents(action_intent_id) ON DELETE RESTRICT;
+
+ALTER TABLE ONLY armi.response_admissions
+    ADD CONSTRAINT response_admissions_work_fk FOREIGN KEY (work_id) REFERENCES armi.durable_work(work_id) ON DELETE RESTRICT;
+
+ALTER TABLE ONLY armi.response_admissions
+    ADD CONSTRAINT response_admissions_grant_fk FOREIGN KEY (permission_grant_id) REFERENCES armi.permission_grants(grant_id) ON DELETE RESTRICT;
+
+ALTER TABLE ONLY armi.effect_registrations
+    ADD CONSTRAINT effect_registrations_action_fk FOREIGN KEY (action_intent_id) REFERENCES armi.action_intents(action_intent_id) ON DELETE RESTRICT;
+
+ALTER TABLE ONLY armi.effect_registrations
+    ADD CONSTRAINT effect_registrations_work_fk FOREIGN KEY (work_id) REFERENCES armi.durable_work(work_id) ON DELETE RESTRICT;
+
+ALTER TABLE ONLY armi.effect_registrations
+    ADD CONSTRAINT effect_registrations_response_fk FOREIGN KEY (response_admission_id) REFERENCES armi.response_admissions(response_admission_id) ON DELETE RESTRICT;
+
+ALTER TABLE ONLY armi.effect_registrations
+    ADD CONSTRAINT effect_registrations_effect_fk FOREIGN KEY (effect_id) REFERENCES armi.effects(effect_id) ON DELETE RESTRICT;
 
 --
 -- Name: effect_attempts effect_attempts_effect_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -

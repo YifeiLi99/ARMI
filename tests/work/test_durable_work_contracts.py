@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4, uuid7
 
 from armi_kernel.application import (
+    RESPONSIBILITY_BINDINGS,
     WorkAttemptId,
     WorkDraft,
     WorkId,
@@ -14,6 +15,7 @@ from armi_kernel.application import (
     WorkRecord,
     WorkResultRef,
     WorkStatus,
+    WorkType,
     WorkViolation,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, TraceId
@@ -26,8 +28,8 @@ def _instant(offset: int) -> Instant:
 def _draft(**changes: object) -> WorkDraft:
     values: dict[str, object] = {
         "work_id": WorkId(uuid7()),
-        "work_kind": "work.conformance",
-        "owner": WorkOwner("environment", uuid7()),
+        "work_kind": WorkType.COGNITION_CONTEXT_PREPARE,
+        "owner": WorkOwner("cognitive_episode", uuid7()),
         "idempotency_key": IdempotencyKey("s014-conformance"),
         "payload": WorkPayloadRef("artifact", uuid7()),
         "payload_digest": Digest.from_bytes(b"work"),
@@ -92,6 +94,26 @@ class DurableWorkContractTests(unittest.TestCase):
         with self.assertRaises(WorkViolation) as missing_result:
             WorkRecord(draft, WorkStatus.COMPLETED, 1)
         self.assertEqual(missing_result.exception.code, "WORK-STATE")
+
+    def test_responsibility_registry_is_closed_and_generation_is_fenced(self) -> None:
+        self.assertEqual(len(RESPONSIBILITY_BINDINGS), 14)
+        self.assertEqual(
+            len(
+                {
+                    (binding.owner_kind, binding.work_type)
+                    for binding in RESPONSIBILITY_BINDINGS
+                }
+            ),
+            14,
+        )
+        with self.assertRaises(WorkViolation) as unknown:
+            _draft(owner=WorkOwner("environment", uuid7()))
+        self.assertEqual(unknown.exception.code, "WORK-RESPONSIBILITY-UNKNOWN")
+        with self.assertRaises(WorkViolation):
+            _draft(generation=2)
+        predecessor = WorkId(uuid7())
+        successor = _draft(generation=2, predecessor_work_id=predecessor)
+        self.assertEqual(successor.predecessor_work_id, predecessor)
 
     def test_violation_is_redacted(self) -> None:
         error = WorkViolation("WORK-IDEMPOTENCY-CONFLICT")

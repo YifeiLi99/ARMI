@@ -10,6 +10,7 @@ from .admin_transactions import (
 )
 from .recovery import (
     EmptyRecoveryParticipant,
+    OwnerReconciliationContext,
     RecoveryAuditContribution,
     RecoveryContribution,
     RecoveryDependentParticipant,
@@ -19,8 +20,6 @@ from .recovery import (
     RecoveryOwnerIdentity,
     RecoveryParticipant,
     RecoveryScope,
-    RecoveryWorkCommand,
-    RecoveryWorkCommandKind,
     RecoveryWorkSnapshot,
 )
 from .transactions import (
@@ -39,6 +38,7 @@ from .transactions import (
 
 __all__ = (
     "EmptyRecoveryParticipant",
+    "OwnerReconciliationContext",
     "PostgreSQLAdminParameter",
     "PostgreSQLAdminResult",
     "PostgreSQLAdminScalar",
@@ -63,8 +63,6 @@ __all__ = (
     "RecoveryOwnerIdentity",
     "RecoveryParticipant",
     "RecoveryScope",
-    "RecoveryWorkCommand",
-    "RecoveryWorkCommandKind",
     "RecoveryWorkSnapshot",
     "RuntimeTransactionFailure",
     "StopSignal",
