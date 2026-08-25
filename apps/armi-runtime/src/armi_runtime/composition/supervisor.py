@@ -47,7 +47,6 @@ class RuntimeSupervisor:
         return task
 
     def _task_done(self, task: asyncio.Task[None]) -> None:
-        self._tasks.discard(task)
         if task.cancelled():
             return
         error = task.exception()
@@ -58,13 +57,23 @@ class RuntimeSupervisor:
         """Stop admission, finish owned work, release authority, then heartbeat."""
 
         authority = self._authority
+        clean = True
         try:
             if self._tasks:
                 async with asyncio.timeout(deadline_seconds):
-                    await asyncio.gather(*tuple(self._tasks))
+                    results = await asyncio.gather(
+                        *tuple(self._tasks), return_exceptions=True
+                    )
+                    clean = not any(
+                        isinstance(result, BaseException) for result in results
+                    )
         except TimeoutError:
-            await self._cancel_all()
-            return False
+            clean = False
+            for task in tuple(self._tasks):
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tuple(self._tasks), return_exceptions=True)
+        self._tasks.clear()
         if authority is not None and authority.snapshot().state in {
             LocalAuthorityState.ACTIVE,
             LocalAuthorityState.SUSPENDED,
@@ -76,10 +85,9 @@ class RuntimeSupervisor:
             try:
                 await authority.release()
             except RuntimeAuthorityViolation:
-                await self._cancel_all()
-                return False
+                clean = False
         await self._cancel_heartbeat()
-        return True
+        return clean
 
     async def abort(self) -> None:
         """Cancel owned tasks without pretending authority was released."""

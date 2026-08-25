@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import logging
 import os
 import selectors
 import signal
 import threading
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID, uuid7
@@ -49,7 +50,10 @@ from armi_data_rights.api import (
     DataRightsViolation,
 )
 from armi_effect.api import EffectViolation
-from armi_effect.bootstrap import bootstrap_effect_operation_read
+from armi_effect.bootstrap import (
+    bootstrap_effect_operation_read,
+    bootstrap_effect_responsibility,
+)
 from armi_experience.bootstrap import bootstrap_experience_owner
 from armi_expression.api import ResponseViolation
 from armi_interaction.api import (
@@ -637,6 +641,7 @@ async def _serve(
                 catalog=artifact_catalog,
                 timeline_projections=timeline_projections,
                 voice_responses=voice_context_read,
+                sleep_maintenance=sleep_module.maintenance,
                 wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
                     event,
@@ -730,7 +735,10 @@ async def _serve(
                 unit_of_work_factory=runtime_unit_of_work_factory,
                 cursor_key=derive_timeline_cursor_key(prepared),
                 effect_cancellation=effect_grant_cancellation,
-                codex_activation=RuntimeCodexGrantActivation(expression_module.intents),
+                codex_activation=RuntimeCodexGrantActivation(
+                    expression_module.intents,
+                    bootstrap_effect_responsibility(),
+                ),
                 notifier=creator_events,
             )
             await capability_policy.open()
@@ -1283,7 +1291,7 @@ async def _serve(
     )
     drain_timed_out = False
 
-    async def started() -> None:
+    async def _start_resources() -> None:
         if diagnostic.status.reason_code is not None:
             lifecycle.add_degradation(diagnostic.status.reason_code)
         if continuity is ContinuityState.UNBORN:
@@ -1438,119 +1446,230 @@ async def _serve(
         if admin_control is not None:
             await admin_control.start()
 
+    async def started() -> None:
+        try:
+            await _start_resources()
+        except BaseException:
+            # Every successfully acquired task/resource is already present in the
+            # composition ledger consumed by stopping(); startup failure must run
+            # the same exhaustive fail-stop path as a background task failure.
+            await stopping()
+            raise
+
     async def stopping() -> None:
         nonlocal drain_timed_out
-        if admin_control is not None:
-            await admin_control.close()
-        if qq_server is not None:
-            qq_server.should_exit = True
-        if observation_driver is not None:
-            observation_driver.stop()
-        lifecycle.drain()
-        diagnostic.emit("runtime.lifecycle.draining", result_code="LIFE_DRAINING")
-        if creator_events is not None:
-            await creator_events.close_active()
-        if browser_sessions is not None:
+        failures: list[tuple[str, BaseException]] = []
+
+        async def shutdown_step(name: str, operation: Callable[[], object]) -> None:
+            try:
+                result = operation()
+                if inspect.isawaitable(result):
+                    await result
+            except BaseException as error:
+                failures.append((name, error))
+                diagnostic.emit(
+                    f"runtime.shutdown.{name}.failed",
+                    level=logging.ERROR,
+                    result_code="RUNTIME_SHUTDOWN_STEP_FAILED",
+                    reason_codes=("RUNTIME_SHUTDOWN_INCOMPLETE",),
+                )
+
+        def revoke_browser_sessions() -> None:
+            assert browser_sessions is not None
             browser_sessions.revoke_all()
             diagnostic.emit(
                 "creator.session.revoked_all",
                 result_code="CREATOR_SESSION_REVOKED",
             )
+
+        # Phase 1: close every new intake and claim boundary while authority is ACTIVE.
+        if admin_control is not None:
+            await shutdown_step("admin_control", admin_control.close)
+        if qq_server is not None:
+            await shutdown_step(
+                "qq_intake", lambda: setattr(qq_server, "should_exit", True)
+            )
+        if creator_events is not None:
+            await shutdown_step("creator_events", creator_events.close_active)
+        if browser_sessions is not None:
+            await shutdown_step("browser_sessions", revoke_browser_sessions)
         if live_voice_service is not None:
-            await live_voice_service.stop()
-        if interaction_module is not None:
-            await interaction_module.close()
-        if activity_module is not None:
-            await activity_module.close()
-        if other_human_record_query is not None:
-            await other_human_record_query.close()
-        if sleep_module is not None:
-            await sleep_module.close()
-        if relationship_module is not None:
-            await relationship_module.close()
-        if memory_module is not None:
-            await memory_module.close()
-        if material_module is not None:
-            await material_module.close()
-        if subject_state_module is not None:
-            await subject_state_module.close()
-        if mood_module is not None:
-            await mood_module.close()
-        if prompt_module is not None:
-            await prompt_module.close()
-        if data_rights_module is not None:
-            await data_rights_module.close()
-        if perception_module is not None:
-            perception_module.stop()
-        if live_vision_service is not None:
-            await live_vision_service.stop()
-        if context_pipeline is not None:
-            context_pipeline.stop()
-        if context_embedding_pipeline is not None:
-            context_embedding_pipeline.stop()
-        if life_opportunity_pipeline is not None:
-            life_opportunity_pipeline.stop()
-        if exact_life_query_pipeline is not None:
-            exact_life_query_pipeline.stop()
-        if model_pipeline is not None:
-            model_pipeline.stop()
-        if web_search_pipeline is not None:
-            web_search_pipeline.stop()
-        if web_research_pipeline is not None:
-            web_research_pipeline.stop()
-        if candidate_pipeline is not None:
-            candidate_pipeline.stop()
-        if subject_commit_pipeline is not None:
-            subject_commit_pipeline.stop()
-        if response_pipeline is not None:
-            response_pipeline.stop()
-        if effect_pipeline is not None:
-            effect_pipeline.stop()
-        if codex_pipeline is not None:
-            codex_pipeline.stop()
-        if capability_policy is not None:
-            capability_policy.stop()
-        if artifact_lifecycle is not None:
-            artifact_lifecycle.stop()
-        if data_rights_module is not None:
-            data_rights_module.stop()
-        if live_vision_retention is not None:
-            live_vision_retention.stop()
-        released = await supervisor.drain(
-            deadline_seconds=config.lifecycle.graceful_shutdown_seconds,
+            await shutdown_step("live_voice_intake", live_voice_service.stop)
+        if observation_driver is not None:
+            await shutdown_step("observation_claim", observation_driver.stop)
+        await shutdown_step("lifecycle_drain", lifecycle.drain)
+        diagnostic.emit("runtime.lifecycle.draining", result_code="LIFE_DRAINING")
+
+        # Phase 2: signal every worker, then let the supervisor drain/cancel them.
+        stop_operations = (
+            (
+                "perception",
+                None if perception_module is None else perception_module.stop,
+            ),
+            (
+                "live_vision",
+                None if live_vision_service is None else live_vision_service.stop,
+            ),
+            ("context", None if context_pipeline is None else context_pipeline.stop),
+            (
+                "context_embedding",
+                None
+                if context_embedding_pipeline is None
+                else context_embedding_pipeline.stop,
+            ),
+            (
+                "life_opportunity",
+                None
+                if life_opportunity_pipeline is None
+                else life_opportunity_pipeline.stop,
+            ),
+            (
+                "exact_life_query",
+                None
+                if exact_life_query_pipeline is None
+                else exact_life_query_pipeline.stop,
+            ),
+            ("model", None if model_pipeline is None else model_pipeline.stop),
+            (
+                "web_search",
+                None if web_search_pipeline is None else web_search_pipeline.stop,
+            ),
+            (
+                "web_research",
+                None if web_research_pipeline is None else web_research_pipeline.stop,
+            ),
+            (
+                "candidate",
+                None if candidate_pipeline is None else candidate_pipeline.stop,
+            ),
+            (
+                "subject_commit",
+                None
+                if subject_commit_pipeline is None
+                else subject_commit_pipeline.stop,
+            ),
+            ("response", None if response_pipeline is None else response_pipeline.stop),
+            ("effect", None if effect_pipeline is None else effect_pipeline.stop),
+            ("codex", None if codex_pipeline is None else codex_pipeline.stop),
+            (
+                "capability",
+                None if capability_policy is None else capability_policy.stop,
+            ),
+            (
+                "artifact",
+                None if artifact_lifecycle is None else artifact_lifecycle.stop,
+            ),
+            (
+                "data_rights",
+                None if data_rights_module is None else data_rights_module.stop,
+            ),
+            (
+                "vision_retention",
+                None if live_vision_retention is None else live_vision_retention.stop,
+            ),
         )
-        if context_pipeline is not None:
-            await context_pipeline.close()
-        if context_embedding_pipeline is not None:
-            await context_embedding_pipeline.close()
-        if life_opportunity_pipeline is not None:
-            await life_opportunity_pipeline.close()
-        if exact_life_query_pipeline is not None:
-            await exact_life_query_pipeline.close()
-        if perception_module is not None:
-            await perception_module.close()
-        if life_record_query is not None:
-            await life_record_query.close()
-        if model_pipeline is not None:
-            await model_pipeline.close()
-        if web_research_pipeline is not None:
-            await web_research_pipeline.close()
-        if web_search_pipeline is not None:
-            await web_search_pipeline.close()
-        if candidate_pipeline is not None:
-            await candidate_pipeline.close()
-        if subject_commit_pipeline is not None:
-            await subject_commit_pipeline.close()
-        if response_pipeline is not None:
-            await response_pipeline.close()
-        if effect_pipeline is not None:
-            await effect_pipeline.close()
-        if qq_channel is not None:
-            await qq_channel.close()
-        if codex_pipeline is not None:
-            await codex_pipeline.close()
-        if capability_policy is not None:
-            await capability_policy.close()
+        for name, operation in stop_operations:
+            if operation is not None:
+                await shutdown_step(f"{name}_stop", operation)
+        released = False
+        try:
+            released = await supervisor.drain(
+                deadline_seconds=config.lifecycle.graceful_shutdown_seconds,
+            )
+        except BaseException as error:
+            failures.append(("supervisor_drain", error))
+
+        # Phase 3: independently close all resources; one failure never skips another.
+        close_operations = (
+            (
+                "interaction",
+                None if interaction_module is None else interaction_module.close,
+            ),
+            ("activity", None if activity_module is None else activity_module.close),
+            (
+                "other_human_records",
+                None
+                if other_human_record_query is None
+                else other_human_record_query.close,
+            ),
+            ("sleep", None if sleep_module is None else sleep_module.close),
+            (
+                "relationship",
+                None if relationship_module is None else relationship_module.close,
+            ),
+            ("memory", None if memory_module is None else memory_module.close),
+            ("material", None if material_module is None else material_module.close),
+            (
+                "subject_state",
+                None if subject_state_module is None else subject_state_module.close,
+            ),
+            ("mood", None if mood_module is None else mood_module.close),
+            ("prompt", None if prompt_module is None else prompt_module.close),
+            (
+                "data_rights",
+                None if data_rights_module is None else data_rights_module.close,
+            ),
+            ("context", None if context_pipeline is None else context_pipeline.close),
+            (
+                "context_embedding",
+                None
+                if context_embedding_pipeline is None
+                else context_embedding_pipeline.close,
+            ),
+            (
+                "life_opportunity",
+                None
+                if life_opportunity_pipeline is None
+                else life_opportunity_pipeline.close,
+            ),
+            (
+                "exact_life_query",
+                None
+                if exact_life_query_pipeline is None
+                else exact_life_query_pipeline.close,
+            ),
+            (
+                "perception",
+                None if perception_module is None else perception_module.close,
+            ),
+            (
+                "life_record_query",
+                None if life_record_query is None else life_record_query.close,
+            ),
+            ("model", None if model_pipeline is None else model_pipeline.close),
+            (
+                "web_research",
+                None if web_research_pipeline is None else web_research_pipeline.close,
+            ),
+            (
+                "web_search",
+                None if web_search_pipeline is None else web_search_pipeline.close,
+            ),
+            (
+                "candidate",
+                None if candidate_pipeline is None else candidate_pipeline.close,
+            ),
+            (
+                "subject_commit",
+                None
+                if subject_commit_pipeline is None
+                else subject_commit_pipeline.close,
+            ),
+            (
+                "response",
+                None if response_pipeline is None else response_pipeline.close,
+            ),
+            ("effect", None if effect_pipeline is None else effect_pipeline.close),
+            ("qq_channel", None if qq_channel is None else qq_channel.close),
+            ("codex", None if codex_pipeline is None else codex_pipeline.close),
+            (
+                "capability",
+                None if capability_policy is None else capability_policy.close,
+            ),
+        )
+        for name, operation in close_operations:
+            if operation is not None:
+                await shutdown_step(f"{name}_close", operation)
         if authority is not None:
             diagnostic.emit(
                 (
@@ -1561,8 +1680,8 @@ async def _serve(
                 level=logging.INFO if released else logging.WARNING,
                 result_code=("AUTH_RELEASED" if released else "AUTH_RELEASE_DEFERRED"),
             )
-        drain_timed_out = not released
-        lifecycle.stop()
+        drain_timed_out = not released or bool(failures)
+        await shutdown_step("lifecycle_stop", lifecycle.stop)
         diagnostic.emit("runtime.lifecycle.stopped", result_code="LIFE_STOPPED")
         diagnostic.close()
 
@@ -1842,8 +1961,6 @@ async def _serve(
 
     def admin_drain() -> None:
         lifecycle.drain()
-        if authority is not None:
-            authority.begin_drain()
         for pipeline in (
             life_opportunity_pipeline,
             exact_life_query_pipeline,

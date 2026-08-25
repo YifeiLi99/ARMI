@@ -114,6 +114,7 @@ from armi_kernel.application import (
     WorkOwner,
     WorkPayloadRef,
     WorkResultRef,
+    WorkType,
     WorkViolation,
 )
 from armi_kernel.contracts import (
@@ -206,6 +207,7 @@ from armi_runtime.composition.postgresql_test import (
     bootstrap_effect_codex_lifecycle,
     bootstrap_effect_grant_cancellation,
     bootstrap_effect_operation_read,
+    bootstrap_effect_responsibility,
     bootstrap_evidence,
     bootstrap_experience_owner,
     bootstrap_expression,
@@ -646,7 +648,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             environment_id=fixture.environment_id,
         )
         self.assertEqual(installed.status, "current")
-        self.assertEqual(installed.table_count, 102)
+        self.assertEqual(installed.table_count, 105)
         self.assertEqual(installed.current_revision, "0000")
         self.assertEqual(installed.head_revision, "0000")
         status = PostgreSQLSchemaGateway().status(
@@ -3496,7 +3498,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "owner_ref, idempotency_key, payload_digest, priority, not_before, "
                     "deadline_at, status, max_attempts, attempt_count, current_attempt_id, "
                     "lease_owner, lease_expires_at, lease_token, trace_id) VALUES (%s, "
-                    "'s037.requeue', 'runtime', %s, 's037-requeue', %s, 0, "
+                    "'artifact.object.delete', 'artifact_object_deletion', %s, "
+                    "'s037-requeue', %s, 0, "
                     "statement_timestamp(), statement_timestamp() + interval '1 hour', "
                     "'leased', 3, 1, %s, %s, statement_timestamp() - interval '1 second', "
                     "1, %s)",
@@ -6588,7 +6591,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 try:
                     response_work = PostgreSQLDurableWorkGateway(response_factory)
                     claimed = await response_work.claim(
-                        work_kind="cognition.response.admit",
+                        work_kind=WorkType.COGNITION_RESPONSE_ADMIT,
                         lease_owner=ids["runtime"],
                         lease_seconds=30,
                         limit=1,
@@ -6602,6 +6605,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         capability=policy.admission,
                         data_rights=bootstrap_data_rights_core().effect_gate,
                         expression=response_actions.admission,
+                        registrations=bootstrap_effect_responsibility(),
                     )
                     async with response_factory.unit_of_work() as unit_of_work:
                         response_snapshot = await response_repository.snapshot(
@@ -6618,7 +6622,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         response_result.status, ResponseAdmissionStatus.ACCEPTED
                     )
                     effect_claimed = await response_work.claim(
-                        work_kind="effect.register",
+                        work_kind=WorkType.EFFECT_REGISTER,
                         lease_owner=ids["runtime"],
                         lease_seconds=30,
                         limit=1,
@@ -7311,7 +7315,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             lease_expires_at, lease_token, trace_id
                         )
                         VALUES (
-                            %s, 'recovery_probe', 'runtime', %s,
+                            %s, 'artifact.object.delete',
+                            'artifact_object_deletion', %s,
                             's017-recovery-work',
                             'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
                             'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
@@ -7394,7 +7399,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 next(
                     metric.value
                     for metric in summary.metrics
-                    if metric.kind == "runtime.requeued_work_count"
+                    if metric.kind == "runtime.reconciliation_required_count"
                 ),
                 operations,
             )
@@ -7653,7 +7658,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         (
                             "operation",
                             accepted["result_ref"],
-                            "creator-operation.v2",
+                            "creator-operation.v3",
                         ),
                     )
                     self.assertEqual(operation_event_lines[3], b"\n")
@@ -7995,9 +8000,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         """
                     ).fetchall(),
                     [
+                        ("artifact.object.delete", 1),
                         ("cognition.context.prepare", 2),
                         ("cognition.model.invoke", 2),
-                        ("recovery_probe", 1),
                     ],
                 )
                 self.assertEqual(
@@ -8033,11 +8038,16 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             self.assertEqual(
                 connection.execute(
                     """
-                    SELECT status, lease_token, current_attempt_id, lease_owner
+                    SELECT status, lease_token,
+                           current_attempt_id IS NOT NULL,
+                           lease_owner IS NOT NULL,
+                           reconciliation_required,
+                           last_error_code
                     FROM armi.durable_work
+                    WHERE work_kind = 'artifact.object.delete'
                     """
                 ).fetchone(),
-                ("ready", 7, None, None),
+                ("leased", 7, True, True, True, "WORK-RUNTIME-HANDOFF"),
             )
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                 connection.execute("DELETE FROM armi.runtime_recovery_runs")
@@ -8545,8 +8555,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             now = datetime.now(UTC)
             draft = WorkDraft(
                 work_id=WorkId(_uuid7()),
-                work_kind="work.conformance",
-                owner=WorkOwner("environment", fixture.environment_id),
+                work_kind=WorkType.ARTIFACT_OBJECT_DELETE,
+                owner=WorkOwner("artifact_object_deletion", fixture.environment_id),
                 idempotency_key=IdempotencyKey("s014-stable-work"),
                 payload=WorkPayloadRef("artifact", _uuid7()),
                 payload_digest=Digest.from_bytes(b"s014-work"),
@@ -8653,8 +8663,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
                 unavailable = WorkDraft(
                     work_id=WorkId(_uuid7()),
-                    work_kind="work.unavailable",
-                    owner=WorkOwner("environment", fixture.environment_id),
+                    work_kind=WorkType.ARTIFACT_OBJECT_DELETE,
+                    owner=WorkOwner("artifact_object_deletion", _uuid7()),
                     idempotency_key=IdempotencyKey("s014-unavailable-work"),
                     payload_digest=Digest.from_bytes(b"unavailable"),
                     priority=0,
@@ -8737,7 +8747,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     ).fetchone()
                     failures = connection.execute(
                         """
-                        SELECT work_id, status, last_error_code
+                        SELECT work_id, status, last_error_code,
+                               reconciliation_required
                         FROM armi.durable_work
                         WHERE work_id = ANY(%s)
                         ORDER BY last_error_code
@@ -8755,7 +8766,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "work_audit_count": counts[1],
                     "attempt_count": reclaimed.attempt_count,
                     "lease_token": second_lease.token,
-                    "failures": tuple((str(row[1]), str(row[2])) for row in failures),
+                    "failures": tuple(
+                        (str(row[1]), str(row[2]), bool(row[3])) for row in failures
+                    ),
                 }
             finally:
                 await factory.close()
@@ -8772,8 +8785,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "attempt_count": 3,
                 "lease_token": 3,
                 "failures": (
-                    ("failed", "WORK-ATTEMPTS-EXHAUSTED"),
-                    ("failed", "WORK-DEADLINE"),
+                    ("leased", "WORK-ATTEMPTS-EXHAUSTED", True),
+                    ("ready", "WORK-DEADLINE", True),
                 ),
             },
         )

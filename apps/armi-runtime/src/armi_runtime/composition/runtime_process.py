@@ -146,9 +146,10 @@ def _pid_is_alive(pid: int) -> bool:
 def _terminate_started_process(process: subprocess.Popen[Any]) -> None:
     """Stop the exact child created by a start attempt before discarding its state."""
 
-    if process.poll() is not None:
-        return
     try:
+        if process.poll() is not None:
+            process.wait(timeout=_START_CLEANUP_TIMEOUT_SECONDS)
+            return
         process.terminate()
         process.wait(timeout=_START_CLEANUP_TIMEOUT_SECONDS)
         return
@@ -158,16 +159,16 @@ def _terminate_started_process(process: subprocess.Popen[Any]) -> None:
         if process.poll() is not None:
             return
         raise RuntimeViolation(
-            "CLI-RUNTIME-START-CLEANUP",
-            "timed-out runtime process could not be terminated",
+            "CLI-RUNTIME-START-OUTCOME-UNKNOWN",
+            "the exact runtime child could not be confirmed stopped",
         ) from exc
     try:
         process.kill()
         process.wait(timeout=_START_CLEANUP_TIMEOUT_SECONDS)
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise RuntimeViolation(
-            "CLI-RUNTIME-START-CLEANUP",
-            "timed-out runtime process could not be terminated",
+            "CLI-RUNTIME-START-OUTCOME-UNKNOWN",
+            "the exact runtime child could not be confirmed stopped",
         ) from exc
 
 
@@ -329,35 +330,46 @@ class RuntimeProcessManager:
                     "CLI-RUNTIME-START-FAILED",
                     "runtime process could not be started",
                 ) from exc
-            self._atomic_json(
-                self._state_path,
-                {
-                    "schema_version": _PROCESS_SCHEMA,
-                    "environment_id": self._environment_id,
-                    "incarnation": self._incarnation,
-                    "pid": process.pid,
-                    "started_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-                },
-            )
-            deadline = time.monotonic() + _START_TIMEOUT_SECONDS
-            while time.monotonic() < deadline:
-                if self._descriptor_path().is_file():
-                    observed = self.status()
-                    if observed["status"] == "running":
-                        return {**observed, "status": "started"}
-                if process.poll() is not None:
-                    self._clear_stale_files()
+            try:
+                self._atomic_json(
+                    self._state_path,
+                    {
+                        "schema_version": _PROCESS_SCHEMA,
+                        "environment_id": self._environment_id,
+                        "incarnation": self._incarnation,
+                        "pid": process.pid,
+                        "started_at": datetime.now(UTC)
+                        .isoformat()
+                        .replace("+00:00", "Z"),
+                    },
+                )
+                deadline = time.monotonic() + _START_TIMEOUT_SECONDS
+                while time.monotonic() < deadline:
+                    if self._descriptor_path().is_file():
+                        observed = self.status()
+                        if observed["status"] == "running":
+                            return {**observed, "status": "started"}
+                    if process.poll() is not None:
+                        raise RuntimeViolation(
+                            "CLI-RUNTIME-START-FAILED",
+                            "runtime exited before becoming controllable",
+                        )
+                    time.sleep(0.05)
+                raise RuntimeViolation(
+                    "CLI-RUNTIME-START-TIMEOUT",
+                    "runtime did not become controllable before the startup deadline",
+                )
+            except BaseException as start_error:
+                try:
+                    _terminate_started_process(process)
+                except RuntimeViolation as cleanup_error:
                     raise RuntimeViolation(
-                        "CLI-RUNTIME-START-FAILED",
-                        "runtime exited before becoming controllable",
-                    )
-                time.sleep(0.05)
-            _terminate_started_process(process)
-            self._clear_stale_files()
-            raise RuntimeViolation(
-                "CLI-RUNTIME-START-TIMEOUT",
-                "runtime did not become controllable before the startup deadline",
-            )
+                        "CLI-RUNTIME-START-OUTCOME-UNKNOWN",
+                        "runtime start failed and the exact child outcome is unknown "
+                        f"(pid={process.pid}, incarnation={self._incarnation})",
+                    ) from cleanup_error
+                self._clear_stale_files()
+                raise start_error
 
     def restart(
         self,
