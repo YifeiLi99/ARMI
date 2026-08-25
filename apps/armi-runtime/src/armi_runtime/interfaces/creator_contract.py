@@ -628,7 +628,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
         "creator-relationship.v2",
         "scene-timeline.v6",
         "capability-request.v4",
-        "creator-operation.v2",
+        "creator-operation.v3",
         "other-human-record.v1",
         "creator-effect.v3",
         "subject-summary.v1",
@@ -865,7 +865,7 @@ class CreatorCodexExecutionDetails(_StrictWireModel):
 
 
 class CreatorOperationDetails(_StrictWireModel):
-    projection_version: Literal["creator-operation.v2"]
+    projection_version: Literal["creator-operation.v3"]
     operation_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     operation_kind: Literal[
         "cognition",
@@ -879,6 +879,10 @@ class CreatorOperationDetails(_StrictWireModel):
     dialogue_decision_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
     policy_decision_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
     effect_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
+    response_admission_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
+    effect_registration_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = (
+        None
+    )
     work_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
     stage: Literal[
         "accepted",

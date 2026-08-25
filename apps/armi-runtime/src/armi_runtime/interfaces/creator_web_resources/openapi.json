@@ -1928,6 +1928,18 @@
             ],
             "title": "Effect Ref"
           },
+          "effect_registration_ref": {
+            "anyOf": [
+              {
+                "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effect Registration Ref"
+          },
           "intent_ref": {
             "anyOf": [
               {
@@ -1987,7 +1999,7 @@
             "title": "Policy Decision Ref"
           },
           "projection_version": {
-            "const": "creator-operation.v2",
+            "const": "creator-operation.v3",
             "title": "Projection Version",
             "type": "string"
           },
@@ -2003,6 +2015,18 @@
               }
             ],
             "title": "Reason Code"
+          },
+          "response_admission_ref": {
+            "anyOf": [
+              {
+                "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response Admission Ref"
           },
           "stage": {
             "enum": [
@@ -2104,7 +2128,7 @@
               "creator-relationship.v2",
               "scene-timeline.v6",
               "capability-request.v4",
-              "creator-operation.v2",
+              "creator-operation.v3",
               "other-human-record.v1",
               "creator-effect.v3",
               "subject-summary.v1",

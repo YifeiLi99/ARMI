@@ -1565,6 +1565,8 @@ export interface components {
       dialogue_decision_ref?: string | null;
       /** Effect Ref */
       effect_ref?: string | null;
+      /** Effect Registration Ref */
+      effect_registration_ref?: string | null;
       /** Intent Ref */
       intent_ref?: string | null;
       /**
@@ -1602,9 +1604,11 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "creator-operation.v2";
+      projection_version: "creator-operation.v3";
       /** Reason Code */
       reason_code?: string | null;
+      /** Response Admission Ref */
+      response_admission_ref?: string | null;
       /**
        * Stage
        * @enum {string}
@@ -1678,7 +1682,7 @@ export interface components {
         | "creator-relationship.v2"
         | "scene-timeline.v6"
         | "capability-request.v4"
-        | "creator-operation.v2"
+        | "creator-operation.v3"
         | "other-human-record.v1"
         | "creator-effect.v3"
         | "subject-summary.v1"

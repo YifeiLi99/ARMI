@@ -123,6 +123,19 @@ class RuntimeCreatorOperationAssembler(CreatorOperationQueryPort):
                     transaction,
                     action_intent_id=expression.intent_id,
                 )
+            response_admission = None
+            effect_registration = None
+            if expression is not None and expression.intent_id is not None:
+                response_admission = (
+                    await self._expression.response_admission_by_intent(
+                        transaction,
+                        action_intent_id=expression.intent_id,
+                    )
+                )
+                effect_registration = await self._effect.registration_by_intent(
+                    transaction,
+                    action_intent_id=expression.intent_id,
+                )
             phase, failure_code = _derive_phase(
                 disposition=opportunity.disposition,
                 reconsideration_no=opportunity.reconsideration_no,
@@ -132,6 +145,16 @@ class RuntimeCreatorOperationAssembler(CreatorOperationQueryPort):
                 expression=expression,
                 policy=policy,
                 effect_status=None if effect is None else effect.status,
+                response_admission=(
+                    None
+                    if response_admission is None
+                    else (response_admission.status, response_admission.reason_code)
+                ),
+                effect_registration=(
+                    None
+                    if effect_registration is None
+                    else (effect_registration.status, effect_registration.reason_code)
+                ),
             )
             codex_execution = None
             if (
@@ -169,6 +192,16 @@ class RuntimeCreatorOperationAssembler(CreatorOperationQueryPort):
                     if effect is None or not _phase_has_effect(phase)
                     else effect.effect_id
                 ),
+                response_admission_ref=(
+                    None
+                    if response_admission is None
+                    else response_admission.response_admission_id
+                ),
+                effect_registration_ref=(
+                    None
+                    if effect_registration is None
+                    else effect_registration.effect_registration_id
+                ),
                 intent_ref=None if expression is None else expression.intent_id,
                 dialogue_decision_ref=(
                     None if expression is None else expression.dialogue_decision_id
@@ -191,6 +224,8 @@ def _derive_phase(
     expression: ExpressionOperationSnapshot | None,
     policy: CapabilityPolicyDecisionSnapshot | None,
     effect_status: EffectStatus | None,
+    response_admission: tuple[str, str | None] | None,
+    effect_registration: tuple[str, str | None] | None,
 ) -> tuple[CreatorOperationPhase, str | None]:
     if expression is not None:
         decision_kind = expression.decision_kind
@@ -204,21 +239,45 @@ def _derive_phase(
         if decision_kind == "end_conversation":
             return CreatorOperationPhase.COMPLETED, None
         if action_kind is not None:
-            if policy is None:
+            if response_admission is None:
                 return (
                     CreatorOperationPhase.CODEX_CAPABILITY_DECISION
                     if action_kind == "codex_delegation"
                     else CreatorOperationPhase.RESPONSE_ADMISSION,
                     None,
                 )
+            response_status, response_reason = response_admission
+            if response_status == "pending":
+                return CreatorOperationPhase.RESPONSE_ADMISSION, None
+            if response_status == "unauthorized":
+                return CreatorOperationPhase.RESPONSE_UNAUTHORIZED, response_reason
+            if response_status == "unavailable":
+                return CreatorOperationPhase.RESPONSE_UNAVAILABLE, response_reason
+            if response_status in {"failed", "cancelled"}:
+                return CreatorOperationPhase.RESPONSE_FAILED, response_reason
+            if policy is None:
+                return CreatorOperationPhase.RESPONSE_ACCEPTED, None
             outcome = policy.outcome
             reason_code = policy.reason_code
             if outcome is CapabilityAuthorizationOutcome.DENIED:
                 return CreatorOperationPhase.RESPONSE_UNAUTHORIZED, reason_code
             if outcome is CapabilityAuthorizationOutcome.UNAVAILABLE:
                 return CreatorOperationPhase.RESPONSE_UNAVAILABLE, reason_code
-            if effect_status is None:
+            if effect_registration is None:
                 return CreatorOperationPhase.EFFECT_REGISTRATION, None
+            registration_status, registration_reason = effect_registration
+            registration_phases = {
+                "unauthorized": CreatorOperationPhase.EFFECT_REGISTRATION_UNAUTHORIZED,
+                "unavailable": CreatorOperationPhase.EFFECT_REGISTRATION_UNAVAILABLE,
+                "failed": CreatorOperationPhase.EFFECT_REGISTRATION_FAILED,
+                "cancelled": CreatorOperationPhase.EFFECT_REGISTRATION_CANCELLED,
+            }
+            if registration_status == "pending":
+                return CreatorOperationPhase.EFFECT_REGISTRATION, None
+            if registration_status in registration_phases:
+                return registration_phases[registration_status], registration_reason
+            if effect_status is None:
+                raise CreatorInputViolation("DB-INPUT-STATE")
             phases = {
                 EffectStatus.REGISTERED: CreatorOperationPhase.EFFECT_REGISTERED,
                 EffectStatus.DISPATCHING: (

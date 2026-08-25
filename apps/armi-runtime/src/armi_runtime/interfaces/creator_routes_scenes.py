@@ -746,7 +746,7 @@ def register_scene_routes(
                         CreatorResourceKind("operation"),
                         str(acceptance.opportunity_id),
                         Instant(datetime.now(UTC)),
-                        "creator-operation.v2",
+                        "creator-operation.v3",
                     )
                 )
             except Exception:

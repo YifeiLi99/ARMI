@@ -1014,6 +1014,10 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             CreatorOperationPhase.RESPONSE_ADMISSION: "waiting",
             CreatorOperationPhase.RESPONSE_ACCEPTED: "accepted",
             CreatorOperationPhase.EFFECT_REGISTRATION: "waiting",
+            CreatorOperationPhase.EFFECT_REGISTRATION_UNAUTHORIZED: "rejected",
+            CreatorOperationPhase.EFFECT_REGISTRATION_UNAVAILABLE: "unavailable",
+            CreatorOperationPhase.EFFECT_REGISTRATION_FAILED: "failed",
+            CreatorOperationPhase.EFFECT_REGISTRATION_CANCELLED: "rejected",
             CreatorOperationPhase.EFFECT_REGISTERED: "accepted",
             CreatorOperationPhase.EFFECT_DISPATCHING: "waiting",
             CreatorOperationPhase.EFFECT_COMPLETED: "completed",
@@ -1054,6 +1058,10 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             CreatorOperationPhase.RESPONSE_ADMISSION: "response_effect",
             CreatorOperationPhase.RESPONSE_ACCEPTED: "response_effect",
             CreatorOperationPhase.EFFECT_REGISTRATION: "response_effect",
+            CreatorOperationPhase.EFFECT_REGISTRATION_UNAUTHORIZED: "response_effect",
+            CreatorOperationPhase.EFFECT_REGISTRATION_UNAVAILABLE: "response_effect",
+            CreatorOperationPhase.EFFECT_REGISTRATION_FAILED: "response_effect",
+            CreatorOperationPhase.EFFECT_REGISTRATION_CANCELLED: "response_effect",
             CreatorOperationPhase.EFFECT_REGISTERED: "response_effect",
             CreatorOperationPhase.EFFECT_DISPATCHING: "response_effect",
             CreatorOperationPhase.EFFECT_COMPLETED: "response_effect",
@@ -1101,6 +1109,10 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             CreatorOperationPhase.RESPONSE_UNAUTHORIZED,
             CreatorOperationPhase.RESPONSE_UNAVAILABLE,
             CreatorOperationPhase.RESPONSE_FAILED,
+            CreatorOperationPhase.EFFECT_REGISTRATION_UNAUTHORIZED,
+            CreatorOperationPhase.EFFECT_REGISTRATION_UNAVAILABLE,
+            CreatorOperationPhase.EFFECT_REGISTRATION_FAILED,
+            CreatorOperationPhase.EFFECT_REGISTRATION_CANCELLED,
             CreatorOperationPhase.EFFECT_FAILED,
             CreatorOperationPhase.EFFECT_UNKNOWN,
             CreatorOperationPhase.CODEX_FAILED,
@@ -1134,7 +1146,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                 details = cast(dict[str, object], wire["details"])
                 self.assertIsInstance(details, dict)
                 self.assertEqual(wire["status"], expected_status[phase])
-                self.assertEqual(details["projection_version"], "creator-operation.v2")
+                self.assertEqual(details["projection_version"], "creator-operation.v3")
                 self.assertEqual(
                     details["operation_ref"], str(acceptance.opportunity_id)
                 )

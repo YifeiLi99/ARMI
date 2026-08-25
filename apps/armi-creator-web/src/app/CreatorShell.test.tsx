@@ -95,7 +95,7 @@ function acceptedOperationProjection(): object {
     result_ref: OPPORTUNITY_ID,
     custodian: "runtime",
     details: {
-      projection_version: "creator-operation.v2",
+      projection_version: "creator-operation.v3",
       operation_ref: OPPORTUNITY_ID,
       operation_kind: "cognition",
       stage: "accepted",
@@ -115,7 +115,7 @@ function preparedContextOperation(): object {
     waiting_for: "model_attempt",
     resume_condition: "model_step_available",
     details: {
-      projection_version: "creator-operation.v2",
+      projection_version: "creator-operation.v3",
       operation_ref: OPPORTUNITY_ID,
       operation_kind: "cognition",
       stage: "context_preparing",

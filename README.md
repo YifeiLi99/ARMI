@@ -24,7 +24,7 @@ ARMI 以真实人类的心理、生活和社会行为作为参照，但承认自
 
 ARMI 目前是运行在单机上的模块化单体。Python workspace 包含稳定内核、Runtime/Admin 共用的 PostgreSQL catalog 合同、普通 Runtime、隔离的管理 MCP，以及独立 QQ 适配器和 NapCat 渠道驱动；Creator 工作台是由 Runtime 同源托管的 React 静态应用。PostgreSQL 是唯一权威关系数据库，文件制品只保存不适合直接进入关系表的大正文或执行产物。制品的 SHA-256 只标识物理字节；每次业务接纳拥有独立逻辑 artifact，发布预约、共享引用、删除代际与物理清理由 Artifact Store 统一协调。
 
-二十三个业务领域均为独立 workspace distribution，其中 `armi-live-voice` 独占本机实时语音会话、轮次与 Provider attempt，`armi-live-vision` 独占常驻 USB 摄像头会话、选帧和观察记录。生产与跨模块测试只通过各模块 `api.py` 的冻结 DTO/Protocol 协作；业务 SQL 由表 owner 独占，Runtime 只在共享 PostgreSQL UoW 中协调顺序、CAS、durable work 与审计。Kernel 和 Runtime Foundation 保持业务中性，不维护业务 owner、表名或 Creator 投影版本枚举。
+二十三个业务领域均为独立 workspace distribution，其中 `armi-live-voice` 独占本机实时语音会话、轮次与 Provider attempt，`armi-live-vision` 独占常驻 USB 摄像头会话、选帧和观察记录。生产与跨模块测试只通过各模块 `api.py` 的冻结 DTO/Protocol 协作；业务 SQL 由表 owner 独占，Runtime 只在共享 PostgreSQL UoW 中协调顺序、CAS、durable work 与审计。耐久工作使用固定的类型化责任注册表：底板只管理执行资格、租约、generation 与 owner reconciliation 交接，业务 owner 在同一短事务内结算业务事实、attempt、后继责任和 work 终态。Kernel 和 Runtime Foundation 保持业务中性，不维护业务表名或 Creator 投影版本枚举。
 
 当前代码已经覆盖 Creator 对话与多场合、Self/Mind/Prompt、主观记忆、关系与生活资料、自主机会与 Activity、睡眠维护、主动联系、内置其他人交流、本地导出与数据权利，以及经授权的 Creator→Codex 委托。QQ/NapCat 统一适配器支持好友私聊和白名单群的文字收发，并保留 QQ 已明确给出的内置表情、商城表情与图片子类。内置表情和有效商城摘要在本地解释；其他图片经过真实格式、尺寸和动画帧检查后，按表情、平台特殊图或普通图片选择一次视觉理解。常驻视觉是另一条链路：Runtime 只绑定配置中的同一 USB 摄像头，在内存保留最新帧，并把初始、稳定场景变化、周期或人工触发的选帧交给感知模块；它不绑定 interaction、party 或社交 scene，也不能直接触发回复或现实动作。选中的私有帧最多保留 24 小时，连续原始画面不落盘。QQ 录音走豆包语音大模型录音文件识别标准版的 `400` 模型，它不是实时语音。独立的本机实时语音模块使用 USB Audio、流式 ASR、紧凑快模型和流式 TTS，默认关闭，只有精确配置设备并显式开始后才接纳 `live_voice` Creator 输入；浏览器不取得麦克风权限。视频仍作为完整文件交给方舟视频模型，PDF、文本及常见 Office 文件沿用各自通路。正式 QQ 回复仍只发送文字。代码存在不等于环境已经配置、设备已经连接或服务权限已经通过真实握手。
 
@@ -51,7 +51,7 @@ docs/                       私有叙述性设计与外部研究资料
 
 `docs/` 被 Git 忽略，用于本地继续设计；精确的字段、路由、状态值和依赖版本仍以当前代码、DDL、配置与锁文件为准。文档入口见 [`docs/README.md`](docs/README.md)。
 
-数据库只保留唯一 Alembic `0000` 基线，并以 `armi.schema-baseline.v2` 标识当前数据库身份。Runtime 与 Admin 的固定仓储写入按“角色—表—INSERT/UPDATE/DELETE”授权，不使用逐字段写权限；`db status` 与日常启动入口会同时核对 revision、基线身份和完整权限合同，身份漂移以 `DB-SCHEMA-CONTRACT` 拒绝，权限漂移以 `DB-ROLE-GRANT` 拒绝。
+数据库只保留唯一 Alembic `0000` 基线，并以 `armi.schema-baseline.v3` 标识当前数据库身份。Runtime 与 Admin 的固定仓储写入按“角色—表—INSERT/UPDATE/DELETE”授权，不使用逐字段写权限；`db status` 与日常启动入口会同时核对 revision、基线身份和完整权限合同，身份漂移以 `DB-SCHEMA-CONTRACT` 拒绝，权限漂移以 `DB-ROLE-GRANT` 拒绝。
 
 ## 本地开发入口
 
@@ -123,7 +123,7 @@ caller-declared 的本地其他人入口通过 `armi other-human` 调用运行�
 
 日常及安装后的 Creator 工作台只在 Runtime 的本机地址上提供。页面打开后会自动建立进程内连接并直接进入工作台，不需要登录、bootstrap code 或手动注销。Vite 地址仅用于源码前端开发。
 
-数据库结构只由唯一 Alembic `0000` 管理。`db install` 拒绝已有用户对象，并在一个事务中安装有序模块化基线、revision 与 `armi.schema-baseline.v2` 身份。ARMI 是本地单实例项目，不提供内部数据库迁移或历史兼容入口；基线变化时必须停止 Runtime、明确删除旧数据库并重新安装。Runtime 只接受与当前源码完全一致的 revision、基线身份和角色权限合同。
+数据库结构只由唯一 Alembic `0000` 管理。`db install` 拒绝已有用户对象，并在一个事务中安装有序模块化基线、revision 与 `armi.schema-baseline.v3` 身份。ARMI 是本地单实例项目，不提供内部数据库迁移或历史兼容入口；基线变化时必须停止 Runtime、明确删除旧数据库并重新安装。Runtime 只接受与当前源码完全一致的 revision、基线身份和角色权限合同。
 
 已获明确授权的本地彻底重置在停止 Runtime 后使用 `tools/reset_local_environment_data.ps1 -EnvironmentRoot C:\path\to\environment -Apply` 清空并重建 artifacts、backups、Codex runner、exports、logs 与 run 目录。脚本不删除数据库卷，也不触碰环境配置、凭据、模型、工具、NapCat 或渠道配置；数据库卷仍须独立核对后删除。
 

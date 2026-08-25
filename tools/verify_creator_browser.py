@@ -170,7 +170,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             "message": "Creator response verified.",
             "result_ref": cls.effect_id,
             "details": {
-                "projection_version": "creator-operation.v2",
+                "projection_version": "creator-operation.v3",
                 "operation_ref": cls.opportunity_id,
                 "operation_kind": "creator_response",
                 "stage": "completed",
