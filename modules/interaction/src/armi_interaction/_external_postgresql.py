@@ -30,6 +30,7 @@ from ._external_contract import (
     ObservedExternalMessage,
 )
 from ._other_human_postgresql import OtherHumanInputContext
+from .api import InteractionIdentityTokenPort
 
 _PersonBinding = tuple[UUID, UUID, Literal["creator", "other_human"], UUID | None]
 
@@ -62,15 +63,17 @@ class ExternalMessageInputContext:
 
 
 class ExternalMessageInputRepository:
-    __slots__ = ("_evidence", "_opportunity")
+    __slots__ = ("_evidence", "_opportunity", "_tokens")
 
     def __init__(
         self,
         evidence: EvidenceReadPort,
         opportunity: OpportunityAdmissionPort,
+        tokens: InteractionIdentityTokenPort,
     ) -> None:
         self._evidence = evidence
         self._opportunity = opportunity
+        self._tokens = tokens
 
     async def configure_creator(
         self,
@@ -134,17 +137,22 @@ class ExternalMessageInputRepository:
             """
             INSERT INTO armi.external_channel_bindings (
                 external_binding_id, channel_kind, account_key,
-                external_kind, external_key, party_id, party_kind,
+                external_kind, external_key, identity_match_token,
+                party_id, party_kind,
                 scene_id, display_label, identity_assurance
-            ) VALUES (uuidv7(), %s, %s, 'person', %s, %s, 'creator',
+            ) VALUES (uuidv7(), %s, %s, 'person', %s, %s, %s, 'creator',
                       %s, %s, 'runtime_configuration')
-            ON CONFLICT (channel_kind, account_key, external_kind, external_key)
+            ON CONFLICT (channel_kind, account_key, external_kind, identity_match_token)
             DO NOTHING
             """,
             (
                 command.channel.value,
                 command.account_key.value,
                 command.creator_key.value,
+                self._tokens.token(
+                    domain=f"{command.channel.value}:{command.account_key.value}:person",
+                    value=command.creator_key.value,
+                ),
                 creator[0],
                 scene[0],
                 command.display_label,
@@ -157,13 +165,16 @@ class ExternalMessageInputRepository:
                        identity_assurance
                 FROM armi.external_channel_bindings
                 WHERE channel_kind = %s AND account_key = %s
-                  AND external_kind = 'person' AND external_key = %s
+                  AND external_kind = 'person' AND identity_match_token = %s
                   AND status = 'active'
                 """,
                 (
                     command.channel.value,
                     command.account_key.value,
-                    command.creator_key.value,
+                    self._tokens.token(
+                        domain=f"{command.channel.value}:{command.account_key.value}:person",
+                        value=command.creator_key.value,
+                    ),
                 ),
             )
         ).fetchone()
@@ -193,29 +204,57 @@ class ExternalMessageInputRepository:
                 SELECT external_binding_id, party_id, party_kind, scene_id
                 FROM armi.external_channel_bindings
                 WHERE channel_kind = %s AND account_key = %s
-                  AND external_kind = 'person' AND external_key = %s
+                  AND external_kind = 'person' AND identity_match_token = %s
                   AND status = 'active'
                 """,
                 (
                     command.channel.value,
                     command.account_key.value,
-                    command.sender_key.value,
+                    self._tokens.token(
+                        domain=f"{command.channel.value}:{command.account_key.value}:person",
+                        value=command.sender_key.value,
+                    ),
                 ),
             )
         ).fetchone()
         if person is None:
+            restricted = await (
+                await connection.execute(
+                    """SELECT 1 FROM armi.external_channel_bindings
+                       WHERE channel_kind=%s AND account_key=%s
+                         AND external_kind='person' AND identity_match_token=%s
+                         AND status='rights_only'""",
+                    (
+                        command.channel.value,
+                        command.account_key.value,
+                        self._tokens.token(
+                            domain=f"{command.channel.value}:{command.account_key.value}:person",
+                            value=command.sender_key.value,
+                        ),
+                    ),
+                )
+            ).fetchone()
+            if restricted is not None:
+                raise ExternalMessageViolation("DATA-RIGHTS-EXTERNAL-IDENTITY-BLOCKED")
             party = await (
                 await connection.execute(
                     """
                     INSERT INTO armi.parties (
-                        party_id, party_kind, display_label, declared_identity_key
-                    ) VALUES (uuidv7(), 'other_human', %s, %s)
-                    ON CONFLICT (declared_identity_key)
-                        WHERE party_kind = 'other_human'
+                        party_id, party_kind, display_label, declared_identity_key,
+                        identity_match_token
+                    ) VALUES (uuidv7(), 'other_human', %s, %s, %s)
+                    ON CONFLICT (party_kind, identity_match_token)
                     DO UPDATE SET display_label = EXCLUDED.display_label
+                    WHERE parties.status = 'active'
                     RETURNING party_id
                     """,
-                    (command.sender_display_label, person_identity_key),
+                    (
+                        command.sender_display_label,
+                        person_identity_key,
+                        self._tokens.token(
+                            domain="external:other_human", value=person_identity_key
+                        ),
+                    ),
                 )
             ).fetchone()
             if party is None:
@@ -225,9 +264,10 @@ class ExternalMessageInputRepository:
                     """
                     INSERT INTO armi.external_channel_bindings (
                         external_binding_id, channel_kind, account_key,
-                        external_kind, external_key, party_id, party_kind,
+                        external_kind, external_key, identity_match_token,
+                        party_id, party_kind,
                         scene_id, display_label, identity_assurance
-                    ) VALUES (uuidv7(), %s, %s, 'person', %s, %s,
+                    ) VALUES (uuidv7(), %s, %s, 'person', %s, %s, %s,
                               'other_human', NULL, %s, 'platform_observed')
                     RETURNING external_binding_id, party_id, party_kind, scene_id
                     """,
@@ -235,6 +275,10 @@ class ExternalMessageInputRepository:
                         command.channel.value,
                         command.account_key.value,
                         command.sender_key.value,
+                        self._tokens.token(
+                            domain=f"{command.channel.value}:{command.account_key.value}:person",
+                            value=command.sender_key.value,
+                        ),
                         party[0],
                         command.sender_display_label,
                     ),
@@ -539,13 +583,21 @@ class ExternalMessageInputRepository:
             await execute(
                 """
                 INSERT INTO armi.parties (
-                    party_id, party_kind, display_label, declared_identity_key
-                ) VALUES (uuidv7(), 'social_group', %s, %s)
-                ON CONFLICT (declared_identity_key) WHERE party_kind = 'social_group'
+                    party_id, party_kind, display_label, declared_identity_key,
+                    identity_match_token
+                ) VALUES (uuidv7(), 'social_group', %s, %s, %s)
+                ON CONFLICT (party_kind, identity_match_token)
                 DO UPDATE SET display_label = EXCLUDED.display_label
+                WHERE parties.status = 'active'
                 RETURNING party_id
                 """,
-                (command.conversation_display_label, conversation_identity_key),
+                (
+                    command.conversation_display_label,
+                    conversation_identity_key,
+                    self._tokens.token(
+                        domain="external:social_group", value=conversation_identity_key
+                    ),
+                ),
             )
         ).fetchone()
         if group_party is None:
@@ -588,18 +640,23 @@ class ExternalMessageInputRepository:
             """
             INSERT INTO armi.external_channel_bindings (
                 external_binding_id, channel_kind, account_key, external_kind,
-                external_key, party_id, party_kind, scene_id, display_label,
-                identity_assurance
-            ) VALUES (uuidv7(), %s, %s, 'group', %s, %s, 'social_group',
+                external_key, identity_match_token, party_id, party_kind,
+                scene_id, display_label, identity_assurance
+            ) VALUES (uuidv7(), %s, %s, 'group', %s, %s, %s, 'social_group',
                       %s, %s, 'platform_observed')
-            ON CONFLICT (channel_kind, account_key, external_kind, external_key)
+            ON CONFLICT (channel_kind, account_key, external_kind, identity_match_token)
             DO UPDATE SET display_label = EXCLUDED.display_label,
                           last_observed_at = statement_timestamp()
+            WHERE external_channel_bindings.status = 'active'
             """,
             (
                 command.channel.value,
                 command.account_key.value,
                 command.conversation_key.value,
+                self._tokens.token(
+                    domain=f"{command.channel.value}:{command.account_key.value}:group",
+                    value=command.conversation_key.value,
+                ),
                 group_party[0],
                 scene[0],
                 command.conversation_display_label,
@@ -610,13 +667,16 @@ class ExternalMessageInputRepository:
                 """
                 SELECT external_binding_id FROM armi.external_channel_bindings
                 WHERE channel_kind = %s AND account_key = %s
-                  AND external_kind = 'group' AND external_key = %s
+                  AND external_kind = 'group' AND identity_match_token = %s
                   AND party_id = %s AND scene_id = %s AND status = 'active'
                 """,
                 (
                     command.channel.value,
                     command.account_key.value,
-                    command.conversation_key.value,
+                    self._tokens.token(
+                        domain=f"{command.channel.value}:{command.account_key.value}:group",
+                        value=command.conversation_key.value,
+                    ),
                     group_party[0],
                     scene[0],
                 ),
@@ -624,9 +684,16 @@ class ExternalMessageInputRepository:
         ).fetchone()
         if binding is None:
             raise ExternalMessageViolation("DB-EXTERNAL-MESSAGE-BINDING-CONFLICT")
+        if person[2] == "creator":
+            return ExternalMessageInputContext(
+                binding[0],
+                "creator",
+                CreatorInputContext(scene[1], scene[0], person[1]),
+                None,
+            )
         return ExternalMessageInputContext(
             binding[0],
-            person[2],
+            "other_human",
             None,
             OtherHumanInputContext(scene[1], person[1], scene[0]),
         )

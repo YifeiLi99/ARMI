@@ -170,16 +170,30 @@ class PostgreSQLOtherHumanRecordQuery:
             boundary = self._uuid(
                 self._codec.decode(cursor, "parties", "all", {"before_id"})["before_id"]
             )
+        visible_rows: list[InteractionOtherHumanPartySnapshot] = []
+        scan_boundary = boundary
+        batch_limit = max(limit + 1, 32)
         try:
-            async with self._factory.unit_of_work(read_only=True) as unit_of_work:
-                rows = await self._interaction.list_other_human_parties(
-                    unit_of_work.transaction, before_id=boundary, limit=limit + 1
+            while len(visible_rows) <= limit:
+                async with self._factory.unit_of_work(read_only=True) as unit_of_work:
+                    rows = await self._interaction.list_other_human_parties(
+                        unit_of_work.transaction,
+                        before_id=scan_boundary,
+                        limit=batch_limit,
+                    )
+                if not rows:
+                    break
+                visible_ids = await self._visible_party_ids(
+                    tuple(row.party_id for row in rows)
                 )
+                visible_rows.extend(row for row in rows if row.party_id in visible_ids)
+                scan_boundary = rows[-1].party_id
+                if len(rows) < batch_limit:
+                    break
         except RuntimeTransactionFailure:
             raise OtherHumanRecordViolation("OTHER-HUMAN-RECORD-UNAVAILABLE") from None
-        more = len(rows) > limit
-        visible_ids = await self._visible_party_ids(tuple(row.party_id for row in rows))
-        visible = tuple(row for row in rows if row.party_id in visible_ids)[:limit]
+        more = len(visible_rows) > limit
+        visible = tuple(visible_rows[:limit])
         items = tuple(self._party(row) for row in visible)
         next_cursor = (
             self._codec.encode(
@@ -354,7 +368,7 @@ class PostgreSQLOtherHumanRecordQuery:
                     restrictions = await self._visibility.party_restrictions(
                         unit_of_work.transaction, party_id
                     )
-                    if "delete_related" not in restrictions:
+                    if not {"stop_use", "delete_related"}.intersection(restrictions):
                         visible.add(party_id)
                 return frozenset(visible)
         except RuntimeTransactionFailure:

@@ -12,6 +12,7 @@ from armi_attention.api import OpportunityAdmissionPort
 from armi_data_rights.api import (
     DataRightsEffectGate,
     DataRightsFencePort,
+    DataRightsInteractionGate,
     DataRightsParticipant,
 )
 from armi_effect.api import EffectCodexLifecyclePort
@@ -113,6 +114,7 @@ def bootstrap_codex(
     sources: CodexTaskSourceReadPort,
     custody: ExecutionCustodyPort,
     data_rights: DataRightsEffectGate,
+    interaction_data_rights: DataRightsInteractionGate,
     data_rights_fence: DataRightsFencePort,
     runtime_admission: Callable[[], RuntimeFence],
     runner_entry_module: str,
@@ -138,6 +140,7 @@ def bootstrap_codex(
         sources=sources,
         custody=custody,
         data_rights=data_rights,
+        interaction_data_rights=interaction_data_rights,
         data_rights_fence=data_rights_fence,
         runtime_admission=runtime_admission,
         runner_entry_module=runner_entry_module,

@@ -36,6 +36,7 @@ from ._other_human_contract import (
 )
 from ._scene_contract import SceneKey, SceneStatus
 from .api import (
+    InteractionIdentityTokenPort,
     InteractionOtherHumanPartySnapshot,
     InteractionOtherHumanSceneSnapshot,
     InteractionOtherHumanTimelineSource,
@@ -50,17 +51,19 @@ class OtherHumanInputContext:
 
 
 class OtherHumanInputRepository:
-    __slots__ = ("_evidence", "_evidence_read", "_opportunity")
+    __slots__ = ("_evidence", "_evidence_read", "_opportunity", "_tokens")
 
     def __init__(
         self,
         evidence: EvidenceWritePort,
         evidence_read: EvidenceReadPort,
         opportunity: OpportunityAdmissionPort,
+        tokens: InteractionIdentityTokenPort,
     ) -> None:
         self._evidence = evidence
         self._evidence_read = evidence_read
         self._opportunity = opportunity
+        self._tokens = tokens
 
     async def list_other_human_parties(
         self, transaction: PostgreSQLTransaction, *, before_id: UUID | None, limit: int
@@ -219,11 +222,17 @@ class OtherHumanInputRepository:
         await connection.execute(
             """
             INSERT INTO armi.parties (
-                party_id, party_kind, display_label, declared_identity_key
-            ) VALUES (%s, 'other_human', %s, %s)
+                party_id, party_kind, display_label, declared_identity_key,
+                identity_match_token
+            ) VALUES (%s, 'other_human', %s, %s, %s)
             ON CONFLICT DO NOTHING
             """,
-            (uuid7(), display_label, party_key.value),
+            (
+                uuid7(),
+                display_label,
+                party_key.value,
+                self._tokens.token(domain="local:other_human", value=party_key.value),
+            ),
         )
         row = await (
             await connection.execute(
@@ -232,10 +241,14 @@ class OtherHumanInputRepository:
                 FROM armi.parties
                 WHERE party_kind = 'other_human'
                   AND creator_role IS NULL
-                  AND declared_identity_key = %s
+                  AND identity_match_token = %s
                   AND status = 'active'
                 """,
-                (party_key.value,),
+                (
+                    self._tokens.token(
+                        domain="local:other_human", value=party_key.value
+                    ),
+                ),
             )
         ).fetchone()
         if row is None:
@@ -259,9 +272,13 @@ class OtherHumanInputRepository:
                 """
                 SELECT party_id FROM armi.parties
                 WHERE party_kind = 'other_human' AND creator_role IS NULL
-                  AND declared_identity_key = %s AND status = 'active'
+                  AND identity_match_token = %s AND status = 'active'
                 """,
-                (party_key.value,),
+                (
+                    self._tokens.token(
+                        domain="local:other_human", value=party_key.value
+                    ),
+                ),
             )
         ).fetchone()
         if party is None:
@@ -348,8 +365,8 @@ class OtherHumanInputRepository:
                   ON scene.subject_id = %s
                  AND party.party_kind = 'other_human'
                  AND party.creator_role IS NULL
-                 AND party.declared_identity_key = %s
-                 AND party.status = 'active'
+                 AND party.identity_match_token = %s
+                 AND party.status IN ('active', 'rights_only')
                  AND scene.primary_party_id = party.party_id
                  AND scene.scene_key = %s
                  AND scene.scene_kind = 'other_human_dialogue'
@@ -357,7 +374,13 @@ class OtherHumanInputRepository:
                  AND scene.current_status = 'open' AND scene.closed_at IS NULL
                 """
                 + suffix,
-                (subject_id, party_key.value, scene_key.value),
+                (
+                    subject_id,
+                    self._tokens.token(
+                        domain="local:other_human", value=party_key.value
+                    ),
+                    scene_key.value,
+                ),
             )
         ).fetchone()
         if row is None:

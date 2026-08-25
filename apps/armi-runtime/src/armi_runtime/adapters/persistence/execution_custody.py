@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import UUID
@@ -92,6 +92,7 @@ class PostgreSQLExecutionCustody:
     ) -> AsyncGenerator[ExecutionCustodyPermit]:
         permit = ExecutionCustodyPermit(requests)
         timeout = self._timeout(deadline_at)
+        body_failure = False
         try:
             async with self._pool.connection(
                 timeout=float(self._pool_timeout_seconds)
@@ -112,7 +113,14 @@ class PostgreSQLExecutionCustody:
                         )
                 try:
                     yield permit
-                finally:
+                except BaseException:
+                    body_failure = True
+                    with suppress(psycopg.Error):
+                        await connection.execute(
+                            "SELECT pg_catalog.pg_advisory_unlock_all()"
+                        )
+                    raise
+                else:
                     await connection.execute(
                         "SELECT pg_catalog.pg_advisory_unlock_all()"
                     )
@@ -121,6 +129,8 @@ class PostgreSQLExecutionCustody:
         except ExecutionCustodyViolation:
             raise
         except psycopg.Error, PoolTimeout:
+            if body_failure:
+                raise
             raise ExecutionCustodyViolation("CUSTODY-DATABASE") from None
 
     @staticmethod

@@ -19,7 +19,11 @@ from uuid import UUID, uuid7
 import rfc8785
 from armi_artifact_store.api import ArtifactCatalogPort
 from armi_attention.api import OpportunityAdmissionPort
-from armi_data_rights.api import DataRightsEffectGate, DataRightsFencePort
+from armi_data_rights.api import (
+    DataRightsEffectGate,
+    DataRightsFencePort,
+    DataRightsInteractionGate,
+)
 from armi_effect.api import EffectCodexLifecyclePort
 from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
 from armi_expression.api import ExpressionIntentReadPort
@@ -99,6 +103,9 @@ class CodexTaskSourceGateway(
     __slots__ = (
         "_catalog",
         "_creator_party_id",
+        "_custody",
+        "_data_rights",
+        "_data_rights_fence",
         "_diagnostic",
         "_factory",
         "_input_repository",
@@ -114,6 +121,9 @@ class CodexTaskSourceGateway(
         storage: CodexArtifactStorePort,
         catalog: ArtifactCatalogPort,
         creator_party_id: UUID,
+        custody: ExecutionCustodyPort,
+        data_rights: DataRightsInteractionGate,
+        data_rights_fence: DataRightsFencePort,
         input_repository: CreatorInputTransactionPort,
         evidence: EvidenceWritePort,
         evidence_read: EvidenceReadPort,
@@ -128,6 +138,9 @@ class CodexTaskSourceGateway(
         self._factory = factory
         self._storage = storage
         self._creator_party_id = creator_party_id
+        self._custody = custody
+        self._data_rights = data_rights
+        self._data_rights_fence = data_rights_fence
         self._notifier = notifier
         self._diagnostic = diagnostic
         self._repository = PostgreSQLCodexDelegationRepository(
@@ -155,6 +168,32 @@ class CodexTaskSourceGateway(
 
     async def accept(self, command: CreatorCodexTaskCommand) -> CreatorInputAcceptance:
         context = await self._context(command.scene_key)
+        requests = ordered_custody_requests(
+            ExecutionCustodyRequest(
+                ExecutionCustodyScope(
+                    ExecutionCustodyScopeKind.DATA_RIGHTS_PARTY,
+                    context.creator_party_id,
+                ),
+                ExecutionCustodyMode.SHARED,
+            )
+        )
+        try:
+            async with self._custody.hold(requests, deadline_at=None):
+                return await self._accept_custodied(command, context)
+        except ExecutionCustodyViolation:
+            raise CodexDelegationViolation("CODEX-TASK-DATA-RIGHTS") from None
+
+    async def _accept_custodied(
+        self, command: CreatorCodexTaskCommand, context: CreatorInputContext
+    ) -> CreatorInputAcceptance:
+        async with self._factory.unit_of_work() as uow:
+            if await self._data_rights.blocks_new_interaction(
+                uow, context.creator_party_id
+            ):
+                raise CodexDelegationViolation("CODEX-TASK-DATA-RIGHTS")
+            rights_fence = await self._data_rights_fence.capture(
+                uow.transaction, party_id=context.creator_party_id
+            )
         objective_digest = Digest.from_bytes(command.objective.encode("utf-8"))
         request_digest = Digest.from_bytes(
             rfc8785.dumps(
@@ -227,6 +266,16 @@ class CodexTaskSourceGateway(
                 )
                 if current != context:
                     raise CodexDelegationViolation("CODEX-TASK-SUBJECT")
+                await self._data_rights_fence.validate(
+                    uow.transaction,
+                    rights_fence,
+                    require_contact=True,
+                    require_use=True,
+                )
+                if await self._data_rights.blocks_new_interaction(
+                    uow, context.creator_party_id
+                ):
+                    raise CodexDelegationViolation("CODEX-TASK-DATA-RIGHTS")
                 existing = await self._repository.existing_creator_task(
                     uow,
                     context=context,
@@ -369,6 +418,7 @@ class CodexEffectPipeline:
         sources: CodexTaskSourceReadPort,
         custody: ExecutionCustodyPort,
         data_rights: DataRightsEffectGate,
+        interaction_data_rights: DataRightsInteractionGate,
         data_rights_fence: DataRightsFencePort,
         runtime_admission: Callable[[], RuntimeFence],
         runner_entry_module: str,
@@ -412,6 +462,9 @@ class CodexEffectPipeline:
             effect=effect,
             expression=expression,
             sources=sources,
+            custody=custody,
+            data_rights=interaction_data_rights,
+            data_rights_fence=data_rights_fence,
             notifier=notifier,
             diagnostic=self._diagnostic,
         )

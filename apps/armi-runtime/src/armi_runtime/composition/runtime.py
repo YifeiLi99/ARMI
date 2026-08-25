@@ -158,6 +158,7 @@ from .authority import (
 )
 from .config_assets import runtime_config_path
 from .creator_session import compose_browser_sessions, derive_timeline_cursor_key
+from .data_rights_identity import derive_data_rights_identity_token_key
 from .database import (
     ContinuityState,
     DatabaseViolation,
@@ -433,7 +434,8 @@ async def _serve(
             await live_vision_retention.purge_once()
             await artifact_lifecycle.recover()
             effect_owner = bootstrap_effect_operation_read()
-            interaction_identity = compose_interaction_identity()
+            identity_tokens = derive_data_rights_identity_token_key(prepared)
+            interaction_identity = compose_interaction_identity(identity_tokens)
             creator_context = await inspect_creator_context(
                 runtime_unit_of_work_factory,
                 subject_id=authority.require_writable().subject_id,
@@ -656,6 +658,7 @@ async def _serve(
                 custody=execution_custody,
                 visibility=data_rights_core.visibility,
                 identity=interaction_identity,
+                identity_tokens=identity_tokens,
                 catalog=artifact_catalog,
                 timeline_projections=timeline_projections,
                 voice_responses=voice_context_read,
@@ -689,9 +692,11 @@ async def _serve(
                 business_participants=owner_roster.data_rights,
                 catalog=artifact_catalog,
                 parties=interaction_module.identity,
+                party_roster=interaction_module.party_catalog,
                 notifier=creator_events,
                 artifact_lifecycle=artifact_lifecycle,
                 execution_custody=execution_custody,
+                identity_key=identity_tokens.key_identity,
             )
             await data_rights_module.open()
             expression_module = compose_expression_module(
@@ -787,6 +792,7 @@ async def _serve(
                         evidence=evidence_module.write,
                         evidence_read=evidence_module.read,
                         interaction=interaction_module.perception,
+                        data_rights=data_rights_core.fence,
                         opportunity=opportunity_admission,
                         catalog=artifact_catalog,
                         wakeups=work_wakeups,
@@ -1060,6 +1066,7 @@ async def _serve(
                         sources=codex_reads.task_sources,
                         custody=execution_custody,
                         data_rights=data_rights_module.effect_gate,
+                        interaction_data_rights=data_rights_module.gate,
                         data_rights_fence=data_rights_module.fence,
                         runtime_admission=authority.require_writable,
                         catalog=artifact_catalog,
@@ -2089,7 +2096,7 @@ async def _serve(
                     "target_kind": item.target_kind,
                     "required_action": item.required_action,
                     "result_status": item.result_status.value,
-                    "remaining_location": item.remaining_location,
+                    "retention_reason": item.retention_reason,
                     "created_at": item.created_at.to_wire(),
                     "completed_at": (
                         None

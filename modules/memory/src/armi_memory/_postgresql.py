@@ -211,6 +211,13 @@ class PostgreSQLMemoryOwner:
             ).fetchone()
             if row is None:
                 raise MemoryViolation("MEMORY-SOURCE-STALE")
+            hidden = await self._visibility.hidden_targets(
+                transaction,
+                target_kind="memory",
+                target_refs=(source.memory_id,),
+            )
+            if source.memory_id in hidden:
+                raise MemoryViolation("MEMORY-SOURCE-STALE")
             result.append(self._context_item(row))
         return tuple(result)
 
@@ -296,9 +303,12 @@ class PostgreSQLMemoryOwner:
                 raise MemoryViolation("MEMORY-CURSOR") from None
         async with self._read_connection() as connection:
             subject_id = self._creator_subject()
-            rows = await (
-                await connection.execute(
-                    """
+            visible_rows: list[tuple[Any, ...]] = []
+            scan_boundary: tuple[datetime, UUID] | None = boundary
+            while len(visible_rows) <= limit:
+                rows = await (
+                    await connection.execute(
+                        """
                     SELECT memory.memory_id, revision.summary, revision.uncertainty,
                            revision.source_kind, revision.source_fact_class,
                            revision.accessibility, revision.revision_kind,
@@ -313,25 +323,32 @@ class PostgreSQLMemoryOwner:
                            (revision.created_at,memory.memory_id)<(%s,%s))
                     ORDER BY revision.created_at DESC,memory.memory_id DESC LIMIT %s
                     """,
-                    (
-                        subject_id,
-                        query_text,
-                        query_text,
-                        None if boundary is None else boundary[0],
-                        None if boundary is None else boundary[0],
-                        None if boundary is None else boundary[1],
-                        limit + 1,
-                    ),
+                        (
+                            subject_id,
+                            query_text,
+                            query_text,
+                            None if scan_boundary is None else scan_boundary[0],
+                            None if scan_boundary is None else scan_boundary[0],
+                            None if scan_boundary is None else scan_boundary[1],
+                            max(limit + 1, 32),
+                        ),
+                    )
+                ).fetchall()
+                if not rows:
+                    break
+                hidden = await self._visibility.hidden_targets(
+                    connection,
+                    target_kind="memory",
+                    target_refs=tuple(row[0] for row in rows),
                 )
-            ).fetchall()
-            hidden = await self._visibility.hidden_targets(
-                connection,
-                target_kind="memory",
-                target_refs=tuple(row[0] for row in rows),
-            )
-        visible = tuple(row for row in rows if row[0] not in hidden)[:limit]
+                visible_rows.extend(row for row in rows if row[0] not in hidden)
+                last = rows[-1]
+                scan_boundary = (last[10], last[0])
+                if len(rows) < max(limit + 1, 32):
+                    break
+        visible = tuple(visible_rows[:limit])
         next_cursor = None
-        if len(rows) > limit and visible:
+        if len(visible_rows) > limit and visible:
             next_cursor = self._codec.encode(
                 "memory_current",
                 {

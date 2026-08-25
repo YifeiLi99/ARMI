@@ -11,6 +11,7 @@ from armi_attention.api import (
     OpportunityAdmissionStatus,
     OpportunityPurpose,
 )
+from armi_data_rights.api import DataRightsFence, DataRightsFencePort
 from armi_evidence.api import (
     EvidenceDraft,
     EvidenceId,
@@ -43,7 +44,13 @@ from .api import ExternalContentRecognitionResult
 
 
 class PostgreSQLExternalContentRepository:
-    __slots__ = ("_evidence", "_evidence_read", "_interaction", "_opportunity")
+    __slots__ = (
+        "_data_rights",
+        "_evidence",
+        "_evidence_read",
+        "_interaction",
+        "_opportunity",
+    )
 
     def __init__(
         self,
@@ -51,11 +58,13 @@ class PostgreSQLExternalContentRepository:
         evidence_read: EvidenceReadPort,
         opportunity: OpportunityAdmissionPort,
         interaction: InteractionPerceptionPort,
+        data_rights: DataRightsFencePort,
     ) -> None:
         self._evidence = evidence
         self._evidence_read = evidence_read
         self._opportunity = opportunity
         self._interaction = interaction
+        self._data_rights = data_rights
 
     async def recover_terminal_recognition(
         self,
@@ -146,19 +155,27 @@ class PostgreSQLExternalContentRepository:
         await unit.work.validate_lease(lease)
         await self.attach_raw(unit, part_id=part_id, raw_artifact_id=raw_artifact_id)
         connection = unit.transaction
+        interaction_id, source_party_id = await self._interaction.recognition_source(
+            connection, part_id=part_id
+        )
+        fence = await self._data_rights.capture(connection, party_id=source_party_id)
         attempt_id = uuid7()
         inserted = await connection.execute(
             """
             INSERT INTO armi.external_content_recognition_attempts (
-                recognition_attempt_id, external_message_part_id, work_id,
+                recognition_attempt_id, external_message_part_id,
+                interaction_id, source_party_id, data_rights_use_generation, work_id,
                 work_attempt_id, provider, model_id, request_artifact_id,
                 dispatch_status)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,'dispatched')
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'dispatched')
             ON CONFLICT (external_message_part_id) DO NOTHING
             """,
             (
                 attempt_id,
                 part_id,
+                interaction_id,
+                source_party_id,
+                fence.use_generation,
                 lease.work_id.value,
                 lease.attempt_id.value,
                 provider,
@@ -185,6 +202,33 @@ class PostgreSQLExternalContentRepository:
     ) -> None:
         await unit.work.validate_lease(lease)
         connection = unit.transaction
+        if attempt_id is not None:
+            attempt = await (
+                await connection.execute(
+                    """SELECT interaction_id,source_party_id,
+                              data_rights_use_generation
+                       FROM armi.external_content_recognition_attempts
+                       WHERE recognition_attempt_id=%s
+                         AND dispatch_status='dispatched'
+                       FOR UPDATE""",
+                    (attempt_id,),
+                )
+            ).fetchone()
+            if (
+                attempt is None
+                or not await self._interaction.recognition_source_visible(
+                    connection,
+                    interaction_id=attempt[0],
+                    source_party_id=attempt[1],
+                )
+            ):
+                raise ExternalMessageViolation("EXTERNAL-MESSAGE-WORK-STALE")
+            await self._data_rights.validate(
+                connection,
+                DataRightsFence(attempt[1], 1, int(attempt[2])),
+                require_contact=False,
+                require_use=True,
+            )
         await self._interaction.settle_part_success(
             connection,
             part_id=part_id,

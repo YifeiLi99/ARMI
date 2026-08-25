@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_attention.api import OpportunityAdmissionPort
-from armi_data_rights.api import DataRightsParticipant
+from armi_data_rights.api import DataRightsFencePort, DataRightsParticipant
 from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
 from armi_interaction.api import ExternalMessagePartKind, InteractionPerceptionPort
 from armi_runtime_foundation import (
@@ -62,6 +62,7 @@ def bootstrap_perception(
     evidence: EvidenceWritePort,
     evidence_read: EvidenceReadPort,
     interaction: InteractionPerceptionPort,
+    data_rights: DataRightsFencePort,
     opportunity: OpportunityAdmissionPort,
     fetch: ExternalMediaFetchPort,
     ark_recognizer: ExternalContentRecognitionPort,
@@ -82,6 +83,7 @@ def bootstrap_perception(
         evidence=evidence,
         evidence_read=evidence_read,
         interaction=interaction,
+        data_rights=data_rights,
         opportunity=opportunity,
         fetch=fetch,
         recognizer=recognizer,

@@ -369,7 +369,7 @@ class PostgreSQLUnitOfWork:
             if exception is not None:
                 await self._finish_rollback(exception_type, exception, traceback)
                 if isinstance(exception, (psycopg.Error, PoolTimeout)):
-                    raise map_database_error(exception, rolled_back=True) from None
+                    raise exception
                 return False
             if self._rollback_requested:
                 rollback = _RollbackRequested()

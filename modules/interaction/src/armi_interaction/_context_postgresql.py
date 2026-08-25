@@ -35,8 +35,15 @@ class PostgreSQLInteractionContextRead:
                LEFT JOIN armi.parties AS party ON party.party_id=%s
                LEFT JOIN armi.party_input_interactions AS input
                  ON input.interaction_id=%s AND input.scene_id=scene.scene_id
-               WHERE scene.scene_id=%s""",
-                (context_party_id, current_interaction_id, scene_id),
+               WHERE scene.scene_id=%s
+                 AND (%s::uuid IS NULL OR party.status='active')
+                 AND (input.interaction_id IS NULL OR input.data_rights_hidden_at IS NULL)""",
+                (
+                    context_party_id,
+                    current_interaction_id,
+                    scene_id,
+                    context_party_id,
+                ),
             )
         ).fetchone()
         if row is None:
@@ -85,6 +92,7 @@ class PostgreSQLInteractionContextRead:
                 AND item.source_kind IN ('creator_input','other_human_input')
                LEFT JOIN armi.parties AS party ON party.party_id=input.source_party_id
                WHERE item.scene_id=%s AND item.source_kind=ANY(%s::text[])
+                 AND (input.interaction_id IS NULL OR input.data_rights_hidden_at IS NULL)
                  AND (%s::timestamptz IS NULL OR (item.occurred_at,item.timeline_item_id)<(%s,%s))
                  AND (%s::timestamptz IS NULL OR item.occurred_at<=%s)
                ORDER BY item.occurred_at DESC, item.timeline_item_id DESC LIMIT %s""",
@@ -150,7 +158,7 @@ class PostgreSQLInteractionContextRead:
         row = await (
             await transaction.execute(
                 "SELECT trace_id FROM armi.party_input_interactions "
-                "WHERE interaction_id=%s",
+                "WHERE interaction_id=%s AND data_rights_hidden_at IS NULL",
                 (interaction_id,),
             )
         ).fetchone()

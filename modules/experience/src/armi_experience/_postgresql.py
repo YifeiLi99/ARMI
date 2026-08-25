@@ -71,7 +71,7 @@ class PostgreSQLExperienceOwner:
                     SELECT experience_id,fact_class,first_person_gist,occurred_at,
                            accepted_at,source_perspective,uncertainty
                     FROM armi.accepted_experiences
-                    WHERE subject_id=%s
+                    WHERE subject_id=%s AND data_rights_hidden_at IS NULL
                     ORDER BY accepted_at DESC,experience_id DESC LIMIT %s
                 ) AS recent
                 ORDER BY recent.accepted_at,recent.experience_id
@@ -95,7 +95,8 @@ class PostgreSQLExperienceOwner:
             row = await (
                 await transaction.execute(
                     """SELECT accepted_at FROM armi.accepted_experiences
-                       WHERE subject_id=%s AND experience_id=%s""",
+                       WHERE subject_id=%s AND experience_id=%s
+                         AND data_rights_hidden_at IS NULL""",
                     (subject_id, after_experience_id),
                 )
             ).fetchone()
@@ -108,7 +109,7 @@ class PostgreSQLExperienceOwner:
                 SELECT experience_id,fact_class,first_person_gist,occurred_at,
                        accepted_at,source_perspective,uncertainty
                 FROM armi.accepted_experiences
-                WHERE subject_id=%s AND (
+                WHERE subject_id=%s AND data_rights_hidden_at IS NULL AND (
                     (%s::uuid IS NULL AND accepted_at >= %s)
                     OR (%s::uuid IS NOT NULL
                         AND (accepted_at,experience_id) > (%s,%s))
@@ -148,6 +149,7 @@ class PostgreSQLExperienceOwner:
                 JOIN armi.accepted_experiences AS experience
                   ON experience.experience_id=requested.experience_id
                  AND experience.subject_id=%s
+                 AND experience.data_rights_hidden_at IS NULL
                 ORDER BY requested.ordinal
                 """,
                 (list(experience_ids), subject_id),
@@ -172,6 +174,7 @@ class PostgreSQLExperienceOwner:
                 SELECT experience_id, first_person_gist, source_perspective, accepted_at
                 FROM armi.accepted_experiences
                 WHERE subject_id = %s
+                  AND data_rights_hidden_at IS NULL
                   AND (%s::text IS NULL OR first_person_gist ILIKE '%%' || %s::text || '%%')
                   AND (%s::timestamptz IS NULL OR
                        (accepted_at, 'conversation'::text, experience_id)

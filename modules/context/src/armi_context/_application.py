@@ -35,6 +35,7 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
+    CandidateViolation,
     CognitiveEpisodeId,
     DurableWorkPort,
     ExecutionCustodyMode,
@@ -439,6 +440,11 @@ class ContextPipeline:
             return True
         except ContextViolation as error:
             await self._fail_if_current(lease, episode_id, error.code)
+            return True
+        except CandidateViolation as error:
+            if error.code != "CANDIDATE-EPISODE-STATE":
+                raise
+            self._diagnostic("context.prepare.stale_episode")
             return True
         except ArtifactViolation:
             await self._fail_if_current(lease, episode_id, "CTX-SOURCE-READ-FAILED")

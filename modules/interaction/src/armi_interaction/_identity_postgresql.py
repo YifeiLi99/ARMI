@@ -7,10 +7,19 @@ from uuid import UUID
 
 from armi_runtime_foundation import PostgreSQLTransaction
 
-from .api import CreatorIdentityContext, InteractionOutreachScene
+from .api import (
+    CreatorIdentityContext,
+    InteractionIdentityTokenPort,
+    InteractionOutreachScene,
+)
 
 
 class PostgreSQLInteractionIdentity:
+    __slots__ = ("_tokens",)
+
+    def __init__(self, tokens: InteractionIdentityTokenPort) -> None:
+        self._tokens = tokens
+
     async def outreach_scenes(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID
     ) -> tuple[InteractionOutreachScene, ...]:
@@ -89,9 +98,14 @@ class PostgreSQLInteractionIdentity:
             await transaction.execute(
                 """
                 SELECT party_id FROM armi.parties
-                WHERE declared_identity_key = %s AND party_kind = 'other_human'
+                WHERE party_kind = 'other_human'
+                  AND identity_match_token = %s
                 """,
-                (declared_identity_key,),
+                (
+                    self._tokens.token(
+                        domain="local:other_human", value=declared_identity_key
+                    ),
+                ),
             )
         ).fetchone()
         return None if row is None else row[0]
@@ -117,7 +131,7 @@ class PostgreSQLInteractionIdentity:
                  AND scene.closed_at IS NULL
                 WHERE creator.party_kind = 'creator'
                   AND creator.creator_role = 'unique_primary_creator'
-                  AND creator.status = 'active'
+                  AND creator.status IN ('active','rights_only')
                 """,
                 (subject_id,),
             )

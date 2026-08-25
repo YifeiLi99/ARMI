@@ -2098,7 +2098,7 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
                 and not module.startswith("armi_admin.persistence.")
                 and re.search(
                     r"\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+armi\."
-                    r"(?:deletion_orders|deletion_items|creator_exports)\b",
+                    r"(?:data_rights_orders|data_rights_order_items|creator_exports)\b",
                     source,
                     re.IGNORECASE,
                 )

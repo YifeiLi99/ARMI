@@ -108,7 +108,8 @@ def map_database_error(
             )
         else:
             definition = _FailureDefinition(
-                "DB-TX-UNEXPECTED", DatabaseFailureKind.INTERNAL
+                "DB-TX-UNEXPECTED",
+                DatabaseFailureKind.INTERNAL,
             )
     return DatabaseTransactionError(
         definition.code,

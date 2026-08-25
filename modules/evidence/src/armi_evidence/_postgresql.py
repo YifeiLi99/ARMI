@@ -92,7 +92,7 @@ class PostgreSQLEvidenceWriter:
                 """
                 SELECT evidence_id
                 FROM armi.external_evidence
-                WHERE interaction_id = %s
+                WHERE interaction_id = %s AND acceptance_status='accepted'
                 """,
                 (interaction_id,),
             )
@@ -108,7 +108,7 @@ class PostgreSQLEvidenceWriter:
         row = await (
             await _connection(transaction).execute(
                 "SELECT evidence_id FROM armi.external_evidence "
-                "WHERE codex_task_source_id=%s",
+                "WHERE codex_task_source_id=%s AND acceptance_status='accepted'",
                 (task_source_id,),
             )
         ).fetchone()
@@ -129,6 +129,7 @@ class PostgreSQLEvidenceWriter:
                        codex_verification_id, visual_observation_id
                 FROM armi.external_evidence
                 WHERE evidence_id = %s AND acceptance_status = 'accepted'
+                  AND data_rights_hidden_at IS NULL
                 """,
                 (evidence_id.value,),
             )

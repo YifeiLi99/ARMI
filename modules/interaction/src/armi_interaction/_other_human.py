@@ -239,13 +239,18 @@ class OtherHumanInputService(OtherHumanInputPort):
             async with self._uow_factory.unit_of_work(
                 read_only=not lock
             ) as unit_of_work:
-                return await self._repository.context(
+                context = await self._repository.context(
                     unit_of_work,
                     subject_id=self._subject_id,
                     party_key=command.party_key,
                     scene_key=command.scene_key,
                     lock=lock,
                 )
+                if await self._data_rights.blocks_new_interaction(
+                    unit_of_work, context.party_id
+                ):
+                    raise OtherHumanInputViolation("SCOPE-DATA-RIGHTS-BLOCKED")
+                return context
         except OtherHumanInputViolation:
             raise
         except RuntimeTransactionFailure:

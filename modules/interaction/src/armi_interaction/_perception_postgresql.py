@@ -21,6 +21,45 @@ from .api import (
 
 
 class PostgreSQLInteractionPerception:
+    async def recognition_source(
+        self, transaction: PostgreSQLTransaction, *, part_id: UUID
+    ) -> tuple[UUID, UUID]:
+        row = await (
+            await transaction.execute(
+                """SELECT input.interaction_id,input.source_party_id
+                   FROM armi.external_message_parts AS part
+                   JOIN armi.party_input_interactions AS input
+                     ON input.interaction_id=part.interaction_id
+                   WHERE part.external_message_part_id=%s
+                     AND part.processing_status='pending'
+                     AND input.recognition_status='pending'
+                     AND input.data_rights_hidden_at IS NULL
+                   FOR UPDATE OF part,input""",
+                (part_id,),
+            )
+        ).fetchone()
+        if row is None:
+            raise ExternalMessageViolation("EXTERNAL-MESSAGE-WORK-STALE")
+        return row[0], row[1]
+
+    async def recognition_source_visible(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        interaction_id: UUID,
+        source_party_id: UUID,
+    ) -> bool:
+        row = await (
+            await transaction.execute(
+                """SELECT 1 FROM armi.party_input_interactions
+                   WHERE interaction_id=%s AND source_party_id=%s
+                     AND data_rights_hidden_at IS NULL
+                   FOR UPDATE""",
+                (interaction_id, source_party_id),
+            )
+        ).fetchone()
+        return row is not None
+
     async def recover_terminal(
         self,
         transaction: PostgreSQLTransaction,
@@ -72,7 +111,8 @@ class PostgreSQLInteractionPerception:
                    FROM armi.party_input_interactions AS input
                    JOIN armi.external_channel_bindings AS binding
                      ON binding.external_binding_id=input.external_binding_id
-                   WHERE input.interaction_id=%s AND input.recognition_status='pending'""",
+                   WHERE input.interaction_id=%s AND input.recognition_status='pending'
+                     AND input.data_rights_hidden_at IS NULL""",
                 (interaction_id,),
             )
         ).fetchone()

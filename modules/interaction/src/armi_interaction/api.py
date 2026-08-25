@@ -409,6 +409,21 @@ class InteractionIdentityPort(Protocol):
 
 
 @runtime_checkable
+class InteractionIdentityTokenPort(Protocol):
+    @property
+    def key_identity(self) -> str: ...
+
+    def token(self, *, domain: str, value: str) -> str: ...
+
+
+@runtime_checkable
+class InteractionPartyCatalogPort(Protocol):
+    async def all_party_ids(
+        self, transaction: PostgreSQLTransaction
+    ) -> tuple[UUID, ...]: ...
+
+
+@runtime_checkable
 class InteractionBirthPort(Protocol):
     def continuity(
         self,
@@ -579,6 +594,18 @@ class InteractionPerceptionPort(Protocol):
     async def recognition_snapshot(
         self, transaction: PostgreSQLTransaction, interaction_id: UUID
     ) -> ExternalRecognitionSnapshot: ...
+
+    async def recognition_source(
+        self, transaction: PostgreSQLTransaction, *, part_id: UUID
+    ) -> tuple[UUID, UUID]: ...
+
+    async def recognition_source_visible(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        interaction_id: UUID,
+        source_party_id: UUID,
+    ) -> bool: ...
 
     async def attach_raw(
         self, transaction: PostgreSQLTransaction, *, part_id: UUID, artifact_id: UUID
@@ -764,11 +791,13 @@ __all__ = (
     "InteractionEffectRoute",
     "InteractionEffectRoutePort",
     "InteractionIdentityPort",
+    "InteractionIdentityTokenPort",
     "InteractionOtherHumanPartySnapshot",
     "InteractionOtherHumanReadPort",
     "InteractionOtherHumanSceneSnapshot",
     "InteractionOtherHumanTimelineSource",
     "InteractionOutreachScene",
+    "InteractionPartyCatalogPort",
     "InteractionPerceptionPort",
     "InteractionSceneTransitionPort",
     "InteractionSubjectCommitPort",

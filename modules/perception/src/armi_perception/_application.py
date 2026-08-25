@@ -13,6 +13,7 @@ from uuid import UUID, uuid7
 
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_attention.api import OpportunityAdmissionPort
+from armi_data_rights.api import DataRightsFencePort
 from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
 from armi_interaction.api import (
     ExternalAccountKey,
@@ -102,6 +103,7 @@ class ExternalContentPipeline:
         evidence: EvidenceWritePort,
         evidence_read: EvidenceReadPort,
         interaction: InteractionPerceptionPort,
+        data_rights: DataRightsFencePort,
         opportunity: OpportunityAdmissionPort,
         fetch: ExternalMediaFetchPort,
         recognizer: ExternalContentRecognitionPort,
@@ -118,7 +120,7 @@ class ExternalContentPipeline:
         self._diagnostic = diagnostic or _ignore_diagnostic
         self._catalog = catalog
         self._repository = PostgreSQLExternalContentRepository(
-            evidence, evidence_read, opportunity, interaction
+            evidence, evidence_read, opportunity, interaction, data_rights
         )
         self._work = work
         self._lease_owner = uuid7()

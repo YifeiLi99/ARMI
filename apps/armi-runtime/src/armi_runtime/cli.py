@@ -474,6 +474,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "database.runtime": "database.runtime",
             CREATOR_VERIFY_PURPOSE: CREATOR_BEARER_LOCATOR,
             CREATOR_CURSOR_PURPOSE: CREATOR_BEARER_LOCATOR,
+            "data_rights.identity_token": "data_rights.identity_token_key",
             "model.request": "model.ark_api_key",
             "speech.recognition": "speech.volc_credentials",
             "web.search": "model.ark_api_key",

@@ -29,6 +29,7 @@ from ._external_postgresql import ExternalMessageInputRepository
 from ._identity_postgresql import PostgreSQLInteractionIdentity
 from ._other_human import OtherHumanInputService
 from ._other_human_postgresql import OtherHumanInputRepository
+from ._party_catalog_postgresql import PostgreSQLInteractionPartyCatalog
 from ._perception_postgresql import PostgreSQLInteractionPerception
 from ._recovery import InteractionRecoveryParticipant
 from ._scenes import CreatorSceneService
@@ -51,7 +52,9 @@ from .api import (
     InteractionEffectDeliveryPort,
     InteractionEffectRoutePort,
     InteractionIdentityPort,
+    InteractionIdentityTokenPort,
     InteractionOtherHumanReadPort,
+    InteractionPartyCatalogPort,
     InteractionPerceptionPort,
     InteractionSceneTransitionPort,
     InteractionSubjectCommitPort,
@@ -67,8 +70,14 @@ def bootstrap_interaction_admin() -> InteractionAdminPort:
     return PostgreSQLInteractionAdmin()
 
 
-def bootstrap_interaction_identity() -> InteractionIdentityPort:
-    return PostgreSQLInteractionIdentity()
+def bootstrap_interaction_identity(
+    tokens: InteractionIdentityTokenPort,
+) -> InteractionIdentityPort:
+    return PostgreSQLInteractionIdentity(tokens)
+
+
+def bootstrap_interaction_party_catalog() -> PostgreSQLInteractionPartyCatalog:
+    return PostgreSQLInteractionPartyCatalog()
 
 
 def bootstrap_interaction_birth() -> InteractionBirthPort:
@@ -92,6 +101,7 @@ class InteractionModule:
     effect_routes: InteractionEffectRoutePort
     scene_transitions: InteractionSceneTransitionPort
     identity: InteractionIdentityPort
+    party_catalog: InteractionPartyCatalogPort
     other_human_read: InteractionOtherHumanReadPort
     context_read: InteractionContextReadPort
     cognition_read: InteractionCognitionReadPort
@@ -148,11 +158,14 @@ def bootstrap_interaction(
     diagnostic: Callable[[str], None] | None = None,
     fault_injector: Callable[[str], None] | None = None,
     identity: InteractionIdentityPort,
+    identity_tokens: InteractionIdentityTokenPort,
     timeline_projections: InteractionCreatorTimelineProjectionPort,
     voice_responses: InteractionVoiceResponseReadPort,
 ) -> InteractionModule:
     creator_repository = CreatorInputRepository(evidence, evidence_read, opportunity)
-    other_repository = OtherHumanInputRepository(evidence, evidence_read, opportunity)
+    other_repository = OtherHumanInputRepository(
+        evidence, evidence_read, opportunity, identity_tokens
+    )
     creator_input = EvidenceAcceptanceTransaction(
         creator_party_id=creator_party_id,
         storage=storage,
@@ -187,7 +200,9 @@ def bootstrap_interaction(
     external = ExternalMessageInputService(
         storage=storage,
         catalog=catalog,
-        messages=ExternalMessageInputRepository(evidence_read, opportunity),
+        messages=ExternalMessageInputRepository(
+            evidence_read, opportunity, identity_tokens
+        ),
         creator_inputs=creator_repository,
         other_inputs=other_repository,
         unit_of_work_factory=unit_of_work_factory,
@@ -222,6 +237,7 @@ def bootstrap_interaction(
         effect_routes=actions.routes,
         scene_transitions=actions.scenes,
         identity=identity,
+        party_catalog=PostgreSQLInteractionPartyCatalog(),
         other_human_read=other_repository,
         context_read=cognition,
         cognition_read=cognition,
@@ -247,6 +263,7 @@ __all__ = (
     "bootstrap_interaction_birth",
     "bootstrap_interaction_data_rights",
     "bootstrap_interaction_identity",
+    "bootstrap_interaction_party_catalog",
     "bootstrap_interaction_recovery",
     "bootstrap_interaction_subject_commit",
     "compose_creator_input_repository",
