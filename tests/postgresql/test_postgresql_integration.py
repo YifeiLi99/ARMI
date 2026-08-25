@@ -181,6 +181,9 @@ from armi_runtime.composition.artifacts import (
 from armi_runtime.composition.birth import BirthTransaction
 from armi_runtime.composition.birth_manifest import packaged_birth_digests
 from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
+from armi_runtime.composition.data_rights_contracts import (
+    DATA_RIGHTS_OWNER_CONTRACTS,
+)
 from armi_runtime.composition.owner_roster import compose_runtime_owner_roster
 from armi_runtime.composition.postgresql_test import (
     ArtifactCatalogRepository,
@@ -278,6 +281,21 @@ class _NoopCodexActivation:
         del unit_of_work, subject_commit_id, grant_id, valid_until
 
 
+class _TestIdentityTokens:
+    key_identity = "sha256:" + "1" * 64
+
+    def token(self, *, domain: str, value: str) -> str:
+        return (
+            "hmac-sha256:v1:"
+            + hashlib.sha256(
+                f"{len(domain)}:{domain}:{len(value)}:{value}".encode()
+            ).hexdigest()
+        )
+
+
+_TEST_IDENTITY_TOKENS = _TestIdentityTokens()
+
+
 def _life_opportunity_facts(
     factory: PostgreSQLUnitOfWorkFactory,
     *,
@@ -297,7 +315,7 @@ def _life_opportunity_facts(
         cognition=bootstrap_cognition_operation(),
         effects=bootstrap_effect_operation_read(),
         expression=bootstrap_expression_action_ports().intents,
-        interaction=bootstrap_interaction_identity(),
+        interaction=bootstrap_interaction_identity(_TEST_IDENTITY_TOKENS),
     )
 
 
@@ -396,7 +414,7 @@ _REMOVED_REDUNDANT_DIGEST_COLUMNS = {
     ("codex_task_sources", "path_scope_digest"),
     ("codex_verification_results", "validation_digest"),
     ("creator_exports", "manifest_digest"),
-    ("deletion_items", "execution_digest"),
+    ("data_rights_order_items", "execution_digest"),
     ("observation_attempts", "result_digest"),
     ("observation_attempts", "provider_request_digest"),
     ("observation_tool_calls", "action_digest"),
@@ -443,6 +461,12 @@ def _write_creator_resources(root: Path) -> Path:
         newline="\n",
     )
     return root.resolve()
+
+
+def _write_data_rights_identity_secret(secrets_root: Path) -> Path:
+    secret = secrets_root / "data-rights-identity"
+    secret.write_text(secrets.token_urlsafe(48), encoding="utf-8", newline="\n")
+    return secret
 
 
 async def _artifact_chunks(*values: bytes) -> AsyncIterator[bytes]:
@@ -645,6 +669,46 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         gateway = PostgreSQLSchemaGateway()
         return gateway.install(conninfo, environment_id=environment_id)
 
+    def test_data_rights_artifact_fk_contract_matches_installed_catalog(self) -> None:
+        fixture = self.create_database()
+        self._install_current(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+        with psycopg.connect(fixture.runtime_dsn) as connection:
+            installed = connection.execute(
+                """SELECT source_table.relname,source_column.attname
+                   FROM pg_catalog.pg_constraint AS fk
+                   JOIN pg_catalog.pg_class AS source_table
+                     ON source_table.oid=fk.conrelid
+                   JOIN pg_catalog.pg_namespace AS source_namespace
+                     ON source_namespace.oid=source_table.relnamespace
+                   JOIN pg_catalog.pg_class AS target_table
+                     ON target_table.oid=fk.confrelid
+                   JOIN pg_catalog.pg_namespace AS target_namespace
+                     ON target_namespace.oid=target_table.relnamespace
+                   JOIN pg_catalog.pg_attribute AS source_column
+                     ON source_column.attrelid=source_table.oid
+                    AND source_column.attnum=fk.conkey[1]
+                   JOIN pg_catalog.pg_attribute AS target_column
+                     ON target_column.attrelid=target_table.oid
+                    AND target_column.attnum=fk.confkey[1]
+                   WHERE fk.contype='f'
+                     AND pg_catalog.cardinality(fk.conkey)=1
+                     AND pg_catalog.cardinality(fk.confkey)=1
+                     AND source_namespace.nspname='armi'
+                     AND target_namespace.nspname='armi'
+                     AND target_table.relname='artifacts'
+                     AND target_column.attname='artifact_id'
+                   ORDER BY source_table.relname,source_column.attname"""
+            ).fetchall()
+        declared = sorted(
+            (field.table_name, field.column_name)
+            for contract in DATA_RIGHTS_OWNER_CONTRACTS
+            for field in contract.artifact_fields
+        )
+        self.assertEqual(installed, declared)
+
     def test_current_schema_installs_once_into_an_empty_database(self) -> None:
         fixture = self.create_database(environment_id=_SUMMARY_ENVIRONMENT_ID)
         installed = self._install_current(
@@ -652,7 +716,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             environment_id=fixture.environment_id,
         )
         self.assertEqual(installed.status, "current")
-        self.assertEqual(installed.table_count, 107)
+        self.assertEqual(installed.table_count, 110)
         self.assertEqual(installed.current_revision, "0000")
         self.assertEqual(installed.head_revision, "0000")
         status = PostgreSQLSchemaGateway().status(
@@ -833,6 +897,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             creator_bearer = "creator-v1." + secrets.token_urlsafe(32)
             creator_secret = secrets_root / "creator"
             creator_secret.write_text(creator_bearer, encoding="utf-8", newline="\n")
+            identity_secret = _write_data_rights_identity_secret(secrets_root)
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
                 listener.bind(("127.0.0.1", 0))
                 runtime_port = int(listener.getsockname()[1])
@@ -848,6 +913,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         f"  database.runtime: file:{runtime_secret.as_posix()}",
                         f"  database.migrator: file:{migrator_secret.as_posix()}",
                         f"  creator.bearer: file:{creator_secret.as_posix()}",
+                        f"  data_rights.identity_token_key: file:{identity_secret.as_posix()}",
                     )
                 ),
                 encoding="utf-8",
@@ -1109,6 +1175,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 messages=ExternalMessageInputRepository(
                     bootstrap_evidence().read,
                     bootstrap_opportunity_admission(),
+                    _TEST_IDENTITY_TOKENS,
                 ),
                 creator_inputs=CreatorInputRepository(
                     bootstrap_evidence().write,
@@ -1119,6 +1186,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     bootstrap_evidence().write,
                     bootstrap_evidence().read,
                     bootstrap_opportunity_admission(),
+                    _TEST_IDENTITY_TOKENS,
                 ),
                 unit_of_work_factory=input_factory,
                 data_rights=bootstrap_data_rights_core().gate,
@@ -1255,6 +1323,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     evidence=bootstrap_evidence().write,
                     evidence_read=bootstrap_evidence().read,
                     interaction=PostgreSQLInteractionPerception(),
+                    data_rights=bootstrap_data_rights_core().fence,
                     opportunity=bootstrap_opportunity_admission(),
                     fetch=_ExternalMediaFetch(),
                     recognizer=_ExternalContentRecognizer(),
@@ -1732,6 +1801,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 encoding="utf-8",
                 newline="\n",
             )
+            identity_secret = _write_data_rights_identity_secret(secrets_root)
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
                 listener.bind(("127.0.0.1", 0))
                 runtime_port = int(listener.getsockname()[1])
@@ -1749,6 +1819,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         f"  database.runtime: file:{runtime_secret.as_posix()}",
                         f"  database.migrator: file:{migrator_secret.as_posix()}",
                         f"  creator.bearer: file:{creator_secret.as_posix()}",
+                        f"  data_rights.identity_token_key: file:{identity_secret.as_posix()}",
                     )
                 ),
                 encoding="utf-8",
@@ -1910,7 +1981,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         "/v1/relationships/current": "creator-relationship.v2",
                         "/v1/prompts/creator-guidance": "creator-prompt.v1",
                         "/v1/other-human-records?limit=1": "other-human-record.v1",
-                        "/v1/data-rights/orders": "data-rights-order-collection.v2",
+                        "/v1/data-rights/orders": "data-rights-order-collection.v3",
                         "/v1/subject/summary": "subject-summary.v1",
                         "/v1/capability-requests?limit=1": "capability-request.v4",
                     }
@@ -2150,6 +2221,20 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     deleted = json.loads(delete_response.read())
                     self.assertEqual(delete_response.status, 201, deleted)
                     self.assertIn(deleted["execution_status"], {"completed", "partial"})
+                    runtime_after_delete = invoke("status", *root_argument)
+                    diagnostics_after_delete = tuple(
+                        path.read_text(encoding="utf-8")
+                        for path in sorted((data_root / "logs").glob("*.jsonl"))
+                    )
+                    self.assertEqual(
+                        runtime_after_delete["status"],
+                        "running",
+                        diagnostics_after_delete,
+                    )
+                    connection.close()
+                    connection = http.client.HTTPConnection(
+                        "127.0.0.1", runtime_port, timeout=5
+                    )
                     connection.request(
                         "POST",
                         "/v1/local/other-humans/p1-clean-friend/scenes/default/messages",
@@ -2781,7 +2866,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 require_runtime_fence=False,
             )
             storage = _publishing_artifact_store(root, factory)
+            custody = PostgreSQLExecutionCustody(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+                pool_max=1,
+                pool_timeout_seconds=2,
+            )
             await factory.open()
+            await custody.open()
             await storage.prepare()
             try:
                 await BirthTransaction(
@@ -2790,6 +2882,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     _birth_repository(),
                     factory,
                 ).birth(manifest)
+                data_rights = bootstrap_data_rights_core()
                 gateway = CodexTaskSourceGateway(
                     factory,
                     storage=storage,
@@ -2802,13 +2895,16 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     ),
                     evidence=bootstrap_evidence().write,
                     evidence_read=bootstrap_evidence().read,
-                    identity=bootstrap_interaction_identity(),
+                    identity=bootstrap_interaction_identity(_TEST_IDENTITY_TOKENS),
                     opportunity=bootstrap_opportunity_admission(),
                     effect=bootstrap_effect_codex_lifecycle(
                         _AllowDispatchAuthorization()
                     ),
                     expression=bootstrap_expression_action_ports().intents,
                     sources=bootstrap_codex_read_ports().task_sources,
+                    custody=custody,
+                    data_rights=data_rights.gate,
+                    data_rights_fence=data_rights.fence,
                     notifier=None,
                     diagnostic=lambda _event: None,
                 )
@@ -2864,6 +2960,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     )
                 return first, repeated, command
             finally:
+                await custody.close()
                 await factory.close()
 
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
@@ -7473,6 +7570,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 encoding="utf-8",
                 newline="\n",
             )
+            identity_secret = _write_data_rights_identity_secret(secrets_root)
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
                 listener.bind(("127.0.0.1", 0))
                 runtime_port = int(listener.getsockname()[1])
@@ -7487,6 +7585,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         "secret_locators:",
                         f"  database.runtime: file:{runtime_secret.as_posix()}",
                         f"  creator.bearer: file:{creator_secret.as_posix()}",
+                        f"  data_rights.identity_token_key: file:{identity_secret.as_posix()}",
                     )
                 ),
                 encoding="utf-8",
@@ -7521,9 +7620,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 while time.monotonic() < deadline:
                     if process.poll() is not None:
                         stdout, stderr = process.communicate(timeout=5)
+                        diagnostics = tuple(
+                            path.read_text(encoding="utf-8")
+                            for path in sorted((data_root / "logs").glob("*.jsonl"))
+                        )
                         self.fail(
                             "born Runtime exited before listening: "
-                            f"stdout={stdout!r} stderr={stderr!r}"
+                            f"exit={process.returncode!r} stdout={stdout!r} "
+                            f"stderr={stderr!r} diagnostics={diagnostics!r}"
                         )
                     try:
                         with socket.create_connection(
@@ -7537,9 +7641,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 else:
                     process.kill()
                     stdout, stderr = process.communicate()
+                    diagnostics = tuple(
+                        path.read_text(encoding="utf-8")
+                        for path in sorted((data_root / "logs").glob("*.jsonl"))
+                    )
                     self.fail(
                         "born Runtime did not listen; "
-                        f"stdout={stdout!r}; stderr={stderr!r}"
+                        f"stdout={stdout!r}; stderr={stderr!r}; "
+                        f"diagnostics={diagnostics!r}"
                     )
                 connection = http.client.HTTPConnection(
                     "127.0.0.1",

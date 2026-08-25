@@ -25,7 +25,7 @@ describe("Creator data rights panel", () => {
         return new Response(
           JSON.stringify({
             contract_version: "1.0",
-            projection_version: "data-rights-order-summary.v2",
+            projection_version: "data-rights-order-summary.v3",
             order_id: ORDER_ID,
             requester_party_id: ORDER_ID,
             requester_kind: "creator",
@@ -45,11 +45,11 @@ describe("Creator data rights panel", () => {
       return new Response(
         JSON.stringify({
           contract_version: "1.0",
-          projection_version: "data-rights-order-collection.v2",
+          projection_version: "data-rights-order-collection.v3",
           orders: [
             {
               contract_version: "1.0",
-              projection_version: "data-rights-order-detail.v2",
+              projection_version: "data-rights-order-detail.v3",
               order_id: ORDER_ID,
               requester_party_id: ORDER_ID,
               requester_kind: "creator",
@@ -63,7 +63,7 @@ describe("Creator data rights panel", () => {
               completed_at: "2026-08-08T05:00:01.000000Z",
               newly_created: false,
               items: [],
-              remaining_locations: ["objective_history"],
+              retention_reasons: ["objective_history"],
               timeline: [
                 {
                   event_kind: "order_effective",
@@ -97,7 +97,7 @@ describe("Creator data rights panel", () => {
       </QueryClientProvider>,
     );
 
-    await screen.findByText("仍保留于：objective_history");
+    await screen.findByText("保留理由：objective_history");
     await user.selectOptions(screen.getByLabelText("命令"), "delete_related");
     expect(
       screen.getByRole("button", { name: "执行删除相关本地数据" }),

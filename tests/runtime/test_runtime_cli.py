@@ -195,6 +195,7 @@ class RuntimeCliTests(unittest.TestCase):
             "database.runtime": "database.runtime",
             "creator.bootstrap.verify": "creator.bearer",
             "creator.timeline.cursor": "creator.bearer",
+            "data_rights.identity_token": "data_rights.identity_token_key",
             "model.request": "model.ark_api_key",
             "speech.recognition": "speech.volc_credentials",
             "web.search": "model.ark_api_key",

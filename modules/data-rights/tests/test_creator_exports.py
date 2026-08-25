@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import tempfile
 import unittest
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
@@ -56,6 +57,18 @@ class _Storage:
         return _Stream(value)
 
 
+class _Custody:
+    @asynccontextmanager
+    async def hold(self, _requests, *, deadline_at):
+        del deadline_at
+        yield object()
+
+
+class _PartyRoster:
+    async def all_party_ids(self, _transaction):
+        return ()
+
+
 def _artifact(content: bytes) -> _ArtifactSnapshot:
     digest = Digest.from_bytes(content)
     return _ArtifactSnapshot(
@@ -84,10 +97,12 @@ class CreatorExportContractTests(unittest.TestCase):
             )
             service = CreatorExportService(
                 creator_party_id=uuid7(),
+                custody=_Custody(),  # type: ignore[arg-type]
                 data_root=root,
                 storage=_Storage({}),  # type: ignore[arg-type]
                 unit_of_work_factory=object(),  # type: ignore[arg-type]
                 participants=(),
+                party_roster=_PartyRoster(),  # type: ignore[arg-type]
             )
             result = CreatorExportResult(
                 uuid7(),
@@ -113,10 +128,12 @@ class CreatorExportContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             service = CreatorExportService(
                 creator_party_id=uuid7(),
+                custody=_Custody(),  # type: ignore[arg-type]
                 data_root=Path(directory).resolve(),
                 storage=_Storage({}),  # type: ignore[arg-type]
                 unit_of_work_factory=object(),  # type: ignore[arg-type]
                 participants=(),
+                party_roster=_PartyRoster(),  # type: ignore[arg-type]
             )
             with (
                 patch.object(
@@ -174,10 +191,12 @@ class CreatorExportArtifactTests(unittest.IsolatedAsyncioTestCase):
             root = Path(temporary).resolve()
             service = CreatorExportService(
                 creator_party_id=uuid7(),
+                custody=_Custody(),  # type: ignore[arg-type]
                 data_root=root,
                 storage=storage,  # type: ignore[arg-type]
                 unit_of_work_factory=object(),  # type: ignore[arg-type]
                 participants=(),
+                party_roster=_PartyRoster(),  # type: ignore[arg-type]
             )
             staging = root / "staging"
             staging.mkdir()
@@ -202,10 +221,12 @@ class CreatorExportArtifactTests(unittest.IsolatedAsyncioTestCase):
             root = Path(temporary).resolve()
             service = CreatorExportService(
                 creator_party_id=uuid7(),
+                custody=_Custody(),  # type: ignore[arg-type]
                 data_root=root,
                 storage=storage,  # type: ignore[arg-type]
                 unit_of_work_factory=object(),  # type: ignore[arg-type]
                 participants=(),
+                party_roster=_PartyRoster(),  # type: ignore[arg-type]
             )
             staging = root / "staging"
             staging.mkdir()
@@ -232,10 +253,12 @@ class CreatorExportArtifactTests(unittest.IsolatedAsyncioTestCase):
             root = Path(temporary).resolve()
             service = CreatorExportService(
                 creator_party_id=uuid7(),
+                custody=_Custody(),  # type: ignore[arg-type]
                 data_root=root,
                 storage=storage,  # type: ignore[arg-type]
                 unit_of_work_factory=object(),  # type: ignore[arg-type]
                 participants=(),
+                party_roster=_PartyRoster(),  # type: ignore[arg-type]
             )
             staging = root / "staging"
             staging.mkdir()

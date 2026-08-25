@@ -62,7 +62,7 @@ def test_baseline_contains_authoritative_schema() -> None:
     assert "CREATE TABLE armi.life_materials" in sql
     assert "CREATE TABLE armi.dialogue_decisions" in sql
     assert "CREATE TABLE armi.creator_exports" in sql
-    assert "CREATE TABLE armi.deletion_orders" in sql
+    assert "CREATE TABLE armi.data_rights_orders" in sql
     assert "CREATE TABLE armi.schema_migrations" not in sql
     assert "external.private.message.send" in sql
 
@@ -102,7 +102,7 @@ def test_gateway_exposes_install_and_status_only() -> None:
     assert callable(PostgreSQLSchemaGateway.install)
     assert callable(PostgreSQLSchemaGateway.status)
     assert not hasattr(PostgreSQLSchemaGateway, "migrate")
-    assert "armi.schema-baseline.v4" in (
+    assert "armi.schema-baseline.v5" in (
         RESOURCE / "baseline" / "10_runtime_and_subject.sql"
     ).read_text(encoding="utf-8")
 

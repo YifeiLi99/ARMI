@@ -123,17 +123,17 @@ def test_delete_related_tracks_pending_and_terminal_s015_execution() -> None:
             DataRightsScopeKind.PARTY_LOCAL_DATA,
             party_id,
             "effective",
-            DataRightsExecutionStatus.NOT_REQUIRED,
+            DataRightsExecutionStatus.PENDING,
             Digest.from_bytes(b"request"),
             now,
-            None,
+            now,
             True,
         )
 
 
 def test_deletion_item_retry_only_updates_a_granted_settlement_column() -> None:
     statement = inspect.getsource(LocalDataDeletionRepository._insert_target)
-    assert "SET result_status = armi.deletion_items.result_status" in statement
+    assert "SET result_status = armi.data_rights_order_items.result_status" in statement
     assert "SET target_ref = EXCLUDED.target_ref" not in statement
 
 

@@ -51,7 +51,7 @@ docs/                       私有叙述性设计与外部研究资料
 
 `docs/` 被 Git 忽略，用于本地继续设计；精确的字段、路由、状态值和依赖版本仍以当前代码、DDL、配置与锁文件为准。文档入口见 [`docs/README.md`](docs/README.md)。
 
-数据库只保留唯一 Alembic `0000` 基线，并以 `armi.schema-baseline.v4` 标识当前数据库身份。Runtime 与 Admin 的固定仓储写入按“角色—表—INSERT/UPDATE/DELETE”授权，不使用逐字段写权限；`db status` 与日常启动入口会同时核对 revision、基线身份和完整权限合同，身份漂移以 `DB-SCHEMA-CONTRACT` 拒绝，权限漂移以 `DB-ROLE-GRANT` 拒绝。
+数据库只保留唯一 Alembic `0000` 基线，并以 `armi.schema-baseline.v5` 标识当前数据库身份。Runtime 与 Admin 的固定仓储写入按“角色—表—INSERT/UPDATE/DELETE”授权，不使用逐字段写权限；`db status` 与日常启动入口会同时核对 revision、基线身份和完整权限合同，身份漂移以 `DB-SCHEMA-CONTRACT` 拒绝，权限漂移以 `DB-ROLE-GRANT` 拒绝。
 
 ## 本地开发入口
 
@@ -121,15 +121,17 @@ uv run armi stop --environment-root C:\path\to\environment
 
 caller-declared 的本地其他人入口通过 `armi other-human` 调用运行中 Runtime 的私有本机控制面，不进入 Creator 公共 OpenAPI，也不直写数据库。命令覆盖 party 注册、scene 开关、带稳定幂等键的消息接纳，以及 `data-rights request/list/get`；该入口只声明调用方提供的本地身份，不能证明现实平台身份或真实送达。
 
+Data Rights 的三种命令共享持续 lineage 合同：`stop_contact` 阻断新接触，`stop_use` 从生效事务起隐藏相关来源但保留受限存储，`delete_related` 进一步红删正文并解除逻辑 artifact。Runtime 必须配置至少 32 字节的 `data_rights.identity_token_key`；删除身份正文后仍以渠道域隔离的 HMAC token 命中原 party，不能重新注册为新人。Creator 工作台使用 v3 投影展示逐项 owner、动作、保留理由、重试资格和受管快照责任。
+
 日常及安装后的 Creator 工作台只在 Runtime 的本机地址上提供。页面打开后会自动建立进程内连接并直接进入工作台，不需要登录、bootstrap code 或手动注销。Vite 地址仅用于源码前端开发。
 
-数据库结构只由唯一 Alembic `0000` 管理。`db install` 拒绝已有用户对象，并在一个事务中安装有序模块化基线、revision 与 `armi.schema-baseline.v4` 身份。ARMI 是本地单实例项目，不提供内部数据库迁移或历史兼容入口；基线变化时必须停止 Runtime、明确删除旧数据库并重新安装。Runtime 只接受与当前源码完全一致的 revision、基线身份和角色权限合同。
+数据库结构只由唯一 Alembic `0000` 管理。`db install` 拒绝已有用户对象，并在一个事务中安装有序模块化基线、revision 与 `armi.schema-baseline.v5` 身份。ARMI 是本地单实例项目，不提供内部数据库迁移或历史兼容入口；基线变化时必须停止 Runtime、明确删除旧数据库并重新安装。Runtime 只接受与当前源码完全一致的 revision、基线身份和角色权限合同。
 
 已获明确授权的本地彻底重置在停止 Runtime 后使用 `tools/reset_local_environment_data.ps1 -EnvironmentRoot C:\path\to\environment -Apply` 清空并重建 artifacts、backups、Codex runner、exports、logs 与 run 目录。脚本不删除数据库卷，也不触碰环境配置、凭据、模型、工具、NapCat 或渠道配置；数据库卷仍须独立核对后删除。
 
 需要把本地 ARMI 恢复到出生后的初始状态时，显式运行 `uv run armi reset --environment-root C:\path\to\environment --apply`。命令先优雅停止 Runtime 与语义召回，只清空权威数据库以及 artifacts、backups、Codex runner、exports、logs、run，再安装当前唯一基线并执行固定出生 manifest；环境配置、凭据、模型、工具、NapCat 与渠道配置保持不变。该操作不会自动备份，`--apply` 即表示操作者已经确认目标环境和不可恢复的数据删除。
 
-离线全量灾备与隔离恢复演练使用 `armi recovery create`、`armi recovery verify` 和 `armi recovery drill --apply`。`armi.recovery-backup.v2` 按物理对象去重保存 custom-format 数据库 dump、全部仍被引用且 verified 的对象、schema head 与 Runtime 权威身份；恢复到隔离数据库后通过正式 owner recovery roster 检查业务一致性。它与 `armi.creator-export.v3` Creator 数据导出是不同协议。
+离线全量灾备与隔离恢复演练使用 `armi recovery create`、`armi recovery verify` 和 `armi recovery drill --apply`。`armi.recovery-backup.v3` 按物理对象去重保存 custom-format 数据库 dump、全部仍被引用且 verified 的对象、schema head、Runtime 权威身份以及 party scope/generation；恢复到隔离数据库后通过正式 owner recovery roster 检查业务一致性。它与 `armi.creator-export.v4` Creator 数据导出是不同协议。两类已发布材料都会登记为受管快照；若后续删除命中其中的 party，活动库仍立即红删，但订单保持 `partial + operator_action_required`，直到操作者移走材料并调用原 retry API 核验闭合。
 
 日常开发从改动相关的最小检查开始。仓库提供三层确定性门禁：
 

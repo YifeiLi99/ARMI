@@ -948,11 +948,11 @@ class _DataRightsOrders:
             (
                 DataRightsExecutionStatus.PENDING
                 if command.order_kind is DataRightsOrderKind.DELETE_RELATED
-                else DataRightsExecutionStatus.NOT_REQUIRED
+                else DataRightsExecutionStatus.COMPLETED
             ),
             Digest.from_bytes(command.order_kind.value.encode()),
             now,
-            None,
+            (None if command.order_kind is DataRightsOrderKind.DELETE_RELATED else now),
             True,
         )
         self.idempotent[key] = result
@@ -1600,7 +1600,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
 
         self.assertEqual(creator_order.status_code, 201)
         self.assertEqual(creator_order.json()["scope_kind"], "party_local_data")
-        self.assertEqual(creator_order.json()["execution_status"], "not_required")
+        self.assertEqual(creator_order.json()["execution_status"], "completed")
         self.assertEqual(creator_repeat.status_code, 200)
         self.assertFalse(creator_repeat.json()["newly_created"])
         self.assertEqual(creator_query.status_code, 200)
