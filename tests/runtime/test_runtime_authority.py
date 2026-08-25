@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import unittest
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 from uuid import uuid4, uuid7
 
 from armi_kernel.application import (
@@ -179,6 +180,24 @@ class RuntimeAuthorityContractTests(unittest.TestCase):
             released = await controller.release()
             self.assertEqual(released.status, RuntimeAuthorityStatus.STOPPED)
             self.assertEqual(controller.snapshot().state, LocalAuthorityState.INACTIVE)
+
+        asyncio.run(exercise())
+
+    def test_local_monotonic_deadline_rejects_writes_without_database_progress(
+        self,
+    ) -> None:
+        async def exercise() -> None:
+            port = _AuthorityPort()
+            with patch(
+                "armi_runtime.composition.authority.monotonic",
+                side_effect=(100.0, 131.0),
+            ):
+                controller = RuntimeAuthorityController(port, lease_seconds=30)
+                await controller.acquire(RuntimeInstanceId(uuid7()))
+                with self.assertRaises(RuntimeAuthorityViolation) as expired:
+                    controller.require_writable()
+            self.assertEqual(expired.exception.code, "AUTH-LOCAL-LEASE-EXPIRED")
+            self.assertEqual(controller.snapshot().state, LocalAuthorityState.LOST)
 
         asyncio.run(exercise())
 

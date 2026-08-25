@@ -508,6 +508,17 @@ CREATE TABLE armi.parties (
     CONSTRAINT parties_status_check CHECK ((status = 'active'::text))
 );
 
+-- Monotonic party fences captured by every party-bound slow operation.
+CREATE TABLE armi.data_rights_party_fences (
+    party_id uuid NOT NULL,
+    contact_generation bigint DEFAULT 1 NOT NULL,
+    use_generation bigint DEFAULT 1 NOT NULL,
+    updated_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
+    CONSTRAINT data_rights_party_fences_pkey PRIMARY KEY (party_id),
+    CONSTRAINT data_rights_party_fences_contact_generation_check CHECK ((contact_generation > 0)),
+    CONSTRAINT data_rights_party_fences_use_generation_check CHECK ((use_generation > 0))
+);
+
 --
 -- Name: party_input_interactions; Type: TABLE; Schema: armi; Owner: -
 --

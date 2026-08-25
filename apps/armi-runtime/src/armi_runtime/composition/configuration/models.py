@@ -354,6 +354,13 @@ class RuntimeConfig(_FrozenModel):
             or self.codex.total_timeout_seconds >= deadline
         ):
             raise ValueError("external timeout must be less than work deadline")
+        if (
+            self.runtime.heartbeat_seconds + 2 * self.database.statement_timeout_seconds
+            >= self.runtime.lease_seconds
+        ):
+            raise ValueError(
+                "runtime heartbeat plus two statement timeouts must be less than lease"
+            )
         return self
 
 

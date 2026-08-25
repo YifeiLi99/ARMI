@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from time import monotonic
 
 from armi_kernel.application import (
     RuntimeAuthorityPort,
@@ -40,6 +41,7 @@ class RuntimeAuthorityController:
         "_connection_errors",
         "_fence",
         "_lease_seconds",
+        "_local_lease_deadline",
         "_port",
         "_state",
     )
@@ -55,6 +57,7 @@ class RuntimeAuthorityController:
         self._state = LocalAuthorityState.INACTIVE
         self._fence: RuntimeFence | None = None
         self._connection_errors = 0
+        self._local_lease_deadline: float | None = None
 
     async def acquire(
         self,
@@ -69,10 +72,12 @@ class RuntimeAuthorityController:
         self._fence = record.fence
         self._state = LocalAuthorityState.ACTIVE
         self._connection_errors = 0
+        self._local_lease_deadline = monotonic() + self._lease_seconds
         return record
 
     async def heartbeat_once(self) -> AuthorityControlSnapshot:
         fence = self._require_fence()
+        self._expire_local_lease()
         if self._state is LocalAuthorityState.LOST:
             raise RuntimeAuthorityViolation("AUTH-LOCAL-LOST")
         try:
@@ -90,9 +95,11 @@ class RuntimeAuthorityController:
                 raise RuntimeAuthorityViolation("AUTH-HEARTBEAT-LOST") from None
             self._state = LocalAuthorityState.LOST
             raise
+        self._expire_local_lease()
         draining = self._state is LocalAuthorityState.DRAINING
         self._fence = record.fence
         self._connection_errors = 0
+        self._local_lease_deadline = monotonic() + self._lease_seconds
         self._state = (
             LocalAuthorityState.DRAINING if draining else LocalAuthorityState.ACTIVE
         )
@@ -110,6 +117,7 @@ class RuntimeAuthorityController:
         self._state = LocalAuthorityState.INACTIVE
         self._fence = None
         self._connection_errors = 0
+        self._local_lease_deadline = None
         return record
 
     def begin_drain(self) -> AuthorityControlSnapshot:
@@ -124,6 +132,7 @@ class RuntimeAuthorityController:
         raise RuntimeAuthorityViolation("AUTH-LOCAL-LOST")
 
     def require_writable(self) -> RuntimeFence:
+        self._expire_local_lease()
         if self._state is LocalAuthorityState.SUSPENDED:
             raise RuntimeAuthorityViolation("AUTH-LOCAL-SUSPENDED")
         if self._state is not LocalAuthorityState.ACTIVE or self._fence is None:
@@ -131,6 +140,7 @@ class RuntimeAuthorityController:
         return self._fence
 
     def snapshot(self) -> AuthorityControlSnapshot:
+        self._expire_local_lease()
         return AuthorityControlSnapshot(
             state=self._state,
             fence=self._fence,
@@ -141,6 +151,16 @@ class RuntimeAuthorityController:
         if self._fence is None:
             raise RuntimeAuthorityViolation("AUTH-LOCAL-STATE")
         return self._fence
+
+    def _expire_local_lease(self) -> None:
+        if (
+            self._local_lease_deadline is not None
+            and monotonic() >= self._local_lease_deadline
+            and self._state
+            in {LocalAuthorityState.ACTIVE, LocalAuthorityState.SUSPENDED}
+        ):
+            self._state = LocalAuthorityState.LOST
+            raise RuntimeAuthorityViolation("AUTH-LOCAL-LEASE-EXPIRED")
 
 
 __all__ = (

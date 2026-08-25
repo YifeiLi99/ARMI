@@ -245,6 +245,27 @@ CREATE TABLE armi.cognitive_context_items (
     CONSTRAINT cognitive_context_items_trust_class_check CHECK ((trust_class = ANY (ARRAY['runtime_authority'::text, 'subjective_state'::text, 'external_claim'::text, 'policy'::text])))
 );
 
+-- Exact owner dependencies captured for context and revalidated before settlement.
+CREATE TABLE armi.cognitive_context_dependencies (
+    context_dependency_id uuid NOT NULL,
+    cognitive_episode_id uuid NOT NULL,
+    owner_kind text NOT NULL,
+    owner_ref uuid NOT NULL,
+    source_kind text NOT NULL,
+    source_ref uuid NOT NULL,
+    source_version bigint NOT NULL,
+    collection_ordinal integer NOT NULL,
+    freshness_policy text NOT NULL,
+    CONSTRAINT cognitive_context_dependencies_pkey PRIMARY KEY (context_dependency_id),
+    CONSTRAINT cognitive_context_dependencies_identity_key UNIQUE (cognitive_episode_id, owner_kind, source_kind, source_ref, collection_ordinal),
+    CONSTRAINT cognitive_context_dependencies_id_check CHECK ((uuid_extract_version(context_dependency_id) = 7)),
+    CONSTRAINT cognitive_context_dependencies_owner_kind_check CHECK ((owner_kind ~ '^[a-z][a-z0-9._-]{0,63}$'::text)),
+    CONSTRAINT cognitive_context_dependencies_source_kind_check CHECK ((source_kind ~ '^[a-z][a-z0-9._-]{0,63}$'::text)),
+    CONSTRAINT cognitive_context_dependencies_source_version_check CHECK ((source_version >= 0)),
+    CONSTRAINT cognitive_context_dependencies_ordinal_check CHECK ((collection_ordinal >= 0)),
+    CONSTRAINT cognitive_context_dependencies_policy_check CHECK ((freshness_policy = ANY (ARRAY['current_required'::text, 'immutable_selected'::text])))
+);
+
 --
 -- Name: cognitive_dialogue_aggregates; Type: TABLE; Schema: armi; Owner: -
 --

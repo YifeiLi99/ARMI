@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 from uuid import uuid7
 
 import pytest
+from armi_kernel.application import WorkType
 from armi_kernel.contracts import Digest
 from armi_web_observation._observation_postgresql import (
     PostgreSQLWebObservationRepository,
@@ -39,6 +40,8 @@ def test_web_attempt_recovery_only_replays_pre_dispatch(
         attempt_id=SimpleNamespace(value=uuid7()),
         owner=uuid7(),
         token=5,
+        work_kind=WorkType.WEB_SEARCH_INVOKE,
+        work_owner=SimpleNamespace(kind="web_observation", reference=request_id),
     )
 
     async def execute(statement: str, _parameters: object = None) -> _Cursor:
@@ -49,7 +52,7 @@ def test_web_attempt_recovery_only_replays_pre_dispatch(
         return _Cursor()
 
     connection = SimpleNamespace(execute=AsyncMock(side_effect=execute))
-    work = SimpleNamespace(fail=AsyncMock())
+    work = SimpleNamespace(fail=AsyncMock(), validate_lease=AsyncMock())
     unit_of_work = SimpleNamespace(
         transaction=connection,
         work=work,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import UUID, uuid7
@@ -32,13 +33,6 @@ _SEARCH_PATH = "pg_catalog, armi"
 _AUTHORITY_KEY_PREFIX = "armi.runtime-authority:"
 
 
-async def _configure(
-    connection: psycopg.AsyncConnection[tuple[Any, ...]],
-) -> None:
-    await connection.set_autocommit(True)
-    await connection.execute("SET search_path TO pg_catalog, armi")
-
-
 async def _reset(
     connection: psycopg.AsyncConnection[tuple[Any, ...]],
 ) -> None:
@@ -57,6 +51,7 @@ class PostgreSQLRuntimeAuthority:
         "_expected_role",
         "_pool",
         "_pool_timeout_seconds",
+        "_statement_timeout_seconds",
     )
 
     def __init__(
@@ -65,10 +60,24 @@ class PostgreSQLRuntimeAuthority:
         *,
         environment_id: UUID,
         pool_timeout_seconds: int,
+        statement_timeout_seconds: int,
     ) -> None:
         self._environment_id = environment_id
         self._expected_role = physical_role_name(environment_id, "runtime")
         self._pool_timeout_seconds = pool_timeout_seconds
+        self._statement_timeout_seconds = statement_timeout_seconds
+
+        async def configure(
+            connection: psycopg.AsyncConnection[tuple[Any, ...]],
+        ) -> None:
+            await connection.set_autocommit(True)
+            await connection.execute("SET search_path TO pg_catalog, armi")
+            timeout = str(statement_timeout_seconds * 1000)
+            await connection.execute(
+                """SELECT pg_catalog.set_config('statement_timeout',%s,false),
+                          pg_catalog.set_config('lock_timeout',%s,false)""",
+                (timeout, timeout),
+            )
 
         async def check(
             connection: psycopg.AsyncConnection[tuple[Any, ...]],
@@ -86,7 +95,7 @@ class PostgreSQLRuntimeAuthority:
             min_size=1,
             max_size=2,
             open=False,
-            configure=_configure,
+            configure=configure,
             check=check,
             reset=_reset,
             timeout=float(pool_timeout_seconds),
@@ -111,6 +120,7 @@ class PostgreSQLRuntimeAuthority:
         commit_may_be_unknown = False
         try:
             async with (
+                asyncio.timeout(self._statement_timeout_seconds),
                 self._pool.connection(
                     timeout=float(self._pool_timeout_seconds)
                 ) as connection,
@@ -245,7 +255,7 @@ class PostgreSQLRuntimeAuthority:
             raise
         except AuditViolation:
             raise RuntimeAuthorityViolation("AUTH-AUDIT") from None
-        except PoolTimeout:
+        except PoolTimeout, TimeoutError:
             raise RuntimeAuthorityViolation("AUTH-DATABASE") from None
         except psycopg.OperationalError:
             if not commit_may_be_unknown:
@@ -265,6 +275,7 @@ class PostgreSQLRuntimeAuthority:
     ) -> RuntimeAuthorityRecord:
         try:
             async with (
+                asyncio.timeout(self._statement_timeout_seconds),
                 self._pool.connection(
                     timeout=float(self._pool_timeout_seconds)
                 ) as connection,
@@ -315,12 +326,13 @@ class PostgreSQLRuntimeAuthority:
             raise
         except AuditViolation:
             raise RuntimeAuthorityViolation("AUTH-AUDIT") from None
-        except psycopg.Error, PoolTimeout:
+        except psycopg.Error, PoolTimeout, TimeoutError:
             raise RuntimeAuthorityViolation("AUTH-DATABASE") from None
 
     async def release(self, fence: RuntimeFence) -> RuntimeAuthorityRecord:
         try:
             async with (
+                asyncio.timeout(self._statement_timeout_seconds),
                 self._pool.connection(
                     timeout=float(self._pool_timeout_seconds)
                 ) as connection,
@@ -369,7 +381,7 @@ class PostgreSQLRuntimeAuthority:
             raise
         except AuditViolation:
             raise RuntimeAuthorityViolation("AUTH-AUDIT") from None
-        except psycopg.Error, PoolTimeout:
+        except psycopg.Error, PoolTimeout, TimeoutError:
             raise RuntimeAuthorityViolation("AUTH-DATABASE") from None
 
     async def _current_subject(

@@ -22,7 +22,7 @@ from armi_cognition._model_postgresql import (
     PostgreSQLCognitiveModelRepository,
 )
 from armi_cognition._recovery import CognitionRecoveryParticipant
-from armi_kernel.application import ModelAttemptId, ModelViolation
+from armi_kernel.application import ModelAttemptId, ModelViolation, WorkType
 from armi_kernel.contracts import Digest, TraceId
 from armi_runtime_foundation import RecoveryWorkSnapshot
 
@@ -87,6 +87,8 @@ def test_model_attempt_recovery_only_replays_pre_dispatch(
         attempt_id=SimpleNamespace(value=uuid7()),
         owner=uuid7(),
         token=3,
+        work_kind=WorkType.COGNITION_MODEL_INVOKE,
+        work_owner=SimpleNamespace(kind="cognitive_episode", reference=episode_id),
     )
 
     async def execute(statement: str, _parameters: object = None) -> _Cursor:
@@ -105,7 +107,7 @@ def test_model_attempt_recovery_only_replays_pre_dispatch(
         return _Cursor()
 
     connection = SimpleNamespace(execute=AsyncMock(side_effect=execute))
-    work = SimpleNamespace(fail=AsyncMock())
+    work = SimpleNamespace(fail=AsyncMock(), validate_lease=AsyncMock())
     unit_of_work = SimpleNamespace(
         transaction=connection,
         work=work,

@@ -38,6 +38,7 @@ from armi_kernel.application import (
     CognitiveEpisodeId,
     DurableWorkPort,
     ModelViolation,
+    TransactionIsolation,
     WorkLease,
     WorkType,
     WorkViolation,
@@ -427,6 +428,7 @@ class ContextPipeline:
     async def _snapshot(self, episode_id: UUID) -> ContextEpisodeSnapshot:
         try:
             async with self._factory.unit_of_work(
+                isolation=TransactionIsolation.REPEATABLE_READ,
                 read_only=True,
             ) as unit_of_work:
                 return await self._repository.snapshot(unit_of_work, episode_id)

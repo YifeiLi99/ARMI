@@ -661,6 +661,9 @@ class RuntimeStatusResponse(_StrictWireModel):
     environment_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     runtime_state: RuntimeState
     readiness: Readiness
+    authority_state: Literal[
+        "inactive", "active", "suspended", "draining", "lost"
+    ]
     reason_codes: Annotated[list[ReasonCode], Field(max_length=32)]
     components: Annotated[
         list[RuntimeComponentHealthResponse],

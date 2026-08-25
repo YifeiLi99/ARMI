@@ -241,11 +241,18 @@ class WorkLease:
     owner: UUID
     expires_at: Instant
     token: int
+    work_kind: WorkType
+    work_owner: WorkOwner
+    generation: int
 
     def __post_init__(self) -> None:
         if (
             type(self.work_id) is not WorkId
             or type(self.attempt_id) is not WorkAttemptId
+            or type(self.work_kind) is not WorkType
+            or type(self.work_owner) is not WorkOwner
+            or type(self.generation) is not int
+            or self.generation < 1
         ):
             raise WorkViolation("WORK-DECLARATION")
         _require_uuid7(self.owner)

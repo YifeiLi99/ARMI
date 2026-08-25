@@ -30,6 +30,7 @@ from armi_kernel.application import (
     WorkResultRef,
     WorkStatus,
     WorkType,
+    WorkViolation,
 )
 from armi_kernel.contracts import (
     Digest,
@@ -206,7 +207,7 @@ class PostgreSQLCognitiveModelRepository:
         request_artifact: ArtifactRef,
     ) -> ModelAttemptId | None:
         connection = unit_of_work.transaction
-        await self._assert_lease(connection, lease, snapshot.episode_id)
+        await self._assert_lease(unit_of_work, lease, snapshot.episode_id)
         previous = await (
             await connection.execute(
                 """
@@ -364,7 +365,7 @@ class PostgreSQLCognitiveModelRepository:
         episode_id: UUID,
     ) -> None:
         connection = unit_of_work.transaction
-        await self._assert_lease(connection, lease, episode_id)
+        await self._assert_lease(unit_of_work, lease, episode_id)
         updated = await (
             await connection.execute(
                 """
@@ -401,9 +402,10 @@ class PostgreSQLCognitiveModelRepository:
         result: ModelInvocationResult,
     ) -> None:
         connection = unit_of_work.transaction
-        await self._assert_lease(connection, lease, snapshot.episode_id)
+        await self._assert_lease(unit_of_work, lease, snapshot.episode_id)
         await self._settle_attempt(
             connection,
+            lease=lease,
             attempt_id=attempt_id,
             result=result,
             response_artifact_id=response_artifact.artifact_id,
@@ -446,9 +448,10 @@ class PostgreSQLCognitiveModelRepository:
         result: ModelInvocationResult,
     ) -> None:
         connection = unit_of_work.transaction
-        await self._assert_lease(connection, lease, snapshot.episode_id)
+        await self._assert_lease(unit_of_work, lease, snapshot.episode_id)
         await self._settle_attempt(
             connection,
+            lease=lease,
             attempt_id=attempt_id,
             result=result,
             response_artifact_id=None,
@@ -535,7 +538,7 @@ class PostgreSQLCognitiveModelRepository:
         if not code.startswith("MODEL-"):
             raise ModelViolation("MODEL-RESULT")
         connection = unit_of_work.transaction
-        await self._assert_lease(connection, lease, snapshot.episode_id)
+        await self._assert_lease(unit_of_work, lease, snapshot.episode_id)
         updated = await (
             await connection.execute(
                 """
@@ -659,7 +662,7 @@ class PostgreSQLCognitiveModelRepository:
         snapshot: ModelEpisodeSnapshot,
         code: str,
     ) -> None:
-        await self._assert_lease(unit_of_work.transaction, lease, snapshot.episode_id)
+        await self._assert_lease(unit_of_work, lease, snapshot.episode_id)
         await unit_of_work.transaction.execute(
             """UPDATE armi.cognitive_attempts
                SET dispatch_status='settled',result_status='outcome_unknown',
@@ -748,6 +751,7 @@ class PostgreSQLCognitiveModelRepository:
         self,
         connection: PostgreSQLTransaction,
         *,
+        lease: WorkLease,
         attempt_id: ModelAttemptId,
         result: ModelInvocationResult,
         response_artifact_id: ArtifactId | None,
@@ -769,6 +773,8 @@ class PostgreSQLCognitiveModelRepository:
                     error_code = %s,
                     settled_at = statement_timestamp()
                 WHERE model_attempt_id = %s
+                  AND work_id = %s
+                  AND work_attempt_id = %s
                   AND dispatch_status = 'dispatched'
                 RETURNING model_attempt_id
                 """,
@@ -783,6 +789,8 @@ class PostgreSQLCognitiveModelRepository:
                     result.status.value,
                     result.error_code,
                     attempt_id.value,
+                    lease.work_id.value,
+                    lease.attempt_id.value,
                 ),
             )
         ).fetchone()
@@ -791,13 +799,20 @@ class PostgreSQLCognitiveModelRepository:
 
     async def _assert_lease(
         self,
-        connection: object,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
         lease: WorkLease,
         episode_id: UUID,
     ) -> None:
-        del connection
-        if lease.token <= 0 or episode_id.version != 7:
+        if (
+            lease.work_kind is not _WORK_KIND
+            or lease.work_owner.kind != "cognitive_episode"
+            or lease.work_owner.reference != episode_id
+        ):
             raise ModelViolation("MODEL-WORK-STALE")
+        try:
+            await unit_of_work.work.validate_lease(lease)
+        except WorkViolation:
+            raise ModelViolation("MODEL-WORK-STALE") from None
 
     async def _artifact_ref(
         self, unit_of_work: PostgreSQLRuntimeUnitOfWork, artifact_id: UUID

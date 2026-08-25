@@ -17,7 +17,13 @@ from armi_kernel.application import (
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
     CreatorResourceKind,
+    ExecutionCustodyMode,
+    ExecutionCustodyPort,
+    ExecutionCustodyRequest,
+    ExecutionCustodyScope,
+    ExecutionCustodyScopeKind,
     TransactionIsolation,
+    ordered_custody_requests,
 )
 from armi_kernel.contracts import Digest, Instant, Purpose
 from armi_runtime_foundation import (
@@ -52,6 +58,7 @@ from .api import (
 class DataRightsOrderService(DataRightsOrderPort):
     __slots__ = (
         "_creator_party_id",
+        "_custody",
         "_deletion",
         "_lifecycle",
         "_notifier",
@@ -66,6 +73,7 @@ class DataRightsOrderService(DataRightsOrderPort):
         self,
         *,
         creator_party_id: UUID,
+        custody: ExecutionCustodyPort,
         deletion: LocalDataDeletionExecutor,
         repository: DataRightsOrderRepository,
         unit_of_work_factory: DataRightsUnitOfWorkFactory,
@@ -77,6 +85,7 @@ class DataRightsOrderService(DataRightsOrderPort):
         if creator_party_id.version != 7:
             raise DataRightsViolation("DATA-RIGHTS-COMPOSITION")
         self._creator_party_id = creator_party_id
+        self._custody = custody
         self._deletion = deletion
         self._lifecycle = lifecycle
         self._repository = repository
@@ -158,11 +167,24 @@ class DataRightsOrderService(DataRightsOrderPort):
         party_key: DataRightsPartyKey | None,
         command: DataRightsOrderCommand,
     ) -> DataRightsOrderResult:
-        result = await self._record_request(
-            requester_kind=requester_kind,
-            party_key=party_key,
-            command=command,
+        requester_party_id = await self._resolve_requester_party(
+            requester_kind, party_key
         )
+        request = ExecutionCustodyRequest(
+            ExecutionCustodyScope(
+                ExecutionCustodyScopeKind.DATA_RIGHTS_PARTY, requester_party_id
+            ),
+            ExecutionCustodyMode.EXCLUSIVE,
+        )
+        async with self._custody.hold(
+            ordered_custody_requests(request), deadline_at=None
+        ):
+            result = await self._record_request(
+                requester_kind=requester_kind,
+                party_key=party_key,
+                command=command,
+                requester_party_id=requester_party_id,
+            )
         if (
             result.order_kind is DataRightsOrderKind.DELETE_RELATED
             and result.execution_status
@@ -495,15 +517,18 @@ class DataRightsOrderService(DataRightsOrderPort):
         requester_kind: DataRightsRequesterKind,
         party_key: DataRightsPartyKey | None,
         command: DataRightsOrderCommand,
+        requester_party_id: UUID,
         _transaction_retry: int = 0,
     ) -> DataRightsOrderResult:
         try:
             async with self._uow_factory.unit_of_work(
                 isolation=TransactionIsolation.SERIALIZABLE
             ) as unit_of_work:
-                requester_party_id = await self._requester_party(
+                confirmed_party_id = await self._requester_party(
                     unit_of_work, requester_kind, party_key
                 )
+                if confirmed_party_id != requester_party_id:
+                    raise DataRightsViolation("DATA-RIGHTS-REQUESTER")
                 await unit_of_work.transaction.execute(
                     "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
                     (f"data-rights:{requester_party_id}",),
@@ -536,6 +561,11 @@ class DataRightsOrderService(DataRightsOrderPort):
                     DataRightsExecutionStatus.PENDING
                     if command.order_kind is DataRightsOrderKind.DELETE_RELATED
                     else DataRightsExecutionStatus.NOT_REQUIRED
+                )
+                await self._repository.advance_fence(
+                    unit_of_work.transaction,
+                    party_id=requester_party_id,
+                    order_kind=command.order_kind,
                 )
                 snapshot = await self._repository.insert(
                     unit_of_work,
@@ -590,8 +620,22 @@ class DataRightsOrderService(DataRightsOrderPort):
                     requester_kind=requester_kind,
                     party_key=party_key,
                     command=command,
+                    requester_party_id=requester_party_id,
                     _transaction_retry=_transaction_retry + 1,
                 )
+            raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE") from None
+
+    async def _resolve_requester_party(
+        self,
+        requester_kind: DataRightsRequesterKind,
+        party_key: DataRightsPartyKey | None,
+    ) -> UUID:
+        try:
+            async with self._uow_factory.unit_of_work(read_only=True) as unit:
+                return await self._requester_party(unit, requester_kind, party_key)
+        except DataRightsViolation:
+            raise
+        except RuntimeTransactionFailure:
             raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE") from None
 
     async def _get(

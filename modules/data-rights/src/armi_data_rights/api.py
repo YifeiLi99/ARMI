@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import AbstractAsyncContextManager
+from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
@@ -69,6 +70,40 @@ class DataRightsArtifactStorePort(Protocol):
 @runtime_checkable
 class DataRightsArtifactLifecyclePort(ArtifactLifecyclePort, Protocol):
     pass
+
+
+@dataclass(frozen=True, slots=True)
+class DataRightsFence:
+    party_id: UUID
+    contact_generation: int
+    use_generation: int
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.party_id) is not UUID
+            or self.party_id.version != 7
+            or type(self.contact_generation) is not int
+            or self.contact_generation < 1
+            or type(self.use_generation) is not int
+            or self.use_generation < 1
+        ):
+            raise DataRightsViolation("DATA-RIGHTS-FENCE")
+
+
+@runtime_checkable
+class DataRightsFencePort(Protocol):
+    async def capture(
+        self, transaction: PostgreSQLTransaction, *, party_id: UUID
+    ) -> DataRightsFence: ...
+
+    async def validate(
+        self,
+        transaction: PostgreSQLTransaction,
+        fence: DataRightsFence,
+        *,
+        require_contact: bool,
+        require_use: bool,
+    ) -> None: ...
 
 
 @runtime_checkable
@@ -166,6 +201,8 @@ __all__ = (
     "DataRightsExecutionStatus",
     "DataRightsExportScope",
     "DataRightsExportSegment",
+    "DataRightsFence",
+    "DataRightsFencePort",
     "DataRightsInteractionGate",
     "DataRightsItemStatus",
     "DataRightsOrderCommand",

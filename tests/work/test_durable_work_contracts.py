@@ -53,6 +53,9 @@ class DurableWorkContractTests(unittest.TestCase):
             uuid7(),
             _instant(20),
             1,
+            draft.work_kind,
+            draft.owner,
+            draft.generation,
         )
         leased = WorkRecord(draft, WorkStatus.LEASED, 1, lease)
         result = WorkResultRef("artifact", uuid7())
@@ -82,6 +85,9 @@ class DurableWorkContractTests(unittest.TestCase):
             uuid7(),
             _instant(20),
             1,
+            draft.work_kind,
+            draft.owner,
+            draft.generation,
         )
         with self.assertRaises(WorkViolation) as missing_lease:
             WorkRecord(draft, WorkStatus.LEASED, 1)

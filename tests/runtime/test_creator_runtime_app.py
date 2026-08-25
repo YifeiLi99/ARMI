@@ -1171,6 +1171,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             environment_id=snapshot.environment_id,
             runtime_state=snapshot.runtime_state,
             readiness=snapshot.readiness,
+            authority_state="active",
             reason_codes=list(snapshot.reason_codes),
             components=[
                 RuntimeComponentHealthResponse(

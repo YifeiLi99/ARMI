@@ -232,6 +232,8 @@ class PostgreSQLDurableWorkWriter:
                 await self._connection.execute(
                     """SELECT 1 FROM armi.durable_work
                        WHERE work_id=%s AND status='leased'
+                         AND work_kind=%s AND owner_kind=%s AND owner_ref=%s
+                         AND generation=%s
                          AND current_attempt_id=%s AND lease_owner=%s
                          AND lease_token=%s
                          AND lease_expires_at >= statement_timestamp()
@@ -240,6 +242,10 @@ class PostgreSQLDurableWorkWriter:
                        FOR UPDATE""",
                     (
                         lease.work_id.value,
+                        lease.work_kind.value,
+                        lease.work_owner.kind,
+                        lease.work_owner.reference,
+                        lease.generation,
                         lease.attempt_id.value,
                         lease.owner,
                         lease.token,
@@ -816,6 +822,9 @@ def _row_to_record(row: Sequence[Any]) -> WorkRecord:
                 row[19],
                 Instant(row[20]),
                 int(row[21]),
+                draft.work_kind,
+                draft.owner,
+                draft.generation,
             )
             if row[14] == WorkStatus.LEASED.value
             else None

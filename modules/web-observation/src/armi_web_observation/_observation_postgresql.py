@@ -14,6 +14,7 @@ from armi_kernel.application import (
     WorkRecord,
     WorkResultRef,
     WorkType,
+    WorkViolation,
 )
 from armi_kernel.contracts import Digest, SubjectId, TraceId
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
@@ -187,7 +188,7 @@ class PostgreSQLWebObservationRepository:
         credential_identity: Digest,
     ) -> WebObservationAttemptId | None:
         connection = unit_of_work.transaction
-        self._assert_work(lease, snapshot.request_id)
+        await self._assert_work(unit_of_work, lease, snapshot.request_id)
         previous = await (
             await connection.execute(
                 """
@@ -273,7 +274,7 @@ class PostgreSQLWebObservationRepository:
         code: str,
     ) -> None:
         connection = unit_of_work.transaction
-        self._assert_work(lease, snapshot.request_id)
+        await self._assert_work(unit_of_work, lease, snapshot.request_id)
         updated = await (
             await connection.execute(
                 """
@@ -300,7 +301,7 @@ class PostgreSQLWebObservationRepository:
         attempt_id: WebObservationAttemptId,
     ) -> None:
         connection = unit_of_work.transaction
-        self._assert_work(lease, snapshot.request_id)
+        await self._assert_work(unit_of_work, lease, snapshot.request_id)
         row = await (
             await connection.execute(
                 """
@@ -309,10 +310,17 @@ class PostgreSQLWebObservationRepository:
                     dispatched_at = statement_timestamp()
                 WHERE observation_attempt_id = %s
                   AND web_observation_request_id = %s
+                  AND work_attempt_id = %s
+                  AND work_lease_token = %s
                   AND dispatch_state = 'prepared'
                 RETURNING observation_attempt_id
                 """,
-                (attempt_id.value, snapshot.request_id.value),
+                (
+                    attempt_id.value,
+                    snapshot.request_id.value,
+                    lease.attempt_id.value,
+                    lease.token,
+                ),
             )
         ).fetchone()
         if row is None:
@@ -339,7 +347,7 @@ class PostgreSQLWebObservationRepository:
         if result.status is not WebObservationResultStatus.SUCCEEDED:
             raise WebObservationViolation("WEB-RESULT")
         connection = unit_of_work.transaction
-        self._assert_work(lease, snapshot.request_id)
+        await self._assert_work(unit_of_work, lease, snapshot.request_id)
         for ordinal, action in enumerate(result.tool_actions, start=1):
             await connection.execute(
                 """
@@ -366,7 +374,10 @@ class PostgreSQLWebObservationRepository:
                     web_search_calls = %s, citation_count = %s,
                     estimated_cost_microyuan = %s, result_status = 'succeeded',
                     settled_at = statement_timestamp()
-                WHERE observation_attempt_id = %s AND dispatch_state = 'dispatched'
+                WHERE observation_attempt_id = %s
+                  AND work_attempt_id = %s
+                  AND work_lease_token = %s
+                  AND dispatch_state = 'dispatched'
                 RETURNING observation_attempt_id
                 """,
                 (
@@ -378,6 +389,8 @@ class PostgreSQLWebObservationRepository:
                     usage.citation_count,
                     usage.estimated_cost_microyuan,
                     attempt_id.value,
+                    lease.attempt_id.value,
+                    lease.token,
                 ),
             )
         ).fetchone()
@@ -416,15 +429,24 @@ class PostgreSQLWebObservationRepository:
             else WebObservationRequestStatus.FAILED
         )
         connection = unit_of_work.transaction
-        self._assert_work(lease, snapshot.request_id)
+        await self._assert_work(unit_of_work, lease, snapshot.request_id)
         await connection.execute(
             """
             UPDATE armi.observation_attempts
             SET dispatch_state = 'settled', result_status = %s, error_code = %s,
                 settled_at = statement_timestamp()
-            WHERE observation_attempt_id = %s AND dispatch_state = 'dispatched'
+            WHERE observation_attempt_id = %s
+              AND work_attempt_id = %s
+              AND work_lease_token = %s
+              AND dispatch_state = 'dispatched'
             """,
-            (result.status.value, code, attempt_id.value),
+            (
+                result.status.value,
+                code,
+                attempt_id.value,
+                lease.attempt_id.value,
+                lease.token,
+            ),
         )
         await connection.execute(
             """
@@ -437,11 +459,22 @@ class PostgreSQLWebObservationRepository:
         )
         await unit_of_work.work.fail(lease, error_code=code)
 
-    def _assert_work(
-        self, lease: WorkLease, request_id: WebObservationRequestId
+    async def _assert_work(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        lease: WorkLease,
+        request_id: WebObservationRequestId,
     ) -> None:
-        if lease.work_id.value.version != 7 or request_id.value.version != 7:
+        if (
+            lease.work_kind is not _WORK_KIND
+            or lease.work_owner.kind != "web_observation"
+            or lease.work_owner.reference != request_id.value
+        ):
             raise WebObservationViolation("WEB-WORK-STALE")
+        try:
+            await unit_of_work.work.validate_lease(lease)
+        except WorkViolation:
+            raise WebObservationViolation("WEB-WORK-STALE") from None
 
 
 def _record(row: tuple[Any, ...]) -> WebObservationRecord:

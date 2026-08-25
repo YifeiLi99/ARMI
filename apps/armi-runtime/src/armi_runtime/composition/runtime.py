@@ -137,6 +137,7 @@ from armi_runtime.interfaces.creator_contract import (
     LiveVisionStatusResponse,
     LiveVoiceStatusResponse,
     QQChannelHealthResponse,
+    Readiness,
     RuntimeComponentHealthResponse,
     RuntimeStatusResponse,
 )
@@ -175,6 +176,7 @@ from .database import (
     compose_effect_registration_pipeline,
     compose_evidence_module,
     compose_exact_life_query_pipeline,
+    compose_execution_custody,
     compose_expression_module,
     compose_interaction_identity,
     compose_interaction_module,
@@ -302,6 +304,7 @@ async def _serve(
     )
     authority_port = None
     authority: RuntimeAuthorityController | None = None
+    execution_custody = None
     recovery_port = None
     runtime_unit_of_work_factory: PostgreSQLUnitOfWorkFactory | None = None
     artifact_lifecycle: ArtifactLifecyclePort | None = None
@@ -384,6 +387,8 @@ async def _serve(
                 authority_admission=authority.require_writable,
             )
             await runtime_unit_of_work_factory.open()
+            execution_custody = compose_execution_custody(prepared)
+            await execution_custody.open()
             if mood_display_config is not None and mood_display_config.enabled:
                 display_subject_id = authority.require_writable().subject_id
 
@@ -673,6 +678,7 @@ async def _serve(
                 parties=interaction_module.identity,
                 notifier=creator_events,
                 artifact_lifecycle=artifact_lifecycle,
+                execution_custody=execution_custody,
             )
             await data_rights_module.open()
             expression_module = compose_expression_module(
@@ -1139,6 +1145,8 @@ async def _serve(
             )
             if observation_port is not None:
                 await observation_port.close()
+            if execution_custody is not None:
+                await execution_custody.close()
             if runtime_unit_of_work_factory is not None:
                 await runtime_unit_of_work_factory.close()
             if authority_port is not None:
@@ -1161,6 +1169,8 @@ async def _serve(
                 await subject_state_module.close()
             if authority is not None:
                 await authority.release()
+            if execution_custody is not None:
+                await execution_custody.close()
             if runtime_unit_of_work_factory is not None:
                 await runtime_unit_of_work_factory.close()
             if authority_port is not None:
@@ -1257,6 +1267,8 @@ async def _serve(
                 await authority.release()
             if observation_port is not None:
                 await observation_port.close()
+            if execution_custody is not None:
+                await execution_custody.close()
             if runtime_unit_of_work_factory is not None:
                 await runtime_unit_of_work_factory.close()
             if authority_port is not None:
@@ -1686,8 +1698,10 @@ async def _serve(
         diagnostic.close()
 
     async def heartbeat_loop(controller: RuntimeAuthorityController) -> None:
+        suspended = False
         while True:
-            await asyncio.sleep(config.runtime.heartbeat_seconds)
+            if not suspended:
+                await asyncio.sleep(config.runtime.heartbeat_seconds)
             try:
                 snapshot = await controller.heartbeat_once()
             except RuntimeAuthorityViolation:
@@ -1700,6 +1714,7 @@ async def _serve(
                 server.should_exit = True
                 return
             if snapshot.state is LocalAuthorityState.SUSPENDED:
+                suspended = True
                 diagnostic.emit(
                     "runtime.authority.suspended",
                     level=logging.WARNING,
@@ -1707,6 +1722,7 @@ async def _serve(
                     reason_codes=("RUNTIME_AUTHORITY_SUSPENDED",),
                 )
             else:
+                suspended = False
                 diagnostic.emit(
                     "runtime.authority.heartbeat",
                     result_code="AUTH_HEARTBEAT",
@@ -1714,6 +1730,22 @@ async def _serve(
 
     def runtime_status() -> RuntimeStatusResponse:
         snapshot = lifecycle.snapshot()
+        try:
+            authority_state = (
+                LocalAuthorityState.INACTIVE
+                if authority is None
+                else authority.snapshot().state
+            )
+        except RuntimeAuthorityViolation:
+            authority_state = LocalAuthorityState.LOST
+            server.should_exit = True
+        admitted = (
+            snapshot.readiness is Readiness.READY
+            and authority_state is LocalAuthorityState.ACTIVE
+        )
+        status_reasons = list(snapshot.reason_codes)
+        if authority_state is not LocalAuthorityState.ACTIVE:
+            status_reasons.append("RUNTIME_AUTHORITY_NOT_ACTIVE")
         observation = (
             None if observation_driver is None else observation_driver.snapshot()
         )
@@ -1732,8 +1764,9 @@ async def _serve(
             contract_version="1.0",
             environment_id=snapshot.environment_id,
             runtime_state=snapshot.runtime_state,
-            readiness=snapshot.readiness,
-            reason_codes=list(snapshot.reason_codes),
+            readiness=Readiness.READY if admitted else Readiness.NOT_READY,
+            authority_state=authority_state.value,
+            reason_codes=list(dict.fromkeys(status_reasons)),
             components=[
                 RuntimeComponentHealthResponse(
                     component="database",
@@ -1744,11 +1777,10 @@ async def _serve(
                     component="runtime",
                     state=(
                         "ready"
-                        if snapshot.runtime_state.value == "ready"
-                        and snapshot.readiness.value == "ready"
+                        if snapshot.runtime_state.value == "ready" and admitted
                         else "degraded"
                     ),
-                    reason_codes=list(snapshot.reason_codes),
+                    reason_codes=list(dict.fromkeys(status_reasons)),
                 ),
                 RuntimeComponentHealthResponse(
                     component="creator_web",
@@ -2152,7 +2184,7 @@ async def _serve(
         )
 
     app = create_runtime_app(
-        readiness=lambda: lifecycle.snapshot().readiness,
+        readiness=lambda: runtime_status().readiness,
         runtime_status=runtime_status,
         qq_channel_health=qq_health_status,
         qq_channel_control=qq_channel_control,
@@ -2307,6 +2339,8 @@ async def _serve(
             await web_search_pipeline.close()
         if observation_port is not None:
             await observation_port.close()
+        if execution_custody is not None:
+            await execution_custody.close()
         if runtime_unit_of_work_factory is not None:
             await runtime_unit_of_work_factory.close()
         if authority_port is not None:

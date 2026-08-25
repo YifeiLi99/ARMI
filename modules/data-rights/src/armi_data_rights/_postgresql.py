@@ -12,6 +12,7 @@ from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTrans
 from ._participant_contract import DataRightsVisibilityPort
 from .api import (
     DataRightsExecutionStatus,
+    DataRightsFence,
     DataRightsOrderKind,
     DataRightsRequesterKind,
     DataRightsScopeKind,
@@ -51,6 +52,78 @@ class DataRightsDeletionItemSnapshot:
 
 class DataRightsOrderRepository(DataRightsVisibilityPort):
     __slots__ = ()
+
+    async def capture(
+        self, transaction: PostgreSQLTransaction, *, party_id: UUID
+    ) -> DataRightsFence:
+        await transaction.execute(
+            """INSERT INTO armi.data_rights_party_fences (party_id)
+               VALUES (%s) ON CONFLICT (party_id) DO NOTHING""",
+            (party_id,),
+        )
+        row = await (
+            await transaction.execute(
+                """SELECT contact_generation,use_generation
+                   FROM armi.data_rights_party_fences WHERE party_id=%s""",
+                (party_id,),
+            )
+        ).fetchone()
+        if row is None:
+            raise DataRightsViolation("DATA-RIGHTS-FENCE")
+        return DataRightsFence(party_id, int(row[0]), int(row[1]))
+
+    async def validate(
+        self,
+        transaction: PostgreSQLTransaction,
+        fence: DataRightsFence,
+        *,
+        require_contact: bool,
+        require_use: bool,
+    ) -> None:
+        if type(require_contact) is not bool or type(require_use) is not bool:
+            raise DataRightsViolation("DATA-RIGHTS-FENCE")
+        row = await (
+            await transaction.execute(
+                """SELECT contact_generation,use_generation
+                   FROM armi.data_rights_party_fences WHERE party_id=%s""",
+                (fence.party_id,),
+            )
+        ).fetchone()
+        if (
+            row is None
+            or (require_contact and int(row[0]) != fence.contact_generation)
+            or (require_use and int(row[1]) != fence.use_generation)
+        ):
+            raise DataRightsViolation("DATA-RIGHTS-FENCE-STALE")
+
+    async def advance_fence(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        party_id: UUID,
+        order_kind: DataRightsOrderKind,
+    ) -> DataRightsFence:
+        await self.capture(transaction, party_id=party_id)
+        use_increment = (
+            1
+            if order_kind
+            in {DataRightsOrderKind.STOP_USE, DataRightsOrderKind.DELETE_RELATED}
+            else 0
+        )
+        row = await (
+            await transaction.execute(
+                """UPDATE armi.data_rights_party_fences
+                   SET contact_generation=contact_generation+1,
+                       use_generation=use_generation+%s,
+                       updated_at=statement_timestamp()
+                   WHERE party_id=%s
+                   RETURNING contact_generation,use_generation""",
+                (use_increment, party_id),
+            )
+        ).fetchone()
+        if row is None:
+            raise DataRightsViolation("DATA-RIGHTS-FENCE")
+        return DataRightsFence(party_id, int(row[0]), int(row[1]))
 
     async def find_existing(
         self,

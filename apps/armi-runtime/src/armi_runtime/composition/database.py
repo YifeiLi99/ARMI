@@ -168,6 +168,7 @@ from armi_kernel.application import (
     CreatorProjectionNotifier,
     CredentialPort,
     CredentialPurpose,
+    ExecutionCustodyPort,
     LifeRecordQueryPort,
     ModelBinding,
     ModelViolation,
@@ -271,6 +272,9 @@ from armi_runtime.adapters.persistence.birth import (
     probe_continuity,
 )
 from armi_runtime.adapters.persistence.durable_work import PostgreSQLDurableWorkGateway
+from armi_runtime.adapters.persistence.execution_custody import (
+    PostgreSQLExecutionCustody,
+)
 from armi_runtime.adapters.persistence.life_records import PostgreSQLLifeRecordQuery
 from armi_runtime.adapters.persistence.other_human_records import (
     PostgreSQLOtherHumanRecordQuery,
@@ -995,6 +999,56 @@ def compose_runtime_authority(
                     conninfo,
                     environment_id=config.environment.environment_id,
                     pool_timeout_seconds=(config.database.pool_acquire_timeout_seconds),
+                    statement_timeout_seconds=(
+                        config.database.statement_timeout_seconds
+                    ),
+                )
+
+            return handle.consume(create)
+    except ConfigurationViolation:
+        raise DatabaseViolation(
+            "DB-ROLE-CREDENTIAL-SCOPE",
+            "the configured PostgreSQL connection is unavailable",
+            status="unavailable",
+            exit_code=3,
+        ) from None
+
+
+def compose_execution_custody(
+    prepared: PreparedEnvironment,
+) -> PostgreSQLExecutionCustody:
+    """Construct the dedicated lazy pool used by session-level slow-I/O fences."""
+
+    locator = prepared.effective.config.secret_locators.get(RUNTIME_LOCATOR_NAME)
+    if locator is None:
+        raise DatabaseViolation(
+            "DB-CONNECTION-UNAVAILABLE",
+            "the required database credential locator is unavailable",
+            status="unavailable",
+            exit_code=3,
+        )
+    try:
+        with prepared.credential_port.resolve(
+            locator,
+            CredentialPurpose("database.runtime"),
+        ) as handle:
+
+            def create(value: memoryview) -> PostgreSQLExecutionCustody:
+                try:
+                    conninfo = bytes(value).decode("utf-8")
+                except UnicodeDecodeError:
+                    raise DatabaseViolation(
+                        "DB-CONNECTION-UNAVAILABLE",
+                        "the configured PostgreSQL connection is unavailable",
+                        status="unavailable",
+                        exit_code=3,
+                    ) from None
+                config = prepared.effective.config
+                return PostgreSQLExecutionCustody(
+                    conninfo,
+                    environment_id=config.environment.environment_id,
+                    pool_max=config.database.pool_max,
+                    pool_timeout_seconds=(config.database.pool_acquire_timeout_seconds),
                 )
 
             return handle.consume(create)
@@ -1091,6 +1145,7 @@ def compose_data_rights_module(
     catalog: ArtifactCatalogPort,
     parties: InteractionIdentityPort,
     artifact_lifecycle: DataRightsArtifactLifecyclePort,
+    execution_custody: ExecutionCustodyPort,
     notifier: CreatorProjectionNotifier | None = None,
 ) -> DataRightsModule:
     participants = compose_data_rights_participants(
@@ -1099,6 +1154,7 @@ def compose_data_rights_module(
     )
     return bootstrap_data_rights(
         creator_party_id=creator_party_id,
+        custody=execution_custody,
         data_root=prepared.data_root,
         unit_of_work_factory=unit_of_work_factory,
         storage=_artifact_storage(prepared, unit_of_work_factory, catalog),
@@ -1792,6 +1848,7 @@ __all__ = (
     "compose_effect_registration_pipeline",
     "compose_evidence_module",
     "compose_exact_life_query_pipeline",
+    "compose_execution_custody",
     "compose_expression_module",
     "compose_interaction_identity",
     "compose_interaction_module",

@@ -4520,3 +4520,9 @@ ALTER TABLE ONLY armi.web_research_intents
 
 ALTER TABLE ONLY armi.web_research_intents
     ADD CONSTRAINT web_research_intents_web_observation_request_id_fkey FOREIGN KEY (web_observation_request_id) REFERENCES armi.web_observation_requests(web_observation_request_id);
+-- F02 execution custody and current-state fence ownership.
+ALTER TABLE ONLY armi.data_rights_party_fences
+    ADD CONSTRAINT data_rights_party_fences_party_id_fkey FOREIGN KEY (party_id) REFERENCES armi.parties(party_id);
+
+ALTER TABLE ONLY armi.cognitive_context_dependencies
+    ADD CONSTRAINT cognitive_context_dependencies_episode_fkey FOREIGN KEY (cognitive_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);

@@ -7,7 +7,7 @@ from pathlib import Path
 from uuid import UUID
 
 from armi_artifact_store.api import ArtifactCatalogPort
-from armi_kernel.application import CreatorProjectionNotifier
+from armi_kernel.application import CreatorProjectionNotifier, ExecutionCustodyPort
 from armi_runtime_foundation import EmptyRecoveryParticipant, RecoveryParticipant
 
 from ._application import DataRightsOrderService
@@ -22,6 +22,7 @@ from .api import (
     DataRightsArtifactStorePort,
     DataRightsCognitionGate,
     DataRightsEffectGate,
+    DataRightsFencePort,
     DataRightsInteractionGate,
     DataRightsOrderPort,
     DataRightsParticipant,
@@ -53,6 +54,10 @@ class DataRightsCore:
         return self._gate
 
     @property
+    def fence(self) -> DataRightsFencePort:
+        return self._gate
+
+    @property
     def visibility(self) -> DataRightsVisibilityPort:
         return self._gate
 
@@ -75,6 +80,7 @@ class DataRightsModule:
     subject_commit: DataRightsSubjectCommitGate
     effect_gate: DataRightsEffectGate
     cognition: DataRightsCognitionGate
+    fence: DataRightsFencePort
     visibility: DataRightsVisibilityPort
     participant: DataRightsParticipant
     _orders: DataRightsOrderService
@@ -106,6 +112,7 @@ def bootstrap_data_rights_core() -> DataRightsCore:
 def bootstrap_data_rights(
     *,
     creator_party_id: UUID,
+    custody: ExecutionCustodyPort,
     data_root: Path,
     unit_of_work_factory: DataRightsUnitOfWorkFactory,
     storage: DataRightsArtifactStorePort,
@@ -128,6 +135,7 @@ def bootstrap_data_rights(
     )
     orders = DataRightsOrderService(
         creator_party_id=creator_party_id,
+        custody=custody,
         deletion=deletion,
         repository=gate,
         unit_of_work_factory=unit_of_work_factory,
@@ -146,6 +154,7 @@ def bootstrap_data_rights(
     return DataRightsModule(
         orders,
         exports,
+        gate,
         gate,
         gate,
         gate,

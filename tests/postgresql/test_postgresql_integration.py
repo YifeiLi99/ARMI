@@ -2301,6 +2301,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
                 pool_timeout_seconds=2,
+                statement_timeout_seconds=5,
             )
             await authority.open()
             record = await authority.acquire(
@@ -2630,6 +2631,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
                 pool_timeout_seconds=2,
+                statement_timeout_seconds=5,
             )
             await authority.open()
             record = await authority.acquire(
@@ -3803,6 +3805,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
                 pool_timeout_seconds=2,
+                statement_timeout_seconds=5,
             )
             await authority.open()
             current = await authority.acquire(
@@ -6137,6 +6140,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             ids["runtime"],
             Instant(datetime.now(UTC) + timedelta(minutes=5)),
             1,
+            WorkType.COGNITION_SUBJECT_COMMIT,
+            WorkOwner("cognitive_episode", ids["episode"]),
+            1,
         )
 
         async def settle() -> tuple[CandidateApplicationStatus, int]:
@@ -6921,6 +6927,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     fixture.runtime_dsn,
                     environment_id=fixture.environment_id,
                     pool_timeout_seconds=2,
+                    statement_timeout_seconds=5,
                 )
                 for _ in range(3)
             ]
@@ -7290,6 +7297,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     fixture.runtime_dsn,
                     environment_id=fixture.environment_id,
                     pool_timeout_seconds=2,
+                    statement_timeout_seconds=5,
                 )
                 for _ in range(2)
             ]
