@@ -1188,7 +1188,7 @@
             "type": "boolean"
           },
           "projection_version": {
-            "const": "creator-export.v3",
+            "const": "creator-export.v4",
             "title": "Projection Version",
             "type": "string"
           },
@@ -2132,7 +2132,7 @@
               "other-human-record.v1",
               "creator-effect.v3",
               "subject-summary.v1",
-              "data-rights-order-detail.v2"
+              "data-rights-order-collection.v3"
             ],
             "title": "Projection Version",
             "type": "string"
@@ -3029,7 +3029,183 @@
         "title": "CreatorSceneResponse",
         "type": "object"
       },
-      "DataRightsDeletionItemResponse": {
+      "DataRightsOrderCollectionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "1.0",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "orders": {
+            "items": {
+              "$ref": "#/components/schemas/DataRightsOrderDetailResponse"
+            },
+            "title": "Orders",
+            "type": "array"
+          },
+          "projection_version": {
+            "const": "data-rights-order-collection.v3",
+            "title": "Projection Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_version",
+          "projection_version",
+          "orders"
+        ],
+        "title": "DataRightsOrderCollectionResponse",
+        "type": "object"
+      },
+      "DataRightsOrderDetailResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "contract_version": {
+            "const": "1.0",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "effective_at": {
+            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
+            "title": "Effective At",
+            "type": "string"
+          },
+          "execution_status": {
+            "enum": [
+              "pending",
+              "executing",
+              "completed",
+              "partial"
+            ],
+            "title": "Execution Status",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DataRightsOrderItemResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "newly_created": {
+            "title": "Newly Created",
+            "type": "boolean"
+          },
+          "order_id": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Order Id",
+            "type": "string"
+          },
+          "order_kind": {
+            "enum": [
+              "stop_contact",
+              "stop_use",
+              "delete_related"
+            ],
+            "title": "Order Kind",
+            "type": "string"
+          },
+          "projection_version": {
+            "const": "data-rights-order-detail.v3",
+            "title": "Projection Version",
+            "type": "string"
+          },
+          "request_digest": {
+            "pattern": "sha256:[0-9a-f]{64}",
+            "title": "Request Digest",
+            "type": "string"
+          },
+          "requester_kind": {
+            "enum": [
+              "creator",
+              "other_human"
+            ],
+            "title": "Requester Kind",
+            "type": "string"
+          },
+          "requester_party_id": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Requester Party Id",
+            "type": "string"
+          },
+          "retention_reasons": {
+            "items": {
+              "enum": [
+                "rights_enforcement",
+                "shared_reference",
+                "objective_history",
+                "subject_continuity",
+                "operator_managed_snapshot"
+              ],
+              "type": "string"
+            },
+            "maxItems": 5,
+            "title": "Retention Reasons",
+            "type": "array"
+          },
+          "scope_kind": {
+            "enum": [
+              "party_contact",
+              "party_local_data"
+            ],
+            "title": "Scope Kind",
+            "type": "string"
+          },
+          "scope_party_id": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Scope Party Id",
+            "type": "string"
+          },
+          "status": {
+            "const": "effective",
+            "title": "Status",
+            "type": "string"
+          },
+          "timeline": {
+            "items": {
+              "$ref": "#/components/schemas/DataRightsTimelineItemResponse"
+            },
+            "minItems": 1,
+            "title": "Timeline",
+            "type": "array"
+          }
+        },
+        "required": [
+          "contract_version",
+          "projection_version",
+          "order_id",
+          "requester_party_id",
+          "requester_kind",
+          "order_kind",
+          "scope_kind",
+          "scope_party_id",
+          "status",
+          "execution_status",
+          "request_digest",
+          "effective_at",
+          "completed_at",
+          "newly_created",
+          "items",
+          "timeline",
+          "retention_reasons"
+        ],
+        "title": "DataRightsOrderDetailResponse",
+        "type": "object"
+      },
+      "DataRightsOrderItemResponse": {
         "additionalProperties": false,
         "properties": {
           "artifact_deletion_id": {
@@ -3082,29 +3258,26 @@
             ],
             "title": "Last Error Code"
           },
-          "remaining_location": {
-            "anyOf": [
-              {
-                "enum": [
-                  "shared_local_reference",
-                  "objective_history",
-                  "local_artifact_store"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Remaining Location"
+          "operator_action_required": {
+            "title": "Operator Action Required",
+            "type": "boolean"
           },
           "required_action": {
             "enum": [
-              "delete",
+              "block",
+              "restrict",
+              "cancel",
+              "redact",
               "tombstone",
-              "retain"
+              "delete",
+              "retain",
+              "operator_remove"
             ],
             "title": "Required Action",
+            "type": "string"
+          },
+          "responsible_owner": {
+            "title": "Responsible Owner",
             "type": "string"
           },
           "result_status": {
@@ -3118,20 +3291,51 @@
             "title": "Result Status",
             "type": "string"
           },
+          "retention_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "rights_enforcement",
+                  "shared_reference",
+                  "objective_history",
+                  "subject_continuity",
+                  "operator_managed_snapshot"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retention Reason"
+          },
           "retryable": {
             "title": "Retryable",
             "type": "boolean"
           },
           "target_kind": {
             "enum": [
+              "party",
+              "external_binding",
+              "scene",
               "interaction",
+              "media_recognition",
+              "live_voice",
               "evidence",
               "experience",
+              "cognition",
               "memory",
               "relationship",
-              "scene",
-              "artifact",
-              "effect"
+              "activity",
+              "material",
+              "subject_component",
+              "mood",
+              "prompt",
+              "effect",
+              "web_research",
+              "codex_task",
+              "managed_snapshot",
+              "artifact"
             ],
             "title": "Target Kind",
             "type": "string"
@@ -3141,191 +3345,18 @@
           "item_id",
           "target_kind",
           "required_action",
+          "responsible_owner",
           "result_status",
-          "remaining_location",
+          "retention_reason",
           "created_at",
           "completed_at",
           "artifact_deletion_id",
           "retryable",
           "deletion_attempt_count",
-          "last_error_code"
+          "last_error_code",
+          "operator_action_required"
         ],
-        "title": "DataRightsDeletionItemResponse",
-        "type": "object"
-      },
-      "DataRightsOrderCollectionResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "contract_version": {
-            "const": "1.0",
-            "title": "Contract Version",
-            "type": "string"
-          },
-          "orders": {
-            "items": {
-              "$ref": "#/components/schemas/DataRightsOrderDetailResponse"
-            },
-            "title": "Orders",
-            "type": "array"
-          },
-          "projection_version": {
-            "const": "data-rights-order-collection.v2",
-            "title": "Projection Version",
-            "type": "string"
-          }
-        },
-        "required": [
-          "contract_version",
-          "projection_version",
-          "orders"
-        ],
-        "title": "DataRightsOrderCollectionResponse",
-        "type": "object"
-      },
-      "DataRightsOrderDetailResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "completed_at": {
-            "anyOf": [
-              {
-                "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Completed At"
-          },
-          "contract_version": {
-            "const": "1.0",
-            "title": "Contract Version",
-            "type": "string"
-          },
-          "effective_at": {
-            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
-            "title": "Effective At",
-            "type": "string"
-          },
-          "execution_status": {
-            "enum": [
-              "not_required",
-              "pending",
-              "executing",
-              "completed",
-              "partial"
-            ],
-            "title": "Execution Status",
-            "type": "string"
-          },
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/DataRightsDeletionItemResponse"
-            },
-            "title": "Items",
-            "type": "array"
-          },
-          "newly_created": {
-            "title": "Newly Created",
-            "type": "boolean"
-          },
-          "order_id": {
-            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
-            "title": "Order Id",
-            "type": "string"
-          },
-          "order_kind": {
-            "enum": [
-              "stop_contact",
-              "stop_use",
-              "delete_related"
-            ],
-            "title": "Order Kind",
-            "type": "string"
-          },
-          "projection_version": {
-            "const": "data-rights-order-detail.v2",
-            "title": "Projection Version",
-            "type": "string"
-          },
-          "remaining_locations": {
-            "items": {
-              "enum": [
-                "shared_local_reference",
-                "objective_history",
-                "local_artifact_store"
-              ],
-              "type": "string"
-            },
-            "maxItems": 3,
-            "title": "Remaining Locations",
-            "type": "array"
-          },
-          "request_digest": {
-            "pattern": "sha256:[0-9a-f]{64}",
-            "title": "Request Digest",
-            "type": "string"
-          },
-          "requester_kind": {
-            "enum": [
-              "creator",
-              "other_human"
-            ],
-            "title": "Requester Kind",
-            "type": "string"
-          },
-          "requester_party_id": {
-            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
-            "title": "Requester Party Id",
-            "type": "string"
-          },
-          "scope_kind": {
-            "enum": [
-              "party_contact",
-              "party_local_data"
-            ],
-            "title": "Scope Kind",
-            "type": "string"
-          },
-          "scope_party_id": {
-            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
-            "title": "Scope Party Id",
-            "type": "string"
-          },
-          "status": {
-            "const": "effective",
-            "title": "Status",
-            "type": "string"
-          },
-          "timeline": {
-            "items": {
-              "$ref": "#/components/schemas/DataRightsTimelineItemResponse"
-            },
-            "minItems": 1,
-            "title": "Timeline",
-            "type": "array"
-          }
-        },
-        "required": [
-          "contract_version",
-          "projection_version",
-          "order_id",
-          "requester_party_id",
-          "requester_kind",
-          "order_kind",
-          "scope_kind",
-          "scope_party_id",
-          "status",
-          "execution_status",
-          "request_digest",
-          "effective_at",
-          "completed_at",
-          "newly_created",
-          "items",
-          "timeline",
-          "remaining_locations"
-        ],
-        "title": "DataRightsOrderDetailResponse",
+        "title": "DataRightsOrderItemResponse",
         "type": "object"
       },
       "DataRightsOrderRequest": {
@@ -3380,7 +3411,6 @@
           },
           "execution_status": {
             "enum": [
-              "not_required",
               "pending",
               "executing",
               "completed",
@@ -3408,7 +3438,7 @@
             "type": "string"
           },
           "projection_version": {
-            "const": "data-rights-order-summary.v2",
+            "const": "data-rights-order-summary.v3",
             "title": "Projection Version",
             "type": "string"
           },

@@ -41,6 +41,11 @@ const RESOURCES = {
     "subject-summary.v1",
     UUID_V7,
   ],
+  data_rights: [
+    "data.rights.invalidated",
+    "data-rights-order-collection.v3",
+    UUID_V7,
+  ],
 } as const;
 
 export class EventStreamFailure extends Error {

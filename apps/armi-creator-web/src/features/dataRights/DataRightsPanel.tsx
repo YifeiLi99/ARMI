@@ -63,7 +63,7 @@ export function DataRightsPanel({
       setConfirmed(false);
       setMessage(
         result.order_kind === "delete_related"
-          ? "删除命令已立即生效；下方列出逐项结算及仍保留的位置。"
+          ? "删除命令已立即生效；下方列出逐项责任、保留理由和操作者动作。"
           : `${labels[result.order_kind]}命令已立即生效。`,
       );
     },
@@ -88,14 +88,14 @@ export function DataRightsPanel({
     onSuccess: async (result) => {
       delete retryIdentity.current[result.order_id];
       await queryClient.resetQueries({ queryKey, exact: true });
-      setMessage("已登记新的物理删除重试周期。");
+      setMessage("已登记新的删除或受管快照核验周期。");
     },
     onError: (error) => {
       if (error instanceof ApiFailure && error.status === 401) {
         onUnauthorized();
         return;
       }
-      setMessage("当前无法重试物理删除。");
+      setMessage("当前无法重试删除或受管快照核验。");
     },
   });
   const resultOrders = Array.isArray(orders.data?.orders)
@@ -181,8 +181,8 @@ export function DataRightsPanel({
               <dd>{order.effective_at}</dd>
             </div>
           </dl>
-          {order.remaining_locations.length > 0 ? (
-            <p>仍保留于：{order.remaining_locations.join("、")}</p>
+          {order.retention_reasons.length > 0 ? (
+            <p>保留理由：{order.retention_reasons.join("、")}</p>
           ) : null}
           {order.execution_status === "partial" &&
           order.items.some((item) => item.retryable) ? (
@@ -191,9 +191,24 @@ export function DataRightsPanel({
               disabled={retryDeletion.isPending}
               onClick={() => retryDeletion.mutate(order.order_id)}
             >
-              {retryDeletion.isPending ? "正在重试" : "重试物理删除"}
+              {retryDeletion.isPending ? "正在重试" : "重试未闭合责任"}
             </button>
           ) : null}
+          <dl>
+            {order.items.map((item) => (
+              <div key={item.item_id}>
+                <dt>{item.target_kind}</dt>
+                <dd>
+                  {item.responsible_owner} · {item.required_action} ·{" "}
+                  {item.result_status}
+                  {item.retention_reason === null
+                    ? ""
+                    : ` · ${item.retention_reason}`}
+                  {item.operator_action_required ? " · 需要操作者移除快照" : ""}
+                </dd>
+              </div>
+            ))}
+          </dl>
           <ol className="data-rights-timeline">
             {order.timeline.map((event, index) => (
               <li key={`${event.item_id ?? "order"}-${index}`}>

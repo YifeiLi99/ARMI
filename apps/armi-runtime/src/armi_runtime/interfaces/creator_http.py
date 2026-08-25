@@ -180,9 +180,9 @@ from .creator_contract import (
     CreatorSceneCollectionResponse,
     CreatorSceneCreateRequest,
     CreatorSceneResponse,
-    DataRightsDeletionItemResponse,
     DataRightsOrderCollectionResponse,
     DataRightsOrderDetailResponse,
+    DataRightsOrderItemResponse,
     DataRightsOrderRequest,
     DataRightsOrderResponse,
     DataRightsTimelineItemResponse,
@@ -692,7 +692,7 @@ def _creator_prompt_error(error: CreatorPromptViolation) -> JSONResponse:
 def _creator_export_response(result: CreatorExportResult) -> CreatorExportResponse:
     return CreatorExportResponse(
         contract_version="1.0",
-        projection_version="creator-export.v3",
+        projection_version="creator-export.v4",
         export_id=str(result.export_id),
         status=result.status.value,
         directory_name=result.directory_name,
@@ -760,7 +760,7 @@ async def _data_rights_request(
 def _data_rights_response(result: DataRightsOrderResult) -> DataRightsOrderResponse:
     return DataRightsOrderResponse(
         contract_version="1.0",
-        projection_version="data-rights-order-summary.v2",
+        projection_version="data-rights-order-summary.v3",
         order_id=str(result.order_id),
         requester_party_id=str(result.requester_party_id),
         requester_kind=result.requester_kind.value,
@@ -783,12 +783,13 @@ def _data_rights_detail_response(
 ) -> DataRightsOrderDetailResponse:
     order = detail.order
     items = [
-        DataRightsDeletionItemResponse(
+        DataRightsOrderItemResponse(
             item_id=str(item.item_id),
             target_kind=cast(Any, item.target_kind),
             required_action=cast(Any, item.required_action),
+            responsible_owner=item.responsible_owner,
             result_status=item.result_status.value,
-            remaining_location=cast(Any, item.remaining_location),
+            retention_reason=cast(Any, item.retention_reason),
             created_at=item.created_at.to_wire(),
             completed_at=None
             if item.completed_at is None
@@ -801,6 +802,7 @@ def _data_rights_detail_response(
             retryable=item.retryable,
             deletion_attempt_count=item.deletion_attempt_count,
             last_error_code=item.last_error_code,
+            operator_action_required=item.operator_action_required,
         )
         for item in detail.items
     ]
@@ -824,7 +826,7 @@ def _data_rights_detail_response(
     timeline.sort(key=lambda item: (item.occurred_at, item.item_id or ""))
     return DataRightsOrderDetailResponse(
         contract_version="1.0",
-        projection_version="data-rights-order-detail.v2",
+        projection_version="data-rights-order-detail.v3",
         order_id=str(order.order_id),
         requester_party_id=str(order.requester_party_id),
         requester_kind=order.requester_kind.value,
@@ -841,13 +843,13 @@ def _data_rights_detail_response(
         newly_created=order.newly_created,
         items=items,
         timeline=timeline,
-        remaining_locations=cast(
+        retention_reasons=cast(
             Any,
             sorted(
                 {
-                    item.remaining_location
+                    item.retention_reason
                     for item in detail.items
-                    if item.remaining_location is not None
+                    if item.retention_reason is not None
                 }
             ),
         ),

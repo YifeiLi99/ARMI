@@ -11,11 +11,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final, cast
-from uuid import uuid7
+from uuid import UUID, uuid7
 
 import psycopg
 from armi_artifact_store.api import ArtifactAdminPort
 from armi_artifact_store.bootstrap import bootstrap_artifact_admin
+from armi_data_rights.bootstrap import bootstrap_managed_snapshot_admin
+from armi_interaction.bootstrap import bootstrap_interaction_party_catalog
 from armi_kernel.application import (
     CredentialPurpose,
     ExecutionCustodyMode,
@@ -41,7 +43,7 @@ from .environment import PreparedEnvironment
 from .runtime_errors import RuntimeViolation
 from .runtime_process import RuntimeProcessManager
 
-_MANIFEST_SCHEMA: Final = "armi.recovery-backup.v2"
+_MANIFEST_SCHEMA: Final = "armi.recovery-backup.v3"
 _MAX_CONNINFO_BYTES: Final = 64 * 1024
 
 
@@ -185,12 +187,50 @@ def _database_evidence(
         }
         for item in artifacts.retained_verified(_RecoveryAdminTransaction(connection))
     ]
+    party_ids = bootstrap_interaction_party_catalog().admin_party_ids(connection)
+    party_scopes = [
+        {
+            "party_id": str(party_id),
+            "contact_generation": contact_generation,
+            "use_generation": use_generation,
+        }
+        for party_id, contact_generation, use_generation in (
+            bootstrap_managed_snapshot_admin().party_scopes(connection, party_ids)
+        )
+    ]
     return {
         "catalog_digest": database_catalog_digest(connection),
         "history": history,
         "subjects": subjects,
         "artifacts": artifact_rows,
+        "party_scopes": party_scopes,
     }
+
+
+def _register_recovery_snapshot(
+    conninfo: str,
+    *,
+    backup_id: UUID,
+    bundle: Path,
+    party_scopes: list[dict[str, object]],
+) -> None:
+    with psycopg.connect(conninfo) as connection:
+        connection.execute("SET ROLE armi_owner")
+        bootstrap_managed_snapshot_admin().register(
+            connection,
+            snapshot_id=backup_id,
+            snapshot_kind="recovery_backup",
+            contract_version=_MANIFEST_SCHEMA,
+            managed_path=str(bundle),
+            party_scopes=tuple(
+                (
+                    UUID(cast(str, scope["party_id"])),
+                    cast(int, scope["contact_generation"]),
+                    cast(int, scope["use_generation"]),
+                )
+                for scope in party_scopes
+            ),
+        )
 
 
 class _RecoveryAdminTransaction:
@@ -378,11 +418,25 @@ def _create_recovery_backup_guarded(
                         "subjects": evidence["subjects"],
                     },
                     "artifacts": artifacts,
+                    "party_scopes": evidence["party_scopes"],
                 }
 
             manifest = handle.consume(create)
         _write_manifest(staging / "manifest.json", manifest)
         staging.replace(bundle)
+        with prepared.credential_port.resolve(
+            locator, CredentialPurpose("database.recovery")
+        ) as handle:
+            handle.consume(
+                lambda value: _register_recovery_snapshot(
+                    bytes(value).decode("utf-8", "strict"),
+                    backup_id=backup_id,
+                    bundle=bundle,
+                    party_scopes=cast(
+                        list[dict[str, object]], manifest["party_scopes"]
+                    ),
+                )
+            )
         return _result(manifest, bundle, status="created")
     except Exception:
         if staging.is_dir() and staging.parent == target_root:
@@ -499,6 +553,21 @@ def verify_recovery_backup(bundle: Path) -> RecoveryResult:
                 or _digest_file(artifact) != item["content_digest"]
             ):
                 raise ValueError
+        seen_parties: set[UUID] = set()
+        for scope in cast(list[dict[str, object]], manifest["party_scopes"]):
+            party_id = UUID(cast(str, scope["party_id"]))
+            contact_generation = scope["contact_generation"]
+            use_generation = scope["use_generation"]
+            if (
+                party_id.version != 7
+                or party_id in seen_parties
+                or type(contact_generation) is not int
+                or contact_generation < 1
+                or type(use_generation) is not int
+                or use_generation < 1
+            ):
+                raise ValueError
+            seen_parties.add(party_id)
     except KeyError, OSError, TypeError, ValueError:
         raise RuntimeViolation(
             "RECOVERY-BUNDLE", "the recovery bundle is corrupt"

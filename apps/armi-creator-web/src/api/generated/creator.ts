@@ -1308,7 +1308,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "creator-export.v3";
+      projection_version: "creator-export.v4";
       /** Record Count */
       record_count: number;
       /** Segment Count */
@@ -1686,7 +1686,7 @@ export interface components {
         | "other-human-record.v1"
         | "creator-effect.v3"
         | "subject-summary.v1"
-        | "data-rights-order-detail.v2";
+        | "data-rights-order-collection.v3";
       /**
        * Resource Kind
        * @enum {string}
@@ -2013,55 +2013,6 @@ export interface components {
        */
       status: "open" | "closed";
     };
-    /** DataRightsDeletionItemResponse */
-    DataRightsDeletionItemResponse: {
-      /** Artifact Deletion Id */
-      artifact_deletion_id: string | null;
-      /** Completed At */
-      completed_at: string | null;
-      /** Created At */
-      created_at: string;
-      /** Deletion Attempt Count */
-      deletion_attempt_count: number;
-      /** Item Id */
-      item_id: string;
-      /** Last Error Code */
-      last_error_code: string | null;
-      /** Remaining Location */
-      remaining_location:
-        | (
-            | "shared_local_reference"
-            | "objective_history"
-            | "local_artifact_store"
-          )
-        | null;
-      /**
-       * Required Action
-       * @enum {string}
-       */
-      required_action: "delete" | "tombstone" | "retain";
-      /**
-       * Result Status
-       * @enum {string}
-       */
-      result_status:
-        "pending" | "completed" | "partial" | "too_late" | "unknown";
-      /** Retryable */
-      retryable: boolean;
-      /**
-       * Target Kind
-       * @enum {string}
-       */
-      target_kind:
-        | "interaction"
-        | "evidence"
-        | "experience"
-        | "memory"
-        | "relationship"
-        | "scene"
-        | "artifact"
-        | "effect";
-    };
     /** DataRightsOrderCollectionResponse */
     DataRightsOrderCollectionResponse: {
       /**
@@ -2075,7 +2026,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "data-rights-order-collection.v2";
+      projection_version: "data-rights-order-collection.v3";
     };
     /** DataRightsOrderDetailResponse */
     DataRightsOrderDetailResponse: {
@@ -2092,10 +2043,9 @@ export interface components {
        * Execution Status
        * @enum {string}
        */
-      execution_status:
-        "not_required" | "pending" | "executing" | "completed" | "partial";
+      execution_status: "pending" | "executing" | "completed" | "partial";
       /** Items */
-      items: components["schemas"]["DataRightsDeletionItemResponse"][];
+      items: components["schemas"]["DataRightsOrderItemResponse"][];
       /** Newly Created */
       newly_created: boolean;
       /** Order Id */
@@ -2109,11 +2059,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "data-rights-order-detail.v2";
-      /** Remaining Locations */
-      remaining_locations: (
-        "shared_local_reference" | "objective_history" | "local_artifact_store"
-      )[];
+      projection_version: "data-rights-order-detail.v3";
       /** Request Digest */
       request_digest: string;
       /**
@@ -2123,6 +2069,14 @@ export interface components {
       requester_kind: "creator" | "other_human";
       /** Requester Party Id */
       requester_party_id: string;
+      /** Retention Reasons */
+      retention_reasons: (
+        | "rights_enforcement"
+        | "shared_reference"
+        | "objective_history"
+        | "subject_continuity"
+        | "operator_managed_snapshot"
+      )[];
       /**
        * Scope Kind
        * @enum {string}
@@ -2137,6 +2091,82 @@ export interface components {
       status: "effective";
       /** Timeline */
       timeline: components["schemas"]["DataRightsTimelineItemResponse"][];
+    };
+    /** DataRightsOrderItemResponse */
+    DataRightsOrderItemResponse: {
+      /** Artifact Deletion Id */
+      artifact_deletion_id: string | null;
+      /** Completed At */
+      completed_at: string | null;
+      /** Created At */
+      created_at: string;
+      /** Deletion Attempt Count */
+      deletion_attempt_count: number;
+      /** Item Id */
+      item_id: string;
+      /** Last Error Code */
+      last_error_code: string | null;
+      /** Operator Action Required */
+      operator_action_required: boolean;
+      /**
+       * Required Action
+       * @enum {string}
+       */
+      required_action:
+        | "block"
+        | "restrict"
+        | "cancel"
+        | "redact"
+        | "tombstone"
+        | "delete"
+        | "retain"
+        | "operator_remove";
+      /** Responsible Owner */
+      responsible_owner: string;
+      /**
+       * Result Status
+       * @enum {string}
+       */
+      result_status:
+        "pending" | "completed" | "partial" | "too_late" | "unknown";
+      /** Retention Reason */
+      retention_reason:
+        | (
+            | "rights_enforcement"
+            | "shared_reference"
+            | "objective_history"
+            | "subject_continuity"
+            | "operator_managed_snapshot"
+          )
+        | null;
+      /** Retryable */
+      retryable: boolean;
+      /**
+       * Target Kind
+       * @enum {string}
+       */
+      target_kind:
+        | "party"
+        | "external_binding"
+        | "scene"
+        | "interaction"
+        | "media_recognition"
+        | "live_voice"
+        | "evidence"
+        | "experience"
+        | "cognition"
+        | "memory"
+        | "relationship"
+        | "activity"
+        | "material"
+        | "subject_component"
+        | "mood"
+        | "prompt"
+        | "effect"
+        | "web_research"
+        | "codex_task"
+        | "managed_snapshot"
+        | "artifact";
     };
     /** DataRightsOrderRequest */
     DataRightsOrderRequest: {
@@ -2166,8 +2196,7 @@ export interface components {
        * Execution Status
        * @enum {string}
        */
-      execution_status:
-        "not_required" | "pending" | "executing" | "completed" | "partial";
+      execution_status: "pending" | "executing" | "completed" | "partial";
       /** Newly Created */
       newly_created: boolean;
       /** Order Id */
@@ -2181,7 +2210,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "data-rights-order-summary.v2";
+      projection_version: "data-rights-order-summary.v3";
       /** Request Digest */
       request_digest: string;
       /**

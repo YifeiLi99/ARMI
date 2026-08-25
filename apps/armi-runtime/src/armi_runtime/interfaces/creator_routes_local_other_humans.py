@@ -253,7 +253,7 @@ def register_local_other_human_routes(
         return JSONResponse(
             content=DataRightsOrderCollectionResponse(
                 contract_version="1.0",
-                projection_version="data-rights-order-collection.v2",
+                projection_version="data-rights-order-collection.v3",
                 orders=[_data_rights_detail_response(detail) for detail in details],
             ).model_dump(mode="json")
         )

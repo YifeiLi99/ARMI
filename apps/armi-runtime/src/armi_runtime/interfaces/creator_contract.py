@@ -632,7 +632,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
         "other-human-record.v1",
         "creator-effect.v3",
         "subject-summary.v1",
-        "data-rights-order-detail.v2",
+        "data-rights-order-collection.v3",
     ]
     occurred_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
 
@@ -1208,7 +1208,7 @@ class CreatorExportRequest(_StrictWireModel):
 
 class CreatorExportResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["creator-export.v3"]
+    projection_version: Literal["creator-export.v4"]
     export_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     status: Literal[
         "building",
@@ -1240,7 +1240,7 @@ class DataRightsOrderRequest(_StrictWireModel):
 
 class DataRightsOrderResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["data-rights-order-summary.v2"]
+    projection_version: Literal["data-rights-order-summary.v3"]
     order_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     requester_party_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     requester_kind: Literal["creator", "other_human"]
@@ -1248,31 +1248,58 @@ class DataRightsOrderResponse(_StrictWireModel):
     scope_kind: Literal["party_contact", "party_local_data"]
     scope_party_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     status: Literal["effective"]
-    execution_status: Literal[
-        "not_required", "pending", "executing", "completed", "partial"
-    ]
+    execution_status: Literal["pending", "executing", "completed", "partial"]
     request_digest: Annotated[str, Field(pattern=r"sha256:[0-9a-f]{64}")]
     effective_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
     completed_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None
     newly_created: bool
 
 
-class DataRightsDeletionItemResponse(_StrictWireModel):
+class DataRightsOrderItemResponse(_StrictWireModel):
     item_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     target_kind: Literal[
+        "party",
+        "external_binding",
+        "scene",
         "interaction",
+        "media_recognition",
+        "live_voice",
         "evidence",
         "experience",
+        "cognition",
         "memory",
         "relationship",
-        "scene",
-        "artifact",
+        "activity",
+        "material",
+        "subject_component",
+        "mood",
+        "prompt",
         "effect",
+        "web_research",
+        "codex_task",
+        "managed_snapshot",
+        "artifact",
     ]
-    required_action: Literal["delete", "tombstone", "retain"]
+    required_action: Literal[
+        "block",
+        "restrict",
+        "cancel",
+        "redact",
+        "tombstone",
+        "delete",
+        "retain",
+        "operator_remove",
+    ]
+    responsible_owner: str
     result_status: Literal["pending", "completed", "partial", "too_late", "unknown"]
-    remaining_location: (
-        Literal["shared_local_reference", "objective_history", "local_artifact_store"]
+    retention_reason: (
+        Literal[
+            "rights_enforcement",
+            "shared_reference",
+            "objective_history",
+            "subject_continuity",
+            "operator_managed_snapshot",
+        ]
         | None
     )
     created_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
@@ -1281,6 +1308,7 @@ class DataRightsDeletionItemResponse(_StrictWireModel):
     retryable: bool
     deletion_attempt_count: Annotated[int, Field(ge=0)]
     last_error_code: str | None
+    operator_action_required: bool
 
 
 class DataRightsTimelineItemResponse(_StrictWireModel):
@@ -1294,7 +1322,7 @@ class DataRightsTimelineItemResponse(_StrictWireModel):
 
 class DataRightsOrderDetailResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["data-rights-order-detail.v2"]
+    projection_version: Literal["data-rights-order-detail.v3"]
     order_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     requester_party_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     requester_kind: Literal["creator", "other_human"]
@@ -1302,28 +1330,30 @@ class DataRightsOrderDetailResponse(_StrictWireModel):
     scope_kind: Literal["party_contact", "party_local_data"]
     scope_party_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     status: Literal["effective"]
-    execution_status: Literal[
-        "not_required", "pending", "executing", "completed", "partial"
-    ]
+    execution_status: Literal["pending", "executing", "completed", "partial"]
     request_digest: Annotated[str, Field(pattern=r"sha256:[0-9a-f]{64}")]
     effective_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
     completed_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None
     newly_created: bool
-    items: list[DataRightsDeletionItemResponse]
+    items: list[DataRightsOrderItemResponse]
     timeline: Annotated[list[DataRightsTimelineItemResponse], Field(min_length=1)]
-    remaining_locations: Annotated[
+    retention_reasons: Annotated[
         list[
             Literal[
-                "shared_local_reference", "objective_history", "local_artifact_store"
+                "rights_enforcement",
+                "shared_reference",
+                "objective_history",
+                "subject_continuity",
+                "operator_managed_snapshot",
             ]
         ],
-        Field(max_length=3),
+        Field(max_length=5),
     ]
 
 
 class DataRightsOrderCollectionResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["data-rights-order-collection.v2"]
+    projection_version: Literal["data-rights-order-collection.v3"]
     orders: list[DataRightsOrderDetailResponse]
 
 
@@ -1371,9 +1401,9 @@ __all__ = (
     "CreatorSceneCollectionResponse",
     "CreatorSceneCreateRequest",
     "CreatorSceneResponse",
-    "DataRightsDeletionItemResponse",
     "DataRightsOrderCollectionResponse",
     "DataRightsOrderDetailResponse",
+    "DataRightsOrderItemResponse",
     "DataRightsOrderRequest",
     "DataRightsOrderResponse",
     "DataRightsTimelineItemResponse",
