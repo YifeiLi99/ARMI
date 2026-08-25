@@ -7,7 +7,12 @@ from collections.abc import Callable
 from armi_attention.api import OpportunityAdmissionPort
 from armi_data_rights.api import DataRightsParticipant
 from armi_evidence.api import EvidenceWritePort
-from armi_kernel.application import CredentialLocator, CredentialPort, DurableWorkPort
+from armi_kernel.application import (
+    CredentialLocator,
+    CredentialPort,
+    DurableWorkPort,
+    ExecutionCustodyPort,
+)
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
     RecoveryParticipant,
@@ -68,6 +73,7 @@ def bootstrap_web_observation(
     storage: WebArtifactStorePort,
     catalog: WebArtifactCatalogPort,
     work: DurableWorkPort,
+    custody: ExecutionCustodyPort,
     credential_port: CredentialPort,
     credential_locator: CredentialLocator,
     manifest_bytes: bytes,
@@ -80,6 +86,7 @@ def bootstrap_web_observation(
         storage=storage,
         catalog=catalog,
         work=work,
+        custody=custody,
         credential_port=credential_port,
         credential_locator=credential_locator,
         manifest_bytes=manifest_bytes,

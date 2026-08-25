@@ -18,7 +18,7 @@ from armi_effect.api import EffectOperationReadPort
 from armi_evidence.api import EvidenceReadPort
 from armi_expression.api import ExpressionIntentReadPort
 from armi_interaction.api import InteractionContextReadPort
-from armi_kernel.application import DurableWorkPort
+from armi_kernel.application import DurableWorkPort, ExecutionCustodyPort
 from armi_material.api import MaterialCandidateContextPort, MaterialProjectionPort
 from armi_memory.api import (
     MemoryCandidateContextPort,
@@ -69,6 +69,7 @@ def bootstrap_context(
     storage: ContentAddressedArtifactStore,
     catalog: ContextArtifactCatalogPort,
     work: DurableWorkPort,
+    custody: ExecutionCustodyPort,
     activity_read: ActivityReadPort,
     capability_read: CapabilityReadPort,
     memory_read: MemoryReadPort,
@@ -98,6 +99,7 @@ def bootstrap_context(
         storage=storage,
         catalog=catalog,
         work=work,
+        custody=custody,
         activity_read=activity_read,
         capability_read=capability_read,
         memory_read=memory_read,
@@ -151,6 +153,7 @@ def bootstrap_context_embedding(
     storage: ContentAddressedArtifactStore,
     adapter: EmbeddingPort,
     work: DurableWorkPort,
+    custody: ExecutionCustodyPort,
     memories: MemoryProjectionPort,
     materials: MaterialProjectionPort,
 ) -> ContextEmbeddingRuntimePort:
@@ -159,6 +162,7 @@ def bootstrap_context_embedding(
         storage=storage,
         adapter=adapter,
         work=work,
+        custody=custody,
         memories=memories,
         materials=materials,
     )

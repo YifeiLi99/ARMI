@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
+import os
+from collections.abc import Callable
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, cast
 from uuid import UUID, uuid7
 
+import psutil
 import psycopg
 from armi_kernel.application import (
     AuditDraft,
@@ -32,6 +38,35 @@ from .audit_events import PostgreSQLAuditWriter
 _SEARCH_PATH = "pg_catalog, armi"
 _AUTHORITY_KEY_PREFIX = "armi.runtime-authority:"
 
+type _ProcessIdentity = tuple[int, int, str, str, UUID, int]
+type _ReplaceableRuntime = tuple[UUID, int, _ProcessIdentity]
+
+
+def _capture_process_identity(environment_id: UUID, pid: int) -> _ProcessIdentity:
+    process = psutil.Process(pid)
+    executable = os.path.normcase(os.fspath(Path(process.exe()).resolve(strict=True)))
+    command = json.dumps(
+        process.cmdline(), ensure_ascii=False, separators=(",", ":")
+    ).encode("utf-8")
+    return (
+        pid,
+        round(process.create_time() * 1_000_000),
+        executable,
+        f"sha256:{hashlib.sha256(command).hexdigest()}",
+        environment_id,
+        1,
+    )
+
+
+def _process_absent(identity: _ProcessIdentity) -> bool:
+    try:
+        observed = _capture_process_identity(identity[4], identity[0])
+    except psutil.NoSuchProcess:
+        return True
+    except psutil.AccessDenied, OSError:
+        raise RuntimeAuthorityViolation("AUTH-PROCESS-OUTCOME-UNKNOWN") from None
+    return observed != identity
+
 
 async def _reset(
     connection: psycopg.AsyncConnection[tuple[Any, ...]],
@@ -51,6 +86,7 @@ class PostgreSQLRuntimeAuthority:
         "_expected_role",
         "_pool",
         "_pool_timeout_seconds",
+        "_process_absent",
         "_statement_timeout_seconds",
     )
 
@@ -61,11 +97,13 @@ class PostgreSQLRuntimeAuthority:
         environment_id: UUID,
         pool_timeout_seconds: int,
         statement_timeout_seconds: int,
+        process_absent: Callable[[_ProcessIdentity], bool] | None = None,
     ) -> None:
         self._environment_id = environment_id
         self._expected_role = physical_role_name(environment_id, "runtime")
         self._pool_timeout_seconds = pool_timeout_seconds
         self._statement_timeout_seconds = statement_timeout_seconds
+        self._process_absent = process_absent or _process_absent
 
         async def configure(
             connection: psycopg.AsyncConnection[tuple[Any, ...]],
@@ -119,6 +157,13 @@ class PostgreSQLRuntimeAuthority:
     ) -> RuntimeAuthorityRecord:
         commit_may_be_unknown = False
         try:
+            process_identity = _capture_process_identity(
+                self._environment_id, os.getpid()
+            )
+        except psutil.Error, OSError:
+            raise RuntimeAuthorityViolation("AUTH-PROCESS-OUTCOME-UNKNOWN") from None
+        replaceable = await self._replaceable_expired_identity()
+        try:
             async with (
                 asyncio.timeout(self._statement_timeout_seconds),
                 self._pool.connection(
@@ -153,7 +198,13 @@ class PostgreSQLRuntimeAuthority:
                             SELECT
                                 runtime_instance_id,
                                 fence_token,
-                                lease_expires_at
+                                lease_expires_at,
+                                process_pid,
+                                process_created_at_microseconds,
+                                process_executable_identity,
+                                process_command_identity,
+                                environment_id,
+                                process_incarnation
                             FROM armi.runtime_instances
                             WHERE life_generation_id = %s
                               AND status = 'active'
@@ -171,6 +222,12 @@ class PostgreSQLRuntimeAuthority:
                         )
                     ).fetchone()
                     if expired is None or not bool(expired[0]):
+                        raise RuntimeAuthorityViolation("AUTH-LEASE-HELD")
+                    if (
+                        replaceable is None
+                        or active[0] != replaceable[0]
+                        or int(active[1]) != replaceable[1]
+                    ):
                         raise RuntimeAuthorityViolation("AUTH-LEASE-HELD")
                     await connection.execute(
                         """
@@ -213,9 +270,16 @@ class PostgreSQLRuntimeAuthority:
                                 bundle_activation_id,
                                 fence_token,
                                 status,
+                                process_pid,
+                                process_created_at_microseconds,
+                                process_executable_identity,
+                                process_command_identity,
+                                environment_id,
+                                process_incarnation,
                                 lease_expires_at)
                             VALUES (
                                 %s, %s, %s, %s, %s, 'active',
+                                %s, %s, %s, %s, %s, %s,
                                 statement_timestamp()
                                     + make_interval(secs => %s))
                             RETURNING
@@ -236,6 +300,7 @@ class PostgreSQLRuntimeAuthority:
                             generation_id,
                             activation_id,
                             fence_token,
+                            *process_identity,
                             lease_seconds,
                         ),
                     )
@@ -266,6 +331,43 @@ class PostgreSQLRuntimeAuthority:
             raise RuntimeAuthorityViolation("AUTH-COMMIT-UNKNOWN") from None
         except psycopg.Error:
             raise RuntimeAuthorityViolation("AUTH-DATABASE") from None
+
+    async def _replaceable_expired_identity(self) -> _ReplaceableRuntime | None:
+        """Inspect the old OS process outside the authority write transaction."""
+
+        try:
+            async with (
+                asyncio.timeout(self._statement_timeout_seconds),
+                self._pool.connection(
+                    timeout=float(self._pool_timeout_seconds)
+                ) as connection,
+            ):
+                row = await (
+                    await connection.execute(
+                        """SELECT runtime_instance_id,fence_token,
+                                  process_pid,process_created_at_microseconds,
+                                  process_executable_identity,process_command_identity,
+                                  environment_id,process_incarnation,
+                                  lease_expires_at <= statement_timestamp()
+                           FROM armi.runtime_instances
+                           WHERE status='active' AND environment_id=%s
+                           ORDER BY started_at DESC LIMIT 1""",
+                        (self._environment_id,),
+                    )
+                ).fetchone()
+        except psycopg.Error, PoolTimeout, TimeoutError:
+            raise RuntimeAuthorityViolation("AUTH-DATABASE") from None
+        if row is None or not bool(row[8]):
+            return None
+        if any(value is None for value in row[2:8]):
+            raise RuntimeAuthorityViolation("AUTH-PROCESS-OUTCOME-UNKNOWN")
+        identity = cast(
+            _ProcessIdentity,
+            (int(row[2]), int(row[3]), str(row[4]), str(row[5]), row[6], int(row[7])),
+        )
+        if not self._process_absent(identity):
+            raise RuntimeAuthorityViolation("AUTH-LEASE-HELD")
+        return row[0], int(row[1]), identity
 
     async def heartbeat(
         self,

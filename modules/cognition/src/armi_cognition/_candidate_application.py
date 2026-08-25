@@ -41,11 +41,18 @@ from armi_kernel.application import (
     CandidateFactClass,
     CandidateViolation,
     DurableWorkPort,
+    ExecutionCustodyMode,
+    ExecutionCustodyPort,
+    ExecutionCustodyRequest,
+    ExecutionCustodyScope,
+    ExecutionCustodyScopeKind,
+    ExecutionCustodyViolation,
     TransactionIsolation,
     WorkLease,
     WorkRecord,
     WorkType,
     WorkViolation,
+    ordered_custody_requests,
 )
 from armi_kernel.contracts import Purpose, SubjectId
 from armi_material.api import (
@@ -168,6 +175,7 @@ class CandidateValidationPipeline:
     __slots__ = (
         "_activity_cognition",
         "_catalog",
+        "_custody",
         "_diagnostic",
         "_factory",
         "_lease_owner",
@@ -193,6 +201,7 @@ class CandidateValidationPipeline:
         storage: ContentAddressedArtifactStore,
         catalog: CognitionArtifactCatalogPort,
         work: DurableWorkPort,
+        custody: ExecutionCustodyPort,
         activity_cognition: ActivityCognitionPort,
         activity_read: ActivityReadPort,
         material_context: MaterialCandidateContextPort,
@@ -223,6 +232,7 @@ class CandidateValidationPipeline:
         diagnostic: Diagnostic | None = None,
     ) -> None:
         self._factory = factory
+        self._custody = custody
         self._activity_cognition = activity_cognition
         self._storage = storage
         self._memory_cognition = memory_cognition
@@ -286,7 +296,49 @@ class CandidateValidationPipeline:
             return False
         record = records[0]
         lease = cast(WorkLease, record.lease)
+        custody_context = None
+        custody_held = False
         try:
+            snapshot = await self._snapshot(record)
+            requests = [
+                ExecutionCustodyRequest(
+                    ExecutionCustodyScope(
+                        ExecutionCustodyScopeKind.RUNTIME_AUTHORITY,
+                        self._factory.environment_id,
+                    ),
+                    ExecutionCustodyMode.SHARED,
+                )
+            ]
+            party_id = snapshot.other_party_id or snapshot.creator_party_id
+            if party_id is not None:
+                requests.append(
+                    ExecutionCustodyRequest(
+                        ExecutionCustodyScope(
+                            ExecutionCustodyScopeKind.DATA_RIGHTS_PARTY,
+                            party_id,
+                        ),
+                        ExecutionCustodyMode.SHARED,
+                    )
+                )
+            if (
+                snapshot.purpose == "consider_creator_outreach"
+                and snapshot.scene_id is not None
+            ):
+                requests.append(
+                    ExecutionCustodyRequest(
+                        ExecutionCustodyScope(
+                            ExecutionCustodyScopeKind.OUTREACH_SCENE,
+                            snapshot.scene_id,
+                        ),
+                        ExecutionCustodyMode.SHARED,
+                    )
+                )
+            custody_context = self._custody.hold(
+                ordered_custody_requests(*requests),
+                deadline_at=record.draft.deadline_at,
+            )
+            await custody_context.__aenter__()
+            custody_held = True
             snapshot = await self._snapshot(record)
             response_bytes = await self._read_response(snapshot)
             material_contexts = await self._read_material_contexts(
@@ -462,6 +514,12 @@ class CandidateValidationPipeline:
         except RuntimeTransactionFailure, WorkViolation:
             self._diagnostic("candidate.worker.transient_failure")
             return True
+        except ExecutionCustodyViolation:
+            self._diagnostic("candidate.worker.custody_unavailable")
+            return True
+        finally:
+            if custody_context is not None and custody_held:
+                await custody_context.__aexit__(None, None, None)
 
     async def run_worker(self) -> None:
         observed = self._wakeups.version(CANDIDATE_VALIDATE)

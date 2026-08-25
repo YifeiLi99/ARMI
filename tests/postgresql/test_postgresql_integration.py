@@ -145,6 +145,9 @@ from armi_runtime.adapters.persistence.database_capabilities import (
 from armi_runtime.adapters.persistence.durable_work import (
     PostgreSQLDurableWorkGateway,
 )
+from armi_runtime.adapters.persistence.execution_custody import (
+    PostgreSQLExecutionCustody,
+)
 from armi_runtime.adapters.persistence.life_records import PostgreSQLLifeRecordQuery
 from armi_runtime.adapters.persistence.recovery import (
     PostgreSQLRuntimeRecovery,
@@ -3830,6 +3833,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 statement_timeout_seconds=10,
                 authority_admission=lambda: current.fence,
             )
+            execution_custody = PostgreSQLExecutionCustody(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+                pool_max=2,
+                pool_timeout_seconds=2,
+            )
             pipeline = bootstrap_web_observation(
                 factory=web_factory,
                 storage=_publishing_artifact_store(
@@ -3839,6 +3848,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ),
                 catalog=ArtifactCatalogRepository(),
                 work=PostgreSQLDurableWorkGateway(web_factory),
+                custody=execution_custody,
                 credential_port=credential_port,
                 credential_locator=(
                     live_credential.locator
@@ -3914,6 +3924,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             if live_credential is None:
                 cast(Any, pipeline)._adapter = ConformanceAdapter()
             await web_factory.open()
+            await execution_custody.open()
             await pipeline.open()
             draft = WebObservationDraft(
                 WebObservationRequestId(_uuid7()),
@@ -3940,6 +3951,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 self.assertEqual(admitted.request_id, repeated.request_id)
             finally:
                 await pipeline.close()
+                await execution_custody.close()
                 await web_factory.close()
                 await authority.release(current.fence)
                 await authority.close()
@@ -5655,7 +5667,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 INSERT INTO armi.runtime_instances (
                     runtime_instance_id, subject_id, life_generation_id,
                     bundle_activation_id, fence_token, status,
+                    process_pid,process_created_at_microseconds,
+                    process_executable_identity,process_command_identity,
+                    environment_id,process_incarnation,
                     lease_expires_at) VALUES (%s, %s, %s, %s, 1, 'active',
+                          1,1,'test-runtime',
+                          'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                          %s,1,
                           clock_timestamp() + interval '5 minutes')
                 """,
                 (
@@ -5663,6 +5681,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     born.subject_id,
                     born.life_generation_id,
                     born.bundle_activation_id,
+                    fixture.environment_id,
                 ),
             )
             for name, content in payloads.items():
@@ -6935,6 +6954,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     environment_id=fixture.environment_id,
                     pool_timeout_seconds=2,
                     statement_timeout_seconds=5,
+                    process_absent=lambda _identity: True,
                 )
                 for _ in range(3)
             ]
@@ -7006,6 +7026,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
                 transaction_task = asyncio.create_task(expire_open_transaction())
                 await entered.wait()
+                # OS absence is checked before the authority write transaction.
+                # Start takeover only after the old lease is actually expired;
+                # the old open transaction still verifies the row-lock rematch.
+                await asyncio.sleep(3.1)
                 takeover_task = asyncio.create_task(
                     takeover.acquire(
                         runtime_instance_id=RuntimeInstanceId(_uuid7()),
@@ -7305,6 +7329,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     environment_id=fixture.environment_id,
                     pool_timeout_seconds=2,
                     statement_timeout_seconds=5,
+                    process_absent=lambda _identity: True,
                 )
                 for _ in range(2)
             ]

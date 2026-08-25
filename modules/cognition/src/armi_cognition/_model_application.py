@@ -30,6 +30,12 @@ from armi_kernel.application import (
     AuditResultStatus,
     AuditSensitivity,
     DurableWorkPort,
+    ExecutionCustodyMode,
+    ExecutionCustodyPort,
+    ExecutionCustodyRequest,
+    ExecutionCustodyScope,
+    ExecutionCustodyScopeKind,
+    ExecutionCustodyViolation,
     ModelAttemptId,
     ModelBinding,
     ModelInvocationResult,
@@ -41,6 +47,7 @@ from armi_kernel.application import (
     WorkRecord,
     WorkType,
     WorkViolation,
+    ordered_custody_requests,
 )
 from armi_kernel.contracts import Instant, Purpose, SubjectId
 from armi_runtime_foundation import (
@@ -238,6 +245,7 @@ class ModelPipeline:
         "_adapters",
         "_branch_adapters",
         "_catalog",
+        "_custody",
         "_diagnostic",
         "_dialogue_version",
         "_factory",
@@ -259,6 +267,7 @@ class ModelPipeline:
         context: ContextCognitionReadPort,
         opportunities: OpportunityCognitionSelectionPort,
         work: DurableWorkPort,
+        custody: ExecutionCustodyPort,
         adapter_factory: CognitionModelAdapterFactory,
         binding_path: Path,
         web_search_active: bool = False,
@@ -686,6 +695,7 @@ class ModelPipeline:
             ),
         }
         self._catalog = catalog
+        self._custody = custody
         self._repository = PostgreSQLCognitiveModelRepository(
             context,
             catalog,
@@ -730,7 +740,51 @@ class ModelPipeline:
         record = records[0]
         lease = cast(WorkLease, record.lease)
         branch: ModelBranchSnapshot | None = None
+        custody_context = None
+        custody_held = False
         try:
+            snapshot = await self._snapshot(record)
+            custody_requests = [
+                ExecutionCustodyRequest(
+                    ExecutionCustodyScope(
+                        ExecutionCustodyScopeKind.RUNTIME_AUTHORITY,
+                        self._factory.environment_id,
+                    ),
+                    ExecutionCustodyMode.SHARED,
+                )
+            ]
+            if snapshot.context_party_id is not None:
+                custody_requests.append(
+                    ExecutionCustodyRequest(
+                        ExecutionCustodyScope(
+                            ExecutionCustodyScopeKind.DATA_RIGHTS_PARTY,
+                            snapshot.context_party_id,
+                        ),
+                        ExecutionCustodyMode.SHARED,
+                    )
+                )
+            if (
+                snapshot.purpose == "consider_creator_outreach"
+                and snapshot.scene_id is not None
+            ):
+                custody_requests.append(
+                    ExecutionCustodyRequest(
+                        ExecutionCustodyScope(
+                            ExecutionCustodyScopeKind.OUTREACH_SCENE,
+                            snapshot.scene_id,
+                        ),
+                        ExecutionCustodyMode.SHARED,
+                    )
+                )
+            custody_context = self._custody.hold(
+                ordered_custody_requests(*custody_requests),
+                deadline_at=record.draft.deadline_at,
+            )
+            await custody_context.__aenter__()
+            custody_held = True
+            # The first snapshot only identifies custody scopes.  Re-read under
+            # custody so a Data Rights or Runtime exclusive holder cannot leave
+            # this worker with a stale lease before file/provider I/O begins.
             snapshot = await self._snapshot(record)
             if snapshot.purpose in {
                 "consider_creator_input",
@@ -926,6 +980,12 @@ class ModelPipeline:
         except WorkViolation as error:
             self._diagnostic(f"model.worker.transient_failure.{error.code.lower()}")
             return True
+        except ExecutionCustodyViolation:
+            self._diagnostic("model.worker.custody_unavailable")
+            return True
+        finally:
+            if custody_context is not None and custody_held:
+                await custody_context.__aexit__(None, None, None)
 
     async def _invoke_dialogue_branches(
         self,

@@ -66,6 +66,8 @@ class ModelBranchSnapshot:
 class ModelEpisodeSnapshot:
     episode_id: UUID
     subject_id: UUID
+    scene_id: UUID | None
+    context_party_id: UUID | None
     purpose: str
     base_subject_version: int
     base_state_epoch: int
@@ -110,6 +112,8 @@ class PostgreSQLCognitiveModelRepository:
                 SELECT
                     episode.cognitive_episode_id,
                     episode.subject_id,
+                    episode.scene_id,
+                    episode.context_party_id,
                     episode.purpose,
                     episode.base_subject_version,
                     episode.base_state_epoch,
@@ -169,12 +173,14 @@ class PostgreSQLCognitiveModelRepository:
         return ModelEpisodeSnapshot(
             row[0],
             row[1],
-            str(row[2]),
-            int(row[3]),
-            int(row[4]),
-            row[5],
-            Digest(str(row[6])),
-            await self._artifact_ref(unit_of_work, row[7]),
+            row[2],
+            row[3],
+            str(row[4]),
+            int(row[5]),
+            int(row[6]),
+            row[7],
+            Digest(str(row[8])),
+            await self._artifact_ref(unit_of_work, row[9]),
             tuple(
                 {
                     "ref": f"ctx:{item.ordinal}",
@@ -192,7 +198,7 @@ class PostgreSQLCognitiveModelRepository:
                 }
                 for item in excluded
             ),
-            TraceId(str(row[8])),
+            TraceId(str(row[10])),
             tuple(branches),
         )
 

@@ -45,6 +45,8 @@ class WebObservationSnapshot:
     trace_id: TraceId
     attempt_count: int
     research_intent_id: UUID | None
+    context_party_id: UUID | None
+    scene_id: UUID | None
 
 
 class PostgreSQLWebObservationRepository:
@@ -153,8 +155,12 @@ class PostgreSQLWebObservationRepository:
                        request.request_artifact_id, request.request_digest,
                        (SELECT count(*) FROM armi.observation_attempts AS attempt
                         WHERE attempt.web_observation_request_id = request.web_observation_request_id),
-                       request.web_research_intent_id
+                       request.web_research_intent_id,
+                       intent.creator_party_id,
+                       intent.scene_id
                 FROM armi.web_observation_requests AS request
+                LEFT JOIN armi.web_research_intents AS intent
+                  ON intent.web_research_intent_id=request.web_research_intent_id
                 WHERE request.web_observation_request_id = %s
                   AND request.work_id = %s
                   AND request.status IN ('pending', 'running')
@@ -177,6 +183,8 @@ class PostgreSQLWebObservationRepository:
             work.draft.trace_id,
             int(row[4]),
             row[5],
+            row[6],
+            row[7],
         )
 
     async def prepare_attempt(

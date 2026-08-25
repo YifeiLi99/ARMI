@@ -37,11 +37,18 @@ from armi_kernel.application import (
     AuditSensitivity,
     CognitiveEpisodeId,
     DurableWorkPort,
+    ExecutionCustodyMode,
+    ExecutionCustodyPort,
+    ExecutionCustodyRequest,
+    ExecutionCustodyScope,
+    ExecutionCustodyScopeKind,
+    ExecutionCustodyViolation,
     ModelViolation,
     TransactionIsolation,
     WorkLease,
     WorkType,
     WorkViolation,
+    ordered_custody_requests,
 )
 from armi_kernel.contracts import Instant, Purpose, SubjectId
 from armi_material.api import MaterialProjectionPort
@@ -159,6 +166,7 @@ class ContextPipeline:
     __slots__ = (
         "_catalog",
         "_compiler",
+        "_custody",
         "_diagnostic",
         "_dialogue_read",
         "_embedding",
@@ -181,6 +189,7 @@ class ContextPipeline:
         storage: ContentAddressedArtifactStore,
         catalog: ContextArtifactCatalogPort,
         work: DurableWorkPort,
+        custody: ExecutionCustodyPort,
         activity_read: ActivityReadPort,
         capability_read: CapabilityReadPort,
         memory_read: MemoryReadPort,
@@ -207,6 +216,7 @@ class ContextPipeline:
         embedding: EmbeddingPort | None = None,
     ) -> None:
         self._factory = factory
+        self._custody = custody
         self._dialogue_read = dialogue_read
         self._storage = storage
         self._policy_version = policy_version
@@ -284,7 +294,49 @@ class ContextPipeline:
         if record.draft.owner.kind != "cognitive_episode":
             await self._fail_if_current(lease, episode_id, "CTX-WORK-STALE")
             return True
+        custody_context = None
+        custody_held = False
         try:
+            snapshot = await self._snapshot(episode_id)
+            requests = [
+                ExecutionCustodyRequest(
+                    ExecutionCustodyScope(
+                        ExecutionCustodyScopeKind.RUNTIME_AUTHORITY,
+                        self._factory.environment_id,
+                    ),
+                    ExecutionCustodyMode.SHARED,
+                )
+            ]
+            party_id = snapshot.other_party_id or snapshot.creator_party_id
+            if party_id is not None:
+                requests.append(
+                    ExecutionCustodyRequest(
+                        ExecutionCustodyScope(
+                            ExecutionCustodyScopeKind.DATA_RIGHTS_PARTY,
+                            party_id,
+                        ),
+                        ExecutionCustodyMode.SHARED,
+                    )
+                )
+            if (
+                snapshot.purpose == "consider_creator_outreach"
+                and snapshot.scene_id is not None
+            ):
+                requests.append(
+                    ExecutionCustodyRequest(
+                        ExecutionCustodyScope(
+                            ExecutionCustodyScopeKind.OUTREACH_SCENE,
+                            snapshot.scene_id,
+                        ),
+                        ExecutionCustodyMode.SHARED,
+                    )
+                )
+            custody_context = self._custody.hold(
+                ordered_custody_requests(*requests),
+                deadline_at=record.draft.deadline_at,
+            )
+            await custody_context.__aenter__()
+            custody_held = True
             snapshot = await self._snapshot(episode_id)
             snapshot = replace(
                 snapshot,
@@ -394,6 +446,12 @@ class ContextPipeline:
         except RuntimeTransactionFailure, WorkViolation:
             self._diagnostic("context.prepare.transient_failure")
             return True
+        except ExecutionCustodyViolation:
+            self._diagnostic("context.prepare.custody_unavailable")
+            return True
+        finally:
+            if custody_context is not None and custody_held:
+                await custody_context.__aexit__(None, None, None)
 
     async def run_selector(self) -> None:
         observed = self._wakeups.version(OPPORTUNITY_AVAILABLE)

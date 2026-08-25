@@ -16,7 +16,13 @@ from uuid import uuid7
 import psycopg
 from armi_artifact_store.api import ArtifactAdminPort
 from armi_artifact_store.bootstrap import bootstrap_artifact_admin
-from armi_kernel.application import CredentialPurpose
+from armi_kernel.application import (
+    CredentialPurpose,
+    ExecutionCustodyMode,
+    ExecutionCustodyRequest,
+    ExecutionCustodyScope,
+    ExecutionCustodyScopeKind,
+)
 from armi_postgresql_contract.catalog_fingerprint import (
     database_catalog_digest,
 )
@@ -26,6 +32,11 @@ from armi_runtime_foundation import (
 )
 from psycopg.conninfo import conninfo_to_dict
 
+from armi_runtime.adapters.persistence.execution_custody import (
+    PostgreSQLExecutionCustody,
+)
+
+from .configuration import ConfigurationViolation
 from .environment import PreparedEnvironment
 from .runtime_errors import RuntimeViolation
 from .runtime_process import RuntimeProcessManager
@@ -289,21 +300,12 @@ def _resolve_destination(prepared: PreparedEnvironment, destination: Path) -> Pa
     return target
 
 
-def create_recovery_backup(
+def _create_recovery_backup_guarded(
     prepared: PreparedEnvironment,
     *,
     postgresql_client_root: Path,
     destination: Path,
 ) -> RecoveryResult:
-    runtime = RuntimeProcessManager(
-        prepared.root,
-        str(prepared.effective.config.environment.environment_id),
-    ).status()
-    if runtime["status"] != "stopped":
-        raise RuntimeViolation(
-            "RECOVERY-RUNTIME-ACTIVE",
-            "the Runtime must be stopped before a recovery backup",
-        )
     target_root = _resolve_destination(prepared, destination)
     backup_id = uuid7()
     name = f"armi-backup-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-{backup_id}"
@@ -386,6 +388,68 @@ def create_recovery_backup(
         if staging.is_dir() and staging.parent == target_root:
             shutil.rmtree(staging)
         raise
+
+
+async def create_recovery_backup(
+    prepared: PreparedEnvironment,
+    *,
+    postgresql_client_root: Path,
+    destination: Path,
+) -> RecoveryResult:
+    """Hold Runtime's process and session fences for the complete backup."""
+
+    process = RuntimeProcessManager(
+        prepared.root,
+        str(prepared.effective.config.environment.environment_id),
+    )
+    locator = prepared.effective.config.secret_locators.get("database.migrator")
+    if locator is None:
+        raise RuntimeViolation(
+            "RECOVERY-CREDENTIAL", "the migrator credential is unavailable"
+        )
+    try:
+        with prepared.credential_port.resolve(
+            locator, CredentialPurpose("database.recovery")
+        ) as handle:
+
+            def create(value: memoryview) -> PostgreSQLExecutionCustody:
+                config = prepared.effective.config
+                return PostgreSQLExecutionCustody(
+                    bytes(value).decode("utf-8", "strict"),
+                    environment_id=config.environment.environment_id,
+                    pool_max=config.database.pool_max,
+                    pool_timeout_seconds=config.database.pool_acquire_timeout_seconds,
+                    role_kind="migrator",
+                )
+
+            custody = handle.consume(create)
+    except ConfigurationViolation, UnicodeDecodeError:
+        raise RuntimeViolation(
+            "RECOVERY-CREDENTIAL", "the migrator credential is unavailable"
+        ) from None
+    await custody.open()
+    try:
+        request = ExecutionCustodyRequest(
+            ExecutionCustodyScope(
+                ExecutionCustodyScopeKind.RUNTIME_AUTHORITY,
+                prepared.effective.config.environment.environment_id,
+            ),
+            ExecutionCustodyMode.EXCLUSIVE,
+        )
+        with process.exclusive_environment():
+            if process.status()["status"] != "stopped":
+                raise RuntimeViolation(
+                    "RECOVERY-RUNTIME-ACTIVE",
+                    "the Runtime must be stopped before a recovery backup",
+                )
+            async with custody.hold((request,), deadline_at=None):
+                return _create_recovery_backup_guarded(
+                    prepared,
+                    postgresql_client_root=postgresql_client_root,
+                    destination=destination,
+                )
+    finally:
+        await custody.close()
 
 
 def _read_manifest(bundle: Path) -> tuple[Path, dict[str, object]]:

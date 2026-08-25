@@ -6,7 +6,7 @@ import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 import psycopg
@@ -48,8 +48,9 @@ class PostgreSQLExecutionCustody:
         environment_id: UUID,
         pool_max: int,
         pool_timeout_seconds: int,
+        role_kind: Literal["runtime", "migrator"] = "runtime",
     ) -> None:
-        expected_role = physical_role_name(environment_id, "runtime")
+        expected_role = physical_role_name(environment_id, role_kind)
         self._pool_timeout_seconds = pool_timeout_seconds
 
         async def check(connection: psycopg.AsyncConnection[tuple[Any, ...]]) -> None:

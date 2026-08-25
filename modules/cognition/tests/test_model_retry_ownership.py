@@ -184,6 +184,8 @@ def test_retryable_preparation_failure_settles_on_final_work_attempt() -> None:
     snapshot = ModelEpisodeSnapshot(
         episode_id,
         uuid7(),
+        None,
+        None,
         "consider_creator_input",
         1,
         0,

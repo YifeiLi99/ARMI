@@ -71,7 +71,22 @@ class PostgreSQLWebObservationDataRightsParticipant:
         transaction: PostgreSQLTransaction,
         request: DataRightsApplyRequest,
     ) -> DataRightsApplyContribution:
-        del transaction, request
+        await transaction.execute(
+            """UPDATE armi.web_observation_requests AS observation
+               SET status='cancelled',last_error_code='WEB-DATA-RIGHTS-CANCELLED',
+                   completed_at=statement_timestamp()
+               FROM armi.web_research_intents AS intent
+               WHERE observation.web_research_intent_id=intent.web_research_intent_id
+                 AND intent.creator_party_id=%s
+                 AND observation.status IN ('pending','running')""",
+            (request.party_id,),
+        )
+        await transaction.execute(
+            """UPDATE armi.web_research_intents
+               SET status='cancelled',completed_at=statement_timestamp()
+               WHERE creator_party_id=%s AND status IN ('pending','admitted')""",
+            (request.party_id,),
+        )
         return DataRightsApplyContribution(_OWNER)
 
     async def export(

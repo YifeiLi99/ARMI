@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import json
 import os
+import selectors
 import sys
 from collections.abc import Sequence
 from dataclasses import replace
@@ -598,10 +599,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "recovery":
         try:
-            result = create_recovery_backup(
-                prepared,
-                postgresql_client_root=args.postgresql_client_root,
-                destination=args.destination,
+            result = asyncio.run(
+                create_recovery_backup(
+                    prepared,
+                    postgresql_client_root=args.postgresql_client_root,
+                    destination=args.destination,
+                ),
+                loop_factory=lambda: asyncio.SelectorEventLoop(
+                    selectors.SelectSelector()
+                ),
             )
         except RuntimeViolation as error:
             _safe_failure(error)

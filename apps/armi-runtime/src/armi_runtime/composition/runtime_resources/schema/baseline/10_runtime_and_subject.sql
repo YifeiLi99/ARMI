@@ -133,6 +133,12 @@ CREATE TABLE armi.runtime_instances (
     bundle_activation_id uuid NOT NULL,
     fence_token bigint NOT NULL,
     status text NOT NULL,
+    process_pid bigint,
+    process_created_at_microseconds bigint,
+    process_executable_identity text,
+    process_command_identity text,
+    environment_id uuid,
+    process_incarnation bigint,
     started_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
     last_heartbeat_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
     lease_expires_at timestamp(6) with time zone NOT NULL,
@@ -140,6 +146,7 @@ CREATE TABLE armi.runtime_instances (
     CONSTRAINT runtime_instances_check CHECK ((lease_expires_at > last_heartbeat_at)),
     CONSTRAINT runtime_instances_check1 CHECK ((((status = 'active'::text) AND (stopped_at IS NULL)) OR ((status = ANY (ARRAY['fenced'::text, 'stopped'::text])) AND (stopped_at IS NOT NULL)))),
     CONSTRAINT runtime_instances_fence_token_check CHECK ((fence_token > 0)),
+    CONSTRAINT runtime_instances_process_identity_check CHECK (((status <> 'active'::text) OR ((process_pid IS NOT NULL) AND (process_pid > 0) AND (process_created_at_microseconds IS NOT NULL) AND (process_created_at_microseconds > 0) AND (process_executable_identity IS NOT NULL) AND (process_executable_identity <> ''::text) AND (process_command_identity IS NOT NULL) AND (process_command_identity ~ '^sha256:[0-9a-f]{64}$'::text) AND (environment_id IS NOT NULL) AND (uuid_extract_version(environment_id) = 7) AND (process_incarnation IS NOT NULL) AND (process_incarnation > 0)))),
     CONSTRAINT runtime_instances_runtime_instance_id_check CHECK ((uuid_extract_version(runtime_instance_id) = 7)),
     CONSTRAINT runtime_instances_status_check CHECK ((status = ANY (ARRAY['active'::text, 'fenced'::text, 'stopped'::text])))
 );

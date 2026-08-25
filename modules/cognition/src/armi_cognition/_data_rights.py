@@ -152,7 +152,24 @@ class PostgreSQLCognitionDataRightsParticipant:
         transaction: PostgreSQLTransaction,
         request: DataRightsApplyRequest,
     ) -> DataRightsApplyContribution:
-        del transaction, request
+        await transaction.execute(
+            """UPDATE armi.cognitive_episodes
+               SET status='cancelled',failure_code='DATA-RIGHTS-CANCELLED'
+               WHERE context_party_id=%s
+                 AND status IN (
+                     'preparing','prepared','calling_model','model_returned',
+                     'validating','candidate_validated','candidate_rejected',
+                     'committing'
+                 )
+                 AND (
+                     %s IN ('stop_use','delete_related')
+                     OR purpose IN (
+                         'consider_creator_input','consider_other_human_input',
+                         'consider_creator_outreach'
+                     )
+                 )""",
+            (request.party_id, request.order_kind),
+        )
         return DataRightsApplyContribution(_OWNER)
 
     async def export(

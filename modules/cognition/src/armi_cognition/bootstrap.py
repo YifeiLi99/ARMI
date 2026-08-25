@@ -18,7 +18,7 @@ from armi_data_rights.api import DataRightsParticipant
 from armi_evidence.api import EvidenceReadPort
 from armi_experience.api import ExperienceReadPort
 from armi_interaction.api import InteractionCognitionReadPort
-from armi_kernel.application import DurableWorkPort
+from armi_kernel.application import DurableWorkPort, ExecutionCustodyPort
 from armi_material.api import (
     MaterialCandidateContextPort,
     MaterialCognitionPort,
@@ -215,6 +215,7 @@ def bootstrap_cognition_model(
     context: ContextCognitionReadPort,
     opportunities: OpportunityCognitionSelectionPort,
     work: DurableWorkPort,
+    custody: ExecutionCustodyPort,
     adapter_factory: CognitionModelAdapterFactory,
     binding_path: Path,
     web_search_active: bool = False,
@@ -228,6 +229,7 @@ def bootstrap_cognition_model(
         context=context,
         opportunities=opportunities,
         work=work,
+        custody=custody,
         adapter_factory=adapter_factory,
         binding_path=binding_path,
         web_search_active=web_search_active,
@@ -242,6 +244,7 @@ def bootstrap_cognition_candidate(
     storage: ContentAddressedArtifactStore,
     catalog: CognitionArtifactCatalogPort,
     work: DurableWorkPort,
+    custody: ExecutionCustodyPort,
     activity_cognition: ActivityCognitionPort,
     activity_read: ActivityReadPort,
     material_context: MaterialCandidateContextPort,
@@ -276,6 +279,7 @@ def bootstrap_cognition_candidate(
         storage=storage,
         catalog=catalog,
         work=work,
+        custody=custody,
         activity_cognition=activity_cognition,
         activity_read=activity_read,
         material_context=material_context,

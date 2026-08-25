@@ -17,6 +17,12 @@ from armi_kernel.application import (
     ArtifactPrivacyScope,
     ArtifactViolation,
     DurableWorkPort,
+    ExecutionCustodyMode,
+    ExecutionCustodyPort,
+    ExecutionCustodyRequest,
+    ExecutionCustodyScope,
+    ExecutionCustodyScopeKind,
+    ExecutionCustodyViolation,
     ModelViolation,
     WorkDraft,
     WorkId,
@@ -27,6 +33,7 @@ from armi_kernel.application import (
     WorkResultRef,
     WorkType,
     WorkViolation,
+    ordered_custody_requests,
 )
 from armi_kernel.contracts import IdempotencyKey, Instant
 from armi_material.api import MaterialProjectionPort
@@ -55,6 +62,7 @@ _WORK_KIND = WorkType.CONTEXT_EMBEDDING_PROJECT
 class ContextEmbeddingPipeline:
     __slots__ = (
         "_adapter",
+        "_custody",
         "_factory",
         "_lease_owner",
         "_repository",
@@ -70,10 +78,12 @@ class ContextEmbeddingPipeline:
         storage: ContentAddressedArtifactStore,
         adapter: EmbeddingPort,
         work: DurableWorkPort,
+        custody: ExecutionCustodyPort,
         memories: MemoryProjectionPort,
         materials: MaterialProjectionPort,
     ) -> None:
         self._factory = factory
+        self._custody = custody
         self._storage = storage
         self._adapter = adapter
         self._repository = PostgreSQLContextEmbeddingRepository(memories, materials)
@@ -104,33 +114,87 @@ class ContextEmbeddingPipeline:
         )
         if not records:
             return False
-        lease = cast(WorkLease, records[0].lease)
+        record = records[0]
+        lease = cast(WorkLease, record.lease)
         async with self._factory.unit_of_work(read_only=True) as unit_of_work:
             source = await self._repository.load_source(
                 unit_of_work,
-                owner_kind=records[0].draft.owner.kind,
-                owner_ref=records[0].draft.owner.reference,
+                owner_kind=record.draft.owner.kind,
+                owner_ref=record.draft.owner.reference,
             )
         if source is None:
             async with self._factory.unit_of_work() as unit_of_work:
                 await unit_of_work.work.complete(
                     lease,
                     WorkResultRef(
-                        "context_embedding_source", records[0].draft.owner.reference
+                        "context_embedding_source", record.draft.owner.reference
                     ),
                 )
                 await self._repository.note_projection_work_settled(unit_of_work)
             return True
+        requests = [
+            ExecutionCustodyRequest(
+                ExecutionCustodyScope(
+                    ExecutionCustodyScopeKind.RUNTIME_AUTHORITY,
+                    self._factory.environment_id,
+                ),
+                ExecutionCustodyMode.SHARED,
+            )
+        ]
+        if source.material_source is not None:
+            requests.append(
+                ExecutionCustodyRequest(
+                    ExecutionCustodyScope(
+                        ExecutionCustodyScopeKind.DATA_RIGHTS_PARTY,
+                        source.material_source.owner_party_id,
+                    ),
+                    ExecutionCustodyMode.SHARED,
+                )
+            )
+        try:
+            async with self._custody.hold(
+                ordered_custody_requests(*requests),
+                deadline_at=record.draft.deadline_at,
+            ):
+                async with self._factory.unit_of_work(read_only=True) as unit_of_work:
+                    current = await self._repository.load_source(
+                        unit_of_work,
+                        owner_kind=record.draft.owner.kind,
+                        owner_ref=record.draft.owner.reference,
+                    )
+                if current != source:
+                    async with self._factory.unit_of_work() as unit_of_work:
+                        await _guard_lease(unit_of_work, lease)
+                        await unit_of_work.work.complete(
+                            lease,
+                            WorkResultRef(
+                                "context_embedding_source", source.source_ref
+                            ),
+                        )
+                        await self._repository.note_projection_work_settled(
+                            unit_of_work
+                        )
+                    return True
+                return await self._project_source(record, lease, source)
+        except ExecutionCustodyViolation:
+            return True
+
+    async def _project_source(
+        self,
+        record: WorkRecord,
+        lease: WorkLease,
+        source: EmbeddingProjectionSource,
+    ) -> bool:
         try:
             chunks = await self._source_chunks(source)
         except ArtifactViolation as error:
             await self._terminal_or_successor(
-                records[0], lease, source, error.code, deterministic=True
+                record, lease, source, error.code, deterministic=True
             )
             return True
         if not chunks:
             await self._terminal_or_successor(
-                records[0],
+                record,
                 lease,
                 source,
                 "MODEL-EMBEDDING-INPUT",
@@ -165,7 +229,7 @@ class ContextEmbeddingPipeline:
                         await self._repository.settle_failure(
                             unit_of_work, attempt_id, error.code
                         )
-                if records[0].attempt_count < records[0].draft.max_attempts:
+                if record.attempt_count < record.draft.max_attempts:
                     await self._work.release(
                         lease,
                         not_before=Instant(datetime.now(UTC) + timedelta(seconds=5)),
@@ -173,7 +237,7 @@ class ContextEmbeddingPipeline:
                     )
                 else:
                     await self._terminal_or_successor(
-                        records[0], lease, source, error.code, deterministic=False
+                        record, lease, source, error.code, deterministic=False
                     )
                 return True
             for offset, (attempt_id, response) in enumerate(

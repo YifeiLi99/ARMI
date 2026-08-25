@@ -24,6 +24,12 @@ from armi_kernel.application import (
     CredentialLocator,
     CredentialPort,
     DurableWorkPort,
+    ExecutionCustodyMode,
+    ExecutionCustodyPort,
+    ExecutionCustodyRequest,
+    ExecutionCustodyScope,
+    ExecutionCustodyScopeKind,
+    ExecutionCustodyViolation,
     WorkDraft,
     WorkId,
     WorkLease,
@@ -32,6 +38,7 @@ from armi_kernel.application import (
     WorkRecord,
     WorkType,
     WorkViolation,
+    ordered_custody_requests,
 )
 from armi_kernel.contracts import (
     Digest,
@@ -91,6 +98,7 @@ class WebSearchPipeline:
     __slots__ = (
         "_adapter",
         "_catalog",
+        "_custody",
         "_diagnostic",
         "_evidence_repository",
         "_factory",
@@ -109,6 +117,7 @@ class WebSearchPipeline:
         storage: WebArtifactStorePort,
         catalog: WebArtifactCatalogPort,
         work: DurableWorkPort,
+        custody: ExecutionCustodyPort,
         credential_port: CredentialPort,
         credential_locator: CredentialLocator,
         manifest_bytes: bytes,
@@ -121,6 +130,7 @@ class WebSearchPipeline:
         self._adapter = ArkWebSearchAdapter(credential_port, credential_locator)
         self._policy = load_custody_policy(manifest_bytes)
         self._catalog = catalog
+        self._custody = custody
         self._repository = PostgreSQLWebObservationRepository(catalog)
         self._evidence_repository = PostgreSQLWebEvidenceRepository(
             catalog, evidence, opportunity
@@ -256,7 +266,35 @@ class WebSearchPipeline:
             return False
         work = records[0]
         lease = cast(WorkLease, work.lease)
+        custody_context = None
+        custody_held = False
         try:
+            snapshot = await self._snapshot(work)
+            requests = [
+                ExecutionCustodyRequest(
+                    ExecutionCustodyScope(
+                        ExecutionCustodyScopeKind.RUNTIME_AUTHORITY,
+                        self._factory.environment_id,
+                    ),
+                    ExecutionCustodyMode.SHARED,
+                )
+            ]
+            if snapshot.context_party_id is not None:
+                requests.append(
+                    ExecutionCustodyRequest(
+                        ExecutionCustodyScope(
+                            ExecutionCustodyScopeKind.DATA_RIGHTS_PARTY,
+                            snapshot.context_party_id,
+                        ),
+                        ExecutionCustodyMode.SHARED,
+                    )
+                )
+            custody_context = self._custody.hold(
+                ordered_custody_requests(*requests),
+                deadline_at=work.draft.deadline_at,
+            )
+            await custody_context.__aenter__()
+            custody_held = True
             snapshot = await self._snapshot(work)
             request_bytes = await self._read_request(snapshot)
             request = parse_request_bytes(request_bytes)
@@ -353,6 +391,12 @@ class WebSearchPipeline:
         except RuntimeTransactionFailure, WorkViolation:
             self._diagnostic("web.observation.transient_failure")
             return True
+        except ExecutionCustodyViolation:
+            self._diagnostic("web.observation.custody_unavailable")
+            return True
+        finally:
+            if custody_context is not None and custody_held:
+                await custody_context.__aexit__(None, None, None)
 
     async def run_worker(self) -> None:
         while not self._stop.is_set():

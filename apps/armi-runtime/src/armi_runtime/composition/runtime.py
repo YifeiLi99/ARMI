@@ -904,6 +904,7 @@ async def _serve(
                 expression_read=expression_module.intents,
                 effect_read=effect_owner,
                 data_rights=data_rights_module.cognition,
+                custody=execution_custody,
                 memory_read=memory_module.read,
                 memory_projection=memory_module.projection,
                 mood_read=mood_module.read,
@@ -924,6 +925,7 @@ async def _serve(
             candidate_pipeline = compose_candidate_validation_pipeline(
                 prepared,
                 unit_of_work_factory=runtime_unit_of_work_factory,
+                custody=execution_custody,
                 activity_cognition=activity_module.cognition,
                 activity_read=activity_module.read,
                 material_context=candidate_context.material,
@@ -1080,6 +1082,7 @@ async def _serve(
                     context_embedding_pipeline = compose_context_embedding_pipeline(
                         prepared,
                         unit_of_work_factory=runtime_unit_of_work_factory,
+                        custody=execution_custody,
                         memory_projection=memory_module.projection,
                         material_projection=material_module.projection,
                     )
@@ -1100,6 +1103,7 @@ async def _serve(
                         context=candidate_context.cognition,
                         opportunities=opportunity_cognition,
                         catalog=artifact_catalog,
+                        custody=execution_custody,
                         wakeups=work_wakeups,
                         diagnostic=lambda event: diagnostic.emit(
                             event,
@@ -1124,6 +1128,7 @@ async def _serve(
                             evidence=evidence_module.write,
                             opportunity=opportunity_admission,
                             catalog=artifact_catalog,
+                            custody=execution_custody,
                             diagnostic=lambda event: diagnostic.emit(
                                 event,
                                 result_code="WEB_SEARCH_CUSTODY",

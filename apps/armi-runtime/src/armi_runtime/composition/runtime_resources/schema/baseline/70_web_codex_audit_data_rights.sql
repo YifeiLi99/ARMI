@@ -375,7 +375,7 @@ CREATE TABLE armi.web_research_intents (
     trace_id text NOT NULL,
     created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
     completed_at timestamp(6) with time zone,
-    CONSTRAINT web_research_intents_check CHECK ((((status = 'pending'::text) AND (web_observation_request_id IS NULL) AND (completed_at IS NULL)) OR ((status = 'admitted'::text) AND (web_observation_request_id IS NOT NULL) AND (completed_at IS NULL)) OR ((status = ANY (ARRAY['succeeded'::text, 'unknown'::text, 'cancelled'::text])) AND (web_observation_request_id IS NOT NULL) AND (completed_at IS NOT NULL)) OR ((status = 'failed'::text) AND (completed_at IS NOT NULL)))),
+    CONSTRAINT web_research_intents_check CHECK ((((status = 'pending'::text) AND (web_observation_request_id IS NULL) AND (completed_at IS NULL)) OR ((status = 'admitted'::text) AND (web_observation_request_id IS NOT NULL) AND (completed_at IS NULL)) OR ((status = ANY (ARRAY['succeeded'::text, 'unknown'::text])) AND (web_observation_request_id IS NOT NULL) AND (completed_at IS NOT NULL)) OR ((status = ANY (ARRAY['failed'::text, 'cancelled'::text])) AND (completed_at IS NOT NULL)))),
     CONSTRAINT web_research_intents_idempotency_key_check CHECK (((octet_length(idempotency_key) >= 1) AND (octet_length(idempotency_key) <= 128) AND (idempotency_key ~ '^[A-Za-z0-9._:-]+$'::text))),
     CONSTRAINT web_research_intents_operation_class_check CHECK ((operation_class = 'search_read_public'::text)),
     CONSTRAINT web_research_intents_proposal_ref_check CHECK ((proposal_ref ~ '^proposal:[1-9][0-9]{0,2}$'::text)),
