@@ -9,6 +9,12 @@ from uuid import UUID
 
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, TraceId
 
+from ._participant_contract import (
+    DATA_RIGHTS_ACTIONS,
+    DATA_RIGHTS_RETENTION_REASONS,
+    DATA_RIGHTS_TARGET_KINDS,
+)
+
 
 @runtime_checkable
 class DataRightsPartyKey(Protocol):
@@ -33,7 +39,6 @@ class DataRightsScopeKind(StrEnum):
 
 
 class DataRightsExecutionStatus(StrEnum):
-    NOT_REQUIRED = "not_required"
     PENDING = "pending"
     EXECUTING = "executing"
     COMPLETED = "completed"
@@ -123,14 +128,6 @@ class DataRightsOrderResult:
                 and self.scope_kind is not DataRightsScopeKind.PARTY_LOCAL_DATA
             )
             or (
-                self.order_kind is DataRightsOrderKind.DELETE_RELATED
-                and self.execution_status is DataRightsExecutionStatus.NOT_REQUIRED
-            )
-            or (
-                self.order_kind is not DataRightsOrderKind.DELETE_RELATED
-                and self.execution_status is not DataRightsExecutionStatus.NOT_REQUIRED
-            )
-            or (
                 self.execution_status
                 in {
                     DataRightsExecutionStatus.COMPLETED,
@@ -143,43 +140,30 @@ class DataRightsOrderResult:
 
 
 @dataclass(frozen=True, slots=True)
-class DataRightsDeletionItemResult:
+class DataRightsOrderItemResult:
     item_id: UUID
     target_kind: str
     required_action: str
+    responsible_owner: str
     result_status: DataRightsItemStatus
-    remaining_location: str | None
+    retention_reason: str | None
     created_at: Instant
     completed_at: Instant | None
     artifact_deletion_id: UUID | None = None
     retryable: bool = False
     deletion_attempt_count: int = 0
     last_error_code: str | None = None
+    operator_action_required: bool = False
 
     def __post_init__(self) -> None:
         if (
             type(self.item_id) is not UUID
             or self.item_id.version != 7
-            or self.target_kind
-            not in {
-                "interaction",
-                "evidence",
-                "experience",
-                "memory",
-                "relationship",
-                "scene",
-                "artifact",
-                "effect",
-            }
-            or self.required_action not in {"delete", "tombstone", "retain"}
+            or self.target_kind not in DATA_RIGHTS_TARGET_KINDS
+            or self.required_action not in DATA_RIGHTS_ACTIONS
+            or not self.responsible_owner
             or type(self.result_status) is not DataRightsItemStatus
-            or self.remaining_location
-            not in {
-                None,
-                "shared_local_reference",
-                "objective_history",
-                "local_artifact_store",
-            }
+            or self.retention_reason not in {None, *DATA_RIGHTS_RETENTION_REASONS}
             or type(self.created_at) is not Instant
             or (
                 self.completed_at is not None and type(self.completed_at) is not Instant
@@ -194,6 +178,7 @@ class DataRightsDeletionItemResult:
             or type(self.deletion_attempt_count) is not int
             or self.deletion_attempt_count < 0
             or (self.last_error_code is not None and not self.last_error_code)
+            or type(self.operator_action_required) is not bool
         ):
             raise DataRightsViolation("DATA-RIGHTS-ITEM-RESULT")
 
@@ -201,16 +186,11 @@ class DataRightsDeletionItemResult:
 @dataclass(frozen=True, slots=True)
 class DataRightsOrderDetail:
     order: DataRightsOrderResult
-    items: tuple[DataRightsDeletionItemResult, ...]
+    items: tuple[DataRightsOrderItemResult, ...]
 
     def __post_init__(self) -> None:
         if type(self.order) is not DataRightsOrderResult or any(
-            type(item) is not DataRightsDeletionItemResult for item in self.items
-        ):
-            raise DataRightsViolation("DATA-RIGHTS-DETAIL")
-        if (
-            self.order.order_kind is not DataRightsOrderKind.DELETE_RELATED
-            and self.items
+            type(item) is not DataRightsOrderItemResult for item in self.items
         ):
             raise DataRightsViolation("DATA-RIGHTS-DETAIL")
 
@@ -260,11 +240,11 @@ class DataRightsOrderPort(Protocol):
 
 
 __all__ = (
-    "DataRightsDeletionItemResult",
     "DataRightsExecutionStatus",
     "DataRightsItemStatus",
     "DataRightsOrderCommand",
     "DataRightsOrderDetail",
+    "DataRightsOrderItemResult",
     "DataRightsOrderKind",
     "DataRightsOrderPort",
     "DataRightsOrderResult",

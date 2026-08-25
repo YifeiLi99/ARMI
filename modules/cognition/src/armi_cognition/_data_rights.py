@@ -15,6 +15,8 @@ from armi_data_rights.api import (
     DataRightsExportScope,
     DataRightsExportSegment,
     DataRightsOwnerIdentity,
+    DataRightsRelatedRef,
+    DataRightsTargetRef,
     DataRightsTupleRecordStream,
 )
 from armi_kernel.application import ArtifactId
@@ -103,6 +105,54 @@ class PostgreSQLCognitionDataRightsParticipant:
         transaction: PostgreSQLTransaction,
         request: DataRightsDiscoveryRequest,
     ) -> DataRightsDiscoveryContribution:
+        context_episode_ids = tuple(
+            item.ref
+            for item in request.related_refs
+            if item.kind == "cognitive-context"
+        )
+        episode_rows = await (
+            await transaction.execute(
+                """SELECT cognitive_episode_id
+                   FROM armi.cognitive_episodes
+                   WHERE context_party_id=%s
+                      OR cognitive_episode_id=ANY(%s::uuid[])
+                   ORDER BY cognitive_episode_id""",
+                (request.party_id, list(context_episode_ids)),
+            )
+        ).fetchall()
+        episode_ids = tuple(row[0] for row in episode_rows)
+        validation_rows = await (
+            await transaction.execute(
+                """SELECT candidate_validation_id
+                   FROM armi.cognitive_candidate_validations
+                   WHERE cognitive_episode_id=ANY(%s::uuid[])
+                   ORDER BY candidate_validation_id""",
+                (list(episode_ids),),
+            )
+        ).fetchall()
+        validation_ids = tuple(row[0] for row in validation_rows)
+        commit_rows = await (
+            await transaction.execute(
+                """SELECT DISTINCT application.subject_commit_id
+                   FROM armi.cognitive_candidate_applications AS application
+                   WHERE application.candidate_validation_id=ANY(%s::uuid[])
+                     AND application.subject_commit_id IS NOT NULL
+                   ORDER BY application.subject_commit_id""",
+                (list(validation_ids),),
+            )
+        ).fetchall()
+        commit_ids = tuple(row[0] for row in commit_rows)
+        exact_rows = await (
+            await transaction.execute(
+                """SELECT exact_life_query_intent_id,result_artifact_id
+                   FROM armi.exact_life_query_intents
+                   WHERE subject_commit_id=ANY(%s::uuid[])
+                      OR creator_party_id=%s
+                   ORDER BY exact_life_query_intent_id""",
+                (list(commit_ids), request.party_id),
+            )
+        ).fetchall()
+        exact_ids = tuple(row[0] for row in exact_rows)
         usage_rows = await (
             await transaction.execute(
                 """WITH refs AS (
@@ -141,9 +191,36 @@ class PostgreSQLCognitionDataRightsParticipant:
         ).fetchall()
         return DataRightsDiscoveryContribution(
             _OWNER,
+            related_refs=tuple(
+                [DataRightsRelatedRef("cognition", ref) for ref in episode_ids]
+                + [
+                    DataRightsRelatedRef("candidate-validation", ref)
+                    for ref in validation_ids
+                ]
+                + [
+                    DataRightsRelatedRef("subject-commit", row[0])
+                    for row in commit_rows
+                ]
+                + [DataRightsRelatedRef("exact-life-query", ref) for ref in exact_ids]
+            ),
+            targets=tuple(
+                DataRightsTargetRef("cognition", ref, "redact") for ref in episode_ids
+            )
+            + tuple(
+                DataRightsTargetRef("cognition", ref, "redact") for ref in exact_ids
+            ),
             artifact_usages=tuple(
-                DataRightsArtifactUsage(ArtifactId(row[0]), int(row[1]), int(row[2]))
-                for row in usage_rows
+                [
+                    DataRightsArtifactUsage(
+                        ArtifactId(row[0]), int(row[1]), int(row[2])
+                    )
+                    for row in usage_rows
+                ]
+                + [
+                    DataRightsArtifactUsage(ArtifactId(row[1]), 1, 1)
+                    for row in exact_rows
+                    if row[1] is not None
+                ]
             ),
         )
 
@@ -170,7 +247,26 @@ class PostgreSQLCognitionDataRightsParticipant:
                  )""",
             (request.party_id, request.order_kind),
         )
-        return DataRightsApplyContribution(_OWNER)
+        if request.order_kind == "delete_related":
+            exact_ids = tuple(
+                item.ref
+                for item in request.related_refs
+                if item.kind == "exact-life-query"
+            )
+            if exact_ids:
+                await transaction.execute(
+                    """UPDATE armi.exact_life_query_intents SET query_text=NULL
+                       WHERE exact_life_query_intent_id=ANY(%s::uuid[])""",
+                    (list(exact_ids),),
+                )
+        return DataRightsApplyContribution(
+            _OWNER,
+            tuple(
+                target
+                for target in request.targets
+                if target.responsible_owner == _OWNER.value
+            ),
+        )
 
     async def export(
         self,

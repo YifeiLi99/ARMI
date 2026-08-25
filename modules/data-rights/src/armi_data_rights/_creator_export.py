@@ -21,7 +21,13 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
+    ExecutionCustodyMode,
+    ExecutionCustodyPort,
+    ExecutionCustodyRequest,
+    ExecutionCustodyScope,
+    ExecutionCustodyScopeKind,
     TransactionIsolation,
+    ordered_custody_requests,
 )
 from armi_kernel.contracts import Digest, ErrorCategory, Instant, Purpose, TraceId
 from armi_runtime_foundation import RuntimeTransactionFailure
@@ -36,10 +42,11 @@ from .api import (
     DataRightsExportScope,
     DataRightsOwnerIdentity,
     DataRightsParticipant,
+    DataRightsPartyRosterPort,
     DataRightsUnitOfWorkFactory,
 )
 
-_EXPORT_FORMAT = "armi.creator-export.v3"
+_EXPORT_FORMAT = "armi.creator-export.v4"
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +72,7 @@ class _SnapshotResult:
     artifacts: tuple[_ArtifactSnapshot, ...]
     record_count: int
     snapshot_at: str
+    party_scopes: tuple[tuple[UUID, int, int], ...]
 
 
 class CreatorExportService(CreatorExportPort):
@@ -72,8 +80,10 @@ class CreatorExportService(CreatorExportPort):
 
     __slots__ = (
         "_creator_party_id",
+        "_custody",
         "_exports_root",
         "_participants",
+        "_party_roster",
         "_storage",
         "_uow_factory",
     )
@@ -82,18 +92,22 @@ class CreatorExportService(CreatorExportPort):
         self,
         *,
         creator_party_id: UUID,
+        custody: ExecutionCustodyPort,
         data_root: Path,
         storage: DataRightsArtifactStorePort,
         unit_of_work_factory: DataRightsUnitOfWorkFactory,
         participants: tuple[DataRightsParticipant, ...],
+        party_roster: DataRightsPartyRosterPort,
     ) -> None:
         if creator_party_id.version != 7 or not data_root.is_absolute():
             raise CreatorExportViolation("CREATOR-EXPORT-COMPOSITION")
         self._creator_party_id = creator_party_id
+        self._custody = custody
         self._exports_root = data_root / "exports"
         self._storage = storage
         self._uow_factory = unit_of_work_factory
         self._participants = participants
+        self._party_roster = party_roster
 
     async def open(self) -> None:
         try:
@@ -117,6 +131,24 @@ class CreatorExportService(CreatorExportPort):
         return None
 
     async def export(self, command: CreatorExportCommand) -> CreatorExportResult:
+        party_ids = await self._party_ids()
+        requests = ordered_custody_requests(
+            *tuple(
+                ExecutionCustodyRequest(
+                    ExecutionCustodyScope(
+                        ExecutionCustodyScopeKind.DATA_RIGHTS_PARTY, party_id
+                    ),
+                    ExecutionCustodyMode.SHARED,
+                )
+                for party_id in party_ids
+            )
+        )
+        async with self._custody.hold(requests, deadline_at=None):
+            return await self._export_locked(command)
+
+    async def _export_locked(
+        self, command: CreatorExportCommand
+    ) -> CreatorExportResult:
         request_digest = Digest.from_bytes(
             rfc8785.dumps(
                 {
@@ -176,6 +208,7 @@ class CreatorExportService(CreatorExportPort):
                 artifact_count=copied,
                 missing=missing,
                 error_code=None,
+                party_scopes=snapshot.party_scopes,
             )
         except CreatorExportViolation:
             if not published and not destination.exists():
@@ -334,6 +367,19 @@ class CreatorExportService(CreatorExportPort):
                 if snapshot_row is None:
                     raise CreatorExportViolation("CREATOR-EXPORT-SNAPSHOT")
                 snapshot_at = str(snapshot_row[0])
+                party_ids = await self._party_roster.all_party_ids(connection)
+                party_rows = await (
+                    await connection.execute(
+                        """SELECT requested.party_id,
+                                  COALESCE(fence.contact_generation,1),
+                                  COALESCE(fence.use_generation,1)
+                           FROM unnest(%s::uuid[]) AS requested(party_id)
+                           LEFT JOIN armi.data_rights_party_fences AS fence
+                             ON fence.party_id=requested.party_id
+                           ORDER BY requested.party_id""",
+                        (list(party_ids),),
+                    )
+                ).fetchall()
                 scope = DataRightsExportScope(self._creator_party_id)
                 for participant in self._participants:
                     owner = participant.owner_identity
@@ -382,7 +428,18 @@ class CreatorExportService(CreatorExportPort):
             artifacts=artifacts,
             record_count=total_rows,
             snapshot_at=snapshot_at,
+            party_scopes=tuple(
+                (UUID(str(row[0])), int(row[1]), int(row[2])) for row in party_rows
+            ),
         )
+
+    async def _party_ids(self) -> tuple[UUID, ...]:
+        try:
+            async with self._uow_factory.unit_of_work(read_only=True) as unit:
+                party_ids = await self._party_roster.all_party_ids(unit.transaction)
+            return party_ids
+        except RuntimeTransactionFailure:
+            raise CreatorExportViolation("CREATOR-EXPORT-UNAVAILABLE") from None
 
     async def _copy_artifacts(
         self,
@@ -510,6 +567,9 @@ class CreatorExportService(CreatorExportPort):
                 await self._mark_unknown(export_id, "CREATOR-EXPORT-VERIFY-UNKNOWN")
                 return str(row[0]) != "unknown"
             status, segments, records, artifacts, missing = verified
+            party_scopes = await asyncio.to_thread(
+                self._published_party_scopes, destination
+            )
             async with self._uow_factory.unit_of_work() as unit:
                 await unit.transaction.execute(
                     """UPDATE armi.creator_exports
@@ -528,6 +588,21 @@ class CreatorExportService(CreatorExportPort):
                         self._creator_party_id,
                     ),
                 )
+                await unit.transaction.execute(
+                    """INSERT INTO armi.managed_data_snapshots (
+                           managed_snapshot_id,snapshot_kind,contract_version,
+                           managed_path) VALUES (%s,'creator_export',%s,%s)
+                       ON CONFLICT (managed_snapshot_id) DO NOTHING""",
+                    (export_id, _EXPORT_FORMAT, str(destination)),
+                )
+                for party_id, contact, use in party_scopes:
+                    await unit.transaction.execute(
+                        """INSERT INTO armi.managed_data_snapshot_parties (
+                               managed_snapshot_id,party_id,contact_generation,
+                               use_generation) VALUES (%s,%s,%s,%s)
+                           ON CONFLICT (managed_snapshot_id,party_id) DO NOTHING""",
+                        (export_id, party_id, contact, use),
+                    )
             return True
         except RuntimeTransactionFailure:
             raise CreatorExportViolation("CREATOR-EXPORT-UNAVAILABLE") from None
@@ -553,6 +628,7 @@ class CreatorExportService(CreatorExportPort):
         artifact_count: int,
         missing: tuple[str, ...],
         error_code: str | None,
+        party_scopes: tuple[tuple[UUID, int, int], ...] = (),
     ) -> CreatorExportResult:
         try:
             async with self._uow_factory.unit_of_work() as unit_of_work:
@@ -586,6 +662,28 @@ class CreatorExportService(CreatorExportPort):
                 ).fetchone()
                 if row is None:
                     raise CreatorExportViolation("CREATOR-EXPORT-STATE")
+                if status in {
+                    CreatorExportStatus.COMPLETED,
+                    CreatorExportStatus.PARTIAL,
+                }:
+                    await connection.execute(
+                        """INSERT INTO armi.managed_data_snapshots (
+                               managed_snapshot_id,snapshot_kind,contract_version,
+                               managed_path)
+                           SELECT creator_export_id,'creator_export',%s,destination_path
+                           FROM armi.creator_exports WHERE creator_export_id=%s
+                           ON CONFLICT (managed_snapshot_id) DO NOTHING""",
+                        (_EXPORT_FORMAT, export_id),
+                    )
+                    for party_id, contact, use in party_scopes:
+                        await connection.execute(
+                            """INSERT INTO armi.managed_data_snapshot_parties (
+                                   managed_snapshot_id,party_id,contact_generation,
+                                   use_generation) VALUES (%s,%s,%s,%s)
+                               ON CONFLICT (managed_snapshot_id,party_id)
+                               DO NOTHING""",
+                            (export_id, party_id, contact, use),
+                        )
                 await unit_of_work.audit.append(
                     self._audit(
                         export_id=export_id,
@@ -644,6 +742,14 @@ class CreatorExportService(CreatorExportPort):
             .replace("+00:00", "Z"),
             "database_snapshot_at": snapshot.snapshot_at,
             "scope": "owner-authored-current-local-data",
+            "party_scopes": [
+                {
+                    "party_id": str(party_id),
+                    "contact_generation": contact,
+                    "use_generation": use,
+                }
+                for party_id, contact, use in snapshot.party_scopes
+            ],
             "directory_name": command.directory_name,
             "segments": [
                 {
@@ -726,8 +832,36 @@ class CreatorExportService(CreatorExportPort):
             raise CreatorExportViolation("CREATOR-EXPORT-FORMAT-UNSUPPORTED")
         segments = manifest.get("segments")
         artifacts = manifest.get("artifacts")
-        if not isinstance(segments, list) or not isinstance(artifacts, dict):
+        party_scopes = manifest.get("party_scopes")
+        if (
+            not isinstance(segments, list)
+            or not isinstance(artifacts, dict)
+            or not isinstance(party_scopes, list)
+        ):
             raise CreatorExportViolation("CREATOR-EXPORT-FORMAT-UNSUPPORTED")
+        seen_parties: set[UUID] = set()
+        for raw_scope in cast(list[object], party_scopes):
+            if not isinstance(raw_scope, dict):
+                raise CreatorExportViolation("CREATOR-EXPORT-FORMAT-UNSUPPORTED")
+            scope = cast(dict[str, object], raw_scope)
+            try:
+                party_id = UUID(cast(str, scope["party_id"]))
+                contact = cast(int, scope["contact_generation"])
+                use = cast(int, scope["use_generation"])
+            except KeyError, TypeError, ValueError:
+                raise CreatorExportViolation(
+                    "CREATOR-EXPORT-FORMAT-UNSUPPORTED"
+                ) from None
+            if (
+                party_id.version != 7
+                or type(contact) is not int
+                or type(use) is not int
+                or contact < 1
+                or use < 1
+                or party_id in seen_parties
+            ):
+                raise CreatorExportViolation("CREATOR-EXPORT-FORMAT-UNSUPPORTED")
+            seen_parties.add(party_id)
         segment_entries = cast(list[object], segments)
         record_count = 0
         for raw_value in segment_entries:
@@ -785,6 +919,31 @@ class CreatorExportService(CreatorExportPort):
         if candidate.is_symlink() or not resolved.is_file():
             raise CreatorExportViolation("CREATOR-EXPORT-PATH")
         return resolved
+
+    @staticmethod
+    def _published_party_scopes(
+        destination: Path,
+    ) -> tuple[tuple[UUID, int, int], ...]:
+        value = json.loads((destination / "manifest.json").read_bytes())
+        if not isinstance(value, dict):
+            raise CreatorExportViolation("CREATOR-EXPORT-FORMAT-UNSUPPORTED")
+        manifest = cast(dict[str, object], value)
+        raw_scopes = manifest.get("party_scopes")
+        if not isinstance(raw_scopes, list):
+            raise CreatorExportViolation("CREATOR-EXPORT-FORMAT-UNSUPPORTED")
+        result: list[tuple[UUID, int, int]] = []
+        for raw in cast(list[object], raw_scopes):
+            if not isinstance(raw, dict):
+                raise CreatorExportViolation("CREATOR-EXPORT-FORMAT-UNSUPPORTED")
+            item = cast(dict[str, object], raw)
+            result.append(
+                (
+                    UUID(cast(str, item["party_id"])),
+                    cast(int, item["contact_generation"]),
+                    cast(int, item["use_generation"]),
+                )
+            )
+        return tuple(result)
 
     @staticmethod
     def _create_staging(staging: Path, destination: Path) -> None:

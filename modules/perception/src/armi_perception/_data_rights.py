@@ -15,6 +15,8 @@ from armi_data_rights.api import (
     DataRightsExportScope,
     DataRightsExportSegment,
     DataRightsOwnerIdentity,
+    DataRightsRelatedRef,
+    DataRightsTargetRef,
     DataRightsTupleRecordStream,
 )
 from armi_kernel.application import ArtifactId
@@ -55,8 +57,18 @@ class PostgreSQLPerceptionDataRightsParticipant:
             for item in request.related_refs
             if item.kind == "external-message-part"
         )
-        if not part_ids:
+        attempt_rows = await (
+            await transaction.execute(
+                """SELECT recognition_attempt_id,external_message_part_id
+                   FROM armi.external_content_recognition_attempts
+                   WHERE source_party_id=%s OR external_message_part_id=ANY(%s::uuid[])
+                   ORDER BY recognition_attempt_id""",
+                (request.party_id, list(part_ids)),
+            )
+        ).fetchall()
+        if not attempt_rows:
             return DataRightsDiscoveryContribution(_OWNER)
+        target_part_ids = tuple({row[1] for row in attempt_rows})
         rows = await (
             await transaction.execute(
                 """WITH refs AS (
@@ -70,11 +82,19 @@ class PostgreSQLPerceptionDataRightsParticipant:
                    SELECT artifact_id, count(*),
                           count(*) FILTER (WHERE external_message_part_id = ANY(%s::uuid[]))
                    FROM refs GROUP BY artifact_id ORDER BY artifact_id""",
-                (part_ids,),
+                (list(target_part_ids),),
             )
         ).fetchall()
         return DataRightsDiscoveryContribution(
             _OWNER,
+            related_refs=tuple(
+                DataRightsRelatedRef("media-recognition", row[0])
+                for row in attempt_rows
+            ),
+            targets=tuple(
+                DataRightsTargetRef("media_recognition", row[0], "redact")
+                for row in attempt_rows
+            ),
             artifact_usages=tuple(
                 DataRightsArtifactUsage(ArtifactId(row[0]), int(row[1]), int(row[2]))
                 for row in rows
@@ -86,8 +106,23 @@ class PostgreSQLPerceptionDataRightsParticipant:
         transaction: PostgreSQLTransaction,
         request: DataRightsApplyRequest,
     ) -> DataRightsApplyContribution:
-        del transaction, request
-        return DataRightsApplyContribution(_OWNER)
+        if request.order_kind in {"stop_use", "delete_related"}:
+            await transaction.execute(
+                """UPDATE armi.external_content_recognition_attempts
+                   SET dispatch_status='settled',result_status='unknown',
+                       error_code='DATA-RIGHTS-RECOGNITION-HIDDEN',
+                       settled_at=statement_timestamp()
+                   WHERE source_party_id=%s AND dispatch_status='dispatched'""",
+                (request.party_id,),
+            )
+        return DataRightsApplyContribution(
+            _OWNER,
+            tuple(
+                target
+                for target in request.targets
+                if target.responsible_owner == _OWNER.value
+            ),
+        )
 
     async def export(
         self,

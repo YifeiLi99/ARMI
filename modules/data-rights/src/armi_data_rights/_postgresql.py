@@ -9,7 +9,7 @@ from uuid import UUID
 from armi_kernel.contracts import Digest, Instant
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
 
-from ._participant_contract import DataRightsVisibilityPort
+from ._participant_contract import DATA_RIGHTS_TARGET_KINDS, DataRightsVisibilityPort
 from .api import (
     DataRightsExecutionStatus,
     DataRightsFence,
@@ -36,18 +36,20 @@ class DataRightsOrderSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
-class DataRightsDeletionItemSnapshot:
+class DataRightsOrderItemSnapshot:
     item_id: UUID
     target_kind: str
     required_action: str
+    responsible_owner: str
     result_status: str
-    remaining_location: str | None
+    retention_reason: str | None
     created_at: Instant
     completed_at: Instant | None
     artifact_deletion_id: UUID | None
     retryable: bool
     deletion_attempt_count: int
     last_error_code: str | None
+    operator_action_required: bool
 
 
 class DataRightsOrderRepository(DataRightsVisibilityPort):
@@ -136,21 +138,41 @@ class DataRightsOrderRepository(DataRightsVisibilityPort):
     ) -> DataRightsOrderSnapshot | None:
         connection = unit_of_work.transaction
         locking = "FOR UPDATE" if lock else ""
-        row = await (
+        key_row = await (
             await connection.execute(
                 f"""
                 SELECT deletion_order_id, requester_party_id, requester_kind,
                        order_kind, scope_kind, scope_party_id, execution_status,
                        idempotency_key, request_digest, effective_at, completed_at
-                FROM armi.deletion_orders
+                FROM armi.data_rights_orders
                 WHERE requester_party_id = %s
-                  AND (idempotency_key = %s OR order_kind = %s)
+                  AND idempotency_key = %s
                 {locking}
                 """,
-                (requester_party_id, idempotency_key, order_kind.value),
+                (requester_party_id, idempotency_key),
             )
         ).fetchone()
-        return None if row is None else _snapshot(row)
+        kind_row = await (
+            await connection.execute(
+                f"""
+                SELECT deletion_order_id, requester_party_id, requester_kind,
+                       order_kind, scope_kind, scope_party_id, execution_status,
+                       idempotency_key, request_digest, effective_at, completed_at
+                FROM armi.data_rights_orders
+                WHERE requester_party_id = %s
+                  AND order_kind = %s
+                {locking}
+                """,
+                (requester_party_id, order_kind.value),
+            )
+        ).fetchone()
+        rows = tuple(row for row in (key_row, kind_row) if row is not None)
+        if not rows:
+            return None
+        snapshots = tuple(_snapshot(row) for row in rows)
+        if len({item.order_id for item in snapshots}) != 1:
+            raise DataRightsViolation("DATA-RIGHTS-IDEMPOTENCY-CONFLICT")
+        return snapshots[0]
 
     async def insert(
         self,
@@ -170,7 +192,7 @@ class DataRightsOrderRepository(DataRightsVisibilityPort):
         row = await (
             await connection.execute(
                 """
-                INSERT INTO armi.deletion_orders (
+                INSERT INTO armi.data_rights_orders (
                     deletion_order_id, requester_party_id, requester_kind,
                     order_kind, scope_kind, scope_party_id, reason_code, status,
                     execution_status, idempotency_key, request_digest, trace_id
@@ -215,7 +237,7 @@ class DataRightsOrderRepository(DataRightsVisibilityPort):
                 SELECT deletion_order_id, requester_party_id, requester_kind,
                        order_kind, scope_kind, scope_party_id, execution_status,
                        idempotency_key, request_digest, effective_at, completed_at
-                FROM armi.deletion_orders
+                FROM armi.data_rights_orders
                 WHERE deletion_order_id = %s AND requester_party_id = %s
                 """,
                 (order_id, requester_party_id),
@@ -240,7 +262,7 @@ class DataRightsOrderRepository(DataRightsVisibilityPort):
                 SELECT deletion_order_id, requester_party_id, requester_kind,
                        order_kind, scope_kind, scope_party_id, execution_status,
                        idempotency_key, request_digest, effective_at, completed_at
-                FROM armi.deletion_orders
+                FROM armi.data_rights_orders
                 {scope}
                 ORDER BY effective_at DESC, deletion_order_id DESC
                 """,
@@ -259,24 +281,25 @@ class DataRightsOrderRepository(DataRightsVisibilityPort):
                 SELECT deletion_order_id, requester_party_id, requester_kind,
                        order_kind, scope_kind, scope_party_id, execution_status,
                        idempotency_key, request_digest, effective_at, completed_at
-                FROM armi.deletion_orders WHERE deletion_order_id = %s
+                FROM armi.data_rights_orders WHERE deletion_order_id = %s
                 """,
                 (order_id,),
             )
         ).fetchone()
         return None if row is None else _snapshot(row)
 
-    async def deletion_items(
+    async def data_rights_order_items(
         self, unit_of_work: PostgreSQLRuntimeUnitOfWork, order_id: UUID
-    ) -> tuple[DataRightsDeletionItemSnapshot, ...]:
+    ) -> tuple[DataRightsOrderItemSnapshot, ...]:
         connection = unit_of_work.transaction
         rows = await (
             await connection.execute(
                 """
                 SELECT i.deletion_item_id,i.target_kind,i.required_action,
-                       i.result_status,i.remaining_location,i.created_at,i.completed_at,
-                       i.artifact_object_deletion_id
-                FROM armi.deletion_items i
+                       i.responsible_owner,i.result_status,i.retention_reason,
+                       i.created_at,i.completed_at,i.artifact_object_deletion_id,
+                       i.operator_action_required
+                FROM armi.data_rights_order_items i
                 WHERE i.deletion_order_id = %s
                 ORDER BY i.created_at,i.deletion_item_id
                 """,
@@ -284,18 +307,20 @@ class DataRightsOrderRepository(DataRightsVisibilityPort):
             )
         ).fetchall()
         return tuple(
-            DataRightsDeletionItemSnapshot(
+            DataRightsOrderItemSnapshot(
                 item_id=row[0],
                 target_kind=str(row[1]),
                 required_action=str(row[2]),
-                result_status=str(row[3]),
-                remaining_location=None if row[4] is None else str(row[4]),
-                created_at=Instant(row[5]),
-                completed_at=None if row[6] is None else Instant(row[6]),
-                artifact_deletion_id=row[7],
+                responsible_owner=str(row[3]),
+                result_status=str(row[4]),
+                retention_reason=None if row[5] is None else str(row[5]),
+                created_at=Instant(row[6]),
+                completed_at=None if row[7] is None else Instant(row[7]),
+                artifact_deletion_id=row[8],
                 retryable=False,
                 deletion_attempt_count=0,
                 last_error_code=None,
+                operator_action_required=bool(row[9]),
             )
             for row in rows
         )
@@ -314,7 +339,7 @@ class DataRightsOrderRepository(DataRightsVisibilityPort):
             await connection.execute(
                 """
                 SELECT EXISTS (
-                    SELECT 1 FROM armi.deletion_orders
+                    SELECT 1 FROM armi.data_rights_orders
                     WHERE requester_party_id = %s
                       AND status = 'effective'
                       AND order_kind IN (
@@ -344,7 +369,7 @@ class DataRightsOrderRepository(DataRightsVisibilityPort):
                 """
                 SELECT EXISTS (
                     SELECT 1
-                    FROM armi.deletion_orders
+                    FROM armi.data_rights_orders
                     WHERE requester_party_id = %s
                       AND status = 'effective'
                       AND (
@@ -380,7 +405,7 @@ class DataRightsOrderRepository(DataRightsVisibilityPort):
         rows = await (
             await transaction.execute(
                 """
-                SELECT order_kind FROM armi.deletion_orders
+                SELECT order_kind FROM armi.data_rights_orders
                 WHERE requester_party_id = %s AND status = 'effective'
                 ORDER BY order_kind
                 """,
@@ -396,28 +421,19 @@ class DataRightsOrderRepository(DataRightsVisibilityPort):
         target_kind: str,
         target_refs: tuple[UUID, ...],
     ) -> frozenset[UUID]:
-        if target_kind not in {
-            "interaction",
-            "evidence",
-            "experience",
-            "memory",
-            "relationship",
-            "scene",
-            "artifact",
-            "effect",
-        }:
+        if target_kind not in DATA_RIGHTS_TARGET_KINDS:
             raise DataRightsViolation("DATA-RIGHTS-TARGET-KIND")
         if not target_refs:
             return frozenset()
         rows = await (
             await transaction.execute(
                 """
-                SELECT target_ref FROM armi.deletion_items
+                SELECT target_ref FROM armi.data_rights_order_items
                 WHERE target_kind = %s AND target_ref = ANY(%s::uuid[])
                   AND result_status IN ('completed', 'partial')
                 ORDER BY target_ref
                 """,
-                (target_kind, target_refs),
+                (target_kind, list(target_refs)),
             )
         ).fetchall()
         return frozenset(row[0] for row in rows)
@@ -453,7 +469,7 @@ def _snapshot(row: tuple[Any, ...]) -> DataRightsOrderSnapshot:
 
 
 __all__ = (
-    "DataRightsDeletionItemSnapshot",
+    "DataRightsOrderItemSnapshot",
     "DataRightsOrderRepository",
     "DataRightsOrderSnapshot",
 )

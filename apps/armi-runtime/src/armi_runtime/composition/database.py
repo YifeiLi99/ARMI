@@ -153,7 +153,9 @@ from armi_interaction.api import (
     InteractionEffectDeliveryPort,
     InteractionEffectRoutePort,
     InteractionIdentityPort,
+    InteractionIdentityTokenPort,
     InteractionOtherHumanReadPort,
+    InteractionPartyCatalogPort,
     InteractionPerceptionPort,
     InteractionSceneTransitionPort,
     InteractionSubjectCommitPort,
@@ -663,6 +665,7 @@ def compose_interaction_module(
     custody: ExecutionCustodyPort,
     visibility: DataRightsVisibilityPort,
     identity: InteractionIdentityPort,
+    identity_tokens: InteractionIdentityTokenPort,
     catalog: ArtifactCatalogPort,
     timeline_projections: InteractionCreatorTimelineProjectionPort,
     voice_responses: InteractionVoiceResponseReadPort,
@@ -689,6 +692,7 @@ def compose_interaction_module(
         timeline_projections=timeline_projections,
         voice_responses=voice_responses,
         identity=identity,
+        identity_tokens=identity_tokens,
         subject_state=subject_state_read,
         maintenance_wake=_RuntimeCreatorInputWake(sleep_maintenance),
         evidence=evidence,
@@ -1072,6 +1076,7 @@ def compose_perception_module(
     evidence: EvidenceWritePort,
     evidence_read: EvidenceReadPort,
     interaction: InteractionPerceptionPort,
+    data_rights: DataRightsFencePort,
     opportunity: OpportunityAdmissionPort,
     catalog: ArtifactCatalogPort,
     wakeups: WorkWakeupBus,
@@ -1093,6 +1098,7 @@ def compose_perception_module(
             evidence=evidence,
             evidence_read=evidence_read,
             interaction=interaction,
+            data_rights=data_rights,
             opportunity=opportunity,
             fetch=fetch,
             ark_recognizer=VolcengineArkExternalContentRecognizer(
@@ -1134,8 +1140,10 @@ def compose_prompt_module(
     )
 
 
-def compose_interaction_identity() -> InteractionIdentityPort:
-    return bootstrap_interaction_identity()
+def compose_interaction_identity(
+    identity_tokens: InteractionIdentityTokenPort,
+) -> InteractionIdentityPort:
+    return bootstrap_interaction_identity(identity_tokens)
 
 
 def compose_data_rights_module(
@@ -1147,10 +1155,14 @@ def compose_data_rights_module(
     business_participants: tuple[DataRightsParticipant, ...],
     catalog: ArtifactCatalogPort,
     parties: InteractionIdentityPort,
+    party_roster: InteractionPartyCatalogPort,
     artifact_lifecycle: DataRightsArtifactLifecyclePort,
     execution_custody: ExecutionCustodyPort,
+    identity_key: str,
     notifier: CreatorProjectionNotifier | None = None,
 ) -> DataRightsModule:
+    from .data_rights_contracts import DATA_RIGHTS_OWNER_CONTRACTS
+
     participants = compose_data_rights_participants(
         business=business_participants,
         catalog=catalog,
@@ -1164,8 +1176,11 @@ def compose_data_rights_module(
         lifecycle=artifact_lifecycle,
         core=core,
         parties=parties,
+        party_roster=party_roster,
         catalog=catalog,
         participants=participants,
+        owner_contracts=DATA_RIGHTS_OWNER_CONTRACTS,
+        identity_key=identity_key,
         notifier=notifier,
     )
 
@@ -1818,6 +1833,7 @@ def compose_codex_pipeline(
     sources: CodexTaskSourceReadPort,
     custody: ExecutionCustodyPort,
     data_rights: DataRightsEffectGate,
+    interaction_data_rights: DataRightsInteractionGate,
     data_rights_fence: DataRightsFencePort,
     runtime_admission: Callable[[], RuntimeFence],
     catalog: ArtifactCatalogPort,
@@ -1847,6 +1863,7 @@ def compose_codex_pipeline(
         sources=sources,
         custody=custody,
         data_rights=data_rights,
+        interaction_data_rights=interaction_data_rights,
         data_rights_fence=data_rights_fence,
         runtime_admission=runtime_admission,
         runner_entry_module="armi_runtime.codex_runner_cli",

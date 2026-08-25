@@ -166,10 +166,13 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "codex_task_sources": TableOwnership("codex"),
     "codex_verification_results": TableOwnership("codex"),
     "creator_exports": TableOwnership("data-rights"),
+    "managed_data_snapshot_parties": TableOwnership("data-rights"),
+    "managed_data_snapshots": TableOwnership("data-rights"),
     "data_rights_party_fences": TableOwnership("data-rights"),
-    "deletion_items": TableOwnership("data-rights"),
-    "deletion_order_retry_attempts": TableOwnership("data-rights"),
-    "deletion_orders": TableOwnership("data-rights"),
+    "data_rights_identity_keys": TableOwnership("data-rights"),
+    "data_rights_order_items": TableOwnership("data-rights"),
+    "data_rights_order_retry_attempts": TableOwnership("data-rights"),
+    "data_rights_orders": TableOwnership("data-rights"),
 }
 
 

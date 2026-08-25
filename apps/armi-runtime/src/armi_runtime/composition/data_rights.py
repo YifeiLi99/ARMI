@@ -84,7 +84,7 @@ class RuntimeDataRightsParticipant:
     async def discover(
         self, transaction: PostgreSQLTransaction, request: DataRightsDiscoveryRequest
     ) -> DataRightsDiscoveryContribution:
-        del transaction, request
+        del transaction
         return DataRightsDiscoveryContribution(_RUNTIME_OWNER)
 
     async def apply(
@@ -94,8 +94,14 @@ class RuntimeDataRightsParticipant:
             """UPDATE armi.subjects SET state_epoch = state_epoch + 1
                WHERE singleton_key = 1"""
         )
-        del request
-        return DataRightsApplyContribution(_RUNTIME_OWNER)
+        return DataRightsApplyContribution(
+            _RUNTIME_OWNER,
+            tuple(
+                target
+                for target in request.targets
+                if target.responsible_owner == _RUNTIME_OWNER.value
+            ),
+        )
 
     async def export(
         self, transaction: PostgreSQLTransaction, scope: DataRightsExportScope
@@ -134,14 +140,21 @@ class ArtifactStoreDataRightsParticipant:
     async def discover(
         self, transaction: PostgreSQLTransaction, request: DataRightsDiscoveryRequest
     ) -> DataRightsDiscoveryContribution:
-        del transaction, request
+        del transaction
         return DataRightsDiscoveryContribution(_ARTIFACT_OWNER)
 
     async def apply(
         self, transaction: PostgreSQLTransaction, request: DataRightsApplyRequest
     ) -> DataRightsApplyContribution:
-        del transaction, request
-        return DataRightsApplyContribution(_ARTIFACT_OWNER)
+        del transaction
+        return DataRightsApplyContribution(
+            _ARTIFACT_OWNER,
+            tuple(
+                target
+                for target in request.targets
+                if target.responsible_owner == _ARTIFACT_OWNER.value
+            ),
+        )
 
     async def export(
         self, transaction: PostgreSQLTransaction, scope: DataRightsExportScope

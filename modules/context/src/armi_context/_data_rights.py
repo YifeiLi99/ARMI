@@ -14,6 +14,7 @@ from armi_data_rights.api import (
     DataRightsExportScope,
     DataRightsExportSegment,
     DataRightsOwnerIdentity,
+    DataRightsRelatedRef,
     DataRightsTupleRecordStream,
 )
 from armi_runtime_foundation import PostgreSQLTransaction
@@ -71,8 +72,22 @@ class PostgreSQLContextDataRightsParticipant:
         transaction: PostgreSQLTransaction,
         request: DataRightsDiscoveryRequest,
     ) -> DataRightsDiscoveryContribution:
-        del transaction, request
-        return DataRightsDiscoveryContribution(_OWNER)
+        source_refs = tuple(item.ref for item in request.related_refs)
+        rows = await (
+            await transaction.execute(
+                """SELECT DISTINCT cognitive_episode_id
+                   FROM armi.cognitive_context_items
+                   WHERE source_ref=%s OR source_ref=ANY(%s::uuid[])
+                   ORDER BY cognitive_episode_id""",
+                (request.party_id, list(source_refs)),
+            )
+        ).fetchall()
+        return DataRightsDiscoveryContribution(
+            _OWNER,
+            related_refs=tuple(
+                DataRightsRelatedRef("cognitive-context", row[0]) for row in rows
+            ),
+        )
 
     async def apply(
         self,
@@ -87,9 +102,22 @@ class PostgreSQLContextDataRightsParticipant:
                 """DELETE FROM armi.context_embedding_projections
                    WHERE source_kind = 'subjective_memory'
                      AND source_ref = ANY(%s::uuid[])""",
-                (memory_ids,),
+                (list(memory_ids),),
             )
-        return DataRightsApplyContribution(_OWNER)
+            await transaction.execute(
+                """UPDATE armi.context_embedding_coverage
+                   SET coverage_state='dirty',epoch=epoch+1,scanning_epoch=NULL,
+                       scan_found_missing=false,source_kind=NULL,
+                       after_source_ref=NULL,updated_at=statement_timestamp()"""
+            )
+        return DataRightsApplyContribution(
+            _OWNER,
+            tuple(
+                target
+                for target in request.targets
+                if target.responsible_owner == _OWNER.value
+            ),
+        )
 
     async def export(
         self,

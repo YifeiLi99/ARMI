@@ -15,6 +15,7 @@ from ._creator_export import CreatorExportService
 from ._data_rights_participant import PostgreSQLDataRightsParticipant
 from ._deletion import LocalDataDeletionExecutor
 from ._deletion_postgresql import LocalDataDeletionRepository
+from ._managed_snapshots import PostgreSQLManagedSnapshotAdmin
 from ._postgresql import DataRightsOrderRepository
 from .api import (
     CreatorExportPort,
@@ -25,8 +26,10 @@ from .api import (
     DataRightsFencePort,
     DataRightsInteractionGate,
     DataRightsOrderPort,
+    DataRightsOwnerContract,
     DataRightsParticipant,
     DataRightsPartyIdentityPort,
+    DataRightsPartyRosterPort,
     DataRightsSubjectCommitGate,
     DataRightsUnitOfWorkFactory,
     DataRightsVisibilityPort,
@@ -87,11 +90,11 @@ class DataRightsModule:
     _exports: CreatorExportService
 
     async def open(self) -> None:
-        await self._exports.open()
+        await self._orders.open()
         try:
-            await self._orders.open()
+            await self._exports.open()
         except Exception:
-            await self._exports.close()
+            await self._orders.close()
             raise
 
     async def close(self) -> None:
@@ -119,8 +122,11 @@ def bootstrap_data_rights(
     lifecycle: DataRightsArtifactLifecyclePort,
     core: DataRightsCore,
     parties: DataRightsPartyIdentityPort,
+    party_roster: DataRightsPartyRosterPort,
     catalog: ArtifactCatalogPort,
     participants: tuple[DataRightsParticipant, ...],
+    owner_contracts: tuple[DataRightsOwnerContract, ...],
+    identity_key: str,
     notifier: CreatorProjectionNotifier | None = None,
 ) -> DataRightsModule:
     gate = core.seal()
@@ -143,13 +149,18 @@ def bootstrap_data_rights(
         parties=parties,
         lifecycle=lifecycle,
         participants=participants,
+        owner_contracts=owner_contracts,
+        identity_key=identity_key,
+        data_root=data_root,
     )
     exports = CreatorExportService(
         creator_party_id=creator_party_id,
+        custody=custody,
         data_root=data_root,
         storage=storage,
         unit_of_work_factory=unit_of_work_factory,
         participants=participants,
+        party_roster=party_roster,
     )
     return DataRightsModule(
         orders,
@@ -170,10 +181,15 @@ def bootstrap_data_rights_recovery() -> RecoveryParticipant:
     return EmptyRecoveryParticipant("data-rights")
 
 
+def bootstrap_managed_snapshot_admin() -> PostgreSQLManagedSnapshotAdmin:
+    return PostgreSQLManagedSnapshotAdmin()
+
+
 __all__ = (
     "DataRightsCore",
     "DataRightsModule",
     "bootstrap_data_rights",
     "bootstrap_data_rights_core",
     "bootstrap_data_rights_recovery",
+    "bootstrap_managed_snapshot_admin",
 )

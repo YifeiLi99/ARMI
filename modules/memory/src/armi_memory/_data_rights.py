@@ -64,7 +64,7 @@ class PostgreSQLMemoryDataRightsParticipant:
             await transaction.execute(
                 """SELECT DISTINCT memory_id FROM armi.subjective_memory_revisions
                    WHERE source_experience_id = ANY(%s::uuid[]) ORDER BY memory_id""",
-                (experience_ids,),
+                (list(experience_ids),),
             )
         ).fetchall()
         return DataRightsDiscoveryContribution(
@@ -78,8 +78,30 @@ class PostgreSQLMemoryDataRightsParticipant:
         transaction: PostgreSQLTransaction,
         request: DataRightsApplyRequest,
     ) -> DataRightsApplyContribution:
-        del transaction, request
-        return DataRightsApplyContribution(_OWNER)
+        memory_ids = tuple(
+            item.ref for item in request.related_refs if item.kind == "memory"
+        )
+        if request.order_kind == "delete_related" and memory_ids:
+            await transaction.execute(
+                """UPDATE armi.subjective_memory_revisions
+                   SET summary=NULL,uncertainty=NULL
+                   WHERE memory_id=ANY(%s::uuid[])""",
+                (list(memory_ids),),
+            )
+            await transaction.execute(
+                """UPDATE armi.subjective_memories
+                   SET tombstone_order_id=%s,tombstoned_at=statement_timestamp()
+                   WHERE memory_id=ANY(%s::uuid[]) AND tombstoned_at IS NULL""",
+                (request.order_id, list(memory_ids)),
+            )
+        return DataRightsApplyContribution(
+            _OWNER,
+            tuple(
+                target
+                for target in request.targets
+                if target.responsible_owner == _OWNER.value
+            ),
+        )
 
     async def export(
         self,

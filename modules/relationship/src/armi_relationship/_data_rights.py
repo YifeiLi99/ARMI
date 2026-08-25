@@ -88,7 +88,25 @@ class PostgreSQLRelationshipDataRightsParticipant:
                    WHERE relationship_id = %s AND tombstoned_at IS NULL""",
                 (request.order_id, target.ref),
             )
-        return DataRightsApplyContribution(_OWNER, targets)
+            if request.order_kind == "delete_related":
+                await transaction.execute(
+                    """UPDATE armi.relationship_revisions
+                       SET facts=NULL,interpretation=NULL,boundaries=NULL,
+                           commitments=NULL,open_issues=NULL,commitment_event=NULL,
+                           issue_resolution=NULL,
+                           data_rights_redacted_at=statement_timestamp()
+                       WHERE relationship_id=%s
+                         AND data_rights_redacted_at IS NULL""",
+                    (target.ref,),
+                )
+        return DataRightsApplyContribution(
+            _OWNER,
+            tuple(
+                target
+                for target in request.targets
+                if target.responsible_owner == _OWNER.value
+            ),
+        )
 
     async def export(
         self,

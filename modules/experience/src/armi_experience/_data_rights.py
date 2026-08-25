@@ -58,8 +58,35 @@ class PostgreSQLExperienceDataRightsParticipant:
         transaction: PostgreSQLTransaction,
         request: DataRightsApplyRequest,
     ) -> DataRightsApplyContribution:
-        del transaction, request
-        return DataRightsApplyContribution(_OWNER)
+        experience_ids = tuple(
+            item.ref for item in request.related_refs if item.kind == "experience"
+        )
+        if request.order_kind in {"stop_use", "delete_related"} and experience_ids:
+            await transaction.execute(
+                """UPDATE armi.accepted_experiences
+                   SET first_person_gist=CASE WHEN %s='delete_related'
+                                              THEN NULL ELSE first_person_gist END,
+                       uncertainty=CASE WHEN %s='delete_related'
+                                        THEN NULL ELSE uncertainty END,
+                       data_rights_order_id=%s,
+                       data_rights_hidden_at=statement_timestamp()
+                   WHERE experience_id=ANY(%s::uuid[])
+                     AND data_rights_hidden_at IS NULL""",
+                (
+                    request.order_kind,
+                    request.order_kind,
+                    request.order_id,
+                    list(experience_ids),
+                ),
+            )
+        return DataRightsApplyContribution(
+            _OWNER,
+            tuple(
+                target
+                for target in request.targets
+                if target.responsible_owner == _OWNER.value
+            ),
+        )
 
     async def export(
         self,

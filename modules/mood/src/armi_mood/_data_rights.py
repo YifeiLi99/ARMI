@@ -14,6 +14,8 @@ from armi_data_rights.api import (
     DataRightsExportScope,
     DataRightsExportSegment,
     DataRightsOwnerIdentity,
+    DataRightsRelatedRef,
+    DataRightsTargetRef,
     DataRightsTupleRecordStream,
 )
 from armi_runtime_foundation import PostgreSQLTransaction
@@ -54,16 +56,53 @@ class PostgreSQLMoodDataRightsParticipant:
         transaction: PostgreSQLTransaction,
         request: DataRightsDiscoveryRequest,
     ) -> DataRightsDiscoveryContribution:
-        del transaction, request
-        return DataRightsDiscoveryContribution(_OWNER)
+        episodes = tuple(
+            item.ref for item in request.related_refs if item.kind == "cognition"
+        )
+        if not episodes:
+            return DataRightsDiscoveryContribution(_OWNER)
+        rows = await (
+            await transaction.execute(
+                """SELECT mood_appraisal_event_id FROM armi.mood_appraisal_events
+                   WHERE mood_episode_id=ANY(%s::uuid[])
+                   ORDER BY mood_appraisal_event_id""",
+                (list(episodes),),
+            )
+        ).fetchall()
+        return DataRightsDiscoveryContribution(
+            _OWNER,
+            related_refs=tuple(DataRightsRelatedRef("mood", row[0]) for row in rows),
+            targets=tuple(
+                DataRightsTargetRef("mood", row[0], "redact", "subject_continuity")
+                for row in rows
+            ),
+        )
 
     async def apply(
         self,
         transaction: PostgreSQLTransaction,
         request: DataRightsApplyRequest,
     ) -> DataRightsApplyContribution:
-        del transaction, request
-        return DataRightsApplyContribution(_OWNER)
+        event_ids = tuple(
+            item.ref for item in request.related_refs if item.kind == "mood"
+        )
+        if request.order_kind == "delete_related" and event_ids:
+            await transaction.execute(
+                """UPDATE armi.mood_appraisal_events
+                   SET gist=NULL,appraisal_payload=NULL,derived_appraisal_payload=NULL,
+                       data_rights_redacted_at=statement_timestamp()
+                   WHERE mood_appraisal_event_id=ANY(%s::uuid[])
+                     AND data_rights_redacted_at IS NULL""",
+                (list(event_ids),),
+            )
+        return DataRightsApplyContribution(
+            _OWNER,
+            tuple(
+                target
+                for target in request.targets
+                if target.responsible_owner == _OWNER.value
+            ),
+        )
 
     async def export(
         self,

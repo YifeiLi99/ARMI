@@ -14,6 +14,8 @@ from armi_data_rights.api import (
     DataRightsExportScope,
     DataRightsExportSegment,
     DataRightsOwnerIdentity,
+    DataRightsRelatedRef,
+    DataRightsTargetRef,
     DataRightsTupleRecordStream,
 )
 from armi_runtime_foundation import PostgreSQLTransaction
@@ -58,16 +60,65 @@ class PostgreSQLLiveVoiceDataRightsParticipant:
         transaction: PostgreSQLTransaction,
         request: DataRightsDiscoveryRequest,
     ) -> DataRightsDiscoveryContribution:
-        del transaction, request
-        return DataRightsDiscoveryContribution(_OWNER)
+        rows = await (
+            await transaction.execute(
+                """SELECT session_id FROM armi.live_voice_sessions
+                   WHERE creator_party_id=%s ORDER BY session_id""",
+                (request.party_id,),
+            )
+        ).fetchall()
+        return DataRightsDiscoveryContribution(
+            _OWNER,
+            related_refs=tuple(
+                DataRightsRelatedRef("live-voice", row[0]) for row in rows
+            ),
+            targets=tuple(
+                DataRightsTargetRef("live_voice", row[0], "redact") for row in rows
+            ),
+        )
 
     async def apply(
         self,
         transaction: PostgreSQLTransaction,
         request: DataRightsApplyRequest,
     ) -> DataRightsApplyContribution:
-        del transaction, request
-        return DataRightsApplyContribution(_OWNER)
+        sessions = tuple(
+            item.ref for item in request.related_refs if item.kind == "live-voice"
+        )
+        if request.order_kind == "delete_related" and sessions:
+            await transaction.execute(
+                """UPDATE armi.live_voice_text_fragments AS fragment
+                   SET body=NULL,data_rights_redacted_at=statement_timestamp()
+                   FROM armi.live_voice_turns AS turn
+                   WHERE fragment.turn_id=turn.turn_id
+                     AND turn.session_id=ANY(%s::uuid[])
+                     AND fragment.data_rights_redacted_at IS NULL""",
+                (list(sessions),),
+            )
+            await transaction.execute(
+                """UPDATE armi.live_voice_turns
+                   SET final_transcript=NULL,spoken_text=NULL,
+                       data_rights_redacted_at=statement_timestamp()
+                   WHERE session_id=ANY(%s::uuid[])
+                     AND data_rights_redacted_at IS NULL""",
+                (list(sessions),),
+            )
+            await transaction.execute(
+                """UPDATE armi.live_voice_sessions
+                   SET state='unavailable',ended_at=COALESCE(ended_at,statement_timestamp()),
+                       error_code=COALESCE(error_code,'VOICE-DATA-RIGHTS-CANCELLED')
+                   WHERE session_id=ANY(%s::uuid[])
+                     AND state NOT IN ('stopped','failed','unavailable')""",
+                (list(sessions),),
+            )
+        return DataRightsApplyContribution(
+            _OWNER,
+            tuple(
+                target
+                for target in request.targets
+                if target.responsible_owner == _OWNER.value
+            ),
+        )
 
     async def export(
         self,

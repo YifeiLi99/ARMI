@@ -13,6 +13,53 @@ from armi_runtime_foundation import PostgreSQLTransaction
 _TOKEN = re.compile(r"^[a-z][a-z0-9-]{0,63}$", re.ASCII)
 _SEGMENT = re.compile(r"^[a-z][a-z0-9_-]{0,63}$", re.ASCII)
 
+DATA_RIGHTS_TARGET_KINDS = frozenset(
+    {
+        "party",
+        "external_binding",
+        "scene",
+        "interaction",
+        "media_recognition",
+        "live_voice",
+        "evidence",
+        "experience",
+        "cognition",
+        "memory",
+        "relationship",
+        "activity",
+        "material",
+        "subject_component",
+        "mood",
+        "prompt",
+        "effect",
+        "web_research",
+        "codex_task",
+        "managed_snapshot",
+        "artifact",
+    }
+)
+DATA_RIGHTS_ACTIONS = frozenset(
+    {
+        "block",
+        "restrict",
+        "cancel",
+        "redact",
+        "tombstone",
+        "delete",
+        "retain",
+        "operator_remove",
+    }
+)
+DATA_RIGHTS_RETENTION_REASONS = frozenset(
+    {
+        "rights_enforcement",
+        "shared_reference",
+        "objective_history",
+        "subject_continuity",
+        "operator_managed_snapshot",
+    }
+)
+
 
 class DataRightsParticipantViolation(RuntimeError):
     __slots__ = ("code",)
@@ -61,26 +108,20 @@ class DataRightsTargetRef:
     kind: str
     ref: UUID
     required_action: str
-    remaining_location: str | None = None
+    retention_reason: str | None = None
+    responsible_owner: str | None = None
 
     def __post_init__(self) -> None:
         if (
-            self.kind
-            not in {
-                "interaction",
-                "evidence",
-                "experience",
-                "memory",
-                "relationship",
-                "scene",
-                "artifact",
-                "effect",
-            }
+            self.kind not in DATA_RIGHTS_TARGET_KINDS
             or type(self.ref) is not UUID
             or self.ref.version != 7
-            or self.required_action not in {"delete", "tombstone", "retain"}
-            or self.remaining_location
-            not in {None, "shared_local_reference", "objective_history"}
+            or self.required_action not in DATA_RIGHTS_ACTIONS
+            or self.retention_reason not in {None, *DATA_RIGHTS_RETENTION_REASONS}
+            or (
+                self.responsible_owner is not None
+                and _TOKEN.fullmatch(self.responsible_owner) is None
+            )
         ):
             raise DataRightsParticipantViolation("DATA-RIGHTS-PARTICIPANT-TARGET")
 
@@ -108,6 +149,7 @@ class DataRightsDiscoveryRequest:
     order_id: UUID
     party_id: UUID
     related_refs: tuple[DataRightsRelatedRef, ...]
+    order_kind: str = "delete_related"
 
     def __post_init__(self) -> None:
         if (
@@ -116,6 +158,7 @@ class DataRightsDiscoveryRequest:
             or type(self.party_id) is not UUID
             or self.party_id.version != 7
             or any(type(item) is not DataRightsRelatedRef for item in self.related_refs)
+            or self.order_kind not in {"stop_contact", "stop_use", "delete_related"}
         ):
             raise DataRightsParticipantViolation("DATA-RIGHTS-PARTICIPANT-DISCOVERY")
 
@@ -126,6 +169,67 @@ class DataRightsDiscoveryContribution:
     related_refs: tuple[DataRightsRelatedRef, ...] = ()
     targets: tuple[DataRightsTargetRef, ...] = ()
     artifact_usages: tuple[DataRightsArtifactUsage, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class DataRightsArtifactField:
+    table_name: str
+    column_name: str
+    classification: str
+
+    def __post_init__(self) -> None:
+        if (
+            _SEGMENT.fullmatch(self.table_name) is None
+            or _SEGMENT.fullmatch(self.column_name) is None
+            or self.classification not in {"party", "shared", "objective", "continuity"}
+        ):
+            raise DataRightsParticipantViolation(
+                "DATA-RIGHTS-PARTICIPANT-ARTIFACT-FIELD"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class DataRightsContentField:
+    table_name: str
+    column_name: str
+    treatment: str
+
+    def __post_init__(self) -> None:
+        if (
+            _SEGMENT.fullmatch(self.table_name) is None
+            or _SEGMENT.fullmatch(self.column_name) is None
+            or self.treatment not in {"redact", "retain_objective", "retain_continuity"}
+        ):
+            raise DataRightsParticipantViolation(
+                "DATA-RIGHTS-PARTICIPANT-CONTENT-FIELD"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class DataRightsOwnerContract:
+    owner_identity: DataRightsOwnerIdentity
+    consumes: frozenset[str] = frozenset()
+    produces: frozenset[str] = frozenset()
+    owns: frozenset[str] = frozenset()
+    artifact_fields: tuple[DataRightsArtifactField, ...] = ()
+    content_fields: tuple[DataRightsContentField, ...] = ()
+
+    def __post_init__(self) -> None:
+        if (
+            any(
+                _TOKEN.fullmatch(value) is None
+                for value in self.consumes | self.produces
+            )
+            or not self.owns.issubset(DATA_RIGHTS_TARGET_KINDS)
+            or any(
+                type(item) is not DataRightsArtifactField
+                for item in self.artifact_fields
+            )
+            or any(
+                type(item) is not DataRightsContentField for item in self.content_fields
+            )
+        ):
+            raise DataRightsParticipantViolation("DATA-RIGHTS-PARTICIPANT-CONTRACT")
 
 
 @dataclass(frozen=True, slots=True)
@@ -241,11 +345,12 @@ class DataRightsVisibilityPort(Protocol):
 
 
 class EmptyDataRightsParticipant:
-    __slots__ = ("_owner", "_version")
+    __slots__ = ("_contract", "_owner", "_version")
 
     def __init__(self, owner_identity: str) -> None:
         self._owner = DataRightsOwnerIdentity(owner_identity)
         self._version = DataRightsContributionVersion(1)
+        self._contract = DataRightsOwnerContract(self._owner)
 
     @property
     def owner_identity(self) -> DataRightsOwnerIdentity:
@@ -254,6 +359,10 @@ class EmptyDataRightsParticipant:
     @property
     def schema_version(self) -> DataRightsContributionVersion:
         return self._version
+
+    @property
+    def data_rights_contract(self) -> DataRightsOwnerContract:
+        return self._contract
 
     async def discover(
         self,
@@ -268,8 +377,15 @@ class EmptyDataRightsParticipant:
         transaction: PostgreSQLTransaction,
         request: DataRightsApplyRequest,
     ) -> DataRightsApplyContribution:
-        del transaction, request
-        return DataRightsApplyContribution(self._owner)
+        del transaction
+        return DataRightsApplyContribution(
+            self._owner,
+            tuple(
+                target
+                for target in request.targets
+                if target.responsible_owner == self._owner.value
+            ),
+        )
 
     async def export(
         self,
@@ -281,15 +397,21 @@ class EmptyDataRightsParticipant:
 
 
 __all__ = (
+    "DATA_RIGHTS_ACTIONS",
+    "DATA_RIGHTS_RETENTION_REASONS",
+    "DATA_RIGHTS_TARGET_KINDS",
     "DataRightsApplyContribution",
     "DataRightsApplyRequest",
+    "DataRightsArtifactField",
     "DataRightsArtifactUsage",
     "DataRightsCanonicalRecord",
+    "DataRightsContentField",
     "DataRightsContributionVersion",
     "DataRightsDiscoveryContribution",
     "DataRightsDiscoveryRequest",
     "DataRightsExportScope",
     "DataRightsExportSegment",
+    "DataRightsOwnerContract",
     "DataRightsOwnerIdentity",
     "DataRightsParticipant",
     "DataRightsParticipantViolation",

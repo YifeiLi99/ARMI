@@ -43,7 +43,7 @@ class PostgreSQLOpportunityDataRightsParticipant:
         transaction: PostgreSQLTransaction,
         request: DataRightsDiscoveryRequest,
     ) -> DataRightsDiscoveryContribution:
-        del transaction, request
+        del transaction
         return DataRightsDiscoveryContribution(_OWNER)
 
     async def apply(
@@ -62,7 +62,14 @@ class PostgreSQLOpportunityDataRightsParticipant:
                 request.party_id,
             ),
         )
-        return DataRightsApplyContribution(_OWNER)
+        return DataRightsApplyContribution(
+            _OWNER,
+            tuple(
+                target
+                for target in request.targets
+                if target.responsible_owner == _OWNER.value
+            ),
+        )
 
     async def export(
         self,

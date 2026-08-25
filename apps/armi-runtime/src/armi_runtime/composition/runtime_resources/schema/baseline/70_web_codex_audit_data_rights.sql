@@ -160,36 +160,59 @@ CREATE TABLE armi.creator_exports (
     CONSTRAINT creator_exports_table_count_check CHECK ((table_count >= 0))
 );
 
+CREATE TABLE armi.managed_data_snapshots (
+    managed_snapshot_id uuid NOT NULL,
+    snapshot_kind text NOT NULL,
+    contract_version text NOT NULL,
+    managed_path text NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
+    removed_at timestamp(6) with time zone,
+    CONSTRAINT managed_data_snapshots_id_check CHECK ((uuid_extract_version(managed_snapshot_id) = 7)),
+    CONSTRAINT managed_data_snapshots_kind_check CHECK ((snapshot_kind = ANY (ARRAY['creator_export'::text, 'recovery_backup'::text]))),
+    CONSTRAINT managed_data_snapshots_status_check CHECK ((((status = 'active'::text) AND (removed_at IS NULL)) OR ((status = 'removed'::text) AND (removed_at IS NOT NULL))))
+);
+
+CREATE TABLE armi.managed_data_snapshot_parties (
+    managed_snapshot_id uuid NOT NULL,
+    party_id uuid NOT NULL,
+    contact_generation bigint NOT NULL,
+    use_generation bigint NOT NULL,
+    CONSTRAINT managed_data_snapshot_parties_generation_check CHECK ((contact_generation > 0) AND (use_generation > 0))
+);
+
 --
--- Name: deletion_items; Type: TABLE; Schema: armi; Owner: -
+-- Name: data_rights_order_items; Type: TABLE; Schema: armi; Owner: -
 --
 
-CREATE TABLE armi.deletion_items (
+CREATE TABLE armi.data_rights_order_items (
     deletion_item_id uuid NOT NULL,
     deletion_order_id uuid NOT NULL,
     target_kind text NOT NULL,
     target_ref uuid NOT NULL,
     required_action text NOT NULL,
+    responsible_owner text NOT NULL,
     result_status text NOT NULL,
-    remaining_location text,
+    retention_reason text,
+    operator_action_required boolean DEFAULT false NOT NULL,
     artifact_object_deletion_id uuid,
     created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
     completed_at timestamp(6) with time zone,
-    CONSTRAINT deletion_items_check CHECK ((((result_status = 'pending'::text) AND (completed_at IS NULL)) OR ((result_status <> 'pending'::text) AND (completed_at IS NOT NULL)))),
-    CONSTRAINT deletion_items_deletion_item_id_check CHECK ((uuid_extract_version(deletion_item_id) = 7)),
-    CONSTRAINT deletion_items_artifact_deletion_check CHECK (((artifact_object_deletion_id IS NULL) OR ((target_kind = 'artifact'::text) AND (required_action = 'delete'::text)))),
-    CONSTRAINT deletion_items_remaining_location_check CHECK (((remaining_location IS NULL) OR (remaining_location = ANY (ARRAY['shared_local_reference'::text, 'objective_history'::text, 'local_artifact_store'::text])))),
-    CONSTRAINT deletion_items_required_action_check CHECK ((required_action = ANY (ARRAY['delete'::text, 'tombstone'::text, 'retain'::text]))),
-    CONSTRAINT deletion_items_result_status_check CHECK ((result_status = ANY (ARRAY['pending'::text, 'completed'::text, 'partial'::text, 'too_late'::text, 'unknown'::text]))),
-    CONSTRAINT deletion_items_target_kind_check CHECK ((target_kind = ANY (ARRAY['interaction'::text, 'evidence'::text, 'experience'::text, 'memory'::text, 'relationship'::text, 'scene'::text, 'artifact'::text, 'effect'::text]))),
-    CONSTRAINT deletion_items_target_ref_check CHECK ((uuid_extract_version(target_ref) = 7))
+    CONSTRAINT data_rights_order_items_check CHECK ((((result_status = 'pending'::text) AND (completed_at IS NULL)) OR ((result_status <> 'pending'::text) AND (completed_at IS NOT NULL)))),
+    CONSTRAINT data_rights_order_items_deletion_item_id_check CHECK ((uuid_extract_version(deletion_item_id) = 7)),
+    CONSTRAINT data_rights_order_items_artifact_deletion_check CHECK (((artifact_object_deletion_id IS NULL) OR ((target_kind = 'artifact'::text) AND (required_action = 'delete'::text)))),
+    CONSTRAINT data_rights_order_items_retention_reason_check CHECK (((retention_reason IS NULL) OR (retention_reason = ANY (ARRAY['rights_enforcement'::text, 'shared_reference'::text, 'objective_history'::text, 'subject_continuity'::text, 'operator_managed_snapshot'::text])))),
+    CONSTRAINT data_rights_order_items_required_action_check CHECK ((required_action = ANY (ARRAY['block'::text, 'restrict'::text, 'cancel'::text, 'redact'::text, 'tombstone'::text, 'delete'::text, 'retain'::text, 'operator_remove'::text]))),
+    CONSTRAINT data_rights_order_items_result_status_check CHECK ((result_status = ANY (ARRAY['pending'::text, 'completed'::text, 'partial'::text, 'too_late'::text, 'unknown'::text]))),
+    CONSTRAINT data_rights_order_items_target_kind_check CHECK ((target_kind = ANY (ARRAY['party'::text, 'external_binding'::text, 'scene'::text, 'interaction'::text, 'media_recognition'::text, 'live_voice'::text, 'evidence'::text, 'experience'::text, 'cognition'::text, 'memory'::text, 'relationship'::text, 'activity'::text, 'material'::text, 'subject_component'::text, 'mood'::text, 'prompt'::text, 'effect'::text, 'web_research'::text, 'codex_task'::text, 'managed_snapshot'::text, 'artifact'::text]))),
+    CONSTRAINT data_rights_order_items_target_ref_check CHECK ((uuid_extract_version(target_ref) = 7))
 );
 
 --
--- Name: deletion_orders; Type: TABLE; Schema: armi; Owner: -
+-- Name: data_rights_orders; Type: TABLE; Schema: armi; Owner: -
 --
 
-CREATE TABLE armi.deletion_orders (
+CREATE TABLE armi.data_rights_orders (
     deletion_order_id uuid NOT NULL,
     requester_party_id uuid NOT NULL,
     requester_kind text NOT NULL,
@@ -204,34 +227,33 @@ CREATE TABLE armi.deletion_orders (
     trace_id text NOT NULL,
     effective_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
     completed_at timestamp(6) with time zone,
-    CONSTRAINT deletion_orders_check CHECK ((requester_party_id = scope_party_id)),
-    CONSTRAINT deletion_orders_check1 CHECK ((((order_kind = 'stop_contact'::text) AND (scope_kind = 'party_contact'::text)) OR ((order_kind = ANY (ARRAY['stop_use'::text, 'delete_related'::text])) AND (scope_kind = 'party_local_data'::text)))),
-    CONSTRAINT deletion_orders_check2 CHECK ((((order_kind = 'delete_related'::text) AND (execution_status = ANY (ARRAY['pending'::text, 'executing'::text, 'completed'::text, 'partial'::text]))) OR ((order_kind <> 'delete_related'::text) AND (execution_status = 'not_required'::text)))),
-    CONSTRAINT deletion_orders_check3 CHECK ((((execution_status = ANY (ARRAY['not_required'::text, 'pending'::text, 'executing'::text])) AND (completed_at IS NULL)) OR ((execution_status = ANY (ARRAY['completed'::text, 'partial'::text])) AND (completed_at IS NOT NULL)))),
-    CONSTRAINT deletion_orders_deletion_order_id_check CHECK ((uuid_extract_version(deletion_order_id) = 7)),
-    CONSTRAINT deletion_orders_execution_status_check CHECK ((execution_status = ANY (ARRAY['not_required'::text, 'pending'::text, 'executing'::text, 'completed'::text, 'partial'::text]))),
-    CONSTRAINT deletion_orders_idempotency_key_check CHECK ((idempotency_key ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'::text)),
-    CONSTRAINT deletion_orders_order_kind_check CHECK ((order_kind = ANY (ARRAY['stop_contact'::text, 'stop_use'::text, 'delete_related'::text]))),
-    CONSTRAINT deletion_orders_reason_code_check CHECK ((reason_code = 'requester_exercised_local_right'::text)),
-    CONSTRAINT deletion_orders_request_digest_check CHECK ((request_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
-    CONSTRAINT deletion_orders_requester_kind_check CHECK ((requester_kind = ANY (ARRAY['creator'::text, 'other_human'::text]))),
-    CONSTRAINT deletion_orders_scope_kind_check CHECK ((scope_kind = ANY (ARRAY['party_contact'::text, 'party_local_data'::text]))),
-    CONSTRAINT deletion_orders_status_check CHECK ((status = 'effective'::text)),
-    CONSTRAINT deletion_orders_trace_id_check CHECK ((trace_id ~ '^[0-9a-f]{32}$'::text))
+    CONSTRAINT data_rights_orders_check CHECK ((requester_party_id = scope_party_id)),
+    CONSTRAINT data_rights_orders_check1 CHECK ((((order_kind = 'stop_contact'::text) AND (scope_kind = 'party_contact'::text)) OR ((order_kind = ANY (ARRAY['stop_use'::text, 'delete_related'::text])) AND (scope_kind = 'party_local_data'::text)))),
+    CONSTRAINT data_rights_orders_check3 CHECK ((((execution_status = ANY (ARRAY['pending'::text, 'executing'::text])) AND (completed_at IS NULL)) OR ((execution_status = ANY (ARRAY['completed'::text, 'partial'::text])) AND (completed_at IS NOT NULL)))),
+    CONSTRAINT data_rights_orders_deletion_order_id_check CHECK ((uuid_extract_version(deletion_order_id) = 7)),
+    CONSTRAINT data_rights_orders_execution_status_check CHECK ((execution_status = ANY (ARRAY['pending'::text, 'executing'::text, 'completed'::text, 'partial'::text]))),
+    CONSTRAINT data_rights_orders_idempotency_key_check CHECK ((idempotency_key ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'::text)),
+    CONSTRAINT data_rights_orders_order_kind_check CHECK ((order_kind = ANY (ARRAY['stop_contact'::text, 'stop_use'::text, 'delete_related'::text]))),
+    CONSTRAINT data_rights_orders_reason_code_check CHECK ((reason_code = 'requester_exercised_local_right'::text)),
+    CONSTRAINT data_rights_orders_request_digest_check CHECK ((request_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT data_rights_orders_requester_kind_check CHECK ((requester_kind = ANY (ARRAY['creator'::text, 'other_human'::text]))),
+    CONSTRAINT data_rights_orders_scope_kind_check CHECK ((scope_kind = ANY (ARRAY['party_contact'::text, 'party_local_data'::text]))),
+    CONSTRAINT data_rights_orders_status_check CHECK ((status = 'effective'::text)),
+    CONSTRAINT data_rights_orders_trace_id_check CHECK ((trace_id ~ '^[0-9a-f]{32}$'::text))
 );
 
 -- Append-only explicit retry cycles for blocked local deletion work.
-CREATE TABLE armi.deletion_order_retry_attempts (
+CREATE TABLE armi.data_rights_order_retry_attempts (
     deletion_order_retry_attempt_id uuid NOT NULL,
     deletion_order_id uuid NOT NULL,
     retry_cycle integer NOT NULL,
     idempotency_key text NOT NULL,
     trace_id text NOT NULL,
     created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    CONSTRAINT deletion_order_retry_attempts_id_check CHECK ((uuid_extract_version(deletion_order_retry_attempt_id) = 7)),
-    CONSTRAINT deletion_order_retry_attempts_cycle_check CHECK ((retry_cycle >= 2)),
-    CONSTRAINT deletion_order_retry_attempts_key_check CHECK ((idempotency_key ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'::text)),
-    CONSTRAINT deletion_order_retry_attempts_trace_check CHECK (((trace_id ~ '^[0-9a-f]{32}$'::text) AND (trace_id <> repeat('0'::text, 32))))
+    CONSTRAINT data_rights_order_retry_attempts_id_check CHECK ((uuid_extract_version(deletion_order_retry_attempt_id) = 7)),
+    CONSTRAINT data_rights_order_retry_attempts_cycle_check CHECK ((retry_cycle >= 2)),
+    CONSTRAINT data_rights_order_retry_attempts_key_check CHECK ((idempotency_key ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'::text)),
+    CONSTRAINT data_rights_order_retry_attempts_trace_check CHECK (((trace_id ~ '^[0-9a-f]{32}$'::text) AND (trace_id <> repeat('0'::text, 32))))
 );
 
 --

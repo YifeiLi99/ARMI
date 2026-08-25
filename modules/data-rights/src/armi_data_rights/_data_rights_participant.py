@@ -16,6 +16,8 @@ from .api import (
     DataRightsExportScope,
     DataRightsExportSegment,
     DataRightsOwnerIdentity,
+    DataRightsRelatedRef,
+    DataRightsTargetRef,
     DataRightsTupleRecordStream,
 )
 
@@ -34,19 +36,37 @@ _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
            ORDER BY to_jsonb(source)::text""",
     ),
     (
-        "deletion_items",
+        "data_rights_identity_keys",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.deletion_items AS source ORDER BY to_jsonb(source)::text""",
+           FROM armi.data_rights_identity_keys AS source
+           ORDER BY to_jsonb(source)::text""",
     ),
     (
-        "deletion_order_retry_attempts",
+        "data_rights_order_items",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.deletion_order_retry_attempts AS source ORDER BY to_jsonb(source)::text""",
+           FROM armi.data_rights_order_items AS source ORDER BY to_jsonb(source)::text""",
     ),
     (
-        "deletion_orders",
+        "data_rights_order_retry_attempts",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.deletion_orders AS source ORDER BY to_jsonb(source)::text""",
+           FROM armi.data_rights_order_retry_attempts AS source ORDER BY to_jsonb(source)::text""",
+    ),
+    (
+        "data_rights_orders",
+        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
+           FROM armi.data_rights_orders AS source ORDER BY to_jsonb(source)::text""",
+    ),
+    (
+        "managed_data_snapshot_parties",
+        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
+           FROM armi.managed_data_snapshot_parties AS source
+           ORDER BY to_jsonb(source)::text""",
+    ),
+    (
+        "managed_data_snapshots",
+        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
+           FROM armi.managed_data_snapshots AS source
+           ORDER BY to_jsonb(source)::text""",
     ),
 )
 
@@ -65,16 +85,47 @@ class PostgreSQLDataRightsParticipant:
         transaction: PostgreSQLTransaction,
         request: DataRightsDiscoveryRequest,
     ) -> DataRightsDiscoveryContribution:
-        del transaction, request
-        return DataRightsDiscoveryContribution(_OWNER)
+        rows = await (
+            await transaction.execute(
+                """SELECT snapshot.managed_snapshot_id
+                   FROM armi.managed_data_snapshots AS snapshot
+                   JOIN armi.managed_data_snapshot_parties AS scope
+                     ON scope.managed_snapshot_id=snapshot.managed_snapshot_id
+                   WHERE scope.party_id=%s AND snapshot.status='active'
+                   ORDER BY snapshot.managed_snapshot_id""",
+                (request.party_id,),
+            )
+        ).fetchall()
+        return DataRightsDiscoveryContribution(
+            _OWNER,
+            related_refs=tuple(
+                DataRightsRelatedRef("managed-snapshot", row[0]) for row in rows
+            ),
+            targets=tuple(
+                DataRightsTargetRef(
+                    "managed_snapshot",
+                    row[0],
+                    "operator_remove",
+                    "operator_managed_snapshot",
+                )
+                for row in rows
+            ),
+        )
 
     async def apply(
         self,
         transaction: PostgreSQLTransaction,
         request: DataRightsApplyRequest,
     ) -> DataRightsApplyContribution:
-        del transaction, request
-        return DataRightsApplyContribution(_OWNER)
+        del transaction
+        return DataRightsApplyContribution(
+            _OWNER,
+            tuple(
+                target
+                for target in request.targets
+                if target.responsible_owner == _OWNER.value
+            ),
+        )
 
     async def export(
         self,

@@ -52,11 +52,19 @@ class PostgreSQLEvidenceDataRightsParticipant:
         transaction: PostgreSQLTransaction,
         request: DataRightsDiscoveryRequest,
     ) -> DataRightsDiscoveryContribution:
+        interaction_ids = tuple(
+            item.ref for item in request.related_refs if item.kind == "interaction"
+        )
         rows = await (
             await transaction.execute(
-                """SELECT evidence_id, artifact_id FROM armi.external_evidence
-                   WHERE context_party_id = %s ORDER BY evidence_id""",
-                (request.party_id,),
+                """SELECT evidence_id, artifact_id,web_observation_request_id,
+                          codex_task_source_id,codex_verification_id,
+                          visual_observation_id
+                   FROM armi.external_evidence
+                   WHERE context_party_id = %s
+                      OR interaction_id=ANY(%s::uuid[])
+                   ORDER BY evidence_id""",
+                (request.party_id, list(interaction_ids)),
             )
         ).fetchall()
         evidence_ids = tuple(row[0] for row in rows)
@@ -73,9 +81,9 @@ class PostgreSQLEvidenceDataRightsParticipant:
         usage_rows = await (
             await transaction.execute(
                 """SELECT artifact_id, count(*),
-                          count(*) FILTER (WHERE context_party_id = %s)
+                          count(*) FILTER (WHERE evidence_id=ANY(%s::uuid[]))
                    FROM armi.external_evidence GROUP BY artifact_id ORDER BY artifact_id""",
-                (request.party_id,),
+                (list(evidence_ids),),
             )
         ).fetchall()
         return DataRightsDiscoveryContribution(
@@ -83,6 +91,26 @@ class PostgreSQLEvidenceDataRightsParticipant:
             tuple(
                 [DataRightsRelatedRef("evidence", ref) for ref in evidence_ids]
                 + [DataRightsRelatedRef("experience", row[0]) for row in link_rows]
+                + [
+                    DataRightsRelatedRef("web-observation", row[2])
+                    for row in rows
+                    if row[2] is not None
+                ]
+                + [
+                    DataRightsRelatedRef("codex-task", row[3])
+                    for row in rows
+                    if row[3] is not None
+                ]
+                + [
+                    DataRightsRelatedRef("codex-verification", row[4])
+                    for row in rows
+                    if row[4] is not None
+                ]
+                + [
+                    DataRightsRelatedRef("visual-observation", row[5])
+                    for row in rows
+                    if row[5] is not None
+                ]
             ),
             tuple(
                 DataRightsTargetRef("evidence", ref, "tombstone")
@@ -99,8 +127,28 @@ class PostgreSQLEvidenceDataRightsParticipant:
         transaction: PostgreSQLTransaction,
         request: DataRightsApplyRequest,
     ) -> DataRightsApplyContribution:
-        del transaction, request
-        return DataRightsApplyContribution(_OWNER)
+        evidence_ids = tuple(
+            item.ref for item in request.related_refs if item.kind == "evidence"
+        )
+        if request.order_kind in {"stop_use", "delete_related"} and evidence_ids:
+            await transaction.execute(
+                """UPDATE armi.external_evidence
+                   SET acceptance_status=CASE WHEN %s='delete_related'
+                                              THEN 'redacted' ELSE acceptance_status END,
+                       data_rights_order_id=%s,
+                       data_rights_hidden_at=statement_timestamp()
+                   WHERE evidence_id=ANY(%s::uuid[])
+                     AND data_rights_hidden_at IS NULL""",
+                (request.order_kind, request.order_id, list(evidence_ids)),
+            )
+        return DataRightsApplyContribution(
+            _OWNER,
+            tuple(
+                target
+                for target in request.targets
+                if target.responsible_owner == _OWNER.value
+            ),
+        )
 
     async def export(
         self,

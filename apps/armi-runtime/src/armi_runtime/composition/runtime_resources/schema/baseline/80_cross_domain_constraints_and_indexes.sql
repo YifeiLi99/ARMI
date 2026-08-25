@@ -602,48 +602,48 @@ ALTER TABLE ONLY armi.creator_exports
     ADD CONSTRAINT creator_exports_pkey PRIMARY KEY (creator_export_id);
 
 --
--- Name: deletion_items deletion_items_deletion_order_id_target_kind_target_ref_key; Type: CONSTRAINT; Schema: armi; Owner: -
+-- Name: data_rights_order_items data_rights_order_items_deletion_order_id_target_kind_target_ref_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.deletion_items
-    ADD CONSTRAINT deletion_items_deletion_order_id_target_kind_target_ref_key UNIQUE (deletion_order_id, target_kind, target_ref);
+ALTER TABLE ONLY armi.data_rights_order_items
+    ADD CONSTRAINT data_rights_order_items_deletion_order_id_target_kind_target_ref_key UNIQUE (deletion_order_id, target_kind, target_ref);
 
 --
--- Name: deletion_items deletion_items_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
+-- Name: data_rights_order_items data_rights_order_items_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.deletion_items
-    ADD CONSTRAINT deletion_items_pkey PRIMARY KEY (deletion_item_id);
+ALTER TABLE ONLY armi.data_rights_order_items
+    ADD CONSTRAINT data_rights_order_items_pkey PRIMARY KEY (deletion_item_id);
 
-ALTER TABLE ONLY armi.deletion_order_retry_attempts
-    ADD CONSTRAINT deletion_order_retry_attempts_pkey PRIMARY KEY (deletion_order_retry_attempt_id);
+ALTER TABLE ONLY armi.data_rights_order_retry_attempts
+    ADD CONSTRAINT data_rights_order_retry_attempts_pkey PRIMARY KEY (deletion_order_retry_attempt_id);
 
-ALTER TABLE ONLY armi.deletion_order_retry_attempts
-    ADD CONSTRAINT deletion_order_retry_attempts_order_cycle_key UNIQUE (deletion_order_id,retry_cycle);
+ALTER TABLE ONLY armi.data_rights_order_retry_attempts
+    ADD CONSTRAINT data_rights_order_retry_attempts_order_cycle_key UNIQUE (deletion_order_id,retry_cycle);
 
-ALTER TABLE ONLY armi.deletion_order_retry_attempts
-    ADD CONSTRAINT deletion_order_retry_attempts_order_key_key UNIQUE (deletion_order_id,idempotency_key);
-
---
--- Name: deletion_orders deletion_orders_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.deletion_orders
-    ADD CONSTRAINT deletion_orders_pkey PRIMARY KEY (deletion_order_id);
+ALTER TABLE ONLY armi.data_rights_order_retry_attempts
+    ADD CONSTRAINT data_rights_order_retry_attempts_order_key_key UNIQUE (deletion_order_id,idempotency_key);
 
 --
--- Name: deletion_orders deletion_orders_requester_party_id_idempotency_key_key; Type: CONSTRAINT; Schema: armi; Owner: -
+-- Name: data_rights_orders data_rights_orders_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.deletion_orders
-    ADD CONSTRAINT deletion_orders_requester_party_id_idempotency_key_key UNIQUE (requester_party_id, idempotency_key);
+ALTER TABLE ONLY armi.data_rights_orders
+    ADD CONSTRAINT data_rights_orders_pkey PRIMARY KEY (deletion_order_id);
 
 --
--- Name: deletion_orders deletion_orders_requester_party_id_order_kind_key; Type: CONSTRAINT; Schema: armi; Owner: -
+-- Name: data_rights_orders data_rights_orders_requester_party_id_idempotency_key_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.deletion_orders
-    ADD CONSTRAINT deletion_orders_requester_party_id_order_kind_key UNIQUE (requester_party_id, order_kind);
+ALTER TABLE ONLY armi.data_rights_orders
+    ADD CONSTRAINT data_rights_orders_requester_party_id_idempotency_key_key UNIQUE (requester_party_id, idempotency_key);
+
+--
+-- Name: data_rights_orders data_rights_orders_requester_party_id_order_kind_key; Type: CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.data_rights_orders
+    ADD CONSTRAINT data_rights_orders_requester_party_id_order_kind_key UNIQUE (requester_party_id, order_kind);
 
 --
 -- Name: deployment_environments deployment_environments_environment_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -1925,22 +1925,29 @@ CREATE INDEX context_embedding_projections_embedding_hnsw_idx ON armi.context_em
 CREATE INDEX context_embedding_projections_retrieval_gist_idx ON armi.context_embedding_projections USING gist (retrieval_text armi_extensions.gist_trgm_ops (siglen='256'));
 
 --
--- Name: deletion_items_active_target_idx; Type: INDEX; Schema: armi; Owner: -
+-- Name: data_rights_order_items_active_target_idx; Type: INDEX; Schema: armi; Owner: -
 --
 
-CREATE INDEX deletion_items_active_target_idx ON armi.deletion_items USING btree (target_kind, target_ref) WHERE (result_status = ANY (ARRAY['completed'::text, 'partial'::text]));
+CREATE INDEX data_rights_order_items_active_target_idx ON armi.data_rights_order_items USING btree (target_kind, target_ref) WHERE (result_status = ANY (ARRAY['completed'::text, 'partial'::text]));
 
 --
--- Name: deletion_items_order_status_idx; Type: INDEX; Schema: armi; Owner: -
+-- Name: data_rights_order_items_order_status_idx; Type: INDEX; Schema: armi; Owner: -
 --
 
-CREATE INDEX deletion_items_order_status_idx ON armi.deletion_items USING btree (deletion_order_id, result_status, target_kind);
+CREATE INDEX data_rights_order_items_order_status_idx ON armi.data_rights_order_items USING btree (deletion_order_id, result_status, target_kind);
 
 --
--- Name: deletion_orders_effective_party_idx; Type: INDEX; Schema: armi; Owner: -
+-- Name: data_rights_orders_effective_party_idx; Type: INDEX; Schema: armi; Owner: -
 --
 
-CREATE INDEX deletion_orders_effective_party_idx ON armi.deletion_orders USING btree (requester_party_id, order_kind) WHERE (status = 'effective'::text);
+CREATE INDEX data_rights_orders_effective_party_idx ON armi.data_rights_orders USING btree (requester_party_id, order_kind) WHERE (status = 'effective'::text);
+
+CREATE UNIQUE INDEX parties_identity_match_token_key
+ON armi.parties USING btree (party_kind, identity_match_token);
+
+CREATE UNIQUE INDEX external_channel_bindings_identity_match_token_key
+ON armi.external_channel_bindings USING btree
+  (channel_kind, account_key, external_kind, identity_match_token);
 
 --
 -- Name: durable_work_claim_idx; Type: INDEX; Schema: armi; Owner: -
@@ -2969,31 +2976,31 @@ ALTER TABLE ONLY armi.creator_exports
     ADD CONSTRAINT creator_exports_creator_party_id_fkey FOREIGN KEY (creator_party_id) REFERENCES armi.parties(party_id);
 
 --
--- Name: deletion_items deletion_items_deletion_order_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+-- Name: data_rights_order_items data_rights_order_items_deletion_order_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.deletion_items
-    ADD CONSTRAINT deletion_items_deletion_order_id_fkey FOREIGN KEY (deletion_order_id) REFERENCES armi.deletion_orders(deletion_order_id);
+ALTER TABLE ONLY armi.data_rights_order_items
+    ADD CONSTRAINT data_rights_order_items_deletion_order_id_fkey FOREIGN KEY (deletion_order_id) REFERENCES armi.data_rights_orders(deletion_order_id);
 
-ALTER TABLE ONLY armi.deletion_order_retry_attempts
-    ADD CONSTRAINT deletion_order_retry_attempts_order_fkey FOREIGN KEY (deletion_order_id) REFERENCES armi.deletion_orders(deletion_order_id);
+ALTER TABLE ONLY armi.data_rights_order_retry_attempts
+    ADD CONSTRAINT data_rights_order_retry_attempts_order_fkey FOREIGN KEY (deletion_order_id) REFERENCES armi.data_rights_orders(deletion_order_id);
 
-ALTER TABLE ONLY armi.deletion_items
-    ADD CONSTRAINT deletion_items_artifact_object_deletion_fkey FOREIGN KEY (artifact_object_deletion_id) REFERENCES armi.artifact_object_deletions(artifact_object_deletion_id);
-
---
--- Name: deletion_orders deletion_orders_requester_party_id_requester_kind_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.deletion_orders
-    ADD CONSTRAINT deletion_orders_requester_party_id_requester_kind_fkey FOREIGN KEY (requester_party_id, requester_kind) REFERENCES armi.parties(party_id, party_kind);
+ALTER TABLE ONLY armi.data_rights_order_items
+    ADD CONSTRAINT data_rights_order_items_artifact_object_deletion_fkey FOREIGN KEY (artifact_object_deletion_id) REFERENCES armi.artifact_object_deletions(artifact_object_deletion_id);
 
 --
--- Name: deletion_orders deletion_orders_scope_party_id_requester_kind_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+-- Name: data_rights_orders data_rights_orders_requester_party_id_requester_kind_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.deletion_orders
-    ADD CONSTRAINT deletion_orders_scope_party_id_requester_kind_fkey FOREIGN KEY (scope_party_id, requester_kind) REFERENCES armi.parties(party_id, party_kind);
+ALTER TABLE ONLY armi.data_rights_orders
+    ADD CONSTRAINT data_rights_orders_requester_party_id_requester_kind_fkey FOREIGN KEY (requester_party_id, requester_kind) REFERENCES armi.parties(party_id, party_kind);
+
+--
+-- Name: data_rights_orders data_rights_orders_scope_party_id_requester_kind_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.data_rights_orders
+    ADD CONSTRAINT data_rights_orders_scope_party_id_requester_kind_fkey FOREIGN KEY (scope_party_id, requester_kind) REFERENCES armi.parties(party_id, party_kind);
 
 --
 -- Name: dialogue_decisions dialogue_decisions_application_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3288,6 +3295,12 @@ ALTER TABLE ONLY armi.external_content_recognition_attempts
 --
 -- Name: external_content_recognition_attempts external_content_recognition_attempts_request_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
+
+ALTER TABLE ONLY armi.external_content_recognition_attempts
+    ADD CONSTRAINT external_content_recognition_attempts_interaction_id_fkey FOREIGN KEY (interaction_id) REFERENCES armi.party_input_interactions(interaction_id);
+
+ALTER TABLE ONLY armi.external_content_recognition_attempts
+    ADD CONSTRAINT external_content_recognition_attempts_source_party_id_fkey FOREIGN KEY (source_party_id) REFERENCES armi.parties(party_id);
 
 ALTER TABLE ONLY armi.external_content_recognition_attempts
     ADD CONSTRAINT external_content_recognition_attempts_request_artifact_id_fkey FOREIGN KEY (request_artifact_id) REFERENCES armi.artifacts(artifact_id);
@@ -4102,7 +4115,7 @@ ALTER TABLE ONLY armi.relationships
 --
 
 ALTER TABLE ONLY armi.relationships
-    ADD CONSTRAINT relationships_tombstone_order_id_fkey FOREIGN KEY (tombstone_order_id) REFERENCES armi.deletion_orders(deletion_order_id);
+    ADD CONSTRAINT relationships_tombstone_order_id_fkey FOREIGN KEY (tombstone_order_id) REFERENCES armi.data_rights_orders(deletion_order_id);
 
 --
 -- Name: runtime_bundle_activations runtime_bundle_activations_activated_by_party_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -4526,6 +4539,21 @@ ALTER TABLE ONLY armi.web_research_intents
 -- F02 execution custody and current-state fence ownership.
 ALTER TABLE ONLY armi.data_rights_party_fences
     ADD CONSTRAINT data_rights_party_fences_party_id_fkey FOREIGN KEY (party_id) REFERENCES armi.parties(party_id);
+
+ALTER TABLE ONLY armi.managed_data_snapshots
+    ADD CONSTRAINT managed_data_snapshots_pkey PRIMARY KEY (managed_snapshot_id);
+
+ALTER TABLE ONLY armi.managed_data_snapshot_parties
+    ADD CONSTRAINT managed_data_snapshot_parties_pkey PRIMARY KEY (managed_snapshot_id,party_id);
+
+ALTER TABLE ONLY armi.managed_data_snapshot_parties
+    ADD CONSTRAINT managed_data_snapshot_parties_snapshot_id_fkey FOREIGN KEY (managed_snapshot_id) REFERENCES armi.managed_data_snapshots(managed_snapshot_id);
+
+ALTER TABLE ONLY armi.managed_data_snapshot_parties
+    ADD CONSTRAINT managed_data_snapshot_parties_party_id_fkey FOREIGN KEY (party_id) REFERENCES armi.parties(party_id);
+
+CREATE INDEX managed_data_snapshot_parties_party_active_idx
+    ON armi.managed_data_snapshot_parties USING btree (party_id,managed_snapshot_id);
 
 ALTER TABLE ONLY armi.cognitive_context_dependencies
     ADD CONSTRAINT cognitive_context_dependencies_episode_fkey FOREIGN KEY (cognitive_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);

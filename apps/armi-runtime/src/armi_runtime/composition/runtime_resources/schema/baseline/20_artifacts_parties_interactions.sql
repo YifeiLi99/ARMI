@@ -123,11 +123,12 @@ CREATE TABLE armi.external_channel_bindings (
     channel_kind text NOT NULL,
     account_key text NOT NULL,
     external_kind text NOT NULL,
-    external_key text NOT NULL,
+    external_key text,
+    identity_match_token text NOT NULL,
     party_id uuid NOT NULL,
     party_kind text NOT NULL,
     scene_id uuid,
-    display_label text NOT NULL,
+    display_label text,
     identity_assurance text NOT NULL,
     status text DEFAULT 'active'::text NOT NULL,
     first_observed_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
@@ -139,8 +140,10 @@ CREATE TABLE armi.external_channel_bindings (
     CONSTRAINT external_channel_bindings_id_check CHECK ((uuid_extract_version(external_binding_id) = 7)),
     CONSTRAINT external_channel_bindings_kind_check CHECK ((external_kind = ANY (ARRAY['person'::text, 'group'::text]))),
     CONSTRAINT external_channel_bindings_label_check CHECK (((length(btrim(display_label)) >= 1) AND (length(btrim(display_label)) <= 256))),
-    CONSTRAINT external_channel_bindings_shape_check CHECK ((((external_kind = 'person'::text) AND (party_kind = 'creator'::text) AND (scene_id IS NOT NULL) AND (identity_assurance = 'runtime_configuration'::text)) OR ((external_kind = 'person'::text) AND (party_kind = 'other_human'::text) AND (identity_assurance = 'platform_observed'::text)) OR ((external_kind = 'group'::text) AND (party_kind = 'social_group'::text) AND (scene_id IS NOT NULL) AND (identity_assurance = 'platform_observed'::text)))),
-    CONSTRAINT external_channel_bindings_status_check CHECK ((status = 'active'::text)),
+    CONSTRAINT external_channel_bindings_shape_check CHECK (((status = 'rights_only'::text) OR (((external_kind = 'person'::text) AND (party_kind = 'creator'::text) AND (scene_id IS NOT NULL) AND (identity_assurance = 'runtime_configuration'::text)) OR ((external_kind = 'person'::text) AND (party_kind = 'other_human'::text) AND (identity_assurance = 'platform_observed'::text)) OR ((external_kind = 'group'::text) AND (party_kind = 'social_group'::text) AND (scene_id IS NOT NULL) AND (identity_assurance = 'platform_observed'::text))))),
+    CONSTRAINT external_channel_bindings_redaction_check CHECK ((((status = 'active'::text) AND (external_key IS NOT NULL) AND (display_label IS NOT NULL)) OR ((status = 'rights_only'::text) AND (external_key IS NULL) AND (display_label IS NULL)))),
+    CONSTRAINT external_channel_bindings_token_check CHECK ((identity_match_token ~ '^hmac-sha256:v1:[0-9a-f]{64}$'::text)),
+    CONSTRAINT external_channel_bindings_status_check CHECK ((status = ANY (ARRAY['active'::text, 'rights_only'::text]))),
     CONSTRAINT external_channel_bindings_time_check CHECK ((last_observed_at >= first_observed_at))
 );
 
@@ -151,6 +154,9 @@ CREATE TABLE armi.external_channel_bindings (
 CREATE TABLE armi.external_content_recognition_attempts (
     recognition_attempt_id uuid CONSTRAINT external_content_recognition_at_recognition_attempt_id_not_null NOT NULL,
     external_message_part_id uuid CONSTRAINT external_content_recognition__external_message_part_id_not_null NOT NULL,
+    interaction_id uuid NOT NULL,
+    source_party_id uuid NOT NULL,
+    data_rights_use_generation bigint NOT NULL,
     work_id uuid NOT NULL,
     work_attempt_id uuid NOT NULL,
     provider text NOT NULL,
@@ -169,8 +175,9 @@ CREATE TABLE armi.external_content_recognition_attempts (
     settled_at timestamp(6) with time zone,
     CONSTRAINT external_content_recognition_attempts_dispatch_check CHECK ((dispatch_status = ANY (ARRAY['dispatched'::text, 'settled'::text]))),
     CONSTRAINT external_content_recognition_attempts_id_check CHECK ((uuid_extract_version(recognition_attempt_id) = 7)),
-    CONSTRAINT external_content_recognition_attempts_result_check CHECK (((result_status IS NULL) OR (result_status = ANY (ARRAY['succeeded'::text, 'failed'::text, 'unknown'::text])))),
-    CONSTRAINT external_content_recognition_attempts_settlement_check CHECK ((((dispatch_status = 'dispatched'::text) AND (result_status IS NULL) AND (settled_at IS NULL) AND (response_artifact_id IS NULL) AND (error_code IS NULL)) OR ((dispatch_status = 'settled'::text) AND (result_status IS NOT NULL) AND (settled_at IS NOT NULL) AND (((result_status = 'succeeded'::text) AND (response_artifact_id IS NOT NULL) AND (error_code IS NULL)) OR ((result_status = ANY (ARRAY['failed'::text, 'unknown'::text])) AND (error_code IS NOT NULL)))))),
+    CONSTRAINT external_content_recognition_attempts_generation_check CHECK ((data_rights_use_generation > 0)),
+    CONSTRAINT external_content_recognition_attempts_result_check CHECK (((result_status IS NULL) OR (result_status = ANY (ARRAY['succeeded'::text, 'failed'::text, 'unknown'::text, 'cancelled'::text])))),
+    CONSTRAINT external_content_recognition_attempts_settlement_check CHECK ((((dispatch_status = 'dispatched'::text) AND (result_status IS NULL) AND (settled_at IS NULL) AND (response_artifact_id IS NULL) AND (error_code IS NULL)) OR ((dispatch_status = 'settled'::text) AND (result_status IS NOT NULL) AND (settled_at IS NOT NULL) AND (((result_status = 'succeeded'::text) AND (response_artifact_id IS NOT NULL) AND (error_code IS NULL)) OR ((result_status = ANY (ARRAY['failed'::text, 'unknown'::text, 'cancelled'::text])) AND (error_code IS NOT NULL)))))),
     CONSTRAINT external_content_recognition_attempts_usage_check CHECK ((((input_tokens IS NULL) OR (input_tokens >= 0)) AND ((output_tokens IS NULL) OR (output_tokens >= 0)) AND ((estimated_cost_microyuan IS NULL) OR (estimated_cost_microyuan >= 0))))
 );
 
@@ -431,9 +438,10 @@ CREATE TABLE armi.live_voice_text_fragments (
     fragment_id uuid NOT NULL,
     turn_id uuid NOT NULL,
     fragment_no smallint NOT NULL,
-    body text NOT NULL,
+    body text,
     registered_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    CONSTRAINT live_voice_fragments_body_check CHECK (((length(btrim(body)) >= 1) AND (length(btrim(body)) <= 160))),
+    data_rights_redacted_at timestamp(6) with time zone,
+    CONSTRAINT live_voice_fragments_body_check CHECK (((data_rights_redacted_at IS NOT NULL) OR ((length(btrim(body)) >= 1) AND (length(btrim(body)) <= 160)))),
     CONSTRAINT live_voice_fragments_id_check CHECK ((uuid_extract_version(fragment_id) = 7)),
     CONSTRAINT live_voice_fragments_number_check CHECK (((fragment_no >= 1) AND (fragment_no <= 64)))
 );
@@ -449,7 +457,7 @@ CREATE TABLE armi.live_voice_turns (
     interaction_id uuid,
     final_transcript text,
     decision_kind text,
-    spoken_text text DEFAULT ''::text NOT NULL,
+    spoken_text text DEFAULT ''::text,
     model_identity text,
     context_version text,
     result_status text DEFAULT 'recognizing'::text NOT NULL,
@@ -458,12 +466,13 @@ CREATE TABLE armi.live_voice_turns (
     first_audio_at timestamp(6) with time zone,
     completed_at timestamp(6) with time zone,
     created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
+    data_rights_redacted_at timestamp(6) with time zone,
     CONSTRAINT live_voice_turns_decision_check CHECK (((decision_kind IS NULL) OR (decision_kind = ANY (ARRAY['speak'::text, 'wait'::text, 'silent'::text])))),
     CONSTRAINT live_voice_turns_error_check CHECK (((error_code IS NULL) OR (error_code ~ '^VOICE-[A-Z0-9-]{1,120}$'::text))),
     CONSTRAINT live_voice_turns_first_audio_check CHECK (((first_audio_at IS NULL) OR (speech_ended_at IS NULL) OR (first_audio_at >= speech_ended_at))),
     CONSTRAINT live_voice_turns_id_check CHECK ((uuid_extract_version(turn_id) = 7)),
     CONSTRAINT live_voice_turns_number_check CHECK ((turn_no > 0)),
-    CONSTRAINT live_voice_turns_spoken_check CHECK ((length(spoken_text) <= 4096)),
+    CONSTRAINT live_voice_turns_spoken_check CHECK (((data_rights_redacted_at IS NOT NULL) OR (length(spoken_text) <= 4096))),
     CONSTRAINT live_voice_turns_status_check CHECK ((result_status = ANY (ARRAY['recognizing'::text, 'thinking'::text, 'speaking'::text, 'waiting_slow'::text, 'completed'::text, 'failed'::text, 'partial'::text, 'unknown'::text, 'silent'::text]))),
     CONSTRAINT live_voice_turns_transcript_check CHECK (((final_transcript IS NULL) OR ((length(btrim(final_transcript)) >= 1) AND (length(btrim(final_transcript)) <= 4096))))
 );
@@ -501,11 +510,21 @@ CREATE TABLE armi.parties (
     status text DEFAULT 'active'::text NOT NULL,
     created_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
     declared_identity_key text,
+    identity_match_token text,
     CONSTRAINT parties_display_label_check CHECK ((((party_kind = ANY (ARRAY['subject'::text, 'creator'::text])) AND (display_label IS NULL)) OR ((party_kind = ANY (ARRAY['other_human'::text, 'social_group'::text])) AND ((length(btrim(display_label)) >= 1) AND (length(btrim(display_label)) <= 256))))),
     CONSTRAINT parties_party_id_check CHECK ((uuid_extract_version(party_id) = 7)),
     CONSTRAINT parties_party_kind_check CHECK ((party_kind = ANY (ARRAY['subject'::text, 'creator'::text, 'other_human'::text, 'social_group'::text]))),
-    CONSTRAINT parties_role_shape_check CHECK ((((party_kind = 'subject'::text) AND (represented_subject_id IS NOT NULL) AND (creator_role IS NULL) AND (declared_identity_key IS NULL)) OR ((party_kind = 'creator'::text) AND (represented_subject_id IS NULL) AND (creator_role = 'unique_primary_creator'::text) AND (declared_identity_key IS NULL)) OR ((party_kind = ANY (ARRAY['other_human'::text, 'social_group'::text])) AND (represented_subject_id IS NULL) AND (creator_role IS NULL) AND (declared_identity_key ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'::text)))),
-    CONSTRAINT parties_status_check CHECK ((status = 'active'::text))
+    CONSTRAINT parties_role_shape_check CHECK ((((party_kind = 'subject'::text) AND (represented_subject_id IS NOT NULL) AND (creator_role IS NULL) AND (declared_identity_key IS NULL) AND (identity_match_token IS NULL)) OR ((party_kind = 'creator'::text) AND (represented_subject_id IS NULL) AND (creator_role = 'unique_primary_creator'::text) AND (declared_identity_key IS NULL)) OR ((party_kind = ANY (ARRAY['other_human'::text, 'social_group'::text])) AND (represented_subject_id IS NULL) AND (creator_role IS NULL) AND (identity_match_token ~ '^hmac-sha256:v1:[0-9a-f]{64}$'::text) AND (((status = 'active'::text) AND (declared_identity_key ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'::text)) OR ((status = 'rights_only'::text) AND (declared_identity_key IS NULL)))))),
+    CONSTRAINT parties_status_check CHECK ((status = ANY (ARRAY['active'::text, 'rights_only'::text])))
+);
+
+CREATE TABLE armi.data_rights_identity_keys (
+    singleton_key smallint DEFAULT 1 NOT NULL,
+    key_identity text NOT NULL,
+    bound_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
+    CONSTRAINT data_rights_identity_keys_pkey PRIMARY KEY (singleton_key),
+    CONSTRAINT data_rights_identity_keys_singleton_check CHECK ((singleton_key = 1)),
+    CONSTRAINT data_rights_identity_keys_identity_check CHECK ((key_identity ~ '^sha256:[0-9a-f]{64}$'::text))
 );
 
 -- Monotonic party fences captured by every party-bound slow operation.
@@ -540,6 +559,9 @@ CREATE TABLE armi.party_input_interactions (
     cognition_content_digest text,
     recognition_status text DEFAULT 'not_required'::text NOT NULL,
     modality text DEFAULT 'text'::text NOT NULL,
+    data_rights_order_id uuid,
+    data_rights_hidden_at timestamp(6) with time zone,
+    CONSTRAINT party_input_interactions_data_rights_check CHECK (((data_rights_order_id IS NULL) = (data_rights_hidden_at IS NULL))),
     CONSTRAINT party_input_interactions_cognition_digest_check CHECK (((cognition_content_digest IS NULL) OR (cognition_content_digest ~ '^sha256:[0-9a-f]{64}$'::text))),
     CONSTRAINT party_input_interactions_content_digest_check CHECK ((content_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT party_input_interactions_external_message_key_check CHECK (((external_message_key IS NULL) OR (external_message_key ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'::text))),

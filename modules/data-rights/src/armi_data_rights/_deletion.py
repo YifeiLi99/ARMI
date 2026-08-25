@@ -5,7 +5,10 @@ from __future__ import annotations
 from uuid import UUID
 
 from armi_kernel.application import TransactionIsolation
-from armi_runtime_foundation import RuntimeTransactionFailure
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWork,
+    RuntimeTransactionFailure,
+)
 
 from ._deletion_postgresql import LocalDataDeletionRepository
 from .api import (
@@ -57,6 +60,15 @@ class LocalDataDeletionExecutor:
             raise
         except RuntimeTransactionFailure:
             raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE") from None
+
+    async def prepare_in(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        order_id: UUID,
+    ) -> None:
+        """Close owner-visible lineage inside the caller's rights transaction."""
+
+        await self._repository.prepare(unit_of_work, order_id)
 
 
 __all__ = ("LocalDataDeletionExecutor",)

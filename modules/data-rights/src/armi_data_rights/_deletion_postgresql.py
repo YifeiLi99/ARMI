@@ -53,9 +53,8 @@ class LocalDataDeletionRepository:
     ) -> tuple[UUID, ...]:
         rows = await (
             await unit_of_work.transaction.execute(
-                """SELECT deletion_order_id FROM armi.deletion_orders
-                   WHERE order_kind = 'delete_related'
-                     AND execution_status IN ('pending', 'executing')
+                """SELECT deletion_order_id FROM armi.data_rights_orders
+                   WHERE execution_status IN ('pending', 'executing')
                    ORDER BY effective_at, deletion_order_id"""
             )
         ).fetchall()
@@ -69,9 +68,9 @@ class LocalDataDeletionRepository:
         transaction = unit_of_work.transaction
         order = await (
             await transaction.execute(
-                """SELECT requester_party_id, execution_status
-                   FROM armi.deletion_orders
-                   WHERE deletion_order_id = %s AND order_kind = 'delete_related'
+                """SELECT requester_party_id, order_kind, execution_status
+                   FROM armi.data_rights_orders
+                   WHERE deletion_order_id = %s
                    FOR UPDATE""",
                 (order_id,),
             )
@@ -79,16 +78,17 @@ class LocalDataDeletionRepository:
         if order is None:
             raise DataRightsViolation("DATA-RIGHTS-ORDER-NOT-FOUND")
         party_id = order[0]
+        order_kind = str(order[1])
         await transaction.execute(
             "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
             (f"data-rights:{party_id}",),
         )
-        if str(order[1]) in {"completed", "partial"}:
+        if str(order[2]) in {"completed", "partial"}:
             return ()
         existing_items = await (
             await transaction.execute(
                 """SELECT deletion_item_id,target_ref,artifact_object_deletion_id
-                   FROM armi.deletion_items
+                   FROM armi.data_rights_order_items
                    WHERE deletion_order_id = %s
                      AND target_kind = 'artifact'
                      AND required_action = 'delete'
@@ -99,7 +99,7 @@ class LocalDataDeletionRepository:
         ).fetchall()
         item_count = await (
             await transaction.execute(
-                """SELECT count(*) FROM armi.deletion_items
+                """SELECT count(*) FROM armi.data_rights_order_items
                    WHERE deletion_order_id = %s""",
                 (order_id,),
             )
@@ -115,41 +115,101 @@ class LocalDataDeletionRepository:
                     )
             return tuple(pending)
         await transaction.execute(
-            """UPDATE armi.deletion_orders SET execution_status = 'executing'
+            """UPDATE armi.data_rights_orders SET execution_status = 'executing'
                WHERE deletion_order_id = %s
                  AND execution_status IN ('pending', 'executing')""",
             (order_id,),
         )
 
-        related: list[DataRightsRelatedRef] = []
+        related: set[DataRightsRelatedRef] = set()
+        converged = False
+        for _round in range(25):
+            before = len(related)
+            request = DataRightsDiscoveryRequest(
+                order_id,
+                party_id,
+                tuple(sorted(related, key=lambda item: (item.kind, str(item.ref)))),
+                order_kind,
+            )
+            for participant in self._participants:
+                contribution = await participant.discover(transaction, request)
+                if contribution.owner_identity != participant.owner_identity:
+                    raise DataRightsParticipantViolation(
+                        "DATA-RIGHTS-PARTICIPANT-OWNER-MISMATCH"
+                    )
+                related.update(contribution.related_refs)
+            if len(related) == before:
+                converged = True
+                break
+        if not converged:
+            raise DataRightsParticipantViolation(
+                "DATA-RIGHTS-PARTICIPANT-LINEAGE-LIMIT"
+            )
+
+        ordered_related = tuple(
+            sorted(related, key=lambda item: (item.kind, str(item.ref)))
+        )
         targets: dict[tuple[str, UUID], DataRightsTargetRef] = {}
         usages: dict[UUID, tuple[int, int]] = {}
         for participant in self._participants:
             contribution = await participant.discover(
                 transaction,
-                DataRightsDiscoveryRequest(order_id, party_id, tuple(related)),
+                DataRightsDiscoveryRequest(
+                    order_id, party_id, ordered_related, order_kind
+                ),
             )
             if contribution.owner_identity != participant.owner_identity:
                 raise DataRightsParticipantViolation(
                     "DATA-RIGHTS-PARTICIPANT-OWNER-MISMATCH"
                 )
-            for item in contribution.related_refs:
-                if item not in related:
-                    related.append(item)
+            if any(item not in related for item in contribution.related_refs):
+                raise DataRightsParticipantViolation(
+                    "DATA-RIGHTS-PARTICIPANT-LINEAGE-UNSTABLE"
+                )
             for target in contribution.targets:
                 key = (target.kind, target.ref)
+                owned_target = DataRightsTargetRef(
+                    target.kind,
+                    target.ref,
+                    target.required_action,
+                    target.retention_reason,
+                    participant.owner_identity.value,
+                )
                 existing = targets.get(key)
-                if existing is not None and existing != target:
+                if existing is not None and existing != owned_target:
                     raise DataRightsParticipantViolation(
-                        "DATA-RIGHTS-PARTICIPANT-TARGET-CONFLICT"
+                        "DATA-RIGHTS-PARTICIPANT-TARGET-OWNER"
                     )
-                targets[key] = target
+                targets[key] = owned_target
             for usage in contribution.artifact_usages:
                 current = usages.get(usage.artifact_id.value, (0, 0))
                 usages[usage.artifact_id.value] = (
                     current[0] + usage.total_reference_count,
                     current[1] + usage.target_party_reference_count,
                 )
+
+        if order_kind == "stop_contact":
+            targets = {
+                ("party", party_id): DataRightsTargetRef(
+                    "party", party_id, "block", "rights_enforcement", "data-rights"
+                )
+            }
+            usages.clear()
+        elif order_kind == "stop_use":
+            targets = {
+                key: DataRightsTargetRef(
+                    target.kind,
+                    target.ref,
+                    "restrict",
+                    "rights_enforcement",
+                    target.responsible_owner,
+                )
+                for key, target in targets.items()
+            }
+            targets[("party", party_id)] = DataRightsTargetRef(
+                "party", party_id, "restrict", "rights_enforcement", "data-rights"
+            )
+            usages.clear()
 
         exclusive_ids = tuple(
             ArtifactId(artifact_id)
@@ -159,8 +219,8 @@ class LocalDataDeletionRepository:
         apply_request = DataRightsApplyRequest(
             order_id,
             party_id,
-            "delete_related",
-            tuple(related),
+            order_kind,
+            ordered_related,
             tuple(targets.values()),
             exclusive_ids,
         )
@@ -169,6 +229,15 @@ class LocalDataDeletionRepository:
             if contribution.owner_identity != participant.owner_identity:
                 raise DataRightsParticipantViolation(
                     "DATA-RIGHTS-PARTICIPANT-OWNER-MISMATCH"
+                )
+            expected_targets = tuple(
+                target
+                for target in apply_request.targets
+                if target.responsible_owner == participant.owner_identity.value
+            )
+            if contribution.targets != expected_targets:
+                raise DataRightsParticipantViolation(
+                    "DATA-RIGHTS-PARTICIPANT-APPLY-MISMATCH"
                 )
 
         for target in targets.values():
@@ -183,7 +252,8 @@ class LocalDataDeletionRepository:
                 "artifact",
                 artifact_id,
                 "delete" if exclusive else "retain",
-                None if exclusive else "shared_local_reference",
+                "rights_enforcement" if exclusive else "shared_reference",
+                "artifact-store",
             )
             item_id = await self._insert_target(transaction, order_id, target)
             if exclusive:
@@ -196,16 +266,16 @@ class LocalDataDeletionRepository:
                     )
                     if retirement.shared_local_reference:
                         await transaction.execute(
-                            """UPDATE armi.deletion_items
+                            """UPDATE armi.data_rights_order_items
                                SET result_status='completed',
-                                   remaining_location='shared_local_reference',
+                                   retention_reason='shared_reference',
                                    completed_at=statement_timestamp()
                                WHERE deletion_item_id=%s""",
                             (item_id,),
                         )
                     elif retirement.deletion_id is not None:
                         await transaction.execute(
-                            """UPDATE armi.deletion_items
+                            """UPDATE armi.data_rights_order_items
                                SET artifact_object_deletion_id=%s
                                WHERE deletion_item_id=%s""",
                             (retirement.deletion_id, item_id),
@@ -217,11 +287,18 @@ class LocalDataDeletionRepository:
                         )
                 else:
                     await transaction.execute(
-                        """UPDATE armi.deletion_items
+                        """UPDATE armi.data_rights_order_items
                            SET result_status='completed',completed_at=statement_timestamp()
                            WHERE deletion_item_id=%s""",
                         (item_id,),
                     )
+        if order_kind != "delete_related":
+            await transaction.execute(
+                """UPDATE armi.data_rights_orders
+                   SET execution_status='completed',completed_at=statement_timestamp()
+                   WHERE deletion_order_id=%s AND execution_status='executing'""",
+                (order_id,),
+            )
         return tuple(artifact_items)
 
     async def _insert_target(
@@ -232,15 +309,20 @@ class LocalDataDeletionRepository:
     ) -> UUID:
         item_id = uuid7()
         pending = target.kind == "artifact" and target.required_action == "delete"
+        operator_required = target.required_action == "operator_remove"
+        initial_status = (
+            "pending" if pending else "partial" if operator_required else "completed"
+        )
         row = await (
             await transaction.execute(
-                """INSERT INTO armi.deletion_items (
+                """INSERT INTO armi.data_rights_order_items (
                      deletion_item_id, deletion_order_id, target_kind, target_ref,
-                     required_action, result_status, remaining_location, completed_at
-                   ) VALUES (%s,%s,%s,%s,%s,%s,%s,
-                     CASE WHEN %s = 'completed' THEN statement_timestamp() END)
+                     required_action, responsible_owner, result_status,
+                     retention_reason, operator_action_required, completed_at
+                   ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                     CASE WHEN %s <> 'pending' THEN statement_timestamp() END)
                    ON CONFLICT (deletion_order_id,target_kind,target_ref)
-                   DO UPDATE SET result_status = armi.deletion_items.result_status
+                   DO UPDATE SET result_status = armi.data_rights_order_items.result_status
                    RETURNING deletion_item_id""",
                 (
                     item_id,
@@ -248,9 +330,11 @@ class LocalDataDeletionRepository:
                     target.kind,
                     target.ref,
                     target.required_action,
-                    "pending" if pending else "completed",
-                    target.remaining_location,
-                    "pending" if pending else "completed",
+                    target.responsible_owner,
+                    initial_status,
+                    target.retention_reason,
+                    operator_required,
+                    initial_status,
                 ),
             )
         ).fetchone()
@@ -266,7 +350,7 @@ class LocalDataDeletionRepository:
     ) -> None:
         rows = await (
             await unit_of_work.transaction.execute(
-                """SELECT artifact_object_deletion_id FROM armi.deletion_items
+                """SELECT artifact_object_deletion_id FROM armi.data_rights_order_items
                    WHERE deletion_order_id=%s AND result_status='pending'
                      AND artifact_object_deletion_id IS NOT NULL""",
                 (order_id,),
@@ -281,14 +365,14 @@ class LocalDataDeletionRepository:
                 continue
             blocked = state.status == "blocked"
             await unit_of_work.transaction.execute(
-                """UPDATE armi.deletion_items
-                   SET result_status=%s,remaining_location=%s,
+                """UPDATE armi.data_rights_order_items
+                   SET result_status=%s,retention_reason=%s,
                        completed_at=statement_timestamp()
                    WHERE deletion_order_id=%s AND result_status='pending'
                      AND artifact_object_deletion_id=%s""",
                 (
                     "partial" if blocked else "completed",
-                    "local_artifact_store" if blocked else None,
+                    "rights_enforcement" if blocked else None,
                     order_id,
                     state.deletion_id,
                 ),
@@ -305,7 +389,7 @@ class LocalDataDeletionRepository:
                 """SELECT count(*) FILTER (WHERE result_status = 'pending'),
                           count(*) FILTER (WHERE result_status IN
                             ('partial','too_late','unknown'))
-                   FROM armi.deletion_items WHERE deletion_order_id = %s""",
+                   FROM armi.data_rights_order_items WHERE deletion_order_id = %s""",
                 (order_id,),
             )
         ).fetchone()
@@ -314,7 +398,7 @@ class LocalDataDeletionRepository:
         final_status = "partial" if int(counts[1]) else "completed"
         row = await (
             await transaction.execute(
-                """UPDATE armi.deletion_orders
+                """UPDATE armi.data_rights_orders
                    SET execution_status = %s, completed_at = statement_timestamp()
                    WHERE deletion_order_id = %s AND execution_status = 'executing'
                    RETURNING requester_party_id, requester_kind, trace_id""",

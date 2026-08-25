@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import suppress
 from datetime import UTC, datetime
+from pathlib import Path
 from uuid import UUID, uuid7
 
 import rfc8785
@@ -34,16 +35,16 @@ from armi_runtime_foundation import (
 from ._deletion import LocalDataDeletionExecutor
 from ._postgresql import DataRightsOrderRepository, DataRightsOrderSnapshot
 from .api import (
-    DataRightsApplyRequest,
     DataRightsArtifactLifecyclePort,
-    DataRightsDeletionItemResult,
     DataRightsExecutionStatus,
     DataRightsItemStatus,
     DataRightsOrderCommand,
     DataRightsOrderDetail,
+    DataRightsOrderItemResult,
     DataRightsOrderKind,
     DataRightsOrderPort,
     DataRightsOrderResult,
+    DataRightsOwnerContract,
     DataRightsParticipant,
     DataRightsPartyIdentityPort,
     DataRightsPartyKey,
@@ -59,10 +60,13 @@ class DataRightsOrderService(DataRightsOrderPort):
     __slots__ = (
         "_creator_party_id",
         "_custody",
+        "_data_root",
         "_deletion",
+        "_identity_key",
         "_lifecycle",
         "_notifier",
-        "_order_participant",
+        "_owner_contracts",
+        "_participant_owners",
         "_parties",
         "_repository",
         "_stop",
@@ -80,6 +84,9 @@ class DataRightsOrderService(DataRightsOrderPort):
         parties: DataRightsPartyIdentityPort,
         lifecycle: DataRightsArtifactLifecyclePort,
         participants: tuple[DataRightsParticipant, ...],
+        owner_contracts: tuple[DataRightsOwnerContract, ...],
+        identity_key: str,
+        data_root: Path,
         notifier: CreatorProjectionNotifier | None = None,
     ) -> None:
         if creator_party_id.version != 7:
@@ -87,26 +94,91 @@ class DataRightsOrderService(DataRightsOrderPort):
         self._creator_party_id = creator_party_id
         self._custody = custody
         self._deletion = deletion
+        self._identity_key = identity_key
+        self._data_root = data_root
         self._lifecycle = lifecycle
         self._repository = repository
         self._uow_factory = unit_of_work_factory
         self._notifier = notifier
         self._parties = parties
-        order_participants = tuple(
-            participant
-            for participant in participants
-            if participant.owner_identity.value == "opportunity"
-        )
-        if len(order_participants) != 1:
+        if not participants:
             raise DataRightsViolation("DATA-RIGHTS-COMPOSITION")
-        self._order_participant = order_participants[0]
+        self._owner_contracts = owner_contracts
+        self._participant_owners = tuple(
+            participant.owner_identity.value for participant in participants
+        )
         self._stop = asyncio.Event()
 
     async def open(self) -> None:
         try:
+            async with self._uow_factory.unit_of_work(
+                isolation=TransactionIsolation.SERIALIZABLE
+            ) as unit:
+                await self._validate_owner_contracts(unit)
+                await unit.transaction.execute(
+                    """INSERT INTO armi.data_rights_identity_keys
+                       (singleton_key,key_identity) VALUES (1,%s)
+                       ON CONFLICT (singleton_key) DO NOTHING""",
+                    (self._identity_key,),
+                )
+                row = await (
+                    await unit.transaction.execute(
+                        """SELECT key_identity FROM armi.data_rights_identity_keys
+                           WHERE singleton_key=1"""
+                    )
+                ).fetchone()
+                if row is None or str(row[0]) != self._identity_key:
+                    raise DataRightsViolation("DATA-RIGHTS-IDENTITY-KEY-MISMATCH")
             await self._deletion.resume_pending()
         except RuntimeTransactionFailure:
             raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE") from None
+
+    async def _validate_owner_contracts(
+        self, unit: PostgreSQLRuntimeUnitOfWork
+    ) -> None:
+        owners = [contract.owner_identity.value for contract in self._owner_contracts]
+        if len(owners) != len(set(owners)):
+            raise DataRightsViolation("DATA-RIGHTS-LINEAGE-DUPLICATE-OWNER")
+        if set(owners) != set(self._participant_owners):
+            raise DataRightsViolation("DATA-RIGHTS-LINEAGE-OWNER-COVERAGE")
+        declared = [
+            (field.table_name, field.column_name)
+            for contract in self._owner_contracts
+            for field in contract.artifact_fields
+        ]
+        if len(declared) != len(set(declared)):
+            raise DataRightsViolation("DATA-RIGHTS-LINEAGE-DUPLICATE-ARTIFACT-FK")
+        rows = await (
+            await unit.transaction.execute(
+                """SELECT source_table.relname,source_column.attname
+                   FROM pg_catalog.pg_constraint AS fk
+                   JOIN pg_catalog.pg_class AS source_table
+                     ON source_table.oid=fk.conrelid
+                   JOIN pg_catalog.pg_namespace AS source_namespace
+                     ON source_namespace.oid=source_table.relnamespace
+                   JOIN pg_catalog.pg_class AS target_table
+                     ON target_table.oid=fk.confrelid
+                   JOIN pg_catalog.pg_namespace AS target_namespace
+                     ON target_namespace.oid=target_table.relnamespace
+                   JOIN pg_catalog.pg_attribute AS source_column
+                     ON source_column.attrelid=source_table.oid
+                    AND source_column.attnum=fk.conkey[1]
+                   JOIN pg_catalog.pg_attribute AS target_column
+                     ON target_column.attrelid=target_table.oid
+                    AND target_column.attnum=fk.confkey[1]
+                   WHERE fk.contype='f'
+                     AND pg_catalog.cardinality(fk.conkey)=1
+                     AND pg_catalog.cardinality(fk.confkey)=1
+                     AND source_namespace.nspname='armi'
+                     AND target_namespace.nspname='armi'
+                     AND target_table.relname='artifacts'
+                     AND target_column.attname='artifact_id'
+                   ORDER BY source_table.relname,source_column.attname"""
+            )
+        ).fetchall()
+        installed = [(str(row[0]), str(row[1])) for row in rows]
+        if sorted(declared) != installed:
+            raise DataRightsViolation("DATA-RIGHTS-LINEAGE-ARTIFACT-FK-COVERAGE")
 
     async def close(self) -> None:
         return None
@@ -312,7 +384,7 @@ class DataRightsOrderService(DataRightsOrderPort):
     async def _detail_from_snapshot(
         self, unit: PostgreSQLRuntimeUnitOfWork, snapshot: DataRightsOrderSnapshot
     ) -> DataRightsOrderDetail:
-        items = await self._repository.deletion_items(unit, snapshot.order_id)
+        items = await self._repository.data_rights_order_items(unit, snapshot.order_id)
         deletion_ids = tuple(
             item.artifact_deletion_id
             for item in items
@@ -324,23 +396,28 @@ class DataRightsOrderService(DataRightsOrderPort):
                 unit.transaction, deletion_ids
             )
         }
-        results: list[DataRightsDeletionItemResult] = []
+        results: list[DataRightsOrderItemResult] = []
         for item in items:
             deletion_id = item.artifact_deletion_id
             state = None if deletion_id is None else states.get(deletion_id)
             results.append(
-                DataRightsDeletionItemResult(
-                    item.item_id,
-                    item.target_kind,
-                    item.required_action,
-                    DataRightsItemStatus(item.result_status),
-                    item.remaining_location,
-                    item.created_at,
-                    item.completed_at,
-                    item.artifact_deletion_id,
-                    state is not None and state.status == "blocked",
-                    0 if state is None else state.attempt_count,
-                    None if state is None else state.last_error_code,
+                DataRightsOrderItemResult(
+                    item_id=item.item_id,
+                    target_kind=item.target_kind,
+                    required_action=item.required_action,
+                    responsible_owner=item.responsible_owner,
+                    result_status=DataRightsItemStatus(item.result_status),
+                    retention_reason=item.retention_reason,
+                    created_at=item.created_at,
+                    completed_at=item.completed_at,
+                    artifact_deletion_id=item.artifact_deletion_id,
+                    retryable=(
+                        item.operator_action_required
+                        or (state is not None and state.status == "blocked")
+                    ),
+                    deletion_attempt_count=0 if state is None else state.attempt_count,
+                    last_error_code=None if state is None else state.last_error_code,
+                    operator_action_required=item.operator_action_required,
                 )
             )
         return DataRightsOrderDetail(
@@ -380,6 +457,16 @@ class DataRightsOrderService(DataRightsOrderPort):
         command: DataRightsRetryCommand,
     ) -> DataRightsOrderResult:
         try:
+            operator_snapshots = await self._operator_snapshot_paths(
+                requester_kind=requester_kind,
+                party_key=party_key,
+                order_id=order_id,
+            )
+            removable: list[UUID] = []
+            for snapshot_id, raw_path in operator_snapshots:
+                if await asyncio.to_thread(self._managed_snapshot_is_absent, raw_path):
+                    removable.append(snapshot_id)
+            removable_snapshot_ids = tuple(removable)
             created = False
             async with self._uow_factory.unit_of_work() as unit:
                 party_id = await self._requester_party(unit, requester_kind, party_key)
@@ -397,7 +484,7 @@ class DataRightsOrderService(DataRightsOrderPort):
                     raise DataRightsViolation("DATA-RIGHTS-ORDER-NOT-FOUND")
                 existing = await (
                     await unit.transaction.execute(
-                        """SELECT retry_cycle FROM armi.deletion_order_retry_attempts
+                        """SELECT retry_cycle FROM armi.data_rights_order_retry_attempts
                            WHERE deletion_order_id=%s AND idempotency_key=%s""",
                         (order_id, command.idempotency_key.value),
                     )
@@ -408,7 +495,7 @@ class DataRightsOrderService(DataRightsOrderPort):
                     deletion_rows = await (
                         await unit.transaction.execute(
                             """SELECT artifact_object_deletion_id
-                               FROM armi.deletion_items
+                               FROM armi.data_rights_order_items
                                WHERE deletion_order_id=%s AND result_status='partial'
                                  AND artifact_object_deletion_id IS NOT NULL""",
                             (order_id,),
@@ -423,12 +510,12 @@ class DataRightsOrderService(DataRightsOrderPort):
                         for state in states
                         if state.status == "blocked"
                     )
-                    if not blocked_ids:
+                    if not blocked_ids and not removable_snapshot_ids:
                         raise DataRightsViolation("DATA-RIGHTS-RETRY-NOT-AVAILABLE")
                     cycle_row = await (
                         await unit.transaction.execute(
                             """SELECT COALESCE(max(retry_cycle),1)+1
-                               FROM armi.deletion_order_retry_attempts
+                               FROM armi.data_rights_order_retry_attempts
                                WHERE deletion_order_id=%s""",
                             (order_id,),
                         )
@@ -437,7 +524,7 @@ class DataRightsOrderService(DataRightsOrderPort):
                         raise DataRightsViolation("DATA-RIGHTS-STATE")
                     cycle = int(cycle_row[0])
                     await unit.transaction.execute(
-                        """INSERT INTO armi.deletion_order_retry_attempts
+                        """INSERT INTO armi.data_rights_order_retry_attempts
                            (deletion_order_retry_attempt_id,deletion_order_id,
                             retry_cycle,idempotency_key,trace_id)
                            VALUES (%s,%s,%s,%s,%s)""",
@@ -454,15 +541,34 @@ class DataRightsOrderService(DataRightsOrderPort):
                     )
                     if reset != len(blocked_ids):
                         raise DataRightsViolation("DATA-RIGHTS-RETRY-STATE")
+                    if removable_snapshot_ids:
+                        await unit.transaction.execute(
+                            """UPDATE armi.managed_data_snapshots
+                               SET status='removed',removed_at=statement_timestamp()
+                               WHERE managed_snapshot_id=ANY(%s::uuid[])
+                                 AND status='active'""",
+                            (list(removable_snapshot_ids),),
+                        )
+                        await unit.transaction.execute(
+                            """UPDATE armi.data_rights_order_items
+                               SET result_status='completed',
+                                   operator_action_required=false,
+                                   completed_at=statement_timestamp()
+                               WHERE deletion_order_id=%s
+                                 AND target_kind='managed_snapshot'
+                                 AND target_ref=ANY(%s::uuid[])
+                                 AND result_status='partial'""",
+                            (order_id, list(removable_snapshot_ids)),
+                        )
                     await unit.transaction.execute(
-                        """UPDATE armi.deletion_items SET result_status='pending',
-                                  remaining_location=NULL,completed_at=NULL
+                        """UPDATE armi.data_rights_order_items SET result_status='pending',
+                                  retention_reason=NULL,completed_at=NULL
                            WHERE deletion_order_id=%s AND result_status='partial'
                              AND artifact_object_deletion_id IS NOT NULL""",
                         (order_id,),
                     )
                     await unit.transaction.execute(
-                        """UPDATE armi.deletion_orders SET execution_status='executing',
+                        """UPDATE armi.data_rights_orders SET execution_status='executing',
                                   completed_at=NULL
                            WHERE deletion_order_id=%s AND execution_status='partial'""",
                         (order_id,),
@@ -496,6 +602,42 @@ class DataRightsOrderService(DataRightsOrderPort):
         except RuntimeTransactionFailure:
             raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE") from None
 
+    async def _operator_snapshot_paths(
+        self,
+        *,
+        requester_kind: DataRightsRequesterKind,
+        party_key: DataRightsPartyKey | None,
+        order_id: UUID,
+    ) -> tuple[tuple[UUID, str], ...]:
+        async with self._uow_factory.unit_of_work(read_only=True) as unit:
+            party_id = await self._requester_party(unit, requester_kind, party_key)
+            order = await self._repository.get(
+                unit, requester_party_id=party_id, order_id=order_id
+            )
+            if order is None:
+                raise DataRightsViolation("DATA-RIGHTS-ORDER-NOT-FOUND")
+            rows = await (
+                await unit.transaction.execute(
+                    """SELECT snapshot.managed_snapshot_id,snapshot.managed_path
+                       FROM armi.data_rights_order_items AS item
+                       JOIN armi.managed_data_snapshots AS snapshot
+                         ON snapshot.managed_snapshot_id=item.target_ref
+                       WHERE item.deletion_order_id=%s
+                         AND item.target_kind='managed_snapshot'
+                         AND item.result_status='partial'
+                         AND snapshot.status='active'
+                       ORDER BY snapshot.managed_snapshot_id""",
+                    (order_id,),
+                )
+            ).fetchall()
+        return tuple((UUID(str(row[0])), str(row[1])) for row in rows)
+
+    def _managed_snapshot_is_absent(self, raw_path: str) -> bool:
+        path = Path(raw_path)
+        if not path.is_absolute():
+            raise DataRightsViolation("DATA-RIGHTS-MANAGED-SNAPSHOT-PATH")
+        return not path.exists()
+
     async def _notify(self, order_id: UUID) -> None:
         if self._notifier is None:
             return
@@ -505,7 +647,7 @@ class DataRightsOrderService(DataRightsOrderPort):
                     CreatorResourceKind("data_rights"),
                     str(order_id),
                     Instant(datetime.now(UTC)),
-                    "data-rights-order-collection.v2",
+                    "data-rights-order-collection.v3",
                 )
             )
         except Exception:
@@ -557,11 +699,7 @@ class DataRightsOrderService(DataRightsOrderPort):
                     if command.order_kind is DataRightsOrderKind.STOP_CONTACT
                     else DataRightsScopeKind.PARTY_LOCAL_DATA
                 )
-                execution_status = (
-                    DataRightsExecutionStatus.PENDING
-                    if command.order_kind is DataRightsOrderKind.DELETE_RELATED
-                    else DataRightsExecutionStatus.NOT_REQUIRED
-                )
+                execution_status = DataRightsExecutionStatus.PENDING
                 await self._repository.advance_fence(
                     unit_of_work.transaction,
                     party_id=requester_party_id,
@@ -579,22 +717,7 @@ class DataRightsOrderService(DataRightsOrderPort):
                     request_digest=request_digest,
                     trace_id=command.trace_id.value,
                 )
-                apply_request = DataRightsApplyRequest(
-                    snapshot.order_id,
-                    requester_party_id,
-                    command.order_kind.value,
-                    (),
-                    (),
-                    (),
-                )
-                contribution = await self._order_participant.apply(
-                    unit_of_work.transaction, apply_request
-                )
-                if (
-                    contribution.owner_identity
-                    != self._order_participant.owner_identity
-                ):
-                    raise DataRightsViolation("DATA-RIGHTS-PARTICIPANT-OWNER-MISMATCH")
+                await self._deletion.prepare_in(unit_of_work, snapshot.order_id)
                 await unit_of_work.audit.append(
                     AuditDraft(
                         AuditEventId(uuid7()),
@@ -607,7 +730,14 @@ class DataRightsOrderService(DataRightsOrderPort):
                         AuditSensitivity.RESTRICTED,
                     )
                 )
-                return self._result(snapshot, newly_created=True)
+                closed = await self._repository.get(
+                    unit_of_work,
+                    requester_party_id=requester_party_id,
+                    order_id=snapshot.order_id,
+                )
+                if closed is None:
+                    raise DataRightsViolation("DATA-RIGHTS-STATE")
+                return self._result(closed, newly_created=True)
         except DataRightsViolation:
             raise
         except RuntimeTransactionFailure as error:

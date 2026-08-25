@@ -7,6 +7,7 @@ from typing import LiteralString
 from armi_data_rights.api import (
     DataRightsApplyContribution,
     DataRightsApplyRequest,
+    DataRightsArtifactUsage,
     DataRightsCanonicalRecord,
     DataRightsContributionVersion,
     DataRightsDiscoveryContribution,
@@ -14,8 +15,11 @@ from armi_data_rights.api import (
     DataRightsExportScope,
     DataRightsExportSegment,
     DataRightsOwnerIdentity,
+    DataRightsRelatedRef,
+    DataRightsTargetRef,
     DataRightsTupleRecordStream,
 )
+from armi_kernel.application import ArtifactId
 from armi_runtime_foundation import PostgreSQLTransaction
 
 _OWNER = DataRightsOwnerIdentity("prompt")
@@ -48,16 +52,83 @@ class PostgreSQLPromptDataRightsParticipant:
         transaction: PostgreSQLTransaction,
         request: DataRightsDiscoveryRequest,
     ) -> DataRightsDiscoveryContribution:
-        del transaction, request
-        return DataRightsDiscoveryContribution(_OWNER)
+        commit_ids = tuple(
+            item.ref for item in request.related_refs if item.kind == "subject-commit"
+        )
+        rows = await (
+            await transaction.execute(
+                """SELECT DISTINCT document.prompt_document_id
+                   FROM armi.prompt_documents AS document
+                   JOIN armi.prompt_revisions AS revision
+                     ON revision.prompt_document_id=document.prompt_document_id
+                   WHERE document.prompt_kind<>'personality_anchor'
+                     AND (revision.author_party_id=%s
+                          OR revision.subject_commit_id=ANY(%s::uuid[]))
+                   ORDER BY document.prompt_document_id""",
+                (request.party_id, list(commit_ids)),
+            )
+        ).fetchall()
+        prompt_ids = tuple(row[0] for row in rows)
+        anchor_rows = await (
+            await transaction.execute(
+                """SELECT prompt_document_id FROM armi.prompt_documents
+                   WHERE prompt_kind='personality_anchor' AND status='active'
+                   ORDER BY prompt_document_id"""
+            )
+        ).fetchall()
+        usage_rows = await (
+            await transaction.execute(
+                """SELECT content_artifact_id,count(*),
+                          count(*) FILTER (WHERE prompt_document_id=ANY(%s::uuid[]))
+                   FROM armi.prompt_revisions GROUP BY content_artifact_id
+                   ORDER BY content_artifact_id""",
+                (list(prompt_ids),),
+            )
+        ).fetchall()
+        return DataRightsDiscoveryContribution(
+            _OWNER,
+            related_refs=tuple(
+                DataRightsRelatedRef("prompt", ref) for ref in prompt_ids
+            ),
+            targets=tuple(
+                [DataRightsTargetRef("prompt", ref, "redact") for ref in prompt_ids]
+                + [
+                    DataRightsTargetRef(
+                        "prompt", row[0], "retain", "subject_continuity"
+                    )
+                    for row in anchor_rows
+                ]
+            ),
+            artifact_usages=tuple(
+                DataRightsArtifactUsage(ArtifactId(row[0]), int(row[1]), int(row[2]))
+                for row in usage_rows
+            ),
+        )
 
     async def apply(
         self,
         transaction: PostgreSQLTransaction,
         request: DataRightsApplyRequest,
     ) -> DataRightsApplyContribution:
-        del transaction, request
-        return DataRightsApplyContribution(_OWNER)
+        prompt_ids = tuple(
+            item.ref for item in request.related_refs if item.kind == "prompt"
+        )
+        if request.order_kind == "delete_related" and prompt_ids:
+            await transaction.execute(
+                """UPDATE armi.prompt_documents
+                   SET status='inactive'
+                   WHERE prompt_document_id=ANY(%s::uuid[])
+                     AND prompt_kind<>'personality_anchor'""",
+                (list(prompt_ids),),
+            )
+        return DataRightsApplyContribution(
+            _OWNER,
+            tuple(
+                target
+                for target in request.targets
+                if target.responsible_owner == _OWNER.value
+            ),
+        )
 
     async def export(
         self,

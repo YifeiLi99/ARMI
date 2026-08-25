@@ -26,15 +26,21 @@ from ._export_contract import (
     CreatorExportViolation,
 )
 from ._participant_contract import (
+    DATA_RIGHTS_ACTIONS,
+    DATA_RIGHTS_RETENTION_REASONS,
+    DATA_RIGHTS_TARGET_KINDS,
     DataRightsApplyContribution,
     DataRightsApplyRequest,
+    DataRightsArtifactField,
     DataRightsArtifactUsage,
     DataRightsCanonicalRecord,
+    DataRightsContentField,
     DataRightsContributionVersion,
     DataRightsDiscoveryContribution,
     DataRightsDiscoveryRequest,
     DataRightsExportScope,
     DataRightsExportSegment,
+    DataRightsOwnerContract,
     DataRightsOwnerIdentity,
     DataRightsParticipant,
     DataRightsParticipantViolation,
@@ -46,11 +52,11 @@ from ._participant_contract import (
     EmptyDataRightsParticipant,
 )
 from ._rights_contract import (
-    DataRightsDeletionItemResult,
     DataRightsExecutionStatus,
     DataRightsItemStatus,
     DataRightsOrderCommand,
     DataRightsOrderDetail,
+    DataRightsOrderItemResult,
     DataRightsOrderKind,
     DataRightsOrderPort,
     DataRightsOrderResult,
@@ -165,6 +171,13 @@ class DataRightsPartyIdentityPort(Protocol):
 
 
 @runtime_checkable
+class DataRightsPartyRosterPort(Protocol):
+    async def all_party_ids(
+        self, transaction: PostgreSQLTransaction
+    ) -> tuple[UUID, ...]: ...
+
+
+@runtime_checkable
 class DataRightsUnitOfWorkFactory(Protocol):
     @property
     def environment_id(self) -> UUID: ...
@@ -181,6 +194,9 @@ class DataRightsUnitOfWorkFactory(Protocol):
 
 
 __all__ = (
+    "DATA_RIGHTS_ACTIONS",
+    "DATA_RIGHTS_RETENTION_REASONS",
+    "DATA_RIGHTS_TARGET_KINDS",
     "CreatorExportCommand",
     "CreatorExportPort",
     "CreatorExportResult",
@@ -188,13 +204,14 @@ __all__ = (
     "CreatorExportViolation",
     "DataRightsApplyContribution",
     "DataRightsApplyRequest",
+    "DataRightsArtifactField",
     "DataRightsArtifactLifecyclePort",
     "DataRightsArtifactStorePort",
     "DataRightsArtifactUsage",
     "DataRightsCanonicalRecord",
     "DataRightsCognitionGate",
+    "DataRightsContentField",
     "DataRightsContributionVersion",
-    "DataRightsDeletionItemResult",
     "DataRightsDiscoveryContribution",
     "DataRightsDiscoveryRequest",
     "DataRightsEffectGate",
@@ -207,14 +224,17 @@ __all__ = (
     "DataRightsItemStatus",
     "DataRightsOrderCommand",
     "DataRightsOrderDetail",
+    "DataRightsOrderItemResult",
     "DataRightsOrderKind",
     "DataRightsOrderPort",
     "DataRightsOrderResult",
+    "DataRightsOwnerContract",
     "DataRightsOwnerIdentity",
     "DataRightsParticipant",
     "DataRightsParticipantViolation",
     "DataRightsPartyIdentityPort",
     "DataRightsPartyKey",
+    "DataRightsPartyRosterPort",
     "DataRightsRecordBatchStream",
     "DataRightsRelatedRef",
     "DataRightsRequesterKind",
