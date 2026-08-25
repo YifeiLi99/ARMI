@@ -10,7 +10,7 @@ from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_attention.api import OpportunityAdmissionPort
 from armi_data_rights.api import DataRightsParticipant, DataRightsVisibilityPort
 from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
-from armi_kernel.application import CreatorProjectionNotifier
+from armi_kernel.application import CreatorProjectionNotifier, ExecutionCustodyPort
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
     RecoveryParticipant,
@@ -136,6 +136,7 @@ def bootstrap_interaction(
     codex_task_projection: SceneTimelineCodexTaskProjectionPort,
     catalog: InteractionArtifactCatalogPort,
     data_rights: InteractionDataRightsGate,
+    custody: ExecutionCustodyPort,
     visibility: DataRightsVisibilityPort,
     subject_state: SubjectStateReadPort,
     maintenance_wake: CreatorInputWakePort,
@@ -159,6 +160,7 @@ def bootstrap_interaction(
         repository=creator_repository,
         unit_of_work_factory=unit_of_work_factory,
         data_rights=data_rights,
+        custody=custody,
         notifier=notifier,
         subject_state=subject_state,
         maintenance_wake=maintenance_wake,

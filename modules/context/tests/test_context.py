@@ -906,7 +906,10 @@ def test_recent_scene_preserves_text_and_voice_channel_switches() -> None:
         if item.item_kind == "recent_scene_turn"
     ]
     assert len(dialogue) == 4
-    assert all(source.text in dialogue[index] for index, source in enumerate(sources))
+    assert all(
+        source.text is not None and source.text in dialogue[index]
+        for index, source in enumerate(sources)
+    )
 
 
 def test_recent_scene_artifact_contract_supports_text_voice_and_parties() -> None:

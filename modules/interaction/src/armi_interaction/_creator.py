@@ -26,6 +26,11 @@ from armi_kernel.application import (
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
     CreatorResourceKind,
+    ExecutionCustodyMode,
+    ExecutionCustodyPort,
+    ExecutionCustodyRequest,
+    ExecutionCustodyScope,
+    ExecutionCustodyScopeKind,
 )
 from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId
 from armi_runtime_foundation import (
@@ -77,6 +82,7 @@ class EvidenceAcceptanceTransaction(CreatorInputAcceptancePort):
     __slots__ = (
         "_catalog",
         "_creator_party_id",
+        "_custody",
         "_data_rights",
         "_diagnostic",
         "_fault_injector",
@@ -98,6 +104,7 @@ class EvidenceAcceptanceTransaction(CreatorInputAcceptancePort):
         repository: CreatorInputRepository,
         unit_of_work_factory: PostgreSQLRuntimeUnitOfWorkFactory,
         data_rights: InteractionDataRightsGate,
+        custody: ExecutionCustodyPort,
         notifier: CreatorProjectionNotifier | None,
         subject_state: SubjectStateReadPort,
         maintenance_wake: CreatorInputWakePort,
@@ -108,6 +115,7 @@ class EvidenceAcceptanceTransaction(CreatorInputAcceptancePort):
         if creator_party_id.version != 7:
             raise CreatorInputViolation("CON-INPUT-CREATOR")
         self._creator_party_id = creator_party_id
+        self._custody = custody
         self._data_rights = data_rights
         self._storage = storage
         self._catalog = catalog
@@ -154,12 +162,13 @@ class EvidenceAcceptanceTransaction(CreatorInputAcceptancePort):
             raise CreatorInputViolation("ART-INPUT-PUBLISH") from None
         self._fault_injector("artifact_after_publish_before_commit")
         try:
-            acceptance = await self._attempt(
-                command,
-                context,
-                request_digest,
-                published,
-            )
+            async with self._outreach_custody(context.scene_id):
+                acceptance = await self._attempt(
+                    command,
+                    context,
+                    request_digest,
+                    published,
+                )
         except RuntimeTransactionFailure as error:
             if error.code in {"DB-TX-UNIQUE", "DB-TX-COMMIT-UNKNOWN"}:
                 try:
@@ -229,77 +238,78 @@ class EvidenceAcceptanceTransaction(CreatorInputAcceptancePort):
             return existing
         try:
             published = await self._storage.publish(staged)
-            async with self._uow_factory.unit_of_work() as unit:
-                await self._repository.lock_scene(unit, scene_id=context.scene_id)
-                current = await self._repository.context(
-                    unit,
-                    scene_key=command.scene_key,
-                    creator_party_id=self._creator_party_id,
-                )
-                if current != context:
-                    raise CreatorInputViolation("SCOPE-SCENE-NOT-VISIBLE")
-                existing = await self._repository.existing_voice(
-                    unit,
-                    context=context,
-                    idempotency_key=command.idempotency_key.value,
-                    request_digest=request_digest,
-                )
-                if existing is not None:
-                    return existing
-                if await self._data_rights.blocks_new_interaction(
-                    unit, self._creator_party_id
-                ):
-                    raise CreatorInputViolation("SCOPE-DATA-RIGHTS-BLOCKED")
-                registration = await self._catalog.register(
-                    unit,
-                    ArtifactId(uuid7()),
-                    published,
-                )
-                if registration.inserted:
+            async with self._outreach_custody(context.scene_id):  # noqa: SIM117
+                async with self._uow_factory.unit_of_work() as unit:
+                    await self._repository.lock_scene(unit, scene_id=context.scene_id)
+                    current = await self._repository.context(
+                        unit,
+                        scene_key=command.scene_key,
+                        creator_party_id=self._creator_party_id,
+                    )
+                    if current != context:
+                        raise CreatorInputViolation("SCOPE-SCENE-NOT-VISIBLE")
+                    existing = await self._repository.existing_voice(
+                        unit,
+                        context=context,
+                        idempotency_key=command.idempotency_key.value,
+                        request_digest=request_digest,
+                    )
+                    if existing is not None:
+                        return existing
+                    if await self._data_rights.blocks_new_interaction(
+                        unit, self._creator_party_id
+                    ):
+                        raise CreatorInputViolation("SCOPE-DATA-RIGHTS-BLOCKED")
+                    registration = await self._catalog.register(
+                        unit,
+                        ArtifactId(uuid7()),
+                        published,
+                    )
+                    if registration.inserted:
+                        await unit.audit.append(
+                            self._artifact_audit(
+                                unit,
+                                registration.ref.artifact_id.value,
+                                registration.ref.content_digest,
+                                CreatorInputCommand(
+                                    command.scene_key,
+                                    command.transcript,
+                                    command.idempotency_key,
+                                    command.trace_id,
+                                ),
+                            )
+                        )
+                    acceptance = await self._repository.create_voice(
+                        unit,
+                        context=context,
+                        idempotency_key=command.idempotency_key.value,
+                        request_digest=request_digest,
+                        content_digest=registration.ref.content_digest,
+                        artifact_id=registration.ref.artifact_id.value,
+                        trace_id=command.trace_id.value,
+                    )
+                    await self._maintenance_wake.register_creator_input(
+                        unit,
+                        source_ref=acceptance.interaction_id.value,
+                    )
                     await unit.audit.append(
-                        self._artifact_audit(
-                            unit,
-                            registration.ref.artifact_id.value,
-                            registration.ref.content_digest,
-                            CreatorInputCommand(
-                                command.scene_key,
-                                command.transcript,
-                                command.idempotency_key,
-                                command.trace_id,
+                        AuditDraft(
+                            audit_event_id=AuditEventId(uuid7()),
+                            actor=AuditReference("creator", context.creator_party_id),
+                            purpose=Purpose("creator.input"),
+                            operation="creator.voice_input.accepted",
+                            target=AuditReference(
+                                "creator_input", acceptance.interaction_id.value
+                            ),
+                            result_status=AuditResultStatus.ACCEPTED,
+                            trace_id=command.trace_id,
+                            sensitivity=AuditSensitivity.PRIVATE,
+                            subject_id=SubjectId(context.subject_id),
+                            request=AuditReference(
+                                "creator_input", acceptance.interaction_id.value
                             ),
                         )
                     )
-                acceptance = await self._repository.create_voice(
-                    unit,
-                    context=context,
-                    idempotency_key=command.idempotency_key.value,
-                    request_digest=request_digest,
-                    content_digest=registration.ref.content_digest,
-                    artifact_id=registration.ref.artifact_id.value,
-                    trace_id=command.trace_id.value,
-                )
-                await self._maintenance_wake.register_creator_input(
-                    unit,
-                    source_ref=acceptance.interaction_id.value,
-                )
-                await unit.audit.append(
-                    AuditDraft(
-                        audit_event_id=AuditEventId(uuid7()),
-                        actor=AuditReference("creator", context.creator_party_id),
-                        purpose=Purpose("creator.input"),
-                        operation="creator.voice_input.accepted",
-                        target=AuditReference(
-                            "creator_input", acceptance.interaction_id.value
-                        ),
-                        result_status=AuditResultStatus.ACCEPTED,
-                        trace_id=command.trace_id,
-                        sensitivity=AuditSensitivity.PRIVATE,
-                        subject_id=SubjectId(context.subject_id),
-                        request=AuditReference(
-                            "creator_input", acceptance.interaction_id.value
-                        ),
-                    )
-                )
         except CreatorInputViolation:
             raise
         except RuntimeTransactionFailure, AuditViolation:
@@ -340,6 +350,16 @@ class EvidenceAcceptanceTransaction(CreatorInputAcceptancePort):
 
     async def close(self) -> None:
         return None
+
+    def _outreach_custody(self, scene_id: UUID):
+        request = ExecutionCustodyRequest(
+            ExecutionCustodyScope(
+                ExecutionCustodyScopeKind.OUTREACH_SCENE,
+                scene_id,
+            ),
+            ExecutionCustodyMode.EXCLUSIVE,
+        )
+        return self._custody.hold((request,), deadline_at=None)
 
     async def _attempt(
         self,

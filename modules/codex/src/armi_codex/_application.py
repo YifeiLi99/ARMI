@@ -19,6 +19,7 @@ from uuid import UUID, uuid7
 import rfc8785
 from armi_artifact_store.api import ArtifactCatalogPort
 from armi_attention.api import OpportunityAdmissionPort
+from armi_data_rights.api import DataRightsEffectGate, DataRightsFencePort
 from armi_effect.api import EffectCodexLifecyclePort
 from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
 from armi_expression.api import ExpressionIntentReadPort
@@ -42,6 +43,14 @@ from armi_kernel.application import (
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
     CreatorResourceKind,
+    ExecutionCustodyMode,
+    ExecutionCustodyPort,
+    ExecutionCustodyRequest,
+    ExecutionCustodyScope,
+    ExecutionCustodyScopeKind,
+    ExecutionCustodyViolation,
+    RuntimeFence,
+    ordered_custody_requests,
 )
 from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId, TraceId
 from armi_runtime_foundation import (
@@ -325,6 +334,9 @@ class CodexTaskSourceGateway(
 class CodexEffectPipeline:
     __slots__ = (
         "_catalog",
+        "_custody",
+        "_data_rights",
+        "_data_rights_fence",
         "_diagnostic",
         "_environment_root",
         "_factory",
@@ -332,6 +344,7 @@ class CodexEffectPipeline:
         "_repository",
         "_run_root",
         "_runner_entry_module",
+        "_runtime_admission",
         "_stop",
         "_storage",
         "task_sources",
@@ -354,6 +367,10 @@ class CodexEffectPipeline:
         effect: EffectCodexLifecyclePort,
         expression: ExpressionIntentReadPort,
         sources: CodexTaskSourceReadPort,
+        custody: ExecutionCustodyPort,
+        data_rights: DataRightsEffectGate,
+        data_rights_fence: DataRightsFencePort,
+        runtime_admission: Callable[[], RuntimeFence],
         runner_entry_module: str,
         notifier: CreatorProjectionNotifier | None,
         diagnostic: Diagnostic | None = None,
@@ -375,6 +392,10 @@ class CodexEffectPipeline:
             creator_input,
         )
         self._catalog = catalog
+        self._custody = custody
+        self._data_rights = data_rights
+        self._data_rights_fence = data_rights_fence
+        self._runtime_admission = runtime_admission
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
         self._diagnostic = diagnostic or _ignore_diagnostic
@@ -410,6 +431,7 @@ class CodexEffectPipeline:
     async def dispatch_once(self) -> bool:
         snapshot: CodexDispatchSnapshot | None = None
         intake_cleanup_failed = False
+        custody_context = None
         try:
             async with self._factory.unit_of_work() as uow:
                 snapshot = await self._repository.claim(
@@ -417,11 +439,61 @@ class CodexEffectPipeline:
                 )
             if snapshot is None:
                 return False
+            runtime_fence = self._runtime_admission()
+            requests = ordered_custody_requests(
+                ExecutionCustodyRequest(
+                    ExecutionCustodyScope(
+                        ExecutionCustodyScopeKind.RUNTIME_AUTHORITY,
+                        self._factory.environment_id,
+                    ),
+                    ExecutionCustodyMode.SHARED,
+                ),
+                ExecutionCustodyRequest(
+                    ExecutionCustodyScope(
+                        ExecutionCustodyScopeKind.DATA_RIGHTS_PARTY,
+                        snapshot.creator_party_id,
+                    ),
+                    ExecutionCustodyMode.SHARED,
+                ),
+                ExecutionCustodyRequest(
+                    ExecutionCustodyScope(
+                        ExecutionCustodyScopeKind.OUTREACH_SCENE,
+                        snapshot.scene_id,
+                    ),
+                    ExecutionCustodyMode.EXCLUSIVE,
+                ),
+            )
+            custody_context = self._custody.hold(
+                requests, deadline_at=snapshot.dispatch_deadline
+            )
+            await custody_context.__aenter__()
             bundle = await self._read(snapshot.source_bundle)
             manifest_bytes = await self._read(snapshot.task_manifest)
             task = _task_manifest(snapshot, manifest_bytes)
             async with self._factory.unit_of_work() as uow:
-                dispatching = await self._repository.mark_dispatching(uow, snapshot)
+                if uow.runtime_fence != runtime_fence:
+                    raise CodexDelegationViolation("CODEX-DELEGATION-STALE")
+                data_fence = await self._data_rights_fence.capture(
+                    uow.transaction,
+                    party_id=snapshot.creator_party_id,
+                )
+                if await self._data_rights.blocks_effect(
+                    uow,
+                    requester_party_id=snapshot.creator_party_id,
+                ):
+                    raise CodexDelegationViolation("CODEX-DATA-RIGHTS-STALE")
+                await self._data_rights_fence.validate(
+                    uow.transaction,
+                    data_fence,
+                    require_contact=True,
+                    require_use=True,
+                )
+                dispatching = await self._repository.mark_dispatching(
+                    uow,
+                    snapshot,
+                    runtime_fence=runtime_fence,
+                    data_rights_fence=data_fence,
+                )
             if not dispatching:
                 return True
             _install_intake(self._run_root, task, bundle)
@@ -514,9 +586,17 @@ class CodexEffectPipeline:
                 cleanup_error_code=error.cleanup_error_code,
             )
             return True
-        except ArtifactViolation, CodexDelegationViolation, RuntimeTransactionFailure:
+        except (
+            ArtifactViolation,
+            CodexDelegationViolation,
+            ExecutionCustodyViolation,
+            RuntimeTransactionFailure,
+        ):
             self._diagnostic("codex.dispatch.custody_failed")
             return True
+        finally:
+            if custody_context is not None:
+                await custody_context.__aexit__(None, None, None)
 
     async def run_worker(self) -> None:
         while not self._stop.is_set():

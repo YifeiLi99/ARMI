@@ -9,7 +9,11 @@ from uuid import UUID
 
 from armi_artifact_store.api import ArtifactCatalogPort
 from armi_attention.api import OpportunityAdmissionPort
-from armi_data_rights.api import DataRightsParticipant
+from armi_data_rights.api import (
+    DataRightsEffectGate,
+    DataRightsFencePort,
+    DataRightsParticipant,
+)
 from armi_effect.api import EffectCodexLifecyclePort
 from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
 from armi_expression.api import ExpressionCommitPort, ExpressionIntentReadPort
@@ -18,6 +22,8 @@ from armi_kernel.application import (
     CreatorProjectionNotifier,
     CredentialLocator,
     CredentialPort,
+    ExecutionCustodyPort,
+    RuntimeFence,
 )
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
@@ -105,6 +111,10 @@ def bootstrap_codex(
     effect: EffectCodexLifecyclePort,
     expression: ExpressionIntentReadPort,
     sources: CodexTaskSourceReadPort,
+    custody: ExecutionCustodyPort,
+    data_rights: DataRightsEffectGate,
+    data_rights_fence: DataRightsFencePort,
+    runtime_admission: Callable[[], RuntimeFence],
     runner_entry_module: str,
     notifier: CreatorProjectionNotifier | None = None,
     diagnostic: Diagnostic | None = None,
@@ -126,6 +136,10 @@ def bootstrap_codex(
         effect=effect,
         expression=expression,
         sources=sources,
+        custody=custody,
+        data_rights=data_rights,
+        data_rights_fence=data_rights_fence,
+        runtime_admission=runtime_admission,
         runner_entry_module=runner_entry_module,
         notifier=notifier,
         diagnostic=diagnostic,

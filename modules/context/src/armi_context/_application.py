@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, cast
 from uuid import UUID, uuid7
 
@@ -160,6 +160,7 @@ class ContextPipeline:
         "_catalog",
         "_compiler",
         "_diagnostic",
+        "_dialogue_read",
         "_embedding",
         "_embedding_repository",
         "_factory",
@@ -206,6 +207,7 @@ class ContextPipeline:
         embedding: EmbeddingPort | None = None,
     ) -> None:
         self._factory = factory
+        self._dialogue_read = dialogue_read
         self._storage = storage
         self._policy_version = policy_version
         self._web_search_active = web_search_active
@@ -284,6 +286,12 @@ class ContextPipeline:
             return True
         try:
             snapshot = await self._snapshot(episode_id)
+            snapshot = replace(
+                snapshot,
+                recent_scene_sources=await self._dialogue_read.hydrate(
+                    snapshot.recent_scene_sources
+                ),
+            )
             evidence_bytes = (
                 None
                 if snapshot.evidence is None

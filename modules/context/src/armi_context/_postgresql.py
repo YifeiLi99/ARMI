@@ -484,6 +484,31 @@ class PostgreSQLContextRepository:
                     item.content_bytes,
                 ),
             )
+            if source.reference is not None and source.version is not None:
+                policy = (
+                    "immutable_selected"
+                    if item.candidate.section.value == "evidence"
+                    or item.candidate.layer.value == "conversation_history"
+                    else "current_required"
+                )
+                await tx.execute(
+                    """INSERT INTO armi.cognitive_context_dependencies (
+                       context_dependency_id,cognitive_episode_id,owner_kind,
+                       owner_ref,source_kind,source_ref,source_version,
+                       collection_ordinal,freshness_policy)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (
+                        uuid7(),
+                        episode_id,
+                        item.candidate.section.value,
+                        source.reference,
+                        source.kind,
+                        source.reference,
+                        source.version,
+                        item.ordinal,
+                        policy,
+                    ),
+                )
         episode = await self._episodes.mark_context_prepared(
             tx,
             episode_id=episode_id,

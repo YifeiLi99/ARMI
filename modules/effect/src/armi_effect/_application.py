@@ -11,6 +11,7 @@ from typing import cast
 from uuid import UUID, uuid7
 
 from armi_capability.api import CapabilityActionAuthorizationPort
+from armi_data_rights.api import DataRightsEffectGate, DataRightsFencePort
 from armi_expression.api import ExpressionEffectLinkPort, ExpressionIntentReadPort
 from armi_interaction.api import InteractionEffectRoutePort
 from armi_kernel.application import (
@@ -19,10 +20,18 @@ from armi_kernel.application import (
     CreatorProjectionNotifier,
     CreatorResourceKind,
     DurableWorkPort,
+    ExecutionCustodyMode,
+    ExecutionCustodyPort,
+    ExecutionCustodyRequest,
+    ExecutionCustodyScope,
+    ExecutionCustodyScopeKind,
+    ExecutionCustodyViolation,
+    RuntimeFence,
     WorkLease,
     WorkRecord,
     WorkType,
     WorkViolation,
+    ordered_custody_requests,
 )
 from armi_kernel.contracts import ContractViolation
 from armi_runtime_foundation import (
@@ -70,6 +79,9 @@ class EffectRegistrationPipeline:
     __slots__ = (
         "_adapter",
         "_codex_artifacts",
+        "_custody",
+        "_data_rights",
+        "_data_rights_fence",
         "_diagnostic",
         "_dispatcher",
         "_factory",
@@ -80,6 +92,7 @@ class EffectRegistrationPipeline:
         "_notifier",
         "_registration_context",
         "_repository",
+        "_runtime_admission",
         "_stop",
         "_storage",
         "_wakeups",
@@ -99,6 +112,10 @@ class EffectRegistrationPipeline:
         codex_artifacts: EffectCodexArtifactPort,
         routes: InteractionEffectRoutePort,
         interaction_delivery: EffectTimelinePort,
+        custody: ExecutionCustodyPort,
+        data_rights: DataRightsEffectGate,
+        data_rights_fence: DataRightsFencePort,
+        runtime_admission: Callable[[], RuntimeFence],
         notifier: CreatorProjectionNotifier | None = None,
         adapter: ActionAdapterPort | None = None,
         external_message_adapter: ActionAdapterPort | None = None,
@@ -117,6 +134,10 @@ class EffectRegistrationPipeline:
         self._registration_context = registration_context
         self._codex_artifacts = codex_artifacts
         self._interaction_delivery = interaction_delivery
+        self._custody = custody
+        self._data_rights = data_rights
+        self._data_rights_fence = data_rights_fence
+        self._runtime_admission = runtime_admission
         self._dispatcher = PostgreSQLEffectDispatchRepository(authorization, routes)
         if adapter is not None and external_message_adapter is not None:
             raise ValueError("whole-effect and external-message adapters are exclusive")
@@ -268,6 +289,48 @@ class EffectRegistrationPipeline:
                 )
             if snapshot is None:
                 return False
+            runtime_fence = self._runtime_admission()
+            requests = ordered_custody_requests(
+                ExecutionCustodyRequest(
+                    ExecutionCustodyScope(
+                        ExecutionCustodyScopeKind.RUNTIME_AUTHORITY,
+                        self._factory.environment_id,
+                    ),
+                    ExecutionCustodyMode.SHARED,
+                ),
+                ExecutionCustodyRequest(
+                    ExecutionCustodyScope(
+                        ExecutionCustodyScopeKind.DATA_RIGHTS_PARTY,
+                        snapshot.request.destination_party_id,
+                    ),
+                    ExecutionCustodyMode.SHARED,
+                ),
+                ExecutionCustodyRequest(
+                    ExecutionCustodyScope(
+                        ExecutionCustodyScopeKind.OUTREACH_SCENE,
+                        snapshot.request.scene_id,
+                    ),
+                    ExecutionCustodyMode.EXCLUSIVE,
+                ),
+            )
+            async with self._custody.hold(
+                requests, deadline_at=snapshot.dispatch_deadline
+            ):
+                return await self._dispatch_claimed(snapshot, runtime_fence)
+        except (
+            RuntimeTransactionFailure,
+            EffectViolation,
+            ExecutionCustodyViolation,
+        ):
+            self._diagnostic("effect.dispatch.transient_failure")
+            return True
+
+    async def _dispatch_claimed(
+        self,
+        snapshot: EffectDispatchSnapshot,
+        runtime_fence: RuntimeFence,
+    ) -> bool:
+        try:
             payload = await self._read_payload(
                 snapshot.artifact_id,
                 snapshot.request.payload_digest.value,
@@ -279,7 +342,31 @@ class EffectRegistrationPipeline:
                 await self._notify_dispatch(snapshot, include_scene=False)
                 return True
             async with self._factory.unit_of_work() as uow:
-                dispatching = await self._dispatcher.mark_dispatching(uow, snapshot)
+                if uow.runtime_fence != runtime_fence:
+                    raise EffectViolation("EFFECT-RUNTIME-STALE")
+                data_fence = await self._data_rights_fence.capture(
+                    uow.transaction,
+                    party_id=snapshot.request.destination_party_id,
+                )
+                if await self._data_rights.blocks_effect(
+                    uow,
+                    requester_party_id=snapshot.request.destination_party_id,
+                ):
+                    await self._dispatcher.cancel_data_rights(uow, snapshot)
+                    dispatching = False
+                else:
+                    await self._data_rights_fence.validate(
+                        uow.transaction,
+                        data_fence,
+                        require_contact=True,
+                        require_use=True,
+                    )
+                    dispatching = await self._dispatcher.mark_dispatching(
+                        uow,
+                        snapshot,
+                        runtime_fence=runtime_fence,
+                        data_rights_fence=data_fence,
+                    )
             if not dispatching:
                 await self._notify_dispatch(snapshot, include_scene=False)
                 return True
@@ -308,6 +395,14 @@ class EffectRegistrationPipeline:
                 return await self._reconcile(snapshot)
             self._fault_injector("adapter_after_dispatch_before_settlement")
             async with self._factory.unit_of_work() as uow:
+                if uow.runtime_fence != runtime_fence:
+                    raise EffectViolation("EFFECT-RUNTIME-STALE")
+                await self._data_rights_fence.validate(
+                    uow.transaction,
+                    data_fence,
+                    require_contact=True,
+                    require_use=True,
+                )
                 await self._dispatcher.settle_receipt(uow, snapshot, receipt)
                 await self._record_party_response(uow, snapshot, receipt)
             await self._notify_dispatch(snapshot, include_scene=True)

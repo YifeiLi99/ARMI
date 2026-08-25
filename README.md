@@ -51,7 +51,7 @@ docs/                       私有叙述性设计与外部研究资料
 
 `docs/` 被 Git 忽略，用于本地继续设计；精确的字段、路由、状态值和依赖版本仍以当前代码、DDL、配置与锁文件为准。文档入口见 [`docs/README.md`](docs/README.md)。
 
-数据库只保留唯一 Alembic `0000` 基线，并以 `armi.schema-baseline.v3` 标识当前数据库身份。Runtime 与 Admin 的固定仓储写入按“角色—表—INSERT/UPDATE/DELETE”授权，不使用逐字段写权限；`db status` 与日常启动入口会同时核对 revision、基线身份和完整权限合同，身份漂移以 `DB-SCHEMA-CONTRACT` 拒绝，权限漂移以 `DB-ROLE-GRANT` 拒绝。
+数据库只保留唯一 Alembic `0000` 基线，并以 `armi.schema-baseline.v4` 标识当前数据库身份。Runtime 与 Admin 的固定仓储写入按“角色—表—INSERT/UPDATE/DELETE”授权，不使用逐字段写权限；`db status` 与日常启动入口会同时核对 revision、基线身份和完整权限合同，身份漂移以 `DB-SCHEMA-CONTRACT` 拒绝，权限漂移以 `DB-ROLE-GRANT` 拒绝。
 
 ## 本地开发入口
 
@@ -123,7 +123,7 @@ caller-declared 的本地其他人入口通过 `armi other-human` 调用运行�
 
 日常及安装后的 Creator 工作台只在 Runtime 的本机地址上提供。页面打开后会自动建立进程内连接并直接进入工作台，不需要登录、bootstrap code 或手动注销。Vite 地址仅用于源码前端开发。
 
-数据库结构只由唯一 Alembic `0000` 管理。`db install` 拒绝已有用户对象，并在一个事务中安装有序模块化基线、revision 与 `armi.schema-baseline.v3` 身份。ARMI 是本地单实例项目，不提供内部数据库迁移或历史兼容入口；基线变化时必须停止 Runtime、明确删除旧数据库并重新安装。Runtime 只接受与当前源码完全一致的 revision、基线身份和角色权限合同。
+数据库结构只由唯一 Alembic `0000` 管理。`db install` 拒绝已有用户对象，并在一个事务中安装有序模块化基线、revision 与 `armi.schema-baseline.v4` 身份。ARMI 是本地单实例项目，不提供内部数据库迁移或历史兼容入口；基线变化时必须停止 Runtime、明确删除旧数据库并重新安装。Runtime 只接受与当前源码完全一致的 revision、基线身份和角色权限合同。
 
 已获明确授权的本地彻底重置在停止 Runtime 后使用 `tools/reset_local_environment_data.ps1 -EnvironmentRoot C:\path\to\environment -Apply` 清空并重建 artifacts、backups、Codex runner、exports、logs 与 run 目录。脚本不删除数据库卷，也不触碰环境配置、凭据、模型、工具、NapCat 或渠道配置；数据库卷仍须独立核对后删除。
 

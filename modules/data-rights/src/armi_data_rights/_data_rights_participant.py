@@ -28,6 +28,12 @@ _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
            FROM armi.creator_exports AS source ORDER BY to_jsonb(source)::text""",
     ),
     (
+        "data_rights_party_fences",
+        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
+           FROM armi.data_rights_party_fences AS source
+           ORDER BY to_jsonb(source)::text""",
+    ),
+    (
         "deletion_items",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
            FROM armi.deletion_items AS source ORDER BY to_jsonb(source)::text""",

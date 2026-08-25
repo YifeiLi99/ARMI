@@ -70,6 +70,10 @@ from armi_interaction.api import (
 )
 from armi_kernel.application import (
     CandidateViolation,
+    ExecutionCustodyMode,
+    ExecutionCustodyRequest,
+    ExecutionCustodyScope,
+    ExecutionCustodyScopeKind,
     LifeRecordQueryViolation,
     ModelViolation,
     OtherHumanRecordViolation,
@@ -368,27 +372,35 @@ async def _serve(
             await subject_state_module.open()
             mood_module = compose_mood_module()
             await mood_module.open()
+            execution_custody = compose_execution_custody(prepared)
+            await execution_custody.open()
             authority_port = compose_runtime_authority(prepared)
             await authority_port.open()
             authority = RuntimeAuthorityController(
                 authority_port,
                 lease_seconds=config.runtime.lease_seconds,
             )
-            acquired = await authority.acquire(RuntimeInstanceId(instance_uuid))
+            authority_request = ExecutionCustodyRequest(
+                ExecutionCustodyScope(
+                    ExecutionCustodyScopeKind.RUNTIME_AUTHORITY,
+                    config.environment.environment_id,
+                ),
+                ExecutionCustodyMode.EXCLUSIVE,
+            )
+            async with execution_custody.hold((authority_request,), deadline_at=None):
+                acquired = await authority.acquire(RuntimeInstanceId(instance_uuid))
+                await authority.heartbeat_once()
             diagnostic.emit(
                 "runtime.authority.acquired",
                 result_code="AUTH_ACQUIRED",
             )
             if acquired.fence.runtime_instance_id.value != instance_uuid:
                 raise RuntimeAuthorityViolation("AUTH-INSTANCE-MISMATCH")
-            await authority.heartbeat_once()
             runtime_unit_of_work_factory = compose_runtime_unit_of_work_factory(
                 prepared,
                 authority_admission=authority.require_writable,
             )
             await runtime_unit_of_work_factory.open()
-            execution_custody = compose_execution_custody(prepared)
-            await execution_custody.open()
             if mood_display_config is not None and mood_display_config.enabled:
                 display_subject_id = authority.require_writable().subject_id
 
@@ -641,6 +653,7 @@ async def _serve(
                 evidence_read=evidence_module.read,
                 opportunity=opportunity_admission,
                 data_rights=data_rights_core.gate,
+                custody=execution_custody,
                 visibility=data_rights_core.visibility,
                 identity=interaction_identity,
                 catalog=artifact_catalog,
@@ -1012,6 +1025,10 @@ async def _serve(
                 codex_artifacts=codex_artifacts,
                 routes=interaction_module.effect_routes,
                 interaction_delivery=interaction_module.effect_delivery,
+                custody=execution_custody,
+                data_rights=data_rights_module.effect_gate,
+                data_rights_fence=data_rights_module.fence,
+                runtime_admission=authority.require_writable,
                 notifier=creator_events,
                 wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
@@ -1039,6 +1056,10 @@ async def _serve(
                         ),
                         expression=expression_module.intents,
                         sources=codex_reads.task_sources,
+                        custody=execution_custody,
+                        data_rights=data_rights_module.effect_gate,
+                        data_rights_fence=data_rights_module.fence,
+                        runtime_admission=authority.require_writable,
                         catalog=artifact_catalog,
                         notifier=creator_events,
                         diagnostic=lambda event: diagnostic.emit(

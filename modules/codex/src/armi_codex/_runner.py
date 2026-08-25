@@ -35,11 +35,13 @@ from ._runner_contract import (
 from ._sdk_codec import SdkTurnEvidence, normalize_sdk_turn, validate_final_output
 from ._validation import materialize_output_artifact, validate_fixed_result
 from ._workspace import (
+    CustodiedTree,
     TreeSnapshot,
+    capture_tree,
     changed_paths,
     extract_source_bundle,
+    materialize_custody,
     patch_digest,
-    snapshot_tree,
 )
 
 _PURPOSE = CredentialPurpose("codex.runner.auth")
@@ -107,6 +109,7 @@ class IsolatedCodexRunner(CodexRunnerPort):
                 task=task,
                 cancellation=cancellation,
             )
+            (platform_home / "auth.json").unlink(missing_ok=True)
             if len(evidence.final_response) > task.output_limit_bytes:
                 raise CodexRunnerViolation("CODEX-OUTPUT-LIMIT")
             materialize_output_artifact(
@@ -114,11 +117,14 @@ class IsolatedCodexRunner(CodexRunnerPort):
                 workspace=workspace,
                 final_response=evidence.final_response,
             )
-            after = snapshot_tree(workspace, byte_limit=task.workspace_limit_bytes)
+            custody = capture_tree(workspace, byte_limit=task.workspace_limit_bytes)
+            after = custody.snapshot
+            custody_workspace = private / "custody"
+            materialize_custody(custody, custody_workspace)
             paths = changed_paths(before, after, task)
             deliverable = validate_fixed_result(
                 task=task,
-                workspace=workspace,
+                workspace=custody_workspace,
                 changed_paths=paths,
             )
             validate_final_output(
@@ -127,7 +133,7 @@ class IsolatedCodexRunner(CodexRunnerPort):
                 expected_deliverable=deliverable,
             )
             artifacts = _custody_artifacts(
-                workspace=workspace,
+                custody=custody,
                 evidence=evidence,
                 before=before,
                 after=after,
@@ -411,7 +417,7 @@ def _base_instructions(task: CodexTaskManifest) -> str:
 
 def _custody_artifacts(
     *,
-    workspace: Path,
+    custody: CustodiedTree,
     evidence: SdkTurnEvidence,
     before: TreeSnapshot,
     after: TreeSnapshot,
@@ -466,13 +472,13 @@ def _custody_artifacts(
         evidence.transcript,
         evidence.final_response,
         patch,
-        _result_bundle(workspace),
+        _result_bundle(custody),
         diagnostics,
         validation,
     )
 
 
-def _result_bundle(workspace: Path) -> bytes:
+def _result_bundle(custody: CustodiedTree) -> bytes:
     output = io.BytesIO()
     try:
         with zipfile.ZipFile(
@@ -481,12 +487,11 @@ def _result_bundle(workspace: Path) -> bytes:
             compression=zipfile.ZIP_DEFLATED,
             compresslevel=9,
         ) as archive:
-            for path in sorted(item for item in workspace.rglob("*") if item.is_file()):
-                relative = path.relative_to(workspace).as_posix()
+            for relative, value in custody.files:
                 info = zipfile.ZipInfo(relative, date_time=(1980, 1, 1, 0, 0, 0))
                 info.compress_type = zipfile.ZIP_DEFLATED
                 info.external_attr = 0o100600 << 16
-                archive.writestr(info, path.read_bytes())
+                archive.writestr(info, value)
     except OSError, zipfile.BadZipFile:
         raise CodexRunnerViolation("CODEX-RESULT-CUSTODY") from None
     value = output.getvalue()

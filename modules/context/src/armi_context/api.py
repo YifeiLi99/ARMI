@@ -427,10 +427,11 @@ class ContextDialogueItem:
     timeline_item_id: UUID
     source_version: int
     speaker: str
-    text: str
+    text: str | None
     occurred_at: datetime
     modality: str
     speaker_label: str | None = None
+    artifact_ref: ArtifactRef | None = None
 
     def __post_init__(self) -> None:
         _require_uuid7(self.timeline_item_id)
@@ -438,9 +439,11 @@ class ContextDialogueItem:
             type(self.source_version) is not int
             or self.source_version <= 0
             or self.speaker not in {"creator", "other_human", "armi"}
-            or type(self.text) is not str
-            or not self.text.strip()
-            or len(self.text.encode("utf-8")) > 65536
+            or ((self.text is None) == (self.artifact_ref is None))
+            or (
+                self.text is not None
+                and (not self.text.strip() or len(self.text.encode("utf-8")) > 65536)
+            )
             or type(self.occurred_at) is not datetime
             or self.modality not in {"text", "live_voice"}
             or (
@@ -461,6 +464,10 @@ class ContextDialogueReadPort(Protocol):
         before_interaction_id: UUID | None = None,
         before_time: datetime | None = None,
         limit: int = 8,
+    ) -> tuple[ContextDialogueItem, ...]: ...
+
+    async def hydrate(
+        self, items: tuple[ContextDialogueItem, ...]
     ) -> tuple[ContextDialogueItem, ...]: ...
 
     async def recent_other_human_dialogue(

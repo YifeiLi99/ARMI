@@ -10,7 +10,11 @@ from armi_capability.api import (
     CapabilityAdmissionPort,
     CapabilityDispatchAuthorizationPort,
 )
-from armi_data_rights.api import DataRightsEffectGate, DataRightsParticipant
+from armi_data_rights.api import (
+    DataRightsEffectGate,
+    DataRightsFencePort,
+    DataRightsParticipant,
+)
 from armi_expression.api import (
     ExpressionEffectLinkPort,
     ExpressionEffectRegistrationPort,
@@ -18,7 +22,12 @@ from armi_expression.api import (
     ExpressionResponseAdmissionPort,
 )
 from armi_interaction.api import InteractionEffectRoutePort
-from armi_kernel.application import CreatorProjectionNotifier, DurableWorkPort
+from armi_kernel.application import (
+    CreatorProjectionNotifier,
+    DurableWorkPort,
+    ExecutionCustodyPort,
+    RuntimeFence,
+)
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
     RecoveryParticipant,
@@ -103,6 +112,10 @@ def bootstrap_effect_runtime(
     codex_artifacts: EffectCodexArtifactPort,
     routes: InteractionEffectRoutePort,
     interaction_delivery: EffectTimelinePort,
+    custody: ExecutionCustodyPort,
+    data_rights: DataRightsEffectGate,
+    data_rights_fence: DataRightsFencePort,
+    runtime_admission: Callable[[], RuntimeFence],
     wakeups: EffectWakeupPort,
     notifier: CreatorProjectionNotifier | None = None,
     diagnostic: Diagnostic | None = None,
@@ -121,6 +134,10 @@ def bootstrap_effect_runtime(
         codex_artifacts=codex_artifacts,
         routes=routes,
         interaction_delivery=interaction_delivery,
+        custody=custody,
+        data_rights=data_rights,
+        data_rights_fence=data_rights_fence,
+        runtime_admission=runtime_admission,
         wakeups=wakeups,
         notifier=notifier,
         diagnostic=diagnostic,

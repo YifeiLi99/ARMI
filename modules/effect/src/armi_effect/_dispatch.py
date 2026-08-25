@@ -9,6 +9,7 @@ from uuid import UUID, uuid7
 
 import rfc8785
 from armi_capability.api import CapabilityDispatchAuthorizationPort
+from armi_data_rights.api import DataRightsFence
 from armi_interaction.api import InteractionEffectRoutePort
 from armi_kernel.application import (
     AuditDraft,
@@ -16,8 +17,9 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
+    RuntimeFence,
 )
-from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
+from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId, TraceId
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
 from ._grant import coordinate_dispatch_boundary
@@ -49,6 +51,7 @@ class EffectDispatchSnapshot:
     attempt_no: int
     artifact_id: UUID
     scene_key: str
+    dispatch_deadline: Instant
     request: FrozenEffectRequest
 
 
@@ -77,7 +80,7 @@ class PostgreSQLEffectDispatchRepository:
                        effect.destination_party_id, effect.payload_artifact_id,
                        effect.payload_digest, effect.payload_bytes, effect.trace_id,
                        outbox.attempt_count, outbox.claim_token,
-                       effect.destination_kind
+                       effect.destination_kind, outbox.dispatch_deadline
                 FROM armi.effect_outbox_items AS outbox
                 JOIN armi.effects AS effect ON effect.effect_id = outbox.effect_id
                 WHERE outbox.status = 'ready'
@@ -175,7 +178,31 @@ class PostgreSQLEffectDispatchRepository:
             attempt_no,
             row[5],
             route.scene_key,
+            Instant(row[12]),
             request,
+        )
+
+    async def cancel_data_rights(
+        self, uow: PostgreSQLRuntimeUnitOfWork, snapshot: EffectDispatchSnapshot
+    ) -> None:
+        """Cancel a prepared attempt that may no longer cross dispatch."""
+
+        await self._settle(
+            uow,
+            snapshot,
+            observation_kind="query",
+            reliability="reliable",
+            observation_digest=_observation_digest(
+                snapshot, "query", "data_rights_blocked"
+            ),
+            receiver_ref=None,
+            receiver_external_ref=None,
+            status="cancelled",
+            verification="verified",
+            outbox_status="cancelled",
+            operation_status="effect_cancelled",
+            attempt_result="cancelled",
+            error_code=None,
         )
 
     async def settle_overdue_ready(self, uow: PostgreSQLRuntimeUnitOfWork) -> bool:
@@ -329,7 +356,8 @@ class PostgreSQLEffectDispatchRepository:
                        effect.subject_id, effect.scene_id,
                        effect.destination_party_id, effect.payload_digest,
                        effect.payload_bytes, effect.trace_id,
-                       effect.destination_kind, NULL::text, NULL::text, NULL::text
+                       effect.destination_kind, NULL::text, NULL::text, NULL::text,
+                       outbox.dispatch_deadline
                 FROM armi.effect_outbox_items AS outbox
                 JOIN armi.effects AS effect ON effect.effect_id = outbox.effect_id
                 JOIN armi.effect_attempts AS attempt
@@ -363,6 +391,7 @@ class PostgreSQLEffectDispatchRepository:
             int(row[3]),
             row[4],
             route.scene_key,
+            Instant(row[18]),
             FrozenEffectRequest(
                 EffectId(row[6]),
                 EffectAttemptId(row[7]),
@@ -401,7 +430,8 @@ class PostgreSQLEffectDispatchRepository:
                        effect.scene_id, effect.destination_party_id,
                        effect.payload_digest, effect.payload_bytes,
                        effect.trace_id,
-                       effect.destination_kind, NULL::text, NULL::text, NULL::text
+                       effect.destination_kind, NULL::text, NULL::text, NULL::text,
+                       outbox.dispatch_deadline
                 FROM armi.effect_outbox_items AS outbox
                 JOIN armi.effects AS effect ON effect.effect_id = outbox.effect_id
                 JOIN armi.effect_attempts AS attempt
@@ -435,6 +465,7 @@ class PostgreSQLEffectDispatchRepository:
             int(row[3]),
             row[4],
             route.scene_key,
+            Instant(row[17]),
             FrozenEffectRequest(
                 EffectId(row[6]),
                 EffectAttemptId(row[1]),
@@ -460,7 +491,12 @@ class PostgreSQLEffectDispatchRepository:
         )
 
     async def mark_dispatching(
-        self, uow: PostgreSQLRuntimeUnitOfWork, snapshot: EffectDispatchSnapshot
+        self,
+        uow: PostgreSQLRuntimeUnitOfWork,
+        snapshot: EffectDispatchSnapshot,
+        *,
+        runtime_fence: RuntimeFence,
+        data_rights_fence: DataRightsFence,
     ) -> bool:
         if snapshot.claim_owner is None:
             raise EffectViolation("EFFECT-CLAIM-STALE")
@@ -517,7 +553,12 @@ class PostgreSQLEffectDispatchRepository:
             await connection.execute(
                 """
                 UPDATE armi.effect_attempts AS attempt
-                SET dispatch_state = 'dispatching', dispatched_at = statement_timestamp()
+                SET dispatch_state = 'dispatching',
+                    dispatched_at = statement_timestamp(),
+                    dispatch_runtime_instance_id = %s,
+                    dispatch_runtime_fence_token = %s,
+                    data_rights_contact_generation = %s,
+                    data_rights_use_generation = %s
                 FROM armi.effect_outbox_items AS outbox
                 WHERE attempt.effect_attempt_id = %s
                   AND attempt.dispatch_state = 'prepared'
@@ -528,6 +569,10 @@ class PostgreSQLEffectDispatchRepository:
                 RETURNING attempt.effect_attempt_id
                 """,
                 (
+                    runtime_fence.runtime_instance_id.value,
+                    runtime_fence.fence_token,
+                    data_rights_fence.contact_generation,
+                    data_rights_fence.use_generation,
                     snapshot.request.attempt_id.value,
                     snapshot.outbox_id,
                     snapshot.claim_owner,

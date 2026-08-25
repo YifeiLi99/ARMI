@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import stat
 import zipfile
 from dataclasses import dataclass
@@ -32,6 +33,97 @@ class TreeSnapshot:
     digest: Digest
     files: tuple[tuple[str, str, int], ...]
     byte_size: int
+
+
+@dataclass(frozen=True, slots=True)
+class CustodiedTree:
+    snapshot: TreeSnapshot
+    files: tuple[tuple[str, bytes], ...]
+
+
+def capture_tree(root: Path, *, byte_limit: int) -> CustodiedTree:
+    """Read each regular file once and prove the enumerated tree stayed stable."""
+
+    _safe_directory(root)
+    try:
+        paths = tuple(
+            sorted(
+                (path for path in root.rglob("*") if not path.is_dir()),
+                key=lambda item: item.as_posix(),
+            )
+        )
+        expected_names = tuple(path.relative_to(root).as_posix() for path in paths)
+        frozen: list[tuple[str, bytes]] = []
+        records: list[tuple[str, str, int]] = []
+        total = 0
+        folded: set[str] = set()
+        for path, relative in zip(paths, expected_names, strict=True):
+            _safe_regular(path, "CODEX-WORKSPACE-PATH")
+            _archive_path(relative)
+            if relative.casefold() in folded:
+                raise CodexRunnerViolation("CODEX-WORKSPACE-PATH")
+            folded.add(relative.casefold())
+            before = path.stat(follow_symlinks=False)
+            try:
+                with path.open("rb") as stream:
+                    opened = os.fstat(stream.fileno())
+                    value = stream.read(byte_limit + 1)
+                    after_read = os.fstat(stream.fileno())
+            except OSError:
+                raise CodexRunnerViolation("CODEX-WORKSPACE-RACE") from None
+            after = path.stat(follow_symlinks=False)
+            identities = tuple(
+                (item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns)
+                for item in (before, opened, after_read, after)
+            )
+            if len(set(identities)) != 1:
+                raise CodexRunnerViolation("CODEX-WORKSPACE-RACE")
+            total += len(value)
+            if len(value) != before.st_size or total > byte_limit:
+                if total > byte_limit:
+                    raise CodexRunnerViolation("CODEX-WORKSPACE-LIMIT")
+                raise CodexRunnerViolation("CODEX-WORKSPACE-RACE")
+            digest = hashlib.sha256(value).hexdigest()
+            frozen.append((relative, value))
+            records.append((relative, digest, len(value)))
+        observed_names = tuple(
+            path.relative_to(root).as_posix()
+            for path in sorted(
+                (path for path in root.rglob("*") if not path.is_dir()),
+                key=lambda item: item.as_posix(),
+            )
+        )
+        if observed_names != expected_names:
+            raise CodexRunnerViolation("CODEX-WORKSPACE-RACE")
+    except CodexRunnerViolation:
+        raise
+    except OSError:
+        raise CodexRunnerViolation("CODEX-WORKSPACE-RACE") from None
+    canonical = rfc8785.dumps(
+        cast(
+            Any,
+            [
+                {"path": path, "sha256": digest, "bytes": size}
+                for path, digest, size in records
+            ],
+        )
+    )
+    return CustodiedTree(
+        TreeSnapshot(Digest.from_bytes(canonical), tuple(records), total),
+        tuple(frozen),
+    )
+
+
+def materialize_custody(tree: CustodiedTree, destination: Path) -> None:
+    try:
+        destination.mkdir(parents=True, exist_ok=False)
+        for relative, value in tree.files:
+            target = destination.joinpath(*PurePosixPath(relative).parts)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(value)
+            target.chmod(0o400)
+    except OSError:
+        raise CodexRunnerViolation("CODEX-RESULT-CUSTODY") from None
 
 
 def extract_source_bundle(
@@ -214,9 +306,12 @@ def _sha256_file(path: Path) -> str:
 
 
 __all__ = (
+    "CustodiedTree",
     "TreeSnapshot",
+    "capture_tree",
     "changed_paths",
     "extract_source_bundle",
+    "materialize_custody",
     "patch_digest",
     "snapshot_tree",
 )

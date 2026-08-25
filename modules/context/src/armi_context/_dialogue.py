@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 from uuid import UUID
 
@@ -170,16 +171,36 @@ class PostgreSQLContextDialogueRead:
             if speaker == "creator"
             else ArtifactPrivacyScope.PRIVATE
         )
-        text = await self._read_text(ref, expected_kind, expected_privacy)
+        self._validate_ref(ref, expected_kind, expected_privacy)
         return ContextDialogueItem(
             turn.timeline_item_id,
             turn.source_event_no,
             speaker,
-            text,
+            None,
             turn.occurred_at,
             modality,
             turn.speaker_label,
+            ref,
         )
+
+    async def hydrate(
+        self, items: tuple[ContextDialogueItem, ...]
+    ) -> tuple[ContextDialogueItem, ...]:
+        """Read dialogue bytes only after the owner snapshot transaction closed."""
+
+        hydrated: list[ContextDialogueItem] = []
+        for item in items:
+            if item.artifact_ref is None:
+                hydrated.append(item)
+                continue
+            hydrated.append(
+                replace(
+                    item,
+                    text=await self._read_text(item.artifact_ref),
+                    artifact_ref=None,
+                )
+            )
+        return tuple(hydrated)
 
     @staticmethod
     def _logical_kind(*, speaker: str, modality: str, human_speaker: str) -> str:
@@ -208,12 +229,12 @@ class PostgreSQLContextDialogueRead:
             raise ContextViolation("CTX-SOURCE-MISSING")
         return ref
 
-    async def _read_text(
-        self,
+    @staticmethod
+    def _validate_ref(
         ref: ArtifactRef,
         logical_kind: str,
         privacy: ArtifactPrivacyScope,
-    ) -> str:
+    ) -> None:
         if (
             ref.integrity_status is not ArtifactIntegrityStatus.VERIFIED
             or ref.media_type != "text/plain"
@@ -221,6 +242,8 @@ class PostgreSQLContextDialogueRead:
             or ref.privacy_scope is not privacy
         ):
             raise ContextViolation("CTX-SOURCE-READ-FAILED")
+
+    async def _read_text(self, ref: ArtifactRef) -> str:
         value = b""
         text = ""
         try:

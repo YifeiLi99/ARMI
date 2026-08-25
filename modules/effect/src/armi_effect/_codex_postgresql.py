@@ -5,7 +5,9 @@ from __future__ import annotations
 from uuid import UUID, uuid7
 
 from armi_capability.api import CapabilityDispatchAuthorizationPort
-from armi_kernel.contracts import Digest, TraceId
+from armi_data_rights.api import DataRightsFence
+from armi_kernel.application import RuntimeFence
+from armi_kernel.contracts import Digest, Instant, TraceId
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
 
 from ._grant import PostgreSQLEffectDispatchBoundary
@@ -33,7 +35,8 @@ class PostgreSQLEffectCodexLifecycle:
                 SELECT outbox.effect_outbox_item_id, effect.effect_id,
                        effect.action_intent_id, effect.action_intent_revision_id,
                        effect.subject_id, effect.scene_id, effect.context_party_id,
-                       effect.trace_id, outbox.claim_token
+                       effect.trace_id, outbox.claim_token,
+                       outbox.dispatch_deadline
                 FROM armi.effect_outbox_items AS outbox
                 JOIN armi.effects AS effect ON effect.effect_id=outbox.effect_id
                 WHERE outbox.status='ready'
@@ -88,12 +91,16 @@ class PostgreSQLEffectCodexLifecycle:
             row[5],
             row[6],
             TraceId(str(row[7])),
+            Instant(row[9]),
         )
 
     async def mark_codex_dispatching(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         claim: EffectCodexClaim,
+        *,
+        runtime_fence: RuntimeFence,
+        data_rights_fence: DataRightsFence,
     ) -> bool:
         boundary = await self._boundary.coordinate(
             unit_of_work,
@@ -113,11 +120,21 @@ class PostgreSQLEffectCodexLifecycle:
             await unit_of_work.transaction.execute(
                 """
                 UPDATE armi.effect_attempts SET dispatch_state='dispatching',
-                    dispatched_at=statement_timestamp()
+                    dispatched_at=statement_timestamp(),
+                    dispatch_runtime_instance_id=%s,
+                    dispatch_runtime_fence_token=%s,
+                    data_rights_contact_generation=%s,
+                    data_rights_use_generation=%s
                 WHERE effect_attempt_id=%s AND dispatch_state='prepared'
                 RETURNING effect_attempt_id
                 """,
-                (claim.attempt_id,),
+                (
+                    runtime_fence.runtime_instance_id.value,
+                    runtime_fence.fence_token,
+                    data_rights_fence.contact_generation,
+                    data_rights_fence.use_generation,
+                    claim.attempt_id,
+                ),
             )
         ).fetchone()
         return row is not None

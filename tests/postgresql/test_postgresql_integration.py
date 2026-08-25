@@ -62,6 +62,7 @@ from armi_capability.api import (
 from armi_codex.api import CreatorCodexTaskCommand
 from armi_cognition.api import CognitionSchemaDocument
 from armi_context.api import EMBEDDING_BINDING_ID
+from armi_data_rights.api import DataRightsFence
 from armi_effect.api import EffectStatus
 from armi_expression.api import CreatorReplyDraft, ResponseAdmissionStatus
 from armi_interaction.api import (
@@ -648,7 +649,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             environment_id=fixture.environment_id,
         )
         self.assertEqual(installed.status, "current")
-        self.assertEqual(installed.table_count, 105)
+        self.assertEqual(installed.table_count, 107)
         self.assertEqual(installed.current_revision, "0000")
         self.assertEqual(installed.head_revision, "0000")
         status = PostgreSQLSchemaGateway().status(
@@ -6677,6 +6678,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         await dispatch_repository.mark_dispatching(
                             unit_of_work,
                             dispatch_snapshot,
+                            runtime_fence=fence,
+                            data_rights_fence=DataRightsFence(
+                                dispatch_snapshot.request.destination_party_id,
+                                1,
+                                1,
+                            ),
                         )
                     response_timeline = PostgreSQLInteractionPerception()
                     adapter = PostgreSQLLocalInbox(response_factory)

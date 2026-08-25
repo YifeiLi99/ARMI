@@ -9,8 +9,9 @@ from enum import StrEnum
 from typing import Literal, Protocol, cast, runtime_checkable
 from uuid import UUID
 
+from armi_data_rights.api import DataRightsFence
 from armi_expression.api import ResponseAdmissionPort
-from armi_kernel.application import ArtifactPort, WorkRecord
+from armi_kernel.application import ArtifactPort, RuntimeFence, WorkRecord
 from armi_kernel.contracts import Digest, Instant, TraceId
 from armi_runtime_foundation import (
     PostgreSQLAdminTransaction,
@@ -469,6 +470,7 @@ class EffectCodexClaim:
     scene_id: UUID
     context_party_id: UUID
     trace_id: TraceId
+    dispatch_deadline: Instant
 
 
 @runtime_checkable
@@ -484,6 +486,9 @@ class EffectCodexLifecyclePort(Protocol):
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         claim: EffectCodexClaim,
+        *,
+        runtime_fence: RuntimeFence,
+        data_rights_fence: DataRightsFence,
     ) -> bool: ...
 
     async def heartbeat_codex(

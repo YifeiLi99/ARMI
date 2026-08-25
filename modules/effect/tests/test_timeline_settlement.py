@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock, Mock
@@ -57,7 +57,16 @@ def _snapshot() -> EffectDispatchSnapshot:
         len(content),
         TraceId(uuid7().hex),
     )
-    return EffectDispatchSnapshot(uuid7(), uuid7(), 1, 1, uuid7(), "default", request)
+    return EffectDispatchSnapshot(
+        uuid7(),
+        uuid7(),
+        1,
+        1,
+        uuid7(),
+        "default",
+        Instant(datetime.now(UTC) + timedelta(minutes=5)),
+        request,
+    )
 
 
 def _receipt() -> EffectAdapterReceipt:
@@ -95,7 +104,14 @@ async def test_verified_receipt_records_every_party_destination(
         TraceId(uuid7().hex),
     )
     snapshot = EffectDispatchSnapshot(
-        uuid7(), uuid7(), 1, 1, uuid7(), "default", request
+        uuid7(),
+        uuid7(),
+        1,
+        1,
+        uuid7(),
+        "default",
+        Instant(datetime.now(UTC) + timedelta(minutes=5)),
+        request,
     )
     receipt = EffectAdapterReceipt(
         EffectDeliveryId(uuid7()),

@@ -14,6 +14,7 @@ from armi_attention.api import (
     OpportunityAdmissionStatus,
     OpportunityPurpose,
 )
+from armi_data_rights.api import DataRightsFence
 from armi_effect.api import EffectCodexClaim, EffectCodexLifecyclePort
 from armi_evidence.api import (
     EvidenceDraft,
@@ -40,8 +41,9 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
+    RuntimeFence,
 )
-from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
+from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId, TraceId
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
 from ._delegation_contract import (
@@ -78,6 +80,7 @@ class CodexDispatchSnapshot:
     validator_id: str
     deadline_seconds: int
     trace_id: TraceId
+    dispatch_deadline: Instant
 
 
 class PostgreSQLCodexDelegationRepository:
@@ -407,12 +410,23 @@ class PostgreSQLCodexDelegationRepository:
             source.validator_id,
             source.deadline_seconds,
             claim.trace_id,
+            claim.dispatch_deadline,
         )
 
     async def mark_dispatching(
-        self, uow: PostgreSQLRuntimeUnitOfWork, snapshot: CodexDispatchSnapshot
+        self,
+        uow: PostgreSQLRuntimeUnitOfWork,
+        snapshot: CodexDispatchSnapshot,
+        *,
+        runtime_fence: RuntimeFence,
+        data_rights_fence: DataRightsFence,
     ) -> bool:
-        return await self._effect.mark_codex_dispatching(uow, _effect_claim(snapshot))
+        return await self._effect.mark_codex_dispatching(
+            uow,
+            _effect_claim(snapshot),
+            runtime_fence=runtime_fence,
+            data_rights_fence=data_rights_fence,
+        )
 
     async def heartbeat(
         self, uow: PostgreSQLRuntimeUnitOfWork, snapshot: CodexDispatchSnapshot
@@ -599,6 +613,7 @@ def _effect_claim(snapshot: CodexDispatchSnapshot) -> EffectCodexClaim:
         snapshot.scene_id,
         snapshot.creator_party_id,
         snapshot.trace_id,
+        snapshot.dispatch_deadline,
     )
 
 

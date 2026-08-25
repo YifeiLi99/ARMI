@@ -3100,6 +3100,9 @@ ALTER TABLE ONLY armi.effect_registrations
 ALTER TABLE ONLY armi.effect_attempts
     ADD CONSTRAINT effect_attempts_effect_id_fkey FOREIGN KEY (effect_id) REFERENCES armi.effects(effect_id);
 
+ALTER TABLE ONLY armi.effect_attempts
+    ADD CONSTRAINT effect_attempts_dispatch_runtime_instance_id_fkey FOREIGN KEY (dispatch_runtime_instance_id) REFERENCES armi.runtime_instances(runtime_instance_id);
+
 --
 -- Name: effect_observations effect_observations_attempt_owner_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --

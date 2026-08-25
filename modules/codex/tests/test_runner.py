@@ -15,10 +15,14 @@ from armi_codex._custody_codec import (
     decode_custodied_result,
     encode_custodied_result,
 )
-from armi_codex._runner import CodexRunArtifactSet, IsolatedCodexRunner
+from armi_codex._runner import (
+    CodexRunArtifactSet,
+    IsolatedCodexRunner,
+    _result_bundle,
+)
 from armi_codex._sdk_codec import SdkTurnEvidence
 from armi_codex._subprocess_client import _decode_failure
-from armi_codex._workspace import changed_paths, snapshot_tree
+from armi_codex._workspace import capture_tree, changed_paths, snapshot_tree
 from armi_codex.api import (
     CodexExecutionId,
     CodexModel,
@@ -36,6 +40,18 @@ from armi_kernel.application import (
     SecretHandle,
 )
 from armi_kernel.contracts import Digest
+
+
+def test_result_bundle_uses_the_single_custodied_byte_set(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    target = workspace / "result.md"
+    target.write_bytes(b"captured\n")
+    custody = capture_tree(workspace, byte_limit=1024)
+    target.write_bytes(b"late mutation\n")
+
+    with zipfile.ZipFile(runner_module.io.BytesIO(_result_bundle(custody))) as bundle:
+        assert bundle.read("result.md") == b"captured\n"
 
 
 class _Handle:

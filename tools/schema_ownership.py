@@ -95,6 +95,7 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "external_evidence": TableOwnership("evidence"),
     # Attention and context.
     "opportunities": TableOwnership("attention"),
+    "cognitive_context_dependencies": TableOwnership("context"),
     "cognitive_context_items": TableOwnership("context"),
     "context_embedding_attempts": TableOwnership("context"),
     "context_embedding_coverage": TableOwnership("context"),
@@ -165,6 +166,7 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "codex_task_sources": TableOwnership("codex"),
     "codex_verification_results": TableOwnership("codex"),
     "creator_exports": TableOwnership("data-rights"),
+    "data_rights_party_fences": TableOwnership("data-rights"),
     "deletion_items": TableOwnership("data-rights"),
     "deletion_order_retry_attempts": TableOwnership("data-rights"),
     "deletion_orders": TableOwnership("data-rights"),
