@@ -12,6 +12,10 @@ from armi_artifact_store.content_store import (
 from armi_kernel.application import (
     ArtifactViolation,
     CredentialPurpose,
+    ExecutionCustodyMode,
+    ExecutionCustodyRequest,
+    ExecutionCustodyScope,
+    ExecutionCustodyScopeKind,
 )
 
 from armi_runtime.adapters.persistence.database_maintenance import (
@@ -32,7 +36,11 @@ from .artifacts import (
     ContentAddressedArtifactCoordinator,
 )
 from .configuration import ConfigurationViolation
-from .database import MIGRATOR_LOCATOR_NAME, RUNTIME_LOCATOR_NAME
+from .database import (
+    MIGRATOR_LOCATOR_NAME,
+    RUNTIME_LOCATOR_NAME,
+    compose_execution_custody,
+)
 from .environment import PreparedEnvironment
 from .runtime_errors import RuntimeViolation
 from .runtime_process import RuntimeProcessManager
@@ -105,39 +113,47 @@ async def run_artifact_retention(
                 prepared.root,
                 str(prepared.effective.config.environment.environment_id),
             )
-            with process.exclusive_environment():
-                async with factory.unit_of_work(read_only=True) as unit_of_work:
-                    await unit_of_work.transaction.execute(
-                        "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
-                        (
-                            "armi.runtime-authority:"
-                            + str(prepared.effective.config.environment.environment_id),
-                        ),
-                    )
-                    await PostgreSQLMaintenanceGuard().require_runtime_stopped(
-                        unit_of_work
-                    )
-                    refs = await bootstrap_artifact_catalog().all_refs(unit_of_work)
-                    registered = {ref.content_digest.value: ref for ref in refs}
-                    result = await storage.cleanup(
-                        cutoff=datetime.now(UTC)
-                        - timedelta(
-                            seconds=prepared.effective.config.artifacts.orphan_grace_seconds
-                        ),
-                        registered=registered,
-                    )
-                    return ArtifactCleanupReport(
-                        schema_version="armi.artifact-cleanup.v1",
-                        removed_counts=result.removed_counts,
-                        removed_bytes=result.removed_bytes,
-                        remaining_counts=tuple(
-                            sorted(
-                                Counter(
-                                    item.category for item in result.remaining
-                                ).items()
+            custody = compose_execution_custody(prepared)
+            await custody.open()
+            try:
+                request = ExecutionCustodyRequest(
+                    ExecutionCustodyScope(
+                        ExecutionCustodyScopeKind.RUNTIME_AUTHORITY,
+                        prepared.effective.config.environment.environment_id,
+                    ),
+                    ExecutionCustodyMode.EXCLUSIVE,
+                )
+                with process.exclusive_environment():
+                    async with custody.hold((request,), deadline_at=None):
+                        async with factory.unit_of_work(read_only=True) as unit_of_work:
+                            await PostgreSQLMaintenanceGuard().require_runtime_stopped(
+                                unit_of_work
                             )
-                        ),
-                    )
+                            refs = await bootstrap_artifact_catalog().all_refs(
+                                unit_of_work
+                            )
+                        registered = {ref.content_digest.value: ref for ref in refs}
+                        result = await storage.cleanup(
+                            cutoff=datetime.now(UTC)
+                            - timedelta(
+                                seconds=prepared.effective.config.artifacts.orphan_grace_seconds
+                            ),
+                            registered=registered,
+                        )
+                        return ArtifactCleanupReport(
+                            schema_version="armi.artifact-cleanup.v1",
+                            removed_counts=result.removed_counts,
+                            removed_bytes=result.removed_bytes,
+                            remaining_counts=tuple(
+                                sorted(
+                                    Counter(
+                                        item.category for item in result.remaining
+                                    ).items()
+                                )
+                            ),
+                        )
+            finally:
+                await custody.close()
         return await coordinator.report_orphans()
     except ArtifactViolation as error:
         code = (

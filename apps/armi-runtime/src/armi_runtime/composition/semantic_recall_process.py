@@ -28,6 +28,7 @@ from armi_context.api import (
     EMBEDDING_QUERY_INSTRUCTION,
 )
 
+from .process_identity import ManagedProcessIdentity, ManagedProcessState
 from .runtime_errors import RuntimeViolation
 
 LLAMA_CPP_VERSION = "b10218"
@@ -45,7 +46,7 @@ _MODEL_URL = (
 _RELEASE_BASE = (
     f"https://github.com/ggml-org/llama.cpp/releases/download/{LLAMA_CPP_VERSION}"
 )
-_SCHEMA = "armi.semantic-recall-service.v1"
+_SCHEMA = "armi.semantic-recall-service.v2"
 _INSTALL_SCHEMA = "armi.semantic-recall-install.v1"
 _PROFILE_SCHEMA = "armi.semantic-recall-profile.v2"
 _START_TIMEOUT_SECONDS = 30.0
@@ -467,6 +468,11 @@ class SemanticRecallProcessManager:
             {
                 "schema_version": _SCHEMA,
                 "pid": process.pid,
+                "process_identity": ManagedProcessIdentity.capture(
+                    process.pid,
+                    environment_identity=self._environment_identity(),
+                    incarnation=1,
+                ).to_wire(),
                 "port": port,
                 "model_id": EMBEDDING_MODEL_ID,
                 "gpu_layers": layers,
@@ -538,12 +544,14 @@ class SemanticRecallProcessManager:
         state = _read_json(state_path, "SEMANTIC-RECALL-STATE")
         pid = state.get("pid")
         port = state.get("port")
+        identity = self._service_identity(state)
         try:
             api_key = (self._run_root / "api-key").read_text(encoding="ascii")
         except OSError:
             api_key = ""
         if (
-            type(pid) is int
+            identity.inspect() is ManagedProcessState.MATCHES
+            and type(pid) is int
             and type(port) is int
             and api_key
             and self._healthy(port, api_key)
@@ -567,16 +575,17 @@ class SemanticRecallProcessManager:
             return {"status": "stopped"}
         state = _read_json(state_path, "SEMANTIC-RECALL-STATE")
         pid = state.get("pid")
-        port = state.get("port")
-        try:
-            api_key = (self._run_root / "api-key").read_text(encoding="ascii")
-        except OSError:
-            api_key = ""
-        owned_process_is_healthy = (
-            type(port) is int and bool(api_key) and self._healthy(port, api_key)
-        )
-        if type(pid) is int and pid > 0 and owned_process_is_healthy:
-            owned_port = cast(int, port)
+        identity = self._service_identity(state)
+        process_state = identity.inspect()
+        if process_state is ManagedProcessState.ABSENT:
+            self._clear_run_files()
+            return {"status": "stopped", "pid": pid}
+        if process_state is not ManagedProcessState.MATCHES:
+            raise RuntimeViolation(
+                "SEMANTIC-RECALL-PROCESS-IDENTITY",
+                "the exact semantic recall process identity is unavailable",
+            )
+        if type(pid) is int and pid > 0:
             try:
                 subprocess.run(
                     ("taskkill.exe", "/PID", str(pid), "/T", "/F"),
@@ -591,15 +600,39 @@ class SemanticRecallProcessManager:
                     "local embedding service could not be stopped",
                 ) from exc
             deadline = time.monotonic() + 10
-            while time.monotonic() < deadline and self._healthy(owned_port, api_key):
+            while (
+                time.monotonic() < deadline
+                and identity.inspect() is ManagedProcessState.MATCHES
+            ):
                 time.sleep(0.05)
-            if self._healthy(owned_port, api_key):
+            if identity.inspect() is ManagedProcessState.MATCHES:
                 raise RuntimeViolation(
                     "SEMANTIC-RECALL-STOP",
                     "local embedding service did not stop cleanly",
                 )
         self._clear_run_files()
         return {"status": "stopped", "pid": pid}
+
+    def _service_identity(self, state: dict[str, Any]) -> ManagedProcessIdentity:
+        try:
+            if state.get("schema_version") != _SCHEMA:
+                raise ValueError
+            identity = ManagedProcessIdentity.from_wire(state.get("process_identity"))
+        except ValueError:
+            raise RuntimeViolation(
+                "SEMANTIC-RECALL-PROCESS-IDENTITY",
+                "semantic recall process identity is invalid",
+            ) from None
+        if identity.pid != state.get("pid"):
+            raise RuntimeViolation(
+                "SEMANTIC-RECALL-PROCESS-IDENTITY",
+                "semantic recall process identity is invalid",
+            )
+        return identity
+
+    def _environment_identity(self) -> str:
+        value = os.path.normcase(os.fspath(self._environment_root)).encode("utf-8")
+        return f"sha256:{hashlib.sha256(value).hexdigest()}"
 
     def endpoint(self) -> SemanticRecallEndpoint:
         state = self.status()

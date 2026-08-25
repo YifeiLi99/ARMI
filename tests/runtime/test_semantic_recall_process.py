@@ -7,9 +7,11 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+import psutil
 import pytest
 from armi_context.api import EMBEDDING_QUERY_INSTRUCTION
 from armi_runtime.composition import semantic_recall_process
+from armi_runtime.composition.process_identity import ManagedProcessIdentity
 from armi_runtime.composition.runtime_errors import RuntimeViolation
 from armi_runtime.composition.semantic_recall_process import (
     SemanticRecallEndpoint,
@@ -134,6 +136,30 @@ def test_start_already_running_crash_restart_and_stop(
     )
     monkeypatch.setattr(subprocess, "Popen", Process)
     monkeypatch.setattr(subprocess, "run", stop_process)
+
+    def capture_identity(
+        cls: type[ManagedProcessIdentity],
+        pid: int,
+        *,
+        environment_identity: str,
+        incarnation: int,
+        runtime_instance_id: str | None = None,
+    ) -> ManagedProcessIdentity:
+        if not running:
+            raise psutil.NoSuchProcess(pid)
+        return cls(
+            pid,
+            1,
+            "llama-server.exe",
+            "sha256:" + "a" * 64,
+            environment_identity,
+            incarnation,
+            runtime_instance_id,
+        )
+
+    monkeypatch.setattr(
+        ManagedProcessIdentity, "capture", classmethod(capture_identity)
+    )
     manager = SemanticRecallProcessManager(root, enabled=True)
 
     started = manager.start()

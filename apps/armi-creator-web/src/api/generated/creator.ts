@@ -2999,6 +2999,12 @@ export interface components {
       | "blocked";
     /** RuntimeStatusResponse */
     RuntimeStatusResponse: {
+      /**
+       * Authority State
+       * @enum {string}
+       */
+      authority_state:
+        "inactive" | "active" | "suspended" | "draining" | "lost";
       /** Components */
       components: components["schemas"]["RuntimeComponentHealthResponse"][];
       /**

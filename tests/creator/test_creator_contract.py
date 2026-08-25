@@ -43,6 +43,7 @@ def runtime_status() -> dict[str, object]:
         "environment_id": ENVIRONMENT_ID,
         "runtime_state": "starting",
         "readiness": "not_ready",
+        "authority_state": "active",
         "reason_codes": ["RUNTIME_RECOVERING"],
         "components": [
             {"component": "database", "state": "ready", "reason_codes": []},

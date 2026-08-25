@@ -10,11 +10,45 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import psutil
+from armi_runtime.composition.process_identity import ManagedProcessIdentity
 from armi_runtime.composition.runtime_errors import RuntimeViolation
 from armi_runtime.composition.runtime_process import RuntimeProcessManager
 
 
 class RuntimeProcessManagerTests(unittest.TestCase):
+    def setUp(self) -> None:
+        original = ManagedProcessIdentity.capture.__func__
+
+        def capture(
+            cls: type[ManagedProcessIdentity],
+            pid: int,
+            *,
+            environment_identity: str,
+            incarnation: int,
+            runtime_instance_id: str | None = None,
+        ) -> ManagedProcessIdentity:
+            if pid != 1234:
+                return original(
+                    cls,
+                    pid,
+                    environment_identity=environment_identity,
+                    incarnation=incarnation,
+                    runtime_instance_id=runtime_instance_id,
+                )
+            return cls(
+                pid,
+                1,
+                "pythonw.exe",
+                "sha256:" + "a" * 64,
+                environment_identity,
+                incarnation,
+                runtime_instance_id,
+            )
+
+        patcher = patch.object(ManagedProcessIdentity, "capture", classmethod(capture))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_status_reports_stopped_without_process_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

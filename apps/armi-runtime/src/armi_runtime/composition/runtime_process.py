@@ -21,10 +21,11 @@ import psutil
 from armi_interaction.api import CreatorInputCommand, CreatorInputViolation
 from armi_kernel.contracts import ContractViolation, IdempotencyKey, TraceId
 
+from .process_identity import ManagedProcessIdentity, ManagedProcessState
 from .runtime_errors import RuntimeViolation
 
 _CONTROL_SCHEMA = "armi.runtime-admin-control.v1"
-_PROCESS_SCHEMA = "armi.runtime-process.v1"
+_PROCESS_SCHEMA = "armi.runtime-process.v2"
 _MAX_REQUEST = 64 * 1024
 _MAX_RESPONSE = 1024 * 1024
 _START_TIMEOUT_SECONDS = 30.0
@@ -331,6 +332,11 @@ class RuntimeProcessManager:
                     "runtime process could not be started",
                 ) from exc
             try:
+                process_identity = ManagedProcessIdentity.capture(
+                    process.pid,
+                    environment_identity=self._environment_id,
+                    incarnation=self._incarnation,
+                )
                 self._atomic_json(
                     self._state_path,
                     {
@@ -338,6 +344,7 @@ class RuntimeProcessManager:
                         "environment_id": self._environment_id,
                         "incarnation": self._incarnation,
                         "pid": process.pid,
+                        "process_identity": process_identity.to_wire(),
                         "started_at": datetime.now(UTC)
                         .isoformat()
                         .replace("+00:00", "Z"),
@@ -395,9 +402,18 @@ class RuntimeProcessManager:
         )
         state = self._read_optional(self._state_path, "CLI-RUNTIME-STATE")
         pid = self._pid_from(descriptor) or self._pid_from(state)
+        process_state = self._managed_process_state(state)
         if descriptor is None:
-            if pid is not None and _pid_is_alive(pid):
+            if process_state is ManagedProcessState.MATCHES:
                 return {"status": "starting", "pid": pid}
+            if process_state in {
+                ManagedProcessState.MISMATCH,
+                ManagedProcessState.UNAVAILABLE,
+            }:
+                raise RuntimeViolation(
+                    "CLI-RUNTIME-START-OUTCOME-UNKNOWN",
+                    "the managed Runtime process identity cannot be proven",
+                )
             manifest_path = self._control_root / "runtime-control.manifest.json"
             if (
                 state is None
@@ -408,12 +424,14 @@ class RuntimeProcessManager:
                 if age <= _START_TIMEOUT_SECONDS:
                     return {"status": "starting", "pid": None}
             return {"status": "stopped", "pid": pid}
-        try:
-            response = self._send_control("status")
-        except RuntimeViolation:
-            if pid is not None and not _pid_is_alive(pid):
-                return {"status": "stopped", "pid": pid}
-            raise
+        if process_state is ManagedProcessState.ABSENT:
+            return {"status": "stopped", "pid": pid}
+        if process_state is not ManagedProcessState.MATCHES:
+            raise RuntimeViolation(
+                "CLI-RUNTIME-START-OUTCOME-UNKNOWN",
+                "the managed Runtime process identity cannot be proven",
+            )
+        response = self._send_control("status")
         return {
             "status": "running",
             "pid": pid,
@@ -725,6 +743,31 @@ class RuntimeProcessManager:
             return None
         pid = int(value["pid"])
         return pid if pid > 0 else None
+
+    def _managed_process_state(
+        self, state: dict[str, Any] | None
+    ) -> ManagedProcessState:
+        if state is None:
+            return ManagedProcessState.ABSENT
+        try:
+            if (
+                state.get("schema_version") != _PROCESS_SCHEMA
+                or state.get("environment_id") != self._environment_id
+                or state.get("incarnation") != self._incarnation
+            ):
+                raise ValueError
+            identity = ManagedProcessIdentity.from_wire(state.get("process_identity"))
+        except ValueError:
+            raise RuntimeViolation(
+                "CLI-RUNTIME-START-OUTCOME-UNKNOWN",
+                "the managed Runtime process identity is invalid",
+            ) from None
+        if identity.pid != state.get("pid"):
+            raise RuntimeViolation(
+                "CLI-RUNTIME-START-OUTCOME-UNKNOWN",
+                "the managed Runtime process identity is invalid",
+            )
+        return identity.inspect()
 
     @staticmethod
     def _read_optional(path: Path, code: str) -> dict[str, Any] | None:

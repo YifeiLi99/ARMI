@@ -5338,6 +5338,17 @@
       "RuntimeStatusResponse": {
         "additionalProperties": false,
         "properties": {
+          "authority_state": {
+            "enum": [
+              "inactive",
+              "active",
+              "suspended",
+              "draining",
+              "lost"
+            ],
+            "title": "Authority State",
+            "type": "string"
+          },
           "components": {
             "items": {
               "$ref": "#/components/schemas/RuntimeComponentHealthResponse"
@@ -5382,6 +5393,7 @@
           "environment_id",
           "runtime_state",
           "readiness",
+          "authority_state",
           "reason_codes",
           "components",
           "observed_at"
