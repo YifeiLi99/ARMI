@@ -205,6 +205,29 @@ class PostgreSQLEffectDispatchRepository:
             error_code=None,
         )
 
+    async def cancel_policy(
+        self, uow: PostgreSQLRuntimeUnitOfWork, snapshot: EffectDispatchSnapshot
+    ) -> None:
+        """Cancel a prepared Effect before the external call boundary."""
+
+        await self._settle(
+            uow,
+            snapshot,
+            observation_kind="query",
+            reliability="reliable",
+            observation_digest=_observation_digest(
+                snapshot, "query", "configuration_policy_blocked"
+            ),
+            receiver_ref=None,
+            receiver_external_ref=None,
+            status="cancelled",
+            verification="verified",
+            outbox_status="cancelled",
+            operation_status="effect_cancelled",
+            attempt_result="cancelled",
+            error_code="EFFECT-QQ-POLICY-NOT-ALLOWED",
+        )
+
     async def settle_overdue_ready(self, uow: PostgreSQLRuntimeUnitOfWork) -> bool:
         """Close one ready Effect whose dispatch deadline passed before dispatch."""
 
@@ -216,7 +239,7 @@ class PostgreSQLEffectDispatchRepository:
                        effect.effect_id, effect.subject_id, effect.purpose,
                        effect.trace_id, effect.authorization_basis,
                        effect.policy_decision_id, effect.action_intent_revision_id,
-                       effect.destination_kind
+                       effect.destination_kind, outbox.claim_token
                 FROM armi.effect_outbox_items AS outbox
                 JOIN armi.effects AS effect ON effect.effect_id=outbox.effect_id
                 WHERE outbox.status='ready'
@@ -250,6 +273,7 @@ class PostgreSQLEffectDispatchRepository:
         attempt_id = uuid7()
         observation_id = uuid7()
         attempt_no = int(row[1]) + 1
+        claim_token = int(row[10]) + 1
         error_code = None if cancelled else "EFFECT-DISPATCH-DEADLINE"
         result_status = "cancelled" if cancelled else "failed"
         effect_status = "cancelled" if cancelled else "failed"
@@ -271,7 +295,7 @@ class PostgreSQLEffectDispatchRepository:
                 INSERT INTO armi.effect_attempts (
                     effect_attempt_id,effect_id,attempt_no,adapter_binding,
                     claim_token,dispatch_state,result_status,error_code,settled_at)
-                VALUES (%s,%s,%s,%s,1,'settled',%s,%s,statement_timestamp())
+                VALUES (%s,%s,%s,%s,%s,'settled',%s,%s,statement_timestamp())
                 RETURNING settled_at
                 """,
                 (
@@ -279,6 +303,7 @@ class PostgreSQLEffectDispatchRepository:
                     row[2],
                     attempt_no,
                     adapter_binding,
+                    claim_token,
                     result_status,
                     error_code,
                 ),
@@ -291,10 +316,21 @@ class PostgreSQLEffectDispatchRepository:
             """
             INSERT INTO armi.effect_observations (
                 effect_observation_id,effect_id,effect_attempt_id,
-                observation_kind,reliability,observation_digest)
-            VALUES (%s,%s,%s,'rejection','reliable',%s)
+                observation_kind,reliability,observation_digest,
+                conclusion,reason_code,evidence_kind,evidence_digest,
+                source_identity)
+            VALUES (%s,%s,%s,'rejection','reliable',%s,%s,%s,
+                    'owner_state',%s,'effect-overdue')
             """,
-            (observation_id, row[2], attempt_id, digest.value),
+            (
+                observation_id,
+                row[2],
+                attempt_id,
+                digest.value,
+                effect_status,
+                error_code or "POLICY-GRANT-REVOKED",
+                digest.value,
+            ),
         )
         await connection.execute(
             """
@@ -316,11 +352,19 @@ class PostgreSQLEffectDispatchRepository:
         await connection.execute(
             """
             UPDATE armi.effect_outbox_items SET status=%s,
-                attempt_count=%s,claim_token=1,last_error_code=%s,
+                attempt_count=%s,claim_token=%s,last_error_code=%s,
                 cancelled_at=CASE WHEN %s='cancelled' THEN %s ELSE NULL END
             WHERE effect_outbox_item_id=%s AND status='ready'
             """,
-            (outbox_status, attempt_no, error_code, outbox_status, settled_at, row[0]),
+            (
+                outbox_status,
+                attempt_no,
+                claim_token,
+                error_code,
+                outbox_status,
+                settled_at,
+                row[0],
+            ),
         )
         await uow.audit.append(
             AuditDraft(
@@ -885,6 +929,12 @@ class PostgreSQLEffectDispatchRepository:
             "reliable",
             observation_digest,
             None,
+            None,
+            "failed" if was_dispatched else "cancelled",
+            "EFFECT-RECEIVER-NOT-DELIVERED"
+            if was_dispatched
+            else "EFFECT-PREDISPATCH-CANCELLED",
+            "owner_state",
         )
         if was_dispatched:
             await connection.execute(
@@ -948,6 +998,10 @@ class PostgreSQLEffectDispatchRepository:
             "reliable",
             observation_digest,
             None,
+            None,
+            "cancelled",
+            reason_code,
+            "owner_state",
         )
         attempt = await (
             await connection.execute(
@@ -1043,6 +1097,19 @@ class PostgreSQLEffectDispatchRepository:
             observation_digest,
             receiver_ref,
             receiver_external_ref,
+            status,
+            error_code
+            or (
+                "EFFECT-DELIVERY-CONFIRMED"
+                if status == "completed"
+                else "EFFECT-RESULT-UNKNOWN"
+            ),
+            {
+                "receipt": "adapter_receipt",
+                "rejection": "adapter_rejection",
+                "ambiguous": "adapter_ambiguous",
+                "query": "owner_state",
+            }[observation_kind],
         )
         attempt = await (
             await connection.execute(
@@ -1061,13 +1128,16 @@ class PostgreSQLEffectDispatchRepository:
         await connection.execute(
             """
             UPDATE armi.effects SET status=%s, verification_status=%s,
-                current_observation_id=%s, settled_at=%s
+                current_observation_id=%s, settled_at=%s,
+                cancelled_at=CASE WHEN %s='cancelled' THEN %s ELSE NULL END
             WHERE effect_id=%s AND current_attempt_id=%s AND status='dispatching'
             """,
             (
                 status,
                 verification,
                 observation_id,
+                attempt[0],
+                status,
                 attempt[0],
                 snapshot.request.effect_id.value,
                 snapshot.request.attempt_id.value,
@@ -1138,6 +1208,14 @@ class PostgreSQLEffectDispatchRepository:
             observation_digest,
             receiver_ref,
             receiver_external_ref,
+            status,
+            error_code
+            or (
+                "EFFECT-DELIVERY-CONFIRMED"
+                if status == "completed"
+                else "EFFECT-DELIVERY-NOT-CONFIRMED"
+            ),
+            "adapter_receipt" if observation_kind == "receipt" else "owner_state",
         )
         effect = await (
             await connection.execute(
@@ -1210,14 +1288,19 @@ class PostgreSQLEffectDispatchRepository:
         digest: Digest,
         receiver_ref: UUID | None,
         receiver_external_ref: str | None = None,
+        conclusion: str = "unknown",
+        reason_code: str = "EFFECT-RESULT-UNKNOWN",
+        evidence_kind: str = "inconclusive",
     ) -> None:
         await connection.execute(
             """
             INSERT INTO armi.effect_observations (
                 effect_observation_id, effect_id, effect_attempt_id,
                 observation_kind, reliability, receiver_ref,
-                receiver_external_ref, observation_digest)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                receiver_external_ref, observation_digest, conclusion,
+                reason_code, evidence_kind, evidence_ref, evidence_digest,
+                source_identity)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """,
             (
                 observation_id,
@@ -1228,6 +1311,12 @@ class PostgreSQLEffectDispatchRepository:
                 receiver_ref,
                 receiver_external_ref,
                 digest.value,
+                conclusion,
+                reason_code,
+                evidence_kind,
+                receiver_external_ref,
+                digest.value,
+                _adapter_binding(snapshot.request.destination_kind),
             ),
         )
 

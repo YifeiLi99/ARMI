@@ -22,6 +22,9 @@ class RoutedActionAdapter(ActionAdapterPort):
             raise ValueError("effect adapter route is invalid")
         self._routes = MappingProxyType(values)
 
+    def validate(self, request: FrozenEffectRequest) -> None:
+        self._adapter(request).validate(request)
+
     async def dispatch(
         self, request: FrozenEffectRequest, payload: bytes
     ) -> EffectAdapterReceipt:

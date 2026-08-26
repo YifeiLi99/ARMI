@@ -468,6 +468,9 @@ class AdminProtocolTests(unittest.TestCase):
             {
                 "correction_kind": "reconcile_unknown_creator_effect",
                 "effect_id": ENVIRONMENT_ID,
+                "conclusion": "still_unknown",
+                "observed_at": "2026-08-26T00:00:00Z",
+                "evidence_kind": "inconclusive",
             },
         )
         for index, correction_spec in enumerate(correction_specs):

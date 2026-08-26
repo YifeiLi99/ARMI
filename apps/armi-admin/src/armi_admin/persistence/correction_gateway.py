@@ -611,16 +611,60 @@ class AdminCorrectionGateway:
         )
         if intent is None:
             raise AdminCorrectionGatewayError("ADMIN-CORRECTION-EFFECT-NOT-FOUND")
-        completed = effect.delivery_id is not None
-        result_status = "completed" if completed else "failed"
+        conclusion = str(spec["conclusion"])
+        result_status = {
+            "confirmed_completed": "completed",
+            "confirmed_failed": "failed",
+            "still_unknown": "unknown",
+        }[conclusion]
+        evidence_kind = str(spec["evidence_kind"])
+        evidence_ref = spec.get("evidence_ref")
+        evidence_digest = spec.get("evidence_digest")
+        reliability = "operator_attested"
+        reason_code = "EFFECT-OPERATOR-ATTESTED"
+        if result_status == "unknown":
+            reliability = "inconclusive"
+            reason_code = "EFFECT-RESULT-UNKNOWN"
+        elif evidence_kind == "local_delivery":
+            if (
+                effect.delivery_id is None
+                or str(effect.delivery_id) != evidence_ref
+                or effect.receipt_digest != evidence_digest
+            ):
+                raise AdminCorrectionGatewayError(
+                    "ADMIN-CORRECTION-EFFECT-EVIDENCE-MISMATCH"
+                )
+            reliability = "reliable"
+            reason_code = "EFFECT-LOCAL-DELIVERY-CONFIRMED"
+        elif evidence_kind == "codex_verification":
+            verification = self._codex.verification_for_effect(
+                connection, effect_id=effect.effect_id
+            )
+            expected_status = "verified" if result_status == "completed" else "failed"
+            if (
+                verification is None
+                or str(verification[0]) != evidence_ref
+                or verification[1] != expected_status
+                or str(verification[2]) != evidence_digest
+            ):
+                raise AdminCorrectionGatewayError(
+                    "ADMIN-CORRECTION-EFFECT-EVIDENCE-MISMATCH"
+                )
+            reliability = "reliable"
+            reason_code = "CODEX-RESULT-VERIFIED"
         observation_digest = _digest(
             {
                 "effect_id": str(effect.effect_id),
-                "delivery_id": None
-                if effect.delivery_id is None
-                else str(effect.delivery_id),
-                "receipt_digest": effect.receipt_digest,
-                "result": result_status,
+                "attempt_id": str(effect.attempt_id),
+                "conclusion": result_status,
+                "reliability": reliability,
+                "reason_code": reason_code,
+                "evidence_kind": evidence_kind,
+                "evidence_ref": evidence_ref,
+                "evidence_digest": evidence_digest,
+                "source_identity": spec["operator_identity"],
+                "operator_purpose": spec["operator_purpose"],
+                "observed_at": spec["observed_at"],
             }
         )
         before = _digest(
@@ -657,8 +701,26 @@ class AdminCorrectionGateway:
                 "observation_id": result_id,
                 "observation_digest": observation_digest,
                 "result_status": result_status,
+                "reliability": reliability,
+                "reason_code": reason_code,
+                "evidence_kind": evidence_kind,
+                "evidence_ref": evidence_ref,
+                "evidence_digest": evidence_digest,
+                "source_identity": "admin:" + str(spec["operator_identity"]),
+                "observed_at": spec["observed_at"],
             },
             "status_spec": {"effect_id": str(effect.effect_id)},
+            "effect_reconciliation": {
+                "conclusion": result_status,
+                "reliability": reliability,
+                "reason_code": reason_code,
+                "evidence_kind": evidence_kind,
+                "outbox_status": "unknown"
+                if result_status == "unknown"
+                else "delivered"
+                if result_status == "completed"
+                else "dead",
+            },
         }
 
     def _apply_handler(
@@ -759,7 +821,6 @@ class AdminCorrectionGateway:
     def _reconcile_effect(
         self, connection: PostgreSQLAdminTransaction, handler: dict[str, Any]
     ) -> None:
-        completed = handler["result_status"] == "completed"
         snapshot = self._effects.snapshot(
             connection, effect_id=UUID(str(handler["effect_id"])), for_update=True
         )
@@ -768,7 +829,14 @@ class AdminCorrectionGateway:
             snapshot=snapshot,
             observation_id=UUID(str(handler["observation_id"])),
             observation_digest=str(handler["observation_digest"]),
-            completed=completed,
+            conclusion=handler["result_status"],
+            reliability=handler["reliability"],
+            reason_code=handler["reason_code"],
+            evidence_kind=handler["evidence_kind"],
+            evidence_ref=handler["evidence_ref"],
+            evidence_digest=handler["evidence_digest"],
+            source_identity=handler["source_identity"],
+            observed_at=handler["observed_at"],
         ):
             raise AdminCorrectionGatewayError("ADMIN-CORRECTION-EFFECT-OUTBOX")
 

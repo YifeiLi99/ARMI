@@ -48,7 +48,14 @@ class EffectAdminPort(Protocol):
         snapshot: EffectAdminSnapshot,
         observation_id: UUID,
         observation_digest: str,
-        completed: bool,
+        conclusion: Literal["completed", "failed", "unknown"],
+        reliability: Literal["reliable", "operator_attested", "inconclusive"],
+        reason_code: str,
+        evidence_kind: str,
+        evidence_ref: str | None,
+        evidence_digest: str | None,
+        source_identity: str,
+        observed_at: Instant,
     ) -> bool: ...
     def current_state(
         self, transaction: PostgreSQLAdminTransaction, *, effect_id: UUID
@@ -75,6 +82,7 @@ class EffectVerificationStatus(StrEnum):
     PENDING = "pending"
     VERIFIED = "verified"
     INCONCLUSIVE = "inconclusive"
+    OPERATOR_ATTESTED = "operator_attested"
 
 
 class EffectObservationKind(StrEnum):
@@ -90,6 +98,7 @@ class EffectObservationKind(StrEnum):
 
 class EffectObservationReliability(StrEnum):
     RELIABLE = "reliable"
+    OPERATOR_ATTESTED = "operator_attested"
     INCONCLUSIVE = "inconclusive"
 
 
@@ -287,6 +296,8 @@ class EffectResponsibilitySnapshot:
     effect_registration_id: UUID
     status: str
     reason_code: str | None
+    capability_request_id: UUID
+    permission_grant_id: UUID
 
 
 @runtime_checkable
@@ -297,6 +308,8 @@ class EffectResponsibilityPort(Protocol):
         *,
         action_intent_id: UUID,
         work_id: UUID,
+        capability_request_id: UUID,
+        permission_grant_id: UUID,
         response_admission_id: UUID | None = None,
     ) -> UUID: ...
 
@@ -314,17 +327,27 @@ class EffectView:
     action_intent_ref: UUID
     action_intent_revision_ref: UUID
     policy_decision_ref: UUID | None
+    capability_request_ref: UUID
+    permission_grant_ref: UUID
     effect_kind: Literal["creator_response", "codex_delegation"]
     status: EffectStatus
     verification_status: EffectVerificationStatus
     registered_at: Instant
     capability_kind: Literal["creator.scene.reply", "codex.delegated-work"]
     cancelled_at: Instant | None = None
+    current_attempt_ref: UUID | None = None
+    current_attempt_no: int | None = None
+    current_dispatch_state: str | None = None
     attempt_count: int = 0
     last_observation_kind: EffectObservationKind | None = None
     last_observation_reliability: EffectObservationReliability | None = None
+    current_observation_ref: UUID | None = None
+    observation_conclusion: str | None = None
+    observation_reason: str | None = None
+    observation_evidence_kind: str | None = None
     verification_action: (
-        Literal["verify_creator_inbox", "verify_codex_result"] | None
+        Literal["verify_local_inbox", "verify_external_delivery", "verify_codex_result"]
+        | None
     ) = None
     settled_at: Instant | None = None
     response_text: str | None = None
@@ -332,8 +355,14 @@ class EffectView:
     def __post_init__(self) -> None:
         _uuid7(self.action_intent_ref)
         _uuid7(self.action_intent_revision_ref)
+        _uuid7(self.capability_request_ref)
+        _uuid7(self.permission_grant_ref)
         if self.policy_decision_ref is not None:
             _uuid7(self.policy_decision_ref)
+        if self.current_attempt_ref is not None:
+            _uuid7(self.current_attempt_ref)
+        if self.current_observation_ref is not None:
+            _uuid7(self.current_observation_ref)
         if self.effect_kind not in {"creator_response", "codex_delegation"}:
             raise EffectViolation("CON-EFFECT-KIND")
         if (
@@ -348,9 +377,34 @@ class EffectView:
             raise EffectViolation("CON-EFFECT-STATE")
         if not 0 <= self.attempt_count <= 2:
             raise EffectViolation("CON-EFFECT-ATTEMPT")
+        attempt_values = (
+            self.current_attempt_ref,
+            self.current_attempt_no,
+            self.current_dispatch_state,
+        )
+        if len({value is None for value in attempt_values}) != 1:
+            raise EffectViolation("CON-EFFECT-ATTEMPT")
+        if self.current_attempt_no is not None and not (
+            1 <= self.current_attempt_no <= self.attempt_count
+        ):
+            raise EffectViolation("CON-EFFECT-ATTEMPT")
+        if self.current_dispatch_state not in {
+            None,
+            "prepared",
+            "dispatching",
+            "settled",
+        }:
+            raise EffectViolation("CON-EFFECT-ATTEMPT")
         if (self.last_observation_kind is None) != (
             self.last_observation_reliability is None
         ):
+            raise EffectViolation("CON-EFFECT-OBSERVATION")
+        observation_values = (
+            self.current_observation_ref,
+            self.observation_conclusion,
+            self.observation_evidence_kind,
+        )
+        if len({value is None for value in observation_values}) != 1:
             raise EffectViolation("CON-EFFECT-OBSERVATION")
         if (self.status is EffectStatus.UNKNOWN) != (
             self.verification_action is not None
@@ -396,6 +450,8 @@ class EffectRegistrationContext:
     root_opportunity_id: UUID
     action_intent_revision_id: UUID
     action_intent_id: UUID
+    capability_request_id: UUID
+    permission_grant_id: UUID
     subject_id: UUID
     scene_id: UUID
     context_party_id: UUID
@@ -439,6 +495,8 @@ class EffectLedgerSnapshot:
     action_intent_revision_id: UUID
     action_intent_id: UUID
     policy_decision_id: UUID | None
+    capability_request_id: UUID | None
+    permission_grant_id: UUID | None
     subject_id: UUID
     scene_id: UUID
     context_party_id: UUID
@@ -455,6 +513,13 @@ class EffectLedgerSnapshot:
     attempt_count: int
     current_observation_kind: EffectObservationKind | None
     current_observation_reliability: EffectObservationReliability | None
+    current_attempt_id: UUID | None
+    current_attempt_no: int | None
+    current_dispatch_state: str | None
+    current_observation_id: UUID | None
+    observation_conclusion: str | None
+    observation_reason: str | None
+    observation_evidence_kind: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -636,6 +701,8 @@ class ResponseAdmissionRuntimePort(ResponseAdmissionPort, Protocol):
 
 @runtime_checkable
 class ActionAdapterPort(Protocol):
+    def validate(self, request: FrozenEffectRequest) -> None: ...
+
     async def dispatch(
         self, request: FrozenEffectRequest, payload: bytes
     ) -> EffectAdapterReceipt: ...

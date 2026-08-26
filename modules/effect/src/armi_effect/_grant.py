@@ -16,7 +16,7 @@ from armi_kernel.application import (
 from armi_kernel.contracts import Digest, Purpose, SubjectId, TraceId
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
 
-from .api import EffectDispatchBoundaryResult
+from .api import EffectDispatchBoundaryResult, EffectViolation
 
 
 class PostgreSQLEffectGrantCancellation:
@@ -35,7 +35,14 @@ class PostgreSQLEffectGrantCancellation:
             await transaction.execute(
                 """
                 SELECT effect.effect_id, effect.subject_id,
-                       effect.action_intent_id, effect.destination_kind
+                       effect.action_intent_id, effect.destination_kind,
+                       outbox.attempt_count, outbox.claim_token,
+                       COALESCE((SELECT max(history.attempt_no)
+                                 FROM armi.effect_attempts AS history
+                                 WHERE history.effect_id=effect.effect_id), 0),
+                       COALESCE((SELECT max(history.claim_token)
+                                 FROM armi.effect_attempts AS history
+                                 WHERE history.effect_id=effect.effect_id), 0)
                 FROM armi.effects AS effect
                 JOIN armi.effect_outbox_items AS outbox
                   ON outbox.effect_id=effect.effect_id
@@ -50,6 +57,10 @@ class PostgreSQLEffectGrantCancellation:
         cancelled: list[tuple[UUID, UUID, UUID]] = []
         for row in rows:
             effect_id, subject_id, intent_id = row[0], row[1], row[2]
+            if int(row[4]) != int(row[6]) or int(row[5]) != int(row[7]):
+                raise EffectViolation("EFFECT-ATTEMPT-IDENTITY")
+            attempt_no = int(row[4]) + 1
+            claim_token = int(row[5]) + 1
             attempt_id = uuid7()
             digest = Digest.from_bytes(
                 rfc8785.dumps(
@@ -65,14 +76,16 @@ class PostgreSQLEffectGrantCancellation:
                 INSERT INTO armi.effect_attempts (
                     effect_attempt_id, effect_id, attempt_no, adapter_binding,
                     claim_token, dispatch_state, result_status, settled_at)
-                VALUES (%s,%s,1,%s,1,'settled','cancelled',statement_timestamp())
+                VALUES (%s,%s,%s,%s,%s,'settled','cancelled',statement_timestamp())
                 """,
                 (
                     attempt_id,
                     effect_id,
+                    attempt_no,
                     "armi.codex-runner.openai-python-sdk-v1"
                     if str(row[3]) == "codex_workspace"
                     else "armi.local-inbox-adapter.postgresql-v1",
+                    claim_token,
                 ),
             )
             observation_id = uuid7()
@@ -80,10 +93,20 @@ class PostgreSQLEffectGrantCancellation:
                 """
                 INSERT INTO armi.effect_observations (
                     effect_observation_id, effect_id, effect_attempt_id,
-                    observation_kind, reliability, observation_digest)
-                VALUES (%s,%s,%s,'runner_cancelled','reliable',%s)
+                    observation_kind, reliability, observation_digest,
+                    conclusion, reason_code, evidence_kind, evidence_digest,
+                    source_identity)
+                VALUES (%s,%s,%s,'runner_cancelled','reliable',%s,
+                        'cancelled',%s,'owner_state',%s,'effect-grant')
                 """,
-                (observation_id, effect_id, attempt_id, digest.value),
+                (
+                    observation_id,
+                    effect_id,
+                    attempt_id,
+                    digest.value,
+                    reason_code,
+                    digest.value,
+                ),
             )
             await transaction.execute(
                 """
@@ -98,10 +121,11 @@ class PostgreSQLEffectGrantCancellation:
             await transaction.execute(
                 """
                 UPDATE armi.effect_outbox_items SET status='cancelled',
-                    cancelled_at=statement_timestamp()
+                    cancelled_at=statement_timestamp(),
+                    attempt_count=%s, claim_token=%s
                 WHERE effect_id=%s AND status='ready'
                 """,
-                (effect_id,),
+                (attempt_no, claim_token, effect_id),
             )
             cancelled.append((effect_id, subject_id, intent_id))
         return tuple(cancelled)
@@ -192,10 +216,20 @@ class PostgreSQLEffectDispatchBoundary:
             """
             INSERT INTO armi.effect_observations (
                 effect_observation_id, effect_id, effect_attempt_id,
-                observation_kind, reliability, observation_digest)
-            VALUES (%s,%s,%s,'runner_cancelled','reliable',%s)
+                observation_kind, reliability, observation_digest,
+                conclusion, reason_code, evidence_kind, evidence_digest,
+                source_identity)
+            VALUES (%s,%s,%s,'runner_cancelled','reliable',%s,
+                    'cancelled',%s,'owner_state',%s,'effect-grant')
             """,
-            (observation_id, effect_id, attempt_id, digest.value),
+            (
+                observation_id,
+                effect_id,
+                attempt_id,
+                digest.value,
+                reason,
+                digest.value,
+            ),
         )
         await connection.execute(
             """

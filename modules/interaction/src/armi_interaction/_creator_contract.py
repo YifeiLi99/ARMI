@@ -255,6 +255,15 @@ class CreatorOperation:
     intent_ref: UUID | None = None
     dialogue_decision_ref: UUID | None = None
     policy_decision_ref: UUID | None = None
+    capability_request_ref: UUID | None = None
+    permission_grant_ref: UUID | None = None
+    effect_attempt_ref: UUID | None = None
+    effect_attempt_no: int | None = None
+    effect_dispatch_state: str | None = None
+    effect_observation_ref: UUID | None = None
+    effect_observation_conclusion: str | None = None
+    effect_observation_reliability: str | None = None
+    owner_reason: str | None = None
     work_ref: UUID | None = None
     operation_kind: str = "cognition"
     codex_execution: CreatorCodexExecutionSummary | None = None
@@ -298,6 +307,10 @@ class CreatorOperation:
             self.intent_ref,
             self.dialogue_decision_ref,
             self.policy_decision_ref,
+            self.capability_request_ref,
+            self.permission_grant_ref,
+            self.effect_attempt_ref,
+            self.effect_observation_ref,
             self.work_ref,
             self.response_admission_ref,
             self.effect_registration_ref,

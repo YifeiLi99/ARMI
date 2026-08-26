@@ -98,7 +98,8 @@ class AdminCorrectionCoordinator:
         self._control = control
         self._gateway = gateway
 
-    def preview(self, spec: dict[str, Any]) -> dict[str, Any]:
+    def preview(self, spec: dict[str, Any], *, purpose: str) -> dict[str, Any]:
+        spec = self._owned_spec(spec, purpose=purpose)
         result_id = str(uuid7())
         side_work_id = str(uuid7())
         try:
@@ -131,7 +132,7 @@ class AdminCorrectionCoordinator:
             "expires_at": _instant(now + timedelta(minutes=10)),
             "nonce": str(uuid7()),
         }
-        return {
+        result = {
             "correction_kind": spec["correction_kind"],
             "target_count": snapshot["target_count"],
             "dependency_count": snapshot["dependency_count"],
@@ -141,8 +142,14 @@ class AdminCorrectionCoordinator:
             "preview_token": self._encode(payload),
             "expires_at": payload["expires_at"],
         }
+        if snapshot.get("effect_reconciliation") is not None:
+            result["effect_reconciliation"] = snapshot["effect_reconciliation"]
+        return result
 
-    def apply(self, spec: dict[str, Any], token: str) -> dict[str, Any]:
+    def apply(
+        self, spec: dict[str, Any], token: str, *, purpose: str
+    ) -> dict[str, Any]:
+        spec = self._owned_spec(spec, purpose=purpose)
         payload = self._decode(token)
         if payload["management_session_id"] != self._control.management_session_id:
             raise AdminCorrectionError("ADMIN-CORRECTION-PREVIEW-SESSION")
@@ -158,6 +165,14 @@ class AdminCorrectionCoordinator:
             return self._gateway.apply(spec, payload)
         except AdminCorrectionGatewayError as exc:
             raise AdminCorrectionError(exc.code) from None
+
+    def _owned_spec(self, spec: dict[str, Any], *, purpose: str) -> dict[str, Any]:
+        del purpose
+        return {
+            **spec,
+            "operator_purpose": "admin.correction",
+            "operator_identity": self._control.management_session_id,
+        }
 
     def status(self, token: str) -> dict[str, Any]:
         payload = self._decode(token)

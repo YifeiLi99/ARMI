@@ -59,15 +59,25 @@ class PostgreSQLDeclaredResponseEffectRegistration:
         *,
         action_intent_id: UUID,
         work_id: UUID,
+        capability_request_id: UUID,
+        permission_grant_id: UUID,
         response_admission_id: UUID | None = None,
     ) -> UUID:
         registration_id = uuid7()
         await transaction.execute(
             """INSERT INTO armi.effect_registrations (
                    effect_registration_id,action_intent_id,work_id,
-                   response_admission_id)
-               VALUES (%s,%s,%s,%s)""",
-            (registration_id, action_intent_id, work_id, response_admission_id),
+                   response_admission_id,capability_request_id,
+                   permission_grant_id)
+               VALUES (%s,%s,%s,%s,%s,%s)""",
+            (
+                registration_id,
+                action_intent_id,
+                work_id,
+                response_admission_id,
+                capability_request_id,
+                permission_grant_id,
+            ),
         )
         return registration_id
 
@@ -79,14 +89,15 @@ class PostgreSQLDeclaredResponseEffectRegistration:
     ) -> EffectResponsibilitySnapshot | None:
         row = await (
             await transaction.execute(
-                """SELECT effect_registration_id,status,reason_code
+                """SELECT effect_registration_id,status,reason_code,
+                          capability_request_id,permission_grant_id
                    FROM armi.effect_registrations WHERE action_intent_id=%s""",
                 (action_intent_id,),
             )
         ).fetchone()
         if row is None:
             return None
-        return EffectResponsibilitySnapshot(row[0], str(row[1]), row[2])
+        return EffectResponsibilitySnapshot(row[0], str(row[1]), row[2], row[3], row[4])
 
     async def register_declared_response(
         self,
@@ -203,6 +214,7 @@ class PostgreSQLEffectLedgerRepository:
                 """
                 SELECT effect.effect_id, effect.action_intent_revision_id,
                        effect.action_intent_id, effect.policy_decision_id,
+                       effect.capability_request_id,effect.permission_grant_id,
                        effect.subject_id, effect.scene_id, effect.context_party_id,
                        effect.payload_artifact_id, effect.payload_digest,
                        effect.payload_bytes, effect.effect_kind,
@@ -211,10 +223,16 @@ class PostgreSQLEffectLedgerRepository:
                        effect.cancelled_at, effect.settled_at,
                        (SELECT count(*) FROM armi.effect_attempts AS attempt
                         WHERE attempt.effect_id=effect.effect_id),
-                       observation.observation_kind, observation.reliability
+                       observation.observation_kind, observation.reliability,
+                       attempt.effect_attempt_id,attempt.attempt_no,
+                       attempt.dispatch_state,observation.effect_observation_id,
+                       observation.conclusion,observation.reason_code,
+                       observation.evidence_kind
                 FROM armi.effects AS effect
                 LEFT JOIN armi.effect_observations AS observation
                   ON observation.effect_observation_id=effect.current_observation_id
+                LEFT JOIN armi.effect_attempts AS attempt
+                  ON attempt.effect_attempt_id=effect.current_attempt_id
                 WHERE effect.effect_id=%s
                 """,
                 (effect_id,),
@@ -223,26 +241,39 @@ class PostgreSQLEffectLedgerRepository:
         if row is None:
             return None
         return EffectLedgerSnapshot(
-            row[0],
-            row[1],
-            row[2],
-            row[3],
-            row[4],
-            row[5],
-            row[6],
-            row[7],
-            Digest(str(row[8])),
-            int(row[9]),
-            str(row[10]),
-            str(row[11]),
-            EffectStatus(str(row[12])),
-            EffectVerificationStatus(str(row[13])),
-            Instant(row[14]),
-            None if row[15] is None else Instant(row[15]),
-            None if row[16] is None else Instant(row[16]),
-            int(row[17]),
-            None if row[18] is None else EffectObservationKind(str(row[18])),
-            None if row[19] is None else EffectObservationReliability(str(row[19])),
+            effect_id=row[0],
+            action_intent_revision_id=row[1],
+            action_intent_id=row[2],
+            policy_decision_id=row[3],
+            capability_request_id=row[4],
+            permission_grant_id=row[5],
+            subject_id=row[6],
+            scene_id=row[7],
+            context_party_id=row[8],
+            payload_artifact_id=row[9],
+            payload_digest=Digest(str(row[10])),
+            payload_bytes=int(row[11]),
+            effect_kind=str(row[12]),
+            capability_kind=str(row[13]),
+            status=EffectStatus(str(row[14])),
+            verification_status=EffectVerificationStatus(str(row[15])),
+            registered_at=Instant(row[16]),
+            cancelled_at=None if row[17] is None else Instant(row[17]),
+            settled_at=None if row[18] is None else Instant(row[18]),
+            attempt_count=int(row[19]),
+            current_observation_kind=(
+                None if row[20] is None else EffectObservationKind(str(row[20]))
+            ),
+            current_observation_reliability=(
+                None if row[21] is None else EffectObservationReliability(str(row[21]))
+            ),
+            current_attempt_id=row[22],
+            current_attempt_no=None if row[23] is None else int(row[23]),
+            current_dispatch_state=None if row[24] is None else str(row[24]),
+            current_observation_id=row[25],
+            observation_conclusion=None if row[26] is None else str(row[26]),
+            observation_reason=None if row[27] is None else str(row[27]),
+            observation_evidence_kind=None if row[28] is None else str(row[28]),
         )
 
     async def settle_current_work(
@@ -320,7 +351,8 @@ class PostgreSQLEffectLedgerRepository:
             raise EffectViolation("EFFECT-FENCE")
         registration = await (
             await connection.execute(
-                """SELECT effect_registration_id
+                """SELECT effect_registration_id,capability_request_id,
+                          permission_grant_id
                    FROM armi.effect_registrations
                    WHERE work_id=%s AND action_intent_id=%s AND status='pending'
                    FOR UPDATE""",
@@ -329,6 +361,11 @@ class PostgreSQLEffectLedgerRepository:
         ).fetchone()
         if registration is None:
             raise EffectViolation("EFFECT-WORK-STALE")
+        if (
+            registration[1] != snapshot.capability_request_id
+            or registration[2] != snapshot.permission_grant_id
+        ):
+            raise EffectViolation("EFFECT-CAPABILITY-IDENTITY")
         intent = await self._intents.intent_snapshot(
             connection,
             action_intent_id=snapshot.action_intent_id,
@@ -356,6 +393,8 @@ class PostgreSQLEffectLedgerRepository:
                 connection,
                 action_intent_revision_id=snapshot.action_intent_revision_id,
                 request=CapabilityConsumptionRequest(
+                    capability_request_id=snapshot.capability_request_id,
+                    permission_grant_id=snapshot.permission_grant_id,
                     capability_kind=snapshot.capability_kind,
                     operation_class=snapshot.operation_class,
                     subject_id=snapshot.subject_id,
@@ -388,12 +427,13 @@ class PostgreSQLEffectLedgerRepository:
                     """
                 INSERT INTO armi.effects (
                     effect_id, action_intent_revision_id, action_intent_id,
-                    policy_decision_id, subject_id, scene_id, context_party_id,
+                    policy_decision_id, capability_request_id,
+                    permission_grant_id, subject_id, scene_id, context_party_id,
                     payload_artifact_id, payload_digest, payload_bytes, effect_kind,
                     capability_kind, operation_class, audience_scope, data_scope, purpose,
                     authorization_basis, destination_kind, destination_party_id,
                     destination_binding_id,
-                    registration_digest, trace_id, status, verification_status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                    registration_digest, trace_id, status, verification_status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
                     %s,%s,%s,%s,%s,'creator_grant',%s,%s,%s,%s,%s,
                     'registered','not_started')
                 RETURNING registered_at
@@ -403,6 +443,8 @@ class PostgreSQLEffectLedgerRepository:
                         snapshot.action_intent_revision_id,
                         snapshot.action_intent_id,
                         decision_id,
+                        snapshot.capability_request_id,
+                        snapshot.permission_grant_id,
                         snapshot.subject_id,
                         snapshot.scene_id,
                         snapshot.context_party_id,
@@ -525,15 +567,22 @@ class PostgreSQLEffectLedgerRepository:
                 """
             SELECT effect.effect_id, effect.action_intent_id,
                    effect.action_intent_revision_id, effect.policy_decision_id,
+                   effect.capability_request_id,effect.permission_grant_id,
                    effect.effect_kind, effect.capability_kind, effect.status,
                    effect.verification_status, effect.registered_at, effect.cancelled_at,
                    (SELECT count(*) FROM armi.effect_attempts AS attempt
                     WHERE attempt.effect_id = effect.effect_id),
                    observation.observation_kind, observation.reliability,
-                   effect.settled_at
+                   effect.settled_at,effect.destination_kind,
+                   attempt.effect_attempt_id,attempt.attempt_no,
+                   attempt.dispatch_state,observation.effect_observation_id,
+                   observation.conclusion,observation.reason_code,
+                   observation.evidence_kind
             FROM armi.effects AS effect
             LEFT JOIN armi.effect_observations AS observation
               ON observation.effect_observation_id = effect.current_observation_id
+            LEFT JOIN armi.effect_attempts AS attempt
+              ON attempt.effect_attempt_id=effect.current_attempt_id
             WHERE effect.effect_id=%s AND effect.context_party_id=%s
             """,
                 (effect_id.value, creator_party_id),
@@ -541,7 +590,7 @@ class PostgreSQLEffectLedgerRepository:
         ).fetchone()
         if row is None:
             raise EffectViolation("SCOPE-EFFECT-NOT-VISIBLE")
-        raw_effect_kind = str(row[4])
+        raw_effect_kind = str(row[6])
         if raw_effect_kind not in {"creator_response", "codex_delegation"}:
             raise EffectViolation("CON-EFFECT-KIND")
         effect_kind = cast(
@@ -552,33 +601,44 @@ class PostgreSQLEffectLedgerRepository:
             action_intent_ref=row[1],
             action_intent_revision_ref=row[2],
             policy_decision_ref=row[3],
+            capability_request_ref=row[4],
+            permission_grant_ref=row[5],
             effect_kind=effect_kind,
-            status=EffectStatus(str(row[6])),
-            verification_status=EffectVerificationStatus(str(row[7])),
-            registered_at=Instant(row[8]),
+            status=EffectStatus(str(row[8])),
+            verification_status=EffectVerificationStatus(str(row[9])),
+            registered_at=Instant(row[10]),
             capability_kind=cast(
-                Literal["creator.scene.reply", "codex.delegated-work"], str(row[5])
+                Literal["creator.scene.reply", "codex.delegated-work"], str(row[7])
             ),
-            cancelled_at=Instant(row[9]) if row[9] is not None else None,
-            attempt_count=int(row[10]),
+            cancelled_at=Instant(row[11]) if row[11] is not None else None,
+            attempt_count=int(row[12]),
             last_observation_kind=(
-                EffectObservationKind(str(row[11])) if row[11] is not None else None
+                EffectObservationKind(str(row[13])) if row[13] is not None else None
             ),
             last_observation_reliability=(
-                EffectObservationReliability(str(row[12]))
-                if row[12] is not None
+                EffectObservationReliability(str(row[14]))
+                if row[14] is not None
                 else None
             ),
+            current_attempt_ref=row[17],
+            current_attempt_no=None if row[18] is None else int(row[18]),
+            current_dispatch_state=None if row[19] is None else str(row[19]),
+            current_observation_ref=row[20],
+            observation_conclusion=None if row[21] is None else str(row[21]),
+            observation_reason=None if row[22] is None else str(row[22]),
+            observation_evidence_kind=None if row[23] is None else str(row[23]),
             verification_action=(
                 (
                     "verify_codex_result"
                     if effect_kind == "codex_delegation"
-                    else "verify_creator_inbox"
+                    else "verify_external_delivery"
+                    if str(row[16]) in {"external_private", "external_group"}
+                    else "verify_local_inbox"
                 )
-                if str(row[6]) == "unknown"
+                if str(row[8]) == "unknown"
                 else None
             ),
-            settled_at=Instant(row[13]) if row[13] is not None else None,
+            settled_at=Instant(row[15]) if row[15] is not None else None,
         )
 
     async def payload_reference(

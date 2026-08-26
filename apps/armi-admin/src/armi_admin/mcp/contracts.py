@@ -294,8 +294,54 @@ class RequeueStuckWorkSpec(_StrictModel):
 class ReconcileUnknownCreatorEffectSpec(_StrictModel):
     correction_kind: Literal["reconcile_unknown_creator_effect"]
     effect_id: str
+    conclusion: Literal["confirmed_completed", "confirmed_failed", "still_unknown"]
+    observed_at: str
+    evidence_kind: Literal[
+        "local_delivery",
+        "codex_verification",
+        "platform_receipt",
+        "receiver_confirmation",
+        "operator_attestation",
+        "inconclusive",
+    ]
+    evidence_ref: str | None = Field(default=None, max_length=256)
+    evidence_digest: str | None = None
 
     _effect_id = field_validator("effect_id")(_uuid7)
+
+    @field_validator("observed_at")
+    @classmethod
+    def _observed_at(cls, value: str) -> str:
+        from datetime import datetime
+
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("ADMIN-INPUT-INSTANT") from exc
+        if parsed.tzinfo is None:
+            raise ValueError("ADMIN-INPUT-INSTANT")
+        return value
+
+    @field_validator("evidence_digest")
+    @classmethod
+    def _digest(cls, value: str | None) -> str | None:
+        if value is not None and re.fullmatch(r"sha256:[0-9a-f]{64}", value) is None:
+            raise ValueError("ADMIN-INPUT-DIGEST")
+        return value
+
+    @model_validator(mode="after")
+    def _evidence_contract(self) -> Self:
+        if self.conclusion == "still_unknown":
+            if self.evidence_kind != "inconclusive" or any(
+                value is not None for value in (self.evidence_ref, self.evidence_digest)
+            ):
+                raise ValueError("ADMIN-INPUT-EFFECT-EVIDENCE")
+        elif self.evidence_kind == "inconclusive" or (
+            self.evidence_kind in {"local_delivery", "codex_verification"}
+            and (self.evidence_ref is None or self.evidence_digest is None)
+        ):
+            raise ValueError("ADMIN-INPUT-EFFECT-EVIDENCE")
+        return self
 
 
 CorrectionSpec = Annotated[

@@ -100,10 +100,14 @@ class EffectRecoveryParticipant:
                 """
                 INSERT INTO armi.effect_observations (
                     effect_observation_id, effect_id, effect_attempt_id,
-                    observation_kind, reliability, observation_digest)
-                VALUES (%s, %s, %s, 'ambiguous', 'inconclusive', %s)
+                    observation_kind, reliability, observation_digest,
+                    conclusion, reason_code, evidence_kind, evidence_digest,
+                    source_identity)
+                VALUES (%s, %s, %s, 'ambiguous', 'inconclusive', %s,
+                        'unknown','EFFECT-RESULT-UNKNOWN','adapter_ambiguous',%s,
+                        'effect-recovery')
                 """,
-                (observation_id, effect_id, attempt_id, digest.value),
+                (observation_id, effect_id, attempt_id, digest.value, digest.value),
             )
             await transaction.execute(
                 """

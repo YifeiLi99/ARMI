@@ -361,12 +361,20 @@ class EffectRegistrationPipeline:
                         require_contact=True,
                         require_use=True,
                     )
-                    dispatching = await self._dispatcher.mark_dispatching(
-                        uow,
-                        snapshot,
-                        runtime_fence=runtime_fence,
-                        data_rights_fence=data_fence,
-                    )
+                    try:
+                        self._adapter.validate(snapshot.request)
+                    except EffectViolation as error:
+                        if error.code != "EFFECT-QQ-POLICY-NOT-ALLOWED":
+                            raise
+                        await self._dispatcher.cancel_policy(uow, snapshot)
+                        dispatching = False
+                    else:
+                        dispatching = await self._dispatcher.mark_dispatching(
+                            uow,
+                            snapshot,
+                            runtime_fence=runtime_fence,
+                            data_rights_fence=data_fence,
+                        )
             if not dispatching:
                 await self._notify_dispatch(snapshot, include_scene=False)
                 return True
@@ -508,7 +516,7 @@ class EffectRegistrationPipeline:
             (
                 CreatorResourceKind("operation"),
                 str(snapshot.operation_ref),
-                "creator-operation.v3",
+                "creator-operation.v4",
             )
         ]
         if result is not None:
@@ -516,7 +524,7 @@ class EffectRegistrationPipeline:
                 (
                     CreatorResourceKind("effect"),
                     str(result.effect_id.value),
-                    "creator-effect.v3",
+                    "creator-effect.v4",
                 )
             )
         await self._notify(invalidations)
@@ -544,12 +552,12 @@ class EffectRegistrationPipeline:
             (
                 CreatorResourceKind("effect"),
                 str(snapshot.request.effect_id.value),
-                "creator-effect.v3",
+                "creator-effect.v4",
             ),
             (
                 CreatorResourceKind("operation"),
                 str(intent.operation_ref),
-                "creator-operation.v3",
+                "creator-operation.v4",
             ),
         ]
         if include_scene:

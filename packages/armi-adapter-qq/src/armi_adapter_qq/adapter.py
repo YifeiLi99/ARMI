@@ -105,8 +105,30 @@ class QQAdapterConfig:
             raise ValueError("QQ reply policy is invalid")
 
 
+class QQConversationPolicy:
+    """One pure decision shared by QQ intake and final Effect admission."""
+
+    __slots__ = ("_config",)
+
+    def __init__(self, config: QQAdapterConfig) -> None:
+        self._config = config
+
+    def allows(self, *, group: bool, peer_id: int) -> bool:
+        if group:
+            return peer_id in self._config.allowed_groups and (
+                self._config.reply_in_groups
+                or peer_id in self._config.reply_group_allowlist
+            )
+        if peer_id == self._config.creator_user_id:
+            return True
+        return (
+            self._config.reply_to_other_private_users
+            or peer_id in self._config.reply_private_user_allowlist
+        )
+
+
 class QQIngressAdapter:
-    __slots__ = ("_config", "_gateway", "_input")
+    __slots__ = ("_config", "_gateway", "_input", "_policy")
 
     def __init__(
         self,
@@ -118,6 +140,7 @@ class QQIngressAdapter:
         self._config = config
         self._input = input_port
         self._gateway = gateway
+        self._policy = QQConversationPolicy(config)
 
     async def accept_event(
         self, event: NapCatGroupMessageEvent | NapCatPrivateMessageEvent
@@ -132,14 +155,9 @@ class QQIngressAdapter:
         except OSError, OverflowError, ValueError:
             raise ExternalMessageViolation("CON-EXTERNAL-MESSAGE-INPUT") from None
         if isinstance(event, NapCatGroupMessageEvent):
-            group_label = self._config.allowed_groups.get(event.group_id)
-            if group_label is None:
+            if not self._policy.allows(group=True, peer_id=event.group_id):
                 return None
-            if (
-                not self._config.reply_in_groups
-                and event.group_id not in self._config.reply_group_allowlist
-            ):
-                return None
+            group_label = self._config.allowed_groups[event.group_id]
             kind = ExternalConversationKind.GROUP
             conversation_key = str(event.group_id)
             conversation_label = group_label
@@ -148,11 +166,7 @@ class QQIngressAdapter:
                 or await self._replies_to_self(event)
             )
         else:
-            if (
-                event.user_id != self._config.creator_user_id
-                and not self._config.reply_to_other_private_users
-                and event.user_id not in self._config.reply_private_user_allowlist
-            ):
+            if not self._policy.allows(group=False, peer_id=event.user_id):
                 return None
             kind = ExternalConversationKind.DIRECT
             conversation_key = str(event.user_id)
@@ -192,11 +206,12 @@ class QQIngressAdapter:
 
 
 class QQEgressAdapter:
-    __slots__ = ("_config", "_gateway")
+    __slots__ = ("_config", "_gateway", "_policy")
 
     def __init__(self, *, config: QQAdapterConfig, gateway: NapCatGateway) -> None:
         self._config = config
         self._gateway = gateway
+        self._policy = QQConversationPolicy(config)
 
     async def send(
         self, request: ExternalMessageSendRequest
@@ -261,7 +276,12 @@ class QQEgressAdapter:
             ) from None
         if (
             request.conversation_kind is ExternalConversationKind.GROUP
-            and receiver_id not in self._config.allowed_groups
+            and not self._policy.allows(group=True, peer_id=receiver_id)
+        ):
+            raise ExternalMessageViolation("SCOPE-EXTERNAL-MESSAGE-NOT-ALLOWED")
+        if (
+            request.conversation_kind is ExternalConversationKind.DIRECT
+            and not self._policy.allows(group=False, peer_id=receiver_id)
         ):
             raise ExternalMessageViolation("SCOPE-EXTERNAL-MESSAGE-NOT-ALLOWED")
         return receiver_id
@@ -320,6 +340,12 @@ class QQEffectAdapter(ActionAdapterPort):
 
     def __init__(self, egress: QQEgressAdapter) -> None:
         self._egress = egress
+
+    def validate(self, request: FrozenEffectRequest) -> None:
+        try:
+            self._egress.validate_route(_send_request(request, b"validation"))
+        except ExternalMessageViolation as error:
+            raise _effect_violation(error) from None
 
     async def dispatch(
         self, request: FrozenEffectRequest, payload: bytes
@@ -382,9 +408,10 @@ def _send_request(
 def _effect_violation(error: ExternalMessageViolation) -> EffectViolation:
     if error.code in {
         "EXTERNAL-MESSAGE-DELIVERY-REJECTED",
-        "SCOPE-EXTERNAL-MESSAGE-NOT-ALLOWED",
     }:
         return EffectViolation("EFFECT-RECEIVER-NOT-DELIVERED")
+    if error.code == "SCOPE-EXTERNAL-MESSAGE-NOT-ALLOWED":
+        return EffectViolation("EFFECT-QQ-POLICY-NOT-ALLOWED")
     if error.code == "EXTERNAL-MESSAGE-RESULT-UNKNOWN":
         return EffectViolation("EFFECT-RESULT-UNKNOWN")
     return EffectViolation("EFFECT-ADAPTER-UNAVAILABLE")

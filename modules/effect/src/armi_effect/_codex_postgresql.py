@@ -216,8 +216,11 @@ class PostgreSQLEffectCodexLifecycle:
             """
             INSERT INTO armi.effect_observations (
                 effect_observation_id, effect_id, effect_attempt_id,
-                observation_kind, reliability, observation_digest)
-            VALUES (%s,%s,%s,%s,%s,%s)
+                observation_kind, reliability, observation_digest,
+                conclusion, reason_code, evidence_kind, evidence_digest,
+                source_identity)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'codex_verification',%s,
+                    'armi.codex-runner.openai-python-sdk-v1')
             """,
             (
                 observation_id,
@@ -225,6 +228,14 @@ class PostgreSQLEffectCodexLifecycle:
                 claim.attempt_id,
                 observation,
                 reliability,
+                observation_digest.value,
+                effect_status,
+                error_code
+                or (
+                    "CODEX-RESULT-VERIFIED"
+                    if effect_status == "completed"
+                    else "CODEX-RESULT-CANCELLED"
+                ),
                 observation_digest.value,
             ),
         )

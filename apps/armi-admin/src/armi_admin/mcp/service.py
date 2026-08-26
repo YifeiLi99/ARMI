@@ -350,13 +350,15 @@ class AdminToolService:
             elif name == "preview_correction":
                 typed_preview = cast(PreviewCorrectionRequest, request)
                 result = self._corrections.preview(
-                    typed_preview.spec.model_dump(mode="json")
+                    typed_preview.spec.model_dump(mode="json"),
+                    purpose=str(typed_preview.purpose),
                 )
             elif name == "apply_correction":
                 typed_apply = cast(ApplyCorrectionRequest, request)
                 result = self._corrections.apply(
                     typed_apply.spec.model_dump(mode="json"),
                     str(typed_apply.preview_token),
+                    purpose=str(typed_apply.purpose),
                 )
             elif name == "settle_correction_work":
                 typed_settle = cast(SettleCorrectionWorkRequest, request)

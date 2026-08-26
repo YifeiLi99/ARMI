@@ -58,6 +58,7 @@ class ResponseAdmissionSnapshot:
     subject_id: UUID
     scene_id: UUID
     creator_party_id: UUID
+    capability_request_id: UUID | None
     artifact: ArtifactRef
     content_digest: Digest
     content_bytes: int
@@ -154,6 +155,7 @@ class PostgreSQLResponseAdmissionRepository:
             intent.subject_id,
             intent.scene_id,
             intent.context_party_id,
+            intent.capability_request_id,
             artifact,
             intent.response_digest,
             intent.response_bytes,
@@ -189,9 +191,12 @@ class PostgreSQLResponseAdmissionRepository:
             grant_id = None
             reason = "DATA-RIGHTS-BLOCKED"
         else:
+            if snapshot.capability_request_id is None:
+                raise ResponseViolation("RESPONSE-CAPABILITY-REQUEST")
             admission = await self._capability.preflight(
                 unit_of_work.transaction,
                 CapabilityAdmissionRequest(
+                    snapshot.capability_request_id,
                     "creator.scene.reply",
                     "send",
                     snapshot.subject_id,
@@ -240,6 +245,8 @@ class PostgreSQLResponseAdmissionRepository:
         if response_admission_id is None:
             raise ResponseViolation("RESPONSE-WORK-STALE")
         if status is ResponseAdmissionStatus.ACCEPTED:
+            if grant_id is None or snapshot.capability_request_id is None:
+                raise ResponseViolation("RESPONSE-CAPABILITY-IDENTITY")
             now = datetime.now(UTC)
             registration_work = await unit_of_work.work.enqueue(
                 WorkDraft(
@@ -262,6 +269,8 @@ class PostgreSQLResponseAdmissionRepository:
                 action_intent_id=snapshot.action_intent_id,
                 work_id=registration_work.draft.work_id.value,
                 response_admission_id=response_admission_id,
+                capability_request_id=snapshot.capability_request_id,
+                permission_grant_id=grant_id,
             )
         await unit_of_work.work.complete(
             lease,

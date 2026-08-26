@@ -135,13 +135,6 @@ class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
             context_party_id=selected.creator_party_id,
         )
         for intent in intents:
-            if await self._interaction.input_after(
-                transaction,
-                scene_id=selected.scene_id,
-                party_id=selected.creator_party_id,
-                after=intent.created_at,
-            ):
-                continue
             policy = await self._capabilities.policy_for_revision(
                 transaction,
                 action_intent_revision_id=intent.action_intent_revision_id,
@@ -150,6 +143,17 @@ class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
                 awaiting = True
                 break
             if policy.outcome.value == "allowed":
+                registration = await self._effects.registration_by_intent(
+                    transaction,
+                    action_intent_id=intent.action_intent_id,
+                )
+                if registration is not None and registration.status in {
+                    "unauthorized",
+                    "unavailable",
+                    "failed",
+                    "cancelled",
+                }:
+                    continue
                 effect = await self._effects.by_action_intent(
                     transaction, action_intent_id=intent.action_intent_id
                 )
@@ -158,6 +162,17 @@ class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
                     "dispatching",
                     "unknown",
                 }:
+                    awaiting = True
+                    break
+                if effect.status.value == "completed" and (
+                    effect.settled_at is None
+                    or not await self._interaction.input_after(
+                        transaction,
+                        scene_id=selected.scene_id,
+                        party_id=selected.creator_party_id,
+                        after=effect.settled_at.value,
+                    )
+                ):
                     awaiting = True
                     break
         return CreatorOutreachFacts(

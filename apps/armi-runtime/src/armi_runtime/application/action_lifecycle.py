@@ -60,6 +60,8 @@ class RuntimeCodexGrantActivation:
             return
         if intent.codex_task_source_id is None or intent.task_manifest_digest is None:
             raise CapabilityViolation("POLICY-CODEX-SOURCE")
+        if intent.capability_request_id is None:
+            raise CapabilityViolation("POLICY-CAPABILITY-REQUEST")
         runtime = await (
             await transaction.execute(
                 """
@@ -105,13 +107,21 @@ class RuntimeCodexGrantActivation:
             transaction,
             action_intent_id=intent.action_intent_id,
             work_id=registration_work.draft.work_id.value,
+            capability_request_id=intent.capability_request_id,
+            permission_grant_id=grant_id,
         )
 
 
 class RuntimeEffectRegistrationContext:
     """Assemble owner snapshots for Effect without exposing owner tables."""
 
-    __slots__ = ("_artifacts", "_codex", "_expression", "_interaction")
+    __slots__ = (
+        "_artifacts",
+        "_codex",
+        "_expression",
+        "_interaction",
+        "_registrations",
+    )
 
     def __init__(
         self,
@@ -120,11 +130,13 @@ class RuntimeEffectRegistrationContext:
         codex: CodexTaskSourceReadPort,
         expression: ExpressionIntentReadPort,
         interaction: InteractionEffectRoutePort,
+        registrations: EffectResponsibilityPort,
     ) -> None:
         self._artifacts = artifacts
         self._codex = codex
         self._expression = expression
         self._interaction = interaction
+        self._registrations = registrations
 
     async def resolve(
         self,
@@ -144,6 +156,16 @@ class RuntimeEffectRegistrationContext:
             transaction,
             action_intent_id=work.draft.owner.reference,
         )
+        registration = await self._registrations.registration_by_intent(
+            transaction,
+            action_intent_id=intent.action_intent_id,
+        )
+        if (
+            registration is None
+            or intent.capability_request_id is None
+            or registration.capability_request_id != intent.capability_request_id
+        ):
+            raise EffectViolation("EFFECT-CAPABILITY-IDENTITY")
         if intent.response_artifact_id is not None:
             artifact_id = intent.response_artifact_id
             digest = intent.response_digest
@@ -184,6 +206,8 @@ class RuntimeEffectRegistrationContext:
             intent.root_opportunity_id,
             intent.action_intent_revision_id,
             intent.action_intent_id,
+            registration.capability_request_id,
+            registration.permission_grant_id,
             intent.subject_id,
             intent.scene_id,
             intent.context_party_id,
