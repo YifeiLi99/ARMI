@@ -1,4 +1,4 @@
-schema_version: armi.runtime-config.v1
+schema_version: armi.runtime-config.v2
 
 environment: {}
 
@@ -14,30 +14,17 @@ runtime:
   lease_seconds: 30
   heartbeat_seconds: 10
 
-work:
-  lease_seconds: 60
-  heartbeat_seconds: 20
-  max_deadline_seconds: 3600
-
 model:
   concurrency: 2
-  attempt_timeout_seconds: 180
   semantic_recall_enabled: false
 
 web:
   enabled: false
   concurrency: 1
-  step_timeout_seconds: 30
-  total_timeout_seconds: 90
-
-codex:
-  concurrency: 1
-  total_timeout_seconds: 1800
 
 creator:
   bind_host: 127.0.0.1
   request_body_max_bytes: 262144
-  bootstrap_ttl_seconds: 120
   session_ttl_seconds: 28800
 
 voice:
@@ -86,10 +73,6 @@ observability:
 
 lifecycle:
   graceful_shutdown_seconds: 30
-
-scheduler:
-  idle_poll_initial_seconds: 1
-  idle_poll_max_seconds: 10
 
 maintenance:
   consideration_after_seconds: 57600

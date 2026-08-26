@@ -145,7 +145,7 @@ class WorkspaceBoundaryTests(unittest.TestCase):
     def test_schema_owner_registry_matches_effective_head(self) -> None:
         schema_root = (
             ROOT
-            / "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
+            / "packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema"
         )
         self.assertEqual(ownership_registry_errors(schema_root), ())
         self.assertEqual(schema_tables_at_head(schema_root), frozenset(TABLE_OWNERSHIP))
@@ -171,8 +171,9 @@ class WorkspaceBoundaryTests(unittest.TestCase):
         production = tuple(
             item
             for item in accesses
-            if "/runtime_resources/schema/baseline/" not in item.path
-            and "/runtime_resources/schema/alembic/versions/" not in item.path
+            if "/armi_postgresql_contract/resources/schema/baseline/" not in item.path
+            and "/armi_postgresql_contract/resources/schema/alembic/versions/"
+            not in item.path
         )
         self.assertEqual(len(accesses), 0)
         self.assertEqual(len(production), 0)

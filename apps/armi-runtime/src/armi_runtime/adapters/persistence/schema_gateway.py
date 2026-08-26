@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, cast
 from uuid import UUID
 
 import psycopg
@@ -12,6 +12,14 @@ from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from alembic.util.exc import CommandError
+from armi_postgresql_contract import (
+    BASELINE_IDENTITY,
+    EXPECTED_REVISION,
+    PostgreSQLContractError,
+    schema_resource_root,
+    verify_postgresql_contract,
+    verify_revision_source,
+)
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import SQLAlchemyError
@@ -30,7 +38,6 @@ _EXPECTED_ENCODING: Final = "UTF8"
 _EXPECTED_TIMEZONE: Final = "UTC"
 _EXPECTED_LOCALE: Final = "C.UTF-8"
 _VERSION_TABLE: Final = "alembic_version"
-_BASELINE_IDENTITY: Final = "armi.schema-baseline.v6"
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,7 +46,10 @@ class SchemaStatus:
     table_count: int
     current_revision: str
     head_revision: str
-    baseline_identity: str = _BASELINE_IDENTITY
+    baseline_identity: str = BASELINE_IDENTITY
+    resource_digest: str = ""
+    catalog_digest: str = ""
+    role_policy_digest: str = ""
 
     def safe_view(self) -> dict[str, object]:
         return {
@@ -48,6 +58,9 @@ class SchemaStatus:
             "current_revision": self.current_revision,
             "head_revision": self.head_revision,
             "baseline_identity": self.baseline_identity,
+            "resource_digest": self.resource_digest,
+            "catalog_digest": self.catalog_digest,
+            "role_policy_digest": self.role_policy_digest,
         }
 
 
@@ -57,19 +70,21 @@ class PostgreSQLSchemaGateway:
     __slots__ = ("_config", "_head")
 
     def __init__(self, *, resource_root: Path | None = None) -> None:
-        schema_root = resource_root or (
-            Path(__file__).resolve().parents[2]
-            / "composition"
-            / "runtime_resources"
-            / "schema"
-        )
+        try:
+            schema_root = resource_root or schema_resource_root()
+            verify_revision_source(schema_root)
+        except RuntimeError:
+            raise DatabaseViolation(
+                "DB-SCHEMA-RESOURCE",
+                "the packaged Alembic baseline resources are invalid",
+            ) from None
         config = Config()
         config.set_main_option("script_location", str(schema_root / "alembic"))
         config.attributes["schema_root"] = schema_root
         try:
             script = ScriptDirectory.from_config(config)
             heads = script.get_heads()
-            if len(heads) != 1:
+            if heads != [EXPECTED_REVISION]:
                 raise ValueError
         except CommandError, OSError, ValueError:
             raise DatabaseViolation(
@@ -124,11 +139,11 @@ class PostgreSQLSchemaGateway:
                 OSError,
                 SQLAlchemyError,
                 UnicodeError,
-            ):
+            ) as error:
                 raise DatabaseViolation(
                     "DB-SCHEMA-INSTALL-FAILED",
                     "the Alembic schema install failed",
-                ) from None
+                ) from error
             state = self._inspect_schema(connection)
             role_gateway.verify(
                 connection,
@@ -303,19 +318,24 @@ class PostgreSQLSchemaGateway:
                 "the database revision does not match the sole baseline",
             )
         try:
-            identity_rows = connection.execute(
-                "SELECT singleton_key, baseline_identity "
-                "FROM armi.schema_baseline_identity"
-            ).fetchall()
-        except psycopg.Error:
-            identity_rows = []
-        if identity_rows != [(True, _BASELINE_IDENTITY)]:
+            evidence = verify_postgresql_contract(
+                connection,
+                resource_root=cast(Path, self._config.attributes["schema_root"]),
+            )
+        except PostgreSQLContractError:
             raise DatabaseViolation(
                 "DB-SCHEMA-CONTRACT",
                 "the database baseline identity does not match this build",
-            )
+            ) from None
         return SchemaStatus(
-            "current", len(tables), current, self._head, _BASELINE_IDENTITY
+            "current",
+            len(tables),
+            current,
+            self._head,
+            BASELINE_IDENTITY,
+            evidence.resource_digest,
+            evidence.catalog_digest,
+            evidence.role_policy_digest,
         )
 
     @staticmethod

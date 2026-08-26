@@ -1,4 +1,4 @@
-"""CON-CONFIG-* coverage for runtime-config v1."""
+"""CON-CONFIG-* coverage for runtime-config v2."""
 
 from __future__ import annotations
 
@@ -308,10 +308,6 @@ class RuntimeConfigurationTests(unittest.TestCase):
         fragments = [
             "database:\n  pool_min: 13\n  pool_max: 12\n",
             "runtime:\n  lease_seconds: 30\n  heartbeat_seconds: 15\n",
-            "work:\n  lease_seconds: 60\n  heartbeat_seconds: 30\n",
-            "web:\n  step_timeout_seconds: 90\n  total_timeout_seconds: 90\n",
-            "scheduler:\n  idle_poll_initial_seconds: 11\n  idle_poll_max_seconds: 10\n",
-            "codex:\n  total_timeout_seconds: 3600\n",
         ]
         for fragment in fragments:
             with (
@@ -321,6 +317,27 @@ class RuntimeConfigurationTests(unittest.TestCase):
                 with self.assertRaises(ConfigurationViolation) as raised:
                     self.load(Path(directory), extra=fragment)
                 self.assertEqual(raised.exception.code, "CFG-RELATION")
+
+    def test_removed_unconsumed_configuration_is_rejected(self) -> None:
+        fragments = (
+            ("work:\n  lease_seconds: 60\n", "CFG-UNKNOWN-FIELD"),
+            ("scheduler:\n  idle_poll_max_seconds: 10\n", "CFG-UNKNOWN-FIELD"),
+            ("codex:\n  total_timeout_seconds: 3600\n", "CFG-UNKNOWN-FIELD"),
+            ("web:\n  step_timeout_seconds: 90\n", "CFG-UNKNOWN-FIELD"),
+            ("model:\n  attempt_timeout_seconds: 60\n", "CFG-UNKNOWN-FIELD"),
+            (
+                "creator:\n  bootstrap_token_ttl_seconds: 60\n",
+                "CFG-SECRET-PLAINTEXT",
+            ),
+        )
+        for fragment, expected in fragments:
+            with (
+                self.subTest(fragment=fragment),
+                tempfile.TemporaryDirectory() as directory,
+                self.assertRaises(ConfigurationViolation) as raised,
+            ):
+                self.load(Path(directory), extra=fragment)
+            self.assertEqual(raised.exception.code, expected)
 
     def test_unsigned_decimal_environment_rule(self) -> None:
         invalid = ["-1", "+1", " 1", "1.0", "true"]

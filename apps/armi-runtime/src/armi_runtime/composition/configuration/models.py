@@ -1,4 +1,4 @@
-"""Strict immutable models for ``armi.runtime-config.v1``."""
+"""Strict immutable models for ``armi.runtime-config.v2``."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from pydantic import (
     model_validator,
 )
 
-RUNTIME_CONFIG_SCHEMA_VERSION = "armi.runtime-config.v1"
+RUNTIME_CONFIG_SCHEMA_VERSION = "armi.runtime-config.v2"
 _LOCATOR_NAME = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 
 
@@ -130,12 +130,6 @@ class LeaseConfig(_FrozenModel):
         return self
 
 
-class WorkConfig(LeaseConfig):
-    lease_seconds: PositiveInt = 60
-    heartbeat_seconds: PositiveInt = 20
-    max_deadline_seconds: PositiveInt = 3600
-
-
 class RuntimeLeaseConfig(LeaseConfig):
     lease_seconds: PositiveInt = 30
     heartbeat_seconds: PositiveInt = 10
@@ -143,33 +137,18 @@ class RuntimeLeaseConfig(LeaseConfig):
 
 class ModelConfig(_FrozenModel):
     concurrency: PositiveInt = 2
-    attempt_timeout_seconds: PositiveInt = 180
     semantic_recall_enabled: bool = False
 
 
 class WebConfig(_FrozenModel):
     enabled: bool = False
     concurrency: PositiveInt = 1
-    step_timeout_seconds: PositiveInt = 30
-    total_timeout_seconds: PositiveInt = 90
-
-    @model_validator(mode="after")
-    def validate_timeouts(self) -> Self:
-        if self.step_timeout_seconds >= self.total_timeout_seconds:
-            raise ValueError("web step timeout must be less than total timeout")
-        return self
-
-
-class CodexConfig(_FrozenModel):
-    concurrency: PositiveInt = 1
-    total_timeout_seconds: PositiveInt = 1800
 
 
 class CreatorConfig(_FrozenModel):
     bind_host: Literal["127.0.0.1"] = "127.0.0.1"
     port: Annotated[int, Field(ge=1024, le=65535)]
     request_body_max_bytes: PositiveInt = 262_144
-    bootstrap_ttl_seconds: PositiveInt = 120
     session_ttl_seconds: PositiveInt = 28_800
 
 
@@ -283,17 +262,6 @@ class LifecycleConfig(_FrozenModel):
     graceful_shutdown_seconds: PositiveInt = 30
 
 
-class SchedulerConfig(_FrozenModel):
-    idle_poll_initial_seconds: PositiveInt = 1
-    idle_poll_max_seconds: PositiveInt = 10
-
-    @model_validator(mode="after")
-    def validate_polling(self) -> Self:
-        if self.idle_poll_initial_seconds > self.idle_poll_max_seconds:
-            raise ValueError("initial poll must not exceed maximum poll")
-        return self
-
-
 class MaintenanceConfig(_FrozenModel):
     consideration_after_seconds: PositiveInt = 57_600
     deadline_after_seconds: PositiveInt = 86_400
@@ -308,14 +276,12 @@ class MaintenanceConfig(_FrozenModel):
 class RuntimeConfig(_FrozenModel):
     """The only supported effective runtime configuration shape."""
 
-    schema_version: Literal["armi.runtime-config.v1"]
+    schema_version: Literal["armi.runtime-config.v2"]
     environment: EnvironmentConfig
     database: DatabaseConfig = DatabaseConfig()
     runtime: RuntimeLeaseConfig = RuntimeLeaseConfig()
-    work: WorkConfig = WorkConfig()
     model: ModelConfig = ModelConfig()
     web: WebConfig = WebConfig()
-    codex: CodexConfig = CodexConfig()
     creator: CreatorConfig
     voice: VoiceConfig = VoiceConfig()
     vision: VisionConfig = VisionConfig()
@@ -323,7 +289,6 @@ class RuntimeConfig(_FrozenModel):
     diagnostics: DiagnosticsConfig = DiagnosticsConfig()
     observability: ObservabilityConfig = ObservabilityConfig()
     lifecycle: LifecycleConfig = LifecycleConfig()
-    scheduler: SchedulerConfig = SchedulerConfig()
     maintenance: MaintenanceConfig = MaintenanceConfig()
     secret_locators: Mapping[str, LocatorValue] = Field(
         default_factory=dict,
@@ -347,13 +312,6 @@ class RuntimeConfig(_FrozenModel):
 
     @model_validator(mode="after")
     def validate_deadlines(self) -> Self:
-        deadline = self.work.max_deadline_seconds
-        if (
-            self.model.attempt_timeout_seconds >= deadline
-            or self.web.total_timeout_seconds >= deadline
-            or self.codex.total_timeout_seconds >= deadline
-        ):
-            raise ValueError("external timeout must be less than work deadline")
         if (
             self.runtime.heartbeat_seconds + 2 * self.database.statement_timeout_seconds
             >= self.runtime.lease_seconds
@@ -368,7 +326,6 @@ __all__ = (
     "RUNTIME_CONFIG_SCHEMA_VERSION",
     "AbsolutePath",
     "ArtifactsConfig",
-    "CodexConfig",
     "CreatorConfig",
     "DatabaseConfig",
     "DiagnosticsConfig",
@@ -380,10 +337,8 @@ __all__ = (
     "ObservabilityConfig",
     "RuntimeConfig",
     "RuntimeLeaseConfig",
-    "SchedulerConfig",
     "Uuid7",
     "VoiceConfig",
     "VoiceDeviceConfig",
     "WebConfig",
-    "WorkConfig",
 )

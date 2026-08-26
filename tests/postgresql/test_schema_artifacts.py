@@ -12,7 +12,7 @@ from armi_runtime.adapters.persistence.schema_gateway import (
 )
 
 RESOURCE = Path(
-    "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
+    "packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema"
 )
 BASELINE_DOCUMENTS = [
     "10_runtime_and_subject.sql",
@@ -102,7 +102,7 @@ def test_gateway_exposes_install_and_status_only() -> None:
     assert callable(PostgreSQLSchemaGateway.install)
     assert callable(PostgreSQLSchemaGateway.status)
     assert not hasattr(PostgreSQLSchemaGateway, "migrate")
-    assert "armi.schema-baseline.v6" in (
+    assert "armi.schema-baseline.v7" in (
         RESOURCE / "baseline" / "10_runtime_and_subject.sql"
     ).read_text(encoding="utf-8")
 

@@ -11,6 +11,7 @@ from zipfile import ZipFile
 
 PACKAGE_PREFIX = "armi_runtime/interfaces/creator_web_resources/"
 RUNTIME_PREFIX = "armi_runtime/composition/runtime_resources/"
+CONTRACT_PREFIX = "armi_postgresql_contract/resources/schema/"
 REQUIRED = {
     f"{PACKAGE_PREFIX}openapi.json",
     f"{PACKAGE_PREFIX}manifest.json",
@@ -19,10 +20,12 @@ REQUIRED = {
     f"{RUNTIME_PREFIX}runtime.yaml",
     f"{RUNTIME_PREFIX}model-bindings.yaml",
     f"{RUNTIME_PREFIX}web-search.yaml",
-    f"{RUNTIME_PREFIX}schema/alembic/env.py",
-    f"{RUNTIME_PREFIX}schema/alembic/versions/0000_baseline.py",
+}
+CONTRACT_REQUIRED = {
+    f"{CONTRACT_PREFIX}alembic/env.py",
+    f"{CONTRACT_PREFIX}alembic/versions/0000_baseline.py",
     *{
-        f"{RUNTIME_PREFIX}schema/baseline/{name}"
+        f"{CONTRACT_PREFIX}baseline/{name}"
         for name in (
             "10_runtime_and_subject.sql",
             "20_artifacts_parties_interactions.sql",
@@ -56,6 +59,7 @@ def main() -> int:
         default=Path(__file__).resolve().parents[1],
     )
     parser.add_argument("--wheel", type=Path)
+    parser.add_argument("--contract-wheel", type=Path)
     parser.add_argument("--creator-resources", type=Path)
     args = parser.parse_args()
     root = args.root.resolve()
@@ -72,6 +76,19 @@ def main() -> int:
     if not wheel.is_file():
         print("WEB-WHEEL-MISSING: Runtime wheel is absent", file=sys.stderr)
         return 1
+    contract_wheel = args.contract_wheel
+    if contract_wheel is None:
+        contract_candidates = sorted(
+            (root / ".tmp/quality/python-dist").glob("armi_postgresql_contract-*.whl")
+        )
+        if len(contract_candidates) != 1:
+            print(
+                "DB-WHEEL-MISSING: expected one PostgreSQL contract wheel",
+                file=sys.stderr,
+            )
+            return 1
+        contract_wheel = contract_candidates[0]
+    contract_wheel = contract_wheel.resolve()
 
     source_root = (
         root / "apps/armi-runtime/src/armi_runtime/interfaces/creator_web_resources"
@@ -114,6 +131,17 @@ def main() -> int:
             for name in ("runtime.yaml", "model-bindings.yaml", "web-search.yaml")
         }
     )
+    contract_root = (
+        root
+        / "packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema"
+    )
+    contract_files = {
+        path.relative_to(contract_root).as_posix(): path.read_bytes()
+        for path in contract_root.rglob("*")
+        if path.is_file()
+        and "__pycache__" not in path.relative_to(contract_root).parts
+        and path.suffix != ".pyc"
+    }
     with ZipFile(wheel) as archive:
         names = set(archive.namelist())
         missing = sorted(REQUIRED - names)
@@ -142,6 +170,15 @@ def main() -> int:
             b"armi = armi_runtime.cli:main\n"
             b"armi-codex-runner = armi_runtime.codex_runner_cli:main\n"
         )
+    with ZipFile(contract_wheel) as archive:
+        contract_names = set(archive.namelist())
+        contract_missing = sorted(CONTRACT_REQUIRED - contract_names)
+        contract_drift = sorted(
+            relative
+            for relative, expected in contract_files.items()
+            if f"{CONTRACT_PREFIX}{relative}" not in contract_names
+            or archive.read(f"{CONTRACT_PREFIX}{relative}") != expected
+        )
     if missing:
         print(f"WEB-WHEEL-MISSING: {', '.join(missing)}", file=sys.stderr)
         return 1
@@ -159,6 +196,12 @@ def main() -> int:
         return 1
     if not entry_point_valid:
         print("LIFE-WHEEL-ENTRY: Runtime console entries have drifted", file=sys.stderr)
+        return 1
+    if contract_missing:
+        print(f"DB-WHEEL-MISSING: {', '.join(contract_missing)}", file=sys.stderr)
+        return 1
+    if contract_drift:
+        print(f"DB-WHEEL-DIGEST: {', '.join(contract_drift)}", file=sys.stderr)
         return 1
 
     sys.path.insert(0, str(wheel))
@@ -179,7 +222,8 @@ def main() -> int:
     print(
         "creator-wheel: pass "
         f"({len(creator_files)} Creator resources, "
-        f"{len(runtime_files)} composition resources, console entry, "
+        f"{len(runtime_files)} composition resources, "
+        f"{len(contract_files)} schema resources, console entry, "
         "Node-independent read)"
     )
     return 0

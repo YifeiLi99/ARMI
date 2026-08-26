@@ -2981,6 +2981,20 @@ ALTER TABLE ONLY armi.context_embedding_projections
     ADD CONSTRAINT context_embedding_projections_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
 --
+-- Name: context_embedding_source_sets context_embedding_source_sets_life_generation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.context_embedding_source_sets
+    ADD CONSTRAINT context_embedding_source_sets_life_generation_id_fkey FOREIGN KEY (life_generation_id) REFERENCES armi.life_generations(life_generation_id);
+
+--
+-- Name: context_embedding_source_sets context_embedding_source_sets_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
+--
+
+ALTER TABLE ONLY armi.context_embedding_source_sets
+    ADD CONSTRAINT context_embedding_source_sets_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
+
+--
 -- Name: creator_exports creator_exports_creator_party_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 

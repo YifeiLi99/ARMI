@@ -245,7 +245,6 @@ from armi_subject_state.api import (
 from armi_subject_state.bootstrap import (
     SubjectStateModule,
     bootstrap_subject_state,
-    probe_subject_state_counts,
 )
 from armi_web_observation.api import (
     WebContextReadPort,
@@ -567,11 +566,10 @@ def inspect_runtime_continuity(prepared: PreparedEnvironment) -> ContinuityState
                     conninfo,
                     birth_contract_digest=digests["birth_contract_digest"],
                     interaction=bootstrap_interaction_birth(),
+                    subject_state=bootstrap_subject_state().birth,
+                    mood=bootstrap_mood().birth,
+                    prompts=bootstrap_prompt().birth,
                 )
-                if state is ContinuityState.BORN:
-                    heads, revisions = probe_subject_state_counts(conninfo)
-                    if heads != 3 or revisions < 3:
-                        return ContinuityState.INVALID
                 return state
 
             return handle.consume(invoke)

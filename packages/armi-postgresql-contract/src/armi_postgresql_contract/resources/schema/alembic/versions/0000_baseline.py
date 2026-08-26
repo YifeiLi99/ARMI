@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from armi_runtime.composition.alembic_support import execute_schema_sql
+from armi_postgresql_contract.alembic_support import (
+    execute_schema_sql,
+    finalize_schema_identity,
+)
 
 revision = "0000"
 down_revision = None
@@ -26,6 +29,7 @@ _DOCUMENTS = (
 def upgrade() -> None:
     for name in _DOCUMENTS:
         execute_schema_sql("baseline", name)
+    finalize_schema_identity()
 
 
 def downgrade() -> None:

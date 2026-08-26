@@ -3,16 +3,28 @@
 CREATE TABLE armi.schema_baseline_identity (
     singleton_key boolean DEFAULT true NOT NULL,
     baseline_identity text NOT NULL,
+    resource_digest text NOT NULL DEFAULT '',
+    installed_catalog_digest text NOT NULL DEFAULT '',
+    role_policy_digest text NOT NULL DEFAULT '',
     installed_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
     CONSTRAINT schema_baseline_identity_pkey PRIMARY KEY (singleton_key),
     CONSTRAINT schema_baseline_identity_singleton_check CHECK (singleton_key),
     CONSTRAINT schema_baseline_identity_value_check CHECK (
-        baseline_identity = 'armi.schema-baseline.v6'::text
+        baseline_identity = 'armi.schema-baseline.v7'::text
+    ),
+    CONSTRAINT schema_baseline_identity_resource_digest_check CHECK (
+        resource_digest = '' OR resource_digest ~ '^sha256:[0-9a-f]{64}$'
+    ),
+    CONSTRAINT schema_baseline_identity_catalog_digest_check CHECK (
+        installed_catalog_digest = '' OR installed_catalog_digest ~ '^sha256:[0-9a-f]{64}$'
+    ),
+    CONSTRAINT schema_baseline_identity_role_digest_check CHECK (
+        role_policy_digest = '' OR role_policy_digest ~ '^sha256:[0-9a-f]{64}$'
     )
 );
 
 INSERT INTO armi.schema_baseline_identity (baseline_identity)
-VALUES ('armi.schema-baseline.v6');
+VALUES ('armi.schema-baseline.v7');
 
 --
 -- Name: deployment_environments; Type: TABLE; Schema: armi; Owner: -

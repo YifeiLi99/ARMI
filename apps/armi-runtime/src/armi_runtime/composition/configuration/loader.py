@@ -53,38 +53,11 @@ _ENV_OVERRIDES: dict[str, tuple[tuple[str, str], str]] = {
         ("runtime", "heartbeat_seconds"),
         "integer",
     ),
-    "ARMI_WORK_LEASE_SECONDS": (("work", "lease_seconds"), "integer"),
-    "ARMI_WORK_HEARTBEAT_SECONDS": (("work", "heartbeat_seconds"), "integer"),
-    "ARMI_WORK_MAX_DEADLINE_SECONDS": (
-        ("work", "max_deadline_seconds"),
-        "integer",
-    ),
     "ARMI_MODEL_CONCURRENCY": (("model", "concurrency"), "integer"),
-    "ARMI_MODEL_ATTEMPT_TIMEOUT_SECONDS": (
-        ("model", "attempt_timeout_seconds"),
-        "integer",
-    ),
     "ARMI_WEB_CONCURRENCY": (("web", "concurrency"), "integer"),
-    "ARMI_WEB_STEP_TIMEOUT_SECONDS": (
-        ("web", "step_timeout_seconds"),
-        "integer",
-    ),
-    "ARMI_WEB_TOTAL_TIMEOUT_SECONDS": (
-        ("web", "total_timeout_seconds"),
-        "integer",
-    ),
-    "ARMI_CODEX_CONCURRENCY": (("codex", "concurrency"), "integer"),
-    "ARMI_CODEX_TOTAL_TIMEOUT_SECONDS": (
-        ("codex", "total_timeout_seconds"),
-        "integer",
-    ),
     "ARMI_CREATOR_PORT": (("creator", "port"), "integer"),
     "ARMI_CREATOR_REQUEST_BODY_MAX_BYTES": (
         ("creator", "request_body_max_bytes"),
-        "integer",
-    ),
-    "ARMI_CREATOR_BOOTSTRAP_TTL_SECONDS": (
-        ("creator", "bootstrap_ttl_seconds"),
         "integer",
     ),
     "ARMI_CREATOR_SESSION_TTL_SECONDS": (
@@ -121,14 +94,6 @@ _ENV_OVERRIDES: dict[str, tuple[tuple[str, str], str]] = {
     ),
     "ARMI_GRACEFUL_SHUTDOWN_SECONDS": (
         ("lifecycle", "graceful_shutdown_seconds"),
-        "integer",
-    ),
-    "ARMI_IDLE_POLL_INITIAL_SECONDS": (
-        ("scheduler", "idle_poll_initial_seconds"),
-        "integer",
-    ),
-    "ARMI_IDLE_POLL_MAX_SECONDS": (
-        ("scheduler", "idle_poll_max_seconds"),
         "integer",
     ),
     "ARMI_MAINTENANCE_CONSIDERATION_AFTER_SECONDS": (

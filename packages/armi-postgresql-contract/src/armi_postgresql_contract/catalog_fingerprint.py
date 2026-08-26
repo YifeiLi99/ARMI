@@ -28,7 +28,7 @@ _CATALOG_QUERIES: tuple[tuple[str, str], ...] = (
           ON namespace.oid = relation.relnamespace
         JOIN pg_catalog.pg_roles AS owner ON owner.oid = relation.relowner
         WHERE namespace.nspname = 'armi'
-          AND relation.relkind IN ('r', 'p', 'S')
+          AND relation.relkind IN ('r', 'p', 'S', 'v', 'm', 'f')
         ORDER BY relation.relkind, relation.relname
         """,
     ),
@@ -51,7 +51,7 @@ _CATALOG_QUERIES: tuple[tuple[str, str], ...] = (
           ON default_value.adrelid = relation.oid
          AND default_value.adnum = attribute.attnum
         WHERE namespace.nspname = 'armi'
-          AND relation.relkind IN ('r', 'p', 'S')
+          AND relation.relkind IN ('r', 'p', 'S', 'v', 'm', 'f')
         ORDER BY relation.relname, attribute.attnum
         """,
     ),
@@ -129,7 +129,7 @@ _CATALOG_QUERIES: tuple[tuple[str, str], ...] = (
         ) AS acl
         LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee
         WHERE namespace.nspname = 'armi'
-          AND relation.relkind IN ('r', 'p', 'S')
+          AND relation.relkind IN ('r', 'p', 'S', 'v', 'm', 'f')
         ORDER BY 1, 2, 3, 4, 5
         """,
     ),
@@ -149,7 +149,7 @@ _CATALOG_QUERIES: tuple[tuple[str, str], ...] = (
         CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) AS acl
         LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee
         WHERE namespace.nspname = 'armi'
-          AND relation.relkind IN ('r', 'p')
+          AND relation.relkind IN ('r', 'p', 'v', 'm', 'f')
           AND attribute.attacl IS NOT NULL
         ORDER BY 1, 2, 3, 4, 5
         """,
@@ -163,6 +163,107 @@ _CATALOG_QUERIES: tuple[tuple[str, str], ...] = (
           ON namespace.oid = extension.extnamespace
         WHERE extension.extname IN ('vector', 'pg_trgm')
         ORDER BY extension.extname
+        """,
+    ),
+    (
+        "routines",
+        """
+        SELECT routine.proname,
+               pg_catalog.pg_get_function_identity_arguments(routine.oid),
+               pg_catalog.pg_get_function_result(routine.oid),
+               routine.prokind, routine.provolatile, routine.prosecdef,
+               owner.rolname, pg_catalog.pg_get_functiondef(routine.oid)
+        FROM pg_catalog.pg_proc AS routine
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = routine.pronamespace
+        JOIN pg_catalog.pg_roles AS owner ON owner.oid = routine.proowner
+        WHERE namespace.nspname = 'armi'
+        ORDER BY 1, 2
+        """,
+    ),
+    (
+        "routine_acl",
+        """
+        SELECT routine.proname,
+               pg_catalog.pg_get_function_identity_arguments(routine.oid),
+               COALESCE(grantee.rolname, 'PUBLIC'),
+               acl.privilege_type, acl.is_grantable
+        FROM pg_catalog.pg_proc AS routine
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = routine.pronamespace
+        CROSS JOIN LATERAL pg_catalog.aclexplode(
+            COALESCE(routine.proacl, pg_catalog.acldefault('f', routine.proowner))
+        ) AS acl
+        LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee
+        WHERE namespace.nspname = 'armi'
+        ORDER BY 1, 2, 3, 4, 5
+        """,
+    ),
+    (
+        "triggers",
+        """
+        SELECT relation.relname, trigger_value.tgname,
+               trigger_value.tgenabled,
+               pg_catalog.pg_get_triggerdef(trigger_value.oid, true)
+        FROM pg_catalog.pg_trigger AS trigger_value
+        JOIN pg_catalog.pg_class AS relation ON relation.oid = trigger_value.tgrelid
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = relation.relnamespace
+        WHERE namespace.nspname = 'armi' AND NOT trigger_value.tgisinternal
+        ORDER BY 1, 2
+        """,
+    ),
+    (
+        "types",
+        """
+        SELECT type_value.typname, type_value.typtype,
+               pg_catalog.format_type(type_value.oid, NULL), owner.rolname
+        FROM pg_catalog.pg_type AS type_value
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = type_value.typnamespace
+        JOIN pg_catalog.pg_roles AS owner ON owner.oid = type_value.typowner
+        WHERE namespace.nspname = 'armi'
+          AND type_value.typtype IN ('e', 'd', 'c', 'r')
+        ORDER BY 1, 2
+        """,
+    ),
+    (
+        "default_acl",
+        """
+        SELECT owner.rolname, COALESCE(namespace.nspname, ''),
+               default_acl.defaclobjtype,
+               COALESCE(grantee.rolname, 'PUBLIC'),
+               acl.privilege_type, acl.is_grantable
+        FROM pg_catalog.pg_default_acl AS default_acl
+        JOIN pg_catalog.pg_roles AS owner ON owner.oid = default_acl.defaclrole
+        LEFT JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = default_acl.defaclnamespace
+        CROSS JOIN LATERAL pg_catalog.aclexplode(default_acl.defaclacl) AS acl
+        LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee
+        WHERE owner.rolname LIKE 'armi%' OR namespace.nspname = 'armi'
+        ORDER BY 1, 2, 3, 4, 5, 6
+        """,
+    ),
+    (
+        "roles",
+        """
+        SELECT rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb,
+               rolcanlogin, rolreplication, rolbypassrls, rolconnlimit
+        FROM pg_catalog.pg_roles
+        WHERE rolname LIKE 'armi%'
+        ORDER BY rolname
+        """,
+    ),
+    (
+        "role_memberships",
+        """
+        SELECT granted.rolname, member.rolname, membership.admin_option,
+               membership.inherit_option, membership.set_option
+        FROM pg_catalog.pg_auth_members AS membership
+        JOIN pg_catalog.pg_roles AS granted ON granted.oid = membership.roleid
+        JOIN pg_catalog.pg_roles AS member ON member.oid = membership.member
+        WHERE granted.rolname LIKE 'armi%' OR member.rolname LIKE 'armi%'
+        ORDER BY 1, 2
         """,
     ),
 )

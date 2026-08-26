@@ -101,6 +101,7 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "context_embedding_coverage": TableOwnership("context"),
     "context_embedding_failures": TableOwnership("context"),
     "context_embedding_projections": TableOwnership("context"),
+    "context_embedding_source_sets": TableOwnership("context"),
     # Experience and cognition.
     "accepted_experiences": TableOwnership("experience"),
     "cognitive_attempts": TableOwnership("cognition"),
@@ -329,6 +330,11 @@ def scan_repository_dml_accesses(root: Path) -> tuple[DatabaseDmlAccess, ...]:
     for area in ("apps", "modules", "packages"):
         for path in (root / area).glob("*/src/**/*.py"):
             relative = path.relative_to(root)
+            if relative.as_posix() == (
+                "packages/armi-postgresql-contract/src/armi_postgresql_contract/"
+                "alembic_support.py"
+            ):
+                continue
             role = execution_role_for_path(relative)
             if role is None:
                 continue
@@ -365,7 +371,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     root = args.root.resolve()
     schema_root = (
-        root / "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
+        root
+        / "packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema"
     )
     errors = ownership_registry_errors(schema_root)
     errors = (*errors, *database_capability_errors(root))

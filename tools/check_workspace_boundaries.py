@@ -2726,7 +2726,8 @@ def check_repository(root: Path) -> list[Violation]:
     violations.extend(validate_source_boundaries(root))
     violations.extend(validate_contract_single_version(root))
     schema_root = (
-        root / "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
+        root
+        / "packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema"
     )
     registry_path = root / "tools/schema_ownership.py"
     violations.extend(
