@@ -44,7 +44,7 @@ describe("Creator effect detail", () => {
       '<img src="https://outside.invalid/x" onerror="alert(1)">';
     showEffect({
       contract_version: "1.0",
-      projection_version: "creator-effect.v3",
+      projection_version: "creator-effect.v4",
       effect_id: EFFECT_ID,
       action_intent_ref: OPERATION_ID,
       action_intent_revision_ref: "018f47a6-7b2d-7c35-8b18-684e38ab6ef9",
@@ -71,7 +71,7 @@ describe("Creator effect detail", () => {
   it("makes unknown highly visible without offering a retry action", async () => {
     showEffect({
       contract_version: "1.0",
-      projection_version: "creator-effect.v3",
+      projection_version: "creator-effect.v4",
       effect_id: EFFECT_ID,
       action_intent_ref: OPERATION_ID,
       action_intent_revision_ref: "018f47a6-7b2d-7c35-8b18-684e38ab6ef9",

@@ -143,6 +143,44 @@ export function OperationPanel({
                 <dd>{data.details.policy_decision_ref}</dd>
               </div>
             ) : null}
+            {data.details.capability_request_ref ? (
+              <div>
+                <dt>Capability Request</dt>
+                <dd>{data.details.capability_request_ref}</dd>
+              </div>
+            ) : null}
+            {data.details.permission_grant_ref ? (
+              <div>
+                <dt>Permission Grant</dt>
+                <dd>{data.details.permission_grant_ref}</dd>
+              </div>
+            ) : null}
+            {data.details.effect_attempt_ref ? (
+              <div>
+                <dt>当前 Effect Attempt</dt>
+                <dd>
+                  {data.details.effect_attempt_no} ·{" "}
+                  {data.details.effect_dispatch_state} ·{" "}
+                  {data.details.effect_attempt_ref}
+                </dd>
+              </div>
+            ) : null}
+            {data.details.effect_observation_ref ? (
+              <div>
+                <dt>现实观察</dt>
+                <dd>
+                  {data.details.effect_observation_conclusion} ·{" "}
+                  {data.details.effect_observation_reliability} ·{" "}
+                  {data.details.effect_observation_ref}
+                </dd>
+              </div>
+            ) : null}
+            {data.details.owner_reason ? (
+              <div>
+                <dt>Owner 原因</dt>
+                <dd>{data.details.owner_reason}</dd>
+              </div>
+            ) : null}
             {data.details.codex_execution ? (
               <>
                 <div>

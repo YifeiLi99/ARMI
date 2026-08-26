@@ -95,7 +95,7 @@ function acceptedOperationProjection(): object {
     result_ref: OPPORTUNITY_ID,
     custodian: "runtime",
     details: {
-      projection_version: "creator-operation.v3",
+      projection_version: "creator-operation.v4",
       operation_ref: OPPORTUNITY_ID,
       operation_kind: "cognition",
       stage: "accepted",
@@ -115,7 +115,7 @@ function preparedContextOperation(): object {
     waiting_for: "model_attempt",
     resume_condition: "model_step_available",
     details: {
-      projection_version: "creator-operation.v3",
+      projection_version: "creator-operation.v4",
       operation_ref: OPPORTUNITY_ID,
       operation_kind: "cognition",
       stage: "context_preparing",
@@ -127,7 +127,7 @@ function preparedContextOperation(): object {
 function capabilityPageResponse(): object {
   return {
     contract_version: "1.0",
-    projection_version: "capability-request.v4",
+    projection_version: "capability-request.v5",
     items: [],
   };
 }
@@ -830,7 +830,7 @@ describe("Creator local connection shell", () => {
       if (url === `/v1/effects/${EFFECT_ID}`) {
         return jsonResponse({
           contract_version: "1.0",
-          projection_version: "creator-effect.v3",
+          projection_version: "creator-effect.v4",
           effect_id: EFFECT_ID,
           action_intent_ref: OPPORTUNITY_ID,
           action_intent_revision_ref: "018f47a6-7b2d-7c35-8b18-684e38ab6efb",

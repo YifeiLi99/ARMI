@@ -170,7 +170,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             "message": "Creator response verified.",
             "result_ref": cls.effect_id,
             "details": {
-                "projection_version": "creator-operation.v3",
+                "projection_version": "creator-operation.v4",
                 "operation_ref": cls.opportunity_id,
                 "operation_kind": "creator_response",
                 "stage": "completed",
@@ -297,7 +297,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                 200,
                 {
                     "contract_version": "1.0",
-                    "projection_version": "capability-request.v4",
+                    "projection_version": "capability-request.v5",
                     "items": self._capability_items(),
                 },
             )
@@ -345,7 +345,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                 200,
                 {
                     "contract_version": "1.0",
-                    "projection_version": "creator-effect.v3",
+                    "projection_version": "creator-effect.v4",
                     "effect_id": self.effect_id,
                     "action_intent_ref": self.opportunity_id,
                     "action_intent_revision_ref": "018f47a6-7b2d-7c35-8b18-684e38ab6efe",

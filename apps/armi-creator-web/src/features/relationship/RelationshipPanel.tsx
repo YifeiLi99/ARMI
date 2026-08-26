@@ -10,6 +10,11 @@ import {
   type CreatorRelationshipBoundary,
 } from "../../api/client";
 import { createCreatorInputKey } from "../scene/messageIntent";
+import {
+  clearSessionValue,
+  loadSessionValue,
+  saveSessionValue,
+} from "../session/storage";
 
 type RelationshipPanelProps = {
   token: string;
@@ -21,6 +26,13 @@ type RelationshipPanelProps = {
 
 type BoundaryKind = CreatorRelationshipBoundary["kind"];
 type BoundaryAction = CreatorRelationshipBoundary["action"];
+type SubmissionState =
+  "idle" | "sending" | "unconfirmed" | "accepted" | "rejected";
+
+type FrozenBoundarySubmission = {
+  idempotencyKey: string;
+  request: CreatorRelationshipBoundary;
+};
 
 const PARTY_LABELS: Record<string, string> = {
   subject: "ARMI",
@@ -72,6 +84,16 @@ export function RelationshipPanel({
   const [action, setAction] = useState<BoundaryAction>("restrict");
   const [summary, setSummary] = useState("");
   const [submittedMessage, setSubmittedMessage] = useState<string | null>(null);
+  const storageKey = `armi:${environmentId}:relationship-boundary:${creatorPartyId}`;
+  const [submission, setSubmission] = useState<FrozenBoundarySubmission | null>(
+    () => {
+      const stored = loadSessionValue(storageKey);
+      return stored === null ? null : (stored as FrozenBoundarySubmission);
+    },
+  );
+  const [submissionState, setSubmissionState] = useState<SubmissionState>(
+    submission === null ? "idle" : "unconfirmed",
+  );
 
   const currentKey = [
     "relationship-current",
@@ -97,13 +119,16 @@ export function RelationshipPanel({
   });
 
   const boundary = useMutation({
-    mutationFn: (request: CreatorRelationshipBoundary) =>
+    mutationFn: (frozen: FrozenBoundarySubmission) =>
       expressCreatorRelationshipBoundary(
         token,
-        createCreatorInputKey(),
-        request,
+        frozen.idempotencyKey,
+        frozen.request,
       ),
     onSuccess: async (operation) => {
+      clearSessionValue(storageKey);
+      setSubmission(null);
+      setSubmissionState("accepted");
       setSummary("");
       setSubmittedMessage("边界表达已进入正式对话处理。");
       onOperationAccepted(operation.result_ref);
@@ -113,6 +138,21 @@ export function RelationshipPanel({
             String(query.queryKey[0]),
           ),
       });
+    },
+    onError: (error) => {
+      if (
+        error instanceof ApiFailure &&
+        error.status >= 400 &&
+        error.status < 500
+      ) {
+        clearSessionValue(storageKey);
+        setSubmission(null);
+        setSubmissionState("rejected");
+        setSubmittedMessage("这次表达已被明确拒绝；修改后可作为新表达提交。");
+        return;
+      }
+      setSubmissionState("unconfirmed");
+      setSubmittedMessage("结果尚未确认；可使用同一表达身份继续核验。");
     },
   });
 
@@ -133,13 +173,48 @@ export function RelationshipPanel({
       setSubmittedMessage("请填写边界的具体说明。");
       return;
     }
-    setSubmittedMessage(null);
-    boundary.mutate({
+    const request: CreatorRelationshipBoundary = {
       contract_version: "1.0",
       kind,
       action,
       summary: exactSummary,
-    });
+    };
+    if (submission !== null) {
+      const changed =
+        JSON.stringify(submission.request) !== JSON.stringify(request);
+      if (
+        changed &&
+        !window.confirm(
+          "这会放弃尚未确认的表达，并创建新的业务身份。是否继续？",
+        )
+      ) {
+        return;
+      }
+    }
+    const frozen =
+      submission !== null &&
+      JSON.stringify(submission.request) === JSON.stringify(request)
+        ? submission
+        : { idempotencyKey: createCreatorInputKey(), request };
+    saveSessionValue(storageKey, frozen);
+    setSubmission(frozen);
+    setSubmissionState("sending");
+    setSubmittedMessage(null);
+    boundary.mutate(frozen);
+  }
+
+  function abandonSubmission(): void {
+    clearSessionValue(storageKey);
+    setSubmission(null);
+    setSubmissionState("idle");
+    setSubmittedMessage("已放弃这次尚未确认的表达。");
+  }
+
+  function verifySubmission(): void {
+    if (submission === null) return;
+    setSubmissionState("sending");
+    setSubmittedMessage(null);
+    boundary.mutate(submission);
   }
 
   const revision = current.data?.relationship?.current;
@@ -339,10 +414,27 @@ export function RelationshipPanel({
             placeholder="准确说明希望遵守的边界"
           />
         </label>
-        <button type="submit" disabled={boundary.isPending}>
+        <button type="submit" disabled={submissionState === "sending"}>
           {boundary.isPending ? "正在接纳" : "提交边界表达"}
         </button>
-        {boundary.isError ? <p role="status">当前无法接纳边界表达。</p> : null}
+        {submissionState === "unconfirmed" ? (
+          <div className="panel-actions">
+            <button
+              type="button"
+              className="secondary"
+              onClick={verifySubmission}
+            >
+              使用原身份继续核验
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              onClick={abandonSubmission}
+            >
+              放弃这次表达
+            </button>
+          </div>
+        ) : null}
         {submittedMessage === null ? null : (
           <p role="status">{submittedMessage}</p>
         )}

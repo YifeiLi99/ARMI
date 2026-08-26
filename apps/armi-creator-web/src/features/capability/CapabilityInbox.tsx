@@ -205,6 +205,12 @@ function CapabilityItem({
           operation/effect 详情继续核验。
         </p>
       ) : null}
+      {item.status === "consumed" ? (
+        <p className="authority-note" role="status">
+          此动作绑定的 grant
+          已使用完毕；它不会再授权其他动作，也不提供撤回操作。
+        </p>
+      ) : null}
       {pending ? (
         <div className="decision-actions">
           {!unavailable ? (

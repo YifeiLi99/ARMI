@@ -9,6 +9,8 @@ export type QQChannelHealth = components["schemas"]["QQChannelHealthResponse"];
 export type LiveVoiceStatus = components["schemas"]["LiveVoiceStatusResponse"];
 export type LiveVisionStatus =
   components["schemas"]["LiveVisionStatusResponse"];
+export type LiveVisionObservation =
+  components["schemas"]["LiveVisionObservationResponse"];
 export type SceneTimelinePage =
   components["schemas"]["SceneTimelinePageResponse"];
 export type CreatorScene = components["schemas"]["CreatorSceneResponse"];
@@ -282,13 +284,46 @@ export async function getLiveVisionStatus(
 
 export async function controlLiveVision(
   token: string,
-  action: "start" | "stop" | "observe",
+  action: "start" | "stop",
 ): Promise<LiveVisionStatus> {
   const response = await fetch(`/v1/vision/${action}`, {
     method: "POST",
     credentials: "omit",
     headers: { Authorization: `Bearer ${token}` },
   });
+  return requireJson(response);
+}
+
+export async function observeLiveVision(
+  token: string,
+  idempotencyKey: string,
+): Promise<LiveVisionObservation> {
+  const response = await fetch("/v1/vision/observe", {
+    method: "POST",
+    credentials: "omit",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      "Idempotency-Key": idempotencyKey,
+    },
+    body: JSON.stringify({ contract_version: "1.0" }),
+  });
+  return requireJson(response);
+}
+
+export async function getLiveVisionObservation(
+  token: string,
+  observationId: string,
+  signal?: AbortSignal,
+): Promise<LiveVisionObservation> {
+  const response = await fetch(
+    `/v1/vision/observations/${encodeURIComponent(observationId)}`,
+    {
+      credentials: "omit",
+      headers: { Authorization: `Bearer ${token}` },
+      ...(signal === undefined ? {} : { signal }),
+    },
+  );
   return requireJson(response);
 }
 

@@ -10,7 +10,7 @@ function response(state: string, reasons: string[] = []): Response {
   return new Response(
     JSON.stringify({
       contract_version: "1.0",
-      projection_version: "live-voice-status.v1",
+      projection_version: "creator-live-voice-status.v2",
       state,
       enabled: true,
       input_device: "Windows WASAPI / USB Audio",

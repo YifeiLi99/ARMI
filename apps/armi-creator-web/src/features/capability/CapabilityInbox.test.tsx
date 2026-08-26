@@ -74,7 +74,7 @@ describe("Creator capability inbox", () => {
         new Response(
           JSON.stringify({
             contract_version: "1.0",
-            projection_version: "capability-request.v4",
+            projection_version: "capability-request.v5",
             items: [
               item("f9", "creator.scene.reply", "pending"),
               item("fa", "codex.delegated-work", "pending"),
@@ -132,7 +132,7 @@ describe("Creator capability inbox", () => {
         new Response(
           JSON.stringify({
             contract_version: "1.0",
-            projection_version: "capability-request.v4",
+            projection_version: "capability-request.v5",
             items: [item("fb", "creator.scene.reply", "revoked")],
           }),
           { headers: { "Content-Type": "application/json" } },
@@ -180,7 +180,7 @@ describe("Creator capability inbox", () => {
       return new Response(
         JSON.stringify({
           contract_version: "1.0",
-          projection_version: "capability-request.v4",
+          projection_version: "capability-request.v5",
           items: [item("f9", "creator.scene.reply", "pending")],
         }),
         { headers: { "Content-Type": "application/json" } },

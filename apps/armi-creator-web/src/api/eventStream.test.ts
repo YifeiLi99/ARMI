@@ -75,19 +75,19 @@ describe("authenticated Creator event stream parser", () => {
       "capability.request.invalidated",
       "capability_request",
       "018f47a6-7b2d-7c35-8b18-684e38ab6ef7",
-      "capability-request.v4",
+      "capability-request.v5",
     ],
     [
       "operation.invalidated",
       "operation",
       "018f47a6-7b2d-7c35-8b18-684e38ab6ef8",
-      "creator-operation.v3",
+      "creator-operation.v4",
     ],
     [
       "effect.invalidated",
       "effect",
       "018f47a6-7b2d-7c35-8b18-684e38ab6ef9",
-      "creator-effect.v3",
+      "creator-effect.v4",
     ],
     [
       "subject.summary.invalidated",

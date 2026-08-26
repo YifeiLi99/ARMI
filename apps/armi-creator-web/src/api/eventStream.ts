@@ -26,16 +26,16 @@ const RESOURCES = {
   ],
   capability_request: [
     "capability.request.invalidated",
-    "capability-request.v4",
+    "capability-request.v5",
     UUID_V7,
   ],
-  operation: ["operation.invalidated", "creator-operation.v3", UUID_V7],
+  operation: ["operation.invalidated", "creator-operation.v4", UUID_V7],
   other_human_record: [
     "other_human.record.invalidated",
     "other-human-record.v1",
     UUID_V7,
   ],
-  effect: ["effect.invalidated", "creator-effect.v3", UUID_V7],
+  effect: ["effect.invalidated", "creator-effect.v4", UUID_V7],
   subject_summary: [
     "subject.summary.invalidated",
     "subject-summary.v1",

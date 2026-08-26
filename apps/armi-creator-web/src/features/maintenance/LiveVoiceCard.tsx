@@ -112,6 +112,24 @@ export function LiveVoiceCard({ token, onUnauthorized }: LiveVoiceCardProps) {
               <dt>火山 TTS</dt>
               <dd>{status.data.tts_ready ? "已就绪" : "未就绪"}</dd>
             </div>
+            <div>
+              <dt>最近语音责任</dt>
+              <dd>{status.data.recent_turn_ref ?? "尚无"}</dd>
+            </div>
+            <div>
+              <dt>现实播放</dt>
+              <dd>
+                {status.data.recent_turn_status ?? "尚无"} ·{" "}
+                {status.data.playback_extent ?? "none"} ·{" "}
+                {status.data.frames_written ?? 0} 帧
+              </dd>
+            </div>
+            {status.data.last_error === null ? null : (
+              <div>
+                <dt>最后错误</dt>
+                <dd>{status.data.last_error}</dd>
+              </div>
+            )}
           </dl>
           {status.data.reason_codes.map((reason) => (
             <p className="field-note" key={reason}>

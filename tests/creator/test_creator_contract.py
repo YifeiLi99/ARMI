@@ -118,6 +118,7 @@ class CreatorContractTests(unittest.TestCase):
                 "/v1/vision/start",
                 "/v1/vision/stop",
                 "/v1/vision/observe",
+                "/v1/vision/observations/{observation_id}",
                 "/v1/vision/preview",
                 "/v1/activities",
                 "/v1/activities/{activity_id}/timeline",
@@ -771,11 +772,13 @@ class CreatorContractTests(unittest.TestCase):
         effect = EffectResponse.model_validate(
             {
                 "contract_version": "1.0",
-                "projection_version": "creator-effect.v3",
+                "projection_version": "creator-effect.v4",
                 "effect_id": "01890f47-7ac2-7cc4-98c2-9f4e3f13b9ae",
                 "action_intent_ref": "01890f47-7ac2-7cc4-98c2-9f4e3f13b9af",
                 "action_intent_revision_ref": request_id,
                 "policy_decision_ref": grant_id,
+                "capability_request_ref": request_id,
+                "permission_grant_ref": grant_id,
                 "capability_kind": "creator.scene.reply",
                 "effect_kind": "creator_response",
                 "status": "registered",

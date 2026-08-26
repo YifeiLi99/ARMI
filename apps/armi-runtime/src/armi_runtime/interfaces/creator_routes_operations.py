@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal, cast
+
 from .creator_http import (
     UUID,
     AcceptedOutcomeResponse,
@@ -254,7 +256,7 @@ def register_operation_routes(
         return JSONResponse(
             content=EffectResponse(
                 contract_version="1.0",
-                projection_version="creator-effect.v3",
+                projection_version="creator-effect.v4",
                 effect_id=str(view.effect_id.value),
                 action_intent_ref=str(view.action_intent_ref),
                 action_intent_revision_ref=str(view.action_intent_revision_ref),
@@ -263,6 +265,8 @@ def register_operation_routes(
                     if view.policy_decision_ref is None
                     else str(view.policy_decision_ref)
                 ),
+                capability_request_ref=str(view.capability_request_ref),
+                permission_grant_ref=str(view.permission_grant_ref),
                 capability_kind=view.capability_kind,
                 effect_kind=view.effect_kind,
                 status=view.status.value,
@@ -274,6 +278,27 @@ def register_operation_routes(
                     else None
                 ),
                 attempt_count=view.attempt_count,
+                current_attempt_ref=(
+                    None
+                    if view.current_attempt_ref is None
+                    else str(view.current_attempt_ref)
+                ),
+                current_attempt_no=view.current_attempt_no,
+                current_dispatch_state=cast(
+                    Literal["prepared", "dispatching", "settled"] | None,
+                    view.current_dispatch_state,
+                ),
+                current_observation_ref=(
+                    None
+                    if view.current_observation_ref is None
+                    else str(view.current_observation_ref)
+                ),
+                observation_conclusion=cast(
+                    Literal["completed", "failed", "unknown", "cancelled"] | None,
+                    view.observation_conclusion,
+                ),
+                observation_reason=view.observation_reason,
+                observation_evidence_kind=view.observation_evidence_kind,
                 last_observation_kind=(
                     view.last_observation_kind.value
                     if view.last_observation_kind is not None

@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import re
+from uuid import UUID
+
+from armi_live_vision.api import LiveVisionViolation
+
 from .creator_http import (
     BrowserSessionCurrentResponse,
     BrowserSessionResponse,
@@ -13,6 +18,10 @@ from .creator_http import (
     JSONResponse,
     LiveResponse,
     LiveVisionControlProvider,
+    LiveVisionObservationProvider,
+    LiveVisionObservationQueryProvider,
+    LiveVisionObservationRequest,
+    LiveVisionObservationResponse,
     LiveVisionPreviewProvider,
     LiveVisionStatusResponse,
     LiveVoiceControlProvider,
@@ -47,6 +56,8 @@ def register_system_routes(
     browser_sessions: BrowserSessionStore | None,
     creator_events: CreatorEventBroker | None,
     live_vision_control: LiveVisionControlProvider | None,
+    live_vision_observe: LiveVisionObservationProvider | None,
+    live_vision_observation: LiveVisionObservationQueryProvider | None,
     live_vision_preview: LiveVisionPreviewProvider | None,
     live_voice_control: LiveVoiceControlProvider | None,
     qq_channel_control: QQChannelControlProvider | None,
@@ -368,13 +379,74 @@ def register_system_routes(
     @app.post(
         "/v1/vision/observe",
         operation_id="observeLiveVision",
-        response_model=LiveVisionStatusResponse,
+        response_model=LiveVisionObservationResponse,
         dependencies=[Security(bearer)],
+        responses={202: {"model": LiveVisionObservationResponse}, 409: {}},
     )
     async def observe_live_vision(  # pyright: ignore[reportUnusedFunction]
         request: Request,
     ) -> JSONResponse:
-        return await _vision_control(request, "observe")
+        authorized = await _vision_control(request, "authorize_observe")
+        if authorized.status_code != 200:
+            return authorized
+        if live_vision_observe is None:
+            return JSONResponse(
+                status_code=503,
+                content=_unavailable("DEPENDENCY_LIVE_VISION_UNAVAILABLE"),
+            )
+        key = request.headers.get("idempotency-key")
+        if (
+            key is None
+            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", key) is None
+        ):
+            return JSONResponse(
+                status_code=400, content=_rejected("CON_IDEMPOTENCY_KEY")
+            )
+        try:
+            body = LiveVisionObservationRequest.model_validate(await request.json())
+            del body
+            result = await live_vision_observe(key)
+        except LiveVisionViolation as error:
+            return JSONResponse(
+                status_code=409 if error.code == "VISION-IDEMPOTENCY-CONFLICT" else 503,
+                content=_rejected(error.code.replace("-", "_")),
+            )
+        except ValueError:
+            return JSONResponse(
+                status_code=400, content=_rejected("CON_VISION_REQUEST")
+            )
+        return JSONResponse(
+            status_code=202 if result.status in {"registered", "recognizing"} else 200,
+            content=result.model_dump(mode="json"),
+        )
+
+    @app.get(
+        "/v1/vision/observations/{observation_id}",
+        operation_id="getLiveVisionObservation",
+        response_model=LiveVisionObservationResponse,
+        dependencies=[Security(bearer)],
+        responses={404: {}},
+    )
+    async def get_live_vision_observation(  # pyright: ignore[reportUnusedFunction]
+        request: Request, observation_id: str
+    ) -> JSONResponse:
+        authorized = await _vision_control(request, "authorize_observation")
+        if authorized.status_code != 200:
+            return authorized
+        try:
+            parsed = UUID(observation_id)
+            if parsed.version != 7 or str(parsed) != observation_id:
+                raise ValueError
+        except ValueError:
+            return JSONResponse(status_code=404, content=_rejected("VISION_NOT_FOUND"))
+        result = (
+            None
+            if live_vision_observation is None
+            else await live_vision_observation(parsed)
+        )
+        if result is None:
+            return JSONResponse(status_code=404, content=_rejected("VISION_NOT_FOUND"))
+        return JSONResponse(content=result.model_dump(mode="json"))
 
     @app.get(
         "/v1/vision/preview",

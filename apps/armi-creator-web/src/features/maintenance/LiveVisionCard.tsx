@@ -4,9 +4,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ApiFailure,
   controlLiveVision,
+  getLiveVisionObservation,
   getLiveVisionPreview,
   getLiveVisionStatus,
+  observeLiveVision,
 } from "../../api/client";
+import { createCreatorInputKey } from "../scene/messageIntent";
 import { ComponentSwitch } from "./ComponentSwitch";
 
 type Props = { token: string; onUnauthorized: () => void };
@@ -30,9 +33,26 @@ export function LiveVisionCard({ token, onUnauthorized }: Props) {
     refetchInterval: 2_000,
   });
   const control = useMutation({
-    mutationFn: (action: "start" | "stop" | "observe") =>
-      controlLiveVision(token, action),
+    mutationFn: (action: "start" | "stop") => controlLiveVision(token, action),
     onSuccess: (value) => queryClient.setQueryData(key, value),
+  });
+  const [manualObservationId, setManualObservationId] = useState<string | null>(
+    null,
+  );
+  const observation = useQuery({
+    queryKey: ["live-vision-observation", manualObservationId],
+    enabled: manualObservationId !== null,
+    queryFn: ({ signal }) =>
+      getLiveVisionObservation(token, manualObservationId!, signal),
+    refetchInterval: (query) =>
+      query.state.data !== undefined &&
+      ["completed", "failed", "unknown"].includes(query.state.data.status)
+        ? false
+        : 1_000,
+  });
+  const manual = useMutation({
+    mutationFn: () => observeLiveVision(token, createCreatorInputKey()),
+    onSuccess: (value) => setManualObservationId(value.observation_id),
   });
   const [previewUrl, setPreviewUrl] = useState<string>();
   const preview = useMutation({
@@ -51,7 +71,13 @@ export function LiveVisionCard({ token, onUnauthorized }: Props) {
     [previewUrl],
   );
   useEffect(() => {
-    const errors = [status.error, control.error, preview.error];
+    const errors = [
+      status.error,
+      control.error,
+      preview.error,
+      manual.error,
+      observation.error,
+    ];
     if (
       errors.some(
         (error) => error instanceof ApiFailure && error.status === 401,
@@ -59,7 +85,14 @@ export function LiveVisionCard({ token, onUnauthorized }: Props) {
     ) {
       onUnauthorized();
     }
-  }, [control.error, onUnauthorized, preview.error, status.error]);
+  }, [
+    control.error,
+    manual.error,
+    observation.error,
+    onUnauthorized,
+    preview.error,
+    status.error,
+  ]);
 
   const active =
     status.data?.state === "observing" || status.data?.state === "degraded";
@@ -82,8 +115,8 @@ export function LiveVisionCard({ token, onUnauthorized }: Props) {
           <button
             type="button"
             className="secondary"
-            disabled={!active || control.isPending}
-            onClick={() => control.mutate("observe")}
+            disabled={!active || manual.isPending}
+            onClick={() => manual.mutate()}
           >
             立即观察
           </button>
@@ -125,6 +158,10 @@ export function LiveVisionCard({ token, onUnauthorized }: Props) {
               <dd>{status.data.last_observation_at ?? "尚无"}</dd>
             </div>
             <div>
+              <dt>手动观察责任</dt>
+              <dd>{status.data.current_manual_observation_ref ?? "尚无"}</dd>
+            </div>
+            <div>
               <dt>小时预算</dt>
               <dd>
                 {status.data.observations_last_hour} /{" "}
@@ -149,6 +186,17 @@ export function LiveVisionCard({ token, onUnauthorized }: Props) {
       {preview.isSuccess && preview.data === null ? (
         <p role="status">当前还没有可预览的帧。</p>
       ) : null}
+      {observation.data === undefined ? null : (
+        <p role="status">
+          手动观察：{observation.data.status}
+          {observation.data.summary === null
+            ? ""
+            : ` · ${observation.data.summary}`}
+          {observation.data.error_code === null
+            ? ""
+            : ` · ${observation.data.error_code}`}
+        </p>
+      )}
       <p className="boundary-note">
         浏览器不会申请摄像头权限。预览只读取 Runtime
         内存中的当前缩小画面，不保存、不上传模型，也不形成 Evidence。

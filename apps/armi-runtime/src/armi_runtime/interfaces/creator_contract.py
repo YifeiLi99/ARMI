@@ -627,10 +627,10 @@ class CreatorProjectionEventResponse(_StrictWireModel):
         "life-record-query.v2",
         "creator-relationship.v2",
         "scene-timeline.v6",
-        "capability-request.v4",
-        "creator-operation.v3",
+        "capability-request.v5",
+        "creator-operation.v4",
         "other-human-record.v1",
-        "creator-effect.v3",
+        "creator-effect.v4",
         "subject-summary.v1",
         "data-rights-order-collection.v3",
     ]
@@ -702,7 +702,7 @@ class QQChannelHealthResponse(_StrictWireModel):
 
 class LiveVoiceStatusResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["creator-live-voice-status.v1"]
+    projection_version: Literal["creator-live-voice-status.v2"]
     state: Literal[
         "disabled",
         "idle",
@@ -720,13 +720,33 @@ class LiveVoiceStatusResponse(_StrictWireModel):
     asr_ready: bool
     llm_ready: bool
     tts_ready: bool
+    recent_turn_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None
+    recent_turn_status: (
+        Literal[
+            "recognizing",
+            "thinking",
+            "speaking",
+            "waiting_slow",
+            "completed",
+            "failed",
+            "partial",
+            "unknown",
+            "silent",
+        ]
+        | None
+    )
+    playback_extent: (
+        Literal["none", "partial_prefix", "complete", "unknown_completion"] | None
+    )
+    frames_written: Annotated[int, Field(ge=0)] | None
+    last_error: ReasonCode | None
     observed_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
     reason_codes: Annotated[list[ReasonCode], Field(max_length=16)]
 
 
 class LiveVisionStatusResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["creator-live-vision-status.v1"]
+    projection_version: Literal["creator-live-vision-status.v2"]
     state: Literal[
         "disabled",
         "idle",
@@ -743,10 +763,30 @@ class LiveVisionStatusResponse(_StrictWireModel):
     perception_ready: bool
     last_frame_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None
     last_observation_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None
+    current_manual_observation_ref: (
+        Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None
+    )
     observations_last_hour: Annotated[int, Field(ge=0)]
     hourly_limit: Annotated[int, Field(ge=1)]
     observed_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
     reason_codes: Annotated[list[ReasonCode], Field(max_length=16)]
+
+
+class LiveVisionObservationRequest(_StrictWireModel):
+    contract_version: Literal["1.0"] = "1.0"
+    trigger: Literal["manual"] = "manual"
+
+
+class LiveVisionObservationResponse(_StrictWireModel):
+    contract_version: Literal["1.0"] = "1.0"
+    projection_version: Literal["creator-live-vision-observation.v1"]
+    observation_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    trigger: Literal["initial", "scene_change", "periodic_refresh", "manual"]
+    status: Literal["registered", "recognizing", "completed", "failed", "unknown"]
+    registered_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+    change_score: Annotated[float, Field(ge=0, le=1)] | None
+    summary: Annotated[str, Field(min_length=1, max_length=2048)] | None
+    error_code: ReasonCode | None
 
 
 class ErrorDescriptorResponse(_StrictWireModel):
@@ -844,7 +884,9 @@ class UnknownOutcomeResponse(_CommonOutcomeResponse):
     status: Literal["unknown"]
     result_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     custodian: Literal["runtime"]
-    verification_action: Literal["verify_creator_inbox", "verify_codex_result"]
+    verification_action: Literal[
+        "verify_local_inbox", "verify_external_delivery", "verify_codex_result"
+    ]
 
 
 class UnavailableOutcomeResponse(_CommonOutcomeResponse):
@@ -866,7 +908,7 @@ class CreatorCodexExecutionDetails(_StrictWireModel):
 
 
 class CreatorOperationDetails(_StrictWireModel):
-    projection_version: Literal["creator-operation.v3"]
+    projection_version: Literal["creator-operation.v4"]
     operation_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     operation_kind: Literal[
         "cognition",
@@ -879,12 +921,25 @@ class CreatorOperationDetails(_StrictWireModel):
     intent_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
     dialogue_decision_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
     policy_decision_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
+    capability_request_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
+    permission_grant_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
     effect_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
     response_admission_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
     effect_registration_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = (
         None
     )
     work_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
+    effect_attempt_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
+    effect_attempt_no: Annotated[int, Field(ge=1, le=2)] | None = None
+    effect_dispatch_state: Literal["prepared", "dispatching", "settled"] | None = None
+    effect_observation_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
+    effect_observation_conclusion: (
+        Literal["completed", "failed", "unknown", "cancelled"] | None
+    ) = None
+    effect_observation_reliability: (
+        Literal["reliable", "operator_attested", "inconclusive"] | None
+    ) = None
+    owner_reason: Annotated[str, Field(min_length=1, max_length=128)] | None = None
     stage: Literal[
         "accepted",
         "context_preparing",
@@ -1002,20 +1057,39 @@ class SubjectSummaryResponse(_StrictWireModel):
 
 class EffectResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["creator-effect.v3"]
+    projection_version: Literal["creator-effect.v4"]
     effect_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     action_intent_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     action_intent_revision_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     policy_decision_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
+    capability_request_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    permission_grant_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     capability_kind: Literal["creator.scene.reply", "codex.delegated-work"]
     effect_kind: Literal["creator_response", "codex_delegation"]
     status: Literal[
         "registered", "dispatching", "completed", "failed", "unknown", "cancelled"
     ]
-    verification_status: Literal["not_started", "pending", "verified", "inconclusive"]
+    verification_status: Literal[
+        "not_started", "pending", "verified", "operator_attested", "inconclusive"
+    ]
     registered_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
     cancelled_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None = None
     attempt_count: Annotated[int, Field(ge=0, le=2)]
+    current_attempt_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
+    current_attempt_no: Annotated[int, Field(ge=1, le=2)] | None = None
+    current_dispatch_state: Literal["prepared", "dispatching", "settled"] | None = None
+    current_observation_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = (
+        None
+    )
+    observation_conclusion: (
+        Literal["completed", "failed", "unknown", "cancelled"] | None
+    ) = None
+    observation_reason: Annotated[str, Field(min_length=1, max_length=128)] | None = (
+        None
+    )
+    observation_evidence_kind: (
+        Annotated[str, Field(min_length=1, max_length=64)] | None
+    ) = None
     last_observation_kind: (
         Literal[
             "receipt",
@@ -1029,9 +1103,12 @@ class EffectResponse(_StrictWireModel):
         ]
         | None
     ) = None
-    last_observation_reliability: Literal["reliable", "inconclusive"] | None = None
+    last_observation_reliability: (
+        Literal["reliable", "operator_attested", "inconclusive"] | None
+    ) = None
     verification_action: (
-        Literal["verify_creator_inbox", "verify_codex_result"] | None
+        Literal["verify_local_inbox", "verify_external_delivery", "verify_codex_result"]
+        | None
     ) = None
     settled_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None = None
     response_text: Annotated[str, Field(min_length=1, max_length=65536)] | None = None
@@ -1039,7 +1116,7 @@ class EffectResponse(_StrictWireModel):
 
 class _EffectiveGrantResponseBase(_StrictWireModel):
     grant_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
-    status: Literal["active", "revoked", "expired"]
+    status: Literal["active", "revoked", "expired", "consumed"]
     valid_from: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
     valid_until: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
     ended_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None = None
@@ -1083,7 +1160,9 @@ class CapabilityRequestItemResponse(_StrictWireModel):
     valid_for_seconds: Annotated[int, Field(ge=60, le=604800)]
     max_uses: Annotated[int, Field(ge=1, le=16)]
     max_payload_bytes: Annotated[int, Field(ge=1, le=65536)] | None = None
-    status: Literal["pending", "granted", "limited", "denied", "revoked", "expired"]
+    status: Literal[
+        "pending", "granted", "limited", "denied", "revoked", "expired", "consumed"
+    ]
     capability_availability: Literal["available", "unavailable"]
     request_version: Annotated[int, Field(ge=1)]
     created_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
@@ -1096,7 +1175,7 @@ class CapabilityRequestItemResponse(_StrictWireModel):
 
 class CapabilityRequestPageResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["capability-request.v4"]
+    projection_version: Literal["capability-request.v5"]
     items: Annotated[list[CapabilityRequestItemResponse], Field(max_length=100)]
     next_cursor: (
         Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
@@ -1413,6 +1492,8 @@ __all__ = (
     "LifeRecordItemResponse",
     "LifeRecordPageResponse",
     "LiveResponse",
+    "LiveVisionObservationRequest",
+    "LiveVisionObservationResponse",
     "LiveVisionStatusResponse",
     "LiveVoiceStatusResponse",
     "OperationOutcomeResponse",

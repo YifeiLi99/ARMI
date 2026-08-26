@@ -191,6 +191,8 @@ from .creator_contract import (
     LifeRecordKindValue,
     LifeRecordPageResponse,
     LiveResponse,
+    LiveVisionObservationRequest,
+    LiveVisionObservationResponse,
     LiveVisionStatusResponse,
     LiveVoiceStatusResponse,
     OperationOutcomeResponse,
@@ -253,6 +255,12 @@ QQChannelHealthProvider = Callable[[], Awaitable[QQChannelHealthResponse]]
 QQChannelControlProvider = Callable[[str], Awaitable[QQChannelHealthResponse]]
 LiveVoiceControlProvider = Callable[[str], Awaitable[LiveVoiceStatusResponse]]
 LiveVisionControlProvider = Callable[[str], Awaitable[LiveVisionStatusResponse]]
+LiveVisionObservationProvider = Callable[
+    [str], Awaitable[LiveVisionObservationResponse]
+]
+LiveVisionObservationQueryProvider = Callable[
+    [UUID], Awaitable[LiveVisionObservationResponse | None]
+]
 LiveVisionPreviewProvider = Callable[[], bytes | None]
 SubjectSummaryProvider = Callable[[], Awaitable[SubjectSummary]]
 SecurityEvent = Callable[[str], None]
@@ -1123,7 +1131,11 @@ def _operation_outcome_wire(operation: CreatorOperation) -> dict[str, object]:
             message="The Creator response result requires authoritative verification.",
             result_ref=ResultRef(cast(UUID, operation.effect_ref)),
             custodian="runtime",
-            verification_action="verify_creator_inbox",
+            verification_action=(
+                "verify_external_delivery"
+                if operation.operation_kind == "other_human_response"
+                else "verify_local_inbox"
+            ),
         ).to_wire()
     if operation.phase is CreatorOperationPhase.EFFECT_CANCELLED:
         return RejectedOutcome(
@@ -1305,7 +1317,7 @@ def operation_wire(operation: CreatorOperation) -> dict[str, object]:
     stage = _operation_stage(phase)
     outcome = _operation_outcome(phase)
     wire["details"] = {
-        "projection_version": "creator-operation.v3",
+        "projection_version": "creator-operation.v4",
         "operation_ref": str(operation.acceptance.opportunity_id),
         "operation_kind": operation.operation_kind,
         "stage": stage,
@@ -1319,6 +1331,16 @@ def operation_wire(operation: CreatorOperation) -> dict[str, object]:
         **(
             {"policy_decision_ref": str(operation.policy_decision_ref)}
             if operation.policy_decision_ref
+            else {}
+        ),
+        **(
+            {"capability_request_ref": str(operation.capability_request_ref)}
+            if operation.capability_request_ref is not None
+            else {}
+        ),
+        **(
+            {"permission_grant_ref": str(operation.permission_grant_ref)}
+            if operation.permission_grant_ref is not None
             else {}
         ),
         **(
@@ -1337,6 +1359,41 @@ def operation_wire(operation: CreatorOperation) -> dict[str, object]:
             else {}
         ),
         **({"work_ref": str(operation.work_ref)} if operation.work_ref else {}),
+        **(
+            {"effect_attempt_ref": str(operation.effect_attempt_ref)}
+            if operation.effect_attempt_ref is not None
+            else {}
+        ),
+        **(
+            {"effect_attempt_no": operation.effect_attempt_no}
+            if operation.effect_attempt_no is not None
+            else {}
+        ),
+        **(
+            {"effect_dispatch_state": operation.effect_dispatch_state}
+            if operation.effect_dispatch_state is not None
+            else {}
+        ),
+        **(
+            {"effect_observation_ref": str(operation.effect_observation_ref)}
+            if operation.effect_observation_ref is not None
+            else {}
+        ),
+        **(
+            {"effect_observation_conclusion": operation.effect_observation_conclusion}
+            if operation.effect_observation_conclusion is not None
+            else {}
+        ),
+        **(
+            {"effect_observation_reliability": operation.effect_observation_reliability}
+            if operation.effect_observation_reliability is not None
+            else {}
+        ),
+        **(
+            {"owner_reason": operation.owner_reason}
+            if operation.owner_reason is not None
+            else {}
+        ),
         **(
             {"reason_code": operation.failure_code}
             if operation.failure_code is not None
@@ -1641,6 +1698,7 @@ __all__ = (
     "Literal",
     "LiveResponse",
     "LiveVisionControlProvider",
+    "LiveVisionObservationRequest",
     "LiveVisionPreviewProvider",
     "LiveVisionStatusResponse",
     "LiveVoiceControlProvider",

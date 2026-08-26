@@ -1146,7 +1146,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                 details = cast(dict[str, object], wire["details"])
                 self.assertIsInstance(details, dict)
                 self.assertEqual(wire["status"], expected_status[phase])
-                self.assertEqual(details["projection_version"], "creator-operation.v3")
+                self.assertEqual(details["projection_version"], "creator-operation.v4")
                 self.assertEqual(
                     details["operation_ref"], str(acceptance.opportunity_id)
                 )

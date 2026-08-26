@@ -1983,7 +1983,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         "/v1/other-human-records?limit=1": "other-human-record.v1",
                         "/v1/data-rights/orders": "data-rights-order-collection.v3",
                         "/v1/subject/summary": "subject-summary.v1",
-                        "/v1/capability-requests?limit=1": "capability-request.v4",
+                        "/v1/capability-requests?limit=1": "capability-request.v5",
                     }
                     for path, projection_version in p1_read_projections.items():
                         with self.subTest(p1_read_path=path):
@@ -4493,7 +4493,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 """
                 INSERT INTO armi.effects (
                     effect_id, action_intent_revision_id,
-                    policy_decision_id, subject_id, scene_id,
+                    policy_decision_id, capability_request_id,
+                    permission_grant_id, subject_id, scene_id,
                     context_party_id, payload_artifact_id, payload_digest,
                     payload_bytes, effect_kind, capability_kind,
                     operation_class, audience_scope, data_scope, purpose,
@@ -4503,7 +4504,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     current_observation_id, settled_at,
                     action_intent_id
                 )
-                SELECT uuidv7(), uuidv7(), uuidv7(), %s,
+                SELECT uuidv7(), uuidv7(), uuidv7(), uuidv7(), uuidv7(), %s,
                        uuidv7(), uuidv7(), uuidv7(),
                        'sha256:' || repeat('e', 64), 1,
                        'creator_response', 'creator.scene.reply', 'send',
@@ -5511,7 +5512,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "action_choices": [
                     {
                         "proposal_ref": "proposal:3",
-                        "atomic_group_ref": "group:3",
+                        "atomic_group_ref": "group:2",
                         "basis_ordinals": [1, 2, 3],
                         "action_kind": "creator_reply",
                         "subject_id": str(born.subject_id),
@@ -6765,6 +6766,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         codex=bootstrap_codex_read_ports().task_sources,
                         expression=expression_actions.intents,
                         interaction=interaction_actions.routes,
+                        registrations=bootstrap_effect_responsibility(),
                     )
                     async with response_factory.unit_of_work() as unit_of_work:
                         effect_snapshot = await registration_context.resolve(
@@ -6990,9 +6992,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "delivered",
                 "effect_completed",
                 1,
-                False,
                 True,
                 True,
+                None,
                 1,
                 1,
                 1,
@@ -7807,7 +7809,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         (
                             "operation",
                             accepted["result_ref"],
-                            "creator-operation.v3",
+                            "creator-operation.v4",
                         ),
                     )
                     self.assertEqual(operation_event_lines[3], b"\n")

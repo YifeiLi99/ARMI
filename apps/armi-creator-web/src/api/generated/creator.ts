@@ -738,6 +738,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/vision/observations/{observation_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get Live Vision Observation */
+    get: operations["getLiveVisionObservation"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/vision/observe": {
     parameters: {
       query?: never;
@@ -1066,7 +1083,13 @@ export interface components {
        * @enum {string}
        */
       status:
-        "pending" | "granted" | "limited" | "denied" | "revoked" | "expired";
+        | "pending"
+        | "granted"
+        | "limited"
+        | "denied"
+        | "revoked"
+        | "expired"
+        | "consumed";
       /** Status Changed At */
       status_changed_at: string;
       /** Subject Id */
@@ -1091,7 +1114,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "capability-request.v4";
+      projection_version: "capability-request.v5";
     };
     /** CodexEffectiveGrantResponse */
     CodexEffectiveGrantResponse: {
@@ -1127,7 +1150,7 @@ export interface components {
        * Status
        * @enum {string}
        */
-      status: "active" | "revoked" | "expired";
+      status: "active" | "revoked" | "expired" | "consumed";
       /** Valid From */
       valid_from: string;
       /** Valid Until */
@@ -1559,10 +1582,26 @@ export interface components {
     };
     /** CreatorOperationDetails */
     CreatorOperationDetails: {
+      /** Capability Request Ref */
+      capability_request_ref?: string | null;
       codex_execution?:
         components["schemas"]["CreatorCodexExecutionDetails"] | null;
       /** Dialogue Decision Ref */
       dialogue_decision_ref?: string | null;
+      /** Effect Attempt No */
+      effect_attempt_no?: number | null;
+      /** Effect Attempt Ref */
+      effect_attempt_ref?: string | null;
+      /** Effect Dispatch State */
+      effect_dispatch_state?: ("prepared" | "dispatching" | "settled") | null;
+      /** Effect Observation Conclusion */
+      effect_observation_conclusion?:
+        ("completed" | "failed" | "unknown" | "cancelled") | null;
+      /** Effect Observation Ref */
+      effect_observation_ref?: string | null;
+      /** Effect Observation Reliability */
+      effect_observation_reliability?:
+        ("reliable" | "operator_attested" | "inconclusive") | null;
       /** Effect Ref */
       effect_ref?: string | null;
       /** Effect Registration Ref */
@@ -1598,13 +1637,17 @@ export interface components {
         | "no_action"
         | "deferred"
         | "stale";
+      /** Owner Reason */
+      owner_reason?: string | null;
+      /** Permission Grant Ref */
+      permission_grant_ref?: string | null;
       /** Policy Decision Ref */
       policy_decision_ref?: string | null;
       /**
        * Projection Version
        * @constant
        */
-      projection_version: "creator-operation.v3";
+      projection_version: "creator-operation.v4";
       /** Reason Code */
       reason_code?: string | null;
       /** Response Admission Ref */
@@ -1681,10 +1724,10 @@ export interface components {
         | "life-record-query.v2"
         | "creator-relationship.v2"
         | "scene-timeline.v6"
-        | "capability-request.v4"
-        | "creator-operation.v3"
+        | "capability-request.v5"
+        | "creator-operation.v4"
         | "other-human-record.v1"
-        | "creator-effect.v3"
+        | "creator-effect.v4"
         | "subject-summary.v1"
         | "data-rights-order-collection.v3";
       /**
@@ -1952,7 +1995,7 @@ export interface components {
        * Status
        * @enum {string}
        */
-      status: "active" | "revoked" | "expired";
+      status: "active" | "revoked" | "expired" | "consumed";
       /** Valid From */
       valid_from: string;
       /** Valid Until */
@@ -2271,11 +2314,21 @@ export interface components {
        * @enum {string}
        */
       capability_kind: "creator.scene.reply" | "codex.delegated-work";
+      /** Capability Request Ref */
+      capability_request_ref: string;
       /**
        * Contract Version
        * @constant
        */
       contract_version: "1.0";
+      /** Current Attempt No */
+      current_attempt_no?: number | null;
+      /** Current Attempt Ref */
+      current_attempt_ref?: string | null;
+      /** Current Dispatch State */
+      current_dispatch_state?: ("prepared" | "dispatching" | "settled") | null;
+      /** Current Observation Ref */
+      current_observation_ref?: string | null;
       /** Effect Id */
       effect_id: string;
       /**
@@ -2297,14 +2350,24 @@ export interface components {
           )
         | null;
       /** Last Observation Reliability */
-      last_observation_reliability?: ("reliable" | "inconclusive") | null;
+      last_observation_reliability?:
+        ("reliable" | "operator_attested" | "inconclusive") | null;
+      /** Observation Conclusion */
+      observation_conclusion?:
+        ("completed" | "failed" | "unknown" | "cancelled") | null;
+      /** Observation Evidence Kind */
+      observation_evidence_kind?: string | null;
+      /** Observation Reason */
+      observation_reason?: string | null;
+      /** Permission Grant Ref */
+      permission_grant_ref: string;
       /** Policy Decision Ref */
       policy_decision_ref?: string | null;
       /**
        * Projection Version
        * @constant
        */
-      projection_version: "creator-effect.v3";
+      projection_version: "creator-effect.v4";
       /** Registered At */
       registered_at: string;
       /** Response Text */
@@ -2324,13 +2387,22 @@ export interface components {
         | "cancelled";
       /** Verification Action */
       verification_action?:
-        ("verify_creator_inbox" | "verify_codex_result") | null;
+        | (
+            | "verify_local_inbox"
+            | "verify_external_delivery"
+            | "verify_codex_result"
+          )
+        | null;
       /**
        * Verification Status
        * @enum {string}
        */
       verification_status:
-        "not_started" | "pending" | "verified" | "inconclusive";
+        | "not_started"
+        | "pending"
+        | "verified"
+        | "operator_attested"
+        | "inconclusive";
     };
     EffectiveGrantResponse:
       | components["schemas"]["CreatorReplyEffectiveGrantResponse"]
@@ -2425,6 +2497,39 @@ export interface components {
        */
       status: "alive";
     };
+    /** LiveVisionObservationResponse */
+    LiveVisionObservationResponse: {
+      /** Change Score */
+      change_score: number | null;
+      /**
+       * Contract Version
+       * @default 1.0
+       * @constant
+       */
+      contract_version: "1.0";
+      error_code: components["schemas"]["ReasonCode"] | null;
+      /** Observation Id */
+      observation_id: string;
+      /**
+       * Projection Version
+       * @constant
+       */
+      projection_version: "creator-live-vision-observation.v1";
+      /** Registered At */
+      registered_at: string;
+      /**
+       * Status
+       * @enum {string}
+       */
+      status: "registered" | "recognizing" | "completed" | "failed" | "unknown";
+      /** Summary */
+      summary: string | null;
+      /**
+       * Trigger
+       * @enum {string}
+       */
+      trigger: "initial" | "scene_change" | "periodic_refresh" | "manual";
+    };
     /** LiveVisionStatusResponse */
     LiveVisionStatusResponse: {
       /** Capture Ready */
@@ -2434,6 +2539,8 @@ export interface components {
        * @constant
        */
       contract_version: "1.0";
+      /** Current Manual Observation Ref */
+      current_manual_observation_ref: string | null;
       /** Device */
       device: string | null;
       /** Enabled */
@@ -2456,7 +2563,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "creator-live-vision-status.v1";
+      projection_version: "creator-live-vision-status.v2";
       /** Reason Codes */
       reason_codes: components["schemas"]["ReasonCode"][];
       /**
@@ -2483,21 +2590,43 @@ export interface components {
       contract_version: "1.0";
       /** Enabled */
       enabled: boolean;
+      /** Frames Written */
+      frames_written: number | null;
       /** Input Device */
       input_device: string | null;
+      last_error: components["schemas"]["ReasonCode"] | null;
       /** Llm Ready */
       llm_ready: boolean;
       /** Observed At */
       observed_at: string;
       /** Output Device */
       output_device: string | null;
+      /** Playback Extent */
+      playback_extent:
+        ("none" | "partial_prefix" | "complete" | "unknown_completion") | null;
       /**
        * Projection Version
        * @constant
        */
-      projection_version: "creator-live-voice-status.v1";
+      projection_version: "creator-live-voice-status.v2";
       /** Reason Codes */
       reason_codes: components["schemas"]["ReasonCode"][];
+      /** Recent Turn Ref */
+      recent_turn_ref: string | null;
+      /** Recent Turn Status */
+      recent_turn_status:
+        | (
+            | "recognizing"
+            | "thinking"
+            | "speaking"
+            | "waiting_slow"
+            | "completed"
+            | "failed"
+            | "partial"
+            | "unknown"
+            | "silent"
+          )
+        | null;
       /**
        * State
        * @enum {string}
@@ -2722,7 +2851,10 @@ export interface components {
        * Verification Action
        * @enum {string}
        */
-      verification_action: "verify_creator_inbox" | "verify_codex_result";
+      verification_action:
+        | "verify_local_inbox"
+        | "verify_external_delivery"
+        | "verify_codex_result";
     };
     /** OperationWaitingOutcomeResponse */
     OperationWaitingOutcomeResponse: {
@@ -6012,6 +6144,35 @@ export interface operations {
       };
     };
   };
+  getLiveVisionObservation: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        observation_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LiveVisionObservationResponse"];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
   observeLiveVision: {
     parameters: {
       query?: never;
@@ -6027,8 +6188,24 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["LiveVisionStatusResponse"];
+          "application/json": components["schemas"]["LiveVisionObservationResponse"];
         };
+      };
+      /** @description Accepted */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LiveVisionObservationResponse"];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
       };
     };
   };

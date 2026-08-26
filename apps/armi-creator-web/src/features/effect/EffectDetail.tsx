@@ -91,12 +91,24 @@ export function EffectDetail({
               </div>
             ) : null}
             <div>
+              <dt>Capability Request</dt>
+              <dd>{effect.data.capability_request_ref}</dd>
+            </div>
+            <div>
+              <dt>Permission Grant</dt>
+              <dd>{effect.data.permission_grant_ref}</dd>
+            </div>
+            <div>
               <dt>状态</dt>
               <dd>{effect.data.status}</dd>
             </div>
             <div>
               <dt>Attempt</dt>
-              <dd>{effect.data.attempt_count}</dd>
+              <dd>
+                {effect.data.current_attempt_no ?? effect.data.attempt_count} ·{" "}
+                {effect.data.current_attempt_ref ?? "尚未建立"} ·{" "}
+                {effect.data.current_dispatch_state ?? "尚未派发"}
+              </dd>
             </div>
             <div>
               <dt>核验状态</dt>
@@ -109,6 +121,21 @@ export function EffectDetail({
                 <dd>
                   {effect.data.last_observation_kind} ·{" "}
                   {effect.data.last_observation_reliability}
+                </dd>
+              </div>
+            )}
+            {effect.data.current_observation_ref === undefined ||
+            effect.data.current_observation_ref === null ? null : (
+              <div>
+                <dt>现实观察</dt>
+                <dd>
+                  {effect.data.observation_conclusion} ·{" "}
+                  {effect.data.last_observation_reliability} ·{" "}
+                  {effect.data.current_observation_ref}
+                  {effect.data.observation_reason === null ||
+                  effect.data.observation_reason === undefined
+                    ? ""
+                    : ` · ${effect.data.observation_reason}`}
                 </dd>
               </div>
             )}

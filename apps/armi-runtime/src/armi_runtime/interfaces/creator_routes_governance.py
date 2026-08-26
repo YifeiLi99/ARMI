@@ -505,7 +505,7 @@ def register_governance_routes(
             )
         response = CapabilityRequestPageResponse(
             contract_version="1.0",
-            projection_version="capability-request.v4",
+            projection_version="capability-request.v5",
             items=[
                 CapabilityRequestItemResponse.model_validate(
                     {
@@ -666,7 +666,7 @@ def register_governance_routes(
                         CreatorResourceKind("capability_request"),
                         str(result.request_id.value),
                         Instant(datetime.now(UTC)),
-                        "capability-request.v4",
+                        "capability-request.v5",
                     )
                 )
             except Exception:

@@ -39,3 +39,22 @@ export function saveStoredSession(session: StoredBrowserSession): void {
 export function clearStoredSession(): void {
   sessionStorage.removeItem(STORAGE_KEY);
 }
+
+export function loadSessionValue(key: string): unknown {
+  const raw = sessionStorage.getItem(key);
+  if (raw === null) return null;
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    sessionStorage.removeItem(key);
+    return null;
+  }
+}
+
+export function saveSessionValue(key: string, value: unknown): void {
+  sessionStorage.setItem(key, JSON.stringify(value));
+}
+
+export function clearSessionValue(key: string): void {
+  sessionStorage.removeItem(key);
+}

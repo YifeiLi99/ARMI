@@ -10,7 +10,7 @@ function response(state: string): Response {
   return new Response(
     JSON.stringify({
       contract_version: "1.0",
-      projection_version: "creator-live-vision-status.v1",
+      projection_version: "creator-live-vision-status.v2",
       state,
       enabled: true,
       expected_running: state === "observing",
@@ -25,6 +25,23 @@ function response(state: string): Response {
       reason_codes: [],
     }),
     { status: 200, headers: { "Content-Type": "application/json" } },
+  );
+}
+
+function observationResponse(): Response {
+  return new Response(
+    JSON.stringify({
+      contract_version: "1.0",
+      projection_version: "creator-live-vision-observation.v1",
+      observation_id: "018f47a6-7b2d-7c35-8b18-684e38ab6ef7",
+      trigger: "manual",
+      status: "registered",
+      registered_at: "2026-08-19T08:00:01.000000Z",
+      change_score: null,
+      summary: null,
+      error_code: null,
+    }),
+    { status: 202, headers: { "Content-Type": "application/json" } },
   );
 }
 
@@ -62,6 +79,7 @@ describe("live vision card", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(response("observing"))
+      .mockResolvedValueOnce(observationResponse())
       .mockResolvedValue(response("observing"));
     vi.stubGlobal("fetch", fetchMock);
     renderCard();
@@ -69,9 +87,14 @@ describe("live vision card", () => {
     await userEvent.click(
       await screen.findByRole("button", { name: "立即观察" }),
     );
-    expect(fetchMock).toHaveBeenLastCalledWith(
+    expect(fetchMock).toHaveBeenCalledWith(
       "/v1/vision/observe",
-      expect.objectContaining({ method: "POST" }),
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          "Idempotency-Key": expect.any(String),
+        }),
+      }),
     );
     await userEvent.click(screen.getByRole("switch", { name: "常驻视觉" }));
     expect(fetchMock).toHaveBeenLastCalledWith(

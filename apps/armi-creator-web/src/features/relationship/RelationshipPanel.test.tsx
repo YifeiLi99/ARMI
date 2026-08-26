@@ -93,6 +93,7 @@ function renderPanel(
 
 afterEach(() => {
   cleanup();
+  sessionStorage.clear();
   vi.unstubAllGlobals();
 });
 
@@ -184,6 +185,45 @@ describe("Creator relationship panel", () => {
       ),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "提交边界表达" })).toBeEnabled();
+  });
+
+  it("keeps the frozen payload and key after an unconfirmed response", async () => {
+    const keys: string[] = [];
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      if (String(input) === "/v1/relationships/current") {
+        return jsonResponse(currentRelationship());
+      }
+      keys.push(new Headers(init?.headers).get("Idempotency-Key") ?? "");
+      if (keys.length === 1) throw new TypeError("acknowledgement lost");
+      return jsonResponse(
+        {
+          contract_version: "1.0",
+          status: "accepted",
+          trace_id: "0123456789abcdef0123456789abcdef",
+          occurred_at: "2026-08-05T10:00:00.000000Z",
+          message: "accepted",
+          result_ref: OPERATION_ID,
+          custodian: "runtime",
+          details: {},
+        },
+        202,
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderPanel();
+    await screen.findByText("我会尊重这项边界");
+    await user.type(screen.getByLabelText("具体说明"), "不要在夜间联系");
+    await user.click(screen.getByRole("button", { name: "提交边界表达" }));
+    expect(await screen.findByText(/结果尚未确认/)).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "使用原身份继续核验" }),
+    );
+    expect(
+      await screen.findByText("边界表达已进入正式对话处理。"),
+    ).toBeInTheDocument();
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBe(keys[1]);
   });
 
   it("clears an unauthorized session", async () => {

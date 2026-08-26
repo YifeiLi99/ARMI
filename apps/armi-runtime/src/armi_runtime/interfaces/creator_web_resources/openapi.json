@@ -488,7 +488,8 @@
               "limited",
               "denied",
               "revoked",
-              "expired"
+              "expired",
+              "consumed"
             ],
             "title": "Status",
             "type": "string"
@@ -570,7 +571,7 @@
             "title": "Next Cursor"
           },
           "projection_version": {
-            "const": "capability-request.v4",
+            "const": "capability-request.v5",
             "title": "Projection Version",
             "type": "string"
           }
@@ -639,7 +640,8 @@
             "enum": [
               "active",
               "revoked",
-              "expired"
+              "expired",
+              "consumed"
             ],
             "title": "Status",
             "type": "string"
@@ -1894,6 +1896,18 @@
       "CreatorOperationDetails": {
         "additionalProperties": false,
         "properties": {
+          "capability_request_ref": {
+            "anyOf": [
+              {
+                "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capability Request Ref"
+          },
           "codex_execution": {
             "anyOf": [
               {
@@ -1915,6 +1929,92 @@
               }
             ],
             "title": "Dialogue Decision Ref"
+          },
+          "effect_attempt_no": {
+            "anyOf": [
+              {
+                "maximum": 2.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effect Attempt No"
+          },
+          "effect_attempt_ref": {
+            "anyOf": [
+              {
+                "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effect Attempt Ref"
+          },
+          "effect_dispatch_state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "prepared",
+                  "dispatching",
+                  "settled"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effect Dispatch State"
+          },
+          "effect_observation_conclusion": {
+            "anyOf": [
+              {
+                "enum": [
+                  "completed",
+                  "failed",
+                  "unknown",
+                  "cancelled"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effect Observation Conclusion"
+          },
+          "effect_observation_ref": {
+            "anyOf": [
+              {
+                "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effect Observation Ref"
+          },
+          "effect_observation_reliability": {
+            "anyOf": [
+              {
+                "enum": [
+                  "reliable",
+                  "operator_attested",
+                  "inconclusive"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effect Observation Reliability"
           },
           "effect_ref": {
             "anyOf": [
@@ -1986,6 +2086,31 @@
             "title": "Outcome",
             "type": "string"
           },
+          "owner_reason": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Reason"
+          },
+          "permission_grant_ref": {
+            "anyOf": [
+              {
+                "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Permission Grant Ref"
+          },
           "policy_decision_ref": {
             "anyOf": [
               {
@@ -1999,7 +2124,7 @@
             "title": "Policy Decision Ref"
           },
           "projection_version": {
-            "const": "creator-operation.v3",
+            "const": "creator-operation.v4",
             "title": "Projection Version",
             "type": "string"
           },
@@ -2127,10 +2252,10 @@
               "life-record-query.v2",
               "creator-relationship.v2",
               "scene-timeline.v6",
-              "capability-request.v4",
-              "creator-operation.v3",
+              "capability-request.v5",
+              "creator-operation.v4",
               "other-human-record.v1",
-              "creator-effect.v3",
+              "creator-effect.v4",
               "subject-summary.v1",
               "data-rights-order-collection.v3"
             ],
@@ -2871,7 +2996,8 @@
             "enum": [
               "active",
               "revoked",
-              "expired"
+              "expired",
+              "consumed"
             ],
             "title": "Status",
             "type": "string"
@@ -3587,10 +3713,68 @@
             "title": "Capability Kind",
             "type": "string"
           },
+          "capability_request_ref": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Capability Request Ref",
+            "type": "string"
+          },
           "contract_version": {
             "const": "1.0",
             "title": "Contract Version",
             "type": "string"
+          },
+          "current_attempt_no": {
+            "anyOf": [
+              {
+                "maximum": 2.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Attempt No"
+          },
+          "current_attempt_ref": {
+            "anyOf": [
+              {
+                "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Attempt Ref"
+          },
+          "current_dispatch_state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "prepared",
+                  "dispatching",
+                  "settled"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Dispatch State"
+          },
+          "current_observation_ref": {
+            "anyOf": [
+              {
+                "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Observation Ref"
           },
           "effect_id": {
             "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
@@ -3631,6 +3815,7 @@
               {
                 "enum": [
                   "reliable",
+                  "operator_attested",
                   "inconclusive"
                 ],
                 "type": "string"
@@ -3640,6 +3825,54 @@
               }
             ],
             "title": "Last Observation Reliability"
+          },
+          "observation_conclusion": {
+            "anyOf": [
+              {
+                "enum": [
+                  "completed",
+                  "failed",
+                  "unknown",
+                  "cancelled"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observation Conclusion"
+          },
+          "observation_evidence_kind": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observation Evidence Kind"
+          },
+          "observation_reason": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observation Reason"
+          },
+          "permission_grant_ref": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Permission Grant Ref",
+            "type": "string"
           },
           "policy_decision_ref": {
             "anyOf": [
@@ -3654,7 +3887,7 @@
             "title": "Policy Decision Ref"
           },
           "projection_version": {
-            "const": "creator-effect.v3",
+            "const": "creator-effect.v4",
             "title": "Projection Version",
             "type": "string"
           },
@@ -3704,7 +3937,8 @@
             "anyOf": [
               {
                 "enum": [
-                  "verify_creator_inbox",
+                  "verify_local_inbox",
+                  "verify_external_delivery",
                   "verify_codex_result"
                 ],
                 "type": "string"
@@ -3720,6 +3954,7 @@
               "not_started",
               "pending",
               "verified",
+              "operator_attested",
               "inconclusive"
             ],
             "title": "Verification Status",
@@ -3732,6 +3967,8 @@
           "effect_id",
           "action_intent_ref",
           "action_intent_revision_ref",
+          "capability_request_ref",
+          "permission_grant_ref",
           "capability_kind",
           "effect_kind",
           "status",
@@ -3968,6 +4205,101 @@
         "title": "LiveResponse",
         "type": "object"
       },
+      "LiveVisionObservationResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "change_score": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Score"
+          },
+          "contract_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReasonCode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "observation_id": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Observation Id",
+            "type": "string"
+          },
+          "projection_version": {
+            "const": "creator-live-vision-observation.v1",
+            "title": "Projection Version",
+            "type": "string"
+          },
+          "registered_at": {
+            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
+            "title": "Registered At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "registered",
+              "recognizing",
+              "completed",
+              "failed",
+              "unknown"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "trigger": {
+            "enum": [
+              "initial",
+              "scene_change",
+              "periodic_refresh",
+              "manual"
+            ],
+            "title": "Trigger",
+            "type": "string"
+          }
+        },
+        "required": [
+          "projection_version",
+          "observation_id",
+          "trigger",
+          "status",
+          "registered_at",
+          "change_score",
+          "summary",
+          "error_code"
+        ],
+        "title": "LiveVisionObservationResponse",
+        "type": "object"
+      },
       "LiveVisionStatusResponse": {
         "additionalProperties": false,
         "properties": {
@@ -3979,6 +4311,18 @@
             "const": "1.0",
             "title": "Contract Version",
             "type": "string"
+          },
+          "current_manual_observation_ref": {
+            "anyOf": [
+              {
+                "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Manual Observation Ref"
           },
           "device": {
             "anyOf": [
@@ -4043,7 +4387,7 @@
             "type": "boolean"
           },
           "projection_version": {
-            "const": "creator-live-vision-status.v1",
+            "const": "creator-live-vision-status.v2",
             "title": "Projection Version",
             "type": "string"
           },
@@ -4080,6 +4424,7 @@
           "perception_ready",
           "last_frame_at",
           "last_observation_at",
+          "current_manual_observation_ref",
           "observations_last_hour",
           "hourly_limit",
           "observed_at",
@@ -4104,6 +4449,18 @@
             "title": "Enabled",
             "type": "boolean"
           },
+          "frames_written": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Frames Written"
+          },
           "input_device": {
             "anyOf": [
               {
@@ -4114,6 +4471,16 @@
               }
             ],
             "title": "Input Device"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReasonCode"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "llm_ready": {
             "title": "Llm Ready",
@@ -4135,8 +4502,25 @@
             ],
             "title": "Output Device"
           },
+          "playback_extent": {
+            "anyOf": [
+              {
+                "enum": [
+                  "none",
+                  "partial_prefix",
+                  "complete",
+                  "unknown_completion"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Playback Extent"
+          },
           "projection_version": {
-            "const": "creator-live-voice-status.v1",
+            "const": "creator-live-voice-status.v2",
             "title": "Projection Version",
             "type": "string"
           },
@@ -4147,6 +4531,40 @@
             "maxItems": 16,
             "title": "Reason Codes",
             "type": "array"
+          },
+          "recent_turn_ref": {
+            "anyOf": [
+              {
+                "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recent Turn Ref"
+          },
+          "recent_turn_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "recognizing",
+                  "thinking",
+                  "speaking",
+                  "waiting_slow",
+                  "completed",
+                  "failed",
+                  "partial",
+                  "unknown",
+                  "silent"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recent Turn Status"
           },
           "state": {
             "enum": [
@@ -4178,6 +4596,11 @@
           "asr_ready",
           "llm_ready",
           "tts_ready",
+          "recent_turn_ref",
+          "recent_turn_status",
+          "playback_extent",
+          "frames_written",
+          "last_error",
           "observed_at",
           "reason_codes"
         ],
@@ -4651,7 +5074,8 @@
           },
           "verification_action": {
             "enum": [
-              "verify_creator_inbox",
+              "verify_local_inbox",
+              "verify_external_delivery",
               "verify_codex_result"
             ],
             "title": "Verification Action",
@@ -9545,6 +9969,43 @@
         "summary": "Subject Summary"
       }
     },
+    "/v1/vision/observations/{observation_id}": {
+      "get": {
+        "operationId": "getLiveVisionObservation",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "observation_id",
+            "required": true,
+            "schema": {
+              "title": "Observation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveVisionObservationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "Get Live Vision Observation"
+      }
+    },
     "/v1/vision/observe": {
       "post": {
         "operationId": "observeLiveVision",
@@ -9553,11 +10014,24 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/LiveVisionStatusResponse"
+                  "$ref": "#/components/schemas/LiveVisionObservationResponse"
                 }
               }
             },
             "description": "Successful Response"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveVisionObservationResponse"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "409": {
+            "description": "Conflict"
           }
         },
         "security": [

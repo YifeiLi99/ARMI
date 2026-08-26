@@ -209,6 +209,39 @@ class RuntimeCreatorOperationAssembler(CreatorOperationQueryPort):
                 policy_decision_ref=(
                     None if policy is None else policy.policy_decision_id
                 ),
+                capability_request_ref=(
+                    None if expression is None else expression.capability_request_id
+                ),
+                permission_grant_ref=(
+                    None if effect is None else effect.permission_grant_id
+                ),
+                effect_attempt_ref=(
+                    None if effect is None else effect.current_attempt_id
+                ),
+                effect_attempt_no=(
+                    None if effect is None else effect.current_attempt_no
+                ),
+                effect_dispatch_state=(
+                    None if effect is None else effect.current_dispatch_state
+                ),
+                effect_observation_ref=(
+                    None if effect is None else effect.current_observation_id
+                ),
+                effect_observation_conclusion=(
+                    None if effect is None else effect.observation_conclusion
+                ),
+                effect_observation_reliability=(
+                    None
+                    if effect is None or effect.current_observation_reliability is None
+                    else effect.current_observation_reliability.value
+                ),
+                owner_reason=(
+                    failure_code
+                    if failure_code is not None
+                    else None
+                    if effect is None
+                    else effect.observation_reason
+                ),
                 operation_kind=_operation_kind(expression),
                 codex_execution=codex_execution,
             )
