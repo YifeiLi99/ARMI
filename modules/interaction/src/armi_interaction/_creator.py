@@ -47,7 +47,6 @@ from ._creator_contract import (
     CreatorInputViolation,
     CreatorVoiceInputAcceptance,
     CreatorVoiceInputCommand,
-    OpportunityId,
 )
 from ._creator_postgresql import (
     CreatorInputContext,
@@ -205,7 +204,7 @@ class EvidenceAcceptanceTransaction(CreatorInputAcceptancePort):
     async def accept_voice(
         self, command: CreatorVoiceInputCommand
     ) -> CreatorVoiceInputAcceptance:
-        """Accept a transcript while reserving normal response admission for WAIT."""
+        """Accept a transcript and admit its single cognition opportunity."""
 
         context = await self._read_context(command.scene_key)
         try:
@@ -316,34 +315,10 @@ class EvidenceAcceptanceTransaction(CreatorInputAcceptancePort):
             raise CreatorInputViolation("DB-INPUT-UNAVAILABLE") from None
         except ArtifactViolation:
             raise CreatorInputViolation("ART-INPUT-CATALOG") from None
+        if acceptance.newly_accepted:
+            self._wakeups.notify(_OPPORTUNITY_AVAILABLE)
         await self._notify(command.scene_key)
         return acceptance
-
-    async def release_voice_slow(
-        self, acceptance: CreatorVoiceInputAcceptance
-    ) -> OpportunityId:
-        try:
-            async with self._uow_factory.unit_of_work() as unit:
-                opportunity_id = await self._repository.admit_voice_slow(
-                    unit, acceptance
-                )
-        except RuntimeTransactionFailure:
-            raise CreatorInputViolation("DB-INPUT-UNAVAILABLE") from None
-        self._wakeups.notify(_OPPORTUNITY_AVAILABLE)
-        return opportunity_id
-
-    async def release_voice_appraisal(
-        self, acceptance: CreatorVoiceInputAcceptance
-    ) -> OpportunityId:
-        try:
-            async with self._uow_factory.unit_of_work() as unit:
-                opportunity_id = await self._repository.admit_voice_appraisal(
-                    unit, acceptance
-                )
-        except RuntimeTransactionFailure:
-            raise CreatorInputViolation("DB-INPUT-UNAVAILABLE") from None
-        self._wakeups.notify(_OPPORTUNITY_AVAILABLE)
-        return opportunity_id
 
     async def open(self) -> None:
         return None

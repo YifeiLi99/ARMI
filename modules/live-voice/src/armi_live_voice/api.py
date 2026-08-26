@@ -28,14 +28,7 @@ class LiveVoiceSessionState(StrEnum):
     RECOGNIZING = "recognizing"
     THINKING = "thinking"
     SPEAKING = "speaking"
-    WAITING_SLOW = "waiting_slow"
     UNAVAILABLE = "unavailable"
-
-
-class FastReplyKind(StrEnum):
-    SPEAK = "SPEAK"
-    WAIT = "WAIT"
-    SILENT = "SILENT"
 
 
 class AttemptOutcome(StrEnum):
@@ -60,7 +53,6 @@ class VoiceTurnSnapshot:
         "recognizing",
         "thinking",
         "speaking",
-        "waiting_slow",
         "completed",
         "failed",
         "partial",
@@ -112,30 +104,10 @@ class AudioDevice:
 
 
 @dataclass(frozen=True, slots=True)
-class FastReplyDecision:
-    kind: FastReplyKind
-    text: str = ""
-
-
-@dataclass(frozen=True, slots=True)
 class RecognitionEvent:
     text: str
     is_final: bool
     utterance_ended: bool = False
-
-
-@dataclass(frozen=True, slots=True)
-class VoiceContext:
-    version: str
-    prompt: str
-
-    def __post_init__(self) -> None:
-        if not self.version or len(self.version) > 128:
-            raise LiveVoiceViolation(
-                "VOICE-CONTEXT-VERSION", "voice context is invalid"
-            )
-        if not self.prompt.strip() or len(self.prompt.encode("utf-8")) > 262_144:
-            raise LiveVoiceViolation("VOICE-CONTEXT-SIZE", "voice context is invalid")
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,6 +172,7 @@ class LiveVoiceBinding:
 class AcceptedVoiceInput:
     interaction_id: UUID
     evidence_id: UUID
+    opportunity_id: UUID
     request_digest: str
     content_digest: str
     newly_accepted: bool
@@ -207,7 +180,7 @@ class AcceptedVoiceInput:
     def __post_init__(self) -> None:
         if any(
             type(value) is not UUID or value.version != 7
-            for value in (self.interaction_id, self.evidence_id)
+            for value in (self.interaction_id, self.evidence_id, self.opportunity_id)
         ):
             raise LiveVoiceViolation("VOICE-INPUT-ACCEPTANCE", "voice input is invalid")
         for value in (self.request_digest, self.content_digest):
@@ -232,11 +205,6 @@ class VoiceInputAcceptancePort(Protocol):
 
 
 @runtime_checkable
-class VoiceContextPort(Protocol):
-    async def compile(self) -> VoiceContext: ...
-
-
-@runtime_checkable
 class VoiceExpressionPort(Protocol):
     async def register_fragment(
         self,
@@ -247,12 +215,6 @@ class VoiceExpressionPort(Protocol):
     ) -> None: ...
 
     async def seal(self, *, turn_id: UUID) -> None: ...
-
-
-@runtime_checkable
-class VoiceSuccessorPort(Protocol):
-    async def enqueue_appraisal(self, accepted: AcceptedVoiceInput) -> None: ...
-    async def run_slow(self, accepted: AcceptedVoiceInput) -> None: ...
 
 
 @runtime_checkable
@@ -284,9 +246,7 @@ class VoiceJournalPort(Protocol):
         turn_id: UUID,
         transcript: str | None,
         interaction_id: UUID | None,
-    ) -> None: ...
-    async def record_decision(
-        self, *, turn_id: UUID, decision: FastReplyDecision
+        opportunity_id: UUID | None,
     ) -> None: ...
     async def settle_turn(
         self,
@@ -327,6 +287,14 @@ class VoiceContextReadPort(Protocol):
         self, transaction: PostgreSQLTransaction, *, turn_id: UUID
     ) -> str | None: ...
 
+    async def turn_for_opportunity(
+        self, transaction: PostgreSQLTransaction, *, opportunity_id: UUID
+    ) -> UUID | None: ...
+
+    async def completed_playback(
+        self, transaction: PostgreSQLTransaction, *, turn_id: UUID
+    ) -> tuple[UUID, str, datetime] | None: ...
+
 
 @runtime_checkable
 class VoiceTimelinePort(Protocol):
@@ -338,30 +306,6 @@ class VoiceTimelinePort(Protocol):
         turn_id: UUID,
         occurred_at: datetime,
     ) -> None: ...
-
-
-def parse_fast_reply(payload: str) -> FastReplyDecision:
-    """Parse the exact first-line protocol without inventing fallback speech."""
-
-    normalized = payload.replace("\r\n", "\n")
-    first, separator, body = normalized.partition("\n")
-    try:
-        kind = FastReplyKind(first)
-    except ValueError as error:
-        raise LiveVoiceViolation(
-            "VOICE-FAST-PROTOCOL", "unknown fast reply kind"
-        ) from error
-    if kind is FastReplyKind.SILENT:
-        if separator and body.strip():
-            raise LiveVoiceViolation("VOICE-FAST-PROTOCOL", "SILENT must not have text")
-        return FastReplyDecision(kind)
-    if not separator:
-        raise LiveVoiceViolation("VOICE-FAST-PROTOCOL", "reply text is missing")
-    text = body.strip()
-    limit = 160 if kind is FastReplyKind.SPEAK else 24
-    if not text or len(text) > limit or "\n" in text:
-        raise LiveVoiceViolation("VOICE-FAST-PROTOCOL", "reply text is invalid")
-    return FastReplyDecision(kind, text)
 
 
 class HalfDuplexStateMachine:
@@ -391,18 +335,11 @@ class HalfDuplexStateMachine:
         },
         LiveVoiceSessionState.THINKING: {
             LiveVoiceSessionState.SPEAKING,
-            LiveVoiceSessionState.WAITING_SLOW,
             LiveVoiceSessionState.LISTENING,
             LiveVoiceSessionState.IDLE,
             LiveVoiceSessionState.UNAVAILABLE,
         },
         LiveVoiceSessionState.SPEAKING: {
-            LiveVoiceSessionState.LISTENING,
-            LiveVoiceSessionState.IDLE,
-            LiveVoiceSessionState.UNAVAILABLE,
-        },
-        LiveVoiceSessionState.WAITING_SLOW: {
-            LiveVoiceSessionState.SPEAKING,
             LiveVoiceSessionState.LISTENING,
             LiveVoiceSessionState.IDLE,
             LiveVoiceSessionState.UNAVAILABLE,
@@ -457,11 +394,8 @@ class StreamingAsrPort(Protocol):
 
 
 @runtime_checkable
-class StreamingFastModelPort(Protocol):
+class VoiceModelCompatibilityPort(Protocol):
     async def prepare(self) -> None: ...
-    def generate(
-        self, context: VoiceContext, transcript: str
-    ) -> AsyncIterator[str]: ...
 
 
 @runtime_checkable
@@ -477,8 +411,21 @@ class LiveVoiceRuntimePort(Protocol):
     async def stop(self) -> None: ...
     def status(self) -> LiveVoiceSessionState: ...
     async def recent_turn(self) -> VoiceTurnSnapshot | None: ...
+    async def play_effect(self, *, turn_id: UUID, text: str) -> int: ...
+    async def complete_silently(self, *, turn_id: UUID) -> None: ...
     @property
     def last_error(self) -> str | None: ...
+
+
+@runtime_checkable
+class VoiceCognitionResultPort(Protocol):
+    async def committed(
+        self,
+        *,
+        root_opportunity_id: UUID,
+        has_reply: bool,
+        awaits_followup: bool,
+    ) -> None: ...
 
 
 __all__ = (
@@ -487,8 +434,6 @@ __all__ = (
     "AudioDevice",
     "AudioDevicePort",
     "AudioFormat",
-    "FastReplyDecision",
-    "FastReplyKind",
     "HalfDuplexStateMachine",
     "LiveVoiceBinding",
     "LiveVoiceRuntimePort",
@@ -497,18 +442,15 @@ __all__ = (
     "PlaybackExtent",
     "RecognitionEvent",
     "StreamingAsrPort",
-    "StreamingFastModelPort",
     "StreamingTtsPort",
-    "VoiceContext",
-    "VoiceContextPort",
+    "VoiceCognitionResultPort",
     "VoiceContextReadPort",
     "VoiceExpressionPort",
     "VoiceInputAcceptancePort",
     "VoiceJournalPort",
+    "VoiceModelCompatibilityPort",
     "VoiceProviderBinding",
     "VoiceProviderService",
-    "VoiceSuccessorPort",
     "VoiceTimelinePort",
     "VoiceTurnSnapshot",
-    "parse_fast_reply",
 )

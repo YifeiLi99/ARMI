@@ -80,7 +80,8 @@ class PostgreSQLEffectDispatchRepository:
                        effect.destination_party_id, effect.payload_artifact_id,
                        effect.payload_digest, effect.payload_bytes, effect.trace_id,
                        outbox.attempt_count, outbox.claim_token,
-                       effect.destination_kind, outbox.dispatch_deadline
+                       effect.destination_kind, outbox.dispatch_deadline,
+                       effect.live_voice_turn_id
                 FROM armi.effect_outbox_items AS outbox
                 JOIN armi.effects AS effect ON effect.effect_id = outbox.effect_id
                 WHERE outbox.status = 'ready'
@@ -90,7 +91,7 @@ class PostgreSQLEffectDispatchRepository:
                   AND effect.status = 'registered'
                   AND effect.destination_kind IN (
                       'creator_inbox', 'other_human_inbox', 'external_group',
-                      'external_private'
+                      'external_private', 'live_voice_audio'
                   )
                 ORDER BY outbox.available_at, outbox.effect_outbox_item_id
                 FOR UPDATE OF outbox, effect SKIP LOCKED
@@ -108,7 +109,11 @@ class PostgreSQLEffectDispatchRepository:
             connection,
             scene_id=row[3],
             context_party_id=row[4],
-            intended_destination_kind=destination_kind,
+            intended_destination_kind=(
+                "creator_inbox"
+                if destination_kind == "live_voice_audio"
+                else destination_kind
+            ),
         )
         adapter_binding = _adapter_binding(destination_kind)
         updated = await (
@@ -161,6 +166,7 @@ class PostgreSQLEffectDispatchRepository:
                     "other_human_inbox",
                     "external_group",
                     "external_private",
+                    "live_voice_audio",
                 ],
                 destination_kind,
             ),
@@ -170,6 +176,7 @@ class PostgreSQLEffectDispatchRepository:
             Digest(str(row[6])),
             int(row[7]),
             TraceId(str(row[8])),
+            row[13],
         )
         return EffectDispatchSnapshot(
             row[0],
@@ -247,7 +254,7 @@ class PostgreSQLEffectDispatchRepository:
                   AND effect.status='registered'
                   AND effect.destination_kind IN (
                       'creator_inbox', 'other_human_inbox', 'external_group',
-                      'external_private'
+                      'external_private', 'live_voice_audio'
                   )
                 ORDER BY outbox.dispatch_deadline, outbox.effect_outbox_item_id
                 FOR UPDATE OF outbox, effect SKIP LOCKED
@@ -401,7 +408,7 @@ class PostgreSQLEffectDispatchRepository:
                        effect.destination_party_id, effect.payload_digest,
                        effect.payload_bytes, effect.trace_id,
                        effect.destination_kind, NULL::text, NULL::text, NULL::text,
-                       outbox.dispatch_deadline
+                       effect.live_voice_turn_id, outbox.dispatch_deadline
                 FROM armi.effect_outbox_items AS outbox
                 JOIN armi.effects AS effect ON effect.effect_id = outbox.effect_id
                 JOIN armi.effect_attempts AS attempt
@@ -411,7 +418,7 @@ class PostgreSQLEffectDispatchRepository:
                   AND effect.status = 'dispatching'
                   AND effect.destination_kind IN (
                       'creator_inbox', 'other_human_inbox', 'external_group',
-                      'external_private'
+                      'external_private', 'live_voice_audio'
                   )
                   AND attempt.dispatch_state IN ('prepared', 'dispatching')
                 ORDER BY outbox.claim_expires_at, outbox.effect_outbox_item_id
@@ -426,7 +433,9 @@ class PostgreSQLEffectDispatchRepository:
             connection,
             scene_id=row[9],
             context_party_id=row[10],
-            intended_destination_kind=str(row[14]),
+            intended_destination_kind=(
+                "creator_inbox" if str(row[14]) == "live_voice_audio" else str(row[14])
+            ),
         )
         return EffectDispatchSnapshot(
             row[0],
@@ -435,7 +444,7 @@ class PostgreSQLEffectDispatchRepository:
             int(row[3]),
             row[4],
             route.scene_key,
-            Instant(row[18]),
+            Instant(row[19]),
             FrozenEffectRequest(
                 EffectId(row[6]),
                 EffectAttemptId(row[7]),
@@ -448,6 +457,7 @@ class PostgreSQLEffectDispatchRepository:
                         "other_human_inbox",
                         "external_group",
                         "external_private",
+                        "live_voice_audio",
                     ],
                     str(row[14]),
                 ),
@@ -457,6 +467,7 @@ class PostgreSQLEffectDispatchRepository:
                 Digest(str(row[11])),
                 int(row[12]),
                 TraceId(str(row[13])),
+                row[18],
             ),
         )
 
@@ -475,7 +486,7 @@ class PostgreSQLEffectDispatchRepository:
                        effect.payload_digest, effect.payload_bytes,
                        effect.trace_id,
                        effect.destination_kind, NULL::text, NULL::text, NULL::text,
-                       outbox.dispatch_deadline
+                       effect.live_voice_turn_id, outbox.dispatch_deadline
                 FROM armi.effect_outbox_items AS outbox
                 JOIN armi.effects AS effect ON effect.effect_id = outbox.effect_id
                 JOIN armi.effect_attempts AS attempt
@@ -484,7 +495,7 @@ class PostgreSQLEffectDispatchRepository:
                   AND effect.status = 'unknown'
                   AND effect.destination_kind IN (
                       'creator_inbox', 'other_human_inbox', 'external_group',
-                      'external_private'
+                      'external_private', 'live_voice_audio'
                   )
                   AND attempt.dispatch_state = 'settled'
                   AND attempt.result_status = 'unknown'
@@ -500,7 +511,9 @@ class PostgreSQLEffectDispatchRepository:
             connection,
             scene_id=row[8],
             context_party_id=row[9],
-            intended_destination_kind=str(row[13]),
+            intended_destination_kind=(
+                "creator_inbox" if str(row[13]) == "live_voice_audio" else str(row[13])
+            ),
         )
         return EffectDispatchSnapshot(
             row[0],
@@ -509,7 +522,7 @@ class PostgreSQLEffectDispatchRepository:
             int(row[3]),
             row[4],
             route.scene_key,
-            Instant(row[17]),
+            Instant(row[18]),
             FrozenEffectRequest(
                 EffectId(row[6]),
                 EffectAttemptId(row[1]),
@@ -522,6 +535,7 @@ class PostgreSQLEffectDispatchRepository:
                         "other_human_inbox",
                         "external_group",
                         "external_private",
+                        "live_voice_audio",
                     ],
                     str(row[13]),
                 ),
@@ -531,6 +545,7 @@ class PostgreSQLEffectDispatchRepository:
                 Digest(str(row[10])),
                 int(row[11]),
                 TraceId(str(row[12])),
+                row[17],
             ),
         )
 
@@ -1326,6 +1341,8 @@ def _adapter_binding(destination_kind: str) -> str:
         return _LOCAL_ADAPTER_BINDING
     if destination_kind in {"external_group", "external_private"}:
         return _EXTERNAL_MESSAGE_ADAPTER_BINDING
+    if destination_kind == "live_voice_audio":
+        return "armi.effect-adapter.live-voice-audio-v1"
     raise EffectViolation("EFFECT-ADAPTER-UNAVAILABLE")
 
 

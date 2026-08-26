@@ -158,11 +158,10 @@ from ._autonomous_activity_contract import (
     AutonomousTerminalDecision,
     StartActivityDecision,
 )
-from ._creator_branch_contract import (
-    CREATOR_DIALOGUE_AGGREGATE_VERSION,
+from ._creator_appraisal_contract import (
     AppraisalEventSignalV2,
-    CreatorDialogueAggregate,
 )
+from ._creator_cognitive_act_contract import CreatorCognitiveActCandidate
 from ._dialogue_contract import (
     DIALOGUE_CANDIDATE_VERSION,
     CreatorDialogueCandidate,
@@ -592,7 +591,7 @@ class DeterministicCandidateValidator:
                         if self._context.purpose
                         in {
                             "consider_creator_input",
-                            "consider_creator_voice_appraisal",
+                            "consider_creator_voice_input",
                             "consider_creator_outreach",
                             "consider_other_human_input",
                         }
@@ -670,11 +669,10 @@ class DeterministicCandidateValidator:
             )
         if self._context.scene_id is None or self._context.creator_party_id is None:
             return _rejected("CANDIDATE-SCENE-CONTEXT")
-        source_version = parsed_candidate.schema_version
         dialogue_bound_changes: DialogueBoundChanges | None = None
-        if isinstance(parsed_candidate, CreatorDialogueAggregate):
+        if isinstance(parsed_candidate, CreatorCognitiveActCandidate):
             candidate, dialogue_bound_changes, expansion_error = (
-                _expand_creator_dialogue_aggregate(
+                _expand_creator_cognitive_act(
                     parsed_candidate,
                     bases=bases,
                     context=self._context,
@@ -713,10 +711,10 @@ class DeterministicCandidateValidator:
             return _rejected("CANDIDATE-FACT-CLASS")
 
         proposals = _all_proposals(candidate)
-        aggregate_dialogue = source_version == CREATOR_DIALOGUE_AGGREGATE_VERSION
+        unified_creator_act = isinstance(parsed_candidate, CreatorCognitiveActCandidate)
         if (
             self._context.purpose == "consider_life_query_result"
-            and not aggregate_dialogue
+            and not unified_creator_act
             and any(
                 not (
                     owner is CandidateOwner.CAPABILITY
@@ -745,7 +743,7 @@ class DeterministicCandidateValidator:
         if (
             candidate.disposition == "change"
             and formal_no_action
-            and not aggregate_dialogue
+            and not unified_creator_act
         ):
             return _rejected("CANDIDATE-DISPOSITION")
         if candidate.disposition != "change" and any(
@@ -760,7 +758,7 @@ class DeterministicCandidateValidator:
                 or formal_no_action[0].payload.decision != candidate.disposition
             ):
                 return _rejected("CANDIDATE-DISPOSITION")
-        elif formal_no_action and not aggregate_dialogue:
+        elif formal_no_action and not unified_creator_act:
             return _rejected("CANDIDATE-DISPOSITION")
 
         component_state = {
@@ -1056,7 +1054,7 @@ class DeterministicCandidateValidator:
                 )
                 and draft.atomic_group_ref not in group_experiences
                 and not (
-                    aggregate_dialogue
+                    unified_creator_act
                     and isinstance(draft, CandidateOwnerDraft)
                     and draft.owner == "mood"
                 )
@@ -2507,8 +2505,8 @@ def _optional_dialogue_failure_owner(
     return None
 
 
-def _expand_creator_dialogue_aggregate(
-    source: CreatorDialogueAggregate,
+def _expand_creator_cognitive_act(
+    source: CreatorCognitiveActCandidate,
     *,
     bases: tuple[CandidateBasis, ...],
     context: CandidateValidationContext,
@@ -2518,13 +2516,19 @@ def _expand_creator_dialogue_aggregate(
     str | None,
 ]:
     try:
-        response = (
-            source.response.as_dialogue(web_search=context.web_search_active)
-            if source.response is not None
-            else parse_dialogue_candidate(
-                {"kind": "no_change"},
-                version=DIALOGUE_CANDIDATE_VERSION,
-            )
+        response = parse_dialogue_candidate(
+            {
+                "kind": source.kind,
+                "content": source.content,
+                "record_kind": source.record_kind,
+                "query": source.query,
+                "changes": tuple(
+                    item
+                    for item in source.changes
+                    if item.op.startswith("material.") or item.op == "codex.request"
+                ),
+            },
+            version=DIALOGUE_CANDIDATE_VERSION,
         )
     except ValidationError, ValueError:
         return None, None, "CANDIDATE-RESPONSE-BRANCH"
@@ -2535,17 +2539,16 @@ def _expand_creator_dialogue_aggregate(
     )
     if candidate is None or bound is None or error is not None:
         return candidate, bound, error
-    if source.response is None:
-        internal_value = candidate.model_dump(mode="python")
-        internal_value["action_choices"] = ()
-        internal_value["capability_requests"] = ()
-        internal_value["disposition"] = "no_change"
-        try:
-            candidate = type(candidate).model_validate(internal_value, strict=True)
-        except ValidationError:
-            return None, None, "CANDIDATE-CONTRACT"
-    appraisal = source.appraisal
-    if appraisal is None:
+    relationship_events = tuple(
+        item
+        for item in source.changes
+        if item.op.startswith(("relationship.", "commitment."))
+    )
+    if (
+        source.experience is None
+        and source.appraisal is None
+        and not relationship_events
+    ):
         return candidate, bound, None
     evidence = next(
         (
@@ -2577,7 +2580,7 @@ def _expand_creator_dialogue_aggregate(
     component_changes = list(candidate_value["component_changes"])
     memory_changes = list(candidate_value["memory_changes"])
     experience_ref: str | None = None
-    if appraisal.experience is not None:
+    if source.experience is not None:
         experience_ref = f"proposal:{proposal_no}"
         experiences.append(
             {
@@ -2587,15 +2590,15 @@ def _expand_creator_dialogue_aggregate(
                 "payload": {
                     "proposal_kind": "experiences",
                     "fact_class": "external_claim",
-                    "first_person_gist": appraisal.experience.first_person_gist,
+                    "first_person_gist": source.experience.first_person_gist,
                     "source_perspective": "creator_claim",
-                    "uncertainty": appraisal.experience.uncertainty,
+                    "uncertainty": source.experience.uncertainty,
                     "privacy_scope": "private",
                 },
             }
         )
         proposal_no += 1
-        if appraisal.experience.remember:
+        if source.experience.remember:
             memory_changes.append(
                 {
                     "proposal_ref": f"proposal:{proposal_no}",
@@ -2604,14 +2607,14 @@ def _expand_creator_dialogue_aggregate(
                     "payload": {
                         "proposal_kind": "memory_changes",
                         "fact_class": "external_claim",
-                        "summary": appraisal.experience.memory_summary,
+                        "summary": source.experience.memory_summary,
                     },
                 }
             )
             proposal_no += 1
-    if appraisal.appraisal is not None:
+    if source.appraisal is not None:
         mood_change, mood_error = _bind_appraisal_event(
-            appraisal.appraisal,
+            source.appraisal,
             proposal_ref=f"proposal:{proposal_no}",
             bases=bases,
             context=context,
@@ -2623,11 +2626,11 @@ def _expand_creator_dialogue_aggregate(
             component_changes.append(mood_change)
             proposal_no += 1
     relationship = None
-    if appraisal.relationship_events:
-        if appraisal.experience is None or experience_ref is None:
+    if relationship_events:
+        if source.experience is None or experience_ref is None:
             return None, None, "CANDIDATE-RELATIONSHIP-EXPERIENCE"
         try:
-            translated = translate_compact_change_set(appraisal.relationship_events)
+            translated = translate_compact_change_set(relationship_events)
             relationship_change = cast(
                 DialogueRelationshipChange, translated["relationship_change"]
             )
@@ -2635,7 +2638,11 @@ def _expand_creator_dialogue_aggregate(
             return None, None, "CANDIDATE-RELATIONSHIP-CONTRACT"
         relationship, relationship_error = _bind_dialogue_relationship(
             relationship_change,
-            experience=appraisal.experience.as_dialogue_experience(),
+            experience=DialogueExperience(
+                first_person_gist=source.experience.first_person_gist,
+                uncertainty=source.experience.uncertainty,
+                memory_summary=source.experience.memory_summary,
+            ),
             source_experience_ref=experience_ref,
             proposal_ref=f"proposal:{proposal_no}",
             evidence=evidence,
@@ -4018,16 +4025,14 @@ def _bind_dialogue_relationship(
 ) -> tuple[CandidateRelationshipDraft | None, str | None]:
     other_party_id = (
         context.creator_party_id
-        if context.purpose
-        in {"consider_creator_input", "consider_creator_voice_appraisal"}
+        if context.purpose in {"consider_creator_input", "consider_creator_voice_input"}
         else context.other_party_id
         if context.purpose == "consider_other_human_input"
         else None
     )
     scope = (
         "creator_social"
-        if context.purpose
-        in {"consider_creator_input", "consider_creator_voice_appraisal"}
+        if context.purpose in {"consider_creator_input", "consider_creator_voice_input"}
         or (
             context.purpose == "consider_other_human_input"
             and context.sender_party_kind == "creator"

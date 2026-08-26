@@ -432,9 +432,9 @@ class PostgreSQLEffectLedgerRepository:
                     payload_artifact_id, payload_digest, payload_bytes, effect_kind,
                     capability_kind, operation_class, audience_scope, data_scope, purpose,
                     authorization_basis, destination_kind, destination_party_id,
-                    destination_binding_id,
+                    destination_binding_id, live_voice_turn_id,
                     registration_digest, trace_id, status, verification_status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                    %s,%s,%s,%s,%s,'creator_grant',%s,%s,%s,%s,%s,
+                    %s,%s,%s,%s,%s,'creator_grant',%s,%s,%s,%s,%s,%s,
                     'registered','not_started')
                 RETURNING registered_at
                 """,
@@ -461,14 +461,10 @@ class PostgreSQLEffectLedgerRepository:
                         if snapshot.effect_kind == "creator_response"
                         else None,
                         snapshot.purpose,
-                        "creator_inbox"
-                        if snapshot.effect_kind == "creator_response"
-                        and snapshot.destination_binding_id is None
-                        else "external_private"
-                        if snapshot.effect_kind == "creator_response"
-                        else "codex_workspace",
+                        snapshot.destination_kind,
                         snapshot.destination_party_id,
                         snapshot.destination_binding_id,
+                        snapshot.live_voice_turn_id,
                         registration_digest.value,
                         snapshot.trace_id.value,
                     ),
@@ -493,6 +489,7 @@ class PostgreSQLEffectLedgerRepository:
                     valid_until,
                     1
                     if snapshot.effect_kind == "codex_delegation"
+                    or snapshot.live_voice_turn_id is not None
                     or snapshot.destination_binding_id is not None
                     else 2,
                 ),
@@ -703,6 +700,12 @@ def _registration_digest(snapshot: EffectRegistrationContext) -> Digest:
                     "payload_digest": snapshot.payload_digest.value,
                     "payload_bytes": snapshot.payload_bytes,
                     "purpose": snapshot.purpose,
+                    "destination_kind": snapshot.destination_kind,
+                    "live_voice_turn_id": (
+                        None
+                        if snapshot.live_voice_turn_id is None
+                        else str(snapshot.live_voice_turn_id)
+                    ),
                 },
             )
         )

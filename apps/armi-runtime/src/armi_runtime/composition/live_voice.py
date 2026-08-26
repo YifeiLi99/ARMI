@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
 from uuid import UUID
 
-from armi_artifact_store.api import ArtifactCatalogPort
-from armi_artifact_store.content_store import ContentAddressedArtifactStore
-from armi_context.api import ContextDialogueReadPort
 from armi_interaction.api import CreatorIdentityContext, CreatorInteractionPort
+from armi_kernel import load_yaml_file
 from armi_kernel.application import CredentialPurpose
 from armi_live_voice.api import (
     AudioFormat,
@@ -19,10 +18,6 @@ from armi_live_voice.api import (
     VoiceTimelinePort,
 )
 from armi_live_voice.bootstrap import compose_live_voice, compose_live_voice_journal
-from armi_mood.api import MoodReadPort
-from armi_prompt.api import PromptReadPort
-from armi_relationship.api import RelationshipReadPort
-from armi_subject_state.api import SubjectStateReadPort
 
 from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWorkFactory
 from armi_runtime.adapters.voice.ark import ArkResponsesFastModel
@@ -32,14 +27,11 @@ from armi_runtime.adapters.voice.volc import (
     decode_volc_credentials,
 )
 from armi_runtime.adapters.voice.wasapi import WasapiRawAudio
-from armi_runtime.application.live_voice import (
-    RuntimeLiveVoiceContext,
-    RuntimeLiveVoiceInteraction,
-)
+from armi_runtime.application.live_voice import RuntimeLiveVoiceInteraction
 
+from .config_assets import runtime_config_path
 from .environment import PreparedEnvironment
 
-_MODEL_PURPOSE = CredentialPurpose("voice.fast-model")
 _SPEECH_PURPOSE = CredentialPurpose("voice.streaming-speech")
 
 
@@ -51,12 +43,6 @@ def compose_runtime_live_voice(
     creator: CreatorIdentityContext,
     interaction: CreatorInteractionPort,
     timeline: VoiceTimelinePort,
-    dialogue: ContextDialogueReadPort,
-    subject_state: SubjectStateReadPort,
-    mood: MoodReadPort,
-    prompt: PromptReadPort,
-    relationship: RelationshipReadPort,
-    catalog: ArtifactCatalogPort,
 ) -> LiveVoiceRuntimePort | None:
     config = prepared.effective.config
     voice = config.voice
@@ -68,14 +54,42 @@ def compose_runtime_live_voice(
         raise LiveVoiceViolation(
             "VOICE-DEVICE-CONFIG", "voice device is not configured"
         )
-    model_locator = config.secret_locators.get("model.ark_api_key")
+    try:
+        bindings = cast(
+            dict[str, Any], load_yaml_file(runtime_config_path("model-bindings.yaml"))
+        )
+        voice_binding = cast(dict[str, Any], bindings["voice_binding"])
+        voice_provider = str(voice_binding["provider"])
+        voice_api_base = str(voice_binding["api_base"])
+        voice_model = str(voice_binding["model_id"])
+        model_locator_name = str(voice_binding["credential_locator"])
+        model_purpose = CredentialPurpose(str(voice_binding["credential_purpose"]))
+        if (
+            bindings.get("schema_version") != "armi.model-bindings.v2"
+            or voice_provider != "volcengine_ark"
+            or not voice_api_base.startswith("https://")
+            or voice_binding.get("profile") != "creator_voice_act"
+            or voice_binding.get("request_contract_version") != "armi.model-request.v1"
+            or voice_binding.get("response_contract_version")
+            != "armi.creator-voice-act-candidate.v1"
+            or voice_binding.get("output_token_limit") != 512
+            or voice_binding.get("thinking") != "disabled"
+            or voice_binding.get("tools") != "disabled"
+            or voice_binding.get("startup_compatibility_check") != "strict_minimal_json"
+        ):
+            raise ValueError
+    except KeyError, TypeError, ValueError:
+        raise LiveVoiceViolation(
+            "VOICE-MODEL-BINDING", "voice model binding is invalid"
+        ) from None
+    model_locator = config.secret_locators.get(model_locator_name)
     speech_locator = config.secret_locators.get("speech.volc_credentials")
     if model_locator is None or speech_locator is None:
         raise LiveVoiceViolation(
             "VOICE-CREDENTIAL-UNAVAILABLE", "voice credential is not configured"
         )
     try:
-        with prepared.credential_port.resolve(model_locator, _MODEL_PURPOSE) as handle:
+        with prepared.credential_port.resolve(model_locator, model_purpose) as handle:
             model_key = handle.consume(
                 lambda value: value.tobytes().decode("utf-8", errors="strict").strip()
             )
@@ -96,7 +110,6 @@ def compose_runtime_live_voice(
         ) from None
     if not model_key:
         raise LiveVoiceViolation("VOICE-LLM-CREDENTIAL", "Ark API key is empty")
-
     binding = LiveVoiceBinding(
         input_host_api=input_device.host_api,
         input_device_name=input_device.name,
@@ -109,9 +122,9 @@ def compose_runtime_live_voice(
         ),
         llm=VoiceProviderBinding(
             VoiceProviderService.LLM,
-            "volcengine_ark",
-            voice.llm_model,
-            voice.llm_model,
+            voice_provider,
+            voice_model,
+            voice_model,
         ),
         tts=VoiceProviderBinding(
             VoiceProviderService.TTS,
@@ -143,7 +156,6 @@ def compose_runtime_live_voice(
     )
     bridge = RuntimeLiveVoiceInteraction(
         acceptance=interaction,
-        successor=interaction,
         scene_key=creator.default_scene_key,
     )
     return compose_live_voice(
@@ -153,33 +165,18 @@ def compose_runtime_live_voice(
             resource_id=voice.asr_resource_id,
             endpoint_silence_ms=voice.endpoint_silence_ms,
         ),
-        model=ArkResponsesFastModel(model_key, model=voice.llm_model),
+        model=ArkResponsesFastModel(
+            model_key,
+            model=voice_model,
+            base_url=voice_api_base,
+        ),
         tts=VolcStreamingTts(
             speech_credentials,
             resource_id=voice.tts_resource_id,
             voice_type=voice.tts_voice_type,
         ),
-        context=RuntimeLiveVoiceContext(
-            factory=factory,
-            subject_id=subject_id,
-            subject_state=subject_state,
-            mood=mood,
-            prompt=prompt,
-            relationship=relationship,
-            catalog=catalog,
-            storage=ContentAddressedArtifactStore(
-                prepared.data_root / "artifacts",
-                max_object_bytes=config.artifacts.max_object_bytes,
-                publication_catalog=catalog,
-                publication_uow_factory=factory,
-                orphan_grace_seconds=config.artifacts.orphan_grace_seconds,
-            ),
-            dialogue=dialogue,
-            scene_id=creator.scene_id,
-        ),
         inputs=bridge,
         expression=journal,
-        successors=bridge,
         journal=journal,
         binding=binding,
     )

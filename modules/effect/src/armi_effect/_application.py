@@ -119,6 +119,7 @@ class EffectRegistrationPipeline:
         notifier: CreatorProjectionNotifier | None = None,
         adapter: ActionAdapterPort | None = None,
         external_message_adapter: ActionAdapterPort | None = None,
+        live_voice_adapter: ActionAdapterPort | None = None,
         wakeups: EffectWakeupPort,
         diagnostic: Diagnostic | None = None,
         fault_injector: FaultInjector | None = None,
@@ -152,6 +153,8 @@ class EffectRegistrationPipeline:
             if external_message_adapter is not None:
                 adapter_routes["external_group"] = external_message_adapter
                 adapter_routes["external_private"] = external_message_adapter
+            if live_voice_adapter is not None:
+                adapter_routes["live_voice_audio"] = live_voice_adapter
             self._adapter = RoutedActionAdapter(adapter_routes)
         self._work = work
         self._lease_owner = uuid7()

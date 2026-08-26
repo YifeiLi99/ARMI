@@ -3,30 +3,24 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncIterator
 from contextlib import suppress
 from uuid import UUID, uuid7
 
 from .api import (
     AttemptOutcome,
     AudioDevicePort,
-    FastReplyDecision,
-    FastReplyKind,
     HalfDuplexStateMachine,
     LiveVoiceBinding,
     LiveVoiceSessionState,
     LiveVoiceViolation,
     StreamingAsrPort,
-    StreamingFastModelPort,
     StreamingTtsPort,
-    VoiceContext,
-    VoiceContextPort,
     VoiceExpressionPort,
     VoiceInputAcceptancePort,
     VoiceJournalPort,
-    VoiceSuccessorPort,
+    VoiceModelCompatibilityPort,
     VoiceTurnSnapshot,
-    parse_fast_reply,
 )
 
 
@@ -38,12 +32,10 @@ class LiveVoiceService:
         *,
         audio: AudioDevicePort,
         asr: StreamingAsrPort,
-        model: StreamingFastModelPort,
+        model: VoiceModelCompatibilityPort,
         tts: StreamingTtsPort,
-        context: VoiceContextPort,
         inputs: VoiceInputAcceptancePort,
         expression: VoiceExpressionPort,
-        successors: VoiceSuccessorPort,
         journal: VoiceJournalPort,
         binding: LiveVoiceBinding,
     ) -> None:
@@ -51,10 +43,8 @@ class LiveVoiceService:
         self._asr = asr
         self._model = model
         self._tts = tts
-        self._context = context
         self._inputs = inputs
         self._expression = expression
-        self._successors = successors
         self._journal = journal
         self._binding = binding
         self._machine = HalfDuplexStateMachine()
@@ -64,6 +54,9 @@ class LiveVoiceService:
         self._session_id: UUID | None = None
         self._last_error: str | None = None
         self._turn_no = 0
+        self._pending_effects: dict[
+            UUID, asyncio.Future[tuple[AttemptOutcome, str, bool]]
+        ] = {}
 
     def status(self) -> LiveVoiceSessionState:
         return self._machine.state
@@ -109,18 +102,17 @@ class LiveVoiceService:
         assert self._session_id is not None
         try:
             await self._journal.open_session(session_id=self._session_id)
-            context, _, _ = await asyncio.gather(
-                self._context.compile(),
+            await asyncio.gather(
                 self._model.prepare(),
                 self._tts.prepare(),
             )
             await self._transition(
-                LiveVoiceSessionState.LISTENING, context_version=context.version
+                LiveVoiceSessionState.LISTENING,
+                context_version="armi.creator-voice-act-candidate.v1",
             )
             self._ready.set()
             while not self._stop.is_set():
-                await self._one_turn(context)
-                context = await self._context.compile()
+                await self._one_turn()
         except asyncio.CancelledError:
             raise
         except LiveVoiceViolation as error:
@@ -141,7 +133,7 @@ class LiveVoiceService:
                 )
             self._ready.set()
 
-    async def _one_turn(self, context: VoiceContext) -> None:
+    async def _one_turn(self) -> None:
         assert self._session_id is not None
         self._turn_no += 1
         turn_id = uuid7()
@@ -149,10 +141,10 @@ class LiveVoiceService:
             session_id=self._session_id,
             turn_id=turn_id,
             turn_no=self._turn_no,
-            context_version=context.version,
+            context_version="armi.creator-voice-act-candidate.v1",
         )
         try:
-            outcome, _spoken, silent = await self._execute_turn(turn_id, context)
+            outcome, _spoken, silent = await self._execute_turn(turn_id)
         except asyncio.CancelledError:
             await self._journal.settle_turn(
                 turn_id=turn_id,
@@ -181,9 +173,7 @@ class LiveVoiceService:
         )
         await self._transition(LiveVoiceSessionState.LISTENING)
 
-    async def _execute_turn(
-        self, turn_id: UUID, context: VoiceContext
-    ) -> tuple[AttemptOutcome, str, bool]:
+    async def _execute_turn(self, turn_id: UUID) -> tuple[AttemptOutcome, str, bool]:
         await self._transition(LiveVoiceSessionState.RECOGNIZING)
         asr_attempt = await self._journal.begin_provider_attempt(
             turn_id=turn_id, binding=self._binding.asr
@@ -233,7 +223,10 @@ class LiveVoiceService:
         )
         if not transcript.strip():
             await self._journal.record_transcript(
-                turn_id=turn_id, transcript=None, interaction_id=None
+                turn_id=turn_id,
+                transcript=None,
+                interaction_id=None,
+                opportunity_id=None,
             )
             return AttemptOutcome.COMPLETED, "", False
         await self._transition(LiveVoiceSessionState.THINKING)
@@ -247,94 +240,58 @@ class LiveVoiceService:
             turn_id=turn_id,
             transcript=transcript.strip(),
             interaction_id=accepted.interaction_id,
+            opportunity_id=accepted.opportunity_id,
         )
-        llm_attempt = await self._journal.begin_provider_attempt(
-            turn_id=turn_id, binding=self._binding.llm
-        )
-        await self._journal.mark_provider_dispatched(attempt_id=llm_attempt)
-        stream = self._observed_model_stream(
-            llm_attempt, self._model.generate(context, transcript)
-        )
+        completion = asyncio.get_running_loop().create_future()
+        self._pending_effects[turn_id] = completion
         try:
-            kind, initial, remaining = await _read_route(stream)
-        except LiveVoiceViolation:
-            await stream.aclose()
-            await self._transition(LiveVoiceSessionState.WAITING_SLOW)
-            await self._successors.run_slow(accepted)
-            return AttemptOutcome.COMPLETED, "", False
-        if kind is FastReplyKind.SILENT:
-            trailing = initial + await _collect_text(remaining)
-            decision = parse_fast_reply("SILENT\n" + trailing)
-            await self._journal.record_decision(turn_id=turn_id, decision=decision)
-            await self._successors.enqueue_appraisal(accepted)
-            return AttemptOutcome.COMPLETED, "", True
-        if kind is FastReplyKind.WAIT:
-            text = (initial + await _collect_text(remaining)).strip()
-            decision = parse_fast_reply("WAIT\n" + text)
-            await self._journal.record_decision(turn_id=turn_id, decision=decision)
-            await self._transition(LiveVoiceSessionState.SPEAKING)
-            spoken = await self._speak(turn_id, _single_fragment(decision.text))
-            await self._expression.seal(turn_id=turn_id)
-            await self._transition(LiveVoiceSessionState.WAITING_SLOW)
-            await self._successors.run_slow(accepted)
-            return AttemptOutcome.COMPLETED, spoken, False
-        await self._journal.record_decision(
-            turn_id=turn_id,
-            decision=FastReplyDecision(FastReplyKind.SPEAK),
-        )
-        await self._transition(LiveVoiceSessionState.SPEAKING)
-        fragments = _stream_speak_fragments(initial, remaining)
-        spoken = await self._speak(turn_id, fragments)
-        parse_fast_reply("SPEAK\n" + spoken)
-        await self._expression.seal(turn_id=turn_id)
-        await self._successors.enqueue_appraisal(accepted)
-        return AttemptOutcome.COMPLETED, spoken, False
+            return await completion
+        finally:
+            self._pending_effects.pop(turn_id, None)
 
-    async def _observed_model_stream(
-        self, attempt_id: UUID, stream: AsyncIterator[str]
-    ) -> AsyncGenerator[str]:
-        received = False
+    async def play_effect(self, *, turn_id: UUID, text: str) -> int:
+        """Play one committed live-voice effect exactly once."""
+        completion = self._pending_effects.get(turn_id)
+        if completion is None or completion.done():
+            raise LiveVoiceViolation(
+                "VOICE-EFFECT-UNAVAILABLE", "voice turn is not awaiting an effect"
+            )
+        if not text.strip() or len(text) > 60 or "\x00" in text:
+            raise LiveVoiceViolation(
+                "VOICE-EFFECT-PAYLOAD", "voice effect text is invalid"
+            )
+        await self._transition(LiveVoiceSessionState.SPEAKING)
         try:
-            async for value in stream:
-                if not received:
-                    await self._journal.mark_provider_first_result(
-                        attempt_id=attempt_id
-                    )
-                    received = True
-                yield value
-        except asyncio.CancelledError:
-            await self._journal.settle_provider_attempt(
-                attempt_id=attempt_id,
-                outcome=AttemptOutcome.UNKNOWN,
-                error_code="VOICE-LLM-CANCELLED",
-            )
-            raise
+            spoken = await self._speak(turn_id, _single_fragment(text))
+            if spoken != text:
+                raise LiveVoiceViolation(
+                    "VOICE-PLAYBACK-RESULT-UNKNOWN",
+                    "voice playback text could not be verified",
+                )
+            await self._expression.seal(turn_id=turn_id)
+            snapshot = await self._journal.recent_turn()
         except LiveVoiceViolation as error:
-            await self._journal.settle_provider_attempt(
-                attempt_id=attempt_id,
-                outcome=AttemptOutcome.PARTIAL if received else AttemptOutcome.FAILED,
-                error_code=error.code,
-            )
-            raise
-        except GeneratorExit:
-            await self._journal.settle_provider_attempt(
-                attempt_id=attempt_id,
-                outcome=AttemptOutcome.PARTIAL if received else AttemptOutcome.FAILED,
-                error_code="VOICE-LLM-ABANDONED",
-            )
+            completion.set_exception(error)
             raise
         except Exception as error:
-            await self._journal.settle_provider_attempt(
-                attempt_id=attempt_id,
-                outcome=AttemptOutcome.PARTIAL if received else AttemptOutcome.UNKNOWN,
-                error_code="VOICE-LLM-UNKNOWN",
+            violation = LiveVoiceViolation(
+                "VOICE-PLAYBACK-RESULT-UNKNOWN",
+                "voice playback result could not be recorded",
             )
-            raise LiveVoiceViolation(
-                "VOICE-LLM-UNKNOWN", "fast voice model failed"
-            ) from error
-        await self._journal.settle_provider_attempt(
-            attempt_id=attempt_id, outcome=AttemptOutcome.COMPLETED
+            completion.set_exception(violation)
+            raise violation from error
+        frames = (
+            0
+            if snapshot is None or snapshot.turn_id != turn_id
+            else snapshot.frames_written
         )
+        completion.set_result((AttemptOutcome.COMPLETED, spoken, False))
+        return frames
+
+    async def complete_silently(self, *, turn_id: UUID) -> None:
+        completion = self._pending_effects.get(turn_id)
+        if completion is not None and not completion.done():
+            completion.set_result((AttemptOutcome.COMPLETED, "", True))
 
     async def _speak(self, turn_id: UUID, fragments: AsyncIterator[str]) -> str:
         spoken: list[str] = []
@@ -425,7 +382,12 @@ class LiveVoiceService:
                 frames_written=written_frames,
                 error_code=error.code,
             )
-            raise
+            code = (
+                "VOICE-PLAYBACK-NOT-DELIVERED"
+                if written_frames == 0
+                else "VOICE-PLAYBACK-RESULT-UNKNOWN"
+            )
+            raise LiveVoiceViolation(code, "voice playback did not complete") from error
         except Exception as error:
             await self._journal.settle_provider_attempt(
                 attempt_id=tts_attempt,
@@ -442,9 +404,12 @@ class LiveVoiceService:
                 frames_written=written_frames,
                 error_code="VOICE-PLAYBACK-UNKNOWN",
             )
-            raise LiveVoiceViolation(
-                "VOICE-PLAYBACK-UNKNOWN", "audio playback failed"
-            ) from error
+            code = (
+                "VOICE-PLAYBACK-NOT-DELIVERED"
+                if written_frames == 0
+                else "VOICE-PLAYBACK-RESULT-UNKNOWN"
+            )
+            raise LiveVoiceViolation(code, "audio playback failed") from error
         await self._journal.settle_provider_attempt(
             attempt_id=tts_attempt, outcome=AttemptOutcome.COMPLETED
         )
@@ -470,101 +435,8 @@ class LiveVoiceService:
         )
 
 
-async def _read_route(
-    stream: AsyncIterator[str],
-) -> tuple[FastReplyKind, str, AsyncIterator[str]]:
-    prefix = ""
-    async for delta in stream:
-        prefix += delta
-        if len(prefix) > 16 and "\n" not in prefix:
-            raise LiveVoiceViolation("VOICE-FAST-PROTOCOL", "first line is invalid")
-        if "\n" in prefix:
-            first, initial = prefix.split("\n", 1)
-            try:
-                return FastReplyKind(first), initial, stream
-            except ValueError as error:
-                raise LiveVoiceViolation(
-                    "VOICE-FAST-PROTOCOL", "unknown fast reply kind"
-                ) from error
-    raise LiveVoiceViolation("VOICE-FAST-PROTOCOL", "first line is incomplete")
-
-
-async def _collect_text(stream: AsyncIterator[str]) -> str:
-    return "".join([part async for part in stream])
-
-
 async def _single_fragment(text: str) -> AsyncIterator[str]:
     yield text
-
-
-async def _stream_speak_fragments(
-    initial: str, stream: AsyncIterator[str]
-) -> AsyncIterator[str]:
-    queue: asyncio.Queue[str | BaseException | None] = asyncio.Queue()
-
-    async def produce() -> None:
-        try:
-            if initial:
-                await queue.put(initial)
-            async for delta in stream:
-                await queue.put(delta)
-        except BaseException as error:
-            await queue.put(error)
-        finally:
-            await queue.put(None)
-
-    producer = asyncio.create_task(produce())
-    buffer = ""
-    total = 0
-    text_ended = False
-    first_fragment = True
-    breaks = frozenset("。\uff01\uff1f!?\uff1b;\uff0c,、\uff1a:")
-    try:
-        while True:
-            try:
-                item = await asyncio.wait_for(queue.get(), timeout=0.08)
-            except TimeoutError:
-                item = ""
-            if isinstance(item, BaseException):
-                raise item
-            if item is None:
-                tail = buffer.strip()
-                if tail:
-                    yield tail
-                return
-            if text_ended:
-                if item.strip():
-                    raise LiveVoiceViolation(
-                        "VOICE-FAST-PROTOCOL", "SPEAK text is invalid"
-                    )
-                continue
-            buffer += item
-            total += len(item)
-            if "\n" in buffer:
-                body, trailing = buffer.split("\n", 1)
-                if trailing.strip():
-                    raise LiveVoiceViolation(
-                        "VOICE-FAST-PROTOCOL", "SPEAK text is invalid"
-                    )
-                buffer = body
-                text_ended = True
-            if total > 160:
-                raise LiveVoiceViolation("VOICE-FAST-PROTOCOL", "SPEAK text is invalid")
-            if buffer and (
-                first_fragment
-                or len(buffer) >= 48
-                or (len(buffer) >= 12 and buffer[-1] in breaks)
-                or item == ""
-            ):
-                fragment = buffer.strip()
-                buffer = ""
-                if fragment:
-                    first_fragment = False
-                    yield fragment
-    finally:
-        producer.cancel()
-        with suppress(asyncio.CancelledError):
-            await producer
 
 
 __all__ = ("LiveVoiceService",)

@@ -10,7 +10,7 @@ from pydantic import (
     TypeAdapter,
 )
 
-from ._creator_branch_contract import AppraisalEventSignalV2
+from ._creator_appraisal_contract import AppraisalEventSignalV2
 from ._strict_model_json import strict_model_value
 
 ACTIVITY_ATTENTION_CANDIDATE_VERSION = "armi.activity-attention-candidate.v4"

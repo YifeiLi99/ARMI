@@ -865,7 +865,7 @@ class PostgreSQLSubjectCommitRepository:
                         ExperienceKind.CREATOR_INPUT,
                         ExperienceSourcePerspective.CREATOR_CLAIM,
                     ),
-                    "consider_creator_voice_appraisal": (
+                    "consider_creator_voice_input": (
                         ExperienceKind.CREATOR_INPUT,
                         ExperienceSourcePerspective.CREATOR_CLAIM,
                     ),

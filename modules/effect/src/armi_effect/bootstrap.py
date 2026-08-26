@@ -122,6 +122,7 @@ def bootstrap_effect_runtime(
     fault_injector: FaultInjector | None = None,
     adapter: ActionAdapterPort | None = None,
     external_message_adapter: ActionAdapterPort | None = None,
+    live_voice_adapter: ActionAdapterPort | None = None,
 ) -> EffectRuntimePort:
     return EffectRegistrationPipeline(
         factory=factory,
@@ -144,6 +145,7 @@ def bootstrap_effect_runtime(
         fault_injector=fault_injector,
         adapter=adapter,
         external_message_adapter=external_message_adapter,
+        live_voice_adapter=live_voice_adapter,
     )
 
 

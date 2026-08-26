@@ -159,7 +159,7 @@ class PostgreSQLCognitionContextLifecycle:
             )
         elif purpose in {
             "consider_creator_input",
-            "consider_creator_voice_appraisal",
+            "consider_creator_voice_input",
             "consider_life_query_result",
         }:
             snapshots = await self._experiences.recent(
@@ -207,22 +207,6 @@ class PostgreSQLCognitionContextLifecycle:
         ).fetchone()
         if row is None:
             raise CandidateViolation("CANDIDATE-EPISODE-STATE")
-        purpose = str(row[5])
-        branch_roles = (
-            ("episode_appraisal",)
-            if purpose == "consider_creator_voice_appraisal"
-            else ("response_action", "episode_appraisal")
-            if purpose in {"consider_creator_input", "consider_life_query_result"}
-            else ("primary",)
-        )
-        for role in branch_roles:
-            await transaction.execute(
-                """INSERT INTO armi.cognitive_branches (
-                       cognitive_branch_id,cognitive_episode_id,branch_role,status)
-                   VALUES (%s,%s,%s,'prepared')
-                   ON CONFLICT (cognitive_episode_id,branch_role) DO NOTHING""",
-                (uuid7(), episode_id, role),
-            )
         return _snapshot(row, None)
 
     async def fail_context(

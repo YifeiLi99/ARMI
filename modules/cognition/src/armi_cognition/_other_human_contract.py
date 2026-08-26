@@ -16,7 +16,7 @@ from pydantic import (
     model_validator,
 )
 
-from ._creator_branch_contract import AppraisalEventSignalV2
+from ._creator_appraisal_contract import AppraisalEventSignalV2
 from ._strict_model_json import strict_model_value
 
 OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION = "armi.other-human-dialogue-candidate.v6"

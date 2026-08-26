@@ -2619,7 +2619,6 @@ export interface components {
             | "recognizing"
             | "thinking"
             | "speaking"
-            | "waiting_slow"
             | "completed"
             | "failed"
             | "partial"
@@ -2639,7 +2638,6 @@ export interface components {
         | "recognizing"
         | "thinking"
         | "speaking"
-        | "waiting_slow"
         | "unavailable";
       /** Tts Ready */
       tts_ready: boolean;

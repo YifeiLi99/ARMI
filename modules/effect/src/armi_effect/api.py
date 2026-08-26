@@ -186,7 +186,11 @@ class FrozenEffectRequest:
     scene_id: UUID
     destination_party_id: UUID
     destination_kind: Literal[
-        "creator_inbox", "other_human_inbox", "external_group", "external_private"
+        "creator_inbox",
+        "other_human_inbox",
+        "external_group",
+        "external_private",
+        "live_voice_audio",
     ]
     external_channel: str | None
     external_account_key: str | None
@@ -194,6 +198,7 @@ class FrozenEffectRequest:
     payload_digest: Digest
     payload_bytes: int
     trace_id: TraceId
+    live_voice_turn_id: UUID | None = None
 
     def __post_init__(self) -> None:
         if type(self.subject_id) is not UUID or self.subject_id.version != 7:
@@ -210,6 +215,7 @@ class FrozenEffectRequest:
             "other_human_inbox",
             "external_group",
             "external_private",
+            "live_voice_audio",
         }:
             raise EffectViolation("CON-EFFECT-DESTINATION")
         route = (
@@ -228,6 +234,15 @@ class FrozenEffectRequest:
             if re.fullmatch(r"^[a-z][a-z0-9._-]{0,63}$", external_channel) is None:
                 raise EffectViolation("CON-EFFECT-DESTINATION")
         elif any(value is not None for value in route):
+            raise EffectViolation("CON-EFFECT-DESTINATION")
+        if self.destination_kind == "live_voice_audio" and (
+            self.live_voice_turn_id is None or self.live_voice_turn_id.version != 7
+        ):
+            raise EffectViolation("CON-EFFECT-DESTINATION")
+        if (
+            self.destination_kind != "live_voice_audio"
+            and self.live_voice_turn_id is not None
+        ):
             raise EffectViolation("CON-EFFECT-DESTINATION")
         if not 1 <= self.payload_bytes <= 65536:
             raise EffectViolation("CON-EFFECT-PAYLOAD")
@@ -442,6 +457,7 @@ class EffectRegistrationDraft:
     trace_id: TraceId
     dispatch_deadline: Instant
     max_attempts: int
+    live_voice_turn_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -466,6 +482,7 @@ class EffectRegistrationContext:
     destination_party_id: UUID
     destination_kind: str
     destination_binding_id: UUID | None
+    live_voice_turn_id: UUID | None = None
 
 
 @runtime_checkable

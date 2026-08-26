@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal, cast
 from uuid import UUID, uuid7
 
@@ -12,7 +13,6 @@ from armi_runtime_foundation import (
 
 from .api import (
     AttemptOutcome,
-    FastReplyDecision,
     LiveVoiceBinding,
     LiveVoiceSessionState,
     LiveVoiceViolation,
@@ -90,7 +90,6 @@ class PostgreSQLLiveVoiceJournal:
                     "recognizing",
                     "thinking",
                     "speaking",
-                    "waiting_slow",
                     "completed",
                     "failed",
                     "partial",
@@ -187,27 +186,15 @@ class PostgreSQLLiveVoiceJournal:
         turn_id: UUID,
         transcript: str | None,
         interaction_id: UUID | None,
+        opportunity_id: UUID | None,
     ) -> None:
         async with self._factory.unit_of_work() as unit:
             result = await unit.transaction.execute(
                 """UPDATE armi.live_voice_turns
-                   SET final_transcript=%s,interaction_id=%s,
+                   SET final_transcript=%s,interaction_id=%s,root_opportunity_id=%s,
                        speech_ended_at=statement_timestamp(),result_status='thinking'
                    WHERE turn_id=%s AND completed_at IS NULL""",
-                (transcript, interaction_id, turn_id),
-            )
-            if result.rowcount != 1:
-                raise LiveVoiceViolation("VOICE-JOURNAL-TURN", "voice turn is closed")
-
-    async def record_decision(
-        self, *, turn_id: UUID, decision: FastReplyDecision
-    ) -> None:
-        async with self._factory.unit_of_work() as unit:
-            result = await unit.transaction.execute(
-                """UPDATE armi.live_voice_turns
-                   SET decision_kind=%s
-                   WHERE turn_id=%s AND completed_at IS NULL""",
-                (decision.kind.value.lower(), turn_id),
+                (transcript, interaction_id, opportunity_id, turn_id),
             )
             if result.rowcount != 1:
                 raise LiveVoiceViolation("VOICE-JOURNAL-TURN", "voice turn is closed")
@@ -453,6 +440,35 @@ class PostgreSQLLiveVoiceJournal:
 
 
 class PostgreSQLLiveVoiceContextRead:
+    async def completed_playback(
+        self, transaction: PostgreSQLTransaction, *, turn_id: UUID
+    ) -> tuple[UUID, str, datetime] | None:
+        row = await (
+            await transaction.execute(
+                """SELECT playback.playback_attempt_id,turn.registered_response_text,
+                      playback.settled_at
+               FROM armi.live_voice_turns AS turn
+               JOIN armi.live_voice_playback_attempts AS playback
+                 ON playback.turn_id=turn.turn_id
+               WHERE turn.turn_id=%s AND turn.playback_extent='complete'
+                 AND playback.result_status='completed'
+               ORDER BY playback.registered_at DESC LIMIT 1""",
+                (turn_id,),
+            )
+        ).fetchone()
+        return None if row is None else (row[0], str(row[1]), row[2])
+
+    async def turn_for_opportunity(
+        self, transaction: PostgreSQLTransaction, *, opportunity_id: UUID
+    ) -> UUID | None:
+        row = await (
+            await transaction.execute(
+                "SELECT turn_id FROM armi.live_voice_turns WHERE root_opportunity_id=%s",
+                (opportunity_id,),
+            )
+        ).fetchone()
+        return None if row is None else row[0]
+
     async def completed_response_text(
         self, transaction: PostgreSQLTransaction, *, turn_id: UUID
     ) -> str | None:

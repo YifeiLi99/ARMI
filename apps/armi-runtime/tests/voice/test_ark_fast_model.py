@@ -5,55 +5,48 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
-from armi_live_voice.api import VoiceContext
+from armi_live_voice.api import LiveVoiceViolation
 from armi_runtime.adapters.voice.ark import ArkResponsesFastModel
 
 
 class FakeResponses:
-    def __init__(self) -> None:
+    def __init__(self, output_text: str = '{"ok":true}') -> None:
+        self.output_text = output_text
         self.requests: list[dict[str, object]] = []
 
     async def create(self, **request: object):
         self.requests.append(request)
+        return SimpleNamespace(output_text=self.output_text)
 
-        async def events():
-            yield SimpleNamespace(type="response.output_text.delta", delta="SPEAK\n")
-            yield SimpleNamespace(type="response.output_text.delta", delta="好。")
 
-        return events()
+def _adapter(responses: FakeResponses) -> ArkResponsesFastModel:
+    adapter = object.__new__(ArkResponsesFastModel)
+    value = cast(Any, adapter)
+    value._client = SimpleNamespace(responses=responses)
+    value._model = "test-fast"
+    value._prepare_lock = asyncio.Lock()
+    return adapter
 
 
 @pytest.mark.asyncio
-async def test_fast_model_uses_real_protocol_newlines_and_low_latency_options() -> None:
-    adapter = object.__new__(ArkResponsesFastModel)
-    uninitialized = cast(Any, adapter)
+async def test_voice_startup_uses_minimal_strict_json_compatibility_check() -> None:
     responses = FakeResponses()
-    uninitialized._client = SimpleNamespace(responses=responses)
-    uninitialized._model = "test-fast"
-    uninitialized._prepare_lock = asyncio.Lock()
+    await _adapter(responses).prepare()
 
-    await adapter.prepare()
-
-    output = "".join(
-        [
-            delta
-            async for delta in adapter.generate(
-                VoiceContext("1", "compact context"), "你好"
-            )
-        ]
-    )
-
-    assert output == "SPEAK\n好。"
-    assert len(responses.requests) == 2
-    warmup, request = responses.requests
-    assert warmup["max_output_tokens"] == 8
-    assert warmup["stream"] is True
-    instruction = request["instructions"]
-    assert isinstance(instruction, str)
-    assert "首行从SPEAK/WAIT/SILENT三选一" in instruction
-    assert "SPEAK第二行一句回答(最多60字)" in instruction
-    assert "SPEAK\\n" not in instruction
-    assert request["max_output_tokens"] == 96
-    assert request["stream"] is True
+    assert len(responses.requests) == 1
+    request = responses.requests[0]
+    assert request["max_output_tokens"] == 32
     assert request["tools"] == []
+    assert request["store"] is False
     assert request["extra_body"] == {"thinking": {"type": "disabled"}}
+    format_value = cast(dict[str, Any], cast(dict[str, Any], request["text"])["format"])
+    assert format_value["type"] == "json_schema"
+    assert format_value["strict"] is True
+    assert cast(dict[str, Any], format_value["schema"])["additionalProperties"] is False
+
+
+@pytest.mark.asyncio
+async def test_voice_startup_rejects_model_without_exact_strict_result() -> None:
+    with pytest.raises(LiveVoiceViolation, match="warmup failed") as captured:
+        await _adapter(FakeResponses('{"ok":false}')).prepare()
+    assert captured.value.code == "VOICE-LLM-PREPARE-FAILED"

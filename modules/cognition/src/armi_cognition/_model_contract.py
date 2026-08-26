@@ -49,16 +49,15 @@ from ._autonomous_activity_contract import (
     autonomous_activity_candidate_schema,
     parse_autonomous_activity_candidate,
 )
-from ._creator_branch_contract import (
-    CREATOR_APPRAISAL_CANDIDATE_VERSION,
-    CREATOR_DIALOGUE_AGGREGATE_VERSION,
-    CREATOR_RESPONSE_CANDIDATE_VERSION,
-    AppraisalSemanticSignal,
-    CreatorDialogueAggregate,
-    creator_aggregate_schema,
-    creator_appraisal_schema,
-    creator_response_schema,
-    parse_creator_aggregate,
+from ._creator_appraisal_contract import AppraisalSemanticSignal
+from ._creator_cognitive_act_contract import (
+    CREATOR_COGNITIVE_ACT_VERSION,
+    CREATOR_VOICE_ACT_VERSION,
+    CreatorCognitiveActCandidate,
+    creator_cognitive_act_schema,
+    creator_voice_act_schema,
+    parse_creator_cognitive_act,
+    parse_creator_voice_act,
 )
 
 if TYPE_CHECKING:
@@ -107,7 +106,7 @@ from ._visual_observation_contract import (
     visual_observation_candidate_schema,
 )
 
-MODEL_BINDING_VERSION = "armi.model-bindings.v1"
+MODEL_BINDING_VERSION = "armi.model-bindings.v2"
 MODEL_REQUEST_VERSION = "armi.model-request.v1"
 DIALOGUE_MODEL_INPUT_VERSION = "armi.creator-dialogue-input.v6"
 CREATOR_BRANCH_MODEL_INPUT_VERSION = DIALOGUE_MODEL_INPUT_VERSION
@@ -567,12 +566,10 @@ def candidate_schema(
         from ._reflection_contract import owner_reflection_schema
 
         return cast(dict[str, Any], owner_reflection_schema())
-    if version == CREATOR_RESPONSE_CANDIDATE_VERSION:
-        return cast(dict[str, Any], creator_response_schema())
-    if version == CREATOR_APPRAISAL_CANDIDATE_VERSION:
-        return cast(dict[str, Any], creator_appraisal_schema())
-    if version == CREATOR_DIALOGUE_AGGREGATE_VERSION:
-        return cast(dict[str, Any], creator_aggregate_schema())
+    if version == CREATOR_COGNITIVE_ACT_VERSION:
+        return cast(dict[str, Any], creator_cognitive_act_schema())
+    if version == CREATOR_VOICE_ACT_VERSION:
+        return cast(dict[str, Any], creator_voice_act_schema())
     if version == ACTIVITY_ATTENTION_CANDIDATE_VERSION:
         return activity_attention_candidate_schema()
     if version == ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION:
@@ -605,7 +602,7 @@ def parse_candidate(
     | MaintenanceWorkCandidate
     | AutonomousActivityCandidate
     | SleepDecisionCandidate
-    | CreatorDialogueAggregate
+    | CreatorCognitiveActCandidate
     | OwnerReflectionCandidate
     | CreatorDialogueCandidate
     | OtherHumanDialogueCandidate
@@ -620,11 +617,22 @@ def parse_candidate(
             if candidate_object is not None
             else None
         )
-        if candidate_object is not None and (
-            expected_version == CREATOR_DIALOGUE_AGGREGATE_VERSION
-            or version == CREATOR_DIALOGUE_AGGREGATE_VERSION
+        if (
+            candidate_object is not None
+            and expected_version == CREATOR_COGNITIVE_ACT_VERSION
         ):
-            candidate = parse_creator_aggregate(candidate_object)
+            candidate = parse_creator_cognitive_act(
+                candidate_object,
+                allowed_context_refs=allowed_context_refs,
+            )
+        elif (
+            candidate_object is not None
+            and expected_version == CREATOR_VOICE_ACT_VERSION
+        ):
+            candidate = parse_creator_voice_act(
+                candidate_object,
+                allowed_context_refs=allowed_context_refs,
+            )
         elif (
             candidate_object is not None
             and expected_version == "armi.owner-reflection-candidate.v1"
@@ -711,29 +719,6 @@ def parse_candidate(
         ValueError,
     ):
         raise ModelViolation("MODEL-RESPONSE-SCHEMA") from None
-    if isinstance(candidate, CreatorDialogueAggregate):
-        refs: set[str] = set()
-        if candidate.appraisal is not None:
-            if candidate.appraisal.appraisal is not None:
-                refs.update(candidate.appraisal.appraisal.basis_refs)
-                if candidate.appraisal.appraisal.episode_ref is not None:
-                    refs.add(candidate.appraisal.appraisal.episode_ref)
-            for change in candidate.appraisal.relationship_events:
-                refs.update(
-                    ref
-                    for ref in (change.target_ref, change.related_ref)
-                    if ref is not None
-                )
-        if candidate.response is not None:
-            for change in candidate.response.changes:
-                refs.update(
-                    ref
-                    for ref in (change.target_ref, change.related_ref)
-                    if ref is not None
-                )
-        if not refs.issubset(allowed_context_refs):
-            raise ModelViolation("MODEL-RESPONSE-REFERENCE")
-        return candidate
     appraisal = getattr(candidate, "appraisal", None)
     if appraisal is not None:
         appraisal_refs = set(appraisal.basis_refs)
@@ -741,6 +726,8 @@ def parse_candidate(
             appraisal_refs.add(appraisal.episode_ref)
         if not appraisal_refs.issubset(allowed_context_refs):
             raise ModelViolation("MODEL-RESPONSE-REFERENCE")
+    if isinstance(candidate, CreatorCognitiveActCandidate):
+        return candidate
     if isinstance(
         candidate,
         AttentionSimpleDecision,
@@ -959,15 +946,10 @@ def load_active_binding(
         or len(value.get("bindings", ())) != 1
         or value.get("purpose_profiles")
         != {
-            "consider_creator_response": {
-                "profile": "creator_response",
-                "response_contract_version": CREATOR_RESPONSE_CANDIDATE_VERSION,
-                "output_token_limit": 1024,
-            },
-            "appraise_creator_input": {
-                "profile": "creator_appraisal",
-                "response_contract_version": CREATOR_APPRAISAL_CANDIDATE_VERSION,
-                "output_token_limit": 768,
+            "consider_creator_input": {
+                "profile": "creator_cognitive_act",
+                "response_contract_version": CREATOR_COGNITIVE_ACT_VERSION,
+                "output_token_limit": 2048,
             },
             "consider_codex_result": {
                 "profile": "codex_result",
@@ -979,15 +961,10 @@ def load_active_binding(
                 "response_contract_version": CANDIDATE_VERSION,
                 "output_token_limit": 1024,
             },
-            "consider_life_query_response": {
-                "profile": "creator_response",
-                "response_contract_version": CREATOR_RESPONSE_CANDIDATE_VERSION,
-                "output_token_limit": 1024,
-            },
-            "appraise_life_query_result": {
-                "profile": "creator_appraisal",
-                "response_contract_version": CREATOR_APPRAISAL_CANDIDATE_VERSION,
-                "output_token_limit": 768,
+            "consider_life_query_result": {
+                "profile": "creator_cognitive_act",
+                "response_contract_version": CREATOR_COGNITIVE_ACT_VERSION,
+                "output_token_limit": 2048,
             },
             "consider_creator_outreach": {
                 "profile": "creator_outreach",
@@ -1089,6 +1066,26 @@ def load_purpose_binding(
     if profile is None:
         raise ModelViolation("MODEL-BINDING")
     return _binding_from_manifest({**base, **profile})
+
+
+def load_voice_binding(path: Path | None = None) -> ModelBinding:
+    """Load the dedicated strict compact voice binding from the v2 manifest."""
+    manifest_path = path or Path("configs/model-bindings.yaml")
+    try:
+        value = cast(dict[str, Any], load_yaml_file(manifest_path))
+        base = cast(list[dict[str, Any]], value["bindings"])[0]
+        voice = cast(dict[str, Any], value["voice_binding"])
+    except OSError, KeyError, TypeError, ValueError:
+        raise ModelViolation("MODEL-BINDING-MANIFEST") from None
+    if (
+        value.get("schema_version") != MODEL_BINDING_VERSION
+        or voice.get("response_contract_version") != CREATOR_VOICE_ACT_VERSION
+        or voice.get("output_token_limit") != 512
+        or voice.get("thinking") != "disabled"
+        or voice.get("tools") != "disabled"
+    ):
+        raise ModelViolation("MODEL-BINDING-MANIFEST")
+    return _binding_from_manifest({**base, **voice})
 
 
 def _binding_from_manifest(binding: dict[str, Any]) -> ModelBinding:
@@ -1695,7 +1692,7 @@ def _dialogue_request_value(
             if branch_role == "episode_appraisal"
             else "respond_to_creator"
         ),
-        "consider_creator_voice_appraisal": "appraise_creator_input",
+        "consider_creator_voice_input": "appraise_creator_input",
         "consider_life_query_result": (
             "appraise_verified_life_query"
             if branch_role == "episode_appraisal"
@@ -1749,8 +1746,6 @@ def build_request_bytes(
     if binding.response_contract_version in {
         DIALOGUE_CANDIDATE_VERSION,
         OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
-        CREATOR_RESPONSE_CANDIDATE_VERSION,
-        CREATOR_APPRAISAL_CANDIDATE_VERSION,
     }:
         try:
             output_schema = candidate_schema(binding.response_contract_version)
@@ -1761,15 +1756,7 @@ def build_request_bytes(
                         _dialogue_request_value(
                             compiled_value,
                             included_context_refs,
-                            branch_role=(
-                                "response_action"
-                                if binding.response_contract_version
-                                == CREATOR_RESPONSE_CANDIDATE_VERSION
-                                else "episode_appraisal"
-                                if binding.response_contract_version
-                                == CREATOR_APPRAISAL_CANDIDATE_VERSION
-                                else None
-                            ),
+                            branch_role=None,
                             output_schema_bytes=len(rfc8785.dumps(output_schema)),
                             budget_exclusions=budget_exclusions,
                         ),
@@ -1841,10 +1828,7 @@ __all__ = (
     "ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION",
     "ACTIVITY_INTERNAL_WORK_INSTRUCTIONS",
     "CANDIDATE_VERSION",
-    "CREATOR_APPRAISAL_CANDIDATE_VERSION",
-    "CREATOR_DIALOGUE_AGGREGATE_VERSION",
     "CREATOR_OUTREACH_INSTRUCTIONS",
-    "CREATOR_RESPONSE_CANDIDATE_VERSION",
     "DIALOGUE_CANDIDATE_VERSION",
     "DIALOGUE_INSTRUCTIONS",
     "DIALOGUE_MODEL_INPUT_VERSION",
@@ -1868,5 +1852,6 @@ __all__ = (
     "checked_model_request",
     "load_active_binding",
     "load_purpose_binding",
+    "load_voice_binding",
     "parse_candidate",
 )

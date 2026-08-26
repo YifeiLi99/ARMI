@@ -433,7 +433,7 @@ CREATE TABLE armi.live_voice_sessions (
     CONSTRAINT live_voice_sessions_error_check CHECK (((error_code IS NULL) OR (error_code ~ '^VOICE-[A-Z0-9-]{1,120}$'::text))),
     CONSTRAINT live_voice_sessions_id_check CHECK ((uuid_extract_version(session_id) = 7)),
     CONSTRAINT live_voice_sessions_lifecycle_check CHECK (((state = ANY (ARRAY['stopped'::text, 'failed'::text, 'unavailable'::text])) = (ended_at IS NOT NULL))),
-    CONSTRAINT live_voice_sessions_state_check CHECK ((state = ANY (ARRAY['starting'::text, 'listening'::text, 'recognizing'::text, 'thinking'::text, 'speaking'::text, 'waiting_slow'::text, 'stopped'::text, 'failed'::text, 'unavailable'::text])))
+    CONSTRAINT live_voice_sessions_state_check CHECK ((state = ANY (ARRAY['starting'::text, 'listening'::text, 'recognizing'::text, 'thinking'::text, 'speaking'::text, 'stopped'::text, 'failed'::text, 'unavailable'::text])))
 );
 
 --
@@ -461,8 +461,8 @@ CREATE TABLE armi.live_voice_turns (
     session_id uuid NOT NULL,
     turn_no bigint NOT NULL,
     interaction_id uuid,
+    root_opportunity_id uuid,
     final_transcript text,
-    decision_kind text,
     registered_response_text text DEFAULT ''::text,
     playback_extent text DEFAULT 'none'::text NOT NULL,
     frames_written bigint DEFAULT 0 NOT NULL,
@@ -475,7 +475,6 @@ CREATE TABLE armi.live_voice_turns (
     completed_at timestamp(6) with time zone,
     created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
     data_rights_redacted_at timestamp(6) with time zone,
-    CONSTRAINT live_voice_turns_decision_check CHECK (((decision_kind IS NULL) OR (decision_kind = ANY (ARRAY['speak'::text, 'wait'::text, 'silent'::text])))),
     CONSTRAINT live_voice_turns_error_check CHECK (((error_code IS NULL) OR (error_code ~ '^VOICE-[A-Z0-9-]{1,120}$'::text))),
     CONSTRAINT live_voice_turns_first_audio_check CHECK (((first_audio_at IS NULL) OR (speech_ended_at IS NULL) OR (first_audio_at >= speech_ended_at))),
     CONSTRAINT live_voice_turns_id_check CHECK ((uuid_extract_version(turn_id) = 7)),
@@ -483,7 +482,7 @@ CREATE TABLE armi.live_voice_turns (
     CONSTRAINT live_voice_turns_response_text_check CHECK (((data_rights_redacted_at IS NOT NULL) OR (length(registered_response_text) <= 4096))),
     CONSTRAINT live_voice_turns_playback_extent_check CHECK ((playback_extent = ANY (ARRAY['none'::text, 'partial_prefix'::text, 'complete'::text, 'unknown_completion'::text]))),
     CONSTRAINT live_voice_turns_frames_written_check CHECK ((frames_written >= 0)),
-    CONSTRAINT live_voice_turns_status_check CHECK ((result_status = ANY (ARRAY['recognizing'::text, 'thinking'::text, 'speaking'::text, 'waiting_slow'::text, 'completed'::text, 'failed'::text, 'partial'::text, 'unknown'::text, 'silent'::text]))),
+    CONSTRAINT live_voice_turns_status_check CHECK ((result_status = ANY (ARRAY['recognizing'::text, 'thinking'::text, 'speaking'::text, 'completed'::text, 'failed'::text, 'partial'::text, 'unknown'::text, 'silent'::text]))),
     CONSTRAINT live_voice_turns_transcript_check CHECK (((final_transcript IS NULL) OR ((length(btrim(final_transcript)) >= 1) AND (length(btrim(final_transcript)) <= 4096))))
 );
 

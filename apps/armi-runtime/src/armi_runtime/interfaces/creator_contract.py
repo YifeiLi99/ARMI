@@ -711,7 +711,6 @@ class LiveVoiceStatusResponse(_StrictWireModel):
         "recognizing",
         "thinking",
         "speaking",
-        "waiting_slow",
         "unavailable",
     ]
     enabled: bool
@@ -726,7 +725,6 @@ class LiveVoiceStatusResponse(_StrictWireModel):
             "recognizing",
             "thinking",
             "speaking",
-            "waiting_slow",
             "completed",
             "failed",
             "partial",

@@ -1,4 +1,4 @@
-schema_version: armi.model-bindings.v1
+schema_version: armi.model-bindings.v2
 active_binding: armi.model-adapter.volcengine-ark-responses-v1
 
 bindings:
@@ -21,15 +21,28 @@ bindings:
     output_microyuan_per_million: 30000000
     attempt_cost_limit_microyuan: 1000000
 
+voice_binding:
+  provider: volcengine_ark
+  api_base: https://ark.cn-beijing.volces.com/api/v3
+  model_id: doubao-seed-character-260628
+  version_policy: fixed_provider_model
+  profile: creator_voice_act
+  request_contract_version: armi.model-request.v1
+  response_contract_version: armi.creator-voice-act-candidate.v1
+  credential_identity: armi.model.ark-api-key.v1
+  credential_locator: model.ark_api_key
+  credential_purpose: model.request
+  output_token_limit: 512
+  timeout_seconds: 30
+  thinking: disabled
+  tools: disabled
+  startup_compatibility_check: strict_minimal_json
+
 purpose_profiles:
-  consider_creator_response:
-    profile: creator_response
-    response_contract_version: armi.creator-response-candidate.v1
-    output_token_limit: 1024
-  appraise_creator_input:
-    profile: creator_appraisal
-    response_contract_version: armi.creator-appraisal-candidate.v4
-    output_token_limit: 768
+  consider_creator_input:
+    profile: creator_cognitive_act
+    response_contract_version: armi.creator-cognitive-act-candidate.v1
+    output_token_limit: 2048
   consider_codex_result:
     profile: codex_result
     response_contract_version: armi.cognition-candidate.v9
@@ -38,14 +51,10 @@ purpose_profiles:
     profile: codex_task
     response_contract_version: armi.cognition-candidate.v9
     output_token_limit: 1024
-  consider_life_query_response:
-    profile: creator_response
-    response_contract_version: armi.creator-response-candidate.v1
-    output_token_limit: 1024
-  appraise_life_query_result:
-    profile: creator_appraisal
-    response_contract_version: armi.creator-appraisal-candidate.v4
-    output_token_limit: 768
+  consider_life_query_result:
+    profile: creator_cognitive_act
+    response_contract_version: armi.creator-cognitive-act-candidate.v1
+    output_token_limit: 2048
   consider_creator_outreach:
     profile: creator_outreach
     response_contract_version: armi.creator-dialogue-candidate.v23

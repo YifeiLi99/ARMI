@@ -246,7 +246,7 @@ async def test_tts_propagates_text_stream_failure_without_waiting_for_session_en
 
     async def failing_fragments():
         yield "已经发出的片段"
-        raise LiveVoiceViolation("VOICE-FAST-PROTOCOL", "bad trailing output")
+        raise LiveVoiceViolation("VOICE-TEXT-STREAM", "bad trailing output")
 
     async def consume() -> None:
         async for _ in tts.synthesize(failing_fragments()):

@@ -21,7 +21,6 @@ const STATE_LABELS: Record<string, string> = {
   recognizing: "正在识别",
   thinking: "正在组织快答",
   speaking: "正在说话",
-  waiting_slow: "正在等待完整回答",
   unavailable: "暂不可用",
 };
 

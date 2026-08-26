@@ -378,11 +378,11 @@ ALTER TABLE ONLY armi.cognition_maintenance_cursors
     ADD CONSTRAINT cognition_maintenance_cursors_pkey PRIMARY KEY (subject_id, life_generation_id);
 
 --
--- Name: cognitive_attempts cognitive_attempts_branch_attempt_no_key; Type: CONSTRAINT; Schema: armi; Owner: -
+-- Name: cognitive_attempts cognitive_attempts_episode_attempt_no_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
 ALTER TABLE ONLY armi.cognitive_attempts
-    ADD CONSTRAINT cognitive_attempts_branch_attempt_no_key UNIQUE (cognitive_branch_id, attempt_no);
+    ADD CONSTRAINT cognitive_attempts_episode_attempt_no_key UNIQUE (cognitive_episode_id, attempt_no);
 
 --
 -- Name: cognitive_attempts cognitive_attempts_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -390,20 +390,6 @@ ALTER TABLE ONLY armi.cognitive_attempts
 
 ALTER TABLE ONLY armi.cognitive_attempts
     ADD CONSTRAINT cognitive_attempts_pkey PRIMARY KEY (model_attempt_id);
-
---
--- Name: cognitive_branches cognitive_branches_episode_role_key; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_branches
-    ADD CONSTRAINT cognitive_branches_episode_role_key UNIQUE (cognitive_episode_id, branch_role);
-
---
--- Name: cognitive_branches cognitive_branches_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_branches
-    ADD CONSTRAINT cognitive_branches_pkey PRIMARY KEY (cognitive_branch_id);
 
 --
 -- Name: cognitive_candidate_applications cognitive_candidate_applications_candidate_validation_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -516,13 +502,6 @@ ALTER TABLE ONLY armi.cognitive_context_items
 
 ALTER TABLE ONLY armi.cognitive_context_items
     ADD CONSTRAINT cognitive_context_items_pkey PRIMARY KEY (context_item_id);
-
---
--- Name: cognitive_dialogue_aggregates cognitive_dialogue_aggregates_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_dialogue_aggregates
-    ADD CONSTRAINT cognitive_dialogue_aggregates_pkey PRIMARY KEY (cognitive_episode_id);
 
 --
 -- Name: cognitive_episodes cognitive_episodes_opportunity_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -787,6 +766,9 @@ ALTER TABLE ONLY armi.effect_outbox_items
 
 ALTER TABLE ONLY armi.effects
     ADD CONSTRAINT effects_pkey PRIMARY KEY (effect_id);
+
+ALTER TABLE ONLY armi.effects
+    ADD CONSTRAINT effects_live_voice_turn_id_key UNIQUE (live_voice_turn_id);
 
 --
 -- Name: effects effects_revision_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -1077,6 +1059,9 @@ ALTER TABLE ONLY armi.live_voice_turns
 
 ALTER TABLE ONLY armi.live_voice_turns
     ADD CONSTRAINT live_voice_turns_session_id_turn_no_key UNIQUE (session_id, turn_no);
+
+ALTER TABLE ONLY armi.live_voice_turns
+    ADD CONSTRAINT live_voice_turns_root_opportunity_id_key UNIQUE (root_opportunity_id);
 
 --
 -- Name: local_inbox_deliveries local_inbox_deliveries_effect_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -1883,22 +1868,10 @@ CREATE INDEX capability_requests_pending_idx ON armi.capability_requests USING b
 CREATE UNIQUE INDEX cognition_maintenance_batches_active_idx ON armi.cognition_maintenance_batches USING btree (subject_id, life_generation_id) WHERE (status = ANY (ARRAY['prepared'::text, 'running'::text]));
 
 --
--- Name: cognitive_attempts_branch_status_idx; Type: INDEX; Schema: armi; Owner: -
---
-
-CREATE INDEX cognitive_attempts_branch_status_idx ON armi.cognitive_attempts USING btree (cognitive_branch_id, dispatch_status, attempt_no);
-
---
 -- Name: cognitive_attempts_episode_status_idx; Type: INDEX; Schema: armi; Owner: -
 --
 
 CREATE INDEX cognitive_attempts_episode_status_idx ON armi.cognitive_attempts USING btree (cognitive_episode_id, dispatch_status, attempt_no);
-
---
--- Name: cognitive_branches_episode_status_idx; Type: INDEX; Schema: armi; Owner: -
---
-
-CREATE INDEX cognitive_branches_episode_status_idx ON armi.cognitive_branches USING btree (cognitive_episode_id, status, branch_role);
 
 --
 -- Name: cognitive_candidate_validations_status_idx; Type: INDEX; Schema: armi; Owner: -
@@ -2657,25 +2630,11 @@ ALTER TABLE ONLY armi.cognition_maintenance_cursors
     ADD CONSTRAINT cognition_maintenance_cursors_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
 --
--- Name: cognitive_attempts cognitive_attempts_branch_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_attempts
-    ADD CONSTRAINT cognitive_attempts_branch_fkey FOREIGN KEY (cognitive_branch_id) REFERENCES armi.cognitive_branches(cognitive_branch_id);
-
---
 -- Name: cognitive_attempts cognitive_attempts_cognitive_episode_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
 ALTER TABLE ONLY armi.cognitive_attempts
     ADD CONSTRAINT cognitive_attempts_cognitive_episode_id_fkey FOREIGN KEY (cognitive_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);
-
---
--- Name: cognitive_attempts cognitive_attempts_late_response_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_attempts
-    ADD CONSTRAINT cognitive_attempts_late_response_artifact_id_fkey FOREIGN KEY (late_response_artifact_id) REFERENCES armi.artifacts(artifact_id);
 
 --
 -- Name: cognitive_attempts cognitive_attempts_request_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2697,27 +2656,6 @@ ALTER TABLE ONLY armi.cognitive_attempts
 
 ALTER TABLE ONLY armi.cognitive_attempts
     ADD CONSTRAINT cognitive_attempts_work_id_fkey FOREIGN KEY (work_id) REFERENCES armi.durable_work(work_id);
-
---
--- Name: cognitive_branches cognitive_branches_cognitive_episode_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_branches
-    ADD CONSTRAINT cognitive_branches_cognitive_episode_id_fkey FOREIGN KEY (cognitive_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);
-
---
--- Name: cognitive_branches cognitive_branches_response_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_branches
-    ADD CONSTRAINT cognitive_branches_response_artifact_id_fkey FOREIGN KEY (response_artifact_id) REFERENCES armi.artifacts(artifact_id);
-
---
--- Name: cognitive_branches cognitive_branches_selected_attempt_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_branches
-    ADD CONSTRAINT cognitive_branches_selected_attempt_fkey FOREIGN KEY (selected_attempt_id) REFERENCES armi.cognitive_attempts(model_attempt_id);
 
 --
 -- Name: cognitive_candidate_applications cognitive_candidate_applications_candidate_validation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2844,41 +2782,6 @@ ALTER TABLE ONLY armi.cognitive_candidate_validations
 
 ALTER TABLE ONLY armi.cognitive_context_items
     ADD CONSTRAINT cognitive_context_items_cognitive_episode_id_fkey FOREIGN KEY (cognitive_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);
-
---
--- Name: cognitive_dialogue_aggregates cognitive_dialogue_aggregates_aggregate_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_dialogue_aggregates
-    ADD CONSTRAINT cognitive_dialogue_aggregates_aggregate_artifact_id_fkey FOREIGN KEY (aggregate_artifact_id) REFERENCES armi.artifacts(artifact_id);
-
---
--- Name: cognitive_dialogue_aggregates cognitive_dialogue_aggregates_appraisal_branch_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_dialogue_aggregates
-    ADD CONSTRAINT cognitive_dialogue_aggregates_appraisal_branch_id_fkey FOREIGN KEY (appraisal_branch_id) REFERENCES armi.cognitive_branches(cognitive_branch_id);
-
---
--- Name: cognitive_dialogue_aggregates cognitive_dialogue_aggregates_cognitive_episode_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_dialogue_aggregates
-    ADD CONSTRAINT cognitive_dialogue_aggregates_cognitive_episode_id_fkey FOREIGN KEY (cognitive_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);
-
---
--- Name: cognitive_dialogue_aggregates cognitive_dialogue_aggregates_primary_model_attempt_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_dialogue_aggregates
-    ADD CONSTRAINT cognitive_dialogue_aggregates_primary_model_attempt_id_fkey FOREIGN KEY (primary_model_attempt_id) REFERENCES armi.cognitive_attempts(model_attempt_id);
-
---
--- Name: cognitive_dialogue_aggregates cognitive_dialogue_aggregates_response_branch_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognitive_dialogue_aggregates
-    ADD CONSTRAINT cognitive_dialogue_aggregates_response_branch_id_fkey FOREIGN KEY (response_branch_id) REFERENCES armi.cognitive_branches(cognitive_branch_id);
 
 --
 -- Name: cognitive_episodes cognitive_episodes_bundle_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3199,6 +3102,9 @@ ALTER TABLE ONLY armi.effects
 
 ALTER TABLE ONLY armi.effects
     ADD CONSTRAINT effects_destination_binding_fkey FOREIGN KEY (destination_binding_id) REFERENCES armi.external_channel_bindings(external_binding_id);
+
+ALTER TABLE ONLY armi.effects
+    ADD CONSTRAINT effects_live_voice_turn_id_fkey FOREIGN KEY (live_voice_turn_id) REFERENCES armi.live_voice_turns(turn_id);
 
 --
 -- Name: effects effects_destination_party_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3644,6 +3550,9 @@ ALTER TABLE ONLY armi.live_voice_text_fragments
 
 ALTER TABLE ONLY armi.live_voice_turns
     ADD CONSTRAINT live_voice_turns_interaction_id_fkey FOREIGN KEY (interaction_id) REFERENCES armi.party_input_interactions(interaction_id);
+
+ALTER TABLE ONLY armi.live_voice_turns
+    ADD CONSTRAINT live_voice_turns_root_opportunity_id_fkey FOREIGN KEY (root_opportunity_id) REFERENCES armi.opportunities(opportunity_id);
 
 --
 -- Name: live_voice_turns live_voice_turns_session_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -

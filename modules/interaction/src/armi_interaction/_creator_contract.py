@@ -126,6 +126,7 @@ class CreatorVoiceInputCommand:
 class CreatorVoiceInputAcceptance:
     interaction_id: CreatorInteractionId
     evidence_id: EvidenceId
+    opportunity_id: OpportunityId
     request_digest: Digest
     content_digest: Digest
     newly_accepted: bool = field(compare=False)
@@ -134,6 +135,7 @@ class CreatorVoiceInputAcceptance:
         if (
             type(self.interaction_id) is not CreatorInteractionId
             or type(self.evidence_id) is not EvidenceId
+            or type(self.opportunity_id) is not OpportunityId
             or type(self.request_digest) is not Digest
             or type(self.content_digest) is not Digest
             or type(self.newly_accepted) is not bool
@@ -386,22 +388,7 @@ class CreatorVoiceInputAcceptancePort(Protocol):
     async def accept_voice(
         self, command: CreatorVoiceInputCommand
     ) -> CreatorVoiceInputAcceptance:
-        """Accept one final transcript without admitting the normal reply yet."""
-        ...
-
-
-@runtime_checkable
-class CreatorVoiceInputSuccessorPort(Protocol):
-    async def release_voice_appraisal(
-        self, acceptance: CreatorVoiceInputAcceptance
-    ) -> OpportunityId:
-        """Admit only the private appraisal successor after a fast decision."""
-        ...
-
-    async def release_voice_slow(
-        self, acceptance: CreatorVoiceInputAcceptance
-    ) -> OpportunityId:
-        """Admit the normal cognition successor for the same accepted evidence."""
+        """Accept one final transcript and its single cognition opportunity."""
         ...
 
 
@@ -426,6 +413,5 @@ __all__ = (
     "CreatorVoiceInputAcceptance",
     "CreatorVoiceInputAcceptancePort",
     "CreatorVoiceInputCommand",
-    "CreatorVoiceInputSuccessorPort",
     "OpportunityId",
 )

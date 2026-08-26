@@ -178,6 +178,7 @@ from armi_kernel.application import (
     ModelViolation,
     RuntimeFence,
 )
+from armi_live_voice.api import VoiceCognitionResultPort
 from armi_live_voice.bootstrap import bootstrap_live_voice_context_read
 from armi_material.api import (
     MaterialCandidateContextPort,
@@ -1594,6 +1595,7 @@ def compose_subject_commit_pipeline(
     subject_state_commit: SubjectStateCommitPort,
     catalog: ArtifactCatalogPort,
     notifier: CreatorProjectionNotifier | None,
+    voice_results: VoiceCognitionResultPort | None = None,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
     fault_injector: Callable[[str], None] | None = None,
@@ -1647,6 +1649,7 @@ def compose_subject_commit_pipeline(
         subject_state_commit=subject_state_commit,
         web_research_commit=bootstrap_web_research_commit(),
         notifier=notifier,
+        voice_results=voice_results,
         wakeups=wakeups,
         diagnostic=diagnostic,
         fault_injector=fault_injector,
@@ -1763,6 +1766,7 @@ def compose_effect_registration_pipeline(
     diagnostic: Callable[[str], None] | None = None,
     fault_injector: Callable[[str], None] | None = None,
     external_message_adapter: ActionAdapterPort | None = None,
+    live_voice_adapter: ActionAdapterPort | None = None,
 ) -> EffectRuntimePort:
     """Resolve the Runtime credential for the S029 T-05 worker."""
 
@@ -1789,6 +1793,7 @@ def compose_effect_registration_pipeline(
         diagnostic=diagnostic,
         fault_injector=fault_injector,
         external_message_adapter=external_message_adapter,
+        live_voice_adapter=live_voice_adapter,
     )
 
 
@@ -1809,6 +1814,7 @@ def compose_effect_owner_context(
             codex=codex.task_sources,
             expression=expression,
             interaction=interaction,
+            live_voice=bootstrap_live_voice_context_read(),
             registrations=bootstrap_effect_responsibility(),
         ),
         RuntimeCodexArtifactReference(

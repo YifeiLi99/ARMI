@@ -131,6 +131,10 @@ from armi_runtime.application.action_lifecycle import RuntimeCodexGrantActivatio
 from armi_runtime.application.cognition_cycle import RuntimeCognitionState
 from armi_runtime.application.creator_timeline import CreatorTimelineProjectionAssembler
 from armi_runtime.application.life_opportunity import RuntimeLifeOpportunityFacts
+from armi_runtime.application.live_voice import (
+    RuntimeLiveVoiceEffectAdapter,
+    RuntimeLiveVoiceResultObserver,
+)
 from armi_runtime.application.maintenance import RuntimeSleepFacts
 from armi_runtime.application.subject_summary import RuntimeSubjectSummaryAssembler
 from armi_runtime.interfaces.browser_sessions import (
@@ -734,12 +738,6 @@ async def _serve(
                         creator=creator_context,
                         interaction=interaction_module.creator_input,
                         timeline=interaction_module.effect_delivery,
-                        dialogue=dialogue_read,
-                        subject_state=subject_state_module.read,
-                        mood=mood_module.read,
-                        prompt=prompt_module.read,
-                        relationship=relationship_module.read,
-                        catalog=artifact_catalog,
                     )
                 except LiveVoiceViolation:
                     live_voice_service = None
@@ -1007,6 +1005,15 @@ async def _serve(
                 subject_state_commit=subject_state_module.commit,
                 catalog=artifact_catalog,
                 notifier=creator_events,
+                voice_results=(
+                    None
+                    if live_voice_service is None
+                    else RuntimeLiveVoiceResultObserver(
+                        service=live_voice_service,
+                        factory=runtime_unit_of_work_factory,
+                        read=voice_context_read,
+                    )
+                ),
                 wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
                     event,
@@ -1051,6 +1058,15 @@ async def _serve(
                 fault_injector=inject_admin_fault,
                 external_message_adapter=(
                     None if qq_channel is None else qq_channel.effect_adapter
+                ),
+                live_voice_adapter=(
+                    None
+                    if live_voice_service is None
+                    else RuntimeLiveVoiceEffectAdapter(
+                        service=live_voice_service,
+                        factory=runtime_unit_of_work_factory,
+                        read=voice_context_read,
+                    )
                 ),
             )
             await effect_pipeline.open()

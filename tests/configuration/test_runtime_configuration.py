@@ -204,9 +204,9 @@ class RuntimeConfigurationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             effective = self.load(
                 Path(directory),
-                extra="voice:\n  llm_model: '  model-name  '\n",
+                extra="voice:\n  tts_voice_type: '  voice-name  '\n",
             )
-        self.assertEqual(effective.config.voice.llm_model, "model-name")
+        self.assertEqual(effective.config.voice.tts_voice_type, "voice-name")
 
         with (
             tempfile.TemporaryDirectory() as directory,

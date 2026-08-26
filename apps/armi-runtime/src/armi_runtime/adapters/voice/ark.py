@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
 from typing import Any
 
-from armi_live_voice.api import LiveVoiceViolation, VoiceContext
+from armi_live_voice.api import LiveVoiceViolation
 
 
 class ArkResponsesFastModel:
@@ -29,50 +28,33 @@ class ArkResponsesFastModel:
         """Warm the selected model when an explicit voice session starts."""
         try:
             async with self._prepare_lock:
-                stream: Any = await self._client.responses.create(
+                response: Any = await self._client.responses.create(
                     model=self._model,
-                    instructions="实时语音预热,只输出OK。",
+                    instructions="严格按 JSON Schema 输出语音兼容检查结果。",
                     input="开始",
-                    max_output_tokens=8,
+                    max_output_tokens=32,
                     tools=[],
                     store=False,
-                    stream=True,
+                    text={
+                        "format": {
+                            "type": "json_schema",
+                            "name": "armi_voice_compatibility",
+                            "strict": True,
+                            "schema": {
+                                "type": "object",
+                                "properties": {"ok": {"type": "boolean"}},
+                                "required": ["ok"],
+                                "additionalProperties": False,
+                            },
+                        }
+                    },
                     extra_body={"thinking": {"type": "disabled"}},
                 )
-                async for _ in stream:
-                    pass
+                if response.output_text != '{"ok":true}':
+                    raise LiveVoiceViolation(
+                        "VOICE-LLM-STRICT-JSON", "fast model lacks strict JSON support"
+                    )
         except Exception as error:
             raise LiveVoiceViolation(
                 "VOICE-LLM-PREPARE-FAILED", "fast model warmup failed"
             ) from error
-
-    async def generate(
-        self, context: VoiceContext, transcript: str
-    ) -> AsyncIterator[str]:
-        if not transcript.strip():
-            raise LiveVoiceViolation("VOICE-EMPTY-TRANSCRIPT", "transcript is empty")
-        instruction = (
-            context.prompt
-            + "\n\n实时语音。首行从SPEAK/WAIT/SILENT三选一,只输出所选结果。"
-            "SPEAK第二行一句回答(最多60字);WAIT第二行垫话(最多12字);"
-            "SILENT无第二行。"
-            "无工具、解释或Markdown。"
-        )
-        try:
-            stream: Any = await self._client.responses.create(
-                model=self._model,
-                instructions=instruction,
-                input=transcript,
-                max_output_tokens=96,
-                tools=[],
-                store=False,
-                stream=True,
-                extra_body={"thinking": {"type": "disabled"}},
-            )
-            async for event in stream:
-                if getattr(event, "type", None) == "response.output_text.delta":
-                    delta = getattr(event, "delta", "")
-                    if delta:
-                        yield str(delta)
-        except Exception as error:
-            raise LiveVoiceViolation("VOICE-LLM-FAILED", "fast model failed") from error

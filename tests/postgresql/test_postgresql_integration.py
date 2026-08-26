@@ -5355,7 +5355,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "model_work",
                 "model_work_attempt",
                 "model_attempt",
-                "model_branch",
                 "validation_work",
                 "validation_work_attempt",
                 "validation",
@@ -5994,15 +5993,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ids["model_attempt"],
             )
             connection.execute(
-                """INSERT INTO armi.cognitive_branches
-                   (cognitive_branch_id,cognitive_episode_id,branch_role,status)
-                   VALUES (%s,%s,'response_action','prepared')""",
-                (ids["model_branch"], ids["episode"]),
-            )
-            connection.execute(
                 """
                 INSERT INTO armi.cognitive_attempts (
-                    model_attempt_id, cognitive_episode_id, cognitive_branch_id, work_id,
+                    model_attempt_id, cognitive_episode_id, work_id,
                     work_attempt_id, attempt_no, provider,
                     model_id, version_policy, profile, request_schema_version,
                     candidate_schema_version, pricing_snapshot_id,
@@ -6010,7 +6003,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     dispatch_status, provider_request_id, provider_model_id,
                     response_artifact_id, input_tokens, output_tokens, cached_input_tokens,
                     estimated_cost_microyuan, result_status, dispatched_at, settled_at)
-                    VALUES (%s, %s, %s, %s, %s, 1, 'volcengine_ark',
+                    VALUES (%s, %s, %s, %s, 1, 'volcengine_ark',
                           'doubao-seed-evolving', 'provider_evolving_alias',
                           'creator_input_cognition', 'armi.model-request.v1',
                           %s,
@@ -6023,7 +6016,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 (
                     ids["model_attempt"],
                     ids["episode"],
-                    ids["model_branch"],
                     ids["model_work"],
                     ids["model_work_attempt"],
                     candidate_contract_version,
@@ -6035,17 +6027,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     output_tokens,
                     cached_input_tokens,
                     estimated_cost,
-                ),
-            )
-            connection.execute(
-                """UPDATE armi.cognitive_branches
-                   SET status='succeeded',selected_attempt_id=%s,
-                       response_artifact_id=%s,settled_at=statement_timestamp()
-                   WHERE cognitive_branch_id=%s""",
-                (
-                    ids["model_attempt"],
-                    artifact_ids["response"],
-                    ids["model_branch"],
                 ),
             )
             insert_work(
@@ -6767,6 +6748,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         codex=bootstrap_codex_read_ports().task_sources,
                         expression=expression_actions.intents,
                         interaction=interaction_actions.routes,
+                        live_voice=bootstrap_live_voice_context_read(),
                         registrations=bootstrap_effect_responsibility(),
                     )
                     async with response_factory.unit_of_work() as unit_of_work:

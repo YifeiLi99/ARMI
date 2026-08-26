@@ -111,7 +111,7 @@ async def test_only_completed_spoken_turn_enters_scene_timeline() -> None:
 
 
 @pytest.mark.asyncio
-async def test_successor_failure_cannot_rewrite_completed_playback() -> None:
+async def test_post_playback_failure_cannot_rewrite_completed_playback() -> None:
     playback = AsyncMock()
     playback.fetchone.return_value = ("completed", 2)
     response = AsyncMock()
@@ -133,7 +133,7 @@ async def test_successor_failure_cannot_rewrite_completed_playback() -> None:
     await journal.settle_turn(
         turn_id=uuid7(),
         outcome=AttemptOutcome.FAILED,
-        error_code="VOICE-SUCCESSOR-FAILED",
+        error_code="VOICE-POST-PLAYBACK-FAILED",
     )
 
     settlement = transaction.execute.await_args_list[2].args[1]

@@ -7,7 +7,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
 
-from ._creator_branch_contract import AppraisalEventSignalV2
+from ._creator_appraisal_contract import AppraisalEventSignalV2
 from ._strict_model_json import strict_model_value
 
 ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION = "armi.activity-internal-work-candidate.v3"

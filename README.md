@@ -28,7 +28,7 @@ ARMI 目前是运行在单机上的模块化单体。Python workspace 包含稳�
 
 当前代码已经覆盖 Creator 对话与多场合、Self/Mind/Prompt、主观记忆、关系与生活资料、自主机会与 Activity、睡眠维护、主动联系、内置其他人交流、本地导出与数据权利，以及经授权的 Creator→Codex 委托。QQ/NapCat 统一适配器支持好友私聊和白名单群的文字收发，并保留 QQ 已明确给出的内置表情、商城表情与图片子类。内置表情和有效商城摘要在本地解释；其他图片经过真实格式、尺寸和动画帧检查后，按表情、平台特殊图或普通图片选择一次视觉理解。常驻视觉是另一条链路：Runtime 只绑定配置中的同一 USB 摄像头，在内存保留最新帧，并把初始、稳定场景变化、周期或人工触发的选帧交给感知模块；它不绑定 interaction、party 或社交 scene，也不能直接触发回复或现实动作。选中的私有帧最多保留 24 小时，连续原始画面不落盘。QQ 录音走豆包语音大模型录音文件识别标准版的 `400` 模型，它不是实时语音。独立的本机实时语音模块使用 USB Audio、流式 ASR、紧凑快模型和流式 TTS，默认关闭，只有精确配置设备并显式开始后才接纳 `live_voice` Creator 输入；浏览器不取得麦克风权限。视频仍作为完整文件交给方舟视频模型，PDF、文本及常见 Office 文件沿用各自通路。正式 QQ 回复仍只发送文字。代码存在不等于环境已经配置、设备已经连接或服务权限已经通过真实握手。
 
-Creator 输入及其精确生命查询结果使用两条热分支：Runtime 只冻结并编译一次 Context，再分别生成“响应与动作”和“经历与评估”Prompt，两次模型调用并发执行且互相看不到输出。响应分支只决定表达、查询和明确动作；评估分支只提交 Experience、事件级情绪信号、关系或承诺事件，且只有 Creator 明确要求“记住”时才能追加即时记忆。Runtime 按固定顺序汇合两个结果，由各状态 Owner 校验后只执行一次 Subject Commit；单支失败不伪造另一支的结果。接受 Experience 后只登记维护积压，记忆整理与 Self、Mind、Prompt 专项反思在空闲或睡眠窗口按依赖顺序运行。
+Creator 文字、实时语音及精确生命查询结果统一采用“一次认知，一份 JSON”：每个 Episode 冻结一份 Context，只接受一次模型认知结果；明确失败可在原工作预算内安全重试，已经发出但结果未知时绝不重调。严格 JSON 同时承载表达或查询、Experience、Mood v3 语义评价，以及关系、承诺、资料和 Codex 提议；模型不能填写主体身份与版本、权限结果、情绪数值、VAD 或现实执行结果。结构整体通过后，各事实 Owner 分别校验自己的提议，最终最多形成一次 Subject Commit。网页、生命查询和 Codex 的现实结果作为同一根机会下的新 Episode 输入，不在原轮追加隐藏模型调用。接受 Experience 后只登记维护积压，记忆整理与 Self、Mind、Prompt 专项反思在空闲或睡眠窗口按依赖顺序运行。
 
 项目仍是个人研究与高迭代实验系统，不是生产发布版本。安全、部署、迁移、公开渠道、多模态和新的外部执行器不会从历史路线图自动进入范围，而由创造者逐项决定。
 
@@ -51,7 +51,7 @@ docs/                       私有叙述性设计与外部研究资料
 
 `docs/` 被 Git 忽略，用于本地继续设计；精确的字段、路由、状态值和依赖版本仍以当前代码、DDL、配置与锁文件为准。文档入口见 [`docs/README.md`](docs/README.md)。
 
-数据库只保留唯一 Alembic `0000` 基线，并以 `armi.schema-baseline.v7` 标识当前数据库身份。唯一 schema 资源由 `armi-postgresql-contract` 打包，安装记录资源、安装后 catalog 与角色策略三类摘要。Runtime 与 Admin 共用同一个验证器，精确核对 PostgreSQL/扩展、revision、表列、约束、索引、函数、类型、触发器、owner、角色成员关系、默认 ACL 与全部授权；任一未知对象、陌生 grantee 或权限漂移都会在业务入口开放前拒绝运行。
+数据库只保留唯一 Alembic `0000` 基线，并以 `armi.schema-baseline.v8` 标识当前数据库身份。唯一 schema 资源由 `armi-postgresql-contract` 打包，安装记录资源、安装后 catalog 与角色策略三类摘要。Runtime 与 Admin 共用同一个验证器，精确核对 PostgreSQL/扩展、revision、表列、约束、索引、函数、类型、触发器、owner、角色成员关系、默认 ACL 与全部授权；任一未知对象、陌生 grantee 或权限漂移都会在业务入口开放前拒绝运行。
 
 ## 本地开发入口
 
@@ -125,7 +125,7 @@ Data Rights 的三种命令共享持续 lineage 合同：`stop_contact` 阻断�
 
 日常及安装后的 Creator 工作台只在 Runtime 的本机地址上提供。页面打开后会自动建立进程内连接并直接进入工作台，不需要登录、bootstrap code 或手动注销。Vite 地址仅用于源码前端开发。
 
-数据库结构只由唯一 Alembic `0000` 管理。`db install` 拒绝已有用户对象，并在一个事务中安装有序模块化基线、revision 与 `armi.schema-baseline.v7` 身份。ARMI 是本地单实例项目，不提供内部数据库迁移或历史兼容入口；基线变化时必须停止 Runtime、明确删除旧数据库并重新安装。Runtime 只接受与当前源码完全一致的 revision、基线身份和角色权限合同。
+数据库结构只由唯一 Alembic `0000` 管理。`db install` 拒绝已有用户对象，并在一个事务中安装有序模块化基线、revision 与 `armi.schema-baseline.v8` 身份。ARMI 是本地单实例项目，不提供内部数据库迁移或历史兼容入口；基线变化时必须停止 Runtime、明确删除旧数据库并重新安装。Runtime 只接受与当前源码完全一致的 revision、基线身份和角色权限合同。
 
 已获明确授权的本地彻底重置在停止 Runtime 后使用 `tools/reset_local_environment_data.ps1 -EnvironmentRoot C:\path\to\environment -Apply` 清空并重建 artifacts、backups、Codex runner、exports、logs 与 run 目录。脚本不删除数据库卷，也不触碰环境配置、凭据、模型、工具、NapCat 或渠道配置；数据库卷仍须独立核对后删除。
 

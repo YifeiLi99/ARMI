@@ -1,22 +1,24 @@
+# ruff: noqa: RUF001
+
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncGenerator, AsyncIterator
-from typing import cast
-from uuid import uuid7
+from collections.abc import AsyncIterator
+from uuid import UUID, uuid7
 
 import pytest
 from armi_live_voice.api import (
     AcceptedVoiceInput,
     AudioDevice,
-    FastReplyDecision,
     LiveVoiceBinding,
+    LiveVoiceViolation,
+    PlaybackExtent,
     RecognitionEvent,
-    VoiceContext,
     VoiceProviderBinding,
     VoiceProviderService,
+    VoiceTurnSnapshot,
 )
-from armi_live_voice.service import LiveVoiceService, _stream_speak_fragments
+from armi_live_voice.service import LiveVoiceService
 
 
 class FakeAudio:
@@ -43,28 +45,34 @@ class FakeAudio:
         return None
 
 
+class FailingAudio(FakeAudio):
+    def __init__(self, log: list[str], *, write_first_frame: bool) -> None:
+        super().__init__(log)
+        self._write_first_frame = write_first_frame
+
+    async def play(self, frames: AsyncIterator[bytes], *, on_frame_written=None) -> int:
+        assert await anext(frames) == b"pcm"
+        if self._write_first_frame:
+            self.log.append("played")
+            if on_frame_written is not None:
+                await on_frame_written()
+        raise RuntimeError("speaker failed")
+
+
 class FakeAsr:
     async def recognize(
         self, frames: AsyncIterator[bytes]
     ) -> AsyncIterator[RecognitionEvent]:
         assert await anext(frames) == b"audio"
-        yield RecognitionEvent("现在几点\uff1f", True, True)
+        yield RecognitionEvent("现在几点？", True, True)
 
 
-class FakeModel:
+class FakeModelCompatibility:
     def __init__(self, log: list[str]) -> None:
         self.log = log
 
     async def prepare(self) -> None:
         self.log.append("model_ready")
-
-    async def generate(
-        self, context: VoiceContext, transcript: str
-    ) -> AsyncIterator[str]:
-        assert context.version == "1"
-        assert transcript == "现在几点\uff1f"
-        yield "SPEAK\n现在是"
-        yield "下午三点。"
 
 
 class FakeTts:
@@ -83,15 +91,14 @@ class FakeTts:
         yield b"pcm"
 
 
-class FakeContext:
-    async def compile(self) -> VoiceContext:
-        return VoiceContext("1", "context")
-
-
 class FakeInputs:
+    def __init__(self) -> None:
+        self.accepted = asyncio.Event()
+
     async def accept_once(self, **_: object) -> AcceptedVoiceInput:
+        self.accepted.set()
         digest = "sha256:" + "a" * 64
-        return AcceptedVoiceInput(uuid7(), uuid7(), digest, digest, True)
+        return AcceptedVoiceInput(uuid7(), uuid7(), uuid7(), digest, digest, True)
 
 
 class FakeExpression:
@@ -105,68 +112,64 @@ class FakeExpression:
         self.log.append("sealed")
 
 
-class FakeSuccessors:
-    def __init__(self) -> None:
-        self.appraised = asyncio.Event()
-
-    async def enqueue_appraisal(self, accepted: AcceptedVoiceInput) -> None:
-        del accepted
-        self.appraised.set()
-
-    async def run_slow(self, accepted: AcceptedVoiceInput) -> None:
-        del accepted
+class FailingExpression(FakeExpression):
+    async def seal(self, **_: object) -> None:
+        raise RuntimeError("timeline failed")
 
 
 class FakeJournal:
+    def __init__(self) -> None:
+        self.turn_id: UUID | None = None
+        self.frames = 0
+
     async def recent_turn(self):
-        return None
+        if self.turn_id is None:
+            return None
+        return VoiceTurnSnapshot(
+            self.turn_id, "speaking", PlaybackExtent.COMPLETE, self.frames, None
+        )
 
     async def open_session(self, **_: object) -> None:
-        return None
+        pass
 
     async def set_session_state(self, **_: object) -> None:
-        return None
+        pass
 
     async def close_session(self, **_: object) -> None:
-        return None
+        pass
 
-    async def begin_turn(self, **_: object) -> None:
-        return None
+    async def begin_turn(self, *, turn_id: UUID, **_: object) -> None:
+        self.turn_id = turn_id
 
     async def record_transcript(self, **_: object) -> None:
-        return None
-
-    async def record_decision(
-        self, *, turn_id: object, decision: FastReplyDecision
-    ) -> None:
-        del turn_id, decision
+        pass
 
     async def settle_turn(self, **_: object) -> None:
-        return None
+        pass
 
     async def begin_provider_attempt(self, **_: object):
         return uuid7()
 
     async def mark_provider_dispatched(self, **_: object) -> None:
-        return None
+        pass
 
     async def mark_provider_first_result(self, **_: object) -> None:
-        return None
+        pass
 
     async def settle_provider_attempt(self, **_: object) -> None:
-        return None
+        pass
 
     async def begin_playback(self, **_: object):
         return uuid7()
 
     async def mark_playback_dispatched(self, **_: object) -> None:
-        return None
+        pass
 
     async def mark_playback_first_frame(self, **_: object) -> None:
-        return None
+        pass
 
-    async def settle_playback(self, **_: object) -> None:
-        return None
+    async def settle_playback(self, *, frames_written: int, **_: object) -> None:
+        self.frames = frames_written
 
 
 def _binding() -> LiveVoiceBinding:
@@ -182,53 +185,115 @@ def _binding() -> LiveVoiceBinding:
 
 
 @pytest.mark.asyncio
-async def test_fast_speech_is_registered_before_audio_and_appraisal_is_async() -> None:
+async def test_committed_effect_is_registered_before_audio_and_only_then_completes() -> (
+    None
+):
     log: list[str] = []
-    successors = FakeSuccessors()
+    inputs = FakeInputs()
+    journal = FakeJournal()
     service = LiveVoiceService(
         audio=FakeAudio(log),
         asr=FakeAsr(),
-        model=FakeModel(log),
+        model=FakeModelCompatibility(log),
         tts=FakeTts(log),
-        context=FakeContext(),
-        inputs=FakeInputs(),
+        inputs=inputs,
         expression=FakeExpression(log),
-        successors=successors,
-        journal=FakeJournal(),
+        journal=journal,
         binding=_binding(),
     )
     await service.start()
-    await asyncio.wait_for(successors.appraised.wait(), timeout=1)
+    await asyncio.wait_for(inputs.accepted.wait(), timeout=1)
+    assert journal.turn_id is not None
+    frames = await service.play_effect(turn_id=journal.turn_id, text="现在是下午三点。")
     await service.stop()
+
+    assert frames == 1
     assert set(log[:2]) == {"model_ready", "tts_ready"}
-    synthesized = log.index("synthesized")
-    assert log[2:synthesized] == ["registered", "registered"]
-    assert log[synthesized : synthesized + 2] == ["synthesized", "played"]
-    assert log.count("sealed") == 1
+    assert log[2:] == ["registered", "synthesized", "played", "sealed"]
 
 
 @pytest.mark.asyncio
-async def test_streaming_speech_accepts_only_trailing_whitespace_after_body() -> None:
-    async def remaining() -> AsyncIterator[str]:
-        yield "协力。\n"
-        yield " "
-
-    fragments = [
-        fragment async for fragment in _stream_speak_fragments("齐心", remaining())
-    ]
-
-    assert "".join(fragments) == "齐心协力。"
+async def test_silence_completes_without_fabricated_audio() -> None:
+    log: list[str] = []
+    inputs = FakeInputs()
+    journal = FakeJournal()
+    service = LiveVoiceService(
+        audio=FakeAudio(log),
+        asr=FakeAsr(),
+        model=FakeModelCompatibility(log),
+        tts=FakeTts(log),
+        inputs=inputs,
+        expression=FakeExpression(log),
+        journal=journal,
+        binding=_binding(),
+    )
+    await service.start()
+    await asyncio.wait_for(inputs.accepted.wait(), timeout=1)
+    assert journal.turn_id is not None
+    await service.complete_silently(turn_id=journal.turn_id)
+    await service.stop()
+    assert "played" not in log
 
 
 @pytest.mark.asyncio
-async def test_streaming_speech_emits_first_model_delta_without_chunk_wait() -> None:
-    release = asyncio.Event()
+@pytest.mark.parametrize(
+    ("write_first_frame", "expected_code"),
+    (
+        (False, "VOICE-PLAYBACK-NOT-DELIVERED"),
+        (True, "VOICE-PLAYBACK-RESULT-UNKNOWN"),
+    ),
+)
+async def test_failed_playback_distinguishes_no_delivery_from_unknown_result(
+    write_first_frame: bool, expected_code: str
+) -> None:
+    log: list[str] = []
+    inputs = FakeInputs()
+    journal = FakeJournal()
+    service = LiveVoiceService(
+        audio=FailingAudio(log, write_first_frame=write_first_frame),
+        asr=FakeAsr(),
+        model=FakeModelCompatibility(log),
+        tts=FakeTts(log),
+        inputs=inputs,
+        expression=FakeExpression(log),
+        journal=journal,
+        binding=_binding(),
+    )
+    await service.start()
+    await asyncio.wait_for(inputs.accepted.wait(), timeout=1)
+    assert journal.turn_id is not None
 
-    async def remaining() -> AsyncIterator[str]:
-        yield "齐"
-        await release.wait()
+    with pytest.raises(LiveVoiceViolation) as error:
+        await service.play_effect(turn_id=journal.turn_id, text="现在是下午三点。")
 
-    fragments = cast(AsyncGenerator[str], _stream_speak_fragments("", remaining()))
+    assert error.value.code == expected_code
+    await service.stop()
 
-    assert await asyncio.wait_for(anext(fragments), timeout=0.02) == "齐"
-    await fragments.aclose()
+
+@pytest.mark.asyncio
+async def test_failure_after_full_playback_is_unknown_and_never_safe_to_replay() -> (
+    None
+):
+    log: list[str] = []
+    inputs = FakeInputs()
+    journal = FakeJournal()
+    service = LiveVoiceService(
+        audio=FakeAudio(log),
+        asr=FakeAsr(),
+        model=FakeModelCompatibility(log),
+        tts=FakeTts(log),
+        inputs=inputs,
+        expression=FailingExpression(log),
+        journal=journal,
+        binding=_binding(),
+    )
+    await service.start()
+    await asyncio.wait_for(inputs.accepted.wait(), timeout=1)
+    assert journal.turn_id is not None
+
+    with pytest.raises(LiveVoiceViolation) as error:
+        await service.play_effect(turn_id=journal.turn_id, text="现在是下午三点。")
+
+    assert error.value.code == "VOICE-PLAYBACK-RESULT-UNKNOWN"
+    assert "played" in log
+    await service.stop()

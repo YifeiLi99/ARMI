@@ -27,6 +27,7 @@ from armi_kernel.application import (
     WorkType,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId, TraceId
+from armi_live_voice.api import VoiceContextReadPort
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
 
@@ -120,6 +121,7 @@ class RuntimeEffectRegistrationContext:
         "_codex",
         "_expression",
         "_interaction",
+        "_live_voice",
         "_registrations",
     )
 
@@ -130,12 +132,14 @@ class RuntimeEffectRegistrationContext:
         codex: CodexTaskSourceReadPort,
         expression: ExpressionIntentReadPort,
         interaction: InteractionEffectRoutePort,
+        live_voice: VoiceContextReadPort,
         registrations: EffectResponsibilityPort,
     ) -> None:
         self._artifacts = artifacts
         self._codex = codex
         self._expression = expression
         self._interaction = interaction
+        self._live_voice = live_voice
         self._registrations = registrations
 
     async def resolve(
@@ -189,15 +193,24 @@ class RuntimeEffectRegistrationContext:
         if artifact is None or artifact.content_digest != digest:
             raise EffectViolation("EFFECT-PAYLOAD-UNAVAILABLE")
         if effect_kind == "creator_response":
-            route = await self._interaction.effect_route(
-                transaction,
-                scene_id=intent.scene_id,
-                context_party_id=intent.context_party_id,
+            live_voice_turn_id = await self._live_voice.turn_for_opportunity(
+                transaction, opportunity_id=intent.root_opportunity_id
             )
-            destination_party_id = route.destination_party_id
-            destination_kind = route.destination_kind
-            destination_binding_id = route.destination_binding_id
+            if live_voice_turn_id is not None:
+                destination_party_id = intent.context_party_id
+                destination_kind = "live_voice_audio"
+                destination_binding_id = None
+            else:
+                route = await self._interaction.effect_route(
+                    transaction,
+                    scene_id=intent.scene_id,
+                    context_party_id=intent.context_party_id,
+                )
+                destination_party_id = route.destination_party_id
+                destination_kind = route.destination_kind
+                destination_binding_id = route.destination_binding_id
         else:
+            live_voice_turn_id = None
             destination_party_id = intent.context_party_id
             destination_kind = "codex_workspace"
             destination_binding_id = None
@@ -222,6 +235,7 @@ class RuntimeEffectRegistrationContext:
             destination_party_id,
             destination_kind,
             destination_binding_id,
+            live_voice_turn_id,
         )
 
 

@@ -10,7 +10,7 @@ from typing import Final, Literal
 
 class CognitionPurpose(StrEnum):
     CONSIDER_CREATOR_INPUT = "consider_creator_input"
-    CONSIDER_CREATOR_VOICE_APPRAISAL = "consider_creator_voice_appraisal"
+    CONSIDER_CREATOR_VOICE_INPUT = "consider_creator_voice_input"
     CONSIDER_WEB_EVIDENCE = "consider_web_evidence"
     CONSIDER_CODEX_TASK = "consider_codex_task"
     CONSIDER_CODEX_RESULT = "consider_codex_result"
@@ -65,7 +65,7 @@ COGNITION_PURPOSES: Final = MappingProxyType(
                 if purpose
                 in {
                     CognitionPurpose.CONSIDER_CREATOR_INPUT,
-                    CognitionPurpose.CONSIDER_CREATOR_VOICE_APPRAISAL,
+                    CognitionPurpose.CONSIDER_CREATOR_VOICE_INPUT,
                     CognitionPurpose.CONSIDER_LIFE_QUERY_RESULT,
                 }
                 else "single_candidate"

@@ -52,12 +52,9 @@ DATA_RIGHTS_OWNER_CONTRACTS = (
         tuple(
             (table, column, "party")
             for table, column in (
-                ("cognitive_attempts", "late_response_artifact_id"),
                 ("cognitive_attempts", "request_artifact_id"),
                 ("cognitive_attempts", "response_artifact_id"),
-                ("cognitive_branches", "response_artifact_id"),
                 ("cognitive_candidate_validations", "change_set_artifact_id"),
-                ("cognitive_dialogue_aggregates", "aggregate_artifact_id"),
                 ("cognitive_episodes", "compiled_context_artifact_id"),
                 ("cognitive_episodes", "context_manifest_artifact_id"),
                 ("exact_life_query_intents", "result_artifact_id"),

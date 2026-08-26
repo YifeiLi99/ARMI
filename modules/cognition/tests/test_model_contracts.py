@@ -408,44 +408,21 @@ def test_only_evolving_binding_is_active_and_request_is_stable() -> None:
 
 def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     active = load_active_binding()
-    dialogue = load_purpose_binding("consider_creator_response")
-    appraisal = load_purpose_binding("appraise_creator_input")
-    assert dialogue.model_id == appraisal.model_id == active.model_id == ACTIVE_MODEL_ID
-    assert dialogue.profile == "creator_response"
-    assert appraisal.profile == "creator_appraisal"
-    assert dialogue.response_contract_version == "armi.creator-response-candidate.v1"
-    assert appraisal.response_contract_version == "armi.creator-appraisal-candidate.v4"
-    assert dialogue.output_token_limit == 1024
-    assert appraisal.output_token_limit == 768
+    dialogue = load_purpose_binding("consider_creator_input")
+    assert dialogue.model_id == active.model_id == ACTIVE_MODEL_ID
+    assert dialogue.profile == "creator_cognitive_act"
+    assert (
+        dialogue.response_contract_version == "armi.creator-cognitive-act-candidate.v1"
+    )
+    assert dialogue.output_token_limit == 2048
 
     request = json.loads(_request(dialogue).canonical_bytes)
-    assert "candidate_base" not in request
-    assert "included_context_refs" not in request
-    assert "binding" not in request
-    assert "context_digest" not in request
-    assert "output_contract" not in request
-    assert request["schema_version"] == "armi.creator-dialogue-input.v6"
-    assert request["prompt_version"] == "armi.dialogue-prompt.v4"
-    assert request["task"] == "respond_to_creator"
-    assert request["available_refs"] == []
-    assert [message["role"] for message in request["messages"]] == [
-        "system",
-        "system",
-        "user",
-    ]
-    assert "当前核心感受(愉悦=0,唤醒=0,掌控=0)" in request["messages"][1]["content"]
-    assert request["messages"][2]["content"] == "Hello"
-    assert "任务:回应 Creator" in request["messages"][0]["content"]
-    assert "ctx:1" not in request["messages"][0]["content"]
-    assert "之前我听到过相近的事情" not in json.dumps(request, ensure_ascii=False)
-    assert request["diagnostics"]["output_schema_bytes"] > 0
-    assert str(_BUNDLE_ID) not in json.dumps(request)
-    appraisal_request = json.loads(_request(appraisal).canonical_bytes)
-    assert appraisal_request["task"] == "appraise_creator_input"
-    assert "abilities" not in appraisal_request
-    assert "materials" not in appraisal_request
-    assert "之前我听到过相近的事情" in json.dumps(appraisal_request, ensure_ascii=False)
-    assert appraisal_request["available_refs"] == ["ctx:2", "ctx:3"]
+    assert request["schema_version"] == "armi.model-request.v1"
+    assert (
+        request["output_contract"]["schema_version"]
+        == "armi.creator-cognitive-act-candidate.v1"
+    )
+    assert request["candidate_base"]["bundle_activation_id"] == str(_BUNDLE_ID)
 
 
 def test_active_codex_capability_schema_matches_domain_fact_classes() -> None:
@@ -485,7 +462,7 @@ def test_active_codex_capability_schema_matches_domain_fact_classes() -> None:
 def test_creator_dialogue_request_prioritizes_exact_recent_turns_and_local_refs() -> (
     None
 ):
-    binding = load_purpose_binding("consider_creator_response")
+    binding = load_purpose_binding("consider_creator_input")
     source_id = "01980f7d-7b8f-7e2a-8a11-2ab8e1234570"
     items = (
         (
@@ -612,31 +589,13 @@ def test_creator_dialogue_request_prioritizes_exact_recent_turns_and_local_refs(
         )
     )
 
-    messages = request["messages"]
-    assert [message["role"] for message in messages] == [
-        "system",
-        "assistant",
-        "user",
-        "assistant",
-        "system",
-        "user",
-    ]
-    assert "我们曾经聊过雨声。" in messages[4]["content"]
-    assert "[ctx:5]" in messages[4]["content"]
-    assert "uncertainty" not in messages[4]["content"]
-    assert "links" not in messages[4]["content"]
-    assert "runtime_identity" not in messages[0]["content"]
-    assert "authorization status" not in messages[0]["content"]
-    assert "remaining uses" not in messages[0]["content"]
-    assert "回复由 Runtime 在模型外核对发送权限" in messages[4]["content"]
-    assert messages[1]["content"] == "这是缺少前置 Creator 原话的半轮回复。"
-    assert messages[2]["content"] == "窗外的光很好看。"
-    assert messages[3]["content"] == "我也想知道那片光落在哪里。"
-    assert messages[5]["content"] == "你想聊些什么?"
-    assert request["available_refs"] == ["ctx:5"]
-    assert request["prompt_version"] == "armi.dialogue-prompt.v4"
-    assert request["diagnostics"]["section_bytes"]["memories"] > 0
-    assert source_id not in json.dumps(request, ensure_ascii=False)
+    assert request["compiled_context"] == json.loads(compiled)
+    assert request["included_context_refs"] == refs
+    assert request["context_digest"] == Digest.from_bytes(compiled).value
+    assert request["candidate_base"]["subject_version"] == 9
+    assert request["output_contract"]["schema_version"] == (
+        "armi.creator-cognitive-act-candidate.v1"
+    )
 
 
 def test_other_human_dialogue_uses_the_same_compact_native_message_plan() -> None:
@@ -1303,10 +1262,12 @@ def test_manifest_rejects_a_second_binding_or_fixed_model(tmp_path: Path) -> Non
         load_active_binding(path)
 
 
-def test_branch_manifest_rejects_unsupported_dialogue_contract(tmp_path: Path) -> None:
+def test_creator_manifest_rejects_unsupported_cognitive_act_contract(
+    tmp_path: Path,
+) -> None:
     source = Path("configs/model-bindings.yaml")
     manifest = cast(dict[str, Any], load_yaml_file(source))
-    manifest["purpose_profiles"]["consider_creator_response"][
+    manifest["purpose_profiles"]["consider_creator_input"][
         "response_contract_version"
     ] = "armi.creator-dialogue-candidate.unsupported"
     path = tmp_path / "model-bindings.yaml"

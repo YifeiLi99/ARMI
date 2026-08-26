@@ -65,6 +65,7 @@ from armi_kernel.application import (
     WorkViolation,
 )
 from armi_kernel.contracts import ContractViolation, Digest, Instant, Purpose, SubjectId
+from armi_live_voice.api import LiveVoiceViolation, VoiceCognitionResultPort
 from armi_material.api import (
     CandidateLifeMaterialDraft,
     MaterialCognitionPort,
@@ -152,6 +153,7 @@ class SubjectCommitPipeline:
         "_stop",
         "_storage",
         "_subject_state_cognition",
+        "_voice_results",
         "_wakeups",
         "_work",
     )
@@ -193,6 +195,7 @@ class SubjectCommitPipeline:
         subject_state_commit: SubjectStateCommitPort,
         web_research_commit: WebResearchCommitPort,
         notifier: CreatorProjectionNotifier | None,
+        voice_results: VoiceCognitionResultPort | None = None,
         wakeups: WorkWakeupBus | None = None,
         diagnostic: Diagnostic | None = None,
         fault_injector: FaultInjector | None = None,
@@ -203,6 +206,7 @@ class SubjectCommitPipeline:
         self._catalog = catalog
         self._storage = storage
         self._notifier = notifier
+        self._voice_results = voice_results
         self._memory_cognition = memory_cognition
         self._mood_cognition = mood_cognition
         self._prompt_cognition = prompt_cognition
@@ -253,6 +257,8 @@ class SubjectCommitPipeline:
     async def commit_once(self) -> bool:
         snapshot: SubjectCommitSnapshot | None = None
         episode_id: UUID | None = None
+        has_reply = False
+        awaits_followup = False
         try:
             records = await self._work.claim(
                 work_kind=_WORK_KIND,
@@ -281,12 +287,14 @@ class SubjectCommitPipeline:
             )
             if len(replies) > 1:
                 raise SubjectCommitViolation("SUBJECT-RESPONSE-COUNT")
+            has_reply = bool(replies)
             published_reply = (
                 await self._publish_response(replies[0], snapshot) if replies else None
             )
             research_requests = change_set.web_research_requests
             if len(research_requests) > 1:
                 raise SubjectCommitViolation("SUBJECT-WEB-RESEARCH-COUNT")
+            awaits_followup = bool(research_requests or change_set.exact_life_queries)
             published_research = (
                 await self._publish_research(research_requests[0], snapshot)
                 if research_requests
@@ -400,6 +408,11 @@ class SubjectCommitPipeline:
                 )
             self._wake_downstream()
             await self._notify(snapshot, result)
+            await self._notify_voice(
+                snapshot,
+                has_reply=has_reply,
+                awaits_followup=awaits_followup,
+            )
             return True
         except SubjectCommitViolation as error:
             if error.code == "SUBJECT-WORK-STALE":
@@ -420,6 +433,11 @@ class SubjectCommitPipeline:
                 if recovered is not None:
                     self._wake_downstream()
                     await self._notify(snapshot, recovered)
+                    await self._notify_voice(
+                        snapshot,
+                        has_reply=has_reply,
+                        awaits_followup=awaits_followup,
+                    )
                     return True
                 self._diagnostic("subject_commit.commit.outcome_unknown")
                 return True
@@ -462,6 +480,24 @@ class SubjectCommitPipeline:
         self._wakeups.notify(OPPORTUNITY_AVAILABLE)
         self._wakeups.notify(EXACT_LIFE_QUERY)
         self._wakeups.notify(EFFECT_REGISTER)
+
+    async def _notify_voice(
+        self,
+        snapshot: SubjectCommitSnapshot,
+        *,
+        has_reply: bool,
+        awaits_followup: bool,
+    ) -> None:
+        if self._voice_results is None:
+            return
+        try:
+            await self._voice_results.committed(
+                root_opportunity_id=snapshot.root_opportunity_id,
+                has_reply=has_reply,
+                awaits_followup=awaits_followup,
+            )
+        except LiveVoiceViolation:
+            self._diagnostic("subject_commit.voice_result.failed")
 
     async def _snapshot(
         self, lease: WorkLease, episode_id: UUID
@@ -872,6 +908,7 @@ def build_subject_commit_pipeline(
     subject_state_commit: SubjectStateCommitPort,
     web_research_commit: WebResearchCommitPort,
     notifier: CreatorProjectionNotifier | None,
+    voice_results: VoiceCognitionResultPort | None = None,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Diagnostic | None = None,
     fault_injector: FaultInjector | None = None,
@@ -917,6 +954,7 @@ def build_subject_commit_pipeline(
         subject_state_commit=subject_state_commit,
         web_research_commit=web_research_commit,
         notifier=notifier,
+        voice_results=voice_results,
         wakeups=wakeups,
         diagnostic=diagnostic,
         fault_injector=fault_injector,

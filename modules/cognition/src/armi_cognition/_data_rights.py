@@ -31,11 +31,6 @@ _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
            FROM armi.cognitive_attempts AS source ORDER BY to_jsonb(source)::text""",
     ),
     (
-        "cognitive_branches",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.cognitive_branches AS source ORDER BY to_jsonb(source)::text""",
-    ),
-    (
         "cognitive_candidate_applications",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
            FROM armi.cognitive_candidate_applications AS source ORDER BY to_jsonb(source)::text""",
@@ -59,11 +54,6 @@ _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
         "cognitive_episodes",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
            FROM armi.cognitive_episodes AS source ORDER BY to_jsonb(source)::text""",
-    ),
-    (
-        "cognitive_dialogue_aggregates",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.cognitive_dialogue_aggregates AS source ORDER BY to_jsonb(source)::text""",
     ),
     (
         "cognition_maintenance_batch_sources",
@@ -167,17 +157,6 @@ class PostgreSQLCognitionDataRightsParticipant:
                      FROM armi.cognitive_attempts AS attempt JOIN armi.cognitive_episodes AS episode
                        ON episode.cognitive_episode_id = attempt.cognitive_episode_id
                      WHERE attempt.response_artifact_id IS NOT NULL
-                     UNION ALL SELECT attempt.late_response_artifact_id,
-                                      episode.context_party_id
-                     FROM armi.cognitive_attempts AS attempt
-                     JOIN armi.cognitive_episodes AS episode
-                       ON episode.cognitive_episode_id=attempt.cognitive_episode_id
-                     WHERE attempt.late_response_artifact_id IS NOT NULL
-                     UNION ALL SELECT aggregate.aggregate_artifact_id,
-                                      episode.context_party_id
-                     FROM armi.cognitive_dialogue_aggregates AS aggregate
-                     JOIN armi.cognitive_episodes AS episode
-                       ON episode.cognitive_episode_id=aggregate.cognitive_episode_id
                      UNION ALL SELECT validation.change_set_artifact_id, episode.context_party_id
                      FROM armi.cognitive_candidate_validations AS validation
                      JOIN armi.cognitive_episodes AS episode

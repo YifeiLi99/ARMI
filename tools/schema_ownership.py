@@ -105,13 +105,11 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     # Experience and cognition.
     "accepted_experiences": TableOwnership("experience"),
     "cognitive_attempts": TableOwnership("cognition"),
-    "cognitive_branches": TableOwnership("cognition"),
     "cognitive_candidate_applications": TableOwnership("cognition"),
     "cognitive_candidate_basis_links": TableOwnership("cognition"),
     "cognitive_candidate_validation_items": TableOwnership("cognition"),
     "cognitive_candidate_validations": TableOwnership("cognition"),
     "cognitive_episodes": TableOwnership("cognition"),
-    "cognitive_dialogue_aggregates": TableOwnership("cognition"),
     "cognition_maintenance_batch_sources": TableOwnership("cognition"),
     "cognition_maintenance_batches": TableOwnership("cognition"),
     "cognition_maintenance_cursors": TableOwnership("cognition"),

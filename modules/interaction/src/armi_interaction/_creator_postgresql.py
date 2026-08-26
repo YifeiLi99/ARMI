@@ -193,9 +193,17 @@ class CreatorInputRepository:
         )
         if evidence_id is None:
             raise CreatorInputViolation("DB-INPUT-STATE")
+        opportunity = await self._opportunity.find_external_evidence(
+            unit_of_work.transaction,
+            evidence_id=evidence_id.value,
+            purpose=OpportunityPurpose.CONSIDER_CREATOR_VOICE_INPUT,
+        )
+        if opportunity is None:
+            raise CreatorInputViolation("DB-INPUT-STATE")
         return CreatorVoiceInputAcceptance(
             CreatorInteractionId(row[0]),
             evidence_id,
+            OpportunityId(opportunity.value),
             Digest(str(row[1])),
             Digest(str(row[2])),
             False,
@@ -384,66 +392,26 @@ class CreatorInputRepository:
         )
         if boundary.rowcount != 1:
             raise CreatorInputViolation("SCOPE-SCENE-NOT-VISIBLE")
-        return CreatorVoiceInputAcceptance(
-            CreatorInteractionId(interaction_id),
-            EvidenceId(evidence_id),
-            request_digest,
-            content_digest,
-            True,
-        )
-
-    async def admit_voice_slow(
-        self,
-        unit_of_work: PostgreSQLRuntimeUnitOfWork,
-        acceptance: CreatorVoiceInputAcceptance,
-    ) -> OpportunityId:
-        return await self._admit_voice_successor(
-            unit_of_work,
-            acceptance,
-            purpose=OpportunityPurpose.CONSIDER_CREATOR_INPUT,
-        )
-
-    async def admit_voice_appraisal(
-        self,
-        unit_of_work: PostgreSQLRuntimeUnitOfWork,
-        acceptance: CreatorVoiceInputAcceptance,
-    ) -> OpportunityId:
-        return await self._admit_voice_successor(
-            unit_of_work,
-            acceptance,
-            purpose=OpportunityPurpose.CONSIDER_CREATOR_VOICE_APPRAISAL,
-        )
-
-    async def _admit_voice_successor(
-        self,
-        unit_of_work: PostgreSQLRuntimeUnitOfWork,
-        acceptance: CreatorVoiceInputAcceptance,
-        *,
-        purpose: OpportunityPurpose,
-    ) -> OpportunityId:
-        row = await (
-            await unit_of_work.transaction.execute(
-                """SELECT subject_id,scene_id,source_party_id
-                   FROM armi.party_input_interactions
-                   WHERE interaction_id=%s AND modality='live_voice'""",
-                (acceptance.interaction_id.value,),
-            )
-        ).fetchone()
-        if row is None:
-            raise CreatorInputViolation("DB-INPUT-STATE")
         admitted = await self._opportunity.admit_external_evidence(
-            unit_of_work.transaction,
+            connection,
             ExternalEvidenceOpportunityDraft(
-                evidence_id=acceptance.evidence_id.value,
-                subject_id=row[0],
-                scene_id=row[1],
-                context_party_id=row[2],
-                purpose=purpose,
+                evidence_id=evidence_id,
+                subject_id=context.subject_id,
+                scene_id=context.scene_id,
+                context_party_id=context.creator_party_id,
+                purpose=OpportunityPurpose.CONSIDER_CREATOR_VOICE_INPUT,
             ),
         )
         if admitted.opportunity_id is None:
             raise CreatorInputViolation("DB-INPUT-STATE")
-        return OpportunityId(admitted.opportunity_id)
+        return CreatorVoiceInputAcceptance(
+            CreatorInteractionId(interaction_id),
+            EvidenceId(evidence_id),
+            OpportunityId(admitted.opportunity_id),
+            request_digest,
+            content_digest,
+            True,
+        )
 
     async def find_codex_task_input(
         self,

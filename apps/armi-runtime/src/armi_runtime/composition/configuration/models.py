@@ -176,13 +176,10 @@ class VoiceConfig(_FrozenModel):
     frame_duration_ms: Literal[20] = 20
     queue_max_frames: Annotated[int, Field(ge=10, le=500)] = 100
     asr_resource_id: str = "volc.bigasr.sauc.duration"
-    llm_model: str = "doubao-seed-character-260628"
     tts_resource_id: str = "seed-tts-2.0"
     tts_voice_type: str = "zh_female_vv_uranus_bigtts"
 
-    @field_validator(
-        "asr_resource_id", "llm_model", "tts_resource_id", "tts_voice_type"
-    )
+    @field_validator("asr_resource_id", "tts_resource_id", "tts_voice_type")
     @classmethod
     def validate_provider_identity(cls, value: str) -> str:
         normalized = value.strip()

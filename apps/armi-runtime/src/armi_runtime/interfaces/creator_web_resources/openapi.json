@@ -4551,7 +4551,6 @@
                   "recognizing",
                   "thinking",
                   "speaking",
-                  "waiting_slow",
                   "completed",
                   "failed",
                   "partial",
@@ -4575,7 +4574,6 @@
               "recognizing",
               "thinking",
               "speaking",
-              "waiting_slow",
               "unavailable"
             ],
             "title": "State",

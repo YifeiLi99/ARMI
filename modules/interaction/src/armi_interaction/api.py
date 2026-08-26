@@ -34,7 +34,6 @@ from ._creator_contract import (
     CreatorVoiceInputAcceptance,
     CreatorVoiceInputAcceptancePort,
     CreatorVoiceInputCommand,
-    CreatorVoiceInputSuccessorPort,
     OpportunityId,
 )
 from ._external_contract import (
@@ -452,7 +451,6 @@ class InteractionBirthContinuity:
 class CreatorInteractionPort(
     CreatorInputAcceptancePort,
     CreatorVoiceInputAcceptancePort,
-    CreatorVoiceInputSuccessorPort,
     Protocol,
 ): ...
 
@@ -749,7 +747,6 @@ __all__ = (
     "CreatorVoiceInputAcceptance",
     "CreatorVoiceInputAcceptancePort",
     "CreatorVoiceInputCommand",
-    "CreatorVoiceInputSuccessorPort",
     "ExternalAccountKey",
     "ExternalChannel",
     "ExternalContentPartSnapshot",
