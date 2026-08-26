@@ -37,7 +37,7 @@ def _config(root: Path) -> AdminConfig:
     (environment / "environment.yaml").write_text("fixture: true\n", encoding="utf-8")
     return AdminConfig.model_validate(
         {
-            "schema_version": "armi.admin-config.v4",
+            "schema_version": "armi.admin-config.v5",
             "environment_kind": "system_test",
             "environment_id": ENVIRONMENT_ID,
             "environment_incarnation": 3,
@@ -51,7 +51,7 @@ def _config(root: Path) -> AdminConfig:
             "migrator_database_locator": "env:ARMI_SECRET_MIGRATOR_DATABASE",
             "preview_key_locator": "env:ARMI_SECRET_ADMIN_PREVIEW_KEY",
             "expected": {
-                "package_digest": DIGEST,
+                "package_set_digest": DIGEST,
             },
         }
     )

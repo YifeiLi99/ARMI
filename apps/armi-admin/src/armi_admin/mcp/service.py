@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
+import stat
 from datetime import UTC, datetime
 from typing import Any, Literal, cast
 from uuid import uuid7
@@ -28,7 +30,6 @@ from .contracts import (
     AdminIdentity,
     AdminMutationRequest,
     AdminToolResult,
-    AdvanceTestClockRequest,
     ApplyCorrectionRequest,
     ArmFaultRequest,
     CorrectionStatusRequest,
@@ -41,7 +42,6 @@ from .contracts import (
     InspectScopeRequest,
     ObservationRequest,
     PreviewCorrectionRequest,
-    RunTestRequest,
     RuntimeControlRequest,
     SchemaStatusPayload,
     SchemaStatusRequest,
@@ -52,7 +52,8 @@ from .contracts import (
     TraceFlowRequest,
 )
 
-_EXPECTED_POSTGRESQL = 180004
+_DIAGNOSTIC_TOTAL_BYTES = 2 * 1024 * 1024
+_DIAGNOSTIC_LINE_BYTES = 64 * 1024
 ObservationToolName = Literal[
     "correction_status",
     "inspect_scope",
@@ -62,7 +63,6 @@ ObservationToolName = Literal[
     "trace_flow",
 ]
 MutationToolName = Literal[
-    "advance_test_clock",
     "apply_correction",
     "arm_fault",
     "clear_faults",
@@ -71,23 +71,12 @@ MutationToolName = Literal[
     "environment_reset_preview",
     "inject_creator_input",
     "preview_correction",
-    "run_test",
     "runtime_drain",
     "runtime_restart",
     "runtime_start",
     "runtime_stop",
     "settle_correction_work",
 ]
-_REQUIRED_SCHEMA_TABLES = frozenset(
-    {
-        "activities",
-        "party_input_interactions",
-        "deployment_environments",
-        "maintenance_sessions",
-        "runtime_instances",
-        "subjects",
-    }
-)
 
 
 def _sha256(value: bytes) -> str:
@@ -136,6 +125,14 @@ class AdminToolService:
     def health(self, request: HealthRequest) -> HealthResult:
         del request
         started = datetime.now(UTC)
+        if self._requires_reload:
+            return self._health_result(
+                started,
+                status="rejected",
+                payload_status="misconfigured",
+                role_status="rejected",
+                code="ADMIN-CONFIG-RELOAD-REQUIRED",
+            )
         try:
             snapshot = self._read_snapshot()
             self._validate_database_identity(snapshot)
@@ -176,6 +173,15 @@ class AdminToolService:
 
     def schema_status(self, request: SchemaStatusRequest) -> SchemaStatusResult:
         started = datetime.now(UTC)
+        if self._requires_reload:
+            return self._schema_result(
+                started,
+                outer_status="rejected",
+                status="unavailable",
+                table_count=0,
+                missing_tables=(),
+                code="ADMIN-CONFIG-RELOAD-REQUIRED",
+            )
         if request.environment_id != self._config.environment_id:
             return self._schema_result(
                 started,
@@ -212,6 +218,10 @@ class AdminToolService:
         self, name: ObservationToolName, request: ObservationRequest
     ) -> AdminToolResult[dict[str, Any]]:
         started = datetime.now(UTC)
+        if self._requires_reload:
+            return self._tool_failure(
+                started, "conflict", "ADMIN-CONFIG-RELOAD-REQUIRED"
+            )
         if request.environment_id != self._config.environment_id:
             return self._tool_failure(started, "rejected", "ADMIN-ENVIRONMENT-MISMATCH")
         try:
@@ -220,7 +230,11 @@ class AdminToolService:
                 result = self._corrections.status(str(typed.preview_token))
             elif name == "tail_diagnostics":
                 typed_tail = cast(TailDiagnosticsRequest, request)
-                result = self._tail_diagnostics(int(typed_tail.limit))
+                result = self._tail_diagnostics(
+                    runtime_instance_id=typed_tail.runtime_instance_id,
+                    limit=int(typed_tail.limit),
+                    cursor=typed_tail.cursor,
+                )
             else:
                 gateway = self._observation
                 if name == "runtime_status":
@@ -242,14 +256,20 @@ class AdminToolService:
                         )
                         if (value := getattr(typed_trace, key)) is not None
                     )
-                    result = gateway.trace_flow(selector)
+                    result = gateway.trace_flow(
+                        selector,
+                        limit=int(typed_trace.limit),
+                        cursor=typed_trace.cursor,
+                    )
                 elif name == "inspect_scope":
                     typed_scope = cast(InspectScopeRequest, request)
                     result = gateway.inspect_scope(
                         str(typed_scope.kind),
                         tuple(typed_scope.object_ids),
+                        relations=tuple(typed_scope.relations),
+                        limit=int(typed_scope.limit),
+                        cursor=typed_scope.cursor,
                     )
-                    result["relations"] = list(typed_scope.relations)
             return self._tool_success(started, result)
         except AdminCorrectionError as exc:
             return self._correction_failure(started, exc.code)
@@ -323,12 +343,6 @@ class AdminToolService:
                         "idempotency_key": str(typed_input.idempotency_key),
                     },
                 )
-            elif name == "advance_test_clock":
-                typed_clock = cast(AdvanceTestClockRequest, request)
-                self._require_test_controls()
-                result = self._control.send_control(
-                    "clock", {"seconds": int(typed_clock.seconds)}
-                )
             elif name == "arm_fault":
                 typed_fault = cast(ArmFaultRequest, request)
                 self._require_test_controls()
@@ -343,10 +357,6 @@ class AdminToolService:
             elif name == "clear_faults":
                 self._require_test_controls()
                 result = self._control.send_control("fault", {"action": "clear"})
-            elif name == "run_test":
-                typed_test = cast(RunTestRequest, request)
-                self._require_test_controls()
-                result = self._run_test(str(typed_test.scenario))
             elif name == "preview_correction":
                 typed_preview = cast(PreviewCorrectionRequest, request)
                 result = self._corrections.preview(
@@ -448,38 +458,141 @@ class AdminToolService:
         }
         gateway.register_environment(values)
 
-    def _tail_diagnostics(self, limit: int) -> dict[str, Any]:
+    def _tail_diagnostics(
+        self,
+        *,
+        runtime_instance_id: str,
+        limit: int,
+        cursor: str | None,
+    ) -> dict[str, Any]:
         log_root = self._config.environment_root / "data" / "logs"
         if not log_root.is_dir() or log_root.is_symlink():
-            return {"events": [], "truncated": False}
+            return {"events": [], "truncated": False, "cursor": None}
+        query_digest = hashlib.sha256(runtime_instance_id.encode("ascii")).hexdigest()
+        offset = self._diagnostic_cursor_offset(cursor, query_digest)
         events: list[dict[str, Any]] = []
-        allowed = {"timestamp", "level", "event", "code", "status", "reason_code"}
-        for path in sorted(log_root.glob("*.jsonl"), reverse=True):
-            if path.is_symlink() or not path.is_file():
+        allowed = {
+            "duration_ms",
+            "event",
+            "instance_id",
+            "level",
+            "reason_codes",
+            "result_code",
+            "sequence",
+            "service",
+            "timestamp",
+        }
+        total_bytes = 0
+        prefix = f"runtime-{runtime_instance_id}"
+        paths = sorted(
+            (
+                path
+                for path in log_root.iterdir()
+                if path.name == f"{prefix}.jsonl"
+                or (path.name.startswith(f"{prefix}.") and path.name.endswith(".jsonl"))
+            ),
+            key=lambda path: path.stat().st_mtime_ns,
+            reverse=True,
+        )
+        all_events: list[dict[str, Any]] = []
+        budget_exhausted = False
+        for path in paths:
+            before = path.lstat()
+            if (
+                not stat.S_ISREG(before.st_mode)
+                or path.is_symlink()
+                or before.st_nlink != 1
+                or getattr(before, "st_file_attributes", 0) & 0x400
+            ):
                 continue
-            for line in reversed(path.read_text(encoding="utf-8").splitlines()):
-                try:
-                    value = json.loads(line)
-                except json.JSONDecodeError:
+            remaining = _DIAGNOSTIC_TOTAL_BYTES - total_bytes
+            if remaining <= 0:
+                budget_exhausted = True
+                break
+            read_bytes = min(before.st_size, remaining)
+            with path.open("rb") as stream:
+                stream.seek(max(0, before.st_size - read_bytes))
+                data = stream.read(read_bytes)
+            after = path.lstat()
+            if (
+                before.st_dev,
+                before.st_ino,
+                before.st_size,
+                before.st_mtime_ns,
+            ) != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns):
+                raise RuntimeError("ADMIN-DIAGNOSTIC-FILE-RACE")
+            total_bytes += len(data)
+            lines = data.splitlines()
+            if read_bytes < before.st_size and lines:
+                lines = lines[1:]
+                budget_exhausted = True
+            for raw_line in reversed(lines):
+                if len(raw_line) > _DIAGNOSTIC_LINE_BYTES:
+                    budget_exhausted = True
                     continue
-                if isinstance(value, dict):
-                    events.append({key: value[key] for key in allowed if key in value})
-                if len(events) >= limit:
-                    return {"events": events, "truncated": True}
-        return {"events": events, "truncated": False}
+                try:
+                    value = json.loads(raw_line.decode("utf-8"))
+                except UnicodeDecodeError, json.JSONDecodeError:
+                    continue
+                if (
+                    isinstance(value, dict)
+                    and cast(dict[str, object], value).get("instance_id")
+                    == runtime_instance_id
+                    and isinstance(cast(dict[str, object], value).get("sequence"), int)
+                ):
+                    typed_value = cast(dict[str, object], value)
+                    all_events.append(
+                        {
+                            key: typed_value[key]
+                            for key in sorted(allowed)
+                            if key in typed_value
+                        }
+                    )
+        events = all_events[offset : offset + limit]
+        next_offset = offset + len(events)
+        truncated = next_offset < len(all_events) or budget_exhausted
+        return {
+            "events": events,
+            "truncated": truncated,
+            "cursor": self._diagnostic_cursor(query_digest, next_offset)
+            if truncated and events
+            else None,
+            "bytes_examined": total_bytes,
+        }
+
+    @staticmethod
+    def _diagnostic_cursor(query_digest: str, offset: int) -> str:
+        payload = json.dumps(
+            {"offset": offset, "query": query_digest},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+
+    @staticmethod
+    def _diagnostic_cursor_offset(cursor: str | None, query_digest: str) -> int:
+        if cursor is None:
+            return 0
+        try:
+            payload = json.loads(
+                base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)).decode(
+                    "utf-8"
+                )
+            )
+        except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("ADMIN-DIAGNOSTIC-CURSOR") from exc
+        if (
+            not isinstance(payload, dict)
+            or cast(dict[str, object], payload).get("query") != query_digest
+            or not isinstance(cast(dict[str, object], payload).get("offset"), int)
+            or cast(int, cast(dict[str, object], payload)["offset"]) < 0
+        ):
+            raise ValueError("ADMIN-DIAGNOSTIC-CURSOR")
+        return cast(int, cast(dict[str, object], payload)["offset"])
 
     def _require_test_controls(self) -> None:
         if not self._config.test_controls_enabled:
             raise AdminControlError("ADMIN-TEST-CONTROLS-DISABLED")
-
-    def _run_test(self, scenario: str) -> dict[str, Any]:
-        if scenario == "admin.runtime-lifecycle.v1":
-            return self._control.send_control("status", {})
-        if scenario == "admin.fault-control.v1":
-            return self._control.send_control("fault", {"action": "status"})
-        if scenario == "admin.observation-isolation.v1":
-            return self._observation.subject_snapshot(private=False)
-        return {"scenario": scenario, "status": "ready_for_formal_input"}
 
     def _tool_success(
         self, started: datetime, result: dict[str, Any]
@@ -516,20 +629,25 @@ class AdminToolService:
 
     @staticmethod
     def _validate_database_identity(snapshot: AdminSchemaSnapshot) -> None:
-        if snapshot.server_version_num != _EXPECTED_POSTGRESQL:
-            raise ValueError("ADMIN-DB-PG-VERSION")
-        if snapshot.encoding != "UTF8" or snapshot.timezone != "UTC":
+        if (
+            snapshot.server_version_num != 180004
+            or snapshot.encoding != "UTF8"
+            or snapshot.timezone != "UTC"
+            or snapshot.revision != "0000"
+            or snapshot.baseline_identity != "armi.schema-baseline.v7"
+        ):
             raise ValueError("ADMIN-DB-IDENTITY")
 
     def _classify_schema(self, snapshot: AdminSchemaSnapshot) -> SchemaStatusPayload:
-        missing = tuple(sorted(_REQUIRED_SCHEMA_TABLES - set(snapshot.tables)))
-        status: Literal["current", "dirty"] = "dirty" if missing else "current"
         return SchemaStatusPayload(
-            status=status,
+            status="current",
             environment_id=self._config.environment_id,
             table_count=len(snapshot.tables),
-            missing_tables=missing,
-            error_code="ADMIN-SCHEMA-DIRTY" if missing else None,
+            revision=snapshot.revision,
+            baseline_identity=snapshot.baseline_identity,
+            resource_digest=snapshot.resource_digest,
+            catalog_digest=snapshot.catalog_digest,
+            role_policy_digest=snapshot.role_policy_digest,
         )
 
     def _health_result(

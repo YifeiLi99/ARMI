@@ -8,15 +8,30 @@ from uuid import UUID
 
 from armi_runtime_foundation import PostgreSQLAdminTransaction
 
+from ._domain import validate_state
 from .api import (
     SubjectStateAdminComponent,
     SubjectStateCorrectionHead,
     SubjectStateKind,
+    SubjectStateViolation,
 )
 
 
 class PostgreSQLSubjectStateAdmin:
     __slots__ = ()
+
+    def canonicalize_replacement(
+        self, *, kind: str, replacement: object
+    ) -> dict[str, object]:
+        try:
+            parsed_kind = SubjectStateKind(kind)
+            if type(replacement) is not dict:
+                raise ValueError
+            value = cast(dict[str, object], replacement)
+            validate_state(parsed_kind, value)
+            return cast(dict[str, object], json.loads(json.dumps(value)))
+        except TypeError, ValueError:
+            raise SubjectStateViolation("SUBJECT-STATE-CORRECTION") from None
 
     def current_components(
         self, transaction: PostgreSQLAdminTransaction, *, private: bool
@@ -100,6 +115,7 @@ class PostgreSQLSubjectStateAdmin:
         previous_revision_id: str,
         replacement: object,
     ) -> bool:
+        replacement = self.canonicalize_replacement(kind=kind, replacement=replacement)
         transaction.execute(
             "INSERT INTO armi.subject_component_revisions (component_revision_id,subject_id,"
             "component_kind,component_version,previous_revision_id,origin_kind,origin_ref,"

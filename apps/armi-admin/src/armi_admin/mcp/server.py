@@ -11,7 +11,6 @@ from mcp.types import ToolAnnotations
 
 from .contracts import (
     AdminToolResult,
-    AdvanceTestClockRequest,
     ApplyCorrectionRequest,
     ArmFaultRequest,
     ClearFaultsRequest,
@@ -24,7 +23,6 @@ from .contracts import (
     InjectCreatorInputRequest,
     InspectScopeRequest,
     PreviewCorrectionRequest,
-    RunTestRequest,
     RuntimeControlRequest,
     RuntimeStatusRequest,
     SchemaStatusRequest,
@@ -233,17 +231,6 @@ def create_admin_server(service: AdminToolService) -> MCPServer:
         return service.mutate("inject_creator_input", request)
 
     @server.tool(
-        name="advance_test_clock",
-        description="Advance only the injected scheduling clock.",
-        annotations=CONTROL_ANNOTATIONS,
-        structured_output=True,
-    )
-    def advance_test_clock(
-        request: AdvanceTestClockRequest,
-    ) -> AdminToolResult[dict[str, Any]]:  # pyright: ignore[reportUnusedFunction]
-        return service.mutate("advance_test_clock", request)
-
-    @server.tool(
         name="arm_fault",
         description="Arm one allowlisted one-shot Runtime fault.",
         annotations=CONTROL_ANNOTATIONS,
@@ -260,15 +247,6 @@ def create_admin_server(service: AdminToolService) -> MCPServer:
     )
     def clear_faults(request: ClearFaultsRequest) -> AdminToolResult[dict[str, Any]]:  # pyright: ignore[reportUnusedFunction]
         return service.mutate("clear_faults", request)
-
-    @server.tool(
-        name="run_test",
-        description="Run one static registered conformance scenario.",
-        annotations=CONTROL_ANNOTATIONS,
-        structured_output=True,
-    )
-    def run_test(request: RunTestRequest) -> AdminToolResult[dict[str, Any]]:  # pyright: ignore[reportUnusedFunction]
-        return service.mutate("run_test", request)
 
     @server.tool(
         name="preview_correction",

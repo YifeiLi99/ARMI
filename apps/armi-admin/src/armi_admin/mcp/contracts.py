@@ -26,11 +26,11 @@ class _StrictModel(BaseModel):
 
 
 class HealthRequest(_StrictModel):
-    contract_version: Literal["1.0"] = "1.0"
+    contract_version: Literal["2.0"] = "2.0"
 
 
 class EnvironmentRequest(_StrictModel):
-    contract_version: Literal["1.0"] = "1.0"
+    contract_version: Literal["2.0"] = "2.0"
     environment_id: str
 
     _environment_id = field_validator("environment_id")(_uuid7)
@@ -53,6 +53,8 @@ class TraceFlowRequest(EnvironmentRequest):
     episode_id: str | None = None
     effect_id: str | None = None
     trace_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
+    limit: int = Field(default=100, ge=1, le=200)
+    cursor: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{8,512}$")
 
     @model_validator(mode="after")
     def _exact_selector(self) -> Self:
@@ -73,6 +75,8 @@ class InspectScopeRequest(EnvironmentRequest):
     relations: tuple[
         Literal["direct_dependencies", "direct_dependents", "current_owner"], ...
     ] = Field(default=(), max_length=3)
+    limit: int = Field(default=100, ge=1, le=200)
+    cursor: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{8,512}$")
 
     @field_validator("object_ids")
     @classmethod
@@ -86,6 +90,10 @@ class InspectScopeRequest(EnvironmentRequest):
 
 class TailDiagnosticsRequest(EnvironmentRequest):
     limit: int = Field(default=50, ge=1, le=200)
+    runtime_instance_id: str
+    cursor: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{8,512}$")
+
+    _runtime_instance_id = field_validator("runtime_instance_id")(_uuid7)
 
 
 class MutationRequest(EnvironmentRequest):
@@ -133,10 +141,6 @@ class InjectCreatorInputRequest(MutationRequest):
         return value
 
 
-class AdvanceTestClockRequest(MutationRequest):
-    seconds: int = Field(ge=1, le=3600)
-
-
 class ArmFaultRequest(MutationRequest):
     fault: Literal[
         "artifact_after_publish_before_commit",
@@ -151,121 +155,11 @@ class ClearFaultsRequest(MutationRequest):
     pass
 
 
-class RunTestRequest(MutationRequest):
-    scenario: Literal[
-        "admin.observation-isolation.v1",
-        "admin.runtime-lifecycle.v1",
-        "admin.creator-input-intake.v1",
-        "admin.fault-control.v1",
-    ]
-
-
-class _ComponentState(_StrictModel):
-    pass
-
-
-class SelfState(_ComponentState):
-    schema_version: Literal["armi.self.v1"]
-    identity_kind: Literal["electronic_person"]
-    creator_role_awareness: Literal["unique_primary_creator"]
-    name: str | None = Field(default=None, max_length=256)
-    self_description: str | None = Field(default=None, max_length=4096)
-    interests: tuple[str, ...] = Field(max_length=32)
-    values: tuple[str, ...] = Field(max_length=32)
-    preferences: tuple[str, ...] = Field(max_length=32)
-    goals: tuple[str, ...] = Field(max_length=32)
-    self_narrative: str | None = Field(default=None, max_length=4096)
-    tensions: tuple[str, ...] = Field(max_length=32)
-
-    @field_validator(
-        "name",
-        "self_description",
-        "self_narrative",
-    )
-    @classmethod
-    def _optional_text(cls, value: str | None) -> str | None:
-        if value is not None and ("\x00" in value or not value.strip()):
-            raise ValueError("ADMIN-CORRECTION-COMPONENT-PAYLOAD")
-        return value
-
-    @field_validator("interests", "values", "preferences", "goals", "tensions")
-    @classmethod
-    def _text_list(cls, values: tuple[str, ...]) -> tuple[str, ...]:
-        if any(
-            "\x00" in value or not value.strip() or len(value) > 1024
-            for value in values
-        ):
-            raise ValueError("ADMIN-CORRECTION-COMPONENT-PAYLOAD")
-        return values
-
-
-class MindState(_ComponentState):
-    schema_version: Literal["armi.mind.v2"]
-    understanding: tuple[str, ...] = Field(max_length=32)
-    attention: tuple[str, ...] = Field(max_length=32)
-    thoughts: tuple[str, ...] = Field(max_length=32)
-    wishes: tuple[str, ...] = Field(max_length=32)
-    motivations: tuple[str, ...] = Field(max_length=32)
-
-    @field_validator(
-        "understanding",
-        "attention",
-        "thoughts",
-        "wishes",
-        "motivations",
-    )
-    @classmethod
-    def _text_list(cls, values: tuple[str, ...]) -> tuple[str, ...]:
-        if any(
-            "\x00" in value or not value.strip() or len(value) > 1024
-            for value in values
-        ):
-            raise ValueError("ADMIN-CORRECTION-COMPONENT-PAYLOAD")
-        return values
-
-
-class MoodVAD(_StrictModel):
-    valence: int = Field(ge=-100, le=100)
-    arousal: int = Field(ge=-100, le=100)
-    dominance: int = Field(ge=-100, le=100)
-
-
-class MoodState(_ComponentState):
-    schema_version: Literal["armi.mood.v3"]
-    dynamics_version: Literal["recency-reappraisal.v1"]
-    derivation_version: Literal["cpm-fuzzy.v1", "cpm-fuzzy.v2"]
-    home_base: MoodVAD
-
-
-class LifeModeState(_ComponentState):
-    schema_version: Literal["armi.life-mode.v1"]
-    mode: Literal["awake"]
-    active_activities: tuple[str, ...] = Field(default=(), max_length=1)
-
-
-ComponentState = Annotated[
-    SelfState | MindState | MoodState | LifeModeState,
-    Field(discriminator="schema_version"),
-]
-
-
 class ReplaceSubjectComponentSpec(_StrictModel):
     correction_kind: Literal["replace_subject_component"]
     component_kind: Literal["self", "mind", "mood", "life_mode"]
     expected_component_version: int = Field(ge=1)
-    replacement: ComponentState
-
-    @model_validator(mode="after")
-    def _matching_component(self) -> Self:
-        expected = {
-            "self": "armi.self.v1",
-            "mind": "armi.mind.v2",
-            "mood": "armi.mood.v3",
-            "life_mode": "armi.life-mode.v1",
-        }[self.component_kind]
-        if self.replacement.schema_version != expected:
-            raise ValueError("ADMIN-CORRECTION-COMPONENT-KIND")
-        return self
+    replacement: dict[str, object]
 
 
 class RepairSubjectComponentHeadSpec(_StrictModel):
@@ -392,11 +286,16 @@ class SchemaStatusPayload(_StrictModel):
     environment_id: str
     table_count: int
     missing_tables: tuple[str, ...] = ()
+    revision: str | None = None
+    baseline_identity: str | None = None
+    resource_digest: str | None = None
+    catalog_digest: str | None = None
+    role_policy_digest: str | None = None
     error_code: str | None = None
 
 
 class AdminToolResult[PayloadT](_StrictModel):
-    contract_version: Literal["1.0"] = "1.0"
+    contract_version: Literal["2.0"] = "2.0"
     operation_id: str
     status: Literal["succeeded", "rejected", "conflict", "failed", "unknown"]
     result: PayloadT | None = None
@@ -422,10 +321,8 @@ AdminMutationRequest = (
     | EnvironmentResetRequest
     | RuntimeControlRequest
     | InjectCreatorInputRequest
-    | AdvanceTestClockRequest
     | ArmFaultRequest
     | ClearFaultsRequest
-    | RunTestRequest
     | PreviewCorrectionRequest
     | ApplyCorrectionRequest
     | SettleCorrectionWorkRequest
@@ -436,11 +333,9 @@ __all__ = (
     "AdminIdentity",
     "AdminMutationRequest",
     "AdminToolResult",
-    "AdvanceTestClockRequest",
     "ApplyCorrectionRequest",
     "ArmFaultRequest",
     "ClearFaultsRequest",
-    "ComponentState",
     "CorrectionSpec",
     "CorrectionStatusRequest",
     "DeleteUncommittedCreatorInputSpec",
@@ -460,7 +355,6 @@ __all__ = (
     "RepairSubjectComponentHeadSpec",
     "ReplaceSubjectComponentSpec",
     "RequeueStuckWorkSpec",
-    "RunTestRequest",
     "RuntimeControlRequest",
     "RuntimeStatusRequest",
     "SchemaStatusPayload",

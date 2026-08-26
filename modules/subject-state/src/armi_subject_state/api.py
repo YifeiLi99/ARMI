@@ -206,9 +206,19 @@ class SubjectStateCommitPort(Protocol):
 
 @runtime_checkable
 class SubjectStateBirthPort(Protocol):
+    def continuity(
+        self, transaction: PostgreSQLAdminTransaction, *, subject_id: UUID | None
+    ) -> SubjectStateBirthContinuity: ...
+
     async def initialize(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID
     ) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class SubjectStateBirthContinuity:
+    head_count: int
+    revision_count: int
 
 
 @runtime_checkable
@@ -220,6 +230,10 @@ class SubjectStateAdminReadPort(Protocol):
 
 @runtime_checkable
 class SubjectStateAdminCorrectionPort(Protocol):
+    def canonicalize_replacement(
+        self, *, kind: str, replacement: object
+    ) -> dict[str, object]: ...
+
     def current_head(
         self,
         transaction: PostgreSQLAdminTransaction,
@@ -274,6 +288,7 @@ __all__ = (
     "SubjectStateAdminComponent",
     "SubjectStateAdminCorrectionPort",
     "SubjectStateAdminReadPort",
+    "SubjectStateBirthContinuity",
     "SubjectStateBirthPort",
     "SubjectStateCognitionPort",
     "SubjectStateCommitPort",

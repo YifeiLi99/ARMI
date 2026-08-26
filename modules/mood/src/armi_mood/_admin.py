@@ -15,6 +15,16 @@ from .api import MoodAdminComponent, MoodCorrectionHead, MoodViolation
 class PostgreSQLMoodAdmin:
     __slots__ = ()
 
+    def canonicalize_replacement(
+        self, *, kind: str, replacement: object
+    ) -> dict[str, object]:
+        self._require_kind(kind)
+        if type(replacement) is not dict:
+            raise MoodViolation("MOOD-STATE")
+        value = cast(dict[str, object], replacement)
+        validate_state(value)
+        return cast(dict[str, object], json.loads(json.dumps(value)))
+
     def current_component(
         self, transaction: PostgreSQLAdminTransaction, *, private: bool
     ) -> MoodAdminComponent | None:
@@ -89,10 +99,7 @@ class PostgreSQLMoodAdmin:
         previous_revision_id: str,
         replacement: object,
     ) -> bool:
-        self._require_kind(kind)
-        if type(replacement) is not dict:
-            raise MoodViolation("MOOD-STATE")
-        validate_state(cast(dict[str, object], replacement))
+        replacement = self.canonicalize_replacement(kind=kind, replacement=replacement)
         transaction.execute(
             "INSERT INTO armi.mood_revisions (mood_revision_id,subject_id,mood_version,"
             "previous_revision_id,origin_kind,origin_ref,subject_commit_id,proposal_ref,"

@@ -168,11 +168,16 @@ class AdminCorrectionCoordinator:
 
     def _owned_spec(self, spec: dict[str, Any], *, purpose: str) -> dict[str, Any]:
         del purpose
-        return {
-            **spec,
-            "operator_purpose": "admin.correction",
-            "operator_identity": self._control.management_session_id,
-        }
+        try:
+            return self._gateway.canonicalize_spec(
+                {
+                    **spec,
+                    "operator_purpose": "admin.correction",
+                    "operator_identity": self._control.management_session_id,
+                }
+            )
+        except AdminCorrectionGatewayError as exc:
+            raise AdminCorrectionError(exc.code) from None
 
     def status(self, token: str) -> dict[str, Any]:
         payload = self._decode(token)

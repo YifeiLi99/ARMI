@@ -12,13 +12,13 @@
     "AdminExpectedIdentity": {
       "additionalProperties": false,
       "properties": {
-        "package_digest": {
-          "title": "Package Digest",
+        "package_set_digest": {
+          "title": "Package Set Digest",
           "type": "string"
         }
       },
       "required": [
-        "package_digest"
+        "package_set_digest"
       ],
       "title": "AdminExpectedIdentity",
       "type": "object"
@@ -108,7 +108,7 @@
       "type": "boolean"
     },
     "schema_version": {
-      "const": "armi.admin-config.v4",
+      "const": "armi.admin-config.v5",
       "title": "Schema Version",
       "type": "string"
     },

@@ -7,7 +7,6 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 from typing import cast
 from unittest.mock import patch
@@ -19,7 +18,6 @@ from armi_admin.application import (
     AdminCredentialPort,
 )
 from armi_admin.mcp.contracts import (
-    ApplyCorrectionRequest,
     CorrectionStatusRequest,
     EnvironmentInitializeRequest,
     HealthRequest,
@@ -38,7 +36,6 @@ from armi_admin.persistence import (
 )
 from armi_admin.persistence.role_session import AdminRoleBoundPool
 from mcp.client import Client
-from mcp.client.stdio import StdioServerParameters, stdio_client
 
 ENVIRONMENT_ID = "018f3f4a-7b8c-7def-8abc-1234567890ab"
 DIGEST = "sha256:" + "1" * 64
@@ -48,7 +45,7 @@ def _config() -> AdminConfig:
     root = Path.cwd().resolve()
     return AdminConfig.model_validate(
         {
-            "schema_version": "armi.admin-config.v4",
+            "schema_version": "armi.admin-config.v5",
             "environment_kind": "system_test",
             "environment_id": ENVIRONMENT_ID,
             "environment_incarnation": 1,
@@ -63,7 +60,7 @@ def _config() -> AdminConfig:
             "migrator_database_locator": "env:ARMI_SECRET_MIGRATOR_DATABASE",
             "preview_key_locator": "env:ARMI_SECRET_ADMIN_PREVIEW_KEY",
             "expected": {
-                "package_digest": DIGEST,
+                "package_set_digest": DIGEST,
             },
         }
     )
@@ -104,18 +101,12 @@ def _current_snapshot() -> AdminSchemaSnapshot:
             "runtime_instances",
             "subjects",
         ),
+        revision="0000",
+        baseline_identity="armi.schema-baseline.v7",
+        resource_digest=DIGEST,
+        catalog_digest=DIGEST,
+        role_policy_digest=DIGEST,
     )
-
-
-class _StdioTransport(AbstractAsyncContextManager):
-    def __init__(self, parameters: StdioServerParameters) -> None:
-        self._manager = stdio_client(parameters)
-
-    async def __aenter__(self):
-        return await self._manager.__aenter__()
-
-    async def __aexit__(self, exc_type, exc, traceback):
-        return await self._manager.__aexit__(exc_type, exc, traceback)
 
 
 class AdminConfigurationTests(unittest.TestCase):
@@ -141,7 +132,7 @@ class AdminConfigurationTests(unittest.TestCase):
         )
         self.assertEqual(
             schema["properties"]["schema_version"]["const"],
-            "armi.admin-config.v4",
+            "armi.admin-config.v5",
         )
 
     def test_artifacts_have_no_drift(self) -> None:
@@ -263,16 +254,19 @@ class AdminToolServiceTests(unittest.TestCase):
         read_snapshot.assert_not_called()
         self.assertEqual(result.error_code, "ADMIN-ENVIRONMENT-MISMATCH")
 
-    def test_schema_drift_is_classified_without_row_details(self) -> None:
+    def test_schema_identity_drift_is_rejected_without_row_details(self) -> None:
         service = _service()
         current = _current_snapshot()
         dirty = AdminSchemaSnapshot(
             server_version_num=current.server_version_num,
             encoding=current.encoding,
             timezone=current.timezone,
-            tables=tuple(
-                table for table in current.tables if table != "maintenance_sessions"
-            ),
+            tables=current.tables,
+            revision=current.revision,
+            baseline_identity="armi.schema-baseline.legacy",
+            resource_digest=current.resource_digest,
+            catalog_digest=current.catalog_digest,
+            role_policy_digest=current.role_policy_digest,
         )
         with patch.object(AdminToolService, "_read_snapshot", return_value=dirty):
             result = service.schema_status(
@@ -281,8 +275,8 @@ class AdminToolServiceTests(unittest.TestCase):
         self.assertEqual(result.status, "failed")
         self.assertIsNotNone(result.result)
         assert result.result is not None
-        self.assertEqual(result.result.status, "dirty")
-        self.assertEqual(result.error_code, "ADMIN-SCHEMA-DIRTY")
+        self.assertEqual(result.result.status, "unavailable")
+        self.assertEqual(result.error_code, "ADMIN-DB-IDENTITY")
 
 
 class AdminProtocolTests(unittest.TestCase):
@@ -299,19 +293,19 @@ class AdminProtocolTests(unittest.TestCase):
         modern, legacy, names = asyncio.run(exercise())
         self.assertEqual(modern, "2026-07-28")
         self.assertNotEqual(legacy, "")
-        self.assertEqual(len(names), 23)
+        self.assertEqual(len(names), 21)
         self.assertIn("environment_reset_preview", names)
         self.assertIn("preview_correction", names)
         self.assertIn("correction_status", names)
 
-    def test_stdio_subprocess_has_clean_protocol_output(self) -> None:
+    def test_source_install_is_rejected_before_credentials_or_pool(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             config_path = root / "admin.yaml"
             config_path.write_text(
                 "\n".join(
                     (
-                        "schema_version: armi.admin-config.v4",
+                        "schema_version: armi.admin-config.v5",
                         "environment_kind: system_test",
                         f"environment_id: {ENVIRONMENT_ID}",
                         "environment_incarnation: 1",
@@ -325,7 +319,7 @@ class AdminProtocolTests(unittest.TestCase):
                         "migrator_database_locator: env:ARMI_SECRET_MIGRATOR_DATABASE",
                         "preview_key_locator: env:ARMI_SECRET_ADMIN_PREVIEW_KEY",
                         "expected:",
-                        f"  package_digest: {DIGEST}",
+                        f"  package_set_digest: {DIGEST}",
                         "",
                     )
                 ),
@@ -337,35 +331,17 @@ class AdminProtocolTests(unittest.TestCase):
             environment["ARMI_SECRET_ADMIN_DATABASE"] = (
                 "postgresql://127.0.0.1:1/unavailable?connect_timeout=1"
             )
-
-            async def exercise() -> tuple[str, list[str], bool]:
-                parameters = StdioServerParameters(
-                    command=sys.executable,
-                    args=["-m", "armi_admin.mcp.entrypoint"],
-                    env=environment,
-                    cwd=Path.cwd(),
-                )
-                async with Client(_StdioTransport(parameters), mode="auto") as client:
-                    tools = await client.list_tools()
-                    result = await client.call_tool(
-                        "schema_status",
-                        {
-                            "request": {
-                                "contract_version": "1.0",
-                                "environment_id": "018f3f4a-7b8c-7def-9abc-1234567890ab",
-                            }
-                        },
-                    )
-                    return (
-                        client.protocol_version,
-                        [tool.name for tool in tools.tools],
-                        bool(result.is_error),
-                    )
-
-            version, names, is_error = asyncio.run(exercise())
-        self.assertEqual(version, "2026-07-28")
-        self.assertEqual(len(names), 23)
-        self.assertFalse(is_error)
+            completed = subprocess.run(
+                [sys.executable, "-m", "armi_admin.mcp.entrypoint"],
+                cwd=Path.cwd(),
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        self.assertEqual(completed.returncode, 2)
+        self.assertEqual(completed.stdout, "")
+        self.assertEqual(completed.stderr.strip(), "ADMIN-PACKAGE-EDITABLE")
 
     def test_correction_contract_is_strict_and_private_payload_is_typed(self) -> None:
         request = PreviewCorrectionRequest.model_validate_json(
@@ -399,21 +375,7 @@ class AdminProtocolTests(unittest.TestCase):
         assert isinstance(request.spec, ReplaceSubjectComponentSpec)
         spec = request.spec
         self.assertEqual(spec.component_kind, "self")
-        with self.assertRaises(ValueError):
-            ApplyCorrectionRequest.model_validate(
-                {
-                    **request.model_dump(mode="json"),
-                    "purpose": "admin.apply_correction",
-                    "preview_token": "x" * 64,
-                    "spec": {
-                        **spec.model_dump(mode="json"),
-                        "replacement": {
-                            **spec.replacement.model_dump(mode="json"),
-                            "identity_kind": "human",
-                        },
-                    },
-                }
-            )
+        self.assertEqual(spec.replacement["identity_kind"], "electronic_person")
         with self.assertRaises(ValueError):
             CorrectionStatusRequest.model_validate(
                 {

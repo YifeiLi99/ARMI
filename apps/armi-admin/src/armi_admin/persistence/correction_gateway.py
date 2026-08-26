@@ -131,6 +131,21 @@ class AdminCorrectionGateway:
     ) -> SubjectStateAdminCorrectionPort | MoodAdminCorrectionPort:
         return self._mood if kind == "mood" else self._subject_state
 
+    def canonicalize_spec(self, spec: dict[str, Any]) -> dict[str, Any]:
+        if spec.get("correction_kind") != "replace_subject_component":
+            return dict(spec)
+        kind = str(spec.get("component_kind"))
+        owner = self._component_owner(kind)
+        try:
+            replacement = owner.canonicalize_replacement(
+                kind=kind, replacement=spec.get("replacement")
+            )
+        except ValueError, RuntimeError:
+            raise AdminCorrectionGatewayError(
+                "ADMIN-CORRECTION-COMPONENT-PAYLOAD"
+            ) from None
+        return {**spec, "replacement": replacement}
+
     def preview(
         self,
         spec: dict[str, Any],

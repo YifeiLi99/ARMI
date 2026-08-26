@@ -223,7 +223,7 @@ class _FailoverHandler(logging.Handler):
 class StructuredDiagnosticLog:
     """Emit only lifecycle facts; arbitrary context cannot enter the log."""
 
-    __slots__ = ("_base", "_handler", "_logger")
+    __slots__ = ("_base", "_handler", "_logger", "_sequence")
 
     def __init__(
         self,
@@ -270,6 +270,7 @@ class StructuredDiagnosticLog:
         logger.addHandler(handler)
         self._logger = logger
         self._handler = handler
+        self._sequence = 0
         self._base = {
             "service": "armi-runtime",
             "environment_id": environment_id,
@@ -304,6 +305,8 @@ class StructuredDiagnosticLog:
             "event": event,
             "message": event,
         }
+        self._sequence += 1
+        payload["sequence"] = self._sequence
         if result_code is not None:
             payload["result_code"] = result_code
         if duration_ms is not None:

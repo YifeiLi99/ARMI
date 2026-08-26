@@ -23,7 +23,6 @@ _COMMANDS = {
     "other_human",
     "voice",
     "vision",
-    "clock",
     "fault",
 }
 _FAULTS = {
@@ -94,7 +93,6 @@ class RuntimeAdminControlServer:
         "_other_human",
         "_run_root",
         "_server",
-        "_test_clock_seconds",
         "_token",
         "_vision",
         "_voice",
@@ -132,7 +130,6 @@ class RuntimeAdminControlServer:
         self._vision = on_vision
         self._server: asyncio.AbstractServer | None = None
         self._token = ""
-        self._test_clock_seconds = 0
         self._armed_faults: dict[str, datetime] = {}
 
     @classmethod
@@ -298,17 +295,6 @@ class RuntimeAdminControlServer:
             ):
                 raise RuntimeAdminControlError("ADMIN-CONTROL-VISION")
             result = await self._vision(str(arguments["action"]))
-        elif command == "clock":
-            if set(arguments) != {"seconds"} or type(arguments["seconds"]) is not int:
-                raise RuntimeAdminControlError("ADMIN-CONTROL-CLOCK")
-            seconds = int(arguments["seconds"])
-            if not 1 <= seconds <= 3600:
-                raise RuntimeAdminControlError("ADMIN-CONTROL-CLOCK")
-            self._test_clock_seconds += seconds
-            result = {
-                "advanced_seconds": seconds,
-                "total_advanced_seconds": self._test_clock_seconds,
-            }
         else:
             result = self._fault(arguments)
         return {
@@ -321,7 +307,6 @@ class RuntimeAdminControlServer:
         self._expire_faults()
         return {
             **self._on_status(),
-            "test_clock_seconds": self._test_clock_seconds,
             "armed_faults": sorted(self._armed_faults),
         }
 

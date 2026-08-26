@@ -535,9 +535,19 @@ class MoodCommitPort(Protocol):
 
 @runtime_checkable
 class MoodBirthPort(Protocol):
+    def continuity(
+        self, transaction: PostgreSQLAdminTransaction, *, subject_id: UUID | None
+    ) -> MoodBirthContinuity: ...
+
     async def initialize(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID
     ) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class MoodBirthContinuity:
+    head_count: int
+    revision_count: int
 
 
 @runtime_checkable
@@ -549,6 +559,10 @@ class MoodAdminReadPort(Protocol):
 
 @runtime_checkable
 class MoodAdminCorrectionPort(Protocol):
+    def canonicalize_replacement(
+        self, *, kind: str, replacement: object
+    ) -> dict[str, object]: ...
+
     def current_head(
         self,
         transaction: PostgreSQLAdminTransaction,
@@ -632,6 +646,7 @@ __all__ = (
     "MoodAdminComponent",
     "MoodAdminCorrectionPort",
     "MoodAdminReadPort",
+    "MoodBirthContinuity",
     "MoodBirthPort",
     "MoodCandidateKind",
     "MoodCognitionPort",

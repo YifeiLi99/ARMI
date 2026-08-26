@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import json
 from collections.abc import Mapping, Sequence
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import cast
 from uuid import UUID
@@ -21,15 +24,104 @@ from armi_subject_state.api import SubjectStateAdminReadPort
 from .role_session import AdminRoleBoundPool
 from .runtime_foundation import RuntimeFoundationAdminAdapter
 
+_OWNER_BY_KIND = {
+    "artifact": "artifact-store",
+    "audit_event": "runtime-foundation",
+    "effect": "effect",
+    "episode": "cognition",
+    "operation": "expression",
+    "opportunity": "cognition",
+    "scene": "interaction",
+    "subject": "runtime-foundation",
+    "work": "runtime-foundation",
+}
+
+
+def _query_digest(value: Mapping[str, object]) -> str:
+    encoded = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _decode_cursor(cursor: str | None, query_digest: str) -> int:
+    if cursor is None:
+        return 0
+    try:
+        payload = json.loads(
+            base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)).decode("utf-8")
+        )
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("ADMIN-CURSOR-INVALID") from exc
+    if (
+        not isinstance(payload, dict)
+        or cast(dict[str, object], payload).get("query") != query_digest
+        or not isinstance(cast(dict[str, object], payload).get("offset"), int)
+        or cast(int, cast(dict[str, object], payload)["offset"]) < 0
+    ):
+        raise ValueError("ADMIN-CURSOR-MISMATCH")
+    return cast(int, cast(dict[str, object], payload)["offset"])
+
+
+def _encode_cursor(query_digest: str, offset: int) -> str:
+    payload = json.dumps(
+        {"offset": offset, "query": query_digest},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+
+
+def _node(kind: str, identity: object, **attributes: object) -> dict[str, object]:
+    return {
+        "kind": kind,
+        "id": str(identity),
+        "owner": _OWNER_BY_KIND[kind],
+        "attributes": _safe(attributes),
+    }
+
+
+def _edge(
+    kind: str,
+    source_kind: str,
+    source_id: object,
+    target_kind: str,
+    target_id: object,
+    owner: str,
+) -> dict[str, object]:
+    return {
+        "kind": kind,
+        "source": {"kind": source_kind, "id": str(source_id)},
+        "target": {"kind": target_kind, "id": str(target_id)},
+        "owner": owner,
+    }
+
 
 def _safe(value: object) -> object:
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
-    if isinstance(value, (UUID, datetime, date, Decimal)):
+    if isinstance(value, UUID):
         return str(value)
+    if isinstance(value, datetime):
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise TypeError("ADMIN-JSON-NAIVE-DATETIME")
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, Mapping):
+        result: dict[str, object] = {}
+        for key, item in cast(Mapping[object, object], value).items():
+            if not isinstance(key, str):
+                raise TypeError("ADMIN-JSON-NONSTRING-KEY")
+            result[key] = _safe(item)
+        return result
     if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray, str)):
         return [_safe(item) for item in cast(Sequence[object], value)]
-    return str(value)
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        raise TypeError("ADMIN-JSON-BYTES")
+    raise TypeError(f"ADMIN-JSON-UNSUPPORTED:{type(value).__qualname__}")
 
 
 class AdminObservationGateway:
@@ -207,49 +299,141 @@ class AdminObservationGateway:
             "updated_at": _safe(item.updated_at),
         }
 
-    def trace_flow(self, selector: tuple[str, str]) -> dict[str, object]:
+    def trace_flow(
+        self,
+        selector: tuple[str, str],
+        *,
+        limit: int,
+        cursor: str | None,
+    ) -> dict[str, object]:
         kind, value = selector
         key = UUID(value) if kind != "trace_id" else None
+        nodes: list[dict[str, object]] = []
+        edges: list[dict[str, object]] = []
+        missing: list[dict[str, str]] = []
         with self._factory.repeatable_read() as uow:
             tx = uow.transaction
             if kind == "trace_id":
                 rows = self._runtime.audit_trace(tx, trace_id=value)
+                for index, row in enumerate(rows):
+                    event_id = f"{value}:{index}"
+                    nodes.append(
+                        _node(
+                            "audit_event",
+                            event_id,
+                            target_kind=row[0],
+                            target_ref=row[1],
+                            operation=row[2],
+                            result_status=row[3],
+                            occurred_at=row[4],
+                        )
+                    )
             elif kind == "episode_id":
                 item = self._cognition.episode(tx, episode_id=cast(UUID, key))
-                rows = (
-                    ()
-                    if item is None
-                    else (
+                if item is None:
+                    missing.append({"kind": "episode", "id": value})
+                else:
+                    nodes.extend(
                         (
-                            item.episode_id,
-                            item.opportunity_id,
-                            item.status,
-                            item.trace_id,
-                            item.prepared_at,
-                        ),
+                            _node(
+                                "episode",
+                                item.episode_id,
+                                status=item.status,
+                                trace_id=item.trace_id,
+                                prepared_at=item.prepared_at,
+                            ),
+                            _node("opportunity", item.opportunity_id),
+                        )
                     )
-                )
+                    edges.append(
+                        _edge(
+                            "consumes",
+                            "episode",
+                            item.episode_id,
+                            "opportunity",
+                            item.opportunity_id,
+                            "cognition",
+                        )
+                    )
             elif kind == "effect_id":
                 item = self._effects.snapshot(tx, effect_id=cast(UUID, key))
-                rows = (
-                    ()
-                    if item is None
-                    else ((item.effect_id, item.status, item.attempt_id),)
-                )
+                if item is None:
+                    missing.append({"kind": "effect", "id": value})
+                else:
+                    nodes.extend(
+                        (
+                            _node(
+                                "effect",
+                                item.effect_id,
+                                status=item.status,
+                                attempt_id=item.attempt_id,
+                            ),
+                            _node("operation", item.action_intent_id),
+                        )
+                    )
+                    edges.append(
+                        _edge(
+                            "realizes",
+                            "effect",
+                            item.effect_id,
+                            "operation",
+                            item.action_intent_id,
+                            "effect",
+                        )
+                    )
             else:
                 intent = self._expression.operation(tx, operation_ref=cast(UUID, key))
-                rows = (
-                    ()
-                    if intent is None
-                    else ((intent.operation_ref, intent.root_opportunity_id),)
-                )
+                if intent is None:
+                    missing.append({"kind": "operation", "id": value})
+                else:
+                    nodes.extend(
+                        (
+                            _node(
+                                "operation",
+                                intent.operation_ref,
+                                action_intent_id=intent.action_intent_id,
+                            ),
+                            _node("opportunity", intent.root_opportunity_id),
+                        )
+                    )
+                    edges.append(
+                        _edge(
+                            "originates_from",
+                            "operation",
+                            intent.operation_ref,
+                            "opportunity",
+                            intent.root_opportunity_id,
+                            "expression",
+                        )
+                    )
+        query = _query_digest({"selector_kind": kind, "selector": value})
+        ordered = sorted(
+            nodes,
+            key=lambda item: (cast(str, item["kind"]), cast(str, item["id"])),
+        )
+        offset = _decode_cursor(cursor, query)
+        page = ordered[offset : offset + limit]
+        next_offset = offset + len(page)
         return {
-            "selector_kind": kind,
-            "items": [[_safe(value) for value in row] for row in rows],
+            "schema_version": "armi.admin-flow-graph.v1",
+            "selector": {"kind": kind, "id": value},
+            "nodes": page,
+            "edges": sorted(edges, key=lambda item: json.dumps(item, sort_keys=True)),
+            "missing": missing,
+            "truncated": next_offset < len(ordered),
+            "cursor": _encode_cursor(query, next_offset)
+            if next_offset < len(ordered)
+            else None,
         }
 
     def inspect_scope(
-        self, kind: str, object_ids: tuple[str, ...]
+        self,
+        kind: str,
+        object_ids: tuple[str, ...],
+        *,
+        relations: tuple[str, ...],
+        limit: int,
+        cursor: str | None,
     ) -> dict[str, object]:
         ids = tuple(UUID(value) for value in object_ids)
         with self._factory.repeatable_read() as uow:
@@ -268,10 +452,33 @@ class AdminObservationGateway:
                 found = self._artifacts.inspect_ids(tx, object_ids=ids)
             else:
                 found = self._interaction.inspect_ids(tx, object_ids=ids)
+        found_set = set(found)
+        nodes = [_node(kind, identity) for identity in sorted(found_set, key=str)]
+        missing = [
+            {"kind": kind, "id": str(identity)}
+            for identity in ids
+            if identity not in found_set
+        ]
+        query = _query_digest(
+            {
+                "kind": kind,
+                "object_ids": list(object_ids),
+                "relations": list(relations),
+            }
+        )
+        offset = _decode_cursor(cursor, query)
+        page = nodes[offset : offset + limit]
+        next_offset = offset + len(page)
         return {
-            "kind": kind,
-            "found_ids": [str(value) for value in found],
-            "missing_count": len(ids) - len(found),
+            "schema_version": "armi.admin-scope-graph.v1",
+            "nodes": page,
+            "edges": [],
+            "missing": missing,
+            "relations": list(relations),
+            "truncated": next_offset < len(nodes),
+            "cursor": _encode_cursor(query, next_offset)
+            if next_offset < len(nodes)
+            else None,
         }
 
 

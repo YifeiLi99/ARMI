@@ -78,9 +78,9 @@ LocatorValue = Annotated[
 class AdminExpectedIdentity(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    package_digest: str
+    package_set_digest: str
 
-    _package_digest = field_validator("package_digest")(_validate_digest)
+    _package_set_digest = field_validator("package_set_digest")(_validate_digest)
 
 
 class AdminLogSettings(BaseModel):
@@ -100,7 +100,7 @@ class AdminConfig(BaseModel):
         strict=True,
     )
 
-    schema_version: Literal["armi.admin-config.v4"]
+    schema_version: Literal["armi.admin-config.v5"]
     environment_kind: AdminEnvironmentKind
     environment_id: str
     environment_incarnation: int

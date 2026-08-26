@@ -9,8 +9,10 @@ from collections.abc import Sequence
 from armi_admin.application import (
     AdminConfigError,
     AdminCredentialPort,
+    AdminPackageIdentityError,
     AdminSecretError,
     load_admin_config,
+    verify_admin_package_set,
 )
 from armi_admin.composition import bootstrap_admin
 
@@ -27,6 +29,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     _parser().parse_args(argv)
     try:
         config, config_path = load_admin_config()
+        verify_admin_package_set(config.expected.package_set_digest)
         credentials = AdminCredentialPort(
             locator=config.locator,
             migrator_locator=config.migrator_locator,
@@ -38,7 +41,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             create_admin_server(composition.service).run("stdio")
         finally:
             composition.close()
-    except (AdminConfigError, AdminSecretError) as exc:
+    except (AdminConfigError, AdminPackageIdentityError, AdminSecretError) as exc:
         print(str(exc), file=sys.stderr, flush=True)
         raise SystemExit(2) from None
     except Exception:

@@ -244,7 +244,7 @@ class AdminControlPlane:
         *,
         expected_instance_id: str | None = None,
     ) -> dict[str, Any]:
-        if command not in {"status", "drain", "stop", "input", "clock", "fault"}:
+        if command not in {"status", "drain", "stop", "input", "fault"}:
             raise AdminControlError("ADMIN-CONTROL-COMMAND")
         descriptor = self._read_json(
             self._descriptor_path(), "ADMIN-CONTROL-DESCRIPTOR"
