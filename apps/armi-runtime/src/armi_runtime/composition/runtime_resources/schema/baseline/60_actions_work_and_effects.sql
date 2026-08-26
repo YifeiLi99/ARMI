@@ -20,6 +20,7 @@ CREATE TABLE armi.action_intent_revisions (
     candidate_validation_id uuid NOT NULL,
     proposal_ref text NOT NULL,
     subject_commit_id uuid NOT NULL,
+    capability_request_id uuid,
     created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
     codex_task_source_id uuid,
     task_manifest_digest text,
@@ -28,6 +29,7 @@ CREATE TABLE armi.action_intent_revisions (
     CONSTRAINT action_intent_revisions_digest_check CHECK (((response_digest IS NULL) OR (response_digest ~ '^sha256:[0-9a-f]{64}$'::text))),
     CONSTRAINT action_intent_revisions_family_check CHECK ((((response_artifact_id IS NOT NULL) AND (response_digest IS NOT NULL) AND (response_bytes IS NOT NULL) AND (media_type IS NOT NULL) AND (capability_kind = 'creator.scene.reply'::text) AND (operation_class = 'send'::text) AND (audience_scope = 'creator'::text) AND (data_scope = 'creator_visible_response'::text) AND (purpose = 'respond_to_creator'::text) AND (codex_task_source_id IS NULL) AND (task_manifest_digest IS NULL) AND (validator_id IS NULL)) OR ((response_artifact_id IS NOT NULL) AND (response_digest IS NOT NULL) AND (response_bytes IS NOT NULL) AND (media_type IS NOT NULL) AND (capability_kind = 'local.other-human-inbox.deliver'::text) AND (operation_class = 'send'::text) AND (audience_scope = 'other_human'::text) AND (data_scope = 'declared_party_response'::text) AND (purpose = 'respond_to_other_human'::text) AND (codex_task_source_id IS NULL) AND (task_manifest_digest IS NULL) AND (validator_id IS NULL)) OR ((response_artifact_id IS NOT NULL) AND (response_digest IS NOT NULL) AND (response_bytes IS NOT NULL) AND (media_type IS NOT NULL) AND (capability_kind = 'external.group.message.send'::text) AND (operation_class = 'send'::text) AND (audience_scope = 'social_group'::text) AND (data_scope = 'declared_party_response'::text) AND (purpose = 'respond_to_other_human'::text) AND (codex_task_source_id IS NULL) AND (task_manifest_digest IS NULL) AND (validator_id IS NULL)) OR ((response_artifact_id IS NOT NULL) AND (response_digest IS NOT NULL) AND (response_bytes IS NOT NULL) AND (media_type IS NOT NULL) AND (capability_kind = 'external.private.message.send'::text) AND (operation_class = 'send'::text) AND (audience_scope = 'other_human'::text) AND (data_scope = 'declared_party_response'::text) AND (purpose = 'respond_to_other_human'::text) AND (codex_task_source_id IS NULL) AND (task_manifest_digest IS NULL) AND (validator_id IS NULL)) OR ((response_artifact_id IS NULL) AND (response_digest IS NULL) AND (response_bytes IS NULL) AND (media_type IS NULL) AND (capability_kind = 'codex.delegated-work'::text) AND (operation_class = 'execute'::text) AND (audience_scope IS NULL) AND (data_scope IS NULL) AND (purpose = 'delegate_codex_work'::text) AND (codex_task_source_id IS NOT NULL) AND (task_manifest_digest IS NOT NULL) AND (task_manifest_digest ~ '^sha256:[0-9a-f]{64}$'::text) AND (validator_id IS NOT NULL)))),
     CONSTRAINT action_intent_revisions_id_check CHECK ((uuid_extract_version(action_intent_revision_id) = 7)),
+    CONSTRAINT action_intent_revisions_capability_request_check CHECK (((capability_kind = ANY (ARRAY['creator.scene.reply'::text, 'codex.delegated-work'::text])) = (capability_request_id IS NOT NULL))),
     CONSTRAINT action_intent_revisions_response_shape_check CHECK ((((response_artifact_id IS NULL) = (response_digest IS NULL)) AND ((response_digest IS NULL) = (response_bytes IS NULL)) AND ((response_bytes IS NULL) = (media_type IS NULL)))),
     CONSTRAINT action_intent_revisions_revision_no_check CHECK ((revision_no > 0))
 );
@@ -60,6 +62,7 @@ CREATE TABLE armi.response_admissions (
     action_intent_id uuid NOT NULL,
     work_id uuid NOT NULL,
     operation_ref uuid NOT NULL,
+    capability_request_id uuid NOT NULL,
     status text DEFAULT 'pending'::text NOT NULL,
     permission_grant_id uuid,
     reason_code text,
@@ -160,7 +163,7 @@ CREATE TABLE armi.capability_requests (
     CONSTRAINT capability_requests_proposal_chk CHECK ((proposal_ref ~ '^proposal:[1-9][0-9]{0,2}$'::text)),
     CONSTRAINT capability_requests_resolution_chk CHECK ((((current_status = 'pending'::text) AND (request_version = 1) AND (resolved_by_party_id IS NULL) AND (resolution_reason_class IS NULL) AND (resolved_at IS NULL)) OR ((current_status <> 'pending'::text) AND (request_version > 1) AND (resolved_by_party_id IS NOT NULL) AND (resolved_at IS NOT NULL)))),
     CONSTRAINT capability_requests_scope_chk CHECK ((((capability_kind = 'creator.scene.reply'::text) AND (audience_scope IS NOT NULL) AND (audience_scope = 'creator'::text) AND (data_scope IS NOT NULL) AND (data_scope = 'creator_visible_response'::text) AND (purpose = 'respond_to_creator'::text) AND (workspace_scope IS NULL) AND (artifact_scope IS NULL) AND (network_access IS NULL) AND ((requested_valid_for_seconds >= 60) AND (requested_valid_for_seconds <= 604800)) AND ((requested_max_uses >= 1) AND (requested_max_uses <= 16)) AND (requested_max_payload_bytes IS NOT NULL) AND ((requested_max_payload_bytes >= 1) AND (requested_max_payload_bytes <= 65536))) OR ((capability_kind = 'codex.delegated-work'::text) AND (audience_scope IS NULL) AND (data_scope IS NULL) AND (purpose = 'delegate_codex_work'::text) AND (workspace_scope IS NOT NULL) AND (workspace_scope = 'isolated_ephemeral'::text) AND (artifact_scope IS NOT NULL) AND (artifact_scope = 'explicit_only'::text) AND (network_access IS NOT NULL) AND (network_access = false) AND ((requested_valid_for_seconds >= 60) AND (requested_valid_for_seconds <= 3600)) AND (requested_max_uses = 1) AND (requested_max_payload_bytes IS NULL)))),
-    CONSTRAINT capability_requests_status_chk CHECK ((current_status = ANY (ARRAY['pending'::text, 'granted'::text, 'limited'::text, 'denied'::text, 'revoked'::text, 'expired'::text]))),
+    CONSTRAINT capability_requests_status_chk CHECK ((current_status = ANY (ARRAY['pending'::text, 'granted'::text, 'limited'::text, 'consumed'::text, 'denied'::text, 'revoked'::text, 'expired'::text]))),
     CONSTRAINT capability_requests_version_chk CHECK ((request_version > 0))
 );
 
@@ -252,7 +255,7 @@ CREATE TABLE armi.durable_work (
     CONSTRAINT durable_work_subject_id_check CHECK (((subject_id IS NULL) OR (uuid_extract_version(subject_id) = 7))),
     CONSTRAINT durable_work_trace_id_check CHECK (((trace_id ~ '^[0-9a-f]{32}$'::text) AND (trace_id <> repeat('0'::text, 32)))),
     CONSTRAINT durable_work_work_id_check CHECK ((uuid_extract_version(work_id) = 7)),
-    CONSTRAINT durable_work_work_kind_check CHECK ((work_kind = ANY (ARRAY['cognition.context.prepare'::text, 'cognition.model.invoke'::text, 'cognition.candidate.validate'::text, 'cognition.subject.commit'::text, 'cognition.response.admit'::text, 'effect.register'::text, 'web.observation.admit'::text, 'web.search.invoke'::text, 'external.content.recognize'::text, 'external.content.finalize'::text, 'life.query.execute'::text, 'context.embedding.project'::text, 'artifact.object.delete'::text])))
+    CONSTRAINT durable_work_work_kind_check CHECK ((work_kind = ANY (ARRAY['cognition.context.prepare'::text, 'cognition.model.invoke'::text, 'cognition.candidate.validate'::text, 'cognition.subject.commit'::text, 'cognition.response.admit'::text, 'effect.register'::text, 'web.observation.admit'::text, 'web.search.invoke'::text, 'external.content.recognize'::text, 'external.content.finalize'::text, 'life.query.execute'::text, 'context.embedding.project'::text, 'artifact.object.delete'::text, 'live.vision.observe'::text])))
 );
 
 -- Effect owns registration independently from the existence of an Effect row.
@@ -261,6 +264,8 @@ CREATE TABLE armi.effect_registrations (
     action_intent_id uuid NOT NULL,
     work_id uuid NOT NULL,
     response_admission_id uuid,
+    capability_request_id uuid NOT NULL,
+    permission_grant_id uuid NOT NULL,
     status text DEFAULT 'pending'::text NOT NULL,
     effect_id uuid,
     reason_code text,
@@ -315,19 +320,32 @@ CREATE TABLE armi.effect_observations (
     effect_attempt_id uuid NOT NULL,
     observation_kind text NOT NULL,
     reliability text NOT NULL,
+    conclusion text NOT NULL,
+    reason_code text NOT NULL,
+    evidence_kind text NOT NULL,
+    evidence_ref text,
+    evidence_digest text,
+    source_identity text NOT NULL,
     receiver_ref uuid,
     observation_digest text NOT NULL,
     observed_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
     receiver_external_ref text,
     CONSTRAINT effect_observations_check CHECK (((observation_kind = 'receipt'::text) = (receiver_ref IS NOT NULL))),
-    CONSTRAINT effect_observations_check1 CHECK (((observation_kind = 'ambiguous'::text) = (reliability = 'inconclusive'::text))),
+    CONSTRAINT effect_observations_check1 CHECK (((conclusion = 'unknown'::text) = (reliability = 'inconclusive'::text))),
+    CONSTRAINT effect_observations_conclusion_check CHECK ((conclusion = ANY (ARRAY['completed'::text, 'failed'::text, 'unknown'::text, 'cancelled'::text]))),
+    CONSTRAINT effect_observations_evidence_kind_check CHECK ((evidence_kind = ANY (ARRAY['adapter_receipt'::text, 'adapter_rejection'::text, 'adapter_ambiguous'::text, 'codex_verification'::text, 'owner_state'::text, 'local_delivery'::text, 'platform_receipt'::text, 'receiver_confirmation'::text, 'operator_attestation'::text, 'inconclusive'::text]))),
+    CONSTRAINT effect_observations_evidence_digest_check CHECK (((evidence_digest IS NULL) OR (evidence_digest ~ '^sha256:[0-9a-f]{64}$'::text))),
+    CONSTRAINT effect_observations_evidence_ref_check CHECK (((evidence_ref IS NULL) OR (evidence_ref ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$'::text))),
+    CONSTRAINT effect_observations_reason_code_check CHECK ((reason_code ~ '^[A-Z][A-Z0-9-]{1,127}$'::text)),
+    CONSTRAINT effect_observations_source_identity_check CHECK (((length(source_identity) >= 1) AND (length(source_identity) <= 256))),
+    CONSTRAINT effect_observations_operator_check CHECK (((evidence_kind = 'operator_attestation'::text) = (reliability = 'operator_attested'::text))),
     CONSTRAINT effect_observations_effect_observation_id_check CHECK ((uuid_extract_version(effect_observation_id) = 7)),
     CONSTRAINT effect_observations_external_ref_check CHECK (((receiver_external_ref IS NULL) OR (receiver_external_ref ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'::text))),
     CONSTRAINT effect_observations_external_ref_shape_check CHECK (((receiver_external_ref IS NULL) OR (observation_kind = 'receipt'::text))),
     CONSTRAINT effect_observations_observation_digest_check CHECK ((observation_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT effect_observations_observation_kind_check CHECK ((observation_kind = ANY (ARRAY['receipt'::text, 'query'::text, 'rejection'::text, 'ambiguous'::text, 'runner_verified'::text, 'runner_failed'::text, 'runner_unknown'::text, 'runner_cancelled'::text]))),
     CONSTRAINT effect_observations_receiver_ref_check CHECK (((receiver_ref IS NULL) OR (uuid_extract_version(receiver_ref) = 7))),
-    CONSTRAINT effect_observations_reliability_check CHECK ((reliability = ANY (ARRAY['reliable'::text, 'inconclusive'::text])))
+    CONSTRAINT effect_observations_reliability_check CHECK ((reliability = ANY (ARRAY['reliable'::text, 'operator_attested'::text, 'inconclusive'::text])))
 );
 
 --
@@ -368,6 +386,8 @@ CREATE TABLE armi.effects (
     effect_id uuid NOT NULL,
     action_intent_revision_id uuid NOT NULL,
     policy_decision_id uuid,
+    capability_request_id uuid,
+    permission_grant_id uuid,
     subject_id uuid NOT NULL,
     scene_id uuid NOT NULL,
     context_party_id uuid NOT NULL,
@@ -396,9 +416,9 @@ CREATE TABLE armi.effects (
     destination_binding_id uuid,
     CONSTRAINT effects_authorization_check CHECK ((authorization_basis = ANY (ARRAY['creator_grant'::text, 'runtime_builtin'::text, 'runtime_configuration'::text]))),
     CONSTRAINT effects_destination_check CHECK ((destination_kind = ANY (ARRAY['creator_inbox'::text, 'other_human_inbox'::text, 'codex_workspace'::text, 'external_group'::text, 'external_private'::text]))),
-    CONSTRAINT effects_family_check CHECK ((((effect_kind = 'creator_response'::text) AND (capability_kind = 'creator.scene.reply'::text) AND (operation_class = 'send'::text) AND (audience_scope = 'creator'::text) AND (data_scope = 'creator_visible_response'::text) AND (purpose = 'respond_to_creator'::text) AND (authorization_basis = 'creator_grant'::text) AND (destination_kind = ANY (ARRAY['creator_inbox'::text, 'external_private'::text])) AND (destination_party_id IS NOT NULL) AND (((destination_kind = 'creator_inbox'::text) AND (destination_binding_id IS NULL)) OR ((destination_kind = 'external_private'::text) AND (destination_binding_id IS NOT NULL))) AND (policy_decision_id IS NOT NULL)) OR ((effect_kind = 'local_inbox_delivery'::text) AND (capability_kind = 'local.other-human-inbox.deliver'::text) AND (operation_class = 'send'::text) AND (audience_scope = 'other_human'::text) AND (data_scope = 'declared_party_response'::text) AND (purpose = 'respond_to_other_human'::text) AND (authorization_basis = 'runtime_builtin'::text) AND (destination_kind = 'other_human_inbox'::text) AND (destination_party_id IS NOT NULL) AND (destination_binding_id IS NULL) AND (policy_decision_id IS NULL)) OR ((effect_kind = 'external_group_delivery'::text) AND (capability_kind = 'external.group.message.send'::text) AND (operation_class = 'send'::text) AND (audience_scope = 'social_group'::text) AND (data_scope = 'declared_party_response'::text) AND (purpose = 'respond_to_other_human'::text) AND (authorization_basis = 'runtime_configuration'::text) AND (destination_kind = 'external_group'::text) AND (destination_party_id IS NOT NULL) AND (destination_binding_id IS NOT NULL) AND (policy_decision_id IS NULL)) OR ((effect_kind = 'external_private_delivery'::text) AND (capability_kind = 'external.private.message.send'::text) AND (operation_class = 'send'::text) AND (audience_scope = 'other_human'::text) AND (data_scope = 'declared_party_response'::text) AND (purpose = 'respond_to_other_human'::text) AND (authorization_basis = 'runtime_configuration'::text) AND (destination_kind = 'external_private'::text) AND (destination_party_id IS NOT NULL) AND (destination_binding_id IS NOT NULL) AND (policy_decision_id IS NULL)) OR ((effect_kind = 'codex_delegation'::text) AND (capability_kind = 'codex.delegated-work'::text) AND (operation_class = 'execute'::text) AND (audience_scope IS NULL) AND (data_scope IS NULL) AND (purpose = 'delegate_codex_work'::text) AND (authorization_basis = 'creator_grant'::text) AND (destination_kind = 'codex_workspace'::text) AND (destination_party_id IS NOT NULL) AND (destination_binding_id IS NULL) AND (policy_decision_id IS NOT NULL)))),
+    CONSTRAINT effects_family_check CHECK ((((effect_kind = 'creator_response'::text) AND (capability_kind = 'creator.scene.reply'::text) AND (operation_class = 'send'::text) AND (audience_scope = 'creator'::text) AND (data_scope = 'creator_visible_response'::text) AND (purpose = 'respond_to_creator'::text) AND (authorization_basis = 'creator_grant'::text) AND (destination_kind = ANY (ARRAY['creator_inbox'::text, 'external_private'::text])) AND (destination_party_id IS NOT NULL) AND (((destination_kind = 'creator_inbox'::text) AND (destination_binding_id IS NULL)) OR ((destination_kind = 'external_private'::text) AND (destination_binding_id IS NOT NULL))) AND (policy_decision_id IS NOT NULL) AND (capability_request_id IS NOT NULL) AND (permission_grant_id IS NOT NULL)) OR ((effect_kind = 'local_inbox_delivery'::text) AND (capability_kind = 'local.other-human-inbox.deliver'::text) AND (operation_class = 'send'::text) AND (audience_scope = 'other_human'::text) AND (data_scope = 'declared_party_response'::text) AND (purpose = 'respond_to_other_human'::text) AND (authorization_basis = 'runtime_builtin'::text) AND (destination_kind = 'other_human_inbox'::text) AND (destination_party_id IS NOT NULL) AND (destination_binding_id IS NULL) AND (policy_decision_id IS NULL) AND (capability_request_id IS NULL) AND (permission_grant_id IS NULL)) OR ((effect_kind = 'external_group_delivery'::text) AND (capability_kind = 'external.group.message.send'::text) AND (operation_class = 'send'::text) AND (audience_scope = 'social_group'::text) AND (data_scope = 'declared_party_response'::text) AND (purpose = 'respond_to_other_human'::text) AND (authorization_basis = 'runtime_configuration'::text) AND (destination_kind = 'external_group'::text) AND (destination_party_id IS NOT NULL) AND (destination_binding_id IS NOT NULL) AND (policy_decision_id IS NULL) AND (capability_request_id IS NULL) AND (permission_grant_id IS NULL)) OR ((effect_kind = 'external_private_delivery'::text) AND (capability_kind = 'external.private.message.send'::text) AND (operation_class = 'send'::text) AND (audience_scope = 'other_human'::text) AND (data_scope = 'declared_party_response'::text) AND (purpose = 'respond_to_other_human'::text) AND (authorization_basis = 'runtime_configuration'::text) AND (destination_kind = 'external_private'::text) AND (destination_party_id IS NOT NULL) AND (destination_binding_id IS NOT NULL) AND (policy_decision_id IS NULL) AND (capability_request_id IS NULL) AND (permission_grant_id IS NULL)) OR ((effect_kind = 'codex_delegation'::text) AND (capability_kind = 'codex.delegated-work'::text) AND (operation_class = 'execute'::text) AND (audience_scope IS NULL) AND (data_scope IS NULL) AND (purpose = 'delegate_codex_work'::text) AND (authorization_basis = 'creator_grant'::text) AND (destination_kind = 'codex_workspace'::text) AND (destination_party_id IS NOT NULL) AND (destination_binding_id IS NULL) AND (policy_decision_id IS NOT NULL) AND (capability_request_id IS NOT NULL) AND (permission_grant_id IS NOT NULL)))),
     CONSTRAINT effects_id_check CHECK ((uuid_extract_version(effect_id) = 7)),
-    CONSTRAINT effects_lifecycle_check CHECK ((((status = 'registered'::text) AND (verification_status = 'not_started'::text) AND (current_attempt_id IS NULL) AND (current_observation_id IS NULL) AND (settled_at IS NULL) AND (cancelled_at IS NULL)) OR ((status = 'dispatching'::text) AND (verification_status = 'pending'::text) AND (current_attempt_id IS NOT NULL) AND (current_observation_id IS NULL) AND (settled_at IS NULL) AND (cancelled_at IS NULL)) OR ((status = ANY (ARRAY['completed'::text, 'failed'::text])) AND (verification_status = 'verified'::text) AND (current_attempt_id IS NOT NULL) AND (current_observation_id IS NOT NULL) AND (settled_at IS NOT NULL) AND (cancelled_at IS NULL)) OR ((status = 'unknown'::text) AND (verification_status = 'inconclusive'::text) AND (current_attempt_id IS NOT NULL) AND (current_observation_id IS NOT NULL) AND (settled_at IS NOT NULL) AND (cancelled_at IS NULL)) OR ((status = 'cancelled'::text) AND (verification_status = 'verified'::text) AND (current_attempt_id IS NOT NULL) AND (current_observation_id IS NOT NULL) AND (settled_at IS NOT NULL) AND (cancelled_at = settled_at)))),
+    CONSTRAINT effects_lifecycle_check CHECK ((((status = 'registered'::text) AND (verification_status = 'not_started'::text) AND (current_attempt_id IS NULL) AND (current_observation_id IS NULL) AND (settled_at IS NULL) AND (cancelled_at IS NULL)) OR ((status = 'dispatching'::text) AND (verification_status = 'pending'::text) AND (current_attempt_id IS NOT NULL) AND (current_observation_id IS NULL) AND (settled_at IS NULL) AND (cancelled_at IS NULL)) OR ((status = ANY (ARRAY['completed'::text, 'failed'::text])) AND (verification_status = ANY (ARRAY['verified'::text, 'operator_attested'::text])) AND (current_attempt_id IS NOT NULL) AND (current_observation_id IS NOT NULL) AND (settled_at IS NOT NULL) AND (cancelled_at IS NULL)) OR ((status = 'unknown'::text) AND (verification_status = 'inconclusive'::text) AND (current_attempt_id IS NOT NULL) AND (current_observation_id IS NOT NULL) AND (settled_at IS NOT NULL) AND (cancelled_at IS NULL)) OR ((status = 'cancelled'::text) AND (verification_status = 'verified'::text) AND (current_attempt_id IS NOT NULL) AND (current_observation_id IS NOT NULL) AND (settled_at IS NOT NULL) AND (cancelled_at = settled_at)))),
     CONSTRAINT effects_payload_bytes_check CHECK (((payload_bytes >= 1) AND (payload_bytes <= 65536))),
     CONSTRAINT effects_payload_digest_check CHECK ((payload_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT effects_registration_digest_check CHECK ((registration_digest ~ '^sha256:[0-9a-f]{64}$'::text))
@@ -425,14 +445,14 @@ CREATE TABLE armi.permission_grants (
     consumed_uses integer DEFAULT 0 NOT NULL,
     max_payload_bytes integer,
     status text DEFAULT 'active'::text NOT NULL,
-    revoked_at timestamp(6) with time zone,
+    ended_at timestamp(6) with time zone,
     workspace_scope text,
     artifact_scope text,
     network_access boolean,
     CONSTRAINT permission_grants_id_v7_chk CHECK (("substring"((grant_id)::text, 15, 1) = '7'::text)),
-    CONSTRAINT permission_grants_revoked_chk CHECK ((((status = 'active'::text) AND (revoked_at IS NULL)) OR ((status = ANY (ARRAY['revoked'::text, 'expired'::text])) AND (revoked_at IS NOT NULL)))),
+    CONSTRAINT permission_grants_ended_chk CHECK ((((status = 'active'::text) AND (ended_at IS NULL)) OR ((status = ANY (ARRAY['consumed'::text, 'revoked'::text, 'expired'::text])) AND (ended_at IS NOT NULL)))),
     CONSTRAINT permission_grants_scope_chk CHECK ((((operation_class = 'send'::text) AND (audience_scope IS NOT NULL) AND (audience_scope = 'creator'::text) AND (data_scope IS NOT NULL) AND (data_scope = 'creator_visible_response'::text) AND (purpose = 'respond_to_creator'::text) AND (workspace_scope IS NULL) AND (artifact_scope IS NULL) AND (network_access IS NULL) AND (valid_until > valid_from) AND (valid_until <= (valid_from + '7 days'::interval)) AND ((max_uses >= 1) AND (max_uses <= 16)) AND ((consumed_uses >= 0) AND (consumed_uses <= max_uses)) AND (max_payload_bytes IS NOT NULL) AND ((max_payload_bytes >= 1) AND (max_payload_bytes <= 65536))) OR ((operation_class = 'execute'::text) AND (audience_scope IS NULL) AND (data_scope IS NULL) AND (purpose = 'delegate_codex_work'::text) AND (workspace_scope IS NOT NULL) AND (workspace_scope = 'isolated_ephemeral'::text) AND (artifact_scope IS NOT NULL) AND (artifact_scope = 'explicit_only'::text) AND (network_access IS NOT NULL) AND (network_access = false) AND (valid_until > valid_from) AND (valid_until <= (valid_from + '01:00:00'::interval)) AND (max_uses = 1) AND ((consumed_uses >= 0) AND (consumed_uses <= 1)) AND (max_payload_bytes IS NULL)))),
-    CONSTRAINT permission_grants_status_chk CHECK ((status = ANY (ARRAY['active'::text, 'revoked'::text, 'expired'::text])))
+    CONSTRAINT permission_grants_status_chk CHECK ((status = ANY (ARRAY['active'::text, 'consumed'::text, 'revoked'::text, 'expired'::text])))
 );
 
 --

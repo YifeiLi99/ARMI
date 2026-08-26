@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from uuid import UUID, uuid7
 
 from armi_expression.api import DelegatedActionIntentDraft, ExpressionCommitPort
@@ -37,6 +38,7 @@ class PostgreSQLCodexCommit:
         context: CodexCommitContext,
         commit_id: UUID,
         delegations: tuple[CodexDelegationDraft, ...],
+        capability_request_ids: Mapping[str, UUID],
     ) -> None:
         if type(commit_id) is not UUID or commit_id.version != 7:
             raise CodexDelegationViolation("CODEX-DELEGATION-COMMIT-ID")
@@ -45,6 +47,9 @@ class PostgreSQLCodexCommit:
         if len(delegations) != 1:
             raise CodexDelegationViolation("CODEX-DELEGATION-COUNT")
         draft = delegations[0]
+        capability_request_id = capability_request_ids.get(draft.proposal_ref)
+        if capability_request_id is None:
+            raise CodexDelegationViolation("CODEX-DELEGATION-CAPABILITY")
         source = await self._sources.task_source(
             unit_of_work.transaction,
             task_source_id=draft.task_source_id.value,
@@ -68,6 +73,7 @@ class PostgreSQLCodexCommit:
                 context.root_opportunity_id,
                 context.validation_id,
                 draft.proposal_ref,
+                capability_request_id,
                 draft.task_source_id.value,
                 draft.task_manifest_digest,
                 draft.validator_id,

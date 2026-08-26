@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, cast
@@ -21,8 +22,11 @@ from armi_capability.api import (
     CapabilityAcceptedBasis,
     CapabilityCommitContext,
     CapabilityCommitPort,
+    CapabilityKind,
     CapabilityReadPort,
     CapabilityViolation,
+    CodexDelegatedWorkScope,
+    CreatorSceneReplyScope,
 )
 from armi_codex.api import (
     CodexCommitContext,
@@ -57,6 +61,7 @@ from armi_experience.api import (
     ExperienceSourcePerspective,
 )
 from armi_expression.api import (
+    CreatorReplyDraft,
     ExpressionCommitContext,
     ExpressionCommitPort,
     ResponseViolation,
@@ -133,6 +138,38 @@ from armi_web_observation.api import (
 from .unit_of_work import PostgreSQLUnitOfWork
 
 _WORK_KIND = WorkType.COGNITION_SUBJECT_COMMIT
+
+
+def _bound_action_request_ids(
+    change_set: SubjectChangeSet,
+    request_ids: Mapping[str, UUID],
+) -> dict[str, UUID]:
+    result: dict[str, UUID] = {}
+    for action in change_set.action_choices:
+        if not isinstance(action, CreatorReplyDraft):
+            continue
+        matches = tuple(
+            request
+            for request in change_set.capability_requests
+            if request.atomic_group_ref == action.atomic_group_ref
+            and request.capability is CapabilityKind.CREATOR_SCENE_REPLY
+            and isinstance(request.scope, CreatorSceneReplyScope)
+        )
+        if len(matches) != 1 or matches[0].proposal_ref not in request_ids:
+            raise SubjectCommitViolation("SUBJECT-CAPABILITY-REQUEST")
+        result[action.proposal_ref] = request_ids[matches[0].proposal_ref]
+    for delegation in change_set.codex_delegations:
+        matches = tuple(
+            request
+            for request in change_set.capability_requests
+            if request.atomic_group_ref == delegation.atomic_group_ref
+            and request.capability is CapabilityKind.CODEX_DELEGATED_WORK
+            and isinstance(request.scope, CodexDelegatedWorkScope)
+        )
+        if len(matches) != 1 or matches[0].proposal_ref not in request_ids:
+            raise SubjectCommitViolation("SUBJECT-CAPABILITY-REQUEST")
+        result[delegation.proposal_ref] = request_ids[matches[0].proposal_ref]
+    return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -1030,7 +1067,7 @@ class PostgreSQLSubjectCommitRepository:
             )
 
         try:
-            await self._capability_commit.commit_requests(
+            capability_request_ids = await self._capability_commit.commit_requests(
                 unit_of_work,
                 context=_capability_commit_context(snapshot),
                 commit_id=commit_id.value,
@@ -1038,6 +1075,9 @@ class PostgreSQLSubjectCommitRepository:
             )
         except CapabilityViolation as error:
             raise SubjectCommitViolation(f"SUBJECT-{error.code}") from None
+        bound_request_ids = _bound_action_request_ids(
+            change_set, capability_request_ids
+        )
         try:
             await self._expression_commit.commit(
                 unit_of_work,
@@ -1045,6 +1085,7 @@ class PostgreSQLSubjectCommitRepository:
                 commit_id=commit_id.value,
                 choices=change_set.action_choices,
                 response_artifact=response_artifact,
+                capability_request_ids=bound_request_ids,
             )
         except ResponseViolation as error:
             raise SubjectCommitViolation(error.code) from None
@@ -1071,6 +1112,7 @@ class PostgreSQLSubjectCommitRepository:
                 context=_codex_commit_context(snapshot),
                 commit_id=commit_id.value,
                 delegations=change_set.codex_delegations,
+                capability_request_ids=bound_request_ids,
             )
         except CodexDelegationViolation as error:
             raise SubjectCommitViolation(f"SUBJECT-{error.code}") from None

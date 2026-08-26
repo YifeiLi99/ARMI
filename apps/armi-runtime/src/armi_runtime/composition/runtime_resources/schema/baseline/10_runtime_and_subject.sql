@@ -7,12 +7,12 @@ CREATE TABLE armi.schema_baseline_identity (
     CONSTRAINT schema_baseline_identity_pkey PRIMARY KEY (singleton_key),
     CONSTRAINT schema_baseline_identity_singleton_check CHECK (singleton_key),
     CONSTRAINT schema_baseline_identity_value_check CHECK (
-        baseline_identity = 'armi.schema-baseline.v5'::text
+        baseline_identity = 'armi.schema-baseline.v6'::text
     )
 );
 
 INSERT INTO armi.schema_baseline_identity (baseline_identity)
-VALUES ('armi.schema-baseline.v5');
+VALUES ('armi.schema-baseline.v6');
 
 --
 -- Name: deployment_environments; Type: TABLE; Schema: armi; Owner: -

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -381,6 +382,7 @@ class ExpressionIntentSnapshot:
     capability_kind: str
     operation_class: str
     purpose: str
+    capability_request_id: UUID | None
     response_artifact_id: UUID | None
     response_digest: Digest | None
     response_bytes: int | None
@@ -399,6 +401,7 @@ class ExpressionOperationSnapshot:
     action_kind: str | None
     decision_kind: str | None
     reason_code: str | None
+    capability_request_id: UUID | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -417,6 +420,7 @@ class DelegatedActionIntentDraft:
     root_opportunity_id: UUID
     validation_id: UUID
     proposal_ref: str
+    capability_request_id: UUID
     task_source_id: UUID
     task_manifest_digest: Digest
     validator_id: str
@@ -529,6 +533,7 @@ class ExpressionCommitPort(Protocol):
         commit_id: UUID,
         choices: tuple[ResponseChoiceDraft, ...],
         response_artifact: ArtifactRef | None,
+        capability_request_ids: Mapping[str, UUID],
     ) -> None:
         """Commit an accepted expression inside the caller-owned transaction."""
         ...

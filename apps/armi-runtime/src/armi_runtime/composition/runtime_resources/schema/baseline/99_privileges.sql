@@ -38,6 +38,7 @@ GRANT SELECT ON TABLE armi.capability_requests TO armi_runtime;
 GRANT SELECT ON TABLE armi.codex_result_sources TO armi_runtime;
 GRANT SELECT ON TABLE armi.codex_task_sources TO armi_runtime;
 GRANT SELECT ON TABLE armi.codex_verification_results TO armi_runtime;
+GRANT SELECT ON TABLE armi.codex_verification_results TO armi_admin;
 GRANT SELECT ON TABLE armi.cognition_maintenance_batch_sources TO armi_admin;
 GRANT SELECT ON TABLE armi.cognition_maintenance_batch_sources TO armi_runtime;
 GRANT SELECT ON TABLE armi.cognition_maintenance_batches TO armi_admin;

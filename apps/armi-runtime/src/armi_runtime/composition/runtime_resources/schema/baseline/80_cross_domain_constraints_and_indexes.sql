@@ -28,6 +28,9 @@ ALTER TABLE ONLY armi.action_intent_revisions
 ALTER TABLE ONLY armi.action_intent_revisions
     ADD CONSTRAINT action_intent_revisions_owner_key UNIQUE (action_intent_revision_id, action_intent_id);
 
+ALTER TABLE ONLY armi.action_intent_revisions
+    ADD CONSTRAINT action_intent_revisions_capability_request_key UNIQUE (capability_request_id);
+
 --
 -- Name: action_intent_revisions action_intent_revisions_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
 --
@@ -265,6 +268,9 @@ ALTER TABLE ONLY armi.capability_requests
 
 ALTER TABLE ONLY armi.capability_requests
     ADD CONSTRAINT capability_requests_subject_commit_id_proposal_ref_key UNIQUE (subject_commit_id, proposal_ref);
+
+ALTER TABLE ONLY armi.capability_requests
+    ADD CONSTRAINT capability_requests_action_owner_key UNIQUE (capability_request_id, subject_commit_id);
 
 --
 -- Name: codex_result_sources codex_result_sources_codex_verification_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -992,6 +998,9 @@ ALTER TABLE ONLY armi.live_vision_observation_frames
 ALTER TABLE ONLY armi.live_vision_observations
     ADD CONSTRAINT live_vision_observations_pkey PRIMARY KEY (observation_id);
 
+ALTER TABLE ONLY armi.live_vision_observations
+    ADD CONSTRAINT live_vision_observations_idempotency_key_key UNIQUE (idempotency_key);
+
 --
 -- Name: live_vision_observations live_vision_observations_session_id_observation_no_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
@@ -1348,6 +1357,9 @@ ALTER TABLE ONLY armi.party_input_interactions
 
 ALTER TABLE ONLY armi.permission_grants
     ADD CONSTRAINT permission_grants_capability_request_id_key UNIQUE (capability_request_id);
+
+ALTER TABLE ONLY armi.permission_grants
+    ADD CONSTRAINT permission_grants_request_owner_key UNIQUE (grant_id, capability_request_id);
 
 --
 -- Name: permission_grants permission_grants_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -1859,12 +1871,6 @@ CREATE INDEX candidate_applications_resolution_idx ON armi.cognitive_candidate_a
 CREATE INDEX capability_requests_creator_page_idx ON armi.capability_requests USING btree (creator_party_id, created_at DESC, capability_request_id DESC);
 
 --
--- Name: capability_requests_open_codex_idx; Type: INDEX; Schema: armi; Owner: -
---
-
-CREATE UNIQUE INDEX capability_requests_open_codex_idx ON armi.capability_requests USING btree (subject_id, capability_kind, operation_class) WHERE ((capability_kind = 'codex.delegated-work'::text) AND (current_status = ANY (ARRAY['pending'::text, 'granted'::text, 'limited'::text])));
-
---
 -- Name: capability_requests_pending_idx; Type: INDEX; Schema: armi; Owner: -
 --
 
@@ -2272,6 +2278,12 @@ ALTER TABLE ONLY armi.action_intent_revisions
 
 ALTER TABLE ONLY armi.action_intent_revisions
     ADD CONSTRAINT action_intent_revisions_intent_fkey FOREIGN KEY (action_intent_id) REFERENCES armi.action_intents(action_intent_id);
+
+ALTER TABLE ONLY armi.action_intent_revisions
+    ADD CONSTRAINT action_intent_revisions_capability_request_fkey FOREIGN KEY (capability_request_id) REFERENCES armi.capability_requests(capability_request_id);
+
+ALTER TABLE ONLY armi.action_intent_revisions
+    ADD CONSTRAINT action_intent_revisions_capability_owner_fkey FOREIGN KEY (capability_request_id, subject_commit_id) REFERENCES armi.capability_requests(capability_request_id, subject_commit_id);
 
 --
 -- Name: action_intents action_intents_current_revision_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3088,6 +3100,12 @@ ALTER TABLE ONLY armi.response_admissions
 ALTER TABLE ONLY armi.response_admissions
     ADD CONSTRAINT response_admissions_grant_fk FOREIGN KEY (permission_grant_id) REFERENCES armi.permission_grants(grant_id) ON DELETE RESTRICT;
 
+ALTER TABLE ONLY armi.response_admissions
+    ADD CONSTRAINT response_admissions_request_fk FOREIGN KEY (capability_request_id) REFERENCES armi.capability_requests(capability_request_id) ON DELETE RESTRICT;
+
+ALTER TABLE ONLY armi.response_admissions
+    ADD CONSTRAINT response_admissions_grant_owner_fk FOREIGN KEY (permission_grant_id, capability_request_id) REFERENCES armi.permission_grants(grant_id, capability_request_id) ON DELETE RESTRICT;
+
 ALTER TABLE ONLY armi.effect_registrations
     ADD CONSTRAINT effect_registrations_action_fk FOREIGN KEY (action_intent_id) REFERENCES armi.action_intents(action_intent_id) ON DELETE RESTRICT;
 
@@ -3099,6 +3117,15 @@ ALTER TABLE ONLY armi.effect_registrations
 
 ALTER TABLE ONLY armi.effect_registrations
     ADD CONSTRAINT effect_registrations_effect_fk FOREIGN KEY (effect_id) REFERENCES armi.effects(effect_id) ON DELETE RESTRICT;
+
+ALTER TABLE ONLY armi.effect_registrations
+    ADD CONSTRAINT effect_registrations_request_fk FOREIGN KEY (capability_request_id) REFERENCES armi.capability_requests(capability_request_id) ON DELETE RESTRICT;
+
+ALTER TABLE ONLY armi.effect_registrations
+    ADD CONSTRAINT effect_registrations_grant_fk FOREIGN KEY (permission_grant_id) REFERENCES armi.permission_grants(grant_id) ON DELETE RESTRICT;
+
+ALTER TABLE ONLY armi.effect_registrations
+    ADD CONSTRAINT effect_registrations_grant_owner_fk FOREIGN KEY (permission_grant_id, capability_request_id) REFERENCES armi.permission_grants(grant_id, capability_request_id) ON DELETE RESTRICT;
 
 --
 -- Name: effect_attempts effect_attempts_effect_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3179,6 +3206,15 @@ ALTER TABLE ONLY armi.effects
 
 ALTER TABLE ONLY armi.effects
     ADD CONSTRAINT effects_policy_owner_fkey FOREIGN KEY (policy_decision_id, action_intent_revision_id) REFERENCES armi.policy_decisions(policy_decision_id, action_intent_revision_id);
+
+ALTER TABLE ONLY armi.effects
+    ADD CONSTRAINT effects_capability_request_fkey FOREIGN KEY (capability_request_id) REFERENCES armi.capability_requests(capability_request_id);
+
+ALTER TABLE ONLY armi.effects
+    ADD CONSTRAINT effects_permission_grant_fkey FOREIGN KEY (permission_grant_id) REFERENCES armi.permission_grants(grant_id);
+
+ALTER TABLE ONLY armi.effects
+    ADD CONSTRAINT effects_grant_owner_fkey FOREIGN KEY (permission_grant_id, capability_request_id) REFERENCES armi.permission_grants(grant_id, capability_request_id);
 
 --
 -- Name: effects effects_revision_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3535,6 +3571,9 @@ ALTER TABLE ONLY armi.live_vision_observations
 
 ALTER TABLE ONLY armi.live_vision_observations
     ADD CONSTRAINT live_vision_observations_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
+
+ALTER TABLE ONLY armi.live_vision_observations
+    ADD CONSTRAINT live_vision_observations_work_id_fkey FOREIGN KEY (work_id) REFERENCES armi.durable_work(work_id);
 
 --
 -- Name: live_vision_sessions live_vision_sessions_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -33,6 +34,7 @@ class CapabilityRequestStatus(StrEnum):
     PENDING = "pending"
     GRANTED = "granted"
     LIMITED = "limited"
+    CONSUMED = "consumed"
     DENIED = "denied"
     REVOKED = "revoked"
     EXPIRED = "expired"
@@ -47,6 +49,7 @@ class CreatorGrantDecision(StrEnum):
 
 class GrantStatus(StrEnum):
     ACTIVE = "active"
+    CONSUMED = "consumed"
     REVOKED = "revoked"
     EXPIRED = "expired"
 
@@ -137,6 +140,8 @@ class CapabilityCommitContext:
 
 @dataclass(frozen=True, slots=True)
 class CapabilityConsumptionRequest:
+    capability_request_id: UUID
+    permission_grant_id: UUID
     capability_kind: str
     operation_class: str
     subject_id: UUID
@@ -147,7 +152,13 @@ class CapabilityConsumptionRequest:
     payload_bytes: int
 
     def __post_init__(self) -> None:
-        for value in (self.subject_id, self.scene_id, self.creator_party_id):
+        for value in (
+            self.capability_request_id,
+            self.permission_grant_id,
+            self.subject_id,
+            self.scene_id,
+            self.creator_party_id,
+        ):
             _uuid7(value, "CON-CAPABILITY-CONSUMPTION")
         if (
             type(self.capability_kind) is not str
@@ -481,7 +492,7 @@ class CapabilityCommitPort(Protocol):
         context: CapabilityCommitContext,
         commit_id: UUID,
         requests: tuple[CapabilityRequestDraft, ...],
-    ) -> None: ...
+    ) -> Mapping[str, UUID]: ...
 
 
 @runtime_checkable
@@ -512,6 +523,7 @@ class CapabilityGrantConsumptionPort(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class CapabilityAdmissionRequest:
+    capability_request_id: UUID
     capability_kind: str
     operation_class: str
     subject_id: UUID

@@ -143,7 +143,8 @@ class PostgreSQLCreatorGrantPolicy:
             await transaction.execute(
                 """
                 SELECT grant_id, valid_until FROM armi.permission_grants
-                WHERE capability_id = %s
+                WHERE grant_id = %s AND capability_request_id = %s
+                  AND capability_id = %s
                   AND subject_id = %s AND interaction_scene_id = %s
                   AND creator_party_id = %s
                   AND operation_class = %s AND purpose = %s
@@ -159,9 +160,11 @@ class PostgreSQLCreatorGrantPolicy:
                       AND artifact_scope = 'explicit_only'
                       AND network_access = false AND max_uses = 1)
                   )
-                ORDER BY valid_until, grant_id LIMIT 1 FOR UPDATE
+                FOR UPDATE
                 """,
                 (
+                    request.permission_grant_id,
+                    request.capability_request_id,
                     capability[0],
                     request.subject_id,
                     request.scene_id,
@@ -183,11 +186,15 @@ class PostgreSQLCreatorGrantPolicy:
             await transaction.execute(
                 """
                 UPDATE armi.permission_grants
-                SET consumed_uses = consumed_uses + 1
+                SET consumed_uses = consumed_uses + 1,
+                    status = CASE WHEN consumed_uses + 1 = max_uses
+                                  THEN 'consumed' ELSE status END,
+                    ended_at = CASE WHEN consumed_uses + 1 = max_uses
+                                    THEN statement_timestamp() ELSE ended_at END
                 WHERE grant_id = %s AND status = 'active'
                   AND statement_timestamp() < valid_until
                   AND consumed_uses < max_uses
-                RETURNING consumed_uses
+                RETURNING consumed_uses, max_uses
                 """,
                 (grant[0],),
             )
@@ -196,6 +203,15 @@ class PostgreSQLCreatorGrantPolicy:
             return CapabilityConsumptionResult(
                 CapabilityAuthorizationOutcome.DENIED,
                 "POLICY-GRANT-NOT-CURRENT",
+            )
+        if int(consumed[0]) == int(consumed[1]):
+            await transaction.execute(
+                """UPDATE armi.capability_requests
+                   SET current_status='consumed', request_version=request_version+1,
+                       resolved_at=statement_timestamp()
+                   WHERE capability_request_id=%s
+                     AND current_status IN ('granted','limited')""",
+                (request.capability_request_id,),
             )
         return CapabilityConsumptionResult(
             CapabilityAuthorizationOutcome.ALLOWED,
@@ -216,6 +232,7 @@ class PostgreSQLCreatorGrantPolicy:
                 FROM armi.capabilities AS capability
                 JOIN armi.permission_grants AS permission
                   ON permission.capability_id=capability.capability_id
+                 AND permission.capability_request_id=%s
                 WHERE capability.capability_kind=%s
                   AND capability.operation_class=%s
                   AND capability.availability_status='available'
@@ -229,6 +246,7 @@ class PostgreSQLCreatorGrantPolicy:
                 ORDER BY permission.valid_until, permission.grant_id LIMIT 1
                 """,
                 (
+                    request.capability_request_id,
                     request.capability_kind,
                     request.operation_class,
                     request.subject_id,
@@ -466,7 +484,7 @@ class PostgreSQLCreatorGrantPolicy:
                                OR (permission.status = 'active'
                                 AND permission.valid_until <= statement_timestamp())
                              THEN permission.valid_until
-                             ELSE permission.revoked_at
+                             ELSE permission.ended_at
                            END,
                            permission.valid_from, permission.valid_until,
                            permission.max_uses, permission.consumed_uses,
@@ -766,7 +784,7 @@ class PostgreSQLCreatorGrantPolicy:
                         await connection.execute(
                             """
                             UPDATE armi.permission_grants
-                            SET status = 'revoked', revoked_at = statement_timestamp()
+                            SET status = 'revoked', ended_at = statement_timestamp()
                             WHERE capability_request_id = %s AND status = 'active'
                               AND valid_until > statement_timestamp()
                             RETURNING grant_id
@@ -926,8 +944,9 @@ class PostgreSQLCreatorGrantPolicy:
         context: CapabilityCommitContext,
         commit_id: UUID,
         requests: tuple[CapabilityRequestDraft, ...],
-    ) -> None:
+    ) -> dict[str, UUID]:
         connection = unit_of_work.transaction
+        committed: dict[str, UUID] = {}
         for draft in requests:
             catalog = await (
                 await connection.execute(
@@ -985,10 +1004,6 @@ class PostgreSQLCreatorGrantPolicy:
                         requested_max_uses, requested_max_payload_bytes) VALUES (
                         %s, %s, %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (subject_id, capability_kind, operation_class)
-                    WHERE capability_kind = 'codex.delegated-work'
-                      AND current_status IN ('pending', 'granted', 'limited')
-                    DO NOTHING
                     RETURNING capability_request_id
                     """,
                     (
@@ -1006,7 +1021,8 @@ class PostgreSQLCreatorGrantPolicy:
                 )
             ).fetchone()
             if inserted is None:
-                continue
+                raise CapabilityViolation("CAPABILITY-REQUEST-IDENTITY")
+            committed[draft.proposal_ref] = UUID(str(inserted[0]))
             basis = next(
                 (
                     item.context_item_ids
@@ -1042,6 +1058,7 @@ class PostgreSQLCreatorGrantPolicy:
                     capability_id=UUID(str(catalog[0])),
                     scope=scope,
                 )
+        return committed
 
     async def _grant_local_creator_reply(
         self,
@@ -1144,9 +1161,41 @@ class PostgreSQLCreatorGrantPolicy:
     async def expire_once(self, *, limit: int = 100) -> int:
         expired_request_ids: list[UUID] = []
         cancelled_projection_refs: list[tuple[UUID, UUID]] = []
-        async with self._factory.unit_of_work() as unit_of_work:
+        async with self._factory.unit_of_work(read_only=True) as unit_of_work:
             connection = unit_of_work.transaction
             rows = await (
+                await connection.execute(
+                    """
+                    SELECT permission.grant_id
+                    FROM armi.permission_grants AS permission
+                    WHERE permission.status = 'active'
+                      AND permission.valid_until <= statement_timestamp()
+                    ORDER BY permission.valid_until, permission.grant_id
+                    LIMIT %s
+                    """,
+                    (limit,),
+                )
+            ).fetchall()
+        for candidate in rows:
+            try:
+                result = await self._expire_grant(UUID(str(candidate[0])))
+            except CapabilityViolation, RuntimeTransactionFailure:
+                continue
+            if result is None:
+                continue
+            request_id, cancelled = result
+            expired_request_ids.append(request_id)
+            cancelled_projection_refs.extend(cancelled)
+        await self._notify_expiry(expired_request_ids, cancelled_projection_refs)
+        return len(expired_request_ids)
+
+    async def _expire_grant(
+        self, grant_id: UUID
+    ) -> tuple[UUID, list[tuple[UUID, UUID]]] | None:
+        cancelled_projection_refs: list[tuple[UUID, UUID]] = []
+        async with self._factory.unit_of_work() as unit_of_work:
+            connection = unit_of_work.transaction
+            row = await (
                 await connection.execute(
                     """
                     SELECT permission.grant_id,
@@ -1156,102 +1205,97 @@ class PostgreSQLCreatorGrantPolicy:
                            request.request_version
                     FROM armi.permission_grants AS permission
                     JOIN armi.capability_requests AS request USING (capability_request_id)
-                    WHERE permission.status = 'active'
-                      AND permission.valid_until <= statement_timestamp()
-                    ORDER BY permission.valid_until, permission.grant_id
-                    LIMIT %s FOR UPDATE OF permission, request SKIP LOCKED
+                    WHERE permission.grant_id=%s
+                      AND permission.status='active'
+                      AND permission.valid_until<=statement_timestamp()
+                    FOR UPDATE OF permission, request
                     """,
-                    (limit,),
+                    (grant_id,),
                 )
-            ).fetchall()
-            for row in rows:
-                decision_id = uuid7()
-                command_digest = Digest.from_bytes(
-                    rfc8785.dumps(
-                        cast(
-                            Any,
-                            {
-                                "schema_version": "armi.grant-expiry.v1",
-                                "grant_id": str(row[0]),
-                                "capability_request_id": str(row[1]),
-                                "expected_request_version": int(row[4]),
-                            },
-                        )
+            ).fetchone()
+            if row is None:
+                return None
+            decision_id = uuid7()
+            command_digest = Digest.from_bytes(
+                rfc8785.dumps(
+                    cast(
+                        Any,
+                        {
+                            "schema_version": "armi.grant-expiry.v1",
+                            "grant_id": str(row[0]),
+                            "capability_request_id": str(row[1]),
+                            "expected_request_version": int(row[4]),
+                        },
                     )
                 )
-                await connection.execute(
-                    "UPDATE armi.permission_grants SET status='expired', revoked_at=statement_timestamp() WHERE grant_id=%s AND status='active'",
-                    (row[0],),
+            )
+            await connection.execute(
+                "UPDATE armi.permission_grants SET status='expired', ended_at=statement_timestamp() WHERE grant_id=%s AND status='active'",
+                (row[0],),
+            )
+            await connection.execute(
+                "UPDATE armi.capability_requests SET current_status='expired', request_version=request_version+1, resolved_at=statement_timestamp() WHERE capability_request_id=%s",
+                (row[1],),
+            )
+            affected_policies = await _supersede_grant_policies(
+                connection,
+                grant_id=UUID(str(row[0])),
+                reason_code="POLICY-GRANT-EXPIRED",
+            )
+            cancelled_effects = await self._effect_cancellation.cancel_registered(
+                connection,
+                policy_decision_ids=affected_policies,
+                reason_code="POLICY-GRANT-EXPIRED",
+            )
+            await connection.execute(
+                """
+                INSERT INTO armi.capability_request_decisions (
+                    capability_decision_id, capability_request_id,
+                    creator_party_id, expected_request_version,
+                    resulting_request_version, decision_kind, command_digest,
+                    reason_code) VALUES (%s, %s, %s, %s, %s, 'expire', %s,
+                          'grant_expired')
+                """,
+                (
+                    decision_id,
+                    row[1],
+                    row[2],
+                    int(row[4]),
+                    int(row[4]) + 1,
+                    command_digest.value,
+                ),
+            )
+            await unit_of_work.audit.append(
+                AuditDraft(
+                    AuditEventId(uuid7()),
+                    AuditReference("runtime", self._environment_id),
+                    Purpose("capability.manage"),
+                    "capability.request.expired",
+                    AuditReference("capability_request", row[1]),
+                    AuditResultStatus.APPLIED,
+                    TraceId(secrets.token_hex(16)),
+                    AuditSensitivity.PRIVATE,
+                    subject_id=SubjectId(row[3]),
+                    grant=AuditReference("permission_grant", row[0]),
                 )
-                await connection.execute(
-                    "UPDATE armi.capability_requests SET current_status='expired', request_version=request_version+1, resolved_at=statement_timestamp() WHERE capability_request_id=%s",
-                    (row[1],),
-                )
-                affected_policies = await _supersede_grant_policies(
-                    connection,
-                    grant_id=UUID(str(row[0])),
-                    reason_code="POLICY-GRANT-EXPIRED",
-                )
-                cancelled_effects = await self._effect_cancellation.cancel_registered(
-                    connection,
-                    policy_decision_ids=affected_policies,
-                    reason_code="POLICY-GRANT-EXPIRED",
-                )
-                expired_request_ids.append(UUID(str(row[1])))
-                await connection.execute(
-                    """
-                    INSERT INTO armi.capability_request_decisions (
-                        capability_decision_id, capability_request_id,
-                        creator_party_id, expected_request_version,
-                        resulting_request_version, decision_kind, command_digest,
-                        reason_code) VALUES (%s, %s, %s, %s, %s, 'expire', %s,
-                              'grant_expired')
-                    """,
-                    (
-                        decision_id,
-                        row[1],
-                        row[2],
-                        int(row[4]),
-                        int(row[4]) + 1,
-                        command_digest.value,
-                    ),
-                )
+            )
+            for effect_id, subject_id, root_operation_id in cancelled_effects:
+                cancelled_projection_refs.append((effect_id, root_operation_id))
                 await unit_of_work.audit.append(
                     AuditDraft(
                         AuditEventId(uuid7()),
                         AuditReference("runtime", self._environment_id),
-                        Purpose("capability.manage"),
-                        "capability.request.expired",
-                        AuditReference("capability_request", row[1]),
+                        Purpose("respond_to_creator"),
+                        "effect.cancelled",
+                        AuditReference("effect", effect_id),
                         AuditResultStatus.APPLIED,
                         TraceId(secrets.token_hex(16)),
                         AuditSensitivity.PRIVATE,
-                        subject_id=SubjectId(row[3]),
+                        subject_id=SubjectId(subject_id),
                         grant=AuditReference("permission_grant", row[0]),
                     )
                 )
-                for (
-                    effect_id,
-                    subject_id,
-                    root_operation_id,
-                ) in cancelled_effects:
-                    cancelled_projection_refs.append((effect_id, root_operation_id))
-                    await unit_of_work.audit.append(
-                        AuditDraft(
-                            AuditEventId(uuid7()),
-                            AuditReference("runtime", self._environment_id),
-                            Purpose("respond_to_creator"),
-                            "effect.cancelled",
-                            AuditReference("effect", effect_id),
-                            AuditResultStatus.APPLIED,
-                            TraceId(secrets.token_hex(16)),
-                            AuditSensitivity.PRIVATE,
-                            subject_id=SubjectId(subject_id),
-                            grant=AuditReference("permission_grant", row[0]),
-                        )
-                    )
-        await self._notify_expiry(expired_request_ids, cancelled_projection_refs)
-        return len(expired_request_ids)
+            return UUID(str(row[1])), cancelled_projection_refs
 
     async def _notify_expiry(
         self,
@@ -1266,7 +1310,7 @@ class PostgreSQLCreatorGrantPolicy:
                 CreatorResourceKind("capability_request"),
                 str(request_id),
                 now,
-                "capability-request.v4",
+                "capability-request.v5",
             )
             for request_id in request_ids
         ]
@@ -1277,13 +1321,13 @@ class PostgreSQLCreatorGrantPolicy:
                         CreatorResourceKind("effect"),
                         str(effect_id),
                         now,
-                        "creator-effect.v3",
+                        "creator-effect.v4",
                     ),
                     CreatorProjectionInvalidation(
                         CreatorResourceKind("operation"),
                         str(root_operation_id),
                         now,
-                        "creator-operation.v3",
+                        "creator-operation.v4",
                     ),
                 )
             )
@@ -1420,7 +1464,7 @@ def _dispatch_cancellation_reason(
         or not before_dispatch_deadline
     ):
         return "POLICY-GRANT-EXPIRED"
-    if grant_status != "active":
+    if grant_status not in {"active", "consumed"}:
         return "POLICY-GRANT-NOT-CURRENT"
     return None
 
@@ -1533,8 +1577,8 @@ def _encode_cursor(
         cast(
             Any,
             {
-                "schema_version": "armi.capability-request-cursor.v4",
-                "projection_version": "capability-request.v4",
+                "schema_version": "armi.capability-request-cursor.v5",
+                "projection_version": "capability-request.v5",
                 "environment_id": str(environment_id),
                 "creator_party_id": str(creator_party_id),
                 "limit": limit,
@@ -1573,7 +1617,7 @@ def _decode_cursor(
         if type(raw_document) is not dict:
             raise ValueError
         document = cast(dict[str, object], raw_document)
-        if document.get("schema_version") != "armi.capability-request-cursor.v4":
+        if document.get("schema_version") != "armi.capability-request-cursor.v5":
             raise CapabilityViolation("CONFLICT-CAPABILITY-CURSOR-STALE")
         if (
             set(document)
@@ -1586,7 +1630,7 @@ def _decode_cursor(
                 "capability_request_id",
                 "projection_version",
             }
-            or document["projection_version"] != "capability-request.v4"
+            or document["projection_version"] != "capability-request.v5"
             or document["environment_id"] != str(environment_id)
             or document["creator_party_id"] != str(creator_party_id)
             or document["limit"] != limit

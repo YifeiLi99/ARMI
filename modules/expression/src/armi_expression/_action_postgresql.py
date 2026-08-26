@@ -44,7 +44,7 @@ class PostgreSQLExpressionActionOwner:
                        revision.response_artifact_id, revision.response_digest,
                        revision.response_bytes, revision.codex_task_source_id,
                        revision.task_manifest_digest, revision.validator_id,
-                       intent.created_at
+                       revision.capability_request_id, intent.created_at
                 FROM armi.action_intents AS intent
                 JOIN armi.action_intent_revisions AS revision
                   ON revision.action_intent_revision_id=intent.current_revision_id
@@ -69,6 +69,7 @@ class PostgreSQLExpressionActionOwner:
             capability_kind=str(row[8]),
             operation_class=str(row[9]),
             purpose=str(row[10]),
+            capability_request_id=row[17],
             response_artifact_id=row[11],
             response_digest=Digest(str(row[12])) if row[12] is not None else None,
             response_bytes=int(row[13]) if row[13] is not None else None,
@@ -77,7 +78,7 @@ class PostgreSQLExpressionActionOwner:
                 Digest(str(row[15])) if row[15] is not None else None
             ),
             validator_id=str(row[16]) if row[16] is not None else None,
-            created_at=row[17],
+            created_at=row[18],
         )
 
     async def settle_response_admission(
@@ -166,7 +167,7 @@ class PostgreSQLExpressionActionOwner:
                        revision.response_artifact_id, revision.response_digest,
                        revision.response_bytes, revision.codex_task_source_id,
                        revision.task_manifest_digest, revision.validator_id
-                       , intent.created_at
+                       , revision.capability_request_id, intent.created_at
                 FROM armi.action_intents AS intent
                 JOIN armi.action_intent_revisions AS revision
                   ON revision.action_intent_revision_id=intent.current_revision_id
@@ -190,6 +191,7 @@ class PostgreSQLExpressionActionOwner:
             capability_kind=str(row[8]),
             operation_class=str(row[9]),
             purpose=str(row[10]),
+            capability_request_id=row[17],
             response_artifact_id=row[11],
             response_digest=Digest(str(row[12])) if row[12] is not None else None,
             response_bytes=int(row[13]) if row[13] is not None else None,
@@ -198,7 +200,7 @@ class PostgreSQLExpressionActionOwner:
                 Digest(str(row[15])) if row[15] is not None else None
             ),
             validator_id=str(row[16]) if row[16] is not None else None,
-            created_at=row[17],
+            created_at=row[18],
         )
 
     async def operation_snapshot(
@@ -210,19 +212,23 @@ class PostgreSQLExpressionActionOwner:
         row = await (
             await transaction.execute(
                 """
-                SELECT operation_ref, action_intent_id, current_revision_id,
-                       NULL::uuid AS dialogue_decision_id,
-                       action_kind, NULL::text, NULL::text
-                FROM armi.action_intents WHERE operation_ref=%s
-                UNION ALL
-                SELECT operation_ref, action_intent_id, NULL::uuid,
-                       dialogue_decision_id, NULL::text, decision_kind,
-                       reason_class
-                FROM armi.dialogue_decisions WHERE operation_ref=%s
-                ORDER BY dialogue_decision_id NULLS LAST
+                SELECT COALESCE(intent.operation_ref, dialogue.operation_ref),
+                       COALESCE(intent.action_intent_id, dialogue.action_intent_id),
+                       intent.current_revision_id, dialogue.dialogue_decision_id,
+                       intent.action_kind, dialogue.decision_kind,
+                       dialogue.reason_class, revision.capability_request_id
+                FROM (SELECT %s::uuid AS operation_ref) AS requested
+                LEFT JOIN armi.action_intents AS intent
+                  ON intent.operation_ref=requested.operation_ref
+                LEFT JOIN armi.dialogue_decisions AS dialogue
+                  ON dialogue.operation_ref=requested.operation_ref
+                LEFT JOIN armi.action_intent_revisions AS revision
+                  ON revision.action_intent_revision_id=intent.current_revision_id
+                WHERE intent.operation_ref IS NOT NULL
+                   OR dialogue.operation_ref IS NOT NULL
                 LIMIT 1
                 """,
-                (operation_ref, operation_ref),
+                (operation_ref,),
             )
         ).fetchone()
         if row is None:
@@ -235,6 +241,7 @@ class PostgreSQLExpressionActionOwner:
             action_kind=str(row[4]) if row[4] is not None else None,
             decision_kind=str(row[5]) if row[5] is not None else None,
             reason_code=str(row[6]) if row[6] is not None else None,
+            capability_request_id=row[7],
         )
 
     async def revision_snapshot(
@@ -310,7 +317,8 @@ class PostgreSQLExpressionActionOwner:
             await transaction.execute(
                 """SELECT action_intent_id FROM armi.action_intents
                    WHERE subject_id=%s AND scene_id=%s AND context_party_id=%s
-                     AND action_kind='creator_response'
+                     AND action_kind='party_response'
+                     AND purpose='respond_to_creator'
                    ORDER BY created_at DESC""",
                 (subject_id, scene_id, context_party_id),
             )

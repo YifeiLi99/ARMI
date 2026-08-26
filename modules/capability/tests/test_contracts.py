@@ -80,6 +80,8 @@ def test_limit_requires_an_explicit_narrowing_field() -> None:
 
 def test_effect_consumption_contract_keeps_authorization_owner_explicit() -> None:
     request = CapabilityConsumptionRequest(
+        uuid7(),
+        uuid7(),
         "creator.scene.reply",
         "send",
         uuid7(),

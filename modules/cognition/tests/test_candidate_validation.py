@@ -2302,7 +2302,7 @@ def test_candidate_v6_codex_delegation_requires_exact_task_and_capability_basis(
     candidate["capability_requests"] = [
         {
             "proposal_ref": "proposal:2",
-            "atomic_group_ref": "group:2",
+            "atomic_group_ref": "group:1",
             "basis_refs": ["ctx:4", "ctx:5", "ctx:6"],
             "payload": {
                 "proposal_kind": "capability_requests",
@@ -2338,12 +2338,8 @@ def test_candidate_v6_codex_delegation_requires_exact_task_and_capability_basis(
     inactive = DeterministicCandidateValidator(context).validate(
         _bytes(candidate), bases=(*bases, task_basis, capability_basis, scene_basis)
     )
-    assert inactive.status is CandidateValidationStatus.PARTIALLY_ACCEPTED
-    assert inactive.change_set is not None
-    assert any(
-        item.code == "CANDIDATE-CODEX-NOT-ACTIVE"
-        for item in inactive.change_set.rejections
-    )
+    assert inactive.status is CandidateValidationStatus.REJECTED
+    assert inactive.error_code == "CANDIDATE-ATOMIC-GROUP"
 
     active_context = replace(
         context,
@@ -2372,7 +2368,7 @@ def test_candidate_v6_codex_delegation_requires_exact_task_and_capability_basis(
     }
     assert (
         first.change_set.codex_delegations[0].atomic_group_ref
-        != first.change_set.capability_requests[0].atomic_group_ref
+        == first.change_set.capability_requests[0].atomic_group_ref
     )
     assert b"armi.subject-change-set.v29" in first.change_set.canonical_bytes
 
@@ -2380,12 +2376,8 @@ def test_candidate_v6_codex_delegation_requires_exact_task_and_capability_basis(
     rejected = DeterministicCandidateValidator(mismatched).validate(
         _bytes(candidate), bases=(*bases, task_basis, capability_basis, scene_basis)
     )
-    assert rejected.status is CandidateValidationStatus.PARTIALLY_ACCEPTED
-    assert rejected.change_set is not None
-    assert any(
-        item.code == "CANDIDATE-CODEX-TASK-SOURCE"
-        for item in rejected.change_set.rejections
-    )
+    assert rejected.status is CandidateValidationStatus.REJECTED
+    assert rejected.error_code == "CANDIDATE-ATOMIC-GROUP"
 
     without_request = dict(candidate)
     without_request["capability_requests"] = []
@@ -2490,7 +2482,25 @@ def test_creator_reply_binds_authority_scope_and_forbids_model_owned_ids() -> No
     candidate["schema_version"] = "armi.cognition-candidate.v8"
     candidate["experiences"] = []
     candidate["component_changes"] = []
-    candidate["capability_requests"] = []
+    candidate["capability_requests"] = [
+        {
+            "proposal_ref": "proposal:2",
+            "atomic_group_ref": "group:1",
+            "basis_refs": ["ctx:2", "ctx:4", "ctx:5"],
+            "payload": {
+                "proposal_kind": "capability_requests",
+                "fact_class": "subjective_understanding",
+                "capability_kind": "creator.scene.reply",
+                "operation": "send",
+                "audience_scope": "creator",
+                "data_scope": "creator_visible_response",
+                "purpose": "respond_to_creator",
+                "valid_for_seconds": 60,
+                "max_uses": 1,
+                "max_payload_bytes": 1024,
+            },
+        }
+    ]
     candidate["action_choices"] = [
         {
             "proposal_ref": "proposal:1",
@@ -4488,6 +4498,25 @@ def test_creator_reply_is_admitted_as_exact_action_choice() -> None:
     candidate["schema_version"] = "armi.cognition-candidate.v8"
     candidate["experiences"] = []
     candidate["component_changes"] = []
+    candidate["capability_requests"] = [
+        {
+            "proposal_ref": "proposal:2",
+            "atomic_group_ref": "group:1",
+            "basis_refs": ["ctx:2", "ctx:4", "ctx:5"],
+            "payload": {
+                "proposal_kind": "capability_requests",
+                "fact_class": "subjective_understanding",
+                "capability_kind": "creator.scene.reply",
+                "operation": "send",
+                "audience_scope": "creator",
+                "data_scope": "creator_visible_response",
+                "purpose": "respond_to_creator",
+                "valid_for_seconds": 60,
+                "max_uses": 1,
+                "max_payload_bytes": 1024,
+            },
+        }
+    ]
     candidate["action_choices"] = [
         {
             "proposal_ref": "proposal:1",

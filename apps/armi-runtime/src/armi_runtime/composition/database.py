@@ -122,6 +122,7 @@ from armi_effect.api import (
 from armi_effect.bootstrap import (
     bootstrap_effect_codex_lifecycle,
     bootstrap_effect_grant_cancellation,
+    bootstrap_effect_responsibility,
     bootstrap_effect_runtime,
     bootstrap_expression_effect_registration,
     bootstrap_response_admission,
@@ -1810,6 +1811,7 @@ def compose_effect_owner_context(
             codex=codex.task_sources,
             expression=expression,
             interaction=interaction,
+            registrations=bootstrap_effect_responsibility(),
         ),
         RuntimeCodexArtifactReference(
             artifacts=catalog,

@@ -704,7 +704,7 @@ class SubjectCommitPipeline:
                 CreatorResourceKind("operation"),
                 str(snapshot.root_opportunity_id),
                 now,
-                "creator-operation.v3",
+                "creator-operation.v4",
             )
         ]
         if result.subject_commit_id is not None:
@@ -735,7 +735,7 @@ class SubjectCommitPipeline:
                         CreatorResourceKind("capability_request"),
                         str(request_id),
                         now,
-                        "capability-request.v4",
+                        "capability-request.v5",
                     )
                     for request_id in request_ids
                 )

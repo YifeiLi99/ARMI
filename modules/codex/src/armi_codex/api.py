@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 from uuid import UUID
@@ -83,6 +84,7 @@ class CodexCommitPort(Protocol):
         context: CodexCommitContext,
         commit_id: UUID,
         delegations: tuple[CodexDelegationDraft, ...],
+        capability_request_ids: Mapping[str, UUID],
     ) -> None: ...
 
 
@@ -188,6 +190,9 @@ class CodexRuntimePort(CodexDelegationPort, Protocol):
 
 @runtime_checkable
 class CodexAdminPort(Protocol):
+    def verification_for_effect(
+        self, transaction: PostgreSQLAdminTransaction, *, effect_id: UUID
+    ) -> tuple[UUID, str, Digest] | None: ...
     def artifact_reference_count(
         self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
     ) -> int: ...

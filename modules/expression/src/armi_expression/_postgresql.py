@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import timedelta
 from typing import Any
 from uuid import UUID, uuid7
@@ -76,6 +77,7 @@ class PostgreSQLExpressionOwner:
         commit_id: UUID,
         choices: tuple[ResponseChoiceDraft, ...],
         response_artifact: ArtifactRef | None,
+        capability_request_ids: Mapping[str, UUID],
     ) -> None:
         if type(commit_id) is not UUID or commit_id.version != 7:
             raise ResponseViolation("SUBJECT-RESPONSE-SCOPE")
@@ -113,6 +115,9 @@ class PostgreSQLExpressionOwner:
         if len(replies) != 1 or response_artifact is None:
             raise ResponseViolation("SUBJECT-RESPONSE-COUNT")
         reply = replies[0]
+        capability_request_id = capability_request_ids.get(reply.proposal_ref)
+        if capability_request_id is None:
+            raise ResponseViolation("SUBJECT-CAPABILITY-REQUEST")
         if (
             reply.subject_id != context.subject_id
             or reply.scene_id != context.scene_id
@@ -148,6 +153,7 @@ class PostgreSQLExpressionOwner:
             response_artifact=response_artifact,
             action_id=action_id,
             revision_id=revision_id,
+            capability_request_id=capability_request_id,
         )
 
     async def commit_delegation(
@@ -182,9 +188,10 @@ class PostgreSQLExpressionOwner:
                 action_intent_revision_id, action_intent_id, revision_no,
                 capability_kind, operation_class, purpose,
                 candidate_validation_id, proposal_ref, subject_commit_id,
-                codex_task_source_id, task_manifest_digest, validator_id) VALUES (
+                capability_request_id, codex_task_source_id, task_manifest_digest,
+                validator_id) VALUES (
                 %s,%s,1,'codex.delegated-work','execute','delegate_codex_work',
-                %s,%s,%s,%s,%s,%s)
+                %s,%s,%s,%s,%s,%s,%s)
             """,
             (
                 revision_id,
@@ -192,6 +199,7 @@ class PostgreSQLExpressionOwner:
                 draft.validation_id,
                 draft.proposal_ref,
                 commit_id,
+                draft.capability_request_id,
                 draft.task_source_id,
                 draft.task_manifest_digest.value,
                 draft.validator_id,
@@ -568,6 +576,7 @@ class PostgreSQLExpressionOwner:
         response_artifact: ArtifactRef,
         action_id: UUID,
         revision_id: UUID,
+        capability_request_id: UUID,
     ) -> None:
         connection = unit_of_work.transaction
         decision_id = uuid7()
@@ -578,10 +587,10 @@ class PostgreSQLExpressionOwner:
                 response_artifact_id, response_digest, response_bytes,
                 media_type, capability_kind, operation_class, audience_scope,
                 data_scope, purpose, candidate_validation_id, proposal_ref,
-                subject_commit_id) VALUES (
+                subject_commit_id, capability_request_id) VALUES (
                 %s, %s, 1, %s, %s, %s, 'text/plain',
                 'creator.scene.reply', 'send', 'creator',
-                'creator_visible_response', 'respond_to_creator', %s, %s, %s)
+                'creator_visible_response', 'respond_to_creator', %s, %s, %s, %s)
             """,
             (
                 revision_id,
@@ -592,6 +601,7 @@ class PostgreSQLExpressionOwner:
                 context.validation_id,
                 reply.proposal_ref,
                 commit_id,
+                capability_request_id,
             ),
         )
         await connection.execute(
@@ -646,9 +656,16 @@ class PostgreSQLExpressionOwner:
         )
         await connection.execute(
             """INSERT INTO armi.response_admissions (
-                   response_admission_id,action_intent_id,work_id,operation_ref)
-               VALUES (%s,%s,%s,%s)""",
-            (uuid7(), action_id, work_id.value, context.root_opportunity_id),
+                   response_admission_id,action_intent_id,work_id,operation_ref,
+                   capability_request_id)
+               VALUES (%s,%s,%s,%s,%s)""",
+            (
+                uuid7(),
+                action_id,
+                work_id.value,
+                context.root_opportunity_id,
+                capability_request_id,
+            ),
         )
         await unit_of_work.audit.append(
             _audit(

@@ -1071,20 +1071,32 @@ class DeterministicCandidateValidator:
                 )
                 accepted.pop(proposal_ref)
 
-        has_codex_request = any(
-            isinstance(value, CapabilityRequestDraft)
-            and isinstance(value.scope, CodexDelegatedWorkScope)
-            for value in accepted.values()
-        )
         for proposal_ref, draft in tuple(accepted.items()):
-            if isinstance(draft, CodexDelegationDraft) and not has_codex_request:
+            expected_scope: type[CreatorSceneReplyScope] | type[CodexDelegatedWorkScope]
+            error_code: str
+            if isinstance(draft, CreatorReplyDraft):
+                expected_scope = CreatorSceneReplyScope
+                error_code = "CANDIDATE-CAPABILITY-REQUEST"
+            elif isinstance(draft, CodexDelegationDraft):
+                expected_scope = CodexDelegatedWorkScope
+                error_code = "CANDIDATE-CODEX-CAPABILITY-REQUEST"
+            else:
+                continue
+            matching_requests = tuple(
+                value
+                for value in accepted.values()
+                if isinstance(value, CapabilityRequestDraft)
+                and value.atomic_group_ref == draft.atomic_group_ref
+                and isinstance(value.scope, expected_scope)
+            )
+            if len(matching_requests) != 1:
                 rejected[proposal_ref] = CandidateRejection(
                     proposal_ref,
                     draft.atomic_group_ref,
                     draft.basis_ordinals,
-                    CandidateFactClass.INFERENCE,
-                    CandidateOwnerIdentity(CandidateOwner.CODEX_DELEGATION.value),
-                    "CANDIDATE-CODEX-CAPABILITY-REQUEST",
+                    _draft_fact_class(draft),
+                    CandidateOwnerIdentity(_draft_owner(draft).value),
+                    error_code,
                 )
                 accepted.pop(proposal_ref)
 
