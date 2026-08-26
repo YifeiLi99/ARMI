@@ -250,12 +250,12 @@ class PostgreSQLContextEmbeddingRepository:
                    SELECT requested.source_ref,requested.source_version
                    FROM requested
                    WHERE NOT EXISTS (
-                     SELECT 1 FROM armi.context_embedding_projections AS projection
-                     WHERE projection.source_kind=%s
-                       AND projection.source_ref=requested.source_ref
-                       AND projection.source_version=requested.source_version
-                       AND projection.chunk_ordinal=0
-                       AND projection.model_binding=%s
+                     SELECT 1 FROM armi.context_embedding_source_sets AS source_set
+                     WHERE source_set.source_kind=%s
+                       AND source_set.source_ref=requested.source_ref
+                       AND source_set.source_version=requested.source_version
+                       AND source_set.model_binding=%s
+                       AND source_set.state='complete'
                    )""",
                 (
                     [
@@ -421,6 +421,141 @@ class PostgreSQLContextEmbeddingRepository:
             ),
         )
         return attempt_id
+
+    async def prepare_source_set(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        source: EmbeddingProjectionSource,
+        source_digest: Digest,
+        expected_chunk_count: int,
+    ) -> UUID:
+        source_set_id = uuid7()
+        transaction = unit_of_work.transaction
+        await transaction.execute(
+            """
+            INSERT INTO armi.context_embedding_source_sets (
+              context_embedding_source_set_id, subject_id, life_generation_id,
+              source_kind, source_ref, source_version, source_digest,
+              model_binding, expected_chunk_count, state)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'building')
+            ON CONFLICT (source_kind, source_ref, source_version, model_binding)
+            DO UPDATE SET source_digest=EXCLUDED.source_digest,
+                          expected_chunk_count=EXCLUDED.expected_chunk_count,
+                          state='building',completed_at=NULL
+            """,
+            (
+                source_set_id,
+                source.subject_id,
+                source.life_generation_id,
+                source.source_kind,
+                source.source_ref,
+                source.source_version,
+                source_digest.value,
+                EMBEDDING_BINDING_ID,
+                expected_chunk_count,
+            ),
+        )
+        row = await (
+            await transaction.execute(
+                """SELECT context_embedding_source_set_id
+                   FROM armi.context_embedding_source_sets
+                   WHERE source_kind=%s AND source_ref=%s AND source_version=%s
+                     AND model_binding=%s""",
+                (
+                    source.source_kind,
+                    source.source_ref,
+                    source.source_version,
+                    EMBEDDING_BINDING_ID,
+                ),
+            )
+        ).fetchone()
+        assert row is not None
+        return cast(UUID, row[0])
+
+    async def complete_source_set(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        source: EmbeddingProjectionSource,
+        source_digest: Digest,
+        expected_chunk_count: int,
+    ) -> bool:
+        transaction = unit_of_work.transaction
+        if source.source_kind == "subjective_memory":
+            current = await self._memories.lock_current_projection_head(
+                transaction,
+                subject_id=source.subject_id,
+                generation_id=source.life_generation_id,
+                source=MemoryCandidateSourceRef(
+                    source.source_ref, source.source_version
+                ),
+            )
+        else:
+            current = await self._materials.lock_current_projection_head(
+                transaction,
+                subject_id=source.subject_id,
+                generation_id=source.life_generation_id,
+                source=MaterialCandidateSourceRef(
+                    source.source_ref, source.source_version
+                ),
+            )
+        if not current:
+            return False
+        row = await (
+            await transaction.execute(
+                """SELECT array_agg(chunk_ordinal ORDER BY chunk_ordinal)
+                   FROM armi.context_embedding_projections
+                   WHERE source_kind=%s AND source_ref=%s AND source_version=%s
+                     AND model_binding=%s""",
+                (
+                    source.source_kind,
+                    source.source_ref,
+                    source.source_version,
+                    EMBEDDING_BINDING_ID,
+                ),
+            )
+        ).fetchone()
+        if row is None or tuple(row[0] or ()) != tuple(range(expected_chunk_count)):
+            return False
+        completed = await (
+            await transaction.execute(
+                """UPDATE armi.context_embedding_source_sets
+                   SET state='complete',completed_at=statement_timestamp()
+                   WHERE source_kind=%s AND source_ref=%s AND source_version=%s
+                     AND model_binding=%s AND source_digest=%s
+                     AND expected_chunk_count=%s AND state='building'
+                   RETURNING context_embedding_source_set_id""",
+                (
+                    source.source_kind,
+                    source.source_ref,
+                    source.source_version,
+                    EMBEDDING_BINDING_ID,
+                    source_digest.value,
+                    expected_chunk_count,
+                ),
+            )
+        ).fetchone()
+        return completed is not None
+
+    async def mark_source_set_stale(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        source: EmbeddingProjectionSource,
+    ) -> None:
+        await unit_of_work.transaction.execute(
+            """UPDATE armi.context_embedding_source_sets
+               SET state='stale',completed_at=NULL
+               WHERE source_kind=%s AND source_ref=%s AND source_version=%s
+                 AND model_binding=%s AND state='building'""",
+            (
+                source.source_kind,
+                source.source_ref,
+                source.source_version,
+                EMBEDDING_BINDING_ID,
+            ),
+        )
 
     async def mark_dispatched(
         self, unit_of_work: PostgreSQLRuntimeUnitOfWork, attempt_id: UUID
@@ -906,6 +1041,12 @@ class PostgreSQLContextProjectionInvalidation:
             await transaction.execute(
                 """DELETE FROM armi.context_embedding_projections
                    WHERE source_kind=%s AND source_ref=%s""",
+                (source.source_kind, source.source_ref),
+            )
+            await transaction.execute(
+                """UPDATE armi.context_embedding_source_sets
+                   SET state='stale',completed_at=NULL
+                   WHERE source_kind=%s AND source_ref=%s AND state<>'stale'""",
                 (source.source_kind, source.source_ref),
             )
         if sources:

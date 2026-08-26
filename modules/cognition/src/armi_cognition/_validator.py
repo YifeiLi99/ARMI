@@ -233,9 +233,9 @@ from .api import (
     SubjectChangeSet,
 )
 
-CANDIDATE_POLICY_VERSION = "armi.cognition-candidate-policy.v3"
+CANDIDATE_POLICY_VERSION = "armi.cognition-candidate-policy.v4"
 CANDIDATE_VALIDATOR_IDENTITY = "armi.candidate-validator.deterministic-v1"
-ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v29"
+ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v30"
 _CODEX_CAPABILITY_ID = UUID("01985d00-0000-7000-8000-000000000038")
 
 
@@ -3243,7 +3243,7 @@ def _expand_dialogue_candidate(
             return (
                 CognitionCandidate.model_validate(
                     {
-                        "schema_version": "armi.cognition-candidate.v8",
+                        "schema_version": "armi.cognition-candidate.v9",
                         "base": {
                             "subject_version": context.base_subject_version,
                             "state_epoch": context.base_state_epoch,
@@ -3304,7 +3304,7 @@ def _expand_dialogue_candidate(
             return (
                 CognitionCandidate.model_validate(
                     {
-                        "schema_version": "armi.cognition-candidate.v8",
+                        "schema_version": "armi.cognition-candidate.v9",
                         "base": {
                             "subject_version": context.base_subject_version,
                             "state_epoch": context.base_state_epoch,
@@ -3352,7 +3352,7 @@ def _expand_dialogue_candidate(
         return (
             CognitionCandidate.model_validate(
                 {
-                    "schema_version": "armi.cognition-candidate.v8",
+                    "schema_version": "armi.cognition-candidate.v9",
                     "base": {
                         "subject_version": context.base_subject_version,
                         "state_epoch": context.base_state_epoch,

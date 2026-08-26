@@ -15,6 +15,7 @@ from armi_runtime_foundation import (
 
 from .api import (
     ActivityCandidateSnapshot,
+    ActivityContextTarget,
     ActivityFocusReadPort,
     ActivityHeadSnapshot,
     ActivityId,
@@ -262,6 +263,53 @@ class PostgreSQLActivityRead:
                     for item in rows
                 ],
             }
+        )
+
+    async def context_target(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        activity_id: UUID,
+    ) -> ActivityContextTarget | None:
+        row = await (
+            await transaction.execute(
+                """
+                SELECT activity.activity_id, revision.activity_revision_id,
+                       activity.head_version, revision.status, revision.revision_no,
+                       revision.goal, revision.next_safe_step,
+                       revision.progress_summary, revision.waiting_condition,
+                       revision.resumption_cue
+                FROM armi.activities AS activity
+                JOIN armi.activity_revisions AS revision
+                  ON revision.activity_revision_id=activity.current_revision_id
+                WHERE activity.subject_id=%s AND activity.activity_id=%s
+                """,
+                (subject_id, activity_id),
+            )
+        ).fetchone()
+        if row is None:
+            return None
+        return ActivityContextTarget(
+            activity_id=row[0],
+            revision_id=row[1],
+            head_version=int(row[2]),
+            status=ActivityStatus(str(row[3])),
+            canonical_state=rfc8785.dumps(
+                {
+                    "schema_version": "armi.activity-context-target.v1",
+                    "activity_id": str(row[0]),
+                    "revision_id": str(row[1]),
+                    "head_version": int(row[2]),
+                    "revision_no": int(row[4]),
+                    "status": str(row[3]),
+                    "goal": str(row[5]),
+                    "next_safe_step": str(row[6]),
+                    "progress_summary": None if row[7] is None else str(row[7]),
+                    "waiting_condition": None if row[8] is None else str(row[8]),
+                    "resumption_cue": None if row[9] is None else str(row[9]),
+                }
+            ),
         )
 
     async def scheduling_heads(

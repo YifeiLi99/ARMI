@@ -35,7 +35,7 @@ from armi_kernel.application import (
     WorkViolation,
     ordered_custody_requests,
 )
-from armi_kernel.contracts import IdempotencyKey, Instant
+from armi_kernel.contracts import Digest, IdempotencyKey, Instant
 from armi_material.api import MaterialProjectionPort
 from armi_memory.api import MemoryProjectionPort
 from armi_runtime_foundation import (
@@ -201,6 +201,22 @@ class ContextEmbeddingPipeline:
                 deterministic=True,
             )
             return True
+        digest_input = b"".join(
+            len(display.encode("utf-8")).to_bytes(8, "big")
+            + display.encode("utf-8")
+            + len(retrieval.encode("utf-8")).to_bytes(8, "big")
+            + retrieval.encode("utf-8")
+            for display, retrieval in chunks
+        )
+        source_digest = Digest.from_bytes(digest_input)
+        async with self._factory.unit_of_work() as unit_of_work:
+            await _guard_lease(unit_of_work, lease)
+            await self._repository.prepare_source_set(
+                unit_of_work,
+                source=source,
+                source_digest=source_digest,
+                expected_chunk_count=len(chunks),
+            )
         last_projection: UUID | None = None
         for batch_start in range(0, len(chunks), DOCUMENT_BATCH_SIZE):
             batch = chunks[batch_start : batch_start + DOCUMENT_BATCH_SIZE]
@@ -256,6 +272,9 @@ class ContextEmbeddingPipeline:
                         response=response,
                     )
                     if projection is None:
+                        await self._repository.mark_source_set_stale(
+                            unit_of_work, source=source
+                        )
                         for pending_attempt in attempts[offset + 1 :]:
                             await self._repository.settle_failure(
                                 unit_of_work,
@@ -275,6 +294,22 @@ class ContextEmbeddingPipeline:
                     last_projection = projection
         assert last_projection is not None
         async with self._factory.unit_of_work() as unit_of_work:
+            await _guard_lease(unit_of_work, lease)
+            completed = await self._repository.complete_source_set(
+                unit_of_work,
+                source=source,
+                source_digest=source_digest,
+                expected_chunk_count=len(chunks),
+            )
+            if not completed:
+                await self._repository.mark_source_set_stale(
+                    unit_of_work, source=source
+                )
+                await unit_of_work.work.complete(
+                    lease, WorkResultRef("context_embedding_source", source.source_ref)
+                )
+                await self._repository.note_projection_work_settled(unit_of_work)
+                return True
             await unit_of_work.work.complete(
                 lease, WorkResultRef("context_embedding_projection", last_projection)
             )

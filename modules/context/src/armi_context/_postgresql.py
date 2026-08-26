@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from uuid import UUID, uuid7
 
 import rfc8785
-from armi_activity.api import ActivityReadPort
+from armi_activity.api import ActivityContextTarget, ActivityReadPort, ActivityStatus
 from armi_attention.api import (
     OpportunityCognitionSelectionPort,
     OpportunityContextReadPort,
@@ -113,6 +113,7 @@ class ContextEpisodeSnapshot:
     relationship_issue_payloads: tuple[tuple[UUID, int, bytes], ...]
     material_sources: tuple[ContextMaterialSource, ...]
     activity_summary_bytes: bytes
+    target_activity: ActivityContextTarget | None
     capability_state_payloads: tuple[CapabilityContextStatePayload, ...]
     scene_bytes: bytes | None
     evidence: ContextArtifactSource | None
@@ -307,6 +308,20 @@ class PostgreSQLContextRepository:
         activity = await self._activities.context_summary(
             tx, subject_id=episode.subject_id, enabled=not other_human
         )
+        target_activity = (
+            None
+            if opportunity.activity_id is None
+            else await self._activities.context_target(
+                tx,
+                subject_id=episode.subject_id,
+                activity_id=opportunity.activity_id,
+            )
+        )
+        if opportunity.activity_id is not None and (
+            target_activity is None
+            or target_activity.status is not ActivityStatus.IN_PROGRESS
+        ):
+            raise ContextViolation("CTX-WORK-STALE")
         capabilities = (
             ()
             if other_human
@@ -413,7 +428,7 @@ class PostgreSQLContextRepository:
             subject_version=episode.base_subject_version,
             state_epoch=episode.base_state_epoch,
             bundle_activation_id=episode.bundle_activation_id,
-            policy_version="armi.context-policy.v4",
+            policy_version="armi.context-policy.v5",
             mechanism_identity=episode.mechanism_identity,
             trace_id=episode.trace_id,
             component_payloads=component_payloads,
@@ -425,6 +440,7 @@ class PostgreSQLContextRepository:
             relationship_issue_payloads=relationship_bundle.open_issues,
             material_sources=(),
             activity_summary_bytes=activity,
+            target_activity=target_activity,
             capability_state_payloads=capabilities,
             scene_bytes=scene_bytes,
             evidence=evidence_source,
@@ -514,7 +530,8 @@ class PostgreSQLContextRepository:
             episode_id=episode_id,
             manifest_artifact_id=manifest_artifact.artifact_id.value,
             compiled_artifact_id=compiled_artifact.artifact_id.value,
-            context_digest=manifest_artifact.content_digest,
+            manifest_digest=manifest_artifact.content_digest,
+            compiled_digest=compiled_artifact.content_digest,
         )
         from datetime import UTC
 
@@ -525,7 +542,7 @@ class PostgreSQLContextRepository:
                 _MODEL_WORK_KIND,
                 WorkOwner("cognitive_episode", episode_id),
                 IdempotencyKey(f"model:{episode_id}"),
-                manifest_artifact.content_digest,
+                compiled_artifact.content_digest,
                 50,
                 now,
                 Instant(now.value + timedelta(seconds=3600)),

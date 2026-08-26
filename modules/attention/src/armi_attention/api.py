@@ -9,6 +9,7 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
+from armi_kernel.application import COGNITION_PURPOSES, CognitionPurpose
 from armi_runtime_foundation import (
     PostgreSQLAdminTransaction,
     PostgreSQLRuntimeUnitOfWork,
@@ -48,14 +49,7 @@ class OpportunityAdmissionStatus(StrEnum):
     REJECTED = "rejected"
 
 
-class OpportunityPurpose(StrEnum):
-    CONSIDER_CREATOR_INPUT = "consider_creator_input"
-    CONSIDER_CREATOR_VOICE_APPRAISAL = "consider_creator_voice_appraisal"
-    CONSIDER_OTHER_HUMAN_INPUT = "consider_other_human_input"
-    CONSIDER_WEB_EVIDENCE = "consider_web_evidence"
-    CONSIDER_CODEX_TASK = "consider_codex_task"
-    CONSIDER_CODEX_RESULT = "consider_codex_result"
-    CONSIDER_VISUAL_OBSERVATION = "consider_visual_observation"
+OpportunityPurpose = CognitionPurpose
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,8 +72,9 @@ class ExternalEvidenceOpportunityDraft:
             raise LifeViolation("LIFE-ADMISSION-ID")
         if type(self.purpose) is not OpportunityPurpose:
             raise LifeViolation("LIFE-ADMISSION-PURPOSE")
-        visual = self.purpose is OpportunityPurpose.CONSIDER_VISUAL_OBSERVATION
-        if visual != (self.scene_id is None and self.context_party_id is None):
+        definition = COGNITION_PURPOSES[self.purpose]
+        scene_required = definition.scene_requirement == "required"
+        if scene_required != (self.scene_id is not None):
             raise LifeViolation("LIFE-ADMISSION-PURPOSE")
 
 

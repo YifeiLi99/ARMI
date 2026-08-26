@@ -19,9 +19,9 @@ from .api import (
     ContextViolation,
 )
 
-CONTEXT_MANIFEST_VERSION = "armi.context-manifest.v2"
-CONTEXT_POLICY_VERSION = "armi.context-policy.v4"
-CONTEXT_MECHANISM = "armi.context-compiler.layered-v2"
+CONTEXT_MANIFEST_VERSION = "armi.context-manifest.v3"
+CONTEXT_POLICY_VERSION = "armi.context-policy.v5"
+CONTEXT_MECHANISM = "armi.context-compiler.layered-v3"
 
 _LAYER_ORDER = tuple(ContextLayer)
 _LAYER_RANK = {layer: index for index, layer in enumerate(_LAYER_ORDER)}
@@ -286,7 +286,7 @@ def _compiled_bytes(
         ]
         layers.append({"layer": layer.value, "items": items})
     value = {
-        "schema_version": "armi.compiled-context.v2",
+        "schema_version": "armi.compiled-context.v3",
         "purpose": request.purpose.value,
         "layers": layers,
     }

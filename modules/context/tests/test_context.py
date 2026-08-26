@@ -112,7 +112,7 @@ def _snapshot(
             creator_prompt=creator_prompt,
             subject_prompt=subject_prompt,
             policy_version="context-policy.v1",
-            mechanism_identity="armi.context-compiler.layered-v2",
+            mechanism_identity="armi.context-compiler.layered-v3",
             trace_id=TraceId("1" * 32),
         ),
     )

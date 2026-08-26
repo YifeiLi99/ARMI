@@ -69,6 +69,7 @@ from armi_subject_state.api import (
 )
 from armi_web_observation.api import WebResearchRequestDraft
 
+from ._action_cardinality import validate_action_kinds
 from ._owners import CandidateOwner
 from .api import CandidateExactLifeQueryDraft, SubjectChangeSet
 
@@ -107,7 +108,7 @@ def parse_subject_change_set(
         if type(raw) is not dict:
             raise ValueError
         document = cast(dict[str, Any], raw)
-        if document.get("schema_version") != "armi.subject-change-set.v29":
+        if document.get("schema_version") != "armi.subject-change-set.v30":
             raise ValueError
         if set(document) != _TOP_KEYS:
             raise ValueError
@@ -140,6 +141,19 @@ def parse_subject_change_set(
         codex_delegations = tuple(
             _codex_delegation(item)
             for item in _array(document.get("codex_delegations", []), 1)
+        )
+        validate_action_kinds(
+            (
+                *("codex_delegation" for _item in codex_delegations),
+                *(
+                    "formal_no_action"
+                    if isinstance(item, FormalNoActionDraft)
+                    else "creator_reply"
+                    if isinstance(item, CreatorReplyDraft)
+                    else "other_human_reply"
+                    for item in action_choices
+                ),
+            )
         )
         owner_drafts = tuple(
             _owner_draft(item) for item in _array(document["owner_drafts"], 13)

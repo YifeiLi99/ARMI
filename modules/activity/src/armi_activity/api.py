@@ -268,6 +268,15 @@ class ActivityWorkHead:
 
 
 @dataclass(frozen=True, slots=True)
+class ActivityContextTarget:
+    activity_id: UUID
+    revision_id: UUID
+    head_version: int
+    status: ActivityStatus
+    canonical_state: bytes
+
+
+@dataclass(frozen=True, slots=True)
 class ActivityOutreachSource:
     revision_id: UUID
     head_version: int
@@ -559,6 +568,9 @@ class ActivityReadPort(Protocol):
     async def context_summary(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID, enabled: bool
     ) -> bytes: ...
+    async def context_target(
+        self, transaction: PostgreSQLTransaction, *, subject_id: UUID, activity_id: UUID
+    ) -> ActivityContextTarget | None: ...
     async def scheduling_heads(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID
     ) -> tuple[ActivityHeadSnapshot, ...]: ...
@@ -643,6 +655,7 @@ __all__ = (
     "ActivityCommitContext",
     "ActivityCommitPort",
     "ActivityCommitResult",
+    "ActivityContextTarget",
     "ActivityFocusReadPort",
     "ActivityHeadSnapshot",
     "ActivityId",

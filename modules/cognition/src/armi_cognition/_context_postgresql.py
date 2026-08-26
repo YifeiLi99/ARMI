@@ -181,13 +181,15 @@ class PostgreSQLCognitionContextLifecycle:
         episode_id: UUID,
         manifest_artifact_id: UUID,
         compiled_artifact_id: UUID,
-        context_digest: Digest,
+        manifest_digest: Digest,
+        compiled_digest: Digest,
     ) -> CognitionContextEpisodeSnapshot:
         row = await (
             await transaction.execute(
                 """UPDATE armi.cognitive_episodes SET status='prepared',
                       context_manifest_artifact_id=%s,
-                      compiled_context_artifact_id=%s, context_digest=%s,
+                      compiled_context_artifact_id=%s,
+                      context_manifest_digest=%s, compiled_context_digest=%s,
                       prepared_at=statement_timestamp()
                WHERE cognitive_episode_id=%s AND status='preparing'
                RETURNING cognitive_episode_id, opportunity_id, subject_id, scene_id,
@@ -197,7 +199,8 @@ class PostgreSQLCognitionContextLifecycle:
                 (
                     manifest_artifact_id,
                     compiled_artifact_id,
-                    context_digest.value,
+                    manifest_digest.value,
+                    compiled_digest.value,
                     episode_id,
                 ),
             )

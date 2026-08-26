@@ -58,7 +58,7 @@ from armi_runtime_foundation import (
 from armi_sleep.api import MaintenancePhase, SleepReadPort
 from armi_web_observation.api import WebContextReadPort
 
-_MECHANISM = "armi.context-compiler.layered-v2"
+_MECHANISM = "armi.context-compiler.layered-v3"
 
 
 class RuntimeCognitionState:
@@ -111,7 +111,8 @@ class RuntimeContextEpisodeAdapter:
         episode_id: UUID,
         manifest_artifact_id: UUID,
         compiled_artifact_id: UUID,
-        context_digest: Digest,
+        manifest_digest: Digest,
+        compiled_digest: Digest,
     ) -> ContextEpisodeState:
         return _context_episode(
             await self._owner.mark_context_prepared(
@@ -119,7 +120,8 @@ class RuntimeContextEpisodeAdapter:
                 episode_id=episode_id,
                 manifest_artifact_id=manifest_artifact_id,
                 compiled_artifact_id=compiled_artifact_id,
-                context_digest=context_digest,
+                manifest_digest=manifest_digest,
+                compiled_digest=compiled_digest,
             )
         )
 

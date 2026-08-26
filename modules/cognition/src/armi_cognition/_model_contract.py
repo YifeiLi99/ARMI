@@ -63,6 +63,7 @@ from ._creator_branch_contract import (
 
 if TYPE_CHECKING:
     from ._reflection_contract import OwnerReflectionCandidate
+from ._action_cardinality import validate_action_kinds
 from ._dialogue_contract import (
     DIALOGUE_CANDIDATE_VERSION,
     CreatorDialogueCandidate,
@@ -111,7 +112,7 @@ MODEL_REQUEST_VERSION = "armi.model-request.v1"
 DIALOGUE_MODEL_INPUT_VERSION = "armi.creator-dialogue-input.v6"
 CREATOR_BRANCH_MODEL_INPUT_VERSION = DIALOGUE_MODEL_INPUT_VERSION
 DialoguePromptVersion = Literal["armi.dialogue-prompt.v4"]
-CANDIDATE_VERSION = "armi.cognition-candidate.v8"
+CANDIDATE_VERSION = "armi.cognition-candidate.v9"
 ACTIVE_MODEL_ID = "doubao-seed-evolving"
 ACTIVE_MODEL_ADAPTER = "armi.model-adapter.volcengine-ark-responses-v1"
 ACTIVE_VERSION_POLICY = "provider_evolving_alias"
@@ -526,7 +527,7 @@ class CandidateUncertainty(_StrictModel):
 
 
 class CognitionCandidate(_StrictModel):
-    schema_version: Literal["armi.cognition-candidate.v8"]
+    schema_version: Literal["armi.cognition-candidate.v9"]
     base: CandidateBase
     disposition: Literal[
         "change",
@@ -543,12 +544,17 @@ class CognitionCandidate(_StrictModel):
     relationship_changes: tuple[RelationshipChangeProposal, ...] = Field(max_length=4)
     activity_changes: tuple[ActivityChangeProposal, ...] = Field(max_length=4)
     capability_requests: tuple[CapabilityRequestProposal, ...] = Field(max_length=4)
-    action_choices: tuple[ActionChoiceProposal, ...] = Field(max_length=4)
+    action_choices: tuple[ActionChoiceProposal, ...] = Field(max_length=2)
     web_research_requests: tuple[WebResearchRequestProposal, ...] = Field(
         default=(), max_length=1
     )
     uncertainties: tuple[CandidateUncertainty, ...] = Field(max_length=8)
     reason_summary: Summary
+
+    @model_validator(mode="after")
+    def validate_action_cardinality(self) -> CognitionCandidate:
+        validate_action_kinds(item.payload.action_kind for item in self.action_choices)
+        return self
 
 
 _CANDIDATE_ADAPTER = TypeAdapter(CognitionCandidate)

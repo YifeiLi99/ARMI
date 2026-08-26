@@ -112,7 +112,7 @@ class PostgreSQLWebEvidenceRepository:
                 """
                 SELECT intent.web_research_intent_id, intent.subject_id,
                        intent.source_opportunity_id, intent.scene_id,
-                       intent.context_party_id, intent.query_artifact_id,
+                       intent.creator_party_id, intent.query_artifact_id,
                        intent.query_digest, intent.idempotency_key,
                        intent.trace_id
                 FROM armi.web_research_intents AS intent
@@ -205,7 +205,7 @@ class PostgreSQLWebEvidenceRepository:
             await connection.execute(
                 """
                 SELECT intent.web_research_intent_id, intent.subject_id,
-                       intent.scene_id, intent.context_party_id, intent.trace_id
+                       intent.scene_id, intent.creator_party_id, intent.trace_id
                 FROM armi.web_research_intents AS intent
                 WHERE intent.web_observation_request_id = %s
                   AND intent.status = 'admitted'

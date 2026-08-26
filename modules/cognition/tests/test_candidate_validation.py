@@ -606,7 +606,7 @@ def test_other_human_dialogue_uses_party_scoped_v22_change_set(
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None
     assert result.change_set.disposition.value == disposition
-    assert b"armi.subject-change-set.v29" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v30" in result.change_set.canonical_bytes
     reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
     assert reparsed.disposition.value == disposition
     if draft_type is not None:
@@ -1007,7 +1007,7 @@ def test_sleep_decision_binds_window_authority(kind: str, disposition: str) -> N
     assert result.change_set is not None
     assert _sleep(result.change_set)[0].cycle_anchor_ref == ids[6]
     assert result.change_set.disposition.value == disposition
-    assert b"armi.subject-change-set.v29" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v30" in result.change_set.canonical_bytes
     reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
     assert _sleep(reparsed) == _sleep(result.change_set)
 
@@ -1100,7 +1100,7 @@ def test_memory_maintenance_commits_change_or_explicit_no_change() -> None:
     decision = _sleep(changed.change_set)[0]
     assert decision.outcome is MaintenanceWorkOutcome.MEMORY_CHANGED
     assert decision.memory_proposal_ref == "proposal:1"
-    assert b"armi.subject-change-set.v29" in changed.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v30" in changed.change_set.canonical_bytes
     assert parse_subject_change_set(changed.change_set.canonical_bytes) == (
         changed.change_set
     )
@@ -1272,7 +1272,7 @@ def test_mind_and_prompt_reflections_commit_only_the_target_owner() -> None:
 
 def _candidate(context: CandidateValidationContext) -> dict[str, object]:
     return {
-        "schema_version": "armi.cognition-candidate.v8",
+        "schema_version": "armi.cognition-candidate.v9",
         "base": {
             "subject_version": context.base_subject_version,
             "state_epoch": context.base_state_epoch,
@@ -1366,7 +1366,7 @@ def test_autonomous_start_binds_activity_authority_without_scene() -> None:
     assert (
         bootstrap_mood_cognition().decode(mood.canonical_payload).appraisal is not None
     )
-    assert b"armi.subject-change-set.v29" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v30" in result.change_set.canonical_bytes
     assert str(opportunity_id).encode() not in result.change_set.canonical_bytes
 
 
@@ -1461,7 +1461,7 @@ def test_attention_engagement_binds_authority_and_round_trips_change_set_v8() ->
     )
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None
-    assert b"armi.subject-change-set.v29" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v30" in result.change_set.canonical_bytes
     decision = _activities(result.change_set)[0]
     assert decision.activity_id == activity_id
     assert decision.current_revision_id == revision_id
@@ -1599,7 +1599,7 @@ def test_internal_activity_work_maps_real_outcomes_into_atomic_change_set_v18(
 
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None
-    assert b"armi.subject-change-set.v29" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v30" in result.change_set.canonical_bytes
     assert _activities(result.change_set)[0].decision_kind.value == decision_kind
     parsed = parse_subject_change_set(result.change_set.canonical_bytes)
     assert _activities(parsed) == _activities(result.change_set)
@@ -1943,7 +1943,7 @@ def test_candidate_v5_web_research_is_typed_deterministic_and_inactive_by_defaul
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v8"
+    candidate["schema_version"] = "armi.cognition-candidate.v9"
     candidate["experiences"] = []
     candidate["component_changes"] = []
     candidate["action_choices"] = []
@@ -1978,7 +1978,7 @@ def test_candidate_v5_web_research_is_typed_deterministic_and_inactive_by_defaul
     assert first.change_set is not None and second.change_set is not None
     assert first.change_set.canonical_bytes == second.change_set.canonical_bytes
     assert len(first.change_set.web_research_requests) == 1
-    assert b"armi.subject-change-set.v29" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v30" in first.change_set.canonical_bytes
 
     candidate["web_research_requests"][0]["payload"]["query"] = (  # type: ignore[index]
         "https://example.com/"
@@ -2027,7 +2027,7 @@ def test_compact_dialogue_v4_web_research_binds_authority_deterministically() ->
     assert first.status is CandidateValidationStatus.ACCEPTED
     assert first.change_set is not None and second.change_set is not None
     assert first.change_set.canonical_bytes == second.change_set.canonical_bytes
-    assert b"armi.subject-change-set.v29" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v30" in first.change_set.canonical_bytes
     assert (
         first.change_set.web_research_requests[0].query_bytes.decode("utf-8")
         == candidate["query"]
@@ -2063,7 +2063,7 @@ def test_compact_dialogue_exact_life_query_is_typed_and_rejects_audit_scope() ->
     assert first.status is CandidateValidationStatus.ACCEPTED
     assert first.change_set is not None and second.change_set is not None
     assert first.change_set.canonical_bytes == second.change_set.canonical_bytes
-    assert b"armi.subject-change-set.v29" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v30" in first.change_set.canonical_bytes
     assert len(first.change_set.exact_life_queries) == 1
     query = first.change_set.exact_life_queries[0]
     assert query.record_kind == LifeRecordKind("memory")
@@ -2179,7 +2179,7 @@ def test_exact_life_query_result_supports_reply_without_becoming_memory() -> Non
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v8"
+    candidate["schema_version"] = "armi.cognition-candidate.v9"
     candidate["understanding"] = {
         "text": "我刚查到一条相关记录。",
         "fact_class": "objective_fact",
@@ -2296,7 +2296,7 @@ def test_candidate_v6_codex_delegation_requires_exact_task_and_capability_basis(
         "private",
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v8"
+    candidate["schema_version"] = "armi.cognition-candidate.v9"
     candidate["experiences"] = []
     candidate["component_changes"] = []
     candidate["capability_requests"] = [
@@ -2370,7 +2370,7 @@ def test_candidate_v6_codex_delegation_requires_exact_task_and_capability_basis(
         first.change_set.codex_delegations[0].atomic_group_ref
         == first.change_set.capability_requests[0].atomic_group_ref
     )
-    assert b"armi.subject-change-set.v29" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v30" in first.change_set.canonical_bytes
 
     mismatched = replace(active_context, codex_task_sources=())
     rejected = DeterministicCandidateValidator(mismatched).validate(
@@ -2412,7 +2412,7 @@ def test_creator_reply_capability_requires_catalog_scene_and_evidence() -> None:
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v8"
+    candidate["schema_version"] = "armi.cognition-candidate.v9"
     candidate["experiences"] = []
     candidate["component_changes"] = []
     candidate["action_choices"] = []
@@ -2446,7 +2446,7 @@ def test_creator_reply_capability_requires_catalog_scene_and_evidence() -> None:
     assert scope.subject_id == context.subject_id
     assert scope.scene_id == context.scene_id
     assert scope.creator_party_id == context.creator_party_id
-    assert b"armi.subject-change-set.v29" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v30" in result.change_set.canonical_bytes
 
     candidate["capability_requests"][0]["basis_refs"] = ["ctx:2", "ctx:4"]  # type: ignore[index]
     rejected = DeterministicCandidateValidator(context).validate(
@@ -2479,7 +2479,7 @@ def test_creator_reply_binds_authority_scope_and_forbids_model_owned_ids() -> No
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v8"
+    candidate["schema_version"] = "armi.cognition-candidate.v9"
     candidate["experiences"] = []
     candidate["component_changes"] = []
     candidate["capability_requests"] = [
@@ -2531,7 +2531,7 @@ def test_creator_reply_binds_authority_scope_and_forbids_model_owned_ids() -> No
     assert reply.subject_id == context.subject_id
     assert reply.scene_id == context.scene_id
     assert reply.creator_party_id == context.creator_party_id
-    assert b"armi.subject-change-set.v29" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v30" in result.change_set.canonical_bytes
     reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
     assert reparsed.canonical_bytes == result.change_set.canonical_bytes
 
@@ -2601,7 +2601,7 @@ def test_compact_dialogue_reply_is_bound_to_authority_deterministically() -> Non
     assert reply.subject_id == context.subject_id
     assert reply.scene_id == context.scene_id
     assert reply.creator_party_id == context.creator_party_id
-    assert b"armi.subject-change-set.v29" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v30" in first.change_set.canonical_bytes
     assert parse_subject_change_set(
         first.change_set.canonical_bytes
     ).canonical_bytes == (first.change_set.canonical_bytes)
@@ -2893,7 +2893,7 @@ def test_compact_dialogue_creates_and_revises_subject_prompt_from_experience() -
     )
     assert created.status is CandidateValidationStatus.ACCEPTED
     assert created.change_set is not None
-    assert b"armi.subject-change-set.v29" in created.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v30" in created.change_set.canonical_bytes
     prompt = _prompts(created.change_set)[0]
     assert prompt.prompt_document_id == document_id
     assert prompt.current_revision_id is None
@@ -3245,7 +3245,7 @@ def test_compact_dialogue_creates_runtime_owned_life_material_deterministically(
     assert first.status is CandidateValidationStatus.ACCEPTED
     assert first.change_set is not None and repeated.change_set is not None
     assert first.change_set.canonical_bytes == repeated.change_set.canonical_bytes
-    assert b"armi.subject-change-set.v29" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v30" in first.change_set.canonical_bytes
     assert len(_materials(first.change_set)) == 1
     material = _materials(first.change_set)[0]
     assert isinstance(material, CandidateLifeMaterialDraft)
@@ -3578,7 +3578,7 @@ def test_compact_dialogue_establishes_relationship_from_same_experience() -> Non
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None and repeated.change_set is not None
     assert result.change_set.canonical_bytes == repeated.change_set.canonical_bytes
-    assert b"armi.subject-change-set.v29" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v30" in result.change_set.canonical_bytes
     assert len(result.change_set.experiences) == 1
     assert len(_relationships(result.change_set)) == 1
     assert {item.atomic_group_ref for item in result.change_set.action_choices} == {
@@ -4154,7 +4154,7 @@ def test_compact_dialogue_forms_grounded_reported_memory_in_same_change_set() ->
     assert memory.source_experience_ref == result.change_set.experiences[0].proposal_ref
     assert memory.source_kind is MemorySourceKind.REPORTED
     assert memory.mechanism_identity == "armi.memory-formation.contextual-v1"
-    assert b"armi.subject-change-set.v29" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v30" in result.change_set.canonical_bytes
     reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
     assert _memories(reparsed) == _memories(result.change_set)
     assert any(
@@ -4272,7 +4272,7 @@ def test_compact_dialogue_reinterprets_current_memory_without_overwriting_histor
     assert revision.accessibility is MemoryAccessibility.AVAILABLE
     assert revision.related_memory_id == related_id
     assert revision.relation_kind is MemoryRelationKind.CONTRADICTS
-    assert b"armi.subject-change-set.v29" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v30" in result.change_set.canonical_bytes
     assert _memories(parse_subject_change_set(result.change_set.canonical_bytes)) == (
         revision,
     )
@@ -4495,7 +4495,7 @@ def test_creator_reply_is_admitted_as_exact_action_choice() -> None:
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v8"
+    candidate["schema_version"] = "armi.cognition-candidate.v9"
     candidate["experiences"] = []
     candidate["component_changes"] = []
     candidate["capability_requests"] = [
@@ -4562,7 +4562,7 @@ def test_formal_no_action_is_subjective_and_not_empty_no_change() -> None:
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v8"
+    candidate["schema_version"] = "armi.cognition-candidate.v9"
     candidate["disposition"] = "no_action"
     candidate["experiences"] = []
     candidate["component_changes"] = []

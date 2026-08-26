@@ -42,6 +42,12 @@ from .candidates import (
     CandidateValidationId,
     CandidateViolation,
 )
+from .cognition_purpose import (
+    COGNITION_PURPOSES,
+    CognitionPurpose,
+    CognitionPurposeDefinition,
+    require_cognition_purpose,
+)
 from .context import CognitiveEpisodeId
 from .creator_events import (
     CreatorEventViolation,
@@ -148,6 +154,7 @@ from .transactions import (
 )
 
 __all__: tuple[str, ...] = (
+    "COGNITION_PURPOSES",
     "LIFE_RECORD_PROJECTION_VERSION",
     "OTHER_HUMAN_RECORD_PROJECTION_VERSION",
     "RESPONSIBILITY_BINDINGS",
@@ -185,6 +192,8 @@ __all__: tuple[str, ...] = (
     "CandidateRejection",
     "CandidateValidationId",
     "CandidateViolation",
+    "CognitionPurpose",
+    "CognitionPurposeDefinition",
     "CognitiveEpisodeId",
     "CreatorEventViolation",
     "CreatorProjectionInvalidation",
@@ -263,5 +272,6 @@ __all__: tuple[str, ...] = (
     "WorkType",
     "WorkViolation",
     "ordered_custody_requests",
+    "require_cognition_purpose",
     "responsibility_binding",
 )

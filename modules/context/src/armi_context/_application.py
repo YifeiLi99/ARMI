@@ -1197,16 +1197,17 @@ def _context_request(
                 profile,
                 ContextSection.ACTIVITY,
                 "current_activity",
-                snapshot.opportunity_source_ref,
-                snapshot.opportunity_source_version,
-                snapshot.activity_summary_bytes,
+                target_activity.revision_id,
+                target_activity.head_version,
+                target_activity.canonical_state,
                 ContextTrustClass.RUNTIME_AUTHORITY,
                 required=snapshot.purpose
                 in {"consider_activity_attention", "consider_activity_internal_work"},
                 relevance=100,
-                source_kind=snapshot.opportunity_source_kind,
+                source_kind="activity_revision",
             )
-            if snapshot.purpose != "consider_other_human_input"
+            if (target_activity := getattr(snapshot, "target_activity", None))
+            is not None
             else _unavailable(profile, ContextSection.ACTIVITY, "activity"),
             _item(
                 profile,

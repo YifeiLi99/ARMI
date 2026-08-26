@@ -23,7 +23,7 @@ class PostgreSQLCognitionExactLifeQuery:
             await transaction.execute(
                 """
                 SELECT exact_life_query_intent_id, subject_id,
-                       source_opportunity_id, scene_id, context_party_id,
+                       source_opportunity_id, scene_id, creator_party_id,
                        record_kind, query_text, result_limit,
                        query_digest, trace_id
                 FROM armi.exact_life_query_intents

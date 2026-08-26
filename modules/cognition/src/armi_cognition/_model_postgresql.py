@@ -118,7 +118,7 @@ class PostgreSQLCognitiveModelRepository:
                     episode.base_subject_version,
                     episode.base_state_epoch,
                     episode.bundle_activation_id,
-                    episode.context_digest,
+                    episode.compiled_context_digest,
                     episode.compiled_context_artifact_id,
                     episode.trace_id
                 FROM armi.cognitive_episodes AS episode

@@ -84,7 +84,7 @@ class PostgreSQLCodexReadOwner:
                 LEFT JOIN armi.codex_verification_results AS verification
                   ON verification.effect_id=%s
                 WHERE source.codex_task_source_id=%s
-                ORDER BY verification.created_at DESC NULLS LAST
+                ORDER BY verification.completed_at DESC NULLS LAST
                 LIMIT 1
                 """,
                 (effect_id, task_source_id),

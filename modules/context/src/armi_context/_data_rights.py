@@ -55,6 +55,12 @@ _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
            FROM armi.context_embedding_projections AS source ORDER BY to_jsonb(source)::text""",
     ),
+    (
+        "context_embedding_source_sets",
+        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
+           FROM armi.context_embedding_source_sets AS source
+           ORDER BY to_jsonb(source)::text""",
+    ),
 )
 
 

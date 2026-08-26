@@ -264,7 +264,7 @@ def test_maintenance_work_contract_is_phase_bounded_and_context_referenced() -> 
 
 def _candidate() -> dict[str, object]:
     return {
-        "schema_version": "armi.cognition-candidate.v8",
+        "schema_version": "armi.cognition-candidate.v9",
         "base": {
             "subject_version": 0,
             "state_epoch": 0,
@@ -300,7 +300,7 @@ def _dialogue_candidate() -> dict[str, object]:
 def _request(binding: ModelBinding):
     context = json.dumps(
         {
-            "schema_version": "armi.compiled-context.v2",
+            "schema_version": "armi.compiled-context.v3",
             "purpose": "consider_creator_input",
             "layers": [
                 {
@@ -592,7 +592,7 @@ def test_creator_dialogue_request_prioritizes_exact_recent_turns_and_local_refs(
             )
     compiled = json.dumps(
         {
-            "schema_version": "armi.compiled-context.v2",
+            "schema_version": "armi.compiled-context.v3",
             "purpose": "consider_creator_input",
             "layers": [
                 {"layer": layer, "items": layer_items[layer]} for layer in layer_names
@@ -644,7 +644,7 @@ def test_other_human_dialogue_uses_the_same_compact_native_message_plan() -> Non
     source_id = "01980f7d-7b8f-7e2a-8a11-2ab8e1234571"
     compiled = json.dumps(
         {
-            "schema_version": "armi.compiled-context.v2",
+            "schema_version": "armi.compiled-context.v3",
             "purpose": "consider_other_human_input",
             "layers": [
                 {"layer": "stable_prefix", "items": []},

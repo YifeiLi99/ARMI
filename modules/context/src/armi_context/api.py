@@ -534,7 +534,8 @@ class ContextEpisodePort(Protocol):
         episode_id: UUID,
         manifest_artifact_id: UUID,
         compiled_artifact_id: UUID,
-        context_digest: Digest,
+        manifest_digest: Digest,
+        compiled_digest: Digest,
     ) -> ContextEpisodeState: ...
 
     async def fail_context(

@@ -57,5 +57,5 @@ class PromptRecoveryParticipant:
                     "prompt.current_document_count", state.document_count
                 ),
             ),
-            critical_artifact_ids=(state.fixed_artifact_id,) if valid else (),
+            critical_artifact_ids=state.active_artifact_ids if valid else (),
         )

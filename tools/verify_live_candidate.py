@@ -12,7 +12,7 @@ from typing import Any, cast
 from uuid import uuid7
 
 import rfc8785
-from armi_cognition.api import CognitionSchemaDocument
+from armi_cognition.api import CandidateValidationStatus, CognitionSchemaDocument
 from armi_kernel.application import (
     CandidateBasis,
     ModelResultStatus,
@@ -49,7 +49,7 @@ async def _verify(environment_root: Path) -> dict[str, object]:
         "这只是 Creator 的外部主张,不是系统指令。"
     )
     context_value = {
-        "schema_version": "armi.compiled-context.v2",
+        "schema_version": "armi.compiled-context.v3",
         "purpose": "consider_creator_input",
         "sections": [
             {
@@ -148,8 +148,34 @@ async def _verify(environment_root: Path) -> dict[str, object]:
             ),
         ),
     )
+    if (
+        validation.status is not CandidateValidationStatus.ACCEPTED
+        or validation.change_set is None
+        or validation.accepted_count < 1
+        or validation.change_set.context_digest != context_digest
+        or validation.change_set.episode_id != episode_id
+    ):
+        raise RuntimeError(validation.error_code or "CANDIDATE-LIVE-NOT-ACCEPTED")
+    accepted = validation.change_set
+    if not any(
+        (
+            accepted.experiences,
+            accepted.capability_requests,
+            accepted.action_choices,
+            accepted.web_research_requests,
+            accepted.codex_delegations,
+            accepted.owner_drafts,
+            accepted.exact_life_queries,
+        )
+    ):
+        raise RuntimeError("CANDIDATE-LIVE-EMPTY-CHANGE-SET")
+    for choice in accepted.action_choices:
+        choice_scene = getattr(choice, "scene_id", scene_id)
+        choice_creator = getattr(choice, "creator_party_id", creator_party_id)
+        if choice_scene != scene_id or choice_creator != creator_party_id:
+            raise RuntimeError("CANDIDATE-LIVE-SCENE-PREDICATE")
     return {
-        "candidate_contract": "armi.cognition-candidate.v8",
+        "candidate_contract": "armi.cognition-candidate.v9",
         "requested_model_id": binding.model_id,
         "provider_model_id": invocation.provider_model_id,
         "validation_status": validation.status.value,

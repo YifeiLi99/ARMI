@@ -14,6 +14,7 @@ from armi_capability.api import CapabilityRequestDraft
 from armi_codex.api import CodexDelegationDraft
 from armi_expression.api import ResponseChoiceDraft
 from armi_kernel.application import (
+    COGNITION_PURPOSES,
     ArtifactId,
     ArtifactPublication,
     ArtifactRef,
@@ -32,6 +33,7 @@ from armi_kernel.application import (
     ModelBinding,
     ModelInvocationResult,
     ModelRequest,
+    require_cognition_purpose,
 )
 from armi_kernel.contracts import Digest, TraceId
 from armi_runtime_foundation import (
@@ -234,6 +236,12 @@ class CognitionContextEpisodeDraft:
     trace_id: TraceId
     maintenance_trigger_kind: str | None = None
 
+    def __post_init__(self) -> None:
+        purpose = require_cognition_purpose(self.purpose)
+        definition = COGNITION_PURPOSES[purpose]
+        if (definition.scene_requirement == "required") != (self.scene_id is not None):
+            raise ValueError("CANDIDATE-PURPOSE-SCENE")
+
 
 @dataclass(frozen=True, slots=True)
 class CognitionExperienceContextItem:
@@ -288,7 +296,8 @@ class CognitionContextLifecyclePort(Protocol):
         episode_id: UUID,
         manifest_artifact_id: UUID,
         compiled_artifact_id: UUID,
-        context_digest: Digest,
+        manifest_digest: Digest,
+        compiled_digest: Digest,
     ) -> CognitionContextEpisodeSnapshot: ...
 
     async def fail_context(

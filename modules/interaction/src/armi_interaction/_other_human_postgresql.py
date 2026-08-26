@@ -82,7 +82,7 @@ class OtherHumanInputRepository:
                  AND scene.scene_kind = 'other_human_dialogue'
                 JOIN armi.scene_timeline_items AS item
                   ON item.scene_id = scene.scene_id
-                 AND item.source_kind IN ('other_human_input','other_human_response')
+                 AND item.source_kind IN ('other_human_input','party_response')
                 WHERE party.party_kind = 'other_human'
                   AND (%s::uuid IS NULL OR party.party_id < %s::uuid)
                 GROUP BY party.party_id, party.declared_identity_key,
@@ -121,7 +121,7 @@ class OtherHumanInputRepository:
                 FROM armi.interaction_scenes AS scene
                 JOIN armi.scene_timeline_items AS item
                   ON item.scene_id = scene.scene_id
-                 AND item.source_kind IN ('other_human_input','other_human_response')
+                 AND item.source_kind IN ('other_human_input','party_response')
                 WHERE scene.primary_party_id = %s
                   AND scene.scene_kind = 'other_human_dialogue'
                   AND (%s::uuid IS NULL OR scene.scene_id < %s::uuid)
@@ -179,7 +179,7 @@ class OtherHumanInputRepository:
                 JOIN armi.interaction_scenes AS scene ON scene.scene_id = item.scene_id
                 WHERE scene.primary_party_id = %s AND scene.scene_id = %s
                   AND scene.scene_kind = 'other_human_dialogue'
-                  AND item.source_kind IN ('other_human_input','other_human_response')
+                  AND item.source_kind IN ('other_human_input','party_response')
                   AND (%s::timestamptz IS NULL OR
                        (item.occurred_at, item.timeline_item_id) <
                        (%s::timestamptz, %s::uuid))
