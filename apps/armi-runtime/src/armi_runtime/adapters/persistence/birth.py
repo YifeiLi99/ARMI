@@ -15,7 +15,6 @@ from armi_mood.api import MoodBirthPort
 from armi_prompt.api import (
     PromptBirthPort,
     PromptViolation,
-    probe_prompt_continuity,
 )
 from armi_runtime_foundation import (
     PostgreSQLAdminParameter,
@@ -37,6 +36,9 @@ def probe_continuity(
     *,
     birth_contract_digest: Digest,
     interaction: InteractionBirthPort,
+    subject_state: SubjectStateBirthPort,
+    mood: MoodBirthPort,
+    prompts: PromptBirthPort,
 ) -> ContinuityState:
     try:
         with psycopg.connect(conninfo, autocommit=True) as connection:
@@ -74,7 +76,10 @@ def probe_continuity(
                 interaction_counts = interaction.continuity(
                     _BirthAdminTransaction(connection), subject_id=None
                 )
-                prompt_counts = probe_prompt_continuity(conninfo, subject_id=None)
+                transaction = _BirthAdminTransaction(connection)
+                prompt_counts = prompts.continuity(transaction, subject_id=None)
+                subject_counts = subject_state.continuity(transaction, subject_id=None)
+                mood_counts = mood.continuity(transaction, subject_id=None)
                 return (
                     ContinuityState.UNBORN
                     if counts is not None
@@ -84,21 +89,27 @@ def probe_continuity(
                     and interaction_counts.timeline_count == 0
                     and prompt_counts.document_count == 0
                     and prompt_counts.revision_count == 0
+                    and subject_counts.head_count == 0
+                    and subject_counts.revision_count == 0
+                    and mood_counts.head_count == 0
+                    and mood_counts.revision_count == 0
                     else ContinuityState.INVALID
                 )
+            transaction = _BirthAdminTransaction(connection)
             interaction_counts = interaction.continuity(
-                _BirthAdminTransaction(connection), subject_id=rows[0][0]
+                transaction, subject_id=rows[0][0]
             )
-    except psycopg.Error, PromptViolation:
+            prompt_counts = prompts.continuity(transaction, subject_id=rows[0][0])
+            subject_counts = subject_state.continuity(
+                transaction, subject_id=rows[0][0]
+            )
+            mood_counts = mood.continuity(transaction, subject_id=rows[0][0])
+    except psycopg.Error, PromptViolation, RuntimeError:
         return ContinuityState.INVALID
     if len(rows) != 1:
         return ContinuityState.INVALID
     row = rows[0]
     if str(row[1]) != birth_contract_digest.value:
-        return ContinuityState.INVALID
-    try:
-        prompt_counts = probe_prompt_continuity(conninfo, subject_id=row[0])
-    except PromptViolation:
         return ContinuityState.INVALID
     counts = tuple(int(value) for value in row[2:])
     if (
@@ -106,6 +117,10 @@ def probe_continuity(
         or interaction_counts.party_count != 2
         or prompt_counts.document_count != 3
         or prompt_counts.revision_count < 1
+        or subject_counts.head_count != 3
+        or subject_counts.revision_count < 3
+        or mood_counts.head_count != 1
+        or mood_counts.revision_count < 1
         or interaction_counts.default_scene_count != 1
     ):
         return ContinuityState.INVALID

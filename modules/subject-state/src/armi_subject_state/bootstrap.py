@@ -8,7 +8,7 @@ from armi_runtime_foundation import RecoveryParticipant
 from ._admin import PostgreSQLSubjectStateAdmin
 from ._application import SubjectStateApplication
 from ._data_rights import PostgreSQLSubjectStateDataRightsParticipant
-from ._postgresql import PostgreSQLSubjectStateOwner, probe_subject_state_counts
+from ._postgresql import PostgreSQLSubjectStateOwner
 from ._recovery import SubjectStateRecoveryParticipant
 from .api import (
     SubjectStateAdminCorrectionPort,
@@ -69,5 +69,4 @@ __all__ = (
     "bootstrap_subject_state_cognition",
     "bootstrap_subject_state_data_rights",
     "bootstrap_subject_state_recovery",
-    "probe_subject_state_counts",
 )

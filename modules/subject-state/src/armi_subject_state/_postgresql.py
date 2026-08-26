@@ -6,14 +6,14 @@ import json
 from typing import Any, cast
 from uuid import UUID, uuid7
 
-import psycopg
 import rfc8785
-from armi_runtime_foundation import PostgreSQLTransaction
+from armi_runtime_foundation import PostgreSQLAdminTransaction, PostgreSQLTransaction
 
 from ._application import SubjectStateApplication
 from .api import (
     CandidateSubjectStateDraft,
     LifeModeHead,
+    SubjectStateBirthContinuity,
     SubjectStateHead,
     SubjectStateKind,
     SubjectStateLifeRecordItem,
@@ -50,23 +50,32 @@ _INITIAL: dict[SubjectStateKind, dict[str, object]] = {
 }
 
 
-def probe_subject_state_counts(conninfo: str) -> tuple[int, int]:
-    try:
-        with psycopg.connect(conninfo, autocommit=True) as connection:
-            row = connection.execute(
-                "SELECT (SELECT count(*) FROM armi.subject_component_heads), "
-                "(SELECT count(*) FROM armi.subject_component_revisions)"
-            ).fetchone()
-    except psycopg.Error:
-        return (-1, -1)
-    return (-1, -1) if row is None else (int(row[0]), int(row[1]))
-
-
 class PostgreSQLSubjectStateOwner:
     __slots__ = ("_application",)
 
     def __init__(self, application: SubjectStateApplication) -> None:
         self._application = application
+
+    def continuity(
+        self, transaction: PostgreSQLAdminTransaction, *, subject_id: UUID | None
+    ) -> SubjectStateBirthContinuity:
+        if subject_id is None:
+            row = transaction.execute(
+                "SELECT (SELECT count(*) FROM armi.subject_component_heads),"
+                "(SELECT count(*) FROM armi.subject_component_revisions)"
+            ).fetchone()
+        else:
+            row = transaction.execute(
+                "SELECT (SELECT count(*) FROM armi.subject_component_heads "
+                "WHERE subject_id=%s),(SELECT count(*) FROM "
+                "armi.subject_component_revisions WHERE subject_id=%s)",
+                (subject_id, subject_id),
+            ).fetchone()
+        if row is None:
+            raise SubjectStateViolation("SUBJECT-STATE-CONTINUITY")
+        return SubjectStateBirthContinuity(
+            int(cast(int, row[0])), int(cast(int, row[1]))
+        )
 
     async def open(self) -> None:
         return None
@@ -328,4 +337,4 @@ class PostgreSQLSubjectStateOwner:
             )
 
 
-__all__ = ("PostgreSQLSubjectStateOwner", "probe_subject_state_counts")
+__all__ = ("PostgreSQLSubjectStateOwner",)

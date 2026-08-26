@@ -21,7 +21,7 @@ def _bundle(root: Path) -> Path:
     dump.write_bytes(b"custom-database-dump")
     artifact.write_bytes(b"artifact-content")
     manifest = {
-        "schema_version": "armi.recovery-backup.v3",
+        "schema_version": "armi.recovery-backup.v4",
         "backup_id": "019c0000-0000-7000-8000-000000000001",
         "environment_id": "019c0000-0000-7000-8000-000000000002",
         "created_at": "2026-08-08T00:00:00Z",

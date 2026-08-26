@@ -1,461 +1,316 @@
-"""Run the single paid S039 delegation, runner and result-acceptance gate."""
+"""Verify Creator-to-Codex lifecycle through production interfaces only."""
 
 from __future__ import annotations
 
 import argparse
-import asyncio
+import http.client
 import json
+import sys
 import time
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
-from uuid import UUID, uuid7
+from uuid import uuid7
 
-import rfc8785
-import verify_codex_runner
-from armi_capability.api import CapabilityRequestDraft, CodexDelegatedWorkScope
-from armi_codex.api import CodexDelegationDraft
-from armi_cognition.api import CandidateValidationStatus, CognitionSchemaDocument
-from armi_kernel.application import (
-    CandidateBasis,
-    ModelResultStatus,
+import psycopg
+from armi_kernel.application import CredentialPurpose
+from armi_runtime.composition.environment import prepare_environment
+
+
+@dataclass(frozen=True, slots=True)
+class _Lifecycle:
+    task_source_id: str | None
+    first_episode_status: str | None
+    capability_request_id: str | None
+    capability_request_version: int | None
+    capability_status: str | None
+    grant_status: str | None
+    effect_id: str | None
+    effect_status: str | None
+    verification_id: str | None
+    verification_status: str | None
+    result_source_id: str | None
+    second_episode_status: str | None
+    second_commit_id: str | None
+    experience_id: str | None
+
+
+_LIFECYCLE_SQL = """
+WITH task AS (
+    SELECT source.codex_task_source_id FROM armi.codex_task_sources AS source
+    WHERE source.trace_id=%s
+), first_episode AS (
+    SELECT episode.cognitive_episode_id,episode.status FROM task
+    JOIN armi.external_evidence AS evidence
+      ON evidence.codex_task_source_id=task.codex_task_source_id
+    JOIN armi.opportunities AS opportunity ON opportunity.evidence_id=evidence.evidence_id
+    JOIN armi.cognitive_episodes AS episode
+      ON episode.opportunity_id=opportunity.opportunity_id
+    ORDER BY episode.prepared_at NULLS LAST,episode.cognitive_episode_id LIMIT 1
+), first_commit AS (
+    SELECT commit.subject_commit_id FROM first_episode
+    JOIN armi.subject_commits AS commit
+      ON commit.cognitive_episode_id=first_episode.cognitive_episode_id
+), request AS (
+    SELECT capability.capability_request_id,capability.request_version,
+           capability.current_status FROM first_commit
+    JOIN armi.capability_requests AS capability
+      ON capability.subject_commit_id=first_commit.subject_commit_id
+    WHERE capability.capability_kind='codex.delegated-work'
+), effect AS (
+    SELECT effect.effect_id,effect.status FROM task
+    JOIN armi.action_intent_revisions AS revision
+      ON revision.codex_task_source_id=task.codex_task_source_id
+    JOIN armi.effects AS effect
+      ON effect.action_intent_revision_id=revision.action_intent_revision_id
+    ORDER BY effect.registered_at,effect.effect_id LIMIT 1
+), verification AS (
+    SELECT result.codex_verification_id,result.execution_status FROM effect
+    JOIN armi.codex_verification_results AS result ON result.effect_id=effect.effect_id
+), result_source AS (
+    SELECT source.codex_result_source_id,source.evidence_id FROM verification
+    JOIN armi.codex_result_sources AS source
+      ON source.codex_verification_id=verification.codex_verification_id
+), second_episode AS (
+    SELECT episode.cognitive_episode_id,episode.status FROM result_source
+    JOIN armi.opportunities AS opportunity
+      ON opportunity.evidence_id=result_source.evidence_id
+    JOIN armi.cognitive_episodes AS episode
+      ON episode.opportunity_id=opportunity.opportunity_id
+    ORDER BY episode.prepared_at NULLS LAST,episode.cognitive_episode_id LIMIT 1
+), second_commit AS (
+    SELECT commit.subject_commit_id FROM second_episode
+    JOIN armi.subject_commits AS commit
+      ON commit.cognitive_episode_id=second_episode.cognitive_episode_id
+), experience AS (
+    SELECT accepted.experience_id FROM result_source
+    JOIN armi.experience_evidence_links AS link
+      ON link.evidence_id=result_source.evidence_id
+    JOIN armi.accepted_experiences AS accepted
+      ON accepted.experience_id=link.experience_id
+    ORDER BY accepted.experience_id LIMIT 1
 )
-from armi_kernel.contracts import Digest
-from armi_runtime.adapters.model.volcengine_ark import VolcengineArkModelAdapter
-from armi_runtime.composition.candidate_validation_tool import (
-    build_candidate_validator,
-)
-from armi_runtime.composition.model_verification import (
-    CandidateValidationContext,
-    build_request_bytes,
-    candidate_schema,
-    checked_model_request,
-    load_active_binding,
-    parse_candidate,
-)
-from live_ark_credential import DEFAULT_ENVIRONMENT_ROOT, load_live_ark_credential
-
-_ARK_SUCCESS_BUDGET_MICROYUAN = 2_000_000
-_ARK_PRIOR_FAILURE_RESERVED_MICROYUAN = 3_000_000
-_ARK_TOTAL_BUDGET_MICROYUAN = 5_000_000
+SELECT
+    (SELECT codex_task_source_id FROM task),(SELECT status FROM first_episode),
+    (SELECT capability_request_id FROM request),(SELECT request_version FROM request),
+    (SELECT current_status FROM request),
+    (SELECT grant.status FROM request JOIN armi.permission_grants AS grant
+      USING (capability_request_id)),
+    (SELECT effect_id FROM effect),(SELECT status FROM effect),
+    (SELECT codex_verification_id FROM verification),
+    (SELECT execution_status FROM verification),
+    (SELECT codex_result_source_id FROM result_source),(SELECT status FROM second_episode),
+    (SELECT subject_commit_id FROM second_commit),(SELECT experience_id FROM experience)
+"""
 
 
-def _compiled_context(*, purpose: str, items: list[dict[str, Any]]) -> bytes:
-    return (
-        rfc8785.dumps(
-            cast(
-                Any,
-                {
-                    "schema_version": "armi.compiled-context.v2",
-                    "purpose": purpose,
-                    "sections": items,
-                },
-            )
-        )
-        + b"\n"
+def _conninfo(environment_root: Path) -> str:
+    prepared = prepare_environment(
+        environment_root,
+        credential_scope={"live.codex.delegation": "database.runtime"},
+    )
+    locator = prepared.effective.config.secret_locators["database.runtime"]
+    with prepared.credential_port.resolve(
+        locator, CredentialPurpose("live.codex.delegation")
+    ) as handle:
+        return handle.consume(lambda value: bytes(value).decode("utf-8"))
+
+
+def _read(connection: psycopg.Connection[Any], trace_id: str) -> _Lifecycle:
+    row = connection.execute(_LIFECYCLE_SQL, (trace_id,)).fetchone()
+    if row is None:
+        raise RuntimeError("LIVE-CODEX-STATE")
+
+    def text(value: object) -> str | None:
+        return None if value is None else str(value)
+
+    return _Lifecycle(
+        text(row[0]),
+        text(row[1]),
+        text(row[2]),
+        None if row[3] is None else int(row[3]),
+        text(row[4]),
+        text(row[5]),
+        text(row[6]),
+        text(row[7]),
+        text(row[8]),
+        text(row[9]),
+        text(row[10]),
+        text(row[11]),
+        text(row[12]),
+        text(row[13]),
     )
 
 
-async def _candidate_call(
+def _request(
+    connection: http.client.HTTPConnection,
+    method: str,
+    path: str,
     *,
-    adapter: VolcengineArkModelAdapter,
-    context_bytes: bytes,
-    validation_context: CandidateValidationContext,
-    bases: tuple[CandidateBasis, ...],
-    refs: tuple[dict[str, object], ...],
-) -> tuple[Any, dict[str, object]]:
-    binding = adapter.binding
-    context_digest = Digest.from_bytes(context_bytes)
-    request_bytes = build_request_bytes(
-        binding=binding,
-        compiled_context=context_bytes,
-        context_digest=context_digest,
-        base_subject_version=validation_context.base_subject_version,
-        base_state_epoch=validation_context.base_state_epoch,
-        bundle_activation_id=validation_context.bundle_activation_id,
-        included_context_refs=refs,
-    )
-    input_tokens = await adapter.tokenize(request_bytes)
-    request = checked_model_request(
-        binding=binding,
-        request_bytes=request_bytes,
-        context_digest=context_digest,
-        input_tokens=input_tokens,
-    )
-    started = time.perf_counter()
-    invocation = await adapter.invoke(request)
-    elapsed_ms = round((time.perf_counter() - started) * 1000)
-    if invocation.status is not ModelResultStatus.SUCCEEDED:
-        raise RuntimeError(invocation.error_code or "S039-LIVE-MODEL")
-    if (
-        invocation.response_bytes is None
-        or invocation.usage is None
-        or invocation.provider_request_id is None
-        or invocation.provider_model_id is None
-    ):
-        raise RuntimeError("S039-LIVE-MODEL")
-    response = cast(dict[str, Any], json.loads(invocation.response_bytes))
-    candidate_bytes = rfc8785.dumps(response["candidate"])
-    validation = build_candidate_validator(validation_context).validate(
-        candidate_bytes,
-        bases=bases,
-    )
-    if (
-        validation.status is not CandidateValidationStatus.ACCEPTED
-        or validation.change_set is None
-    ):
-        raise RuntimeError(validation.error_code or "S039-LIVE-CANDIDATE")
-    return validation.change_set, {
-        "provider_model_id": invocation.provider_model_id,
-        "input_tokens": invocation.usage.input_tokens,
-        "cached_input_tokens": invocation.usage.cached_input_tokens,
-        "output_tokens": invocation.usage.output_tokens,
-        "estimated_cost_microyuan": invocation.usage.estimated_cost_microyuan,
-        "elapsed_ms": elapsed_ms,
+    headers: dict[str, str],
+    body: dict[str, object] | None = None,
+) -> tuple[int, dict[str, Any]]:
+    encoded = None
+    effective = dict(headers)
+    if body is not None:
+        encoded = json.dumps(body, separators=(",", ":")).encode("utf-8")
+        effective.update(
+            {"Content-Type": "application/json", "Content-Length": str(len(encoded))}
+        )
+    connection.request(method, path, body=encoded, headers=effective)
+    response = connection.getresponse()
+    return response.status, cast(dict[str, Any], json.loads(response.read()))
+
+
+def verify(
+    environment_root: Path,
+    *,
+    objective: str,
+    model_id: str,
+    reasoning_effort: str,
+    timeout_seconds: float,
+) -> dict[str, object]:
+    prepared = prepare_environment(environment_root)
+    port = prepared.effective.config.creator.port
+    origin = f"http://127.0.0.1:{port}"
+    boundary = {
+        "Origin": origin,
+        "Sec-Fetch-Site": "same-origin",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Dest": "empty",
     }
-
-
-async def _verify(root: Path, environment_root: Path) -> dict[str, object]:
-    credential = load_live_ark_credential(environment_root)
-    binding = load_active_binding()
-    adapter = VolcengineArkModelAdapter(
-        binding=binding,
-        credential_port=credential.port,
-        locator=credential.locator,
-        candidate_schema=CognitionSchemaDocument(
-            canonical_bytes=rfc8785.dumps(candidate_schema())
-        ),
-        candidate_parser=parse_candidate,
-    )
-    subject_id, generation_id, activation_id = uuid7(), uuid7(), uuid7()
-    scene_id, creator_id = uuid7(), uuid7()
-    task_source_id, task_evidence_id = uuid7(), uuid7()
-    task_manifest_digest = Digest.from_bytes(b"s039-live-task-manifest")
-    validator_id = "codex.python-unit.v1"
-    creator_request = (
-        b"Creator requests the already registered private Codex task be delegated. "
-        b"Form exactly one codex.delegated-work capability request and exactly one "
-        b"codex_delegation. They may use independent atomic groups. Do not claim it "
-        b"has executed. The capability request must cite current_evidence, "
-        b"current_scene and capability_catalog. The delegation must cite "
-        b"codex_task_source and capability_catalog. Set disposition to change, "
-        b"leave every other proposal array empty and do not emit formal_no_action."
-    )
-    task_source = rfc8785.dumps(
-        cast(
-            Any,
-            {
-                "task_source_id": str(task_source_id),
-                "task_manifest_digest": task_manifest_digest.value,
-                "validator_id": validator_id,
-                "objective": "Change greeting.txt from hello to hello from ARMI.",
-                "allowed_paths": ["greeting.txt"],
-                "network_access": False,
+    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=15)
+    try:
+        status, session = _request(
+            connection, "POST", "/v1/browser-sessions", headers=boundary
+        )
+        if status != 200:
+            raise RuntimeError("LIVE-CODEX-SESSION")
+        headers = {
+            **boundary,
+            "Authorization": f"Bearer {session['browser_session_token']}",
+        }
+        status, accepted = _request(
+            connection,
+            "POST",
+            "/v1/scenes/default/codex-tasks",
+            headers={**headers, "Idempotency-Key": f"live-codex-{uuid7()}"},
+            body={
+                "contract_version": "1.0",
+                "objective": objective,
+                "model_id": model_id,
+                "reasoning_effort": reasoning_effort,
+                "web_search": False,
             },
         )
-    )
-    capability = rfc8785.dumps(
-        cast(
-            Any,
-            {
-                "capability_kind": "codex.delegated-work",
-                "operation": "execute",
-                "availability": "available",
-                "workspace_scope": "isolated_ephemeral",
-                "artifact_scope": "explicit_only",
-                "network_access": False,
-                "max_uses": 1,
-                "valid_for_seconds": 600,
-            },
-        )
-    )
-    scene = rfc8785.dumps(
-        cast(
-            Any,
-            {
-                "scene_id": str(scene_id),
-                "creator_party_id": str(creator_id),
-                "scene_key": "default",
-            },
-        )
-    )
-    first_context = _compiled_context(
-        purpose="consider_codex_task",
-        items=[
-            {
-                "section": "current_evidence",
-                "items": [
-                    {
-                        "item_kind": "current_evidence",
-                        "trust": "external_claim",
-                        "privacy": "private",
-                        "content": creator_request.decode("utf-8"),
-                    },
-                    {
-                        "item_kind": "codex_task_source",
-                        "trust": "external_claim",
-                        "privacy": "private",
-                        "content": task_source.decode("utf-8"),
-                    },
-                ],
-            },
-            {
-                "section": "scene",
-                "items": [
-                    {
-                        "item_kind": "current_scene",
-                        "trust": "runtime_authority",
-                        "privacy": "private",
-                        "content": scene.decode("utf-8"),
+        if status != 202:
+            raise RuntimeError("LIVE-CODEX-INTAKE")
+        trace_id = str(accepted["trace_id"])
+        deadline = time.monotonic() + timeout_seconds
+        granted = False
+        last = _Lifecycle(*((None,) * 14))
+        with psycopg.connect(_conninfo(prepared.root), autocommit=True) as database:
+            while time.monotonic() < deadline:
+                last = _read(database, trace_id)
+                if (
+                    not granted
+                    and last.capability_status == "pending"
+                    and last.capability_request_id is not None
+                    and last.capability_request_version is not None
+                ):
+                    decision_status, _decision = _request(
+                        connection,
+                        "POST",
+                        f"/v1/capability-requests/{last.capability_request_id}/decision",
+                        headers=headers,
+                        body={
+                            "contract_version": "1.0",
+                            "decision_id": str(uuid7()),
+                            "expected_request_version": last.capability_request_version,
+                            "decision": "grant",
+                        },
+                    )
+                    if decision_status != 200:
+                        raise RuntimeError("LIVE-CODEX-GRANT")
+                    granted = True
+                if last.effect_status in {"failed", "unknown", "cancelled"}:
+                    raise RuntimeError(
+                        f"LIVE-CODEX-EFFECT-{last.effect_status.upper()}"
+                    )
+                if last.verification_status in {"failed", "unknown", "cancelled"}:
+                    raise RuntimeError(
+                        f"LIVE-CODEX-VERIFICATION-{last.verification_status.upper()}"
+                    )
+                if (
+                    last.capability_status == "consumed"
+                    and last.grant_status == "consumed"
+                    and last.effect_status == "completed"
+                    and last.verification_status == "verified"
+                    and last.result_source_id is not None
+                    and last.second_episode_status == "completed"
+                    and last.second_commit_id is not None
+                    and last.experience_id is not None
+                ):
+                    return {
+                        "status": "passed",
+                        "trace_id": trace_id,
+                        "operation_ref": accepted["result_ref"],
+                        "task_source_id": last.task_source_id,
+                        "capability_request_id": last.capability_request_id,
+                        "effect_id": last.effect_id,
+                        "verification_id": last.verification_id,
+                        "result_source_id": last.result_source_id,
+                        "second_commit_id": last.second_commit_id,
+                        "experience_id": last.experience_id,
                     }
-                ],
-            },
-            {
-                "section": "capability",
-                "items": [
-                    {
-                        "item_kind": "capability_catalog",
-                        "trust": "policy",
-                        "privacy": "internal",
-                        "content": capability.decode("utf-8"),
-                    }
-                ],
-            },
-        ],
-    )
-    first_digest = Digest.from_bytes(first_context)
-    first_episode, first_attempt = uuid7(), uuid7()
-    first_bases = (
-        CandidateBasis(
-            1,
-            "current_evidence",
-            "current_evidence",
-            task_evidence_id,
-            1,
-            "external_claim",
-            "private",
-        ),
-        CandidateBasis(
-            2,
-            "current_evidence",
-            "codex_task_source",
-            task_source_id,
-            1,
-            "external_claim",
-            "private",
-        ),
-        CandidateBasis(
-            3,
-            "scene",
-            "current_scene",
-            scene_id,
-            1,
-            "runtime_authority",
-            "private",
-        ),
-        CandidateBasis(
-            4,
-            "capability",
-            "capability_catalog",
-            UUID("01985d00-0000-7000-8000-000000000038"),
-            2,
-            "policy",
-            "internal",
-        ),
-    )
-    first_change_set, first_evidence = await _candidate_call(
-        adapter=adapter,
-        context_bytes=first_context,
-        validation_context=CandidateValidationContext(
-            subject_id,
-            generation_id,
-            first_episode,
-            first_attempt,
-            0,
-            0,
-            activation_id,
-            first_digest,
-            scene_id,
-            creator_id,
-            (),
-            "consider_codex_task",
-            False,
-            True,
-            ((task_source_id, task_manifest_digest, validator_id),),
-        ),
-        bases=first_bases,
-        refs=tuple(
-            {
-                "ref": f"ctx:{index}",
-                "section": basis.section,
-                "item_kind": basis.item_kind,
-            }
-            for index, basis in enumerate(first_bases, 1)
-        ),
-    )
-    if (
-        len(first_change_set.codex_delegations) != 1
-        or len(first_change_set.capability_requests) != 1
-        or not isinstance(
-            first_change_set.capability_requests[0], CapabilityRequestDraft
-        )
-        or not isinstance(
-            first_change_set.capability_requests[0].scope, CodexDelegatedWorkScope
-        )
-        or not isinstance(first_change_set.codex_delegations[0], CodexDelegationDraft)
-    ):
-        raise RuntimeError("S039-LIVE-DELEGATION")
-
-    runner_evidence = await asyncio.to_thread(verify_codex_runner._live, root)
-    if runner_evidence.get("result") != "pass":
-        code = runner_evidence.get("error_code")
-        raise RuntimeError(code if isinstance(code, str) else "S039-LIVE-CODEX")
-    result_summary = rfc8785.dumps(
-        cast(
-            Any,
-            {
-                "result_kind": "verified_completion",
-                "model_id": runner_evidence["model_id"],
-                "source_tree_digest": runner_evidence["source_tree_digest"],
-                "final_tree_digest": runner_evidence["final_tree_digest"],
-                "patch_digest": runner_evidence["patch_digest"],
-                "validation_passed": runner_evidence["validation_passed"],
-                "modified_file_count": runner_evidence["modified_file_count"],
-            },
-        )
-    )
-    result_evidence_id = uuid7()
-    second_context = _compiled_context(
-        purpose="consider_codex_result",
-        items=[
-            {
-                "section": "current_evidence",
-                "items": [
-                    {
-                        "item_kind": "current_evidence",
-                        "trust": "external_claim",
-                        "privacy": "private",
-                        "content": result_summary.decode("utf-8"),
-                    }
-                ],
-            }
-        ],
-    )
-    second_digest = Digest.from_bytes(second_context)
-    second_basis = CandidateBasis(
-        1,
-        "current_evidence",
-        "current_evidence",
-        result_evidence_id,
-        1,
-        "external_claim",
-        "private",
-    )
-    second_change_set, second_evidence = await _candidate_call(
-        adapter=adapter,
-        context_bytes=second_context,
-        validation_context=CandidateValidationContext(
-            subject_id,
-            generation_id,
-            uuid7(),
-            uuid7(),
-            1,
-            0,
-            activation_id,
-            second_digest,
-            scene_id,
-            creator_id,
-            (),
-            "consider_codex_result",
-            False,
-            True,
-            (),
-        ),
-        bases=(second_basis,),
-        refs=(
-            {
-                "ref": "ctx:1",
-                "section": second_basis.section,
-                "item_kind": second_basis.item_kind,
-            },
-        ),
-    )
-    if (
-        len(second_change_set.experiences) != 1
-        or second_change_set.experiences[0].basis_ordinals != (1,)
-        or second_change_set.capability_requests
-        or second_change_set.codex_delegations
-        or second_change_set.action_choices
-    ):
-        raise RuntimeError("S039-LIVE-RESULT-ACCEPTANCE")
-    first_cost = first_evidence["estimated_cost_microyuan"]
-    second_cost = second_evidence["estimated_cost_microyuan"]
-    if type(first_cost) is not int or type(second_cost) is not int:
-        raise RuntimeError("S039-LIVE-BUDGET")
-    ark_cost = first_cost + second_cost
-    if ark_cost > _ARK_SUCCESS_BUDGET_MICROYUAN:
-        raise RuntimeError("S039-LIVE-BUDGET")
-    runner_summary_keys = (
-        "model_id",
-        "modified_file_count",
-        "validation_passed",
-        "input_tokens",
-        "cached_input_tokens",
-        "output_tokens",
-        "auth_mode",
-        "billing_basis",
-        "incremental_cost_cny",
-        "sandbox",
-    )
-    return {
-        "result": "pass",
-        "ark_successful_invocation_count": 2,
-        "ark_prior_failed_invocation_count": 3,
-        "codex_invocation_count": 1,
-        "first_cognition": first_evidence,
-        "runner": {key: runner_evidence[key] for key in runner_summary_keys},
-        "second_cognition": second_evidence,
-        "ark_estimated_cost_microyuan": ark_cost,
-        "ark_success_budget_microyuan": _ARK_SUCCESS_BUDGET_MICROYUAN,
-        "ark_prior_failure_reserved_microyuan": (_ARK_PRIOR_FAILURE_RESERVED_MICROYUAN),
-        "ark_total_budget_microyuan": _ARK_TOTAL_BUDGET_MICROYUAN,
-        "codex_budget_cny": 5,
-        "delegation_count": 1,
-        "capability_request_count": 1,
-        "verified_experience_count": 1,
-        "subject_state_written_by_gate": False,
-        "secrets_recorded": False,
-    }
+                time.sleep(0.25)
+        raise RuntimeError(f"LIVE-CODEX-TIMEOUT:{last}")
+    finally:
+        connection.close()
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--environment-root", type=Path, required=True)
     parser.add_argument(
-        "--environment-root", type=Path, default=DEFAULT_ENVIRONMENT_ROOT
+        "--objective",
+        default="Create result.md containing exactly: ARMI Codex lifecycle verified",
     )
+    parser.add_argument(
+        "--model-id",
+        choices=("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"),
+        default="gpt-5.6-terra",
+    )
+    parser.add_argument(
+        "--reasoning-effort",
+        choices=("low", "medium", "high", "xhigh", "max"),
+        default="medium",
+    )
+    parser.add_argument("--timeout-seconds", type=float, default=600.0)
     args = parser.parse_args(argv)
-    root = Path(__file__).resolve().parents[1]
+    if not 30 <= args.timeout_seconds <= 1800:
+        parser.error("--timeout-seconds must be between 30 and 1800")
     try:
-        evidence = asyncio.run(_verify(root, args.environment_root.resolve()))
-    except Exception as error:
-        stable_code = getattr(error, "code", None)
-        raw = error.args[0] if error.args else None
-        code = (
-            stable_code
-            if isinstance(stable_code, str)
-            else raw
-            if isinstance(raw, str)
-            else "S039-LIVE-FAILED"
+        result = verify(
+            args.environment_root.resolve(),
+            objective=cast(str, args.objective),
+            model_id=cast(str, args.model_id),
+            reasoning_effort=cast(str, args.reasoning_effort),
+            timeout_seconds=cast(float, args.timeout_seconds),
         )
-        evidence = {
-            "result": "blocked",
-            "error_code": code
-            if code.startswith(("S039-", "MODEL-", "CODEX-", "CANDIDATE-"))
-            else "S039-LIVE-FAILED",
-        }
-    print(json.dumps(evidence, ensure_ascii=False, indent=2, sort_keys=True))
-    return 0 if evidence["result"] == "pass" else 1
+    except (KeyError, OSError, RuntimeError, psycopg.Error) as error:
+        print(
+            json.dumps(
+                {"status": "failed", "reason": str(error)},
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+        )
+        return 1
+    print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+    return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())

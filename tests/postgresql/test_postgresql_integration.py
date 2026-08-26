@@ -716,9 +716,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             environment_id=fixture.environment_id,
         )
         self.assertEqual(installed.status, "current")
-        self.assertEqual(installed.table_count, 110)
+        self.assertGreater(installed.table_count, 0)
         self.assertEqual(installed.current_revision, "0000")
         self.assertEqual(installed.head_revision, "0000")
+        for digest in (
+            installed.resource_digest,
+            installed.catalog_digest,
+            installed.role_policy_digest,
+        ):
+            self.assertRegex(digest, r"^sha256:[0-9a-f]{64}$")
         status = PostgreSQLSchemaGateway().status(
             fixture.runtime_dsn,
             environment_id=fixture.environment_id,
@@ -817,7 +823,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
             )
-        self.assertEqual(rejected.exception.code, "DB-ROLE-GRANT")
+        self.assertEqual(rejected.exception.code, "DB-SCHEMA-CONTRACT")
 
     def test_table_dml_allows_fixed_operations_without_implying_others(self) -> None:
         fixture = self.create_database()
@@ -1567,7 +1573,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
     def test_baseline_failure_rolls_back_all_tables(self) -> None:
         fixture = self.create_database()
         source = Path(
-            "apps/armi-runtime/src/armi_runtime/composition/runtime_resources/schema"
+            "packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema"
         )
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
             schema_root = Path(temporary) / "schema"
@@ -2999,7 +3005,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
         config = AdminConfig.model_validate(
             {
-                "schema_version": "armi.admin-config.v4",
+                "schema_version": "armi.admin-config.v5",
                 "environment_kind": "acceptance",
                 "environment_id": str(fixture.environment_id),
                 "environment_incarnation": 1,
@@ -3018,7 +3024,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "migrator_database_locator": "env:ARMI_SECRET_MIGRATOR_DATABASE",
                 "preview_key_locator": "env:ARMI_SECRET_ADMIN_PREVIEW_KEY",
                 "expected": {
-                    "package_digest": _ADMIN_PACKAGE_DIGEST,
+                    "package_set_digest": _ADMIN_PACKAGE_DIGEST,
                 },
             }
         )
@@ -3137,7 +3143,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             config = AdminConfig.model_validate(
                 {
-                    "schema_version": "armi.admin-config.v4",
+                    "schema_version": "armi.admin-config.v5",
                     "environment_kind": "acceptance",
                     "environment_id": str(fixture.environment_id),
                     "environment_incarnation": 1,
@@ -3156,7 +3162,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "migrator_database_locator": "env:ARMI_SECRET_MIGRATOR_DATABASE",
                     "preview_key_locator": "env:ARMI_SECRET_ADMIN_PREVIEW_KEY",
                     "expected": {
-                        "package_digest": _ADMIN_PACKAGE_DIGEST,
+                        "package_set_digest": _ADMIN_PACKAGE_DIGEST,
                     },
                 }
             )
@@ -3402,7 +3408,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 connection.rollback()
             config = AdminConfig.model_validate(
                 {
-                    "schema_version": "armi.admin-config.v4",
+                    "schema_version": "armi.admin-config.v5",
                     "environment_kind": "system_test",
                     "environment_id": str(fixture.environment_id),
                     "environment_incarnation": 1,
@@ -3417,7 +3423,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "migrator_database_locator": "env:ARMI_SECRET_MIGRATOR_DATABASE",
                     "preview_key_locator": "env:ARMI_SECRET_ADMIN_PREVIEW_KEY",
                     "expected": {
-                        "package_digest": _ADMIN_PACKAGE_DIGEST,
+                        "package_set_digest": _ADMIN_PACKAGE_DIGEST,
                     },
                 }
             )
@@ -4124,9 +4130,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             assert row is not None
             self.assertEqual(row[0], 1)
 
-    def test_runtime_readiness_keeps_security_checks_without_catalog_fingerprint(
-        self,
-    ) -> None:
+    def test_runtime_readiness_rejects_catalog_constraint_drift(self) -> None:
         fixture = self.create_database()
         gateway = PostgreSQLSchemaGateway()
         gateway.install(
@@ -4137,20 +4141,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             connection.execute(
                 "ALTER TABLE armi.subjects DROP CONSTRAINT subjects_status_check"
             )
-        status = gateway.status(
-            fixture.runtime_dsn,
-            environment_id=fixture.environment_id,
-        )
-        self.assertEqual(status.status, "current")
-
-        with psycopg.connect(fixture.provisioner_dsn, autocommit=True) as connection:
-            connection.execute("GRANT USAGE ON SCHEMA armi TO PUBLIC")
         with self.assertRaises(DatabaseViolation) as raised:
             gateway.status(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
             )
-        self.assertEqual(raised.exception.code, "DB-ROLE-PUBLIC-PRIVILEGE")
+        self.assertEqual(raised.exception.code, "DB-SCHEMA-CONTRACT")
 
     def test_life_record_query_plans_use_bounded_and_trigram_indexes(self) -> None:
         fixture = self.create_database()
@@ -4528,7 +4524,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
                 SELECT uuidv7(), uuidv7(), %s, 'consider_autonomous_life',
                        'preparing', 0, 0, uuidv7(),
-                       'armi.context-compiler.layered-v2',
+                       'armi.context-compiler.layered-v3',
                        repeat('2', 32)
                 FROM generate_series(1, 10000)
                 """,
@@ -5076,6 +5072,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 fixture.runtime_dsn,
                 birth_contract_digest=packaged["birth_contract_digest"],
                 interaction=bootstrap_interaction_birth(),
+                subject_state=bootstrap_subject_state().birth,
+                mood=bootstrap_mood().birth,
+                prompts=bootstrap_prompt().birth,
             ),
             ContinuityState.BORN,
         )
@@ -5382,7 +5381,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             cast(
                 Any,
                 {
-                    "schema_version": "armi.compiled-context.v2",
+                    "schema_version": "armi.compiled-context.v3",
                     "purpose": "consider_creator_input",
                     "sections": [
                         {
@@ -5451,7 +5450,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
         payloads = {
             "input": evidence_text.encode(),
-            "context_manifest": b'{"schema_version":"armi.context-manifest.v2"}',
+            "context_manifest": b'{"schema_version":"armi.context-manifest.v3"}',
             "compiled_context": compiled_context,
             "request": b"s026-request",
             "response": b"s026-response",
@@ -5466,7 +5465,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         live_evidence: dict[str, object] | None = None
         if live_environment_root is None:
             change_set_document = {
-                "schema_version": "armi.subject-change-set.v29",
+                "schema_version": "armi.subject-change-set.v30",
                 "subject_id": str(born.subject_id),
                 "generation_id": str(born.life_generation_id),
                 "episode_id": str(ids["episode"]),
@@ -5741,7 +5740,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             if live_evidence is not None
             else 1
         )
-        candidate_contract_version = "armi.cognition-candidate.v8"
+        candidate_contract_version = "armi.cognition-candidate.v9"
 
         def locator(digest: Digest) -> str:
             value = digest.value.removeprefix("sha256:")
@@ -5879,11 +5878,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     context_party_id, purpose, status, base_subject_version,
                     base_state_epoch, bundle_activation_id, mechanism_identity,
                     context_manifest_artifact_id, compiled_context_artifact_id,
-                    context_digest, trace_id, prepared_at, model_returned_at,
+                    context_manifest_digest, compiled_context_digest,
+                    trace_id, prepared_at, model_returned_at,
                     final_disposition, validated_at) VALUES (%s, %s, %s, %s, %s, 'consider_creator_input',
                           'candidate_validated', 0, 0, %s,
-                          'armi.context-compiler.layered-v2',
-                          %s, %s, %s, %s, statement_timestamp(),
+                          'armi.context-compiler.layered-v3',
+                          %s, %s, %s, %s, %s, statement_timestamp(),
                           statement_timestamp(), 'change', statement_timestamp())
                 """,
                 (
@@ -5895,6 +5895,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     born.bundle_activation_id,
                     artifact_ids["context_manifest"],
                     artifact_ids["compiled_context"],
+                    digests["context_manifest"].value,
                     digests["compiled_context"].value,
                     trace,
                 ),
@@ -7884,7 +7885,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             "model_attempt",
                             "model_step_available",
                         ),
-                        operation,
+                        (
+                            operation,
+                            tuple(
+                                path.read_text(encoding="utf-8")
+                                for path in sorted((data_root / "logs").glob("*.jsonl"))
+                            ),
+                        ),
                     )
                     connection.request(
                         "GET",

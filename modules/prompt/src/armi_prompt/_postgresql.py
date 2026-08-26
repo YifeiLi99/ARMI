@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import cast
 from uuid import UUID, uuid7
 
 from armi_kernel.application import ArtifactRef
@@ -13,6 +14,7 @@ from .api import (
     CandidatePromptDraft,
     PromptContextSource,
     PromptContextSources,
+    PromptContinuityCounts,
     PromptRecoveryState,
     PromptViolation,
     SubjectPromptHead,
@@ -24,6 +26,27 @@ class PostgreSQLPromptOwner:
 
     def __init__(self, application: PromptApplication) -> None:
         self._application = application
+
+    def continuity(
+        self, transaction: PostgreSQLAdminTransaction, *, subject_id: UUID | None
+    ) -> PromptContinuityCounts:
+        if subject_id is None:
+            row = transaction.execute(
+                "SELECT (SELECT count(*) FROM armi.prompt_documents),"
+                "(SELECT count(*) FROM armi.prompt_revisions)"
+            ).fetchone()
+        else:
+            row = transaction.execute(
+                "SELECT (SELECT count(*) FROM armi.prompt_documents "
+                "WHERE subject_id=%s),(SELECT count(*) FROM armi.prompt_revisions "
+                "AS revision JOIN armi.prompt_documents AS document ON "
+                "document.prompt_document_id=revision.prompt_document_id "
+                "WHERE document.subject_id=%s)",
+                (subject_id, subject_id),
+            ).fetchone()
+        if row is None:
+            raise PromptViolation("PROMPT-CONTINUITY-INTEGRITY")
+        return PromptContinuityCounts(int(cast(int, row[0])), int(cast(int, row[1])))
 
     async def open(self) -> None:
         return None
@@ -124,34 +147,47 @@ class PostgreSQLPromptOwner:
     async def recovery_state(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID
     ) -> PromptRecoveryState:
-        row = await (
+        rows = await (
             await transaction.execute(
                 """
-                SELECT
-                    (SELECT count(*) FROM armi.prompt_documents
-                     WHERE subject_id = %s),
-                    (SELECT count(*)
-                     FROM armi.prompt_revisions AS revision
-                     JOIN armi.prompt_documents AS document
-                       ON document.prompt_document_id = revision.prompt_document_id
-                     WHERE document.subject_id = %s
-                       AND document.prompt_kind = 'personality_anchor'),
-                    (SELECT revision.content_artifact_id
-                     FROM armi.prompt_documents AS document
-                     JOIN armi.prompt_revisions AS revision
-                       ON revision.prompt_revision_id = document.current_revision_id
-                      AND revision.prompt_document_id = document.prompt_document_id
-                     WHERE document.subject_id = %s
-                       AND document.prompt_kind = 'personality_anchor'
-                       AND document.write_authority = 'fixed'
-                       AND document.status = 'active')
+                SELECT document.prompt_kind,document.status,
+                       document.write_authority,document.current_revision_id,
+                       revision.content_artifact_id,
+                       (SELECT count(*) FROM armi.prompt_revisions AS history
+                        WHERE history.prompt_document_id=document.prompt_document_id)
+                FROM armi.prompt_documents AS document
+                LEFT JOIN armi.prompt_revisions AS revision
+                  ON revision.prompt_revision_id=document.current_revision_id
+                 AND revision.prompt_document_id=document.prompt_document_id
+                WHERE document.subject_id=%s
+                ORDER BY document.prompt_kind
                 """,
-                (subject_id, subject_id, subject_id),
+                (subject_id,),
             )
-        ).fetchone()
-        if row is None or row[2] is None:
+        ).fetchall()
+        if len(rows) != 3 or {str(row[0]) for row in rows} != {
+            "personality_anchor",
+            "creator_guidance",
+            "subject_guidance",
+        }:
             raise PromptViolation("PROMPT-RECOVERY-MISSING")
-        return PromptRecoveryState(row[2], int(row[0]), int(row[1]))
+        fixed = next(row for row in rows if row[0] == "personality_anchor")
+        if fixed[1] != "active" or fixed[2] != "fixed" or fixed[4] is None:
+            raise PromptViolation("PROMPT-RECOVERY-MISSING")
+        active_artifacts: list[UUID] = []
+        for row in rows:
+            if row[1] == "active":
+                if row[3] is not None and row[4] is None:
+                    raise PromptViolation("PROMPT-RECOVERY-MISSING")
+                if row[4] is not None:
+                    active_artifacts.append(row[4])
+            elif row[1] != "inactive":
+                raise PromptViolation("PROMPT-RECOVERY-MISSING")
+        return PromptRecoveryState(
+            tuple(active_artifacts),
+            len(rows),
+            int(fixed[5]),
+        )
 
     async def heads_match(
         self,

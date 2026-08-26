@@ -102,7 +102,7 @@ class PromptContextSources:
 
 @dataclass(frozen=True, slots=True)
 class PromptRecoveryState:
-    fixed_artifact_id: UUID
+    active_artifact_ids: tuple[UUID, ...]
     document_count: int
     fixed_revision_count: int
 
@@ -233,6 +233,10 @@ class PromptCommitPort(Protocol):
 
 @runtime_checkable
 class PromptBirthPort(Protocol):
+    def continuity(
+        self, transaction: PostgreSQLAdminTransaction, *, subject_id: UUID | None
+    ) -> PromptContinuityCounts: ...
+
     async def initialize(
         self,
         transaction: PostgreSQLTransaction,
@@ -262,14 +266,6 @@ class PromptAdminReferencePort(Protocol):
     ) -> bool: ...
 
 
-def probe_prompt_continuity(
-    conninfo: str, *, subject_id: UUID | None
-) -> PromptContinuityCounts:
-    from ._sync_postgresql import probe_prompt_continuity as probe
-
-    return probe(conninfo, subject_id=subject_id)
-
-
 __all__ = (
     "CREATOR_PROMPT_PROJECTION_VERSION",
     "MAX_CREATOR_PROMPT_BYTES",
@@ -293,5 +289,4 @@ __all__ = (
     "PromptRevisionKind",
     "PromptViolation",
     "SubjectPromptHead",
-    "probe_prompt_continuity",
 )

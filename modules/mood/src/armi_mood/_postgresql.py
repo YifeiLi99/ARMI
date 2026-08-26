@@ -8,7 +8,7 @@ from typing import Any, cast
 from uuid import UUID, uuid7
 
 import rfc8785
-from armi_runtime_foundation import PostgreSQLTransaction
+from armi_runtime_foundation import PostgreSQLAdminTransaction, PostgreSQLTransaction
 
 from ._application import MoodApplication
 from ._domain import (
@@ -32,6 +32,7 @@ from .api import (
     AppraisalEventPhase,
     AppraisalTransition,
     CandidateMoodDraft,
+    MoodBirthContinuity,
     MoodCandidateKind,
     MoodHead,
     MoodSnapshot,
@@ -48,6 +49,24 @@ class PostgreSQLMoodOwner:
 
     def __init__(self, application: MoodApplication) -> None:
         self._application = application
+
+    def continuity(
+        self, transaction: PostgreSQLAdminTransaction, *, subject_id: UUID | None
+    ) -> MoodBirthContinuity:
+        if subject_id is None:
+            row = transaction.execute(
+                "SELECT (SELECT count(*) FROM armi.mood_heads),"
+                "(SELECT count(*) FROM armi.mood_revisions)"
+            ).fetchone()
+        else:
+            row = transaction.execute(
+                "SELECT (SELECT count(*) FROM armi.mood_heads WHERE subject_id=%s),"
+                "(SELECT count(*) FROM armi.mood_revisions WHERE subject_id=%s)",
+                (subject_id, subject_id),
+            ).fetchone()
+        if row is None:
+            raise MoodViolation("MOOD-CONTINUITY")
+        return MoodBirthContinuity(int(cast(int, row[0])), int(cast(int, row[1])))
 
     async def open(self) -> None:
         return None

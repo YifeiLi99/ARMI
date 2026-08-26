@@ -20,7 +20,7 @@ class _Clock:
 
 def _status(
     *,
-    rss: int,
+    rss: int | None,
     cpu: int,
     work_ready: int = 0,
     work_age_seconds: int = 2,
@@ -162,9 +162,42 @@ class RuntimeCapacityBaselineTests(unittest.TestCase):
                 "CAPACITY-LOG-GROWTH",
                 "CAPACITY-OBSERVABILITY-GAP",
                 "CAPACITY-RSS-GROWTH",
+                "CAPACITY-RSS-UNAVAILABLE",
             ),
         )
         self.assertEqual(report.unavailable_reasons, ("OBSERVABILITY_NOT_SAMPLED",))
+
+    def test_any_missing_rss_sample_makes_rss_evaluation_unknown(self) -> None:
+        for missing_index in range(3):
+            clock = _Clock()
+            statuses = [
+                _status(rss=1000 + index * 100, cpu=10 + index) for index in range(3)
+            ]
+            resources = cast(
+                dict[str, Any],
+                cast(dict[str, Any], statuses[missing_index]["runtime"])[
+                    "observability"
+                ],
+            )["resources"]
+            cast(dict[str, Any], resources)["process_rss_bytes"] = None
+            report = run_runtime_capacity_baseline(
+                iter(statuses).__next__,
+                duration_seconds=2,
+                sample_interval_seconds=1,
+                max_rss_growth_bytes=1000,
+                max_backlog_growth=0,
+                max_open_backlog_age_seconds=10,
+                max_log_growth_bytes=1000,
+                monotonic=clock.monotonic,
+                sleep=clock.sleep,
+            )
+            view = report.safe_view()
+            thresholds = cast(dict[str, Any], view["thresholds"])
+            rss = cast(dict[str, Any], thresholds["max_rss_growth_bytes"])
+            self.assertEqual(report.status, "attention")
+            self.assertIn("CAPACITY-RSS-UNAVAILABLE", report.issue_codes)
+            self.assertEqual(rss["evaluation"], "unknown")
+            self.assertEqual(rss["missing_sample_count"], 1)
 
     def test_rejects_invalid_declaration_and_no_usable_sample(self) -> None:
         clock = _Clock()

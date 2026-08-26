@@ -92,7 +92,7 @@ class RuntimeCapacityReport:
             if sample.process_rss_bytes is not None
         )
         return {
-            "schema_version": "armi.runtime-capacity-baseline.v1",
+            "schema_version": "armi.runtime-capacity-baseline.v2",
             "status": self.status,
             "requested_duration_seconds": self.requested_duration_seconds,
             "sample_interval_seconds": self.sample_interval_seconds,
@@ -101,10 +101,21 @@ class RuntimeCapacityReport:
             "unavailable_reasons": list(self.unavailable_reasons),
             "issue_codes": list(self.issue_codes),
             "thresholds": {
-                "max_rss_growth_bytes": self.max_rss_growth_bytes,
-                "max_backlog_growth": self.max_backlog_growth,
-                "max_open_backlog_age_seconds": (self.max_open_backlog_age_seconds),
-                "max_log_growth_bytes": self.max_log_growth_bytes,
+                "max_rss_growth_bytes": self._threshold_view(
+                    self.max_rss_growth_bytes,
+                    missing=sum(
+                        sample.process_rss_bytes is None for sample in self.samples
+                    ),
+                ),
+                "max_backlog_growth": self._threshold_view(
+                    self.max_backlog_growth, missing=0
+                ),
+                "max_open_backlog_age_seconds": self._threshold_view(
+                    self.max_open_backlog_age_seconds, missing=0
+                ),
+                "max_log_growth_bytes": self._threshold_view(
+                    self.max_log_growth_bytes, missing=0
+                ),
             },
             "deltas": {
                 "process_rss_bytes": _optional_delta(
@@ -135,6 +146,15 @@ class RuntimeCapacityReport:
                 sample.disk_free_bytes for sample in self.samples
             ),
             "samples": [sample.safe_view() for sample in self.samples],
+        }
+
+    def _threshold_view(self, limit: int, *, missing: int) -> dict[str, object]:
+        total_missing = missing + len(self.unavailable_reasons)
+        return {
+            "limit": limit,
+            "evaluation": "unknown" if total_missing else "evaluated",
+            "sample_count": len(self.samples),
+            "missing_sample_count": total_missing,
         }
 
 
@@ -291,6 +311,8 @@ def _issues(
     issues: set[str] = set()
     if unavailable:
         issues.add("CAPACITY-OBSERVABILITY-GAP")
+    if unavailable or any(sample.process_rss_bytes is None for sample in samples):
+        issues.add("CAPACITY-RSS-UNAVAILABLE")
     if any(sample.readiness != "ready" for sample in samples):
         issues.add("CAPACITY-RUNTIME-NOT-READY")
     if any(sample.active_runtime_count != 1 for sample in samples):

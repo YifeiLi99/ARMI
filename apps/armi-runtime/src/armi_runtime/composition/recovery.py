@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import subprocess
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -32,6 +33,7 @@ from armi_runtime_foundation import (
     PostgreSQLAdminParameter,
     PostgreSQLAdminResult,
 )
+from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict
 
 from armi_runtime.adapters.persistence.execution_custody import (
@@ -43,7 +45,7 @@ from .environment import PreparedEnvironment
 from .runtime_errors import RuntimeViolation
 from .runtime_process import RuntimeProcessManager
 
-_MANIFEST_SCHEMA: Final = "armi.recovery-backup.v3"
+_MANIFEST_SCHEMA: Final = "armi.recovery-backup.v4"
 _MAX_CONNINFO_BYTES: Final = 64 * 1024
 
 
@@ -200,11 +202,51 @@ def _database_evidence(
     ]
     return {
         "catalog_digest": database_catalog_digest(connection),
+        "tables": _table_evidence(connection),
         "history": history,
         "subjects": subjects,
         "artifacts": artifact_rows,
         "party_scopes": party_scopes,
     }
+
+
+def _table_evidence(
+    connection: psycopg.Connection[tuple[Any, ...]],
+) -> list[dict[str, object]]:
+    names = tuple(
+        str(row[0])
+        for row in connection.execute(
+            "SELECT relation.relname FROM pg_catalog.pg_class AS relation "
+            "JOIN pg_catalog.pg_namespace AS namespace "
+            "ON namespace.oid=relation.relnamespace "
+            "WHERE namespace.nspname='armi' AND relation.relkind IN ('r','p') "
+            "ORDER BY relation.relname"
+        ).fetchall()
+    )
+    evidence: list[dict[str, object]] = []
+    for table_name in names:
+        digest = hashlib.sha256()
+        rows = 0
+        statement = sql.SQL(
+            "SELECT pg_catalog.to_jsonb(value)::text FROM {}.{} AS value "
+            "ORDER BY pg_catalog.to_jsonb(value)::text"
+        ).format(sql.Identifier("armi"), sql.Identifier(table_name))
+        cursor = connection.cursor()
+        cursor.execute(statement)
+        while batch := cursor.fetchmany(1024):
+            for row in batch:
+                value = str(row[0]).encode("utf-8")
+                digest.update(len(value).to_bytes(8, "big"))
+                digest.update(value)
+                rows += 1
+        evidence.append(
+            {
+                "table": table_name,
+                "rows": rows,
+                "digest": f"sha256:{digest.hexdigest()}",
+            }
+        )
+    return evidence
 
 
 def _register_recovery_snapshot(
@@ -263,6 +305,18 @@ def _copy_artifacts(
             "the retained artifact root cannot be a link",
         )
     source_root = unresolved_root.resolve(strict=True)
+    expected_locators = {cast(str, item["storage_locator"]) for item in artifacts}
+    object_root = unresolved_root / "objects"
+    actual_locators = {
+        path.relative_to(unresolved_root).as_posix()
+        for path in object_root.rglob("*")
+        if path.is_file()
+    }
+    if actual_locators != expected_locators:
+        raise RuntimeViolation(
+            "RECOVERY-ARTIFACT-CATALOG-DRIFT",
+            "the artifact catalog and active object directory differ",
+        )
     target_root = staging / "artifacts"
     target_root.mkdir()
     for item in artifacts:
@@ -277,11 +331,15 @@ def _copy_artifacts(
             if candidate.is_symlink():
                 contains_link = True
                 break
+        before = source.stat()
         if (
             not source.is_relative_to(source_root)
             or not source.is_file()
             or contains_link
-            or source.stat().st_size != item["byte_size"]
+            or not stat.S_ISREG(before.st_mode)
+            or before.st_nlink != 1
+            or getattr(before, "st_file_attributes", 0) & 0x400
+            or before.st_size != item["byte_size"]
             or _digest_file(source) != item["content_digest"]
         ):
             raise RuntimeViolation(
@@ -291,6 +349,17 @@ def _copy_artifacts(
         target = target_root / locator
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, target)
+        after = source.stat()
+        if (
+            (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
+            != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
+            or target.stat().st_size != item["byte_size"]
+            or _digest_file(target) != item["content_digest"]
+        ):
+            raise RuntimeViolation(
+                "RECOVERY-ARTIFACT-RACE",
+                "an artifact changed while the frozen copy was captured",
+            )
 
 
 def _write_manifest(path: Path, value: dict[str, object]) -> None:
@@ -374,23 +443,36 @@ def _create_recovery_backup_guarded(
             def create(value: memoryview) -> dict[str, object]:
                 conninfo = bytes(value).decode("utf-8", "strict")
                 with psycopg.connect(conninfo) as connection:
+                    connection.execute(
+                        "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"
+                    )
+                    snapshot_row = connection.execute(
+                        "SELECT pg_catalog.pg_export_snapshot()"
+                    ).fetchone()
+                    if snapshot_row is None:
+                        raise RuntimeViolation(
+                            "RECOVERY-DATABASE-SNAPSHOT",
+                            "the database snapshot is unavailable",
+                        )
+                    snapshot_id = str(snapshot_row[0])
                     evidence = _database_evidence(connection, artifact_admin)
-                dump_path = staging / "database.dump"
-                _run_client(
-                    [
-                        os.fspath(dump),
-                        "--role=armi_owner",
-                        "--format=custom",
-                        "--no-owner",
-                        "--exclude-schema=armi_extensions",
-                        "--exclude-extension=pg_trgm",
-                        "--exclude-extension=vector",
-                        "--file",
-                        os.fspath(dump_path),
-                    ],
-                    conninfo=conninfo,
-                    code="RECOVERY-DATABASE-DUMP",
-                )
+                    dump_path = staging / "database.dump"
+                    _run_client(
+                        [
+                            os.fspath(dump),
+                            "--role=armi_owner",
+                            "--format=custom",
+                            "--no-owner",
+                            "--exclude-schema=armi_extensions",
+                            "--exclude-extension=pg_trgm",
+                            "--exclude-extension=vector",
+                            f"--snapshot={snapshot_id}",
+                            "--file",
+                            os.fspath(dump_path),
+                        ],
+                        conninfo=conninfo,
+                        code="RECOVERY-DATABASE-DUMP",
+                    )
                 if not dump_path.is_file() or dump_path.stat().st_size == 0:
                     raise RuntimeViolation(
                         "RECOVERY-DATABASE-DUMP", "the database dump is unavailable"
@@ -416,6 +498,7 @@ def _create_recovery_backup_guarded(
                         "catalog_digest": evidence["catalog_digest"],
                         "history": evidence["history"],
                         "subjects": evidence["subjects"],
+                        "tables": evidence["tables"],
                     },
                     "artifacts": artifacts,
                     "party_scopes": evidence["party_scopes"],
@@ -671,6 +754,7 @@ def drill_recovery_backup(
         restored["catalog_digest"] != database["catalog_digest"]
         or restored["history"] != database["history"]
         or restored["subjects"] != database["subjects"]
+        or restored["tables"] != database["tables"]
     ):
         raise RuntimeViolation(
             "RECOVERY-RESTORE-DRIFT",

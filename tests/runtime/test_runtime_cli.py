@@ -729,7 +729,7 @@ class RuntimeCliTests(unittest.TestCase):
             report = SimpleNamespace(
                 status="attention",
                 safe_view=lambda: {
-                    "schema_version": "armi.runtime-capacity-baseline.v1",
+                    "schema_version": "armi.runtime-capacity-baseline.v2",
                     "status": "attention",
                     "issue_codes": ["CAPACITY-RSS-GROWTH"],
                 },

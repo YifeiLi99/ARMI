@@ -55,5 +55,5 @@
     "no_runtime_authority",
     "no_automatic_birth"
   ],
-  "schema_version": "armi.birth-contract.v1"
+  "schema_version": "armi.birth-contract.v2"
 }

@@ -11,6 +11,7 @@ import math
 import os
 import secrets
 import socket
+import stat
 import subprocess
 import time
 import zipfile
@@ -47,7 +48,7 @@ _RELEASE_BASE = (
     f"https://github.com/ggml-org/llama.cpp/releases/download/{LLAMA_CPP_VERSION}"
 )
 _SCHEMA = "armi.semantic-recall-service.v2"
-_INSTALL_SCHEMA = "armi.semantic-recall-install.v1"
+_INSTALL_SCHEMA = "armi.semantic-recall-install-observation.v2"
 _PROFILE_SCHEMA = "armi.semantic-recall-profile.v2"
 _START_TIMEOUT_SECONDS = 30.0
 _GPU_LAYERS = 28
@@ -294,16 +295,9 @@ class SemanticRecallProcessManager:
             {
                 "schema_version": _INSTALL_SCHEMA,
                 "llama_cpp_version": LLAMA_CPP_VERSION,
-                "llama_server": os.fspath(server.resolve(strict=True)),
-                "llama_server_sha256": _sha256(server),
                 "model_id": EMBEDDING_MODEL_ID,
                 "model_revision": EMBEDDING_MODEL_REVISION,
-                "model_path": os.fspath(model_path.resolve(strict=True)),
-                "model_sha256": EMBEDDING_MODEL_SHA256,
-                "archives": {
-                    LLAMA_ARCHIVE: LLAMA_ARCHIVE_SHA256,
-                    CUDA_ARCHIVE: CUDA_ARCHIVE_SHA256,
-                },
+                "observed_server": server.relative_to(install_root).as_posix(),
             },
         )
         calibration = self.calibrate()
@@ -649,24 +643,109 @@ class SemanticRecallProcessManager:
         )
 
     def _verified_install(self) -> dict[str, Any]:
-        install = _read_json(self._install_path, "SEMANTIC-RECALL-INSTALL")
-        if install.get("schema_version") != _INSTALL_SCHEMA:
+        observation = _read_json(self._install_path, "SEMANTIC-RECALL-INSTALL")
+        if observation.get("schema_version") != _INSTALL_SCHEMA:
             raise RuntimeViolation(
                 "SEMANTIC-RECALL-INSTALL", "semantic recall install is invalid"
             )
-        server = Path(str(install.get("llama_server", "")))
-        model = Path(str(install.get("model_path", "")))
-        if (
-            not server.is_file()
-            or not model.is_file()
-            or _sha256(server) != install.get("llama_server_sha256")
-            or _sha256(model) != EMBEDDING_MODEL_SHA256
-        ):
+        tool_root = self._environment_root / "tools" / "semantic-recall"
+        install_root = tool_root / LLAMA_CPP_VERSION
+        cache_root = tool_root / "cache"
+        expected = self._archive_file_manifest(cache_root)
+        actual: dict[str, tuple[int, str]] = {}
+        try:
+            candidates = tuple(install_root.rglob("*"))
+        except OSError:
+            candidates = ()
+        for path in candidates:
+            if path.is_dir():
+                metadata = path.lstat()
+                if (
+                    path.is_symlink()
+                    or getattr(metadata, "st_file_attributes", 0) & 0x400
+                ):
+                    raise RuntimeViolation(
+                        "SEMANTIC-RECALL-INSTALL",
+                        "semantic recall install contains an unsafe directory",
+                    )
+                continue
+            metadata = path.lstat()
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or path.is_symlink()
+                or metadata.st_nlink != 1
+                or getattr(metadata, "st_file_attributes", 0) & 0x400
+            ):
+                raise RuntimeViolation(
+                    "SEMANTIC-RECALL-INSTALL",
+                    "semantic recall install contains an unsafe file",
+                )
+            actual[path.relative_to(install_root).as_posix()] = (
+                metadata.st_size,
+                _sha256(path),
+            )
+        model = self._environment_root / "models" / "semantic-recall" / MODEL_FILENAME
+        server_candidates = tuple(
+            install_root / relative
+            for relative in expected
+            if PurePosixPath(relative).name == "llama-server.exe"
+        )
+        if actual != expected or len(server_candidates) != 1 or not model.is_file():
             raise RuntimeViolation(
                 "SEMANTIC-RECALL-INSTALL",
                 "semantic recall files failed integrity verification",
             )
-        return install
+        model_metadata = model.lstat()
+        if (
+            model.is_symlink()
+            or model_metadata.st_nlink != 1
+            or getattr(model_metadata, "st_file_attributes", 0) & 0x400
+            or _sha256(model) != EMBEDDING_MODEL_SHA256
+        ):
+            raise RuntimeViolation(
+                "SEMANTIC-RECALL-INSTALL",
+                "semantic recall model failed integrity verification",
+            )
+        return {
+            "llama_server": os.fspath(server_candidates[0]),
+            "model_path": os.fspath(model),
+        }
+
+    @staticmethod
+    def _archive_file_manifest(cache_root: Path) -> dict[str, tuple[int, str]]:
+        expected: dict[str, tuple[int, str]] = {}
+        for archive_name, archive_digest in (
+            (LLAMA_ARCHIVE, LLAMA_ARCHIVE_SHA256),
+            (CUDA_ARCHIVE, CUDA_ARCHIVE_SHA256),
+        ):
+            archive = cache_root / archive_name
+            if (
+                not archive.is_file()
+                or archive.is_symlink()
+                or _sha256(archive) != archive_digest
+            ):
+                raise RuntimeViolation(
+                    "SEMANTIC-RECALL-INSTALL",
+                    "the pinned official semantic recall archive is unavailable",
+                )
+            with zipfile.ZipFile(archive) as package:
+                for item in package.infolist():
+                    relative = PurePosixPath(item.filename)
+                    if item.is_dir():
+                        continue
+                    if relative.is_absolute() or ".." in relative.parts:
+                        raise RuntimeViolation(
+                            "SEMANTIC-RECALL-INSTALL",
+                            "the pinned archive file list is invalid",
+                        )
+                    with package.open(item) as stream:
+                        digest = hashlib.sha256()
+                        size = 0
+                        while chunk := stream.read(1024 * 1024):
+                            digest.update(chunk)
+                            size += len(chunk)
+                    expected[relative.as_posix()] = (size, digest.hexdigest())
+        return expected
 
     def _verified_profile(self) -> dict[str, Any]:
         profile = _read_json(self._profile_path, "SEMANTIC-RECALL-PROFILE")
