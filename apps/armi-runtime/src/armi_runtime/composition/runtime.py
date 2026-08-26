@@ -90,6 +90,7 @@ from armi_live_vision.api import (
     CameraFormat,
     LiveVisionRuntimePort,
     LiveVisionViolation,
+    VisualObservation,
 )
 from armi_live_vision.bootstrap import (
     compose_live_vision,
@@ -138,6 +139,7 @@ from armi_runtime.interfaces.browser_sessions import (
 )
 from armi_runtime.interfaces.creator_app import create_runtime_app
 from armi_runtime.interfaces.creator_contract import (
+    LiveVisionObservationResponse,
     LiveVisionStatusResponse,
     LiveVoiceStatusResponse,
     QQChannelHealthResponse,
@@ -361,6 +363,7 @@ async def _serve(
     work_wakeups = WorkWakeupBus()
     live_voice_service: LiveVoiceRuntimePort | None = None
     live_vision_service: LiveVisionRuntimePort | None = None
+    vision_sink = None
     live_vision_retention = None
 
     def inject_admin_fault(name: str) -> None:
@@ -828,6 +831,9 @@ async def _serve(
                                 orphan_grace_seconds=config.artifacts.orphan_grace_seconds,
                             ),
                             catalog=artifact_catalog,
+                            work=PostgreSQLDurableWorkGateway(
+                                runtime_unit_of_work_factory
+                            ),
                             recognizer=VolcengineArkExternalContentRecognizer(
                                 credential_port=prepared.credential_port,
                                 locator=model_locator,
@@ -1397,6 +1403,11 @@ async def _serve(
                 live_vision_retention.run(),
                 name="live-vision-retention",
             )
+        if vision_sink is not None:
+            supervisor.start(
+                vision_sink.run_worker(),
+                name="live-vision-worker",
+            )
         if observation_driver is not None:
             supervisor.start(
                 observation_driver.run(),
@@ -1611,6 +1622,10 @@ async def _serve(
             (
                 "vision_retention",
                 None if live_vision_retention is None else live_vision_retention.stop,
+            ),
+            (
+                "vision_worker",
+                None if vision_sink is None else vision_sink.stop_worker,
             ),
         )
         for name, operation in stop_operations:
@@ -1917,9 +1932,12 @@ async def _serve(
                 state = voice_service.status().value
                 if voice_service.last_error is not None:
                     reasons.append(voice_service.last_error.replace("-", "_"))
+        recent_turn = (
+            None if voice_service is None else await voice_service.recent_turn()
+        )
         return LiveVoiceStatusResponse(
             contract_version="1.0",
-            projection_version="creator-live-voice-status.v1",
+            projection_version="creator-live-voice-status.v2",
             state=state,
             enabled=voice_config.enabled,
             input_device=input_label,
@@ -1927,6 +1945,17 @@ async def _serve(
             asr_ready=voice_service is not None and not reasons,
             llm_ready=voice_service is not None and not reasons,
             tts_ready=voice_service is not None and not reasons,
+            recent_turn_ref=None if recent_turn is None else str(recent_turn.turn_id),
+            recent_turn_status=None if recent_turn is None else recent_turn.status,
+            playback_extent=(
+                None if recent_turn is None else recent_turn.playback_extent.value
+            ),
+            frames_written=None if recent_turn is None else recent_turn.frames_written,
+            last_error=(
+                None
+                if recent_turn is None or recent_turn.error_code is None
+                else recent_turn.error_code.replace("-", "_")
+            ),
             observed_at=(
                 datetime.now(UTC)
                 .isoformat(timespec="microseconds")
@@ -1940,6 +1969,54 @@ async def _serve(
 
     async def admin_vision(action: str) -> dict[str, object]:
         return (await live_vision_control(action)).model_dump(mode="json")
+
+    def _vision_observation_response(
+        observation: VisualObservation,
+    ) -> LiveVisionObservationResponse:
+        return LiveVisionObservationResponse(
+            projection_version="creator-live-vision-observation.v1",
+            observation_id=str(observation.observation_id),
+            trigger=observation.trigger.value,
+            status=observation.status.value,
+            registered_at=observation.registered_at.isoformat(
+                timespec="microseconds"
+            ).replace("+00:00", "Z"),
+            change_score=observation.change_score,
+            summary=observation.summary,
+            error_code=(
+                None
+                if observation.error_code is None
+                else observation.error_code.replace("-", "_")
+            ),
+        )
+
+    async def live_vision_observe(
+        idempotency_key: str,
+    ) -> LiveVisionObservationResponse:
+        if live_vision_service is None:
+            raise LiveVisionViolation(
+                "VISION-PIPELINE-UNAVAILABLE", "vision pipeline is unavailable"
+            )
+        try:
+            observation = await live_vision_service.observe(
+                idempotency_key=idempotency_key
+            )
+        except RuntimeError as error:
+            code = str(error)
+            if code.startswith("VISION-"):
+                raise LiveVisionViolation(code, "vision admission failed") from None
+            raise
+        return _vision_observation_response(observation)
+
+    async def live_vision_observation(
+        observation_id: UUID,
+    ) -> LiveVisionObservationResponse | None:
+        if vision_sink is None:
+            return None
+        observation = await vision_sink.get_observation(observation_id)
+        return (
+            None if observation is None else _vision_observation_response(observation)
+        )
 
     async def live_vision_control(action: str) -> LiveVisionStatusResponse:
         vision_config = config.vision
@@ -1971,7 +2048,7 @@ async def _serve(
         last_observation = None if snapshot is None else snapshot.last_observation
         return LiveVisionStatusResponse(
             contract_version="1.0",
-            projection_version="creator-live-vision-status.v1",
+            projection_version="creator-live-vision-status.v2",
             state=state,
             enabled=vision_config.enabled,
             expected_running=False if snapshot is None else snapshot.expected_running,
@@ -1993,6 +2070,12 @@ async def _serve(
                 else last_observation.registered_at.isoformat(
                     timespec="microseconds"
                 ).replace("+00:00", "Z")
+            ),
+            current_manual_observation_ref=(
+                str(last_observation.observation_id)
+                if last_observation is not None
+                and last_observation.trigger.value == "manual"
+                else None
             ),
             observations_last_hour=0
             if snapshot is None
@@ -2223,6 +2306,8 @@ async def _serve(
         qq_channel_control=qq_channel_control,
         live_voice_control=live_voice_control,
         live_vision_control=live_vision_control,
+        live_vision_observe=live_vision_observe,
+        live_vision_observation=live_vision_observation,
         live_vision_preview=live_vision_preview,
         assets=assets,
         browser_sessions=browser_sessions,

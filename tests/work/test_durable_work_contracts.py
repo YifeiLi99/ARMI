@@ -102,7 +102,7 @@ class DurableWorkContractTests(unittest.TestCase):
         self.assertEqual(missing_result.exception.code, "WORK-STATE")
 
     def test_responsibility_registry_is_closed_and_generation_is_fenced(self) -> None:
-        self.assertEqual(len(RESPONSIBILITY_BINDINGS), 14)
+        self.assertEqual(len(RESPONSIBILITY_BINDINGS), 15)
         self.assertEqual(
             len(
                 {
@@ -110,7 +110,7 @@ class DurableWorkContractTests(unittest.TestCase):
                     for binding in RESPONSIBILITY_BINDINGS
                 }
             ),
-            14,
+            15,
         )
         with self.assertRaises(WorkViolation) as unknown:
             _draft(owner=WorkOwner("environment", uuid7()))

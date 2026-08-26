@@ -1,6 +1,7 @@
 """Terminate interrupted camera sessions; they are never resumed in place."""
 
 from armi_runtime_foundation import (
+    OwnerReconciliationContext,
     PostgreSQLTransaction,
     RecoveryContribution,
     RecoveryFindingContribution,
@@ -14,7 +15,7 @@ from armi_runtime_foundation import (
 
 class LiveVisionRecoveryParticipant:
     owner_identity = RecoveryOwnerIdentity("live-vision")
-    work_scopes: tuple[tuple[str, str], ...] = ()
+    work_scopes = (("live_vision_observation", "live.vision.observe"),)
 
     async def recover(
         self,
@@ -22,7 +23,10 @@ class LiveVisionRecoveryParticipant:
         scope: RecoveryScope,
         work: tuple[RecoveryWorkSnapshot, ...],
     ) -> RecoveryContribution:
-        del scope, work
+        del scope
+        reconciliation = OwnerReconciliationContext(
+            transaction, self.owner_identity, work
+        )
         rows = await (
             await transaction.execute(
                 """UPDATE armi.live_vision_sessions SET state='failed',ended_at=statement_timestamp(),
@@ -37,6 +41,18 @@ class LiveVisionRecoveryParticipant:
                    WHERE status='recognizing' RETURNING observation_id"""
             )
         ).fetchall()
+        unknown_ids = {str(row[0]) for row in observation_rows}
+        for item in work:
+            if (
+                str(item.owner_ref) not in unknown_ids
+                or not item.reconciliation_required
+            ):
+                continue
+            await reconciliation.complete(
+                item.work_id,
+                result_kind="live_vision_observation",
+                result_ref=item.owner_ref,
+            )
         return RecoveryContribution(
             self.owner_identity,
             findings=()

@@ -55,10 +55,29 @@ class LiveVoiceRecoveryParticipant:
         ).fetchall()
         turn_rows = await (
             await transaction.execute(
-                """UPDATE armi.live_voice_turns
+                """UPDATE armi.live_voice_turns AS turn
                    SET result_status='unknown',completed_at=statement_timestamp(),
-                       error_code='VOICE-RUNTIME-RESTARTED'
-                   WHERE completed_at IS NULL
+                       error_code='VOICE-RUNTIME-RESTARTED',
+                       registered_response_text=COALESCE((
+                           SELECT string_agg(fragment.body, '' ORDER BY fragment.fragment_no)
+                           FROM armi.live_voice_text_fragments AS fragment
+                           WHERE fragment.turn_id=turn.turn_id
+                       ), turn.registered_response_text),
+                       frames_written=COALESCE((
+                           SELECT playback.frames_written
+                           FROM armi.live_voice_playback_attempts AS playback
+                           WHERE playback.turn_id=turn.turn_id
+                           ORDER BY playback.registered_at DESC LIMIT 1
+                       ), 0),
+                       playback_extent=CASE
+                           WHEN EXISTS (
+                               SELECT 1 FROM armi.live_voice_playback_attempts AS playback
+                               WHERE playback.turn_id=turn.turn_id
+                                 AND playback.dispatched_at IS NOT NULL
+                           ) THEN 'unknown_completion'
+                           ELSE 'none'
+                       END
+                   WHERE turn.completed_at IS NULL
                    RETURNING turn_id"""
             )
         ).fetchall()

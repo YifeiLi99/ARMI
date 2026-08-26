@@ -55,6 +55,7 @@ class FakeSink:
         self.triggers: list[ObservationTrigger] = []
         self.interruptions: list[str] = []
         self.fail_observation = False
+        self.by_key: dict[str, VisualObservation] = {}
 
     async def open_session(self) -> None:
         self.open_count += 1
@@ -65,13 +66,20 @@ class FakeSink:
     async def settle_interrupted_observations(self, *, error_code: str) -> None:
         self.interruptions.append(error_code)
 
-    async def observe(self, *, trigger, frames, change_score) -> VisualObservation:
+    async def get_observation_by_key(
+        self, idempotency_key: str
+    ) -> VisualObservation | None:
+        return self.by_key.get(idempotency_key)
+
+    async def observe(
+        self, *, trigger, frames, change_score, idempotency_key=None
+    ) -> VisualObservation:
         assert 1 <= len(frames) <= 4
         self.triggers.append(trigger)
         if self.fail_observation:
             self.fail_observation = False
             raise RuntimeError("database unavailable")
-        return VisualObservation(
+        result = VisualObservation(
             uuid7(),
             trigger,
             ObservationStatus.COMPLETED,
@@ -79,6 +87,9 @@ class FakeSink:
             change_score,
             "fake scene",
         )
+        if idempotency_key is not None:
+            self.by_key[idempotency_key] = result
+        return result
 
 
 def _service(camera: FakeCamera, sink: FakeSink) -> LiveVisionService:

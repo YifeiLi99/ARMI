@@ -112,8 +112,8 @@ class PostgreSQLRuntimeRecovery:
             )
         except RecoveryViolation:
             raise
-        except RuntimeTransactionFailure, ValueError:
-            raise RecoveryViolation("REC-DATABASE") from None
+        except (RuntimeTransactionFailure, ValueError) as error:
+            raise RecoveryViolation("REC-DATABASE") from error
 
     def _validate_roster(self) -> None:
         actual = tuple(participant.owner_identity for participant in self._participants)

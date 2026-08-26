@@ -79,10 +79,14 @@ async def test_turn_binds_model_and_first_playback_marks_turn() -> None:
 @pytest.mark.asyncio
 async def test_only_completed_spoken_turn_enters_scene_timeline() -> None:
     first_audio_at = datetime.now(UTC)
+    playback = AsyncMock()
+    playback.fetchone.return_value = ("completed", 4)
+    response = AsyncMock()
+    response.fetchone.return_value = ("已经真实播放",)
     completed = AsyncMock()
     completed.fetchone.return_value = (first_audio_at,)
     transaction = AsyncMock()
-    transaction.execute.return_value = completed
+    transaction.execute.side_effect = (playback, response, completed)
     timeline = AsyncMock()
     scene_id = uuid7()
     turn_id = uuid7()
@@ -98,7 +102,6 @@ async def test_only_completed_spoken_turn_enters_scene_timeline() -> None:
     await journal.settle_turn(
         turn_id=turn_id,
         outcome=AttemptOutcome.COMPLETED,
-        spoken_text="已经真实播放",
     )
 
     timeline.record_live_voice_response.assert_awaited_once()
@@ -108,21 +111,56 @@ async def test_only_completed_spoken_turn_enters_scene_timeline() -> None:
 
 
 @pytest.mark.asyncio
+async def test_successor_failure_cannot_rewrite_completed_playback() -> None:
+    playback = AsyncMock()
+    playback.fetchone.return_value = ("completed", 2)
+    response = AsyncMock()
+    response.fetchone.return_value = ("已经完整播出",)
+    completed = AsyncMock()
+    completed.fetchone.return_value = (datetime.now(UTC),)
+    transaction = AsyncMock()
+    transaction.execute.side_effect = (playback, response, completed)
+    timeline = AsyncMock()
+    journal = PostgreSQLLiveVoiceJournal(
+        factory=_Factory(transaction),  # type: ignore[arg-type]
+        subject_id=uuid7(),
+        creator_party_id=uuid7(),
+        scene_id=uuid7(),
+        binding=_binding(),
+        timeline=timeline,
+    )
+
+    await journal.settle_turn(
+        turn_id=uuid7(),
+        outcome=AttemptOutcome.FAILED,
+        error_code="VOICE-SUCCESSOR-FAILED",
+    )
+
+    settlement = transaction.execute.await_args_list[2].args[1]
+    assert settlement[:5] == ("completed", "已经完整播出", "complete", 2, None)
+    timeline.record_live_voice_response.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("outcome", "spoken_text", "error_code", "silent"),
+    ("outcome", "error_code", "silent"),
     (
-        (AttemptOutcome.COMPLETED, "", None, True),
-        (AttemptOutcome.FAILED, "", "VOICE-PLAYBACK-FAILED", False),
-        (AttemptOutcome.UNKNOWN, "", "VOICE-PLAYBACK-UNKNOWN", False),
+        (AttemptOutcome.COMPLETED, None, True),
+        (AttemptOutcome.FAILED, "VOICE-PLAYBACK-FAILED", False),
+        (AttemptOutcome.UNKNOWN, "VOICE-PLAYBACK-UNKNOWN", False),
     ),
 )
 async def test_silent_failed_and_unknown_turns_do_not_enter_scene_timeline(
-    outcome: AttemptOutcome, spoken_text: str, error_code: str | None, silent: bool
+    outcome: AttemptOutcome, error_code: str | None, silent: bool
 ) -> None:
+    playback = AsyncMock()
+    playback.fetchone.return_value = None
+    response = AsyncMock()
+    response.fetchone.return_value = ("",)
     result = AsyncMock()
     result.fetchone.return_value = (None,)
     transaction = AsyncMock()
-    transaction.execute.return_value = result
+    transaction.execute.side_effect = (playback, response, result)
     timeline = AsyncMock()
     journal = PostgreSQLLiveVoiceJournal(
         factory=_Factory(transaction),  # type: ignore[arg-type]
@@ -136,7 +174,6 @@ async def test_silent_failed_and_unknown_turns_do_not_enter_scene_timeline(
     await journal.settle_turn(
         turn_id=uuid7(),
         outcome=outcome,
-        spoken_text=spoken_text,
         error_code=error_code,
         silent=silent,
     )

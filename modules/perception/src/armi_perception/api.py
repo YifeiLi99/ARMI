@@ -267,6 +267,13 @@ class VisualRecognitionPort(Protocol):
 
 @runtime_checkable
 class VisualRecognitionAttemptPort(Protocol):
+    async def prepared_attempt_for_observation(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        observation_id: UUID,
+    ) -> UUID | None: ...
+
     async def settle_interrupted(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
@@ -284,6 +291,13 @@ class VisualRecognitionAttemptPort(Protocol):
         request_artifact_id: UUID,
         provider: str,
         model_id: str,
+    ) -> None: ...
+
+    async def mark_dispatched(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        attempt_id: UUID,
     ) -> None: ...
 
     async def settle(

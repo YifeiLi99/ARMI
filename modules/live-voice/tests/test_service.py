@@ -118,6 +118,9 @@ class FakeSuccessors:
 
 
 class FakeJournal:
+    async def recent_turn(self):
+        return None
+
     async def open_session(self, **_: object) -> None:
         return None
 

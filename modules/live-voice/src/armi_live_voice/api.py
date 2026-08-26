@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import ClassVar, Protocol, runtime_checkable
+from typing import ClassVar, Literal, Protocol, runtime_checkable
 from uuid import UUID
 
 from armi_runtime_foundation import PostgreSQLTransaction
@@ -44,6 +44,32 @@ class AttemptOutcome(StrEnum):
     FAILED = "failed"
     PARTIAL = "partial"
     UNKNOWN = "unknown"
+
+
+class PlaybackExtent(StrEnum):
+    NONE = "none"
+    PARTIAL_PREFIX = "partial_prefix"
+    COMPLETE = "complete"
+    UNKNOWN_COMPLETION = "unknown_completion"
+
+
+@dataclass(frozen=True, slots=True)
+class VoiceTurnSnapshot:
+    turn_id: UUID
+    status: Literal[
+        "recognizing",
+        "thinking",
+        "speaking",
+        "waiting_slow",
+        "completed",
+        "failed",
+        "partial",
+        "unknown",
+        "silent",
+    ]
+    playback_extent: PlaybackExtent
+    frames_written: int
+    error_code: str | None
 
 
 class VoiceProviderService(StrEnum):
@@ -220,7 +246,7 @@ class VoiceExpressionPort(Protocol):
         text: str,
     ) -> None: ...
 
-    async def seal(self, *, turn_id: UUID, spoken_text: str) -> None: ...
+    async def seal(self, *, turn_id: UUID) -> None: ...
 
 
 @runtime_checkable
@@ -231,6 +257,8 @@ class VoiceSuccessorPort(Protocol):
 
 @runtime_checkable
 class VoiceJournalPort(Protocol):
+    async def recent_turn(self) -> VoiceTurnSnapshot | None: ...
+
     async def open_session(self, *, session_id: UUID) -> None: ...
     async def set_session_state(
         self,
@@ -265,7 +293,6 @@ class VoiceJournalPort(Protocol):
         *,
         turn_id: UUID,
         outcome: AttemptOutcome,
-        spoken_text: str = "",
         error_code: str | None = None,
         silent: bool = False,
     ) -> None: ...
@@ -449,6 +476,7 @@ class LiveVoiceRuntimePort(Protocol):
     async def start(self) -> None: ...
     async def stop(self) -> None: ...
     def status(self) -> LiveVoiceSessionState: ...
+    async def recent_turn(self) -> VoiceTurnSnapshot | None: ...
     @property
     def last_error(self) -> str | None: ...
 
@@ -466,6 +494,7 @@ __all__ = (
     "LiveVoiceRuntimePort",
     "LiveVoiceSessionState",
     "LiveVoiceViolation",
+    "PlaybackExtent",
     "RecognitionEvent",
     "StreamingAsrPort",
     "StreamingFastModelPort",
@@ -480,5 +509,6 @@ __all__ = (
     "VoiceProviderService",
     "VoiceSuccessorPort",
     "VoiceTimelinePort",
+    "VoiceTurnSnapshot",
     "parse_fast_reply",
 )

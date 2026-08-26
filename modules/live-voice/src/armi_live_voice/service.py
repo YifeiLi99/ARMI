@@ -25,6 +25,7 @@ from .api import (
     VoiceInputAcceptancePort,
     VoiceJournalPort,
     VoiceSuccessorPort,
+    VoiceTurnSnapshot,
     parse_fast_reply,
 )
 
@@ -66,6 +67,9 @@ class LiveVoiceService:
 
     def status(self) -> LiveVoiceSessionState:
         return self._machine.state
+
+    async def recent_turn(self) -> VoiceTurnSnapshot | None:
+        return await self._journal.recent_turn()
 
     @property
     def last_error(self) -> str | None:
@@ -148,7 +152,7 @@ class LiveVoiceService:
             context_version=context.version,
         )
         try:
-            outcome, spoken, silent = await self._execute_turn(turn_id, context)
+            outcome, _spoken, silent = await self._execute_turn(turn_id, context)
         except asyncio.CancelledError:
             await self._journal.settle_turn(
                 turn_id=turn_id,
@@ -173,7 +177,6 @@ class LiveVoiceService:
         await self._journal.settle_turn(
             turn_id=turn_id,
             outcome=outcome,
-            spoken_text=spoken,
             silent=silent,
         )
         await self._transition(LiveVoiceSessionState.LISTENING)
@@ -271,7 +274,7 @@ class LiveVoiceService:
             await self._journal.record_decision(turn_id=turn_id, decision=decision)
             await self._transition(LiveVoiceSessionState.SPEAKING)
             spoken = await self._speak(turn_id, _single_fragment(decision.text))
-            await self._expression.seal(turn_id=turn_id, spoken_text=spoken)
+            await self._expression.seal(turn_id=turn_id)
             await self._transition(LiveVoiceSessionState.WAITING_SLOW)
             await self._successors.run_slow(accepted)
             return AttemptOutcome.COMPLETED, spoken, False
@@ -283,7 +286,7 @@ class LiveVoiceService:
         fragments = _stream_speak_fragments(initial, remaining)
         spoken = await self._speak(turn_id, fragments)
         parse_fast_reply("SPEAK\n" + spoken)
-        await self._expression.seal(turn_id=turn_id, spoken_text=spoken)
+        await self._expression.seal(turn_id=turn_id)
         await self._successors.enqueue_appraisal(accepted)
         return AttemptOutcome.COMPLETED, spoken, False
 
@@ -402,6 +405,13 @@ class LiveVoiceService:
             )
             raise
         except LiveVoiceViolation as error:
+            playback_outcome = (
+                AttemptOutcome.FAILED
+                if written_frames == 0
+                else AttemptOutcome.UNKNOWN
+                if error.code == "VOICE-PLAYBACK-COUNT"
+                else AttemptOutcome.PARTIAL
+            )
             await self._journal.settle_provider_attempt(
                 attempt_id=tts_attempt,
                 outcome=(
@@ -411,9 +421,7 @@ class LiveVoiceService:
             )
             await self._journal.settle_playback(
                 attempt_id=playback_attempt,
-                outcome=(
-                    AttemptOutcome.PARTIAL if written_frames else AttemptOutcome.FAILED
-                ),
+                outcome=playback_outcome,
                 frames_written=written_frames,
                 error_code=error.code,
             )

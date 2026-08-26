@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Literal, cast
 from uuid import UUID, uuid7
 
 from armi_runtime_foundation import (
@@ -15,8 +16,10 @@ from .api import (
     LiveVoiceBinding,
     LiveVoiceSessionState,
     LiveVoiceViolation,
+    PlaybackExtent,
     VoiceProviderBinding,
     VoiceTimelinePort,
+    VoiceTurnSnapshot,
 )
 
 
@@ -69,6 +72,37 @@ class PostgreSQLLiveVoiceJournal:
         self._scene_id = scene_id
         self._binding = binding
         self._timeline = timeline
+
+    async def recent_turn(self) -> VoiceTurnSnapshot | None:
+        async with self._factory.unit_of_work(read_only=True) as unit:
+            row = await (
+                await unit.transaction.execute(
+                    "SELECT turn_id,result_status,playback_extent,frames_written,error_code "
+                    "FROM armi.live_voice_turns ORDER BY created_at DESC LIMIT 1"
+                )
+            ).fetchone()
+        if row is None:
+            return None
+        return VoiceTurnSnapshot(
+            UUID(str(row[0])),
+            cast(
+                Literal[
+                    "recognizing",
+                    "thinking",
+                    "speaking",
+                    "waiting_slow",
+                    "completed",
+                    "failed",
+                    "partial",
+                    "unknown",
+                    "silent",
+                ],
+                str(row[1]),
+            ),
+            PlaybackExtent(str(row[2])),
+            int(row[3]),
+            None if row[4] is None else str(row[4]),
+        )
 
     async def open_session(self, *, session_id: UUID) -> None:
         async with self._factory.unit_of_work() as unit:
@@ -183,25 +217,57 @@ class PostgreSQLLiveVoiceJournal:
         *,
         turn_id: UUID,
         outcome: AttemptOutcome,
-        spoken_text: str = "",
         error_code: str | None = None,
         silent: bool = False,
     ) -> None:
         error_code = _require_voice_error(error_code, outcome)
         status = "silent" if silent else outcome.value
         async with self._factory.unit_of_work() as unit:
+            playback = await (
+                await unit.transaction.execute(
+                    "SELECT result_status,frames_written FROM "
+                    "armi.live_voice_playback_attempts WHERE turn_id=%s "
+                    "ORDER BY registered_at DESC LIMIT 1",
+                    (turn_id,),
+                )
+            ).fetchone()
+            response = await (
+                await unit.transaction.execute(
+                    "SELECT COALESCE(string_agg(body,'' ORDER BY fragment_no),'') "
+                    "FROM armi.live_voice_text_fragments WHERE turn_id=%s "
+                    "AND data_rights_redacted_at IS NULL",
+                    (turn_id,),
+                )
+            ).fetchone()
+            if response is None:
+                raise LiveVoiceViolation("VOICE-JOURNAL-TURN", "voice turn is absent")
+            frames_written = 0 if playback is None else int(playback[1])
+            extent = "none"
+            if playback is not None:
+                playback_status = str(playback[0])
+                if playback_status == "completed":
+                    extent = "complete"
+                    status = "completed"
+                    error_code = None
+                elif playback_status == "partial":
+                    extent = "partial_prefix"
+                    status = "partial"
+                elif playback_status == "unknown":
+                    extent = "unknown_completion"
+                    status = "unknown"
             result = await unit.transaction.execute(
                 """UPDATE armi.live_voice_turns
-                   SET result_status=%s,spoken_text=%s,error_code=%s,
+                   SET result_status=%s,registered_response_text=%s,
+                       playback_extent=%s,frames_written=%s,error_code=%s,
                        completed_at=statement_timestamp()
                    WHERE turn_id=%s AND completed_at IS NULL
                    RETURNING first_audio_at""",
-                (status, spoken_text, error_code, turn_id),
+                (status, str(response[0]), extent, frames_written, error_code, turn_id),
             )
             row = await result.fetchone()
             if row is None:
                 raise LiveVoiceViolation("VOICE-JOURNAL-TURN", "voice turn is closed")
-            if outcome is AttemptOutcome.COMPLETED and spoken_text:
+            if status == "completed" and extent == "complete" and response[0]:
                 if row[0] is None:
                     raise LiveVoiceViolation(
                         "VOICE-JOURNAL-PLAYBACK", "voice playback is invalid"
@@ -294,12 +360,15 @@ class PostgreSQLLiveVoiceJournal:
                 (uuid7(), turn_id, fragment_no, text),
             )
 
-    async def seal(self, *, turn_id: UUID, spoken_text: str) -> None:
+    async def seal(self, *, turn_id: UUID) -> None:
         async with self._factory.unit_of_work() as unit:
             result = await unit.transaction.execute(
-                """UPDATE armi.live_voice_turns SET spoken_text=%s
+                """UPDATE armi.live_voice_turns SET registered_response_text=(
+                       SELECT COALESCE(string_agg(body,'' ORDER BY fragment_no),'')
+                       FROM armi.live_voice_text_fragments
+                       WHERE turn_id=%s AND data_rights_redacted_at IS NULL)
                    WHERE turn_id=%s AND completed_at IS NULL""",
-                (spoken_text, turn_id),
+                (turn_id, turn_id),
             )
             if result.rowcount != 1:
                 raise LiveVoiceViolation("VOICE-JOURNAL-TURN", "voice turn is closed")
@@ -389,11 +458,12 @@ class PostgreSQLLiveVoiceContextRead:
     ) -> str | None:
         row = await (
             await transaction.execute(
-                """SELECT turn.spoken_text, turn.first_audio_at
+                """SELECT turn.registered_response_text, turn.first_audio_at
                    FROM armi.live_voice_turns AS turn
                    WHERE turn.turn_id=%s
                      AND turn.result_status='completed'
-                     AND length(turn.spoken_text)>0
+                     AND length(turn.registered_response_text)>0
+                     AND turn.playback_extent='complete'
                      AND turn.first_audio_at IS NOT NULL
                      AND EXISTS (
                          SELECT 1 FROM armi.live_voice_playback_attempts AS playback

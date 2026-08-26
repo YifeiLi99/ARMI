@@ -126,8 +126,10 @@ class LiveVisionService:
         self._state = LiveVisionState.IDLE
         return self.status()
 
-    async def observe(self) -> VisualObservation:
-        result = await self._request(ObservationTrigger.MANUAL)
+    async def observe(self, *, idempotency_key: str | None = None) -> VisualObservation:
+        result = await self._request(
+            ObservationTrigger.MANUAL, idempotency_key=idempotency_key
+        )
         if result is None:
             raise LiveVisionViolation(
                 "VISION-OBSERVATION-PENDING", "manual observation was coalesced"
@@ -247,8 +249,17 @@ class LiveVisionService:
             self._reason = "VISION-SETTLEMENT-FAILED"
 
     async def _request(
-        self, trigger: ObservationTrigger, change_score: float | None = None
+        self,
+        trigger: ObservationTrigger,
+        change_score: float | None = None,
+        *,
+        idempotency_key: str | None = None,
     ) -> VisualObservation | None:
+        if trigger is ObservationTrigger.MANUAL and idempotency_key is not None:
+            existing = await self._sink.get_observation_by_key(idempotency_key)
+            if existing is not None:
+                self._last_observation = existing
+                return existing
         now = datetime.now(UTC)
         if not self._budget.allow(trigger, now):
             raise LiveVisionViolation(
@@ -263,7 +274,12 @@ class LiveVisionService:
                 self._budget.record(current_trigger, datetime.now(UTC))
                 frames = await self._select_frames()
                 result = await self._sink.observe(
-                    trigger=current_trigger, frames=frames, change_score=current_score
+                    trigger=current_trigger,
+                    frames=frames,
+                    change_score=current_score,
+                    idempotency_key=idempotency_key
+                    if current_trigger is ObservationTrigger.MANUAL
+                    else None,
                 )
                 self._observation_failed = False
                 self._state = LiveVisionState.OBSERVING
