@@ -1878,6 +1878,21 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 self.assertNotIn(creator_bearer, completed.stdout)
                 return cast(dict[str, Any], json.loads(completed.stdout))
 
+            def invoke_rejected(*arguments: str) -> dict[str, Any]:
+                completed = subprocess.run(
+                    (entry_point, *arguments),
+                    cwd=Path.cwd(),
+                    env=clean_environment,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    timeout=60,
+                )
+                self.assertEqual(completed.returncode, 3, completed.stdout)
+                self.assertEqual(completed.stdout, "")
+                return cast(dict[str, Any], json.loads(completed.stderr))
+
             root_argument = ("--environment-root", str(environment_root))
             checked = invoke("config", "check", *root_argument)
             self.assertEqual(checked["status"], "pass")
@@ -2028,42 +2043,38 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     prompt = json.loads(prompt_response.read())
                     self.assertEqual(prompt_response.status, 200, prompt)
                     self.assertEqual(prompt["revision_kind"], "created")
-                    other_party_body = json.dumps(
-                        {
-                            "party_key": "p1-clean-friend",
-                            "display_label": "隔离环境朋友",
-                            "role": "other_human",
-                        },
-                        ensure_ascii=False,
-                        separators=(",", ":"),
-                    ).encode()
-                    connection.request(
-                        "POST",
-                        "/v1/local/other-humans/parties",
-                        body=other_party_body,
-                        headers={
-                            "Content-Type": "application/json",
-                            "Content-Length": str(len(other_party_body)),
-                        },
+                    other_party = invoke(
+                        "other-human",
+                        "party",
+                        "register",
+                        *root_argument,
+                        "--party-key",
+                        "p1-clean-friend",
+                        "--display-label",
+                        "隔离环境朋友",
                     )
-                    other_party_response = connection.getresponse()
-                    other_party = json.loads(other_party_response.read())
-                    self.assertEqual(other_party_response.status, 201, other_party)
-                    other_scene_body = b'{"status":"open"}'
-                    connection.request(
-                        "PUT",
-                        "/v1/local/other-humans/p1-clean-friend/scenes/default",
-                        body=other_scene_body,
-                        headers={
-                            "Content-Type": "application/json",
-                            "Content-Length": str(len(other_scene_body)),
-                        },
+                    self.assertEqual(other_party["status"], "succeeded")
+                    other_scene = invoke(
+                        "other-human",
+                        "scene",
+                        "set",
+                        *root_argument,
+                        "--party-key",
+                        "p1-clean-friend",
+                        "--scene-key",
+                        "default",
+                        "--status",
+                        "open",
                     )
-                    other_scene_response = connection.getresponse()
-                    other_scene = json.loads(other_scene_response.read())
-                    self.assertEqual(other_scene_response.status, 200, other_scene)
+                    self.assertEqual(other_scene["status"], "open")
                     self.assertEqual(other_scene["scene_key"], "default")
                     self.assertEqual(other_scene["party_id"], other_party["party_id"])
+                    connection.close()
+                    connection = http.client.HTTPConnection(
+                        "127.0.0.1",
+                        runtime_port,
+                        timeout=5,
+                    )
                     input_body = json.dumps(
                         {
                             "contract_version": "1.0",
@@ -2189,73 +2200,57 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 self.assertEqual(restarted["status"], "started")
                 restart_status = invoke("status", *root_argument)
                 self.assertEqual(restart_status["status"], "running")
-                connection = http.client.HTTPConnection(
-                    "127.0.0.1", runtime_port, timeout=5
+                other_message = invoke(
+                    "other-human",
+                    "send",
+                    *root_argument,
+                    "--party-key",
+                    "p1-clean-friend",
+                    "--scene-key",
+                    "default",
+                    "--message",
+                    "隔离环境中的其他人消息。",
+                    "--idempotency-key",
+                    "p1-clean-friend-message-1",
                 )
-                try:
-                    other_message_body = json.dumps(
-                        {"message": "隔离环境中的其他人消息。"},
-                        ensure_ascii=False,
-                        separators=(",", ":"),
-                    ).encode()
-                    connection.request(
-                        "POST",
-                        "/v1/local/other-humans/p1-clean-friend/scenes/default/messages",
-                        body=other_message_body,
-                        headers={
-                            "Content-Type": "application/json",
-                            "Content-Length": str(len(other_message_body)),
-                            "Idempotency-Key": "p1-clean-friend-message-1",
-                        },
-                    )
-                    other_message_response = connection.getresponse()
-                    other_message = json.loads(other_message_response.read())
-                    self.assertEqual(other_message_response.status, 202, other_message)
-                    self.assertTrue(other_message["newly_accepted"])
-                    delete_body = b'{"order_kind":"delete_related"}'
-                    connection.request(
-                        "POST",
-                        "/v1/local/other-humans/p1-clean-friend/data-rights/orders",
-                        body=delete_body,
-                        headers={
-                            "Content-Type": "application/json",
-                            "Content-Length": str(len(delete_body)),
-                            "Idempotency-Key": "p1-clean-friend-delete-1",
-                        },
-                    )
-                    delete_response = connection.getresponse()
-                    deleted = json.loads(delete_response.read())
-                    self.assertEqual(delete_response.status, 201, deleted)
-                    self.assertIn(deleted["execution_status"], {"completed", "partial"})
-                    runtime_after_delete = invoke("status", *root_argument)
-                    diagnostics_after_delete = tuple(
-                        path.read_text(encoding="utf-8")
-                        for path in sorted((data_root / "logs").glob("*.jsonl"))
-                    )
-                    self.assertEqual(
-                        runtime_after_delete["status"],
-                        "running",
-                        diagnostics_after_delete,
-                    )
-                    connection.close()
-                    connection = http.client.HTTPConnection(
-                        "127.0.0.1", runtime_port, timeout=5
-                    )
-                    connection.request(
-                        "POST",
-                        "/v1/local/other-humans/p1-clean-friend/scenes/default/messages",
-                        body=other_message_body,
-                        headers={
-                            "Content-Type": "application/json",
-                            "Content-Length": str(len(other_message_body)),
-                            "Idempotency-Key": "p1-clean-friend-message-blocked",
-                        },
-                    )
-                    blocked_response = connection.getresponse()
-                    blocked = json.loads(blocked_response.read())
-                    self.assertEqual(blocked_response.status, 403, blocked)
-                finally:
-                    connection.close()
+                self.assertTrue(other_message["newly_accepted"])
+                deleted = invoke(
+                    "other-human",
+                    "data-rights",
+                    "request",
+                    *root_argument,
+                    "--party-key",
+                    "p1-clean-friend",
+                    "--order-kind",
+                    "delete_related",
+                    "--idempotency-key",
+                    "p1-clean-friend-delete-1",
+                )
+                self.assertIn(deleted["execution_status"], {"completed", "partial"})
+                runtime_after_delete = invoke("status", *root_argument)
+                diagnostics_after_delete = tuple(
+                    path.read_text(encoding="utf-8")
+                    for path in sorted((data_root / "logs").glob("*.jsonl"))
+                )
+                self.assertEqual(
+                    runtime_after_delete["status"],
+                    "running",
+                    diagnostics_after_delete,
+                )
+                blocked = invoke_rejected(
+                    "other-human",
+                    "send",
+                    *root_argument,
+                    "--party-key",
+                    "p1-clean-friend",
+                    "--scene-key",
+                    "default",
+                    "--message",
+                    "隔离环境中的其他人消息。",
+                    "--idempotency-key",
+                    "p1-clean-friend-message-blocked",
+                )
+                self.assertEqual(blocked["status"], "rejected")
                 stopped_again = invoke("stop", *root_argument)
                 self.assertEqual(stopped_again["status"], "stopped")
                 with psycopg.connect(fixture.runtime_dsn) as connection:
