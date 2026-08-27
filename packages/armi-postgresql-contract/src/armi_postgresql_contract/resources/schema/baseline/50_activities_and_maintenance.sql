@@ -107,13 +107,18 @@ CREATE TABLE armi.cognition_maintenance_batches (
     trigger_kind text NOT NULL,
     status text NOT NULL,
     base_subject_version bigint NOT NULL,
+    frozen_from_ordinal bigint NOT NULL,
+    frozen_through_ordinal bigint NOT NULL,
+    visible_source_count smallint NOT NULL,
     failure_code text,
     created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
     finished_at timestamp(6) with time zone,
     CONSTRAINT cognition_maintenance_batches_base_subject_version_check CHECK ((base_subject_version >= 0)),
+    CONSTRAINT cognition_maintenance_batches_coverage_check CHECK ((frozen_from_ordinal >= 0) AND (frozen_through_ordinal > frozen_from_ordinal)),
     CONSTRAINT cognition_maintenance_batches_id_check CHECK ((uuid_extract_version(maintenance_batch_id) = 7)),
-    CONSTRAINT cognition_maintenance_batches_state_check CHECK ((((status = ANY (ARRAY['prepared'::text, 'running'::text])) AND (failure_code IS NULL) AND (finished_at IS NULL)) OR ((status = 'completed'::text) AND (failure_code IS NULL) AND (finished_at IS NOT NULL)) OR ((status = ANY (ARRAY['interrupted'::text, 'failed'::text])) AND (failure_code IS NOT NULL) AND (finished_at IS NOT NULL)))),
-    CONSTRAINT cognition_maintenance_batches_status_check CHECK ((status = ANY (ARRAY['prepared'::text, 'running'::text, 'completed'::text, 'interrupted'::text, 'failed'::text]))),
+    CONSTRAINT cognition_maintenance_batches_source_count_check CHECK ((visible_source_count >= 0) AND (visible_source_count <= 64)),
+    CONSTRAINT cognition_maintenance_batches_state_check CHECK ((((status = ANY (ARRAY['prepared'::text, 'running'::text])) AND (failure_code IS NULL) AND (finished_at IS NULL)) OR ((status = 'completed'::text) AND (failure_code IS NULL) AND (finished_at IS NOT NULL)) OR ((status = 'failed'::text) AND (failure_code IS NOT NULL) AND (finished_at IS NOT NULL)))),
+    CONSTRAINT cognition_maintenance_batches_status_check CHECK ((status = ANY (ARRAY['prepared'::text, 'running'::text, 'completed'::text, 'failed'::text]))),
     CONSTRAINT cognition_maintenance_batches_trigger_kind_check CHECK ((trigger_kind = ANY (ARRAY['runtime_idle'::text, 'sleep'::text])))
 );
 
@@ -124,11 +129,10 @@ CREATE TABLE armi.cognition_maintenance_batches (
 CREATE TABLE armi.cognition_maintenance_cursors (
     subject_id uuid NOT NULL,
     life_generation_id uuid NOT NULL,
-    last_experience_id uuid,
-    processed_through_experience_id uuid,
-    dirty_since timestamp(6) with time zone,
+    latest_accepted_ordinal bigint NOT NULL,
+    processed_through_ordinal bigint DEFAULT 0 NOT NULL,
     updated_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
-    CONSTRAINT cognition_maintenance_cursors_dirty_check CHECK ((((dirty_since IS NULL) AND (processed_through_experience_id IS NULL)) OR ((dirty_since IS NOT NULL) AND (last_experience_id IS NOT NULL))))
+    CONSTRAINT cognition_maintenance_cursors_coverage_check CHECK ((processed_through_ordinal >= 0) AND (latest_accepted_ordinal >= processed_through_ordinal))
 );
 
 --

@@ -82,7 +82,8 @@ def test_active_cognition_contracts_are_in_the_current_baseline() -> None:
     assert "armi.creator-cognitive-act-candidate.v1" in baseline
     assert "armi.creator-voice-act-candidate.v1" in baseline
     assert "cognition_maintenance_batches" in baseline
-    assert "processed_through_experience_id" in baseline
+    assert "processed_through_ordinal" in baseline
+    assert "acceptance_ordinal bigint GENERATED ALWAYS AS IDENTITY" in baseline
     assert "late_response_artifact_id" not in baseline
     assert "reflect_mood" in baseline
     for contract in (
@@ -101,7 +102,7 @@ def test_gateway_exposes_install_and_status_only() -> None:
     assert callable(PostgreSQLSchemaGateway.install)
     assert callable(PostgreSQLSchemaGateway.status)
     assert not hasattr(PostgreSQLSchemaGateway, "migrate")
-    assert "armi.schema-baseline.v9" in (
+    assert "armi.schema-baseline.v10" in (
         RESOURCE / "baseline" / "10_runtime_and_subject.sql"
     ).read_text(encoding="utf-8")
 

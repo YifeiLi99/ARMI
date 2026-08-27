@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 from uuid import UUID, uuid7
 
 from armi_cognition._context_postgresql import PostgreSQLCognitionContextLifecycle
 from armi_cognition._subject_commit import PostgreSQLCognitionSubjectCommit
+from armi_cognition.api import CognitionContextEpisodeDraft
 from armi_experience.api import (
     AcceptedExperienceSnapshot,
     ExperienceSourcePerspective,
 )
 from armi_kernel.application import CandidateFactClass, ExperienceId
+from armi_kernel.contracts import TraceId
 
 
 class _Result:
@@ -39,20 +42,22 @@ class _Experiences:
         self.snapshots = snapshots
         self.recent_limit: int | None = None
         self.requested_ids: tuple[UUID, ...] = ()
+        self.window: tuple[int, int, int] | None = None
 
     async def recent(self, transaction, *, subject_id, limit):
         self.recent_limit = limit
         return self.snapshots
 
-    async def accepted_after(
+    async def accepted_in_ordinal_window(
         self,
         transaction,
         *,
         subject_id,
-        after_experience_id,
-        since,
+        after_ordinal,
+        through_ordinal,
         limit,
     ):
+        self.window = (after_ordinal, through_ordinal, limit)
         return self.snapshots[:limit]
 
     async def by_ids(self, transaction, *, subject_id, experience_ids):
@@ -62,8 +67,9 @@ class _Experiences:
 
 
 def _snapshot(experience_id: UUID, minute: int) -> AcceptedExperienceSnapshot:
-    accepted_at = datetime(2026, 8, 17, 12, minute, tzinfo=UTC)
+    accepted_at = datetime(2026, 8, 17, 12, tzinfo=UTC) + timedelta(minutes=minute)
     return AcceptedExperienceSnapshot(
+        minute + 1,
         ExperienceId(experience_id),
         CandidateFactClass.EXTERNAL_CLAIM,
         f"经历 {minute}",
@@ -87,6 +93,24 @@ def _episode_row(purpose: str) -> tuple[object, ...]:
         uuid7(),
         "mechanism-v1",
         "0123456789abcdef0123456789abcdef",
+    )
+
+
+def _maintenance_draft() -> CognitionContextEpisodeDraft:
+    return CognitionContextEpisodeDraft(
+        episode_id=uuid7(),
+        opportunity_id=uuid7(),
+        subject_id=uuid7(),
+        generation_id=uuid7(),
+        scene_id=None,
+        context_party_id=None,
+        purpose="maintain_subjective_memory",
+        base_subject_version=3,
+        base_state_epoch=4,
+        bundle_activation_id=uuid7(),
+        mechanism_identity="armi.context-compiler.layered-v3",
+        trace_id=TraceId("0123456789abcdef0123456789abcdef"),
+        maintenance_trigger_kind="runtime_idle",
     )
 
 
@@ -146,10 +170,69 @@ def test_new_experience_only_marks_cognition_maintenance_cursor() -> None:
             transaction,  # type: ignore[arg-type]
             subject_id=uuid7(),
             generation_id=uuid7(),
-            experience_id=uuid7(),
+            acceptance_ordinal=1,
         )
     )
 
     assert len(transaction.calls) == 1
     assert "cognition_maintenance_cursors" in transaction.calls[0][0]
     assert "accepted_experiences" not in transaction.calls[0][0]
+
+
+def test_maintenance_batch_freezes_sixty_four_of_sixty_five_visible_sources() -> None:
+    experiences = _Experiences(tuple(_snapshot(uuid7(), index) for index in range(65)))
+    draft = _maintenance_draft()
+    transaction = _Transaction(
+        _Result(((draft.episode_id,),)),
+        _Result(((65, 0),)),
+        _Result(),
+    )
+
+    assert asyncio.run(
+        PostgreSQLCognitionContextLifecycle(experiences).create_context_episode(
+            cast(Any, transaction),
+            draft,
+        )
+    )
+
+    assert experiences.window == (0, 65, 65)
+    batch_call = next(
+        call
+        for call in transaction.calls
+        if "INSERT INTO armi.cognition_maintenance_batches" in call[0]
+    )
+    assert batch_call[1][-3:] == (0, 64, 64)  # type: ignore[index]
+    source_call = next(
+        call
+        for call in transaction.calls
+        if "INSERT INTO armi.cognition_maintenance_batch_sources" in call[0]
+    )
+    assert len(source_call[1][1]) == 64  # type: ignore[index]
+
+
+def test_hidden_tail_still_creates_an_empty_batch_with_frozen_coverage() -> None:
+    experiences = _Experiences(())
+    draft = _maintenance_draft()
+    transaction = _Transaction(
+        _Result(((draft.episode_id,),)),
+        _Result(((5, 0),)),
+        _Result(),
+    )
+
+    assert asyncio.run(
+        PostgreSQLCognitionContextLifecycle(experiences).create_context_episode(
+            cast(Any, transaction),
+            draft,
+        )
+    )
+
+    batch_call = next(
+        call
+        for call in transaction.calls
+        if "INSERT INTO armi.cognition_maintenance_batches" in call[0]
+    )
+    assert batch_call[1][-3:] == (0, 5, 0)  # type: ignore[index]
+    assert not any(
+        "INSERT INTO armi.cognition_maintenance_batch_sources" in statement
+        for statement, _params in transaction.calls
+    )

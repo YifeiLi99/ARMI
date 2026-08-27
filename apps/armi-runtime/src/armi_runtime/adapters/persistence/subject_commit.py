@@ -893,7 +893,7 @@ class PostgreSQLSubjectCommitRepository:
                 and snapshot.opportunity_purpose != "consider_visual_observation"
             ):
                 raise SubjectCommitViolation("SUBJECT-EXPERIENCE-SCENE")
-            await self._experience_commit.record(
+            acceptance_ordinal = await self._experience_commit.record(
                 unit_of_work.transaction,
                 AcceptedExperienceDraft(
                     experience_id=experience_id,
@@ -914,7 +914,7 @@ class PostgreSQLSubjectCommitRepository:
                 unit_of_work.transaction,
                 subject_id=snapshot.subject_id,
                 generation_id=snapshot.generation_id,
-                experience_id=experience_id.value,
+                acceptance_ordinal=acceptance_ordinal,
             )
             for ordinal, context_item_id in enumerate(proof.basis_context_ids, 1):
                 await self._evidence.link_experience(

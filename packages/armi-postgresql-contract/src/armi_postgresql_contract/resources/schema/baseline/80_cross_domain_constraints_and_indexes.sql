@@ -7,6 +7,9 @@
 ALTER TABLE ONLY armi.accepted_experiences
     ADD CONSTRAINT accepted_experiences_pkey PRIMARY KEY (experience_id);
 
+ALTER TABLE ONLY armi.accepted_experiences
+    ADD CONSTRAINT accepted_experiences_acceptance_ordinal_key UNIQUE (acceptance_ordinal);
+
 --
 -- Name: accepted_experiences accepted_experiences_subject_commit_id_proposal_ref_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
@@ -2602,25 +2605,11 @@ ALTER TABLE ONLY armi.cognition_maintenance_batches
     ADD CONSTRAINT cognition_maintenance_batches_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
 --
--- Name: cognition_maintenance_cursors cognition_maintenance_cursors_last_experience_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognition_maintenance_cursors
-    ADD CONSTRAINT cognition_maintenance_cursors_last_experience_id_fkey FOREIGN KEY (last_experience_id) REFERENCES armi.accepted_experiences(experience_id);
-
---
 -- Name: cognition_maintenance_cursors cognition_maintenance_cursors_life_generation_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
 ALTER TABLE ONLY armi.cognition_maintenance_cursors
     ADD CONSTRAINT cognition_maintenance_cursors_life_generation_id_fkey FOREIGN KEY (life_generation_id) REFERENCES armi.life_generations(life_generation_id);
-
---
--- Name: cognition_maintenance_cursors cognition_maintenance_cursors_processed_through_experience_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
-
-ALTER TABLE ONLY armi.cognition_maintenance_cursors
-    ADD CONSTRAINT cognition_maintenance_cursors_processed_through_experience_fkey FOREIGN KEY (processed_through_experience_id) REFERENCES armi.accepted_experiences(experience_id);
 
 --
 -- Name: cognition_maintenance_cursors cognition_maintenance_cursors_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2810,6 +2799,9 @@ ALTER TABLE ONLY armi.cognitive_episodes
 
 ALTER TABLE ONLY armi.cognitive_episodes
     ADD CONSTRAINT cognitive_episodes_context_party_fkey FOREIGN KEY (context_party_id) REFERENCES armi.parties(party_id);
+
+ALTER TABLE ONLY armi.cognitive_episodes
+    ADD CONSTRAINT cognitive_episodes_maintenance_batch_fkey FOREIGN KEY (maintenance_batch_id) REFERENCES armi.cognition_maintenance_batches(maintenance_batch_id);
 
 --
 -- Name: cognitive_episodes cognitive_episodes_opportunity_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -

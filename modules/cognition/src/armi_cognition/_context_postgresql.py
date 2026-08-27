@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import datetime
 from typing import cast
 from uuid import UUID, uuid7
 
@@ -55,58 +54,105 @@ class PostgreSQLCognitionContextLifecycle:
         if row is not None and draft.purpose == "maintain_subjective_memory":
             if draft.maintenance_trigger_kind not in {"runtime_idle", "sleep"}:
                 raise CandidateViolation("CANDIDATE-MAINTENANCE-TRIGGER")
-            await transaction.execute(
-                """UPDATE armi.cognition_maintenance_batches
-                   SET status='interrupted',failure_code='MODEL-MAINTENANCE-PREEMPTED',
-                       finished_at=statement_timestamp()
-                   WHERE subject_id=%s AND life_generation_id=%s
-                     AND status IN ('prepared','running')""",
-                (draft.subject_id, draft.generation_id),
-            )
             cursor = await (
                 await transaction.execute(
-                    """SELECT dirty_since,processed_through_experience_id
+                    """SELECT latest_accepted_ordinal,processed_through_ordinal
                        FROM armi.cognition_maintenance_cursors
                        WHERE subject_id=%s AND life_generation_id=%s
-                         AND dirty_since IS NOT NULL
+                         AND latest_accepted_ordinal > processed_through_ordinal
                        FOR UPDATE""",
                     (draft.subject_id, draft.generation_id),
                 )
             ).fetchone()
             if cursor is not None:
-                sources = await self._experiences.accepted_after(
-                    transaction,
-                    subject_id=draft.subject_id,
-                    after_experience_id=cast(UUID | None, cursor[1]),
-                    since=cast(datetime, cursor[0]),
-                    limit=64,
-                )
-                batch_id = uuid7()
-                await transaction.execute(
-                    """INSERT INTO armi.cognition_maintenance_batches (
-                           maintenance_batch_id,subject_id,life_generation_id,
-                           trigger_kind,status,base_subject_version)
-                       VALUES (%s,%s,%s,%s,'running',%s)""",
-                    (
-                        batch_id,
-                        draft.subject_id,
-                        draft.generation_id,
-                        draft.maintenance_trigger_kind,
-                        draft.base_subject_version,
-                    ),
-                )
-                if sources:
+                existing = await (
                     await transaction.execute(
-                        """INSERT INTO armi.cognition_maintenance_batch_sources (
-                               maintenance_batch_id,experience_id,ordinal)
-                           SELECT %s,source.experience_id,source.ordinal::smallint
-                           FROM unnest(%s::uuid[]) WITH ORDINALITY
-                             AS source(experience_id,ordinal)""",
+                        """SELECT maintenance_batch_id
+                           FROM armi.cognition_maintenance_batches
+                           WHERE subject_id=%s AND life_generation_id=%s
+                             AND status IN ('prepared','running')
+                           FOR UPDATE""",
+                        (draft.subject_id, draft.generation_id),
+                    )
+                ).fetchone()
+                if existing is None:
+                    processed = int(cursor[1])
+                    latest = int(cursor[0])
+                    candidate_sources = (
+                        await self._experiences.accepted_in_ordinal_window(
+                            transaction,
+                            subject_id=draft.subject_id,
+                            after_ordinal=processed,
+                            through_ordinal=latest,
+                            limit=65,
+                        )
+                    )
+                    sources = candidate_sources[:64]
+                    frozen_through = (
+                        sources[-1].acceptance_ordinal
+                        if len(candidate_sources) == 65
+                        else latest
+                    )
+                    batch_id = uuid7()
+                    await transaction.execute(
+                        """INSERT INTO armi.cognition_maintenance_batches (
+                               maintenance_batch_id,subject_id,life_generation_id,
+                               trigger_kind,status,base_subject_version,
+                               frozen_from_ordinal,frozen_through_ordinal,
+                               visible_source_count)
+                           VALUES (%s,%s,%s,%s,'running',%s,%s,%s,%s)""",
                         (
                             batch_id,
-                            [item.experience_id.value for item in sources],
+                            draft.subject_id,
+                            draft.generation_id,
+                            draft.maintenance_trigger_kind,
+                            draft.base_subject_version,
+                            processed,
+                            frozen_through,
+                            len(sources),
                         ),
                     )
+                    if sources:
+                        await transaction.execute(
+                            """INSERT INTO armi.cognition_maintenance_batch_sources (
+                                   maintenance_batch_id,experience_id,ordinal)
+                               SELECT %s,source.experience_id,source.ordinal::smallint
+                               FROM unnest(%s::uuid[]) WITH ORDINALITY
+                                 AS source(experience_id,ordinal)""",
+                            (
+                                batch_id,
+                                [item.experience_id.value for item in sources],
+                            ),
+                        )
+                else:
+                    batch_id = cast(UUID, existing[0])
+                    await transaction.execute(
+                        """UPDATE armi.cognition_maintenance_batches
+                           SET status='running'
+                           WHERE maintenance_batch_id=%s AND status='prepared'""",
+                        (batch_id,),
+                    )
+                await transaction.execute(
+                    """UPDATE armi.cognitive_episodes SET maintenance_batch_id=%s
+                       WHERE cognitive_episode_id=%s""",
+                    (batch_id, draft.episode_id),
+                )
+        elif row is not None and draft.purpose in {
+            "reflect_self",
+            "reflect_mind",
+            "reflect_mood",
+            "reflect_prompt",
+        }:
+            await transaction.execute(
+                """UPDATE armi.cognitive_episodes AS episode
+                   SET maintenance_batch_id=batch.maintenance_batch_id
+                   FROM armi.cognition_maintenance_batches AS batch
+                   WHERE episode.cognitive_episode_id=%s
+                     AND batch.subject_id=%s
+                     AND batch.life_generation_id=%s
+                     AND batch.status='running'""",
+                (draft.episode_id, draft.subject_id, draft.generation_id),
+            )
         return row is not None
 
     async def context_episode(
@@ -139,12 +185,15 @@ class PostgreSQLCognitionContextLifecycle:
             source_rows = await (
                 await transaction.execute(
                     """SELECT source.experience_id,source.ordinal
-                       FROM armi.cognition_maintenance_batches AS batch
+                       FROM armi.cognitive_episodes AS episode
                        JOIN armi.cognition_maintenance_batch_sources AS source
+                         ON source.maintenance_batch_id=episode.maintenance_batch_id
+                       JOIN armi.cognition_maintenance_batches AS batch
                          ON source.maintenance_batch_id=batch.maintenance_batch_id
-                       WHERE batch.subject_id=%s AND batch.status='running'
+                       WHERE episode.cognitive_episode_id=%s
+                         AND batch.status='running'
                        ORDER BY source.ordinal""",
-                    (row[2],),
+                    (episode_id,),
                 )
             ).fetchall()
             snapshots = await self._experiences.by_ids(

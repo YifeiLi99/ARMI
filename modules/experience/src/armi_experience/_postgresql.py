@@ -24,9 +24,10 @@ class PostgreSQLExperienceOwner:
         self,
         transaction: PostgreSQLTransaction,
         draft: AcceptedExperienceDraft,
-    ) -> None:
-        await transaction.execute(
-            """
+    ) -> int:
+        row = await (
+            await transaction.execute(
+                """
             INSERT INTO armi.accepted_experiences (
                 experience_id, subject_id, subject_commit_id, cognitive_episode_id,
                 proposal_ref, experience_kind, fact_class, first_person_gist,
@@ -35,24 +36,28 @@ class PostgreSQLExperienceOwner:
             ) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s,
                 %s, %s, %s, %s, %s, 'private'
-            )
+            ) RETURNING acceptance_ordinal
             """,
-            (
-                draft.experience_id.value,
-                draft.subject_id,
-                draft.subject_commit_id,
-                draft.cognitive_episode_id,
-                draft.proposal_ref,
-                draft.experience_kind.value,
-                draft.fact_class.value,
-                draft.first_person_gist,
-                draft.scene_id,
-                draft.occurred_at,
-                draft.occurred_at,
-                draft.source_perspective.value,
-                draft.uncertainty,
-            ),
-        )
+                (
+                    draft.experience_id.value,
+                    draft.subject_id,
+                    draft.subject_commit_id,
+                    draft.cognitive_episode_id,
+                    draft.proposal_ref,
+                    draft.experience_kind.value,
+                    draft.fact_class.value,
+                    draft.first_person_gist,
+                    draft.scene_id,
+                    draft.occurred_at,
+                    draft.occurred_at,
+                    draft.source_perspective.value,
+                    draft.uncertainty,
+                ),
+            )
+        ).fetchone()
+        if row is None:
+            raise ExperienceViolation("EXPERIENCE-INSERT")
+        return int(row[0])
 
     async def recent(
         self,
@@ -64,11 +69,11 @@ class PostgreSQLExperienceOwner:
         rows = await (
             await transaction.execute(
                 """
-                SELECT recent.experience_id,recent.fact_class,
+                SELECT recent.acceptance_ordinal,recent.experience_id,recent.fact_class,
                        recent.first_person_gist,recent.occurred_at,recent.accepted_at,
                        recent.source_perspective,recent.uncertainty
                 FROM (
-                    SELECT experience_id,fact_class,first_person_gist,occurred_at,
+                    SELECT acceptance_ordinal,experience_id,fact_class,first_person_gist,occurred_at,
                            accepted_at,source_perspective,uncertainty
                     FROM armi.accepted_experiences
                     WHERE subject_id=%s AND data_rights_hidden_at IS NULL
@@ -81,50 +86,27 @@ class PostgreSQLExperienceOwner:
         ).fetchall()
         return _snapshots(rows)
 
-    async def accepted_after(
+    async def accepted_in_ordinal_window(
         self,
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        after_experience_id: UUID | None,
-        since: datetime,
+        after_ordinal: int,
+        through_ordinal: int,
         limit: int,
     ) -> tuple[AcceptedExperienceSnapshot, ...]:
-        boundary: datetime | None = None
-        if after_experience_id is not None:
-            row = await (
-                await transaction.execute(
-                    """SELECT accepted_at FROM armi.accepted_experiences
-                       WHERE subject_id=%s AND experience_id=%s
-                         AND data_rights_hidden_at IS NULL""",
-                    (subject_id, after_experience_id),
-                )
-            ).fetchone()
-            if row is None:
-                raise ExperienceViolation("EXPERIENCE-CURSOR")
-            boundary = cast(datetime, row[0])
         rows = await (
             await transaction.execute(
                 """
-                SELECT experience_id,fact_class,first_person_gist,occurred_at,
+                SELECT acceptance_ordinal,experience_id,fact_class,first_person_gist,occurred_at,
                        accepted_at,source_perspective,uncertainty
                 FROM armi.accepted_experiences
-                WHERE subject_id=%s AND data_rights_hidden_at IS NULL AND (
-                    (%s::uuid IS NULL AND accepted_at >= %s)
-                    OR (%s::uuid IS NOT NULL
-                        AND (accepted_at,experience_id) > (%s,%s))
-                )
-                ORDER BY accepted_at,experience_id LIMIT %s
+                WHERE subject_id=%s AND data_rights_hidden_at IS NULL
+                  AND acceptance_ordinal > %s
+                  AND acceptance_ordinal <= %s
+                ORDER BY acceptance_ordinal LIMIT %s
                 """,
-                (
-                    subject_id,
-                    after_experience_id,
-                    since,
-                    after_experience_id,
-                    boundary,
-                    after_experience_id,
-                    limit,
-                ),
+                (subject_id, after_ordinal, through_ordinal, limit),
             )
         ).fetchall()
         return _snapshots(rows)
@@ -141,7 +123,7 @@ class PostgreSQLExperienceOwner:
         rows = await (
             await transaction.execute(
                 """
-                SELECT experience.experience_id,experience.fact_class,
+                SELECT experience.acceptance_ordinal,experience.experience_id,experience.fact_class,
                        experience.first_person_gist,experience.occurred_at,
                        experience.accepted_at,experience.source_perspective,
                        experience.uncertainty
@@ -204,13 +186,14 @@ def _snapshots(
 ) -> tuple[AcceptedExperienceSnapshot, ...]:
     return tuple(
         AcceptedExperienceSnapshot(
-            ExperienceId(cast(UUID, row[0])),
-            CandidateFactClass(str(row[1])),
-            str(row[2]),
-            cast(datetime, row[3]),
+            cast(int, row[0]),
+            ExperienceId(cast(UUID, row[1])),
+            CandidateFactClass(str(row[2])),
+            str(row[3]),
             cast(datetime, row[4]),
-            ExperienceSourcePerspective(str(row[5])),
-            None if row[6] is None else str(row[6]),
+            cast(datetime, row[5]),
+            ExperienceSourcePerspective(str(row[6])),
+            None if row[7] is None else str(row[7]),
         )
         for row in rows
     )

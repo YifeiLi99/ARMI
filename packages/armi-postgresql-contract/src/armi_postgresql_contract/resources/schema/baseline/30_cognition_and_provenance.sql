@@ -5,6 +5,7 @@
 --
 
 CREATE TABLE armi.accepted_experiences (
+    acceptance_ordinal bigint GENERATED ALWAYS AS IDENTITY,
     experience_id uuid NOT NULL,
     subject_id uuid NOT NULL,
     subject_commit_id uuid NOT NULL,
@@ -23,6 +24,7 @@ CREATE TABLE armi.accepted_experiences (
     data_rights_order_id uuid,
     data_rights_hidden_at timestamp(6) with time zone,
     CONSTRAINT accepted_experiences_experience_id_check CHECK ((uuid_extract_version(experience_id) = 7)),
+    CONSTRAINT accepted_experiences_acceptance_ordinal_check CHECK ((acceptance_ordinal > 0)),
     CONSTRAINT accepted_experiences_experience_kind_check CHECK ((experience_kind = ANY (ARRAY['creator_input'::text, 'web_observation'::text, 'codex_observation'::text, 'other_human_input'::text, 'visual_observation'::text]))),
     CONSTRAINT accepted_experiences_fact_class_check CHECK ((fact_class = ANY (ARRAY['objective_fact'::text, 'external_claim'::text, 'subjective_understanding'::text, 'inference'::text, 'unknown'::text]))),
     CONSTRAINT accepted_experiences_first_person_gist_check CHECK ((((data_rights_hidden_at IS NULL) AND (length(first_person_gist) BETWEEN 1 AND 1024)) OR ((data_rights_hidden_at IS NOT NULL) AND (first_person_gist IS NULL)))),
@@ -260,6 +262,7 @@ CREATE TABLE armi.cognitive_episodes (
     base_state_epoch bigint NOT NULL,
     bundle_activation_id uuid NOT NULL,
     mechanism_identity text NOT NULL,
+    maintenance_batch_id uuid,
     context_manifest_artifact_id uuid,
     compiled_context_artifact_id uuid,
     context_manifest_digest text,

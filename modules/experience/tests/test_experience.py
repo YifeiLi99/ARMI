@@ -76,6 +76,7 @@ def _draft() -> AcceptedExperienceDraft:
 
 def _row(experience_id: object, accepted_at: datetime) -> tuple[object, ...]:
     return (
+        1,
         experience_id,
         "external_claim",
         "创造者告诉我今天会下雨。",
@@ -106,7 +107,7 @@ def test_draft_rejects_mismatched_source_pair() -> None:
 
 
 def test_record_writes_only_the_experience_owner_table() -> None:
-    transaction = _Transaction()
+    transaction = _Transaction(_Result(((1,),)))
     draft = _draft()
 
     asyncio.run(PostgreSQLExperienceOwner().record(transaction, draft))  # type: ignore[arg-type]
@@ -142,19 +143,21 @@ def test_read_ports_preserve_recent_and_requested_order() -> None:
     assert tuple(item.experience_id.value for item in requested) == (second, first)
 
 
-def test_accepted_after_requires_a_valid_processed_boundary() -> None:
+def test_accepted_window_uses_monotonic_ordinals() -> None:
     transaction = _Transaction(_Result())
 
-    with pytest.raises(ExperienceViolation, match="EXPERIENCE-CURSOR"):
-        asyncio.run(
-            PostgreSQLExperienceOwner().accepted_after(  # type: ignore[arg-type]
-                transaction,
-                subject_id=uuid7(),
-                after_experience_id=uuid7(),
-                since=datetime(2026, 8, 17, tzinfo=UTC),
-                limit=64,
-            )
+    assert not asyncio.run(
+        PostgreSQLExperienceOwner().accepted_in_ordinal_window(  # type: ignore[arg-type]
+            transaction,
+            subject_id=uuid7(),
+            after_ordinal=4,
+            through_ordinal=12,
+            limit=65,
         )
+    )
+    statement, parameters = transaction.calls[0]
+    assert "acceptance_ordinal > %s" in statement
+    assert parameters[-3:] == (4, 12, 65)
 
 
 def test_life_record_and_data_rights_are_experience_owned() -> None:
@@ -204,6 +207,6 @@ def test_public_protocols_are_structurally_usable() -> None:
     owner: Any = PostgreSQLExperienceOwner()
     assert callable(owner.record)
     assert callable(owner.recent)
-    assert callable(owner.accepted_after)
+    assert callable(owner.accepted_in_ordinal_window)
     assert callable(owner.by_ids)
     assert callable(owner.life_record_branch)

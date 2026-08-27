@@ -116,6 +116,7 @@ class AcceptedExperienceDraft:
 
 @dataclass(frozen=True, slots=True)
 class AcceptedExperienceSnapshot:
+    acceptance_ordinal: int
     experience_id: ExperienceId
     fact_class: CandidateFactClass
     first_person_gist: str
@@ -139,7 +140,7 @@ class ExperienceCommitPort(Protocol):
         self,
         transaction: PostgreSQLTransaction,
         draft: AcceptedExperienceDraft,
-    ) -> None: ...
+    ) -> int: ...
 
 
 @runtime_checkable
@@ -152,13 +153,13 @@ class ExperienceReadPort(Protocol):
         limit: int,
     ) -> tuple[AcceptedExperienceSnapshot, ...]: ...
 
-    async def accepted_after(
+    async def accepted_in_ordinal_window(
         self,
         transaction: PostgreSQLTransaction,
         *,
         subject_id: UUID,
-        after_experience_id: UUID | None,
-        since: datetime,
+        after_ordinal: int,
+        through_ordinal: int,
         limit: int,
     ) -> tuple[AcceptedExperienceSnapshot, ...]: ...
 

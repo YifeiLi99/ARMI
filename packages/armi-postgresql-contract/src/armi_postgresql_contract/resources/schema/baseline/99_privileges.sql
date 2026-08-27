@@ -219,6 +219,7 @@ GRANT INSERT, UPDATE ON TABLE armi.context_embedding_source_sets TO armi_runtime
 GRANT UPDATE ON TABLE armi.accepted_experiences, armi.activity_revisions, armi.life_material_revisions, armi.mood_appraisal_events, armi.relationship_revisions, armi.subject_component_revisions, armi.subjective_memory_revisions TO armi_runtime;
 GRANT INSERT ON TABLE armi.managed_data_snapshot_parties, armi.managed_data_snapshots TO armi_runtime;
 GRANT UPDATE ON TABLE armi.managed_data_snapshots TO armi_runtime;
+GRANT USAGE, SELECT ON SEQUENCE armi.accepted_experiences_acceptance_ordinal_seq TO armi_runtime;
 GRANT SELECT ON TABLE armi.response_admissions, armi.effect_registrations TO armi_admin;
 GRANT SELECT, INSERT, UPDATE ON TABLE armi.response_admissions, armi.effect_registrations TO armi_runtime;
 GRANT SELECT ON TABLE armi.context_embedding_failures TO armi_admin;

@@ -224,26 +224,20 @@ class PostgreSQLCognitionSubjectCommit:
         *,
         subject_id: UUID,
         generation_id: UUID,
-        experience_id: UUID,
+        acceptance_ordinal: int,
     ) -> None:
         await transaction.execute(
             """
             INSERT INTO armi.cognition_maintenance_cursors (
-                subject_id,life_generation_id,last_experience_id,dirty_since)
-            VALUES (%s,%s,%s,statement_timestamp())
+                subject_id,life_generation_id,latest_accepted_ordinal)
+            VALUES (%s,%s,%s)
             ON CONFLICT (subject_id,life_generation_id) DO UPDATE
-            SET last_experience_id=EXCLUDED.last_experience_id,
-                processed_through_experience_id=CASE
-                  WHEN armi.cognition_maintenance_cursors.dirty_since IS NULL
-                  THEN NULL
-                  ELSE armi.cognition_maintenance_cursors.processed_through_experience_id
-                END,
-                dirty_since=COALESCE(
-                    armi.cognition_maintenance_cursors.dirty_since,
-                    EXCLUDED.dirty_since),
+            SET latest_accepted_ordinal=GREATEST(
+                    armi.cognition_maintenance_cursors.latest_accepted_ordinal,
+                    EXCLUDED.latest_accepted_ordinal),
                 updated_at=statement_timestamp()
             """,
-            (subject_id, generation_id, experience_id),
+            (subject_id, generation_id, acceptance_ordinal),
         )
 
     async def record_application(
@@ -279,7 +273,7 @@ class PostgreSQLCognitionSubjectCommit:
         ):
             episode = await (
                 await transaction.execute(
-                    """SELECT subject_id FROM armi.cognitive_episodes
+                    """SELECT subject_id,maintenance_batch_id FROM armi.cognitive_episodes
                        WHERE cognitive_episode_id=%s""",
                     (draft.episode_id,),
                 )
@@ -290,28 +284,19 @@ class PostgreSQLCognitionSubjectCommit:
                 """WITH completed AS (
                      UPDATE armi.cognition_maintenance_batches
                      SET status='completed',finished_at=statement_timestamp()
-                     WHERE subject_id=%s AND life_generation_id=%s
+                     WHERE maintenance_batch_id=%s
+                       AND subject_id=%s AND life_generation_id=%s
                        AND status='running'
-                     RETURNING maintenance_batch_id
-                   ), frozen_tail AS (
-                     SELECT source.experience_id
-                     FROM armi.cognition_maintenance_batch_sources AS source
-                     JOIN completed
-                       ON completed.maintenance_batch_id=source.maintenance_batch_id
-                     ORDER BY source.ordinal DESC
-                     LIMIT 1
+                     RETURNING frozen_from_ordinal,frozen_through_ordinal
                    )
                    UPDATE armi.cognition_maintenance_cursors
-                   SET dirty_since=CASE
-                         WHEN last_experience_id=(SELECT experience_id FROM frozen_tail)
-                         THEN NULL ELSE dirty_since END,
-                       processed_through_experience_id=CASE
-                         WHEN last_experience_id=(SELECT experience_id FROM frozen_tail)
-                         THEN NULL ELSE (SELECT experience_id FROM frozen_tail) END,
+                   SET processed_through_ordinal=(SELECT frozen_through_ordinal FROM completed),
                        updated_at=statement_timestamp()
                    WHERE subject_id=%s AND life_generation_id=%s
-                     AND EXISTS (SELECT 1 FROM frozen_tail)""",
+                     AND processed_through_ordinal=(SELECT frozen_from_ordinal FROM completed)
+                     AND EXISTS (SELECT 1 FROM completed)""",
                 (
+                    episode[1],
                     episode[0],
                     draft.generation_id,
                     episode[0],

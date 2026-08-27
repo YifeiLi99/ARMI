@@ -595,7 +595,7 @@ class CognitionSubjectCommitPort(Protocol):
         *,
         subject_id: UUID,
         generation_id: UUID,
-        experience_id: UUID,
+        acceptance_ordinal: int,
     ) -> None: ...
 
     async def record_application(
