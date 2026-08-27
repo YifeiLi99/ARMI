@@ -9,6 +9,7 @@ from typing import Final, Literal, Protocol, runtime_checkable
 from uuid import UUID
 
 from armi_kernel.application import CandidateFactClass, CandidateOwnerDraft
+from armi_kernel.contracts import OpaqueCursor
 from armi_runtime_foundation import PostgreSQLTransaction
 
 from ._domain import (
@@ -20,7 +21,7 @@ from ._domain import (
     select_activity,
 )
 
-ACTIVITY_PROJECTION_VERSION: Final = "creator-activity.v1"
+ACTIVITY_PROJECTION_VERSION: Final = "creator-activity.v2"
 type ActivityTimelineKind = Literal[
     "created",
     "engage",
@@ -501,14 +502,17 @@ class CreatorActivityTimelineItem:
 @dataclass(frozen=True, slots=True)
 class CreatorActivityPage:
     items: tuple[CreatorActivityItem, ...]
-    truncated: bool
+    next_cursor: OpaqueCursor | None = None
 
     def __post_init__(self) -> None:
         if (
             type(self.items) is not tuple
             or len(self.items) > 100
             or any(type(item) is not CreatorActivityItem for item in self.items)
-            or type(self.truncated) is not bool
+            or (
+                self.next_cursor is not None
+                and type(self.next_cursor) is not OpaqueCursor
+            )
         ):
             raise ActivityViolation("ACTIVITY-QUERY-PAGE")
 
@@ -517,7 +521,7 @@ class CreatorActivityPage:
 class CreatorActivityTimeline:
     activity_id: UUID
     items: tuple[CreatorActivityTimelineItem, ...]
-    truncated: bool
+    next_cursor: OpaqueCursor | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -525,7 +529,10 @@ class CreatorActivityTimeline:
             or type(self.items) is not tuple
             or len(self.items) > 100
             or any(type(item) is not CreatorActivityTimelineItem for item in self.items)
-            or type(self.truncated) is not bool
+            or (
+                self.next_cursor is not None
+                and type(self.next_cursor) is not OpaqueCursor
+            )
         ):
             raise ActivityViolation("ACTIVITY-QUERY-PAGE")
 
@@ -555,8 +562,12 @@ class ActivityReadPort(Protocol):
         episode_ids: tuple[UUID, ...],
     ) -> datetime | None: ...
 
-    async def list_current(self) -> CreatorActivityPage: ...
-    async def timeline(self, activity_id: UUID) -> CreatorActivityTimeline: ...
+    async def list_current(
+        self, *, limit: int, cursor: OpaqueCursor | None = None
+    ) -> CreatorActivityPage: ...
+    async def timeline(
+        self, activity_id: UUID, *, limit: int, cursor: OpaqueCursor | None = None
+    ) -> CreatorActivityTimeline: ...
     async def candidate_head(
         self,
         transaction: PostgreSQLTransaction,

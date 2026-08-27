@@ -15,7 +15,7 @@ from armi_runtime_foundation import PostgreSQLTransaction
 
 MEMORY_FORMATION_MECHANISM_IDENTITY = "armi.memory-formation.contextual-v1"
 MEMORY_REVISION_MECHANISM_IDENTITY = "armi.memory-revision.contextual-v1"
-CREATOR_MEMORY_PROJECTION_VERSION = "creator-memory.v1"
+CREATOR_MEMORY_PROJECTION_VERSION = "creator-memory.v2"
 _REF = re.compile(r"^proposal:[1-9][0-9]{0,2}$", re.ASCII)
 _GROUP = re.compile(r"^group:[1-9][0-9]{0,2}$", re.ASCII)
 

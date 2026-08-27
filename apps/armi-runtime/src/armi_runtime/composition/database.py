@@ -728,6 +728,8 @@ def compose_activity_module(
     *,
     subject_id: UUID,
     creator_party_id: UUID,
+    environment_id: UUID,
+    cursor_key: bytes,
     subject_state: SubjectStateReadPort,
 ) -> ActivityModule:
     """Resolve and bind the one active Activity owner implementation."""
@@ -736,6 +738,8 @@ def compose_activity_module(
         unit_of_work_factory,
         subject_id=subject_id,
         creator_party_id=creator_party_id,
+        environment_id=environment_id,
+        cursor_key=cursor_key,
         focus=subject_state,
     )
 
@@ -868,6 +872,8 @@ def compose_relationship_module(
     *,
     subject_id: UUID,
     creator_party_id: UUID,
+    environment_id: UUID,
+    cursor_key: bytes,
     visibility: DataRightsVisibilityPort,
 ) -> RelationshipModule:
     """Resolve and bind the one active relationship owner implementation."""
@@ -876,6 +882,8 @@ def compose_relationship_module(
         unit_of_work_factory,
         subject_id=subject_id,
         creator_party_id=creator_party_id,
+        environment_id=environment_id,
+        cursor_key=cursor_key,
         visibility=visibility,
     )
 
@@ -958,6 +966,8 @@ def compose_sleep_module(
     *,
     subject_id: UUID,
     creator_party_id: UUID,
+    environment_id: UUID,
+    cursor_key: bytes,
     runtime_facts: SleepRuntimeFactsPort,
     opportunities: SleepOpportunityPort,
 ) -> SleepModule:
@@ -967,6 +977,8 @@ def compose_sleep_module(
         unit_of_work_factory,
         subject_id=subject_id,
         creator_party_id=creator_party_id,
+        environment_id=environment_id,
+        cursor_key=cursor_key,
         runtime_facts=runtime_facts,
         opportunities=opportunities,
     )

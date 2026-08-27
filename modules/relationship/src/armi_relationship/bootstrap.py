@@ -56,6 +56,8 @@ def bootstrap_relationship(
     *,
     subject_id: UUID,
     creator_party_id: UUID,
+    environment_id: UUID,
+    cursor_key: bytes,
     visibility: DataRightsVisibilityPort,
 ) -> RelationshipModule:
     application = RelationshipApplication()
@@ -63,6 +65,8 @@ def bootstrap_relationship(
         factory,
         subject_id=subject_id,
         creator_party_id=creator_party_id,
+        environment_id=environment_id,
+        cursor_key=cursor_key,
         visibility=visibility,
     )
     return RelationshipModule(

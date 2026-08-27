@@ -871,10 +871,14 @@ version = "0.0.0"
 source = { editable = "packages/armi-runtime-foundation" }
 dependencies = [
     { name = "armi-kernel" },
+    { name = "rfc8785" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "armi-kernel", editable = "packages/armi-kernel" }]
+requires-dist = [
+    { name = "armi-kernel", editable = "packages/armi-kernel" },
+    { name = "rfc8785", specifier = "==0.1.4" },
+]
 
 [[package]]
 name = "armi-sleep"

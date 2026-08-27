@@ -2420,6 +2420,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 factories[0],
                 subject_id=born.subject_id,
                 creator_party_id=manifest.creator_party_id,
+                environment_id=fixture.environment_id,
+                cursor_key=hashlib.sha256(b"creator-projection-cursor").digest(),
                 visibility=bootstrap_data_rights_core().visibility,
             )
             await relationship_module.open()
@@ -2427,6 +2429,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 factories[0],
                 subject_id=record.fence.subject_id,
                 creator_party_id=manifest.creator_party_id,
+                environment_id=fixture.environment_id,
+                cursor_key=hashlib.sha256(b"creator-projection-cursor").digest(),
                 focus=bootstrap_subject_state().read,
             )
             await activity_module.open()
@@ -2442,6 +2446,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 factories[0],
                 subject_id=record.fence.subject_id,
                 creator_party_id=manifest.creator_party_id,
+                environment_id=fixture.environment_id,
+                cursor_key=hashlib.sha256(b"creator-projection-cursor").digest(),
                 runtime_facts=RuntimeSleepFacts(
                     cognition=bootstrap_cognition_operation(),
                     effects=bootstrap_effect_operation_read(),
@@ -2591,6 +2597,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 factory,
                 subject_id=born.subject_id,
                 creator_party_id=creator_party_id,
+                environment_id=fixture.environment_id,
+                cursor_key=hashlib.sha256(b"creator-projection-cursor").digest(),
                 visibility=bootstrap_data_rights_core().visibility,
             )
             memory_module = bootstrap_memory(
@@ -2605,6 +2613,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 factory,
                 subject_id=born.subject_id,
                 creator_party_id=creator_party_id,
+                environment_id=fixture.environment_id,
+                cursor_key=hashlib.sha256(b"creator-projection-cursor").digest(),
                 focus=bootstrap_subject_state().read,
             )
             await factory.open()
@@ -2655,14 +2665,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 await relationship_module.close()
 
             try:
-                page = await activity_module.read.list_current()
+                page = await activity_module.read.list_current(limit=50)
                 self.assertEqual(page.items, ())
-                self.assertFalse(page.truncated)
+                self.assertIsNone(page.next_cursor)
                 with self.assertRaisesRegex(
                     ActivityViolation,
                     "ACTIVITY-QUERY-NOT-FOUND",
                 ):
-                    await activity_module.read.timeline(_uuid7())
+                    await activity_module.read.timeline(_uuid7(), limit=50)
             finally:
                 await activity_module.close()
                 await factory.close()
@@ -2747,6 +2757,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 maintenance_factory,
                 subject_id=scope[0],
                 creator_party_id=creator_party_id,
+                environment_id=fixture.environment_id,
+                cursor_key=hashlib.sha256(b"creator-projection-cursor").digest(),
                 visibility=bootstrap_data_rights_core().visibility,
             )
             await relationship_module.open()
@@ -2754,6 +2766,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 maintenance_factory,
                 subject_id=record.fence.subject_id,
                 creator_party_id=creator_party_id,
+                environment_id=fixture.environment_id,
+                cursor_key=hashlib.sha256(b"creator-projection-cursor").digest(),
                 focus=bootstrap_subject_state().read,
             )
             await activity_module.open()
@@ -2769,6 +2783,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 maintenance_factory,
                 subject_id=record.fence.subject_id,
                 creator_party_id=creator_party_id,
+                environment_id=fixture.environment_id,
+                cursor_key=hashlib.sha256(b"creator-projection-cursor").digest(),
                 runtime_facts=RuntimeSleepFacts(
                     cognition=bootstrap_cognition_operation(),
                     effects=bootstrap_effect_operation_read(),
@@ -2807,7 +2823,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 self.assertEqual(status.session.session_id, session_id)
                 self.assertEqual(status.session.phase.value, "memory_maintenance")
                 self.assertEqual(status.waiting_input_count, 0)
-                timeline = await sleep_module.read.timeline(session_id)
+                timeline = await sleep_module.read.timeline(session_id, limit=50)
                 self.assertEqual(len(timeline.items), 2)
                 self.assertEqual(timeline.items[0].transition_kind, "advanced")
                 self.assertEqual(timeline.items[1].transition_kind, "started")
@@ -2815,7 +2831,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     CreatorMaintenanceViolation,
                     "MAINTENANCE-QUERY-NOT-FOUND",
                 ):
-                    await sleep_module.read.timeline(_uuid7())
+                    await sleep_module.read.timeline(_uuid7(), limit=50)
             finally:
                 await sleep_module.close()
                 await activity_module.close()
@@ -6259,6 +6275,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 factory,
                 subject_id=born.subject_id,
                 creator_party_id=creator_party_id,
+                environment_id=fixture.environment_id,
+                cursor_key=hashlib.sha256(b"creator-projection-cursor").digest(),
                 visibility=bootstrap_data_rights_core().visibility,
             )
             memory_module = bootstrap_memory(
@@ -6273,6 +6291,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 factory,
                 subject_id=born.subject_id,
                 creator_party_id=creator_party_id,
+                environment_id=fixture.environment_id,
+                cursor_key=hashlib.sha256(b"creator-projection-cursor").digest(),
                 runtime_facts=RuntimeSleepFacts(
                     cognition=bootstrap_cognition_operation(),
                     effects=bootstrap_effect_operation_read(),
@@ -6283,6 +6303,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 factory,
                 subject_id=born.subject_id,
                 creator_party_id=creator_party_id,
+                environment_id=fixture.environment_id,
+                cursor_key=hashlib.sha256(b"creator-projection-cursor").digest(),
                 focus=bootstrap_subject_state().read,
             )
             material_module = bootstrap_material(

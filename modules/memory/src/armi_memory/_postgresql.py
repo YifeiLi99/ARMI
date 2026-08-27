@@ -2,23 +2,21 @@
 
 from __future__ import annotations
 
-import base64
-import hashlib
-import hmac
-import json
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, cast
 from uuid import UUID, uuid7
 
-import rfc8785
 from armi_data_rights.api import DataRightsVisibilityPort
 from armi_kernel.application import CandidateFactClass
 from armi_kernel.contracts import Instant, OpaqueCursor
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
     PostgreSQLTransaction,
+    ProjectionCursorCodec,
+    ProjectionCursorInvalid,
+    ProjectionCursorStale,
     RuntimeTransactionFailure,
 )
 
@@ -46,69 +44,6 @@ from .api import (
 )
 
 
-def _b64encode(value: bytes) -> str:
-    return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
-
-
-def _b64decode(value: str) -> bytes:
-    result = base64.b64decode(
-        value + "=" * (-len(value) % 4), altchars=b"-_", validate=True
-    )
-    if _b64encode(result) != value:
-        raise ValueError
-    return result
-
-
-class _CursorCodec:
-    def __init__(
-        self, key: bytes, environment_id: UUID, creator_party_id: UUID
-    ) -> None:
-        self._key = key
-        self._environment_id = environment_id
-        self._creator_party_id = creator_party_id
-
-    def encode(self, resource: str, boundary: dict[str, object]) -> OpaqueCursor:
-        payload = {
-            "contract_version": "1.0",
-            "projection_version": CREATOR_MEMORY_PROJECTION_VERSION,
-            "environment_id": str(self._environment_id),
-            "creator_party_id": str(self._creator_party_id),
-            "resource": resource,
-            **boundary,
-        }
-        encoded = _b64encode(rfc8785.dumps(cast(Any, payload)))
-        signature = _b64encode(
-            hmac.new(self._key, encoded.encode("ascii"), hashlib.sha256).digest()
-        )
-        return OpaqueCursor(f"v1.{encoded}.{signature}")
-
-    def decode(self, cursor: OpaqueCursor, resource: str) -> dict[str, object]:
-        try:
-            prefix, encoded, signature = cursor.value.split(".", 2)
-            if prefix != "v1" or not hmac.compare_digest(
-                _b64decode(signature),
-                hmac.new(self._key, encoded.encode("ascii"), hashlib.sha256).digest(),
-            ):
-                raise ValueError
-            raw = _b64decode(encoded)
-            value = json.loads(raw)
-            if type(value) is not dict or rfc8785.dumps(cast(Any, value)) != raw:
-                raise ValueError
-            item = cast(dict[str, object], value)
-            fixed = {
-                "contract_version": "1.0",
-                "projection_version": CREATOR_MEMORY_PROJECTION_VERSION,
-                "environment_id": str(self._environment_id),
-                "creator_party_id": str(self._creator_party_id),
-                "resource": resource,
-            }
-            if any(item.get(key) != expected for key, expected in fixed.items()):
-                raise ValueError
-            return item
-        except UnicodeError, ValueError, TypeError, json.JSONDecodeError:
-            raise MemoryViolation("MEMORY-CURSOR") from None
-
-
 class PostgreSQLMemoryOwner:
     def __init__(
         self,
@@ -122,7 +57,9 @@ class PostgreSQLMemoryOwner:
     ) -> None:
         self._creator_party_id = creator_party_id
         self._factory = factory
-        self._codec = _CursorCodec(cursor_key, environment_id, creator_party_id)
+        self._codec = ProjectionCursorCodec(
+            cursor_key, environment_id, creator_party_id
+        )
         self._application = MemoryApplication()
         self._subject_id = subject_id
         self._visibility = visibility
@@ -292,17 +229,35 @@ class PostgreSQLMemoryOwner:
         cursor: OpaqueCursor | None = None,
     ) -> CreatorMemoryPage:
         boundary: tuple[datetime, UUID] | None = None
+        snapshot_at: datetime | None = None
         if cursor is not None:
-            item = self._codec.decode(cursor, "memory_current")
             try:
-                boundary = (
-                    Instant.from_wire(item["before_at"]).value,
-                    UUID(str(item["before_id"])),
+                page = self._codec.decode(
+                    cursor,
+                    projection_version=CREATOR_MEMORY_PROJECTION_VERSION,
+                    resource_kind="memory-current",
+                    resource_ref=None,
+                    page_limit=limit,
+                    query={"query_text": query_text},
                 )
-            except KeyError, TypeError, ValueError:
+                snapshot_at = Instant.from_wire(page.snapshot_ceiling["at"]).value
+                boundary = (
+                    Instant.from_wire(page.boundary["before_at"]).value,
+                    UUID(str(page.boundary["before_id"])),
+                )
+            except ProjectionCursorStale:
+                raise MemoryViolation("MEMORY-CURSOR-STALE") from None
+            except KeyError, TypeError, ValueError, ProjectionCursorInvalid:
                 raise MemoryViolation("MEMORY-CURSOR") from None
         async with self._read_connection() as connection:
             subject_id = self._creator_subject()
+            if snapshot_at is None:
+                snapshot_row = await (
+                    await connection.execute("SELECT statement_timestamp()")
+                ).fetchone()
+                if snapshot_row is None:
+                    raise MemoryViolation("MEMORY-QUERY-UNAVAILABLE")
+                snapshot_at = cast(datetime, snapshot_row[0])
             visible_rows: list[tuple[Any, ...]] = []
             scan_boundary: tuple[datetime, UUID] | None = boundary
             while len(visible_rows) <= limit:
@@ -315,16 +270,24 @@ class PostgreSQLMemoryOwner:
                            revision.revision_no, memory.head_version,
                            memory.created_at, revision.created_at
                     FROM armi.subjective_memories AS memory
-                    JOIN armi.subjective_memory_revisions AS revision
-                      ON revision.memory_revision_id=memory.current_revision_id
+                    JOIN LATERAL (
+                      SELECT candidate.*
+                      FROM armi.subjective_memory_revisions AS candidate
+                      WHERE candidate.memory_id=memory.memory_id
+                        AND candidate.created_at<=%s
+                      ORDER BY candidate.revision_no DESC LIMIT 1
+                    ) AS revision ON TRUE
                     WHERE memory.subject_id=%s
+                      AND memory.created_at<=%s
                       AND (%s::text IS NULL OR revision.summary ILIKE '%%'||%s||'%%')
                       AND (%s::timestamptz IS NULL OR
                            (revision.created_at,memory.memory_id)<(%s,%s))
                     ORDER BY revision.created_at DESC,memory.memory_id DESC LIMIT %s
                     """,
                         (
+                            snapshot_at,
                             subject_id,
+                            snapshot_at,
                             query_text,
                             query_text,
                             None if scan_boundary is None else scan_boundary[0],
@@ -350,8 +313,13 @@ class PostgreSQLMemoryOwner:
         next_cursor = None
         if len(visible_rows) > limit and visible:
             next_cursor = self._codec.encode(
-                "memory_current",
-                {
+                projection_version=CREATOR_MEMORY_PROJECTION_VERSION,
+                resource_kind="memory-current",
+                resource_ref=None,
+                page_limit=limit,
+                query={"query_text": query_text},
+                snapshot_ceiling={"at": Instant(snapshot_at).to_wire()},
+                boundary={
                     "before_at": Instant(visible[-1][10]).to_wire(),
                     "before_id": str(visible[-1][0]),
                 },
@@ -384,10 +352,29 @@ class PostgreSQLMemoryOwner:
         cursor: OpaqueCursor | None = None,
     ) -> CreatorMemoryTimeline:
         before_no: int | None = None
+        ceiling_no: int | None = None
         if cursor is not None:
-            item = self._codec.decode(cursor, f"memory_timeline:{memory_id}")
-            before_no = cast(int, item.get("before_revision_no"))
-            if type(before_no) is not int or before_no < 1:
+            try:
+                page = self._codec.decode(
+                    cursor,
+                    projection_version=CREATOR_MEMORY_PROJECTION_VERSION,
+                    resource_kind="memory-timeline",
+                    resource_ref=str(memory_id),
+                    page_limit=limit,
+                    query={},
+                )
+                ceiling_no = cast(int, page.snapshot_ceiling.get("revision_no"))
+                before_no = cast(int, page.boundary.get("before_revision_no"))
+            except ProjectionCursorStale:
+                raise MemoryViolation("MEMORY-CURSOR-STALE") from None
+            except TypeError, ValueError, ProjectionCursorInvalid:
+                raise MemoryViolation("MEMORY-CURSOR") from None
+            if (
+                type(ceiling_no) is not int
+                or ceiling_no < 1
+                or type(before_no) is not int
+                or before_no < 1
+            ):
                 raise MemoryViolation("MEMORY-CURSOR")
         async with self._read_connection() as connection:
             subject_id = self._creator_subject()
@@ -405,6 +392,17 @@ class PostgreSQLMemoryOwner:
             )
             if exists is None or memory_id in hidden:
                 raise MemoryViolation("MEMORY-QUERY-NOT-FOUND")
+            if ceiling_no is None:
+                ceiling_row = await (
+                    await connection.execute(
+                        """SELECT max(revision_no) FROM armi.subjective_memory_revisions
+                           WHERE memory_id=%s""",
+                        (memory_id,),
+                    )
+                ).fetchone()
+                if ceiling_row is None or ceiling_row[0] is None:
+                    raise MemoryViolation("MEMORY-QUERY-NOT-FOUND")
+                ceiling_no = int(ceiling_row[0])
             rows = await (
                 await connection.execute(
                     """
@@ -420,18 +418,24 @@ class PostgreSQLMemoryOwner:
                       WHERE from_memory_revision_id=revision.memory_revision_id
                       ORDER BY memory_relation_id DESC LIMIT 1) AS relation ON TRUE
                     WHERE revision.memory_id=%s
+                      AND revision.revision_no<=%s
                       AND (%s::bigint IS NULL OR revision.revision_no<%s)
                     ORDER BY revision.revision_no DESC LIMIT %s
                     """,
-                    (memory_id, before_no, before_no, limit + 1),
+                    (memory_id, ceiling_no, before_no, before_no, limit + 1),
                 )
             ).fetchall()
         visible = rows[:limit]
         next_cursor = None
         if len(rows) > limit and visible:
             next_cursor = self._codec.encode(
-                f"memory_timeline:{memory_id}",
-                {"before_revision_no": int(visible[-1][1])},
+                projection_version=CREATOR_MEMORY_PROJECTION_VERSION,
+                resource_kind="memory-timeline",
+                resource_ref=str(memory_id),
+                page_limit=limit,
+                query={},
+                snapshot_ceiling={"revision_no": ceiling_no},
+                boundary={"before_revision_no": int(visible[-1][1])},
             )
         return CreatorMemoryTimeline(
             memory_id, tuple(self._timeline_item(row) for row in visible), next_cursor

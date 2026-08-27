@@ -47,6 +47,8 @@ def bootstrap_sleep(
     *,
     subject_id: UUID,
     creator_party_id: UUID,
+    environment_id: UUID,
+    cursor_key: bytes,
     runtime_facts: SleepRuntimeFactsPort,
     opportunities: SleepOpportunityPort,
 ) -> SleepModule:
@@ -55,6 +57,8 @@ def bootstrap_sleep(
         factory,
         subject_id=subject_id,
         creator_party_id=creator_party_id,
+        environment_id=environment_id,
+        cursor_key=cursor_key,
     )
     return SleepModule(
         query,

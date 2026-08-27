@@ -10,6 +10,7 @@ from typing import Final, Literal, Protocol, runtime_checkable
 from uuid import UUID
 
 from armi_kernel.application import CandidateOwnerDraft
+from armi_kernel.contracts import OpaqueCursor
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWork,
     PostgreSQLTransaction,
@@ -28,7 +29,7 @@ from ._domain import (
     validate_maintenance_advance,
 )
 
-MAINTENANCE_PROJECTION_VERSION: Final = "creator-maintenance.v2"
+MAINTENANCE_PROJECTION_VERSION: Final = "creator-maintenance.v3"
 type MaintenanceTransitionKind = Literal[
     "started",
     "advanced",
@@ -608,7 +609,7 @@ class CreatorMaintenanceTimelineItem:
 class CreatorMaintenanceTimeline:
     session_id: UUID
     items: tuple[CreatorMaintenanceTimelineItem, ...]
-    truncated: bool
+    next_cursor: OpaqueCursor | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -618,7 +619,10 @@ class CreatorMaintenanceTimeline:
             or any(
                 type(item) is not CreatorMaintenanceTimelineItem for item in self.items
             )
-            or type(self.truncated) is not bool
+            or (
+                self.next_cursor is not None
+                and type(self.next_cursor) is not OpaqueCursor
+            )
         ):
             raise CreatorMaintenanceViolation("MAINTENANCE-QUERY-PAGE")
 
@@ -627,7 +631,9 @@ class CreatorMaintenanceTimeline:
 class CreatorMaintenanceQueryPort(Protocol):
     async def status(self) -> CreatorMaintenanceStatus: ...
 
-    async def timeline(self, session_id: UUID) -> CreatorMaintenanceTimeline: ...
+    async def timeline(
+        self, session_id: UUID, *, limit: int, cursor: OpaqueCursor | None = None
+    ) -> CreatorMaintenanceTimeline: ...
 
 
 @runtime_checkable

@@ -22,6 +22,12 @@ from .recovery import (
     RecoveryScope,
     RecoveryWorkSnapshot,
 )
+from .projection_cursor import (
+    ProjectionCursorCodec,
+    ProjectionCursorInvalid,
+    ProjectionCursorPage,
+    ProjectionCursorStale,
+)
 from .transactions import (
     PostgreSQLParameter,
     PostgreSQLParameters,
@@ -54,6 +60,10 @@ __all__ = (
     "PostgreSQLScalar",
     "PostgreSQLTransaction",
     "PostgreSQLTransactionAccess",
+    "ProjectionCursorCodec",
+    "ProjectionCursorInvalid",
+    "ProjectionCursorPage",
+    "ProjectionCursorStale",
     "RecoveryAuditContribution",
     "RecoveryContribution",
     "RecoveryDependentParticipant",

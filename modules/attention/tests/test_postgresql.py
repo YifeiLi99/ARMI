@@ -121,6 +121,8 @@ def _repository(*, boundary: bool = False) -> PostgreSQLLifeOpportunityRepositor
         cast(Any, object()),
         subject_id=uuid7(),
         creator_party_id=uuid7(),
+        environment_id=uuid7(),
+        cursor_key=b"attention-projection-cursor-key!",
         focus=cast(Any, _SubjectState()),
     )
     material = bootstrap_material(

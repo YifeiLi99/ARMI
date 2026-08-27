@@ -79,7 +79,7 @@ from armi_kernel.application import (
     OtherHumanTimelineRecord,
     OtherHumanTimelineRecordPage,
 )
-from armi_kernel.contracts import Digest, Instant
+from armi_kernel.contracts import Digest, Instant, OpaqueCursor
 from armi_material.api import (
     CreatorLifeMaterialItem,
     LifeMaterialKind,
@@ -336,7 +336,9 @@ class _CreatorActivityQuery:
         self.activity_id = uuid7()
         self.created_at = datetime(2026, 8, 4, 10, 0, tzinfo=UTC)
 
-    async def list_current(self) -> CreatorActivityPage:
+    async def list_current(
+        self, *, limit: int, cursor: OpaqueCursor | None = None
+    ) -> CreatorActivityPage:
         return CreatorActivityPage(
             (
                 CreatorActivityItem(
@@ -357,10 +359,12 @@ class _CreatorActivityQuery:
                     updated_at=self.created_at,
                 ),
             ),
-            False,
+            None,
         )
 
-    async def timeline(self, activity_id: UUID) -> CreatorActivityTimeline:
+    async def timeline(
+        self, activity_id: UUID, *, limit: int, cursor: OpaqueCursor | None = None
+    ) -> CreatorActivityTimeline:
         if activity_id != self.activity_id:
             raise ActivityViolation("ACTIVITY-QUERY-NOT-FOUND")
         return CreatorActivityTimeline(
@@ -375,7 +379,7 @@ class _CreatorActivityQuery:
                     occurred_at=self.created_at,
                 ),
             ),
-            False,
+            None,
         )
 
 
@@ -422,13 +426,19 @@ class _CreatorRelationshipQuery:
             created_at=self.occurred_at,
         )
 
-    async def timeline(self, relationship_id: UUID) -> CreatorRelationshipTimeline:
+    async def timeline(
+        self,
+        relationship_id: UUID,
+        *,
+        limit: int,
+        cursor: OpaqueCursor | None = None,
+    ) -> CreatorRelationshipTimeline:
         if relationship_id != self.relationship_id:
             raise CreatorRelationshipViolation("RELATIONSHIP-QUERY-NOT-FOUND")
         return CreatorRelationshipTimeline(
             relationship_id,
             (self._revision(),),
-            False,
+            None,
         )
 
 
@@ -456,7 +466,9 @@ class _CreatorMaintenanceQuery:
             2,
         )
 
-    async def timeline(self, session_id: UUID) -> CreatorMaintenanceTimeline:
+    async def timeline(
+        self, session_id: UUID, *, limit: int, cursor: OpaqueCursor | None = None
+    ) -> CreatorMaintenanceTimeline:
         if session_id != self.session_id:
             raise CreatorMaintenanceViolation("MAINTENANCE-QUERY-NOT-FOUND")
         return CreatorMaintenanceTimeline(
@@ -473,7 +485,7 @@ class _CreatorMaintenanceQuery:
                     problem_summary="有一项内部责任需要后续关注。",
                 ),
             ),
-            False,
+            None,
         )
 
 

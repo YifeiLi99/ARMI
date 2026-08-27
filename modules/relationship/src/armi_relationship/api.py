@@ -10,10 +10,11 @@ from typing import Final, Protocol, runtime_checkable
 from uuid import UUID
 
 from armi_kernel.application import CandidateFactClass, CandidateOwnerDraft
+from armi_kernel.contracts import OpaqueCursor
 from armi_runtime_foundation import PostgreSQLTransaction
 
 RELATIONSHIP_MECHANISM_IDENTITY: Final = "armi.relationship.lifecycle-v2"
-RELATIONSHIP_PROJECTION_VERSION: Final = "creator-relationship.v2"
+RELATIONSHIP_PROJECTION_VERSION: Final = "creator-relationship.v3"
 _REF = re.compile(r"^proposal:[1-9][0-9]{0,2}$", re.ASCII)
 
 
@@ -471,7 +472,7 @@ class CreatorRelationshipItem:
 class CreatorRelationshipTimeline:
     relationship_id: UUID
     items: tuple[CreatorRelationshipRevision, ...]
-    truncated: bool
+    next_cursor: OpaqueCursor | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -483,7 +484,10 @@ class CreatorRelationshipTimeline:
                 newer.revision_no <= older.revision_no
                 for newer, older in zip(self.items, self.items[1:], strict=False)
             )
-            or type(self.truncated) is not bool
+            or (
+                self.next_cursor is not None
+                and type(self.next_cursor) is not OpaqueCursor
+            )
         ):
             raise RelationshipViolation("RELATIONSHIP-QUERY-TIMELINE")
 
@@ -509,7 +513,9 @@ class RelationshipContextBundle:
 @runtime_checkable
 class RelationshipReadPort(Protocol):
     async def current(self) -> CreatorRelationshipItem | None: ...
-    async def timeline(self, relationship_id: UUID) -> CreatorRelationshipTimeline: ...
+    async def timeline(
+        self, relationship_id: UUID, *, limit: int, cursor: OpaqueCursor | None = None
+    ) -> CreatorRelationshipTimeline: ...
     async def context_sources(self, party_id: UUID) -> tuple[object, ...]: ...
     async def candidate_snapshot(self, party_id: UUID) -> object | None: ...
     async def life_record_branch(self, party_id: UUID) -> tuple[object, ...]: ...

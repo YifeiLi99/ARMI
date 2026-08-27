@@ -78,7 +78,7 @@ def test_projection_head_and_timeline_are_server_owned() -> None:
             current=current,
             created_at=current.occurred_at,
         )
-    assert CreatorRelationshipTimeline(uuid7(), (current,), False).items == (current,)
+    assert CreatorRelationshipTimeline(uuid7(), (current,), None).items == (current,)
     with pytest.raises(
         CreatorRelationshipViolation,
         match="RELATIONSHIP-QUERY-TIMELINE",
@@ -86,5 +86,5 @@ def test_projection_head_and_timeline_are_server_owned() -> None:
         CreatorRelationshipTimeline(
             uuid7(),
             tuple(revision() for _ in range(101)),
-            True,
+            None,
         )

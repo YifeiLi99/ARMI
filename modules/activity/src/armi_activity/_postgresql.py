@@ -7,13 +7,18 @@ from typing import Any, Literal, cast
 from uuid import UUID, uuid7
 
 import rfc8785
+from armi_kernel.contracts import Instant, OpaqueCursor
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
     PostgreSQLTransaction,
+    ProjectionCursorCodec,
+    ProjectionCursorInvalid,
+    ProjectionCursorStale,
     RuntimeTransactionFailure,
 )
 
 from .api import (
+    ACTIVITY_PROJECTION_VERSION,
     ActivityCandidateSnapshot,
     ActivityContextTarget,
     ActivityFocusReadPort,
@@ -32,8 +37,6 @@ from .api import (
     CreatorActivityTimeline,
     CreatorActivityTimelineItem,
 )
-
-_PAGE_SIZE = 100
 
 
 class PostgreSQLActivityRead:
@@ -59,6 +62,7 @@ class PostgreSQLActivityRead:
 
     __slots__ = (
         "_creator_party_id",
+        "_cursor",
         "_factory",
         "_focus",
         "_subject_id",
@@ -70,9 +74,14 @@ class PostgreSQLActivityRead:
         *,
         subject_id: UUID,
         creator_party_id: UUID,
+        environment_id: UUID,
+        cursor_key: bytes,
         focus: ActivityFocusReadPort,
     ) -> None:
         self._creator_party_id = creator_party_id
+        self._cursor = ProjectionCursorCodec(
+            cursor_key, environment_id, creator_party_id
+        )
         self._factory = factory
         self._focus = focus
         self._subject_id = subject_id
@@ -83,10 +92,40 @@ class PostgreSQLActivityRead:
     async def close(self) -> None:
         return None
 
-    async def list_current(self) -> CreatorActivityPage:
+    async def list_current(
+        self, *, limit: int, cursor: OpaqueCursor | None = None
+    ) -> CreatorActivityPage:
+        snapshot_at: datetime | None = None
+        boundary: tuple[datetime, UUID] | None = None
+        if cursor is not None:
+            try:
+                page = self._cursor.decode(
+                    cursor,
+                    projection_version=ACTIVITY_PROJECTION_VERSION,
+                    resource_kind="activity-current",
+                    resource_ref=None,
+                    page_limit=limit,
+                    query={},
+                )
+                snapshot_at = Instant.from_wire(page.snapshot_ceiling["at"]).value
+                boundary = (
+                    Instant.from_wire(page.boundary["before_at"]).value,
+                    UUID(str(page.boundary["before_id"])),
+                )
+            except ProjectionCursorStale:
+                raise ActivityViolation("ACTIVITY-CURSOR-STALE") from None
+            except KeyError, TypeError, ValueError, ProjectionCursorInvalid:
+                raise ActivityViolation("ACTIVITY-CURSOR") from None
         try:
             async with self._factory.unit_of_work(read_only=True) as unit_of_work:
                 connection = unit_of_work.transaction
+                if snapshot_at is None:
+                    snapshot = await (
+                        await connection.execute("SELECT statement_timestamp()")
+                    ).fetchone()
+                    if snapshot is None:
+                        raise ActivityViolation("ACTIVITY-QUERY-UNAVAILABLE")
+                    snapshot_at = cast(datetime, snapshot[0])
                 subject_id = self._subject_id
                 focused = frozenset(
                     str(item)
@@ -108,26 +147,77 @@ class PostgreSQLActivityRead:
                                revision.transition_kind, activity.created_at,
                                revision.created_at
                         FROM armi.activities AS activity
-                        JOIN armi.activity_revisions AS revision
-                          ON revision.activity_revision_id = activity.current_revision_id
-                         AND revision.activity_id = activity.activity_id
+                        JOIN LATERAL (
+                          SELECT candidate.* FROM armi.activity_revisions AS candidate
+                          WHERE candidate.activity_id=activity.activity_id
+                            AND candidate.created_at<=%s
+                          ORDER BY candidate.revision_no DESC LIMIT 1
+                        ) AS revision ON TRUE
                         WHERE activity.subject_id = %s
+                          AND activity.created_at<=%s
+                          AND (%s::timestamptz IS NULL OR
+                               (revision.created_at,activity.activity_id)<(%s,%s))
                         ORDER BY revision.created_at DESC, activity.activity_id DESC
                         LIMIT %s
                         """,
-                        (subject_id, _PAGE_SIZE + 1),
+                        (
+                            snapshot_at,
+                            subject_id,
+                            snapshot_at,
+                            None if boundary is None else boundary[0],
+                            None if boundary is None else boundary[0],
+                            None if boundary is None else boundary[1],
+                            limit + 1,
+                        ),
                     )
                 ).fetchall()
         except ActivityViolation:
             raise
         except RuntimeTransactionFailure:
             raise ActivityViolation("ACTIVITY-QUERY-UNAVAILABLE") from None
+        visible = rows[:limit]
+        next_cursor = None
+        if len(rows) > limit and visible:
+            next_cursor = self._cursor.encode(
+                projection_version=ACTIVITY_PROJECTION_VERSION,
+                resource_kind="activity-current",
+                resource_ref=None,
+                page_limit=limit,
+                query={},
+                snapshot_ceiling={"at": Instant(snapshot_at).to_wire()},
+                boundary={
+                    "before_at": Instant(visible[-1][13]).to_wire(),
+                    "before_id": str(visible[-1][0]),
+                },
+            )
         return CreatorActivityPage(
-            tuple(self._activity(row, focused) for row in rows[:_PAGE_SIZE]),
-            len(rows) > _PAGE_SIZE,
+            tuple(self._activity(row, focused) for row in visible), next_cursor
         )
 
-    async def timeline(self, activity_id: UUID) -> CreatorActivityTimeline:
+    async def timeline(
+        self, activity_id: UUID, *, limit: int, cursor: OpaqueCursor | None = None
+    ) -> CreatorActivityTimeline:
+        ceiling: datetime | None = None
+        boundary: tuple[datetime, UUID] | None = None
+        if cursor is not None:
+            try:
+                page = self._cursor.decode(
+                    cursor,
+                    projection_version=ACTIVITY_PROJECTION_VERSION,
+                    resource_kind="activity-timeline",
+                    resource_ref=str(activity_id),
+                    page_limit=limit,
+                    query={},
+                )
+                ceiling = Instant.from_wire(page.snapshot_ceiling["at"]).value
+                boundary = (
+                    Instant.from_wire(page.boundary["before_at"]).value,
+                    UUID(str(page.boundary["before_id"])),
+                )
+            except ProjectionCursorStale:
+                raise ActivityViolation("ACTIVITY-CURSOR-STALE") from None
+            except KeyError, TypeError, ValueError, ProjectionCursorInvalid:
+                raise ActivityViolation("ACTIVITY-CURSOR") from None
         try:
             async with self._factory.unit_of_work(read_only=True) as unit_of_work:
                 connection = unit_of_work.transaction
@@ -141,6 +231,13 @@ class PostgreSQLActivityRead:
                         (activity_id, subject_id),
                     )
                 ).fetchone()
+                if ceiling is None:
+                    snapshot = await (
+                        await connection.execute("SELECT statement_timestamp()")
+                    ).fetchone()
+                    if snapshot is None:
+                        raise ActivityViolation("ACTIVITY-QUERY-UNAVAILABLE")
+                    ceiling = cast(datetime, snapshot[0])
                 rows = (
                     ()
                     if visible is None
@@ -159,6 +256,9 @@ class PostgreSQLActivityRead:
                                revision.created_at
                         FROM armi.activity_revisions AS revision
                         WHERE revision.activity_id = %s
+                          AND revision.created_at<=%s
+                          AND (%s::timestamptz IS NULL OR
+                               (revision.created_at,revision.activity_revision_id)<(%s,%s))
                         UNION ALL
                         SELECT decision.activity_decision_id,
                                decision.decision_kind,
@@ -167,12 +267,30 @@ class PostgreSQLActivityRead:
                                decision.review_not_before,
                                decision.decided_at
                         FROM armi.activity_decisions AS decision
+                        LEFT JOIN armi.activity_revisions AS result
+                          ON result.activity_revision_id=decision.result_revision_id
                         WHERE decision.activity_id = %s
-                          AND decision.result_revision_id IS NULL
+                          AND decision.decided_at<=%s
+                          AND (decision.result_revision_id IS NULL OR result.created_at>%s)
+                          AND (%s::timestamptz IS NULL OR
+                               (decision.decided_at,decision.activity_decision_id)<(%s,%s))
                         ORDER BY 6 DESC, 1 DESC
                         LIMIT %s
                         """,
-                            (activity_id, activity_id, _PAGE_SIZE + 1),
+                            (
+                                activity_id,
+                                ceiling,
+                                None if boundary is None else boundary[0],
+                                None if boundary is None else boundary[0],
+                                None if boundary is None else boundary[1],
+                                activity_id,
+                                ceiling,
+                                ceiling,
+                                None if boundary is None else boundary[0],
+                                None if boundary is None else boundary[0],
+                                None if boundary is None else boundary[1],
+                                limit + 1,
+                            ),
                         )
                     ).fetchall()
                 )
@@ -182,10 +300,25 @@ class PostgreSQLActivityRead:
             raise ActivityViolation("ACTIVITY-QUERY-UNAVAILABLE") from None
         if visible is None:
             raise ActivityViolation("ACTIVITY-QUERY-NOT-FOUND")
+        page_rows = rows[:limit]
+        next_cursor = None
+        if len(rows) > limit and page_rows:
+            next_cursor = self._cursor.encode(
+                projection_version=ACTIVITY_PROJECTION_VERSION,
+                resource_kind="activity-timeline",
+                resource_ref=str(activity_id),
+                page_limit=limit,
+                query={},
+                snapshot_ceiling={"at": Instant(ceiling).to_wire()},
+                boundary={
+                    "before_at": Instant(page_rows[-1][5]).to_wire(),
+                    "before_id": str(page_rows[-1][0]),
+                },
+            )
         return CreatorActivityTimeline(
             activity_id,
-            tuple(self._timeline_item(row) for row in rows[:_PAGE_SIZE]),
-            len(rows) > _PAGE_SIZE,
+            tuple(self._timeline_item(row) for row in page_rows),
+            next_cursor,
         )
 
     async def candidate_head(

@@ -43,12 +43,16 @@ def bootstrap_activity(
     *,
     subject_id: UUID,
     creator_party_id: UUID,
+    environment_id: UUID,
+    cursor_key: bytes,
     focus: ActivityFocusReadPort,
 ) -> ActivityModule:
     query = PostgreSQLActivityRead(
         factory,
         subject_id=subject_id,
         creator_party_id=creator_party_id,
+        environment_id=environment_id,
+        cursor_key=cursor_key,
         focus=focus,
     )
     cognition = ActivityApplication()

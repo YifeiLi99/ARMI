@@ -569,6 +569,8 @@ async def _serve(
                 runtime_unit_of_work_factory,
                 subject_id=authority.require_writable().subject_id,
                 creator_party_id=creator_context.party_id,
+                environment_id=config.environment.environment_id,
+                cursor_key=derive_timeline_cursor_key(prepared),
                 subject_state=subject_state_module.read,
             )
             await activity_module.open()
@@ -576,6 +578,8 @@ async def _serve(
                 runtime_unit_of_work_factory,
                 subject_id=authority.require_writable().subject_id,
                 creator_party_id=creator_context.party_id,
+                environment_id=config.environment.environment_id,
+                cursor_key=derive_timeline_cursor_key(prepared),
                 visibility=data_rights_core.visibility,
             )
             await relationship_module.open()
@@ -641,6 +645,8 @@ async def _serve(
                 runtime_unit_of_work_factory,
                 subject_id=authority.require_writable().subject_id,
                 creator_party_id=creator_context.party_id,
+                environment_id=config.environment.environment_id,
+                cursor_key=derive_timeline_cursor_key(prepared),
                 runtime_facts=RuntimeSleepFacts(
                     cognition=cognition_operation,
                     effects=effect_owner,

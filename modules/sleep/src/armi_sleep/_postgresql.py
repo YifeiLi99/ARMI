@@ -5,13 +5,18 @@ from __future__ import annotations
 from typing import Any, cast
 from uuid import UUID
 
+from armi_kernel.contracts import OpaqueCursor
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
     PostgreSQLTransaction,
+    ProjectionCursorCodec,
+    ProjectionCursorInvalid,
+    ProjectionCursorStale,
     RuntimeTransactionFailure,
 )
 
 from .api import (
+    MAINTENANCE_PROJECTION_VERSION,
     CreatorMaintenanceSession,
     CreatorMaintenanceStatus,
     CreatorMaintenanceTimeline,
@@ -24,8 +29,6 @@ from .api import (
     MaintenanceWorkOutcome,
     SleepMaintenanceSnapshot,
 )
-
-_PAGE_SIZE = 100
 
 
 def _snapshot(row: tuple[Any, ...]) -> SleepMaintenanceSnapshot:
@@ -43,6 +46,7 @@ class PostgreSQLSleepRead:
 
     __slots__ = (
         "_creator_party_id",
+        "_cursor",
         "_factory",
         "_subject_id",
     )
@@ -53,8 +57,13 @@ class PostgreSQLSleepRead:
         *,
         subject_id: UUID,
         creator_party_id: UUID,
+        environment_id: UUID,
+        cursor_key: bytes,
     ) -> None:
         self._creator_party_id = creator_party_id
+        self._cursor = ProjectionCursorCodec(
+            cursor_key, environment_id, creator_party_id
+        )
         self._factory = factory
         self._subject_id = subject_id
 
@@ -154,7 +163,36 @@ class PostgreSQLSleepRead:
             raise CreatorMaintenanceViolation("MAINTENANCE-QUERY-UNAVAILABLE") from None
         return CreatorMaintenanceStatus(session, waiting_input_count)
 
-    async def timeline(self, session_id: UUID) -> CreatorMaintenanceTimeline:
+    async def timeline(
+        self, session_id: UUID, *, limit: int, cursor: OpaqueCursor | None = None
+    ) -> CreatorMaintenanceTimeline:
+        ceiling: int | None = None
+        before: int | None = None
+        if cursor is not None:
+            try:
+                page = self._cursor.decode(
+                    cursor,
+                    projection_version=MAINTENANCE_PROJECTION_VERSION,
+                    resource_kind="maintenance-timeline",
+                    resource_ref=str(session_id),
+                    page_limit=limit,
+                    query={},
+                )
+                ceiling = cast(int, page.snapshot_ceiling.get("revision_no"))
+                before = cast(int, page.boundary.get("before_revision_no"))
+            except ProjectionCursorStale:
+                raise CreatorMaintenanceViolation(
+                    "MAINTENANCE-QUERY-CURSOR-STALE"
+                ) from None
+            except TypeError, ValueError, ProjectionCursorInvalid:
+                raise CreatorMaintenanceViolation("MAINTENANCE-QUERY-CURSOR") from None
+            if (
+                type(ceiling) is not int
+                or ceiling < 1
+                or type(before) is not int
+                or before < 1
+            ):
+                raise CreatorMaintenanceViolation("MAINTENANCE-QUERY-CURSOR")
         try:
             async with self._factory.unit_of_work(read_only=True) as unit_of_work:
                 connection = unit_of_work.transaction
@@ -168,6 +206,18 @@ class PostgreSQLSleepRead:
                         (session_id, subject_id),
                     )
                 ).fetchone()
+                if visible is not None and ceiling is None:
+                    ceiling_row = await (
+                        await connection.execute(
+                            """SELECT max(revision_no)
+                               FROM armi.maintenance_session_revisions
+                               WHERE maintenance_session_id=%s""",
+                            (session_id,),
+                        )
+                    ).fetchone()
+                    if ceiling_row is None or ceiling_row[0] is None:
+                        raise CreatorMaintenanceViolation("MAINTENANCE-QUERY-NOT-FOUND")
+                    ceiling = int(ceiling_row[0])
                 rows = (
                     ()
                     if visible is None
@@ -184,10 +234,12 @@ class PostgreSQLSleepRead:
                           ON result.maintenance_revision_id
                             = revision.maintenance_revision_id
                         WHERE revision.maintenance_session_id = %s
+                          AND revision.revision_no<=%s
+                          AND (%s::bigint IS NULL OR revision.revision_no<%s)
                         ORDER BY revision.revision_no DESC
                         LIMIT %s
                         """,
-                            (session_id, _PAGE_SIZE + 1),
+                            (session_id, ceiling, before, before, limit + 1),
                         )
                     ).fetchall()
                 )
@@ -197,10 +249,22 @@ class PostgreSQLSleepRead:
             raise CreatorMaintenanceViolation("MAINTENANCE-QUERY-UNAVAILABLE") from None
         if visible is None:
             raise CreatorMaintenanceViolation("MAINTENANCE-QUERY-NOT-FOUND")
+        page_rows = rows[:limit]
+        next_cursor = None
+        if len(rows) > limit and page_rows:
+            next_cursor = self._cursor.encode(
+                projection_version=MAINTENANCE_PROJECTION_VERSION,
+                resource_kind="maintenance-timeline",
+                resource_ref=str(session_id),
+                page_limit=limit,
+                query={},
+                snapshot_ceiling={"revision_no": ceiling},
+                boundary={"before_revision_no": int(page_rows[-1][1])},
+            )
         return CreatorMaintenanceTimeline(
             session_id,
-            tuple(self._timeline_item(row) for row in rows[:_PAGE_SIZE]),
-            len(rows) > _PAGE_SIZE,
+            tuple(self._timeline_item(row) for row in page_rows),
+            next_cursor,
         )
 
     @staticmethod

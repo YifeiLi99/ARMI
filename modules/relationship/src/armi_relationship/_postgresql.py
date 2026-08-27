@@ -10,9 +10,13 @@ from uuid import UUID, uuid7
 
 import rfc8785
 from armi_data_rights.api import DataRightsVisibilityPort
+from armi_kernel.contracts import OpaqueCursor
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
     PostgreSQLTransaction,
+    ProjectionCursorCodec,
+    ProjectionCursorInvalid,
+    ProjectionCursorStale,
     RuntimeTransactionFailure,
 )
 
@@ -31,6 +35,7 @@ from ._codec import (
     resolution_to_dict,
 )
 from .api import (
+    RELATIONSHIP_PROJECTION_VERSION,
     CandidateRelationshipDraft,
     CreatorRelationshipItem,
     CreatorRelationshipRevision,
@@ -41,11 +46,15 @@ from .api import (
     RelationshipViolation,
 )
 
-_PAGE_SIZE = 100
-
 
 class PostgreSQLRelationshipOwner:
-    __slots__ = ("_creator_party_id", "_factory", "_subject_id", "_visibility")
+    __slots__ = (
+        "_creator_party_id",
+        "_cursor",
+        "_factory",
+        "_subject_id",
+        "_visibility",
+    )
 
     def __init__(
         self,
@@ -53,9 +62,14 @@ class PostgreSQLRelationshipOwner:
         *,
         subject_id: UUID,
         creator_party_id: UUID,
+        environment_id: UUID,
+        cursor_key: bytes,
         visibility: DataRightsVisibilityPort,
     ) -> None:
         self._creator_party_id = creator_party_id
+        self._cursor = ProjectionCursorCodec(
+            cursor_key, environment_id, creator_party_id
+        )
         self._factory = factory
         self._subject_id = subject_id
         self._visibility = visibility
@@ -108,7 +122,34 @@ class PostgreSQLRelationshipOwner:
             row[0], row[1], int(row[2]), _revision(row[4:]), row[3]
         )
 
-    async def timeline(self, relationship_id: UUID) -> CreatorRelationshipTimeline:
+    async def timeline(
+        self, relationship_id: UUID, *, limit: int, cursor: OpaqueCursor | None = None
+    ) -> CreatorRelationshipTimeline:
+        ceiling: int | None = None
+        before: int | None = None
+        if cursor is not None:
+            try:
+                page = self._cursor.decode(
+                    cursor,
+                    projection_version=RELATIONSHIP_PROJECTION_VERSION,
+                    resource_kind="relationship-timeline",
+                    resource_ref=str(relationship_id),
+                    page_limit=limit,
+                    query={},
+                )
+                ceiling = cast(int, page.snapshot_ceiling.get("revision_no"))
+                before = cast(int, page.boundary.get("before_revision_no"))
+            except ProjectionCursorStale:
+                raise RelationshipViolation("RELATIONSHIP-CURSOR-STALE") from None
+            except TypeError, ValueError, ProjectionCursorInvalid:
+                raise RelationshipViolation("RELATIONSHIP-CURSOR") from None
+            if (
+                type(ceiling) is not int
+                or ceiling < 1
+                or type(before) is not int
+                or before < 1
+            ):
+                raise RelationshipViolation("RELATIONSHIP-CURSOR")
         async with self._read_connection() as connection:
             subject_id = self._subject_id
             visible = await (
@@ -124,6 +165,17 @@ class PostgreSQLRelationshipOwner:
             ).fetchone()
             if visible is None:
                 raise RelationshipViolation("RELATIONSHIP-QUERY-NOT-FOUND")
+            if ceiling is None:
+                ceiling_row = await (
+                    await connection.execute(
+                        """SELECT max(revision_no) FROM armi.relationship_revisions
+                           WHERE relationship_id=%s""",
+                        (relationship_id,),
+                    )
+                ).fetchone()
+                if ceiling_row is None or ceiling_row[0] is None:
+                    raise RelationshipViolation("RELATIONSHIP-QUERY-NOT-FOUND")
+                ceiling = int(ceiling_row[0])
             rows = await (
                 await connection.execute(
                     """
@@ -133,15 +185,27 @@ class PostgreSQLRelationshipOwner:
                            created_at
                     FROM armi.relationship_revisions
                     WHERE relationship_id = %s AND privacy_scope = 'private'
+                      AND revision_no<=%s
+                      AND (%s::bigint IS NULL OR revision_no<%s)
                     ORDER BY revision_no DESC LIMIT %s
                     """,
-                    (relationship_id, _PAGE_SIZE + 1),
+                    (relationship_id, ceiling, before, before, limit + 1),
                 )
             ).fetchall()
+        page_rows = rows[:limit]
+        next_cursor = None
+        if len(rows) > limit and page_rows:
+            next_cursor = self._cursor.encode(
+                projection_version=RELATIONSHIP_PROJECTION_VERSION,
+                resource_kind="relationship-timeline",
+                resource_ref=str(relationship_id),
+                page_limit=limit,
+                query={},
+                snapshot_ceiling={"revision_no": ceiling},
+                boundary={"before_revision_no": int(page_rows[-1][1])},
+            )
         return CreatorRelationshipTimeline(
-            relationship_id,
-            tuple(_revision(row) for row in rows[:_PAGE_SIZE]),
-            len(rows) > _PAGE_SIZE,
+            relationship_id, tuple(_revision(row) for row in page_rows), next_cursor
         )
 
     async def context_sources(self, party_id: UUID) -> tuple[object, ...]:

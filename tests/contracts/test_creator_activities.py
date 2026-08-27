@@ -39,10 +39,10 @@ def test_waiting_activity_exposes_only_formal_creator_projection() -> None:
     assert item.waiting_summary == "下午再继续"
 
 
-def test_activity_page_is_bounded_and_marks_truncation() -> None:
-    assert CreatorActivityPage((), False).items == ()
+def test_activity_page_is_bounded_and_carries_a_cursor() -> None:
+    assert CreatorActivityPage((), None).items == ()
     with pytest.raises(ActivityViolation, match="ACTIVITY-QUERY-PAGE"):
-        CreatorActivityPage(tuple(object() for _ in range(101)), True)  # type: ignore[arg-type]
+        CreatorActivityPage(tuple(object() for _ in range(101)), None)  # type: ignore[arg-type]
 
 
 def test_decision_only_timeline_shape_is_strict() -> None:

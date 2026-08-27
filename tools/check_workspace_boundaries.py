@@ -2523,7 +2523,7 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         "armi_effect",
         "armi_interaction",
         "armi_attention",
-        "creator-activity.v1",
+        "creator-activity.v2",
         "creator-effect.v4",
         "creator-operation.v4",
     )
