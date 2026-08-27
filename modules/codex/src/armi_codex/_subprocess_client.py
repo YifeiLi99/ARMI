@@ -68,28 +68,29 @@ def _run_process(
     task: CodexTaskManifest,
     cancellation: threading.Event,
 ) -> tuple[CodexRunResult, CodexRunArtifactSet]:
-    process = subprocess.Popen(
-        (
-            sys.executable,
-            "-m",
-            runner_entry_module,
-            "--environment-root",
-            str(environment_root),
-            "--custodied",
-        ),
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        cwd=environment_root,
-        env=_environment(process_temp),
-        creationflags=subprocess.CREATE_NO_WINDOW,
-    )
     stdout = b""
     stderr = b""
     payload: bytes | None = encode_task(task)
     deadline = time.monotonic() + task.deadline_seconds + 60
     with WindowsJob() as job:
+        process: subprocess.Popen[bytes] | None = None
         try:
+            process = subprocess.Popen(
+                (
+                    sys.executable,
+                    "-m",
+                    runner_entry_module,
+                    "--environment-root",
+                    str(environment_root),
+                    "--custodied",
+                ),
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                cwd=environment_root,
+                env=_environment(process_temp),
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
             job.assign(int(process._handle))  # type: ignore[attr-defined]
             while True:
                 if cancellation.is_set():
@@ -105,11 +106,22 @@ def _run_process(
                     break
                 except subprocess.TimeoutExpired:
                     payload = None
-        except CodexRunnerViolation:
+        except CodexRunnerViolation as error:
+            if process is not None and process.poll() is None:
+                try:
+                    _reap_exact_child(process)
+                except CodexRunnerViolation:
+                    raise CodexRunnerViolation(
+                        error.code, outcome_unknown=True
+                    ) from None
             raise
         except OSError, subprocess.SubprocessError:
             job.close()
+            if process is not None and process.poll() is None:
+                _reap_exact_child(process)
             raise CodexRunnerViolation("CODEX-PROCESS", outcome_unknown=True) from None
+    if process is None:
+        raise CodexRunnerViolation("CODEX-PROCESS", outcome_unknown=True)
     if process.returncode != 0:
         raise _decode_failure(stderr)
     if stderr:
@@ -118,6 +130,20 @@ def _run_process(
     if result.execution_id != task.execution_id:
         raise CodexRunnerViolation("CODEX-RESULT-FORMAT")
     return result, artifacts
+
+
+def _reap_exact_child(process: subprocess.Popen[bytes]) -> None:
+    try:
+        process.terminate()
+        process.wait(timeout=5)
+        return
+    except OSError, subprocess.TimeoutExpired:
+        pass
+    try:
+        process.kill()
+        process.wait(timeout=10)
+    except OSError, subprocess.TimeoutExpired:
+        raise CodexRunnerViolation("CODEX-PROCESS", outcome_unknown=True) from None
 
 
 def _decode_failure(value: bytes) -> CodexRunnerViolation:
