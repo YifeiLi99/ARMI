@@ -45,7 +45,7 @@ describe("Creator maintenance panel", () => {
       if (url === "/v1/maintenance/status") {
         return jsonResponse({
           contract_version: "1.0",
-          projection_version: "creator-maintenance.v2",
+          projection_version: "creator-maintenance.v3",
           session: {
             maintenance_session_id: SESSION_ID,
             trigger_kind: "system_deadline",
@@ -61,12 +61,12 @@ describe("Creator maintenance panel", () => {
           waiting_input_count: 2,
         });
       }
-      if (url === `/v1/maintenance/${SESSION_ID}/timeline`) {
+      if (url.startsWith(`/v1/maintenance/${SESSION_ID}/timeline?`)) {
         return jsonResponse({
           contract_version: "1.0",
-          projection_version: "creator-maintenance.v2",
+          projection_version: "creator-maintenance.v3",
           maintenance_session_id: SESSION_ID,
-          truncated: false,
+          next_cursor: null,
           items: [
             {
               revision_id: REVISION_ID,

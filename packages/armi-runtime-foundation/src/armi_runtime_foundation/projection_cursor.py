@@ -7,10 +7,9 @@ import hashlib
 import hmac
 import json
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import cast
 from uuid import UUID
 
-import rfc8785
 from armi_kernel.contracts import OpaqueCursor
 
 _CONTRACT = "armi.projection-cursor.v1"
@@ -76,7 +75,7 @@ class ProjectionCursorCodec:
         )
         payload["snapshot_ceiling"] = snapshot_ceiling
         payload["boundary"] = boundary
-        raw = rfc8785.dumps(cast(Any, payload))
+        raw = _canonical_json(payload)
         encoded = _b64encode(raw)
         signature = _b64encode(
             hmac.new(self._key, encoded.encode("ascii"), hashlib.sha256).digest()
@@ -101,13 +100,13 @@ class ProjectionCursorCodec:
             ):
                 raise ProjectionCursorInvalid
             raw = _b64decode(encoded)
-            decoded = json.loads(raw)
+            decoded: object = json.loads(raw)
             if type(decoded) is not dict:
                 raise ProjectionCursorInvalid
             value = cast(dict[str, object], decoded)
             if (
                 frozenset(value) != _FIELDS
-                or rfc8785.dumps(cast(Any, value)) != raw
+                or _canonical_json(value) != raw
                 or type(value.get("snapshot_ceiling")) is not dict
                 or type(value.get("boundary")) is not dict
             ):
@@ -165,6 +164,44 @@ def _b64decode(value: str) -> bytes:
     if _b64encode(result) != value:
         raise ProjectionCursorInvalid
     return result
+
+
+def _canonical_json(value: object) -> bytes:
+    """Encode the cursor's integer-only JSON subset as RFC 8785 bytes."""
+    if value is None:
+        return b"null"
+    if value is True:
+        return b"true"
+    if value is False:
+        return b"false"
+    if type(value) is int:
+        if abs(value) > 9_007_199_254_740_991:
+            raise ProjectionCursorInvalid
+        return str(value).encode("ascii")
+    if type(value) is str:
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode(
+            "utf-8"
+        )
+    if type(value) is list:
+        items = cast(list[object], value)
+        return b"[" + b",".join(_canonical_json(item) for item in items) + b"]"
+    if type(value) is dict:
+        mapping = cast(dict[object, object], value)
+        if any(type(key) is not str for key in mapping):
+            raise ProjectionCursorInvalid
+        keys = sorted(
+            cast(tuple[str, ...], tuple(mapping)),
+            key=lambda item: item.encode("utf-16be"),
+        )
+        return (
+            b"{"
+            + b",".join(
+                _canonical_json(key) + b":" + _canonical_json(mapping[key])
+                for key in keys
+            )
+            + b"}"
+        )
+    raise ProjectionCursorInvalid
 
 
 __all__ = (

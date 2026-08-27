@@ -56,7 +56,7 @@ class CreatorEventContractTests(unittest.TestCase):
             resource_kind=CreatorResourceKind("activity"),
             resource_ref=str(activity_id),
             occurred_at=Instant(datetime(2026, 8, 4, tzinfo=UTC)),
-            projection_version="creator-activity.v1",
+            projection_version="creator-activity.v2",
         )
         self.assertEqual(invalidation.resource_ref, str(activity_id))
 
@@ -66,7 +66,7 @@ class CreatorEventContractTests(unittest.TestCase):
             resource_kind=CreatorResourceKind("maintenance"),
             resource_ref=str(session_id),
             occurred_at=Instant(datetime(2026, 8, 4, tzinfo=UTC)),
-            projection_version="creator-maintenance.v2",
+            projection_version="creator-maintenance.v3",
         )
         self.assertEqual(invalidation.resource_ref, str(session_id))
 
@@ -76,7 +76,7 @@ class CreatorEventContractTests(unittest.TestCase):
             resource_kind=CreatorResourceKind("memory"),
             resource_ref=str(memory_id),
             occurred_at=Instant(datetime(2026, 8, 4, tzinfo=UTC)),
-            projection_version="creator-memory.v1",
+            projection_version="creator-memory.v2",
         )
         self.assertEqual(invalidation.resource_ref, str(memory_id))
 
@@ -86,7 +86,7 @@ class CreatorEventContractTests(unittest.TestCase):
             resource_kind=CreatorResourceKind("relationship"),
             resource_ref=str(relationship_id),
             occurred_at=Instant(datetime(2026, 8, 5, tzinfo=UTC)),
-            projection_version="creator-relationship.v2",
+            projection_version="creator-relationship.v3",
         )
         self.assertEqual(invalidation.resource_ref, str(relationship_id))
 

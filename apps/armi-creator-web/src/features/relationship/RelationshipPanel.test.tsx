@@ -20,7 +20,7 @@ function jsonResponse(value: object, status = 200): Response {
 function currentRelationship() {
   return {
     contract_version: "1.0",
-    projection_version: "creator-relationship.v2",
+    projection_version: "creator-relationship.v3",
     relationship: {
       relationship_id: RELATIONSHIP_ID,
       current_revision_id: REVISION_ID,
@@ -105,13 +105,13 @@ describe("Creator relationship panel", () => {
       if (path === "/v1/relationships/current") {
         return jsonResponse(currentRelationship());
       }
-      if (path === `/v1/relationships/${RELATIONSHIP_ID}/timeline`) {
+      if (path.startsWith(`/v1/relationships/${RELATIONSHIP_ID}/timeline?`)) {
         return jsonResponse({
           contract_version: "1.0",
-          projection_version: "creator-relationship.v2",
+          projection_version: "creator-relationship.v3",
           relationship_id: RELATIONSHIP_ID,
           items: [currentRelationship().relationship.current],
-          truncated: false,
+          next_cursor: null,
         });
       }
       if (path === "/v1/relationships/current/boundaries") {
@@ -172,7 +172,7 @@ describe("Creator relationship panel", () => {
       vi.fn<typeof fetch>().mockResolvedValue(
         jsonResponse({
           contract_version: "1.0",
-          projection_version: "creator-relationship.v2",
+          projection_version: "creator-relationship.v3",
           relationship: null,
         }),
       ),

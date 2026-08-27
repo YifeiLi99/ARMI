@@ -1206,13 +1206,13 @@ export interface components {
       contract_version: "1.0";
       /** Items */
       items: components["schemas"]["CreatorActivityItemResponse"][];
+      /** Next Cursor */
+      next_cursor: string | null;
       /**
        * Projection Version
        * @constant
        */
-      projection_version: "creator-activity.v1";
-      /** Truncated */
-      truncated: boolean;
+      projection_version: "creator-activity.v2";
     };
     /** CreatorActivityTimelineItemResponse */
     CreatorActivityTimelineItemResponse: {
@@ -1238,13 +1238,13 @@ export interface components {
       contract_version: "1.0";
       /** Items */
       items: components["schemas"]["CreatorActivityTimelineItemResponse"][];
+      /** Next Cursor */
+      next_cursor: string | null;
       /**
        * Projection Version
        * @constant
        */
-      projection_version: "creator-activity.v1";
-      /** Truncated */
-      truncated: boolean;
+      projection_version: "creator-activity.v2";
     };
     /** CreatorCodexExecutionDetails */
     CreatorCodexExecutionDetails: {
@@ -1448,7 +1448,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "creator-maintenance.v2";
+      projection_version: "creator-maintenance.v3";
       session:
         components["schemas"]["CreatorMaintenanceSessionResponse"] | null;
       /** Waiting Input Count */
@@ -1480,13 +1480,13 @@ export interface components {
       items: components["schemas"]["CreatorMaintenanceTimelineItemResponse"][];
       /** Maintenance Session Id */
       maintenance_session_id: string;
+      /** Next Cursor */
+      next_cursor: string | null;
       /**
        * Projection Version
        * @constant
        */
-      projection_version: "creator-maintenance.v2";
-      /** Truncated */
-      truncated: boolean;
+      projection_version: "creator-maintenance.v3";
     };
     /** CreatorMemoryItemResponse */
     CreatorMemoryItemResponse: {
@@ -1526,7 +1526,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "creator-memory.v1";
+      projection_version: "creator-memory.v2";
       /**
        * Retrieval Kind
        * @constant
@@ -1573,7 +1573,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "creator-memory.v1";
+      projection_version: "creator-memory.v2";
       /**
        * Retrieval Kind
        * @constant
@@ -1718,11 +1718,11 @@ export interface components {
        * @enum {string}
        */
       projection_version:
-        | "creator-activity.v1"
-        | "creator-memory.v1"
-        | "creator-maintenance.v2"
+        | "creator-activity.v2"
+        | "creator-memory.v2"
+        | "creator-maintenance.v3"
         | "life-record-query.v2"
-        | "creator-relationship.v2"
+        | "creator-relationship.v3"
         | "scene-timeline.v6"
         | "capability-request.v5"
         | "creator-operation.v4"
@@ -1864,7 +1864,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "creator-relationship.v2";
+      projection_version: "creator-relationship.v3";
       relationship:
         components["schemas"]["CreatorRelationshipItemResponse"] | null;
     };
@@ -1962,15 +1962,15 @@ export interface components {
       contract_version: "1.0";
       /** Items */
       items: components["schemas"]["CreatorRelationshipRevisionResponse"][];
+      /** Next Cursor */
+      next_cursor: string | null;
       /**
        * Projection Version
        * @constant
        */
-      projection_version: "creator-relationship.v2";
+      projection_version: "creator-relationship.v3";
       /** Relationship Id */
       relationship_id: string;
-      /** Truncated */
-      truncated: boolean;
     };
     /** CreatorReplyEffectiveGrantResponse */
     CreatorReplyEffectiveGrantResponse: {
@@ -3373,7 +3373,10 @@ export interface operations {
   };
   listCreatorActivities: {
     parameters: {
-      query?: never;
+      query?: {
+        limit?: string | null;
+        cursor?: string | null;
+      };
       header?: never;
       path?: never;
       cookie?: never;
@@ -3420,7 +3423,10 @@ export interface operations {
   };
   getCreatorActivityTimeline: {
     parameters: {
-      query?: never;
+      query?: {
+        limit?: number;
+        cursor?: string | null;
+      };
       header?: never;
       path: {
         activity_id: string;
@@ -4443,7 +4449,10 @@ export interface operations {
   };
   getCreatorMaintenanceTimeline: {
     parameters: {
-      query?: never;
+      query?: {
+        limit?: number;
+        cursor?: string | null;
+      };
       header?: never;
       path: {
         maintenance_session_id: string;
@@ -5387,7 +5396,10 @@ export interface operations {
   };
   getCreatorRelationshipTimeline: {
     parameters: {
-      query?: never;
+      query?: {
+        limit?: number;
+        cursor?: string | null;
+      };
       header?: never;
       path: {
         relationship_id: string;

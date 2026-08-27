@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { QueryKey, QueryClient } from "@tanstack/react-query";
+import { ApiFailure } from "../../api/client";
 
 import {
   compareEventIds,
@@ -7,7 +8,8 @@ import {
   EventStreamFailure,
 } from "../../api/eventStream";
 
-export type LiveUpdateState = "connecting" | "connected" | "disconnected";
+export type LiveUpdateState =
+  "connecting" | "connected" | "degraded" | "disconnected";
 
 type SceneEventStreamOptions = {
   enabled: boolean;
@@ -62,31 +64,33 @@ export function useSceneEventStream({
     registerAbort(() => controller.abort());
 
     async function fullRefetch(): Promise<void> {
-      lastEventId.current = undefined;
       queryClient.removeQueries({ queryKey: ["life-material"] });
-      await queryClient.resetQueries({
-        predicate: (query) =>
-          [
-            "scene-timeline",
-            "activities",
-            "activity-timeline",
-            "life-records",
-            "memories",
-            "memory-timeline",
-            "maintenance-status",
-            "maintenance-timeline",
-            "relationship-current",
-            "relationship-timeline",
-            "capability-requests",
-            "creator-operation",
-            "creator-effect",
-            "subject-summary",
-            "other-human-record-parties",
-            "other-human-record-scenes",
-            "other-human-record-timeline",
-            "data-rights-orders",
-          ].includes(String(query.queryKey[0])),
-      });
+      await queryClient.resetQueries(
+        {
+          predicate: (query) =>
+            [
+              "scene-timeline",
+              "activities",
+              "activity-timeline",
+              "life-records",
+              "memories",
+              "memory-timeline",
+              "maintenance-status",
+              "maintenance-timeline",
+              "relationship-current",
+              "relationship-timeline",
+              "capability-requests",
+              "creator-operation",
+              "creator-effect",
+              "subject-summary",
+              "other-human-record-parties",
+              "other-human-record-scenes",
+              "other-human-record-timeline",
+              "data-rights-orders",
+            ].includes(String(query.queryKey[0])),
+        },
+        { throwOnError: true },
+      );
     }
 
     async function invalidateResource(
@@ -97,26 +101,35 @@ export function useSceneEventStream({
         if (resourceRef !== sceneKey) {
           throw new EventStreamFailure("event");
         }
-        await queryClient.resetQueries({ queryKey, exact: true });
+        await queryClient.resetQueries(
+          { queryKey, exact: true },
+          { throwOnError: true },
+        );
         return;
       }
       if (resourceKind === "activity") {
-        await queryClient.resetQueries({
-          predicate: (query) =>
-            query.queryKey[0] === "activities" ||
-            (query.queryKey[0] === "activity-timeline" &&
-              query.queryKey.includes(resourceRef)),
-        });
+        await queryClient.resetQueries(
+          {
+            predicate: (query) =>
+              query.queryKey[0] === "activities" ||
+              (query.queryKey[0] === "activity-timeline" &&
+                query.queryKey.includes(resourceRef)),
+          },
+          { throwOnError: true },
+        );
         return;
       }
       if (resourceKind === "memory") {
-        await queryClient.resetQueries({
-          predicate: (query) =>
-            query.queryKey[0] === "life-records" ||
-            query.queryKey[0] === "memories" ||
-            (query.queryKey[0] === "memory-timeline" &&
-              query.queryKey.includes(resourceRef)),
-        });
+        await queryClient.resetQueries(
+          {
+            predicate: (query) =>
+              query.queryKey[0] === "life-records" ||
+              query.queryKey[0] === "memories" ||
+              (query.queryKey[0] === "memory-timeline" &&
+                query.queryKey.includes(resourceRef)),
+          },
+          { throwOnError: true },
+        );
         return;
       }
       if (resourceKind === "material") {
@@ -125,45 +138,60 @@ export function useSceneEventStream({
             query.queryKey[0] === "life-material" &&
             query.queryKey.includes(resourceRef),
         });
-        await queryClient.resetQueries({
-          predicate: (query) => query.queryKey[0] === "life-records",
-        });
+        await queryClient.resetQueries(
+          {
+            predicate: (query) => query.queryKey[0] === "life-records",
+          },
+          { throwOnError: true },
+        );
         return;
       }
       if (resourceKind === "maintenance") {
-        await queryClient.resetQueries({
-          predicate: (query) =>
-            query.queryKey[0] === "maintenance-status" ||
-            (query.queryKey[0] === "maintenance-timeline" &&
-              query.queryKey.includes(resourceRef)),
-        });
+        await queryClient.resetQueries(
+          {
+            predicate: (query) =>
+              query.queryKey[0] === "maintenance-status" ||
+              (query.queryKey[0] === "maintenance-timeline" &&
+                query.queryKey.includes(resourceRef)),
+          },
+          { throwOnError: true },
+        );
         return;
       }
       if (resourceKind === "relationship") {
-        await queryClient.resetQueries({
-          predicate: (query) =>
-            query.queryKey[0] === "relationship-current" ||
-            (query.queryKey[0] === "relationship-timeline" &&
-              query.queryKey.includes(resourceRef)),
-        });
+        await queryClient.resetQueries(
+          {
+            predicate: (query) =>
+              query.queryKey[0] === "relationship-current" ||
+              (query.queryKey[0] === "relationship-timeline" &&
+                query.queryKey.includes(resourceRef)),
+          },
+          { throwOnError: true },
+        );
         return;
       }
       if (resourceKind === "other_human_record") {
-        await queryClient.resetQueries({
-          predicate: (query) =>
-            String(query.queryKey[0]).startsWith("other-human-record-") &&
-            (query.queryKey[0] === "other-human-record-parties" ||
-              query.queryKey.includes(resourceRef)),
-        });
+        await queryClient.resetQueries(
+          {
+            predicate: (query) =>
+              String(query.queryKey[0]).startsWith("other-human-record-") &&
+              (query.queryKey[0] === "other-human-record-parties" ||
+                query.queryKey.includes(resourceRef)),
+          },
+          { throwOnError: true },
+        );
         return;
       }
       if (resourceKind === "data_rights") {
         queryClient.removeQueries({
           predicate: (query) => query.queryKey[0] !== "data-rights-orders",
         });
-        await queryClient.resetQueries({
-          predicate: (query) => query.queryKey[0] === "data-rights-orders",
-        });
+        await queryClient.resetQueries(
+          {
+            predicate: (query) => query.queryKey[0] === "data-rights-orders",
+          },
+          { throwOnError: true },
+        );
         return;
       }
       const prefix = {
@@ -175,13 +203,41 @@ export function useSceneEventStream({
       if (prefix === undefined) {
         throw new EventStreamFailure("event");
       }
-      await queryClient.resetQueries({
-        predicate: (query) =>
-          query.queryKey[0] === prefix &&
-          (prefix === "capability-requests" ||
-            prefix === "subject-summary" ||
-            query.queryKey.includes(resourceRef)),
-      });
+      await queryClient.resetQueries(
+        {
+          predicate: (query) =>
+            query.queryKey[0] === prefix &&
+            (prefix === "capability-requests" ||
+              prefix === "subject-summary" ||
+              query.queryKey.includes(resourceRef)),
+        },
+        { throwOnError: true },
+      );
+    }
+
+    async function converge(refresh: () => Promise<void>): Promise<boolean> {
+      let retryIndex = 0;
+      while (!controller.signal.aborted) {
+        try {
+          await refresh();
+          setState("connected");
+          return true;
+        } catch (error) {
+          if (error instanceof ApiFailure && error.status === 401) {
+            controller.abort();
+            onUnauthorizedRef.current();
+            return false;
+          }
+          setState("degraded");
+          const seconds =
+            RECONNECT_SECONDS[
+              Math.min(retryIndex, RECONNECT_SECONDS.length - 1)
+            ];
+          retryIndex += 1;
+          await wait(seconds! * 1000, controller.signal);
+        }
+      }
+      return false;
     }
 
     async function run(): Promise<void> {
@@ -211,8 +267,13 @@ export function useSceneEventStream({
                   throw new EventStreamFailure("event");
                 }
               }
-              lastEventId.current = event.event_id;
-              await invalidateResource(event.resource_kind, event.resource_ref);
+              if (
+                await converge(() =>
+                  invalidateResource(event.resource_kind, event.resource_ref),
+                )
+              ) {
+                lastEventId.current = event.event_id;
+              }
             },
           );
         } catch (error) {
@@ -225,7 +286,9 @@ export function useSceneEventStream({
             return;
           }
           if (error instanceof EventStreamFailure && error.status === 409) {
-            await fullRefetch();
+            if (await converge(fullRefetch)) {
+              lastEventId.current = undefined;
+            }
           } else if (
             error instanceof EventStreamFailure &&
             (error.kind !== "http" ||

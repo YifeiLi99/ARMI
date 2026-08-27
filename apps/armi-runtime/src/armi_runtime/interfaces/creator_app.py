@@ -138,6 +138,8 @@ def create_runtime_app(
         emit("creator.request.body_rejected")
         return Response(status_code=error.status_code, headers=_SECURITY_HEADERS)
 
+    del bounded_body_error
+
     @app.middleware("http")
     async def enforce_local_boundary(
         request: Request,
@@ -163,9 +165,14 @@ def create_runtime_app(
         )
         paged_query_path = (
             request.url.path
-            in {"/v1/life-records", "/v1/memories", "/v1/other-human-records"}
+            in {
+                "/v1/life-records",
+                "/v1/memories",
+                "/v1/other-human-records",
+                "/v1/activities",
+            }
             or re.fullmatch(
-                r"/v1/(?:memories/[^/]{1,64}/timeline|other-human-records/[^/]{1,64}/scenes(?:/[^/]{1,64}/timeline)?)",
+                r"/v1/(?:memories/[^/]{1,64}/timeline|activities/[^/]{1,64}/timeline|relationships/[^/]{1,64}/timeline|maintenance/[^/]{1,64}/timeline|other-human-records/[^/]{1,64}/scenes(?:/[^/]{1,64}/timeline)?)",
                 request.url.path,
             )
             is not None

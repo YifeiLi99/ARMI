@@ -63,7 +63,7 @@ describe("Creator memory panel", () => {
       if (url === "/v1/memories?limit=20") {
         return jsonResponse({
           contract_version: "1.0",
-          projection_version: "creator-memory.v1",
+          projection_version: "creator-memory.v2",
           retrieval_kind: "creator_view",
           next_cursor: null,
           items: [
@@ -86,7 +86,7 @@ describe("Creator memory panel", () => {
       if (url === `/v1/memories/${MEMORY_ID}/timeline?limit=20`) {
         return jsonResponse({
           contract_version: "1.0",
-          projection_version: "creator-memory.v1",
+          projection_version: "creator-memory.v2",
           retrieval_kind: "creator_view",
           memory_id: MEMORY_ID,
           next_cursor: null,

@@ -1,5 +1,10 @@
 import { useEffect } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 
 import {
   ApiFailure,
@@ -69,16 +74,22 @@ export function MaintenancePanel({
     creatorPartyId,
     session?.maintenance_session_id ?? null,
   ] as const;
-  const timeline = useQuery({
+  const timeline = useInfiniteQuery({
     queryKey: timelineKey,
-    queryFn: ({ signal }) =>
+    queryFn: ({ signal, pageParam }) =>
       getCreatorMaintenanceTimeline(
         token,
         session!.maintenance_session_id,
+        50,
+        pageParam,
         signal,
       ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
     enabled: session !== null,
   });
+  const timelineItems =
+    timeline.data?.pages.flatMap((page) => page.items) ?? [];
   const wake = useMutation({
     mutationFn: (sessionId: string) =>
       requestCreatorEmergencyWake(token, sessionId),
@@ -203,12 +214,12 @@ export function MaintenancePanel({
             {timeline.isError ? (
               <p role="status">当前无法读取阶段记录。</p>
             ) : null}
-            {timeline.data?.items.length === 0 ? (
+            {timeline.data !== undefined && timelineItems.length === 0 ? (
               <p role="status">尚无阶段变化记录。</p>
             ) : null}
-            {timeline.data !== undefined && timeline.data.items.length > 0 ? (
+            {timelineItems.length > 0 ? (
               <ol>
-                {timeline.data.items.map((item) => (
+                {timelineItems.map((item) => (
                   <li key={item.revision_id}>
                     <strong>
                       {PHASE_LABELS[item.phase] ?? item.phase} ·{" "}
@@ -234,8 +245,15 @@ export function MaintenancePanel({
                 ))}
               </ol>
             ) : null}
-            {timeline.data?.truncated ? (
-              <p className="field-note">这里只显示最近 100 条阶段记录。</p>
+            {timeline.hasNextPage ? (
+              <button
+                type="button"
+                className="secondary"
+                disabled={timeline.isFetchingNextPage}
+                onClick={() => void timeline.fetchNextPage()}
+              >
+                {timeline.isFetchingNextPage ? "正在加载" : "加载更早记录"}
+              </button>
             ) : null}
           </div>
         </div>

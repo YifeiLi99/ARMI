@@ -266,9 +266,9 @@ class CreatorActivityItemResponse(_StrictWireModel):
 
 class CreatorActivityPageResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["creator-activity.v1"]
+    projection_version: Literal["creator-activity.v2"]
     items: Annotated[list[CreatorActivityItemResponse], Field(max_length=100)]
-    truncated: bool
+    next_cursor: Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
 
 
 class CreatorActivityTimelineItemResponse(_StrictWireModel):
@@ -282,10 +282,10 @@ class CreatorActivityTimelineItemResponse(_StrictWireModel):
 
 class CreatorActivityTimelineResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["creator-activity.v1"]
+    projection_version: Literal["creator-activity.v2"]
     activity_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     items: Annotated[list[CreatorActivityTimelineItemResponse], Field(max_length=100)]
-    truncated: bool
+    next_cursor: Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
 
 
 type RelationshipPartyRoleValue = Literal["subject", "other"]
@@ -381,16 +381,16 @@ class CreatorRelationshipItemResponse(_StrictWireModel):
 
 class CreatorRelationshipCurrentResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["creator-relationship.v2"]
+    projection_version: Literal["creator-relationship.v3"]
     relationship: CreatorRelationshipItemResponse | None
 
 
 class CreatorRelationshipTimelineResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["creator-relationship.v2"]
+    projection_version: Literal["creator-relationship.v3"]
     relationship_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     items: Annotated[list[CreatorRelationshipRevisionResponse], Field(max_length=100)]
-    truncated: bool
+    next_cursor: Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
 
 
 class CreatorRelationshipBoundaryRequest(_StrictWireModel):
@@ -483,7 +483,7 @@ class CreatorMemoryItemResponse(_StrictWireModel):
 
 class CreatorMemoryPageResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["creator-memory.v1"]
+    projection_version: Literal["creator-memory.v2"]
     retrieval_kind: Literal["creator_view"]
     items: Annotated[list[CreatorMemoryItemResponse], Field(max_length=100)]
     next_cursor: Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
@@ -505,7 +505,7 @@ class CreatorMemoryTimelineItemResponse(_StrictWireModel):
 
 class CreatorMemoryTimelineResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["creator-memory.v1"]
+    projection_version: Literal["creator-memory.v2"]
     retrieval_kind: Literal["creator_view"]
     memory_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     items: Annotated[list[CreatorMemoryTimelineItemResponse], Field(max_length=100)]
@@ -562,7 +562,7 @@ class CreatorMaintenanceSessionResponse(_StrictWireModel):
 
 class CreatorMaintenanceStatusResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["creator-maintenance.v2"]
+    projection_version: Literal["creator-maintenance.v3"]
     session: CreatorMaintenanceSessionResponse | None
     waiting_input_count: Annotated[int, Field(ge=0)]
 
@@ -580,12 +580,12 @@ class CreatorMaintenanceTimelineItemResponse(_StrictWireModel):
 
 class CreatorMaintenanceTimelineResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["creator-maintenance.v2"]
+    projection_version: Literal["creator-maintenance.v3"]
     maintenance_session_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     items: Annotated[
         list[CreatorMaintenanceTimelineItemResponse], Field(max_length=100)
     ]
-    truncated: bool
+    next_cursor: Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
 
 
 class CreatorProjectionEventResponse(_StrictWireModel):
@@ -621,11 +621,11 @@ class CreatorProjectionEventResponse(_StrictWireModel):
     ]
     resource_ref: Annotated[str, Field(min_length=1, max_length=64)]
     projection_version: Literal[
-        "creator-activity.v1",
-        "creator-memory.v1",
-        "creator-maintenance.v2",
+        "creator-activity.v2",
+        "creator-memory.v2",
+        "creator-maintenance.v3",
         "life-record-query.v2",
-        "creator-relationship.v2",
+        "creator-relationship.v3",
         "scene-timeline.v6",
         "capability-request.v5",
         "creator-operation.v4",

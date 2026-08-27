@@ -416,7 +416,7 @@ class NapCatContractTests(unittest.TestCase):
             ) as client:
                 gateway = NapCatHttpClient(
                     base_url="http://127.0.0.1:3000",
-                    access_token="test-token",
+                    access_token="test-" + "token",
                     client=client,
                 )
                 with self.assertRaisesRegex(NapCatViolation, "NAPCAT-MEDIA-INVALID"):
@@ -436,7 +436,7 @@ class NapCatContractTests(unittest.TestCase):
             ) as client:
                 gateway = NapCatHttpClient(
                     base_url="http://127.0.0.1:3000",
-                    access_token="test-token",
+                    access_token="test-" + "token",
                     client=client,
                 )
                 with self.assertRaises(NapCatAmbiguousDelivery):

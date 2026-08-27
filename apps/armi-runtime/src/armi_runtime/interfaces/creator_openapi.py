@@ -246,7 +246,35 @@ _OPERATION_OVERRIDES: dict[str, dict[str, object]] = {
                     "title": "Activity Id",
                     "type": "string",
                 },
-            }
+            },
+            {
+                "in": "query",
+                "name": "limit",
+                "required": False,
+                "schema": {
+                    "default": 50,
+                    "maximum": 100,
+                    "minimum": 1,
+                    "title": "Limit",
+                    "type": "integer",
+                },
+            },
+            {
+                "in": "query",
+                "name": "cursor",
+                "required": False,
+                "schema": {
+                    "anyOf": [
+                        {
+                            "maxLength": 2048,
+                            "pattern": "v1\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+",
+                            "type": "string",
+                        },
+                        {"type": "null"},
+                    ],
+                    "title": "Cursor",
+                },
+            },
         ]
     },
     "getCreatorLifeMaterial": {
@@ -274,7 +302,35 @@ _OPERATION_OVERRIDES: dict[str, dict[str, object]] = {
                     "title": "Maintenance Session Id",
                     "type": "string",
                 },
-            }
+            },
+            {
+                "in": "query",
+                "name": "limit",
+                "required": False,
+                "schema": {
+                    "default": 50,
+                    "maximum": 100,
+                    "minimum": 1,
+                    "title": "Limit",
+                    "type": "integer",
+                },
+            },
+            {
+                "in": "query",
+                "name": "cursor",
+                "required": False,
+                "schema": {
+                    "anyOf": [
+                        {
+                            "maxLength": 2048,
+                            "pattern": "v1\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+",
+                            "type": "string",
+                        },
+                        {"type": "null"},
+                    ],
+                    "title": "Cursor",
+                },
+            },
         ]
     },
     "getCreatorMemoryTimeline": {
@@ -344,7 +400,35 @@ _OPERATION_OVERRIDES: dict[str, dict[str, object]] = {
                     "title": "Relationship Id",
                     "type": "string",
                 },
-            }
+            },
+            {
+                "in": "query",
+                "name": "limit",
+                "required": False,
+                "schema": {
+                    "default": 50,
+                    "maximum": 100,
+                    "minimum": 1,
+                    "title": "Limit",
+                    "type": "integer",
+                },
+            },
+            {
+                "in": "query",
+                "name": "cursor",
+                "required": False,
+                "schema": {
+                    "anyOf": [
+                        {
+                            "maxLength": 2048,
+                            "pattern": "v1\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+",
+                            "type": "string",
+                        },
+                        {"type": "null"},
+                    ],
+                    "title": "Cursor",
+                },
+            },
         ]
     },
     "getDataRightsOrder": {"summary": "Get Data Rights Order"},

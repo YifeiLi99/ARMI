@@ -123,7 +123,7 @@ from armi_sleep.api import (
     CreatorMaintenanceViolation,
 )
 from armi_subject_state.api import SubjectSummary
-from fastapi import FastAPI, Request, Security
+from fastapi import FastAPI, Query, Request, Security
 from fastapi.responses import (
     JSONResponse,
     RedirectResponse,
@@ -1767,6 +1767,7 @@ __all__ = (
     "QQChannelControlProvider",
     "QQChannelHealthProvider",
     "QQChannelHealthResponse",
+    "Query",
     "ReadinessProvider",
     "ReadyResponse",
     "RedirectResponse",

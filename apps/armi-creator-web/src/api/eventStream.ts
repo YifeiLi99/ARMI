@@ -10,13 +10,13 @@ const UUID_V7 =
 const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:[0-5]\d\.\d{6}Z$/;
 const MAX_EVENT_BYTES = 4096;
 const RESOURCES = {
-  activity: ["activity.invalidated", "creator-activity.v1", UUID_V7],
-  memory: ["memory.invalidated", "creator-memory.v1", UUID_V7],
-  maintenance: ["maintenance.invalidated", "creator-maintenance.v2", UUID_V7],
+  activity: ["activity.invalidated", "creator-activity.v2", UUID_V7],
+  memory: ["memory.invalidated", "creator-memory.v2", UUID_V7],
+  maintenance: ["maintenance.invalidated", "creator-maintenance.v3", UUID_V7],
   material: ["material.invalidated", "life-record-query.v2", UUID_V7],
   relationship: [
     "relationship.invalidated",
-    "creator-relationship.v2",
+    "creator-relationship.v3",
     UUID_V7,
   ],
   scene_timeline: [

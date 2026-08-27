@@ -135,7 +135,7 @@ function capabilityPageResponse(): object {
 function activityPageResponse(goal?: string): object {
   return {
     contract_version: "1.0",
-    projection_version: "creator-activity.v1",
+    projection_version: "creator-activity.v2",
     items:
       goal === undefined
         ? []
@@ -158,7 +158,7 @@ function activityPageResponse(goal?: string): object {
               updated_at: "2026-07-30T10:00:00.000000Z",
             },
           ],
-    truncated: false,
+    next_cursor: null,
   };
 }
 
@@ -175,7 +175,7 @@ function lifeRecordPageResponse(): object {
 function memoryPageResponse(): object {
   return {
     contract_version: "1.0",
-    projection_version: "creator-memory.v1",
+    projection_version: "creator-memory.v2",
     retrieval_kind: "creator_view",
     items: [],
     next_cursor: null,
@@ -185,7 +185,7 @@ function memoryPageResponse(): object {
 function relationshipCurrentResponse(): object {
   return {
     contract_version: "1.0",
-    projection_version: "creator-relationship.v2",
+    projection_version: "creator-relationship.v3",
     relationship: null,
   };
 }
@@ -250,7 +250,7 @@ function optionalLifeProjectionResponse(url: string): Response | undefined {
 function maintenanceStatusResponse(): object {
   return {
     contract_version: "1.0",
-    projection_version: "creator-maintenance.v2",
+    projection_version: "creator-maintenance.v3",
     session: null,
     waiting_input_count: 0,
   };
@@ -555,7 +555,7 @@ describe("Creator local connection shell", () => {
       event_kind: "activity.invalidated",
       resource_kind: "activity",
       resource_ref: ENVIRONMENT_ID,
-      projection_version: "creator-activity.v1",
+      projection_version: "creator-activity.v2",
       occurred_at: "2026-07-30T10:02:00.000000Z",
     });
     let activityReads = 0;
@@ -574,7 +574,7 @@ describe("Creator local connection shell", () => {
       if (url === "/v1/runtime/status") {
         return jsonResponse(runtimeStatusResponse());
       }
-      if (url === "/v1/activities") {
+      if (url.startsWith("/v1/activities?")) {
         activityReads += 1;
         return jsonResponse(
           activityPageResponse(
@@ -628,7 +628,7 @@ describe("Creator local connection shell", () => {
       event_kind: "maintenance.invalidated",
       resource_kind: "maintenance",
       resource_ref: ENVIRONMENT_ID,
-      projection_version: "creator-maintenance.v2",
+      projection_version: "creator-maintenance.v3",
       occurred_at: "2026-07-30T10:02:00.000000Z",
     });
     let maintenanceReads = 0;
@@ -655,7 +655,7 @@ describe("Creator local connection shell", () => {
           items: [],
         });
       }
-      if (url === "/v1/activities") {
+      if (url.startsWith("/v1/activities?")) {
         return jsonResponse(activityPageResponse());
       }
       if (url === "/v1/maintenance/status") {
@@ -665,7 +665,7 @@ describe("Creator local connection shell", () => {
             ? maintenanceStatusResponse()
             : {
                 contract_version: "1.0",
-                projection_version: "creator-maintenance.v2",
+                projection_version: "creator-maintenance.v3",
                 session: {
                   maintenance_session_id: ENVIRONMENT_ID,
                   trigger_kind: "system_deadline",
@@ -682,13 +682,13 @@ describe("Creator local connection shell", () => {
               },
         );
       }
-      if (url === `/v1/maintenance/${ENVIRONMENT_ID}/timeline`) {
+      if (url.startsWith(`/v1/maintenance/${ENVIRONMENT_ID}/timeline?`)) {
         return jsonResponse({
           contract_version: "1.0",
-          projection_version: "creator-maintenance.v2",
+          projection_version: "creator-maintenance.v3",
           maintenance_session_id: ENVIRONMENT_ID,
           items: [],
-          truncated: false,
+          next_cursor: null,
         });
       }
       if (url.startsWith("/v1/capability-requests")) {
@@ -775,7 +775,7 @@ describe("Creator local connection shell", () => {
       if (url === "/v1/subject/summary") {
         return jsonResponse(subjectSummaryResponse());
       }
-      if (url === "/v1/activities") {
+      if (url.startsWith("/v1/activities?")) {
         return jsonResponse(activityPageResponse());
       }
       if (url.startsWith("/v1/capability-requests?")) {
@@ -905,7 +905,7 @@ describe("Creator local connection shell", () => {
       if (url === "/v1/subject/summary") {
         return jsonResponse(subjectSummaryResponse());
       }
-      if (url === "/v1/activities") {
+      if (url.startsWith("/v1/activities?")) {
         return jsonResponse(activityPageResponse());
       }
       if (url.startsWith("/v1/capability-requests?")) {

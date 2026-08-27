@@ -72,8 +72,8 @@ def _run_process(
     stderr = b""
     payload: bytes | None = encode_task(task)
     deadline = time.monotonic() + task.deadline_seconds + 60
+    process: subprocess.Popen[bytes] | None = None
     with WindowsJob() as job:
-        process: subprocess.Popen[bytes] | None = None
         try:
             process = subprocess.Popen(
                 (

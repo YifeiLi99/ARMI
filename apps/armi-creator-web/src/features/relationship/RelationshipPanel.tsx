@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 
 import {
   ApiFailure,
@@ -111,12 +116,22 @@ export function RelationshipPanel({
     creatorPartyId,
     relationshipId,
   ] as const;
-  const timeline = useQuery({
+  const timeline = useInfiniteQuery({
     queryKey: timelineKey,
-    queryFn: ({ signal }) =>
-      getCreatorRelationshipTimeline(token, relationshipId!, signal),
+    queryFn: ({ signal, pageParam }) =>
+      getCreatorRelationshipTimeline(
+        token,
+        relationshipId!,
+        50,
+        pageParam,
+        signal,
+      ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
     enabled: showTimeline && relationshipId !== null,
   });
+  const timelineItems =
+    timeline.data?.pages.flatMap((page) => page.items) ?? [];
 
   const boundary = useMutation({
     mutationFn: (frozen: FrozenBoundarySubmission) =>
@@ -330,9 +345,9 @@ export function RelationshipPanel({
               {timeline.isError ? (
                 <p role="status">当前无法读取关系变化。</p>
               ) : null}
-              {Array.isArray(timeline.data?.items) ? (
+              {timeline.data !== undefined ? (
                 <ol>
-                  {timeline.data.items.map((item) => (
+                  {timelineItems.map((item) => (
                     <li key={item.relationship_revision_id}>
                       <strong>第 {item.revision_no} 次关系表达</strong>
                       <span>{item.interpretation}</span>
@@ -349,8 +364,15 @@ export function RelationshipPanel({
                   ))}
                 </ol>
               ) : null}
-              {timeline.data?.truncated ? (
-                <p className="boundary-note">仅显示最近 100 次关系修订。</p>
+              {timeline.hasNextPage ? (
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={timeline.isFetchingNextPage}
+                  onClick={() => void timeline.fetchNextPage()}
+                >
+                  {timeline.isFetchingNextPage ? "正在加载" : "加载更早记录"}
+                </button>
               ) : null}
             </div>
           ) : null}

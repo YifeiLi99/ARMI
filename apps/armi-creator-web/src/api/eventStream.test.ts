@@ -39,19 +39,19 @@ describe("authenticated Creator event stream parser", () => {
       "activity.invalidated",
       "activity",
       "018f47a6-7b2d-7c35-8b18-684e38ab6ef6",
-      "creator-activity.v1",
+      "creator-activity.v2",
     ],
     [
       "memory.invalidated",
       "memory",
       "018f47a6-7b2d-7c35-8b18-684e38ab6ef5",
-      "creator-memory.v1",
+      "creator-memory.v2",
     ],
     [
       "maintenance.invalidated",
       "maintenance",
       "018f47a6-7b2d-7c35-8b18-684e38ab6ef7",
-      "creator-maintenance.v2",
+      "creator-maintenance.v3",
     ],
     [
       "material.invalidated",
@@ -63,7 +63,7 @@ describe("authenticated Creator event stream parser", () => {
       "relationship.invalidated",
       "relationship",
       "018f47a6-7b2d-7c35-8b18-684e38ab6ef4",
-      "creator-relationship.v2",
+      "creator-relationship.v3",
     ],
     [
       "scene.timeline.invalidated",

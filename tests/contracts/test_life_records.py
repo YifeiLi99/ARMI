@@ -138,7 +138,7 @@ def test_cursor_is_signed_and_bound_to_query_scope() -> None:
         creator_party_id=creator_id,
     )
     scope = {
-        "projection_version": "creator-memory.v1",
+        "projection_version": "creator-memory.v2",
         "resource": "memory_current",
         "query_text": "旧理解",
         "limit": 20,

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   ApiFailure,
@@ -52,9 +52,12 @@ export function ActivityPanel({
     null,
   );
   const listKey = ["activities", environmentId, creatorPartyId] as const;
-  const activities = useQuery({
+  const activities = useInfiniteQuery({
     queryKey: listKey,
-    queryFn: ({ signal }) => getCreatorActivities(token, signal),
+    queryFn: ({ signal, pageParam }) =>
+      getCreatorActivities(token, 50, pageParam, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
   });
   const timelineKey = [
     "activity-timeline",
@@ -62,12 +65,24 @@ export function ActivityPanel({
     creatorPartyId,
     selectedActivityId,
   ] as const;
-  const timeline = useQuery({
+  const timeline = useInfiniteQuery({
     queryKey: timelineKey,
-    queryFn: ({ signal }) =>
-      getCreatorActivityTimeline(token, selectedActivityId!, signal),
+    queryFn: ({ signal, pageParam }) =>
+      getCreatorActivityTimeline(
+        token,
+        selectedActivityId!,
+        50,
+        pageParam,
+        signal,
+      ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
     enabled: selectedActivityId !== null,
   });
+  const activityItems =
+    activities.data?.pages.flatMap((page) => page.items) ?? [];
+  const timelineItems =
+    timeline.data?.pages.flatMap((page) => page.items) ?? [];
 
   useEffect(() => {
     if (
@@ -107,14 +122,14 @@ export function ActivityPanel({
       </div>
       {activities.isPending ? <p role="status">正在读取活动</p> : null}
       {activities.isError ? <p role="status">当前无法读取 Activity。</p> : null}
-      {activities.data?.items.length === 0 ? (
+      {activities.data !== undefined && activityItems.length === 0 ? (
         <p className="timeline-empty" role="status">
           当前没有已建立的 Activity
         </p>
       ) : null}
-      {activities.data !== undefined && activities.data.items.length > 0 ? (
+      {activityItems.length > 0 ? (
         <ol className="activity-list">
-          {activities.data.items.map((activity) => (
+          {activityItems.map((activity) => (
             <li key={activity.activity_id}>
               <div className="activity-title-row">
                 <strong>{activity.goal}</strong>
@@ -176,13 +191,12 @@ export function ActivityPanel({
                   {timeline.isError ? (
                     <p role="status">当前无法读取活动记录。</p>
                   ) : null}
-                  {timeline.data?.items.length === 0 ? (
+                  {timeline.data !== undefined && timelineItems.length === 0 ? (
                     <p role="status">尚无活动变化记录。</p>
                   ) : null}
-                  {timeline.data !== undefined &&
-                  timeline.data.items.length > 0 ? (
+                  {timelineItems.length > 0 ? (
                     <ol>
-                      {timeline.data.items.map((event) => (
+                      {timelineItems.map((event) => (
                         <li key={event.event_id}>
                           <strong>
                             {EVENT_LABELS[event.event_kind] ?? event.event_kind}
@@ -197,8 +211,17 @@ export function ActivityPanel({
                       ))}
                     </ol>
                   ) : null}
-                  {timeline.data?.truncated ? (
-                    <p className="field-note">这里只显示最近 100 条记录。</p>
+                  {timeline.hasNextPage ? (
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={timeline.isFetchingNextPage}
+                      onClick={() => void timeline.fetchNextPage()}
+                    >
+                      {timeline.isFetchingNextPage
+                        ? "正在加载"
+                        : "加载更早记录"}
+                    </button>
                   ) : null}
                 </div>
               ) : null}
@@ -206,8 +229,15 @@ export function ActivityPanel({
           ))}
         </ol>
       ) : null}
-      {activities.data?.truncated ? (
-        <p className="field-note">这里只显示最近更新的 100 个 Activity。</p>
+      {activities.hasNextPage ? (
+        <button
+          type="button"
+          className="secondary"
+          disabled={activities.isFetchingNextPage}
+          onClick={() => void activities.fetchNextPage()}
+        >
+          {activities.isFetchingNextPage ? "正在加载" : "加载更早记录"}
+        </button>
       ) : null}
       <p className="boundary-note">
         这里是只读生活投影；改变注意和活动仍由 ARMI 自己决定。

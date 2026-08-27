@@ -39,11 +39,11 @@ afterEach(() => {
 describe("Creator Activity panel", () => {
   it("shows authoritative focus, waiting and terminal fields with a merged timeline", async () => {
     const fetchMock = vi.fn<typeof fetch>(async (input) => {
-      if (String(input) === "/v1/activities") {
+      if (String(input).startsWith("/v1/activities?")) {
         return jsonResponse({
           contract_version: "1.0",
-          projection_version: "creator-activity.v1",
-          truncated: false,
+          projection_version: "creator-activity.v2",
+          next_cursor: null,
           items: [
             {
               activity_id: ACTIVITY_ID,
@@ -65,12 +65,12 @@ describe("Creator Activity panel", () => {
           ],
         });
       }
-      if (String(input) === `/v1/activities/${ACTIVITY_ID}/timeline`) {
+      if (String(input).startsWith(`/v1/activities/${ACTIVITY_ID}/timeline?`)) {
         return jsonResponse({
           contract_version: "1.0",
-          projection_version: "creator-activity.v1",
+          projection_version: "creator-activity.v2",
           activity_id: ACTIVITY_ID,
-          truncated: false,
+          next_cursor: null,
           items: [
             {
               event_id: "018f47a6-7b2d-7c35-8b18-684e38ab6ef9",

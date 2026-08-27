@@ -61,6 +61,7 @@ from .creator_http import (
     MemoryReadPort,
     MemoryViolation,
     PromptKind,
+    Query,
     RejectedOutcomeResponse,
     RelationshipReadPort,
     RelationshipViolation,
@@ -372,7 +373,11 @@ def register_subject_life_routes(
         },
         dependencies=[Security(bearer)],
     )
-    async def list_creator_activities(request: Request) -> JSONResponse:
+    async def list_creator_activities(
+        request: Request,
+        limit_parameter: str | None = Query(default=None, alias="limit"),
+        cursor_parameter: str | None = Query(default=None, alias="cursor"),
+    ) -> JSONResponse:
         if (
             browser_sessions is None
             or creator_activity_query is None
@@ -402,15 +407,30 @@ def register_subject_life_routes(
                 content=_rejected(error.code),
             )
         try:
-            page = await creator_activity_query.list_current()
-        except ActivityViolation:
+            limit, _query, _kind, cursor = _life_query_parameters(
+                request, allow_kind=False, allow_text=False
+            )
+            page = await creator_activity_query.list_current(limit=limit, cursor=cursor)
+        except ContractViolation:
+            return JSONResponse(
+                status_code=400, content=_rejected("INPUT_PAGE_INVALID")
+            )
+        except ActivityViolation as error:
+            if error.code == "ACTIVITY-CURSOR":
+                return JSONResponse(
+                    status_code=400, content=_rejected("INPUT_CURSOR_INVALID")
+                )
+            if error.code == "ACTIVITY-CURSOR-STALE":
+                return JSONResponse(
+                    status_code=409, content=_rejected("CONFLICT_CURSOR_STALE")
+                )
             return JSONResponse(
                 status_code=503,
                 content=_unavailable("DEPENDENCY_ACTIVITY_QUERY_UNAVAILABLE"),
             )
         response = CreatorActivityPageResponse(
             contract_version="1.0",
-            projection_version="creator-activity.v1",
+            projection_version="creator-activity.v2",
             items=[
                 CreatorActivityItemResponse(
                     activity_id=str(item.activity_id),
@@ -437,7 +457,9 @@ def register_subject_life_routes(
                 )
                 for item in page.items
             ],
-            truncated=page.truncated,
+            next_cursor=None
+            if page.next_cursor is None
+            else page.next_cursor.to_wire(),
         )
         return JSONResponse(content=response.model_dump(mode="json"))
 
@@ -455,7 +477,10 @@ def register_subject_life_routes(
         dependencies=[Security(bearer)],
     )
     async def get_creator_activity_timeline(
-        activity_id: str, request: Request
+        activity_id: str,
+        request: Request,
+        limit_parameter: str | None = Query(default=None, alias="limit"),
+        cursor_parameter: str | None = Query(default=None, alias="cursor"),
     ) -> JSONResponse:
         if (
             browser_sessions is None
@@ -495,12 +520,29 @@ def register_subject_life_routes(
                 content=_rejected("SCOPE_ACTIVITY_NOT_VISIBLE"),
             )
         try:
-            timeline = await creator_activity_query.timeline(parsed)
+            limit, _query, _kind, cursor = _life_query_parameters(
+                request, allow_kind=False, allow_text=False
+            )
+            timeline = await creator_activity_query.timeline(
+                parsed, limit=limit, cursor=cursor
+            )
+        except ContractViolation:
+            return JSONResponse(
+                status_code=400, content=_rejected("INPUT_PAGE_INVALID")
+            )
         except ActivityViolation as error:
             if error.code == "ACTIVITY-QUERY-NOT-FOUND":
                 return JSONResponse(
                     status_code=404,
                     content=_rejected("SCOPE_ACTIVITY_NOT_VISIBLE"),
+                )
+            if error.code == "ACTIVITY-CURSOR":
+                return JSONResponse(
+                    status_code=400, content=_rejected("INPUT_CURSOR_INVALID")
+                )
+            if error.code == "ACTIVITY-CURSOR-STALE":
+                return JSONResponse(
+                    status_code=409, content=_rejected("CONFLICT_CURSOR_STALE")
                 )
             return JSONResponse(
                 status_code=503,
@@ -508,7 +550,7 @@ def register_subject_life_routes(
             )
         response = CreatorActivityTimelineResponse(
             contract_version="1.0",
-            projection_version="creator-activity.v1",
+            projection_version="creator-activity.v2",
             activity_id=str(timeline.activity_id),
             items=[
                 CreatorActivityTimelineItemResponse(
@@ -529,7 +571,9 @@ def register_subject_life_routes(
                 )
                 for item in timeline.items
             ],
-            truncated=timeline.truncated,
+            next_cursor=(
+                None if timeline.next_cursor is None else timeline.next_cursor.to_wire()
+            ),
         )
         return JSONResponse(content=response.model_dump(mode="json"))
 
@@ -585,7 +629,7 @@ def register_subject_life_routes(
             )
         response = CreatorRelationshipCurrentResponse(
             contract_version="1.0",
-            projection_version="creator-relationship.v2",
+            projection_version="creator-relationship.v3",
             relationship=(
                 None
                 if item is None
@@ -616,6 +660,8 @@ def register_subject_life_routes(
     async def get_creator_relationship_timeline(
         relationship_id: str,
         request: Request,
+        limit_parameter: str | None = Query(default=None, alias="limit"),
+        cursor_parameter: str | None = Query(default=None, alias="cursor"),
     ) -> JSONResponse:
         if (
             browser_sessions is None
@@ -656,12 +702,29 @@ def register_subject_life_routes(
                 content=_rejected("SCOPE_RELATIONSHIP_NOT_VISIBLE"),
             )
         try:
-            timeline = await creator_relationship_query.timeline(parsed)
+            limit, _query, _kind, cursor = _life_query_parameters(
+                request, allow_kind=False, allow_text=False
+            )
+            timeline = await creator_relationship_query.timeline(
+                parsed, limit=limit, cursor=cursor
+            )
+        except ContractViolation:
+            return JSONResponse(
+                status_code=400, content=_rejected("INPUT_PAGE_INVALID")
+            )
         except RelationshipViolation as error:
             if error.code == "RELATIONSHIP-QUERY-NOT-FOUND":
                 return JSONResponse(
                     status_code=404,
                     content=_rejected("SCOPE_RELATIONSHIP_NOT_VISIBLE"),
+                )
+            if error.code == "RELATIONSHIP-CURSOR":
+                return JSONResponse(
+                    status_code=400, content=_rejected("INPUT_CURSOR_INVALID")
+                )
+            if error.code == "RELATIONSHIP-CURSOR-STALE":
+                return JSONResponse(
+                    status_code=409, content=_rejected("CONFLICT_CURSOR_STALE")
                 )
             return JSONResponse(
                 status_code=503,
@@ -669,10 +732,12 @@ def register_subject_life_routes(
             )
         response = CreatorRelationshipTimelineResponse(
             contract_version="1.0",
-            projection_version="creator-relationship.v2",
+            projection_version="creator-relationship.v3",
             relationship_id=str(timeline.relationship_id),
             items=[_relationship_revision_response(item) for item in timeline.items],
-            truncated=timeline.truncated,
+            next_cursor=(
+                None if timeline.next_cursor is None else timeline.next_cursor.to_wire()
+            ),
         )
         return JSONResponse(content=response.model_dump(mode="json"))
 
@@ -1032,13 +1097,18 @@ def register_subject_life_routes(
                     status_code=400,
                     content=_rejected("INPUT_CURSOR_INVALID"),
                 )
+            if error.code == "MEMORY-CURSOR-STALE":
+                return JSONResponse(
+                    status_code=409,
+                    content=_rejected("CONFLICT_CURSOR_STALE"),
+                )
             return JSONResponse(
                 status_code=503,
                 content=_unavailable("DEPENDENCY_MEMORY_QUERY_UNAVAILABLE"),
             )
         response = CreatorMemoryPageResponse(
             contract_version="1.0",
-            projection_version="creator-memory.v1",
+            projection_version="creator-memory.v2",
             retrieval_kind="creator_view",
             items=[
                 CreatorMemoryItemResponse(
@@ -1164,13 +1234,18 @@ def register_subject_life_routes(
                     status_code=400,
                     content=_rejected("INPUT_CURSOR_INVALID"),
                 )
+            if error.code == "MEMORY-CURSOR-STALE":
+                return JSONResponse(
+                    status_code=409,
+                    content=_rejected("CONFLICT_CURSOR_STALE"),
+                )
             return JSONResponse(
                 status_code=503,
                 content=_unavailable("DEPENDENCY_MEMORY_QUERY_UNAVAILABLE"),
             )
         response = CreatorMemoryTimelineResponse(
             contract_version="1.0",
-            projection_version="creator-memory.v1",
+            projection_version="creator-memory.v2",
             retrieval_kind="creator_view",
             memory_id=str(timeline.memory_id),
             items=[
@@ -1255,7 +1330,7 @@ def register_subject_life_routes(
         session = status.session
         response = CreatorMaintenanceStatusResponse(
             contract_version="1.0",
-            projection_version="creator-maintenance.v2",
+            projection_version="creator-maintenance.v3",
             session=(
                 None
                 if session is None
@@ -1296,6 +1371,8 @@ def register_subject_life_routes(
     async def get_creator_maintenance_timeline(
         maintenance_session_id: str,
         request: Request,
+        limit_parameter: str | None = Query(default=None, alias="limit"),
+        cursor_parameter: str | None = Query(default=None, alias="cursor"),
     ) -> JSONResponse:
         if (
             browser_sessions is None
@@ -1336,12 +1413,29 @@ def register_subject_life_routes(
                 content=_rejected("SCOPE_MAINTENANCE_NOT_VISIBLE"),
             )
         try:
-            timeline = await creator_maintenance_query.timeline(parsed)
+            limit, _query, _kind, cursor = _life_query_parameters(
+                request, allow_kind=False, allow_text=False
+            )
+            timeline = await creator_maintenance_query.timeline(
+                parsed, limit=limit, cursor=cursor
+            )
+        except ContractViolation:
+            return JSONResponse(
+                status_code=400, content=_rejected("INPUT_PAGE_INVALID")
+            )
         except CreatorMaintenanceViolation as error:
             if error.code == "MAINTENANCE-QUERY-NOT-FOUND":
                 return JSONResponse(
                     status_code=404,
                     content=_rejected("SCOPE_MAINTENANCE_NOT_VISIBLE"),
+                )
+            if error.code == "MAINTENANCE-QUERY-CURSOR":
+                return JSONResponse(
+                    status_code=400, content=_rejected("INPUT_CURSOR_INVALID")
+                )
+            if error.code == "MAINTENANCE-QUERY-CURSOR-STALE":
+                return JSONResponse(
+                    status_code=409, content=_rejected("CONFLICT_CURSOR_STALE")
                 )
             return JSONResponse(
                 status_code=503,
@@ -1349,7 +1443,7 @@ def register_subject_life_routes(
             )
         response = CreatorMaintenanceTimelineResponse(
             contract_version="1.0",
-            projection_version="creator-maintenance.v2",
+            projection_version="creator-maintenance.v3",
             maintenance_session_id=str(timeline.session_id),
             items=[
                 CreatorMaintenanceTimelineItemResponse(
@@ -1366,7 +1460,9 @@ def register_subject_life_routes(
                 )
                 for item in timeline.items
             ],
-            truncated=timeline.truncated,
+            next_cursor=(
+                None if timeline.next_cursor is None else timeline.next_cursor.to_wire()
+            ),
         )
         return JSONResponse(content=response.model_dump(mode="json"))
 

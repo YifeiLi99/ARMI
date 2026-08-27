@@ -411,7 +411,7 @@ class CreatorContractTests(unittest.TestCase):
         status = CreatorMaintenanceStatusResponse.model_validate(
             {
                 "contract_version": "1.0",
-                "projection_version": "creator-maintenance.v2",
+                "projection_version": "creator-maintenance.v3",
                 "session": {
                     "maintenance_session_id": ENVIRONMENT_ID,
                     "trigger_kind": "system_deadline",
@@ -570,7 +570,7 @@ class CreatorContractTests(unittest.TestCase):
         current = CreatorRelationshipCurrentResponse.model_validate(
             {
                 "contract_version": "1.0",
-                "projection_version": "creator-relationship.v2",
+                "projection_version": "creator-relationship.v3",
                 "relationship": {
                     "relationship_id": ENVIRONMENT_ID,
                     "current_revision_id": ENVIRONMENT_ID,
@@ -664,7 +664,7 @@ class CreatorContractTests(unittest.TestCase):
                 "event_kind": "relationship.invalidated",
                 "resource_kind": "relationship",
                 "resource_ref": ENVIRONMENT_ID,
-                "projection_version": "creator-relationship.v2",
+                "projection_version": "creator-relationship.v3",
                 "occurred_at": INSTANT,
             }
         )

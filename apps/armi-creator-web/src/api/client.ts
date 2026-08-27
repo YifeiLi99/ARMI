@@ -410,9 +410,13 @@ export async function setCreatorSceneOpen(
 
 export async function getCreatorActivities(
   token: string,
+  limit: number,
+  cursor?: string,
   signal?: AbortSignal,
 ): Promise<CreatorActivityPage> {
-  const response = await fetch("/v1/activities", {
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (cursor !== undefined) query.set("cursor", cursor);
+  const response = await fetch(`/v1/activities?${query.toString()}`, {
     credentials: "omit",
     headers: { Authorization: `Bearer ${token}` },
     ...(signal === undefined ? {} : { signal }),
@@ -423,10 +427,14 @@ export async function getCreatorActivities(
 export async function getCreatorActivityTimeline(
   token: string,
   activityId: string,
+  limit: number,
+  cursor?: string,
   signal?: AbortSignal,
 ): Promise<CreatorActivityTimeline> {
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (cursor !== undefined) query.set("cursor", cursor);
   const response = await fetch(
-    `/v1/activities/${encodeURIComponent(activityId)}/timeline`,
+    `/v1/activities/${encodeURIComponent(activityId)}/timeline?${query.toString()}`,
     {
       credentials: "omit",
       headers: { Authorization: `Bearer ${token}` },
@@ -557,10 +565,14 @@ export async function getCreatorRelationshipCurrent(
 export async function getCreatorRelationshipTimeline(
   token: string,
   relationshipId: string,
+  limit: number,
+  cursor?: string,
   signal?: AbortSignal,
 ): Promise<CreatorRelationshipTimeline> {
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (cursor !== undefined) query.set("cursor", cursor);
   const response = await fetch(
-    `/v1/relationships/${encodeURIComponent(relationshipId)}/timeline`,
+    `/v1/relationships/${encodeURIComponent(relationshipId)}/timeline?${query.toString()}`,
     {
       credentials: "omit",
       headers: { Authorization: `Bearer ${token}` },
@@ -650,10 +662,14 @@ export async function expressCreatorRelationshipBoundary(
 export async function getCreatorMaintenanceTimeline(
   token: string,
   maintenanceSessionId: string,
+  limit: number,
+  cursor?: string,
   signal?: AbortSignal,
 ): Promise<CreatorMaintenanceTimeline> {
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (cursor !== undefined) query.set("cursor", cursor);
   const response = await fetch(
-    `/v1/maintenance/${encodeURIComponent(maintenanceSessionId)}/timeline`,
+    `/v1/maintenance/${encodeURIComponent(maintenanceSessionId)}/timeline?${query.toString()}`,
     {
       credentials: "omit",
       headers: { Authorization: `Bearer ${token}` },

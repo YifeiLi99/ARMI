@@ -1,5 +1,5 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { afterEach, expect, it, vi } from "vitest";
 
 import type { CreatorProjectionEvent } from "../../api/eventStream";
@@ -177,4 +177,71 @@ it("removes an opened material body before refetching summaries on invalidation"
     expect(client.getQueryData(["life-material", MATERIAL_ID])).toBeUndefined();
     expect(resetSpy).toHaveBeenCalled();
   });
+});
+
+it("keeps an event pending until every active projection refresh succeeds", async () => {
+  const progress: string[] = [];
+  let queryAttempts = 0;
+  consumeMock.mockImplementation(
+    async (
+      _token: string,
+      _sceneKey: string,
+      _lastEventId: string | undefined,
+      signal: AbortSignal,
+      onConnected: () => void,
+      onEvent: (event: CreatorProjectionEvent) => Promise<void>,
+    ) => {
+      onConnected();
+      progress.push("event-started");
+      await onEvent({
+        contract_version: "1.0",
+        event_id: `sse-v1.${"c".repeat(22)}.1`,
+        event_kind: "activity.invalidated",
+        resource_kind: "activity",
+        resource_ref: "018f47a6-7b2d-7c35-8b18-684e38ab6ef8",
+        projection_version: "creator-activity.v2",
+        occurred_at: "2026-08-28T01:00:00.000000Z",
+      });
+      progress.push("event-confirmed");
+      await new Promise<void>((resolve) =>
+        signal.addEventListener("abort", () => resolve(), { once: true }),
+      );
+    },
+  );
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  const observer = new QueryObserver(client, {
+    queryKey: ["activities", "creator"],
+    queryFn: async () => {
+      queryAttempts += 1;
+      if (queryAttempts === 2) {
+        throw new Error("first refresh failed");
+      }
+      return { items: [] };
+    },
+  });
+  const unsubscribe = observer.subscribe(NOOP);
+  await waitFor(() => expect(queryAttempts).toBe(1));
+
+  render(<StreamHarness client={client} />);
+
+  await waitFor(() => {
+    expect(screen.getByTestId("stream-state").getAttribute("data-state")).toBe(
+      "degraded",
+    );
+  });
+  expect(progress).toEqual(["event-started"]);
+  expect(queryAttempts).toBe(2);
+  await waitFor(
+    () => {
+      expect(progress).toEqual(["event-started", "event-confirmed"]);
+      expect(queryAttempts).toBe(3);
+      expect(
+        screen.getByTestId("stream-state").getAttribute("data-state"),
+      ).toBe("connected");
+    },
+    { timeout: 2_000 },
+  );
+  unsubscribe();
 });

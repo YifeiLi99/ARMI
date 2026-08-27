@@ -787,7 +787,7 @@ class SubjectCommitPipeline:
                     CreatorResourceKind("activity"),
                     str(activity_id),
                     now,
-                    "creator-activity.v1",
+                    "creator-activity.v2",
                 )
                 for activity_id in activity_ids
             )
@@ -804,7 +804,7 @@ class SubjectCommitPipeline:
                     CreatorResourceKind("memory"),
                     str(memory_id),
                     now,
-                    "creator-memory.v1",
+                    "creator-memory.v2",
                 )
                 for memory_id in memory_ids
             )
@@ -838,7 +838,7 @@ class SubjectCommitPipeline:
                     CreatorResourceKind("relationship"),
                     str(relationship_id),
                     now,
-                    "creator-relationship.v2",
+                    "creator-relationship.v3",
                 )
                 for relationship_id in relationship_ids
             )
@@ -857,7 +857,7 @@ class SubjectCommitPipeline:
                     CreatorResourceKind("maintenance"),
                     str(session_id),
                     now,
-                    "creator-maintenance.v2",
+                    "creator-maintenance.v3",
                 )
                 for session_id in maintenance_ids
             )

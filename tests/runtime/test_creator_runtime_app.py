@@ -1706,7 +1706,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             )
 
         self.assertEqual(activities.status_code, 200)
-        self.assertEqual(activities.json()["projection_version"], "creator-activity.v1")
+        self.assertEqual(activities.json()["projection_version"], "creator-activity.v2")
         self.assertEqual(activities.json()["items"][0]["status"], "ready")
         self.assertNotIn("resumption_cue", activities.text)
         self.assertEqual(timeline.status_code, 200)
@@ -1861,7 +1861,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.assertEqual(current.status_code, 200)
         self.assertEqual(
             current.json()["projection_version"],
-            "creator-relationship.v2",
+            "creator-relationship.v3",
         )
         self.assertEqual(
             current.json()["relationship"]["current"]["boundaries"][0]["kind"],

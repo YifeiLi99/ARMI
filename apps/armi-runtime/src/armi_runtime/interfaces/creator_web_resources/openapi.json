@@ -832,21 +832,30 @@
             "title": "Items",
             "type": "array"
           },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "pattern": "v1\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
           "projection_version": {
-            "const": "creator-activity.v1",
+            "const": "creator-activity.v2",
             "title": "Projection Version",
             "type": "string"
-          },
-          "truncated": {
-            "title": "Truncated",
-            "type": "boolean"
           }
         },
         "required": [
           "contract_version",
           "projection_version",
           "items",
-          "truncated"
+          "next_cursor"
         ],
         "title": "CreatorActivityPageResponse",
         "type": "object"
@@ -935,14 +944,23 @@
             "title": "Items",
             "type": "array"
           },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "pattern": "v1\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
           "projection_version": {
-            "const": "creator-activity.v1",
+            "const": "creator-activity.v2",
             "title": "Projection Version",
             "type": "string"
-          },
-          "truncated": {
-            "title": "Truncated",
-            "type": "boolean"
           }
         },
         "required": [
@@ -950,7 +968,7 @@
           "projection_version",
           "activity_id",
           "items",
-          "truncated"
+          "next_cursor"
         ],
         "title": "CreatorActivityTimelineResponse",
         "type": "object"
@@ -1467,7 +1485,7 @@
             "type": "string"
           },
           "projection_version": {
-            "const": "creator-maintenance.v2",
+            "const": "creator-maintenance.v3",
             "title": "Projection Version",
             "type": "string"
           },
@@ -1581,14 +1599,23 @@
             "title": "Maintenance Session Id",
             "type": "string"
           },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "pattern": "v1\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
           "projection_version": {
-            "const": "creator-maintenance.v2",
+            "const": "creator-maintenance.v3",
             "title": "Projection Version",
             "type": "string"
-          },
-          "truncated": {
-            "title": "Truncated",
-            "type": "boolean"
           }
         },
         "required": [
@@ -1596,7 +1623,7 @@
           "projection_version",
           "maintenance_session_id",
           "items",
-          "truncated"
+          "next_cursor"
         ],
         "title": "CreatorMaintenanceTimelineResponse",
         "type": "object"
@@ -1713,7 +1740,7 @@
             "title": "Next Cursor"
           },
           "projection_version": {
-            "const": "creator-memory.v1",
+            "const": "creator-memory.v2",
             "title": "Projection Version",
             "type": "string"
           },
@@ -1868,7 +1895,7 @@
             "title": "Next Cursor"
           },
           "projection_version": {
-            "const": "creator-memory.v1",
+            "const": "creator-memory.v2",
             "title": "Projection Version",
             "type": "string"
           },
@@ -2242,11 +2269,11 @@
           },
           "projection_version": {
             "enum": [
-              "creator-activity.v1",
-              "creator-memory.v1",
-              "creator-maintenance.v2",
+              "creator-activity.v2",
+              "creator-memory.v2",
+              "creator-maintenance.v3",
               "life-record-query.v2",
-              "creator-relationship.v2",
+              "creator-relationship.v3",
               "scene-timeline.v6",
               "capability-request.v5",
               "creator-operation.v4",
@@ -2630,7 +2657,7 @@
             "type": "string"
           },
           "projection_version": {
-            "const": "creator-relationship.v2",
+            "const": "creator-relationship.v3",
             "title": "Projection Version",
             "type": "string"
           },
@@ -2914,8 +2941,21 @@
             "title": "Items",
             "type": "array"
           },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "pattern": "v1\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
           "projection_version": {
-            "const": "creator-relationship.v2",
+            "const": "creator-relationship.v3",
             "title": "Projection Version",
             "type": "string"
           },
@@ -2923,10 +2963,6 @@
             "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
             "title": "Relationship Id",
             "type": "string"
-          },
-          "truncated": {
-            "title": "Truncated",
-            "type": "boolean"
           }
         },
         "required": [
@@ -2934,7 +2970,7 @@
           "projection_version",
           "relationship_id",
           "items",
-          "truncated"
+          "next_cursor"
         ],
         "title": "CreatorRelationshipTimelineResponse",
         "type": "object"
@@ -6265,6 +6301,40 @@
     "/v1/activities": {
       "get": {
         "operationId": "listCreatorActivities",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -6327,6 +6397,36 @@
               "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
               "title": "Activity Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 2048,
+                  "pattern": "v1\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
             }
           }
         ],
@@ -7685,6 +7785,36 @@
               "title": "Maintenance Session Id",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 2048,
+                  "pattern": "v1\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
           }
         ],
         "responses": {
@@ -8996,6 +9126,36 @@
               "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
               "title": "Relationship Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 2048,
+                  "pattern": "v1\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
             }
           }
         ],

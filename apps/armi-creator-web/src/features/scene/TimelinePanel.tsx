@@ -113,7 +113,11 @@ export function TimelinePanel({
         </h2>
         <p className={`live-update is-${liveUpdate}`} role="status">
           <span className="status-dot" aria-hidden="true" />
-          {liveUpdate === "connected" ? "实时" : "连接中"}
+          {liveUpdate === "connected"
+            ? "实时"
+            : liveUpdate === "degraded"
+              ? "同步重试中"
+              : "连接中"}
         </p>
         <button
           type="button"

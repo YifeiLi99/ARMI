@@ -18,6 +18,7 @@ from armi_runtime_foundation import (
 )
 
 _KEY = b"projection-cursor-test-key-32-bytes!!"
+_OTHER_RESOURCE_ID = "018f47a6-7b2d-7c35-8b18-684e38ab6ef7"
 
 
 def _encode(codec: ProjectionCursorCodec) -> OpaqueCursor:
@@ -78,7 +79,13 @@ def test_cursor_rejects_signature_and_authenticated_field_shape_changes() -> Non
     (
         ("creator-memory.v3", "memory-current", None, 50, {"query_text": "\uff21"}),
         ("creator-memory.v2", "memory-timeline", None, 50, {"query_text": "\uff21"}),
-        ("creator-memory.v2", "memory-current", str(uuid7()), 50, {"query_text": "\uff21"}),
+        (
+            "creator-memory.v2",
+            "memory-current",
+            _OTHER_RESOURCE_ID,
+            50,
+            {"query_text": "\uff21"},
+        ),
         ("creator-memory.v2", "memory-current", None, 51, {"query_text": "\uff21"}),
         ("creator-memory.v2", "memory-current", None, 50, {"query_text": "A"}),
         ("creator-memory.v2", "memory-current", None, 50, {"query_text": "\uff41"}),
