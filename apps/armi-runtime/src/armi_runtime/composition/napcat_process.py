@@ -377,6 +377,13 @@ class NapCatProcessManager:
         values = cast(dict[object, object], network)
         servers = values.get("httpServers")
         clients = values.get("httpClients")
+        enabled_servers = _enabled_network_entries(servers)
+        enabled_clients = _enabled_network_entries(clients)
+        other_enabled = any(
+            _contains_enabled_transport(value)
+            for name, value in values.items()
+            if name not in {"httpServers", "httpClients"}
+        )
         parsed = urlsplit(binding.api_base_url)
         server_match = _matching_network_entry(
             servers,
@@ -394,7 +401,13 @@ class NapCatProcessManager:
                 "reportSelfMessage": False,
             },
         )
-        if not server_match or not client_match:
+        if (
+            len(enabled_servers) != 1
+            or len(enabled_clients) != 1
+            or other_enabled
+            or not server_match
+            or not client_match
+        ):
             raise RuntimeViolation(
                 "CLI-QQ-NAPCAT-CONFIG",
                 "the NapCat OneBot endpoints do not match the ARMI channel",
@@ -756,6 +769,30 @@ def _matching_network_entry(
         ):
             continue
         return True
+    return False
+
+
+def _enabled_network_entries(entries: object) -> tuple[dict[object, object], ...]:
+    if not isinstance(entries, list):
+        return ()
+    return tuple(
+        cast(dict[object, object], entry)
+        for entry in cast(list[object], entries)
+        if isinstance(entry, dict)
+        and cast(dict[object, object], entry).get("enable") is True
+    )
+
+
+def _contains_enabled_transport(value: object) -> bool:
+    if isinstance(value, dict):
+        mapping = cast(dict[object, object], value)
+        if mapping.get("enable") is True:
+            return True
+        return any(_contains_enabled_transport(item) for item in mapping.values())
+    if isinstance(value, list):
+        return any(
+            _contains_enabled_transport(item) for item in cast(list[object], value)
+        )
     return False
 
 

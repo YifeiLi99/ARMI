@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .bounded_http import BoundedBodyViolation
 from .creator_http import (
     _PROXY_HEADERS,
     _SECURITY_HEADERS,
@@ -33,7 +34,6 @@ from .creator_http import (
     LiveVisionPreviewProvider,
     LiveVoiceControlProvider,
     MemoryReadPort,
-    OtherHumanInputPort,
     OtherHumanRecordQueryPort,
     QQChannelControlProvider,
     QQChannelHealthProvider,
@@ -53,7 +53,6 @@ from .creator_http import (
     re,
 )
 from .creator_routes_governance import register_governance_routes
-from .creator_routes_local_other_humans import register_local_other_human_routes
 from .creator_routes_operations import register_operation_routes
 from .creator_routes_scenes import register_scene_routes
 from .creator_routes_subject_life import register_subject_life_routes
@@ -69,6 +68,9 @@ def create_runtime_app(
     browser_sessions: BrowserSessionStore | None,
     expected_authority: str,
     request_body_max_bytes: int,
+    request_body_timeout_seconds: int = 10,
+    request_header_max_bytes: int = 16_384,
+    request_header_max_count: int = 64,
     on_started: AsyncCallback,
     on_stopping: AsyncCallback,
     creator_scenes: CreatorScenePort | None = None,
@@ -83,7 +85,6 @@ def create_runtime_app(
     creator_emergency_wake: CreatorEmergencyWakePort | None = None,
     creator_events: CreatorEventBroker | None = None,
     creator_input: CreatorInputAcceptancePort | None = None,
-    other_human_input: OtherHumanInputPort | None = None,
     creator_operations: CreatorOperationQueryPort | None = None,
     subject_summary: SubjectSummaryProvider | None = None,
     creator_prompt: CreatorPromptPort | None = None,
@@ -130,6 +131,13 @@ def create_runtime_app(
     )
     bearer = HTTPBearer(scheme_name="browserSessionBearer", auto_error=False)
 
+    @app.exception_handler(BoundedBodyViolation)
+    async def bounded_body_error(
+        _request: Request, error: BoundedBodyViolation
+    ) -> Response:
+        emit("creator.request.body_rejected")
+        return Response(status_code=error.status_code, headers=_SECURITY_HEADERS)
+
     @app.middleware("http")
     async def enforce_local_boundary(
         request: Request,
@@ -140,6 +148,15 @@ def create_runtime_app(
         ):
             emit("creator.request.boundary_rejected")
             return Response(status_code=421, headers=_SECURITY_HEADERS)
+        raw_headers = request.scope.get("headers", ())
+        if (
+            len(raw_headers) > request_header_max_count
+            or sum(len(name) + len(value) + 4 for name, value in raw_headers)
+            > request_header_max_bytes
+        ):
+            emit("creator.request.headers_rejected")
+            return Response(status_code=431, headers=_SECURITY_HEADERS)
+        request.scope["armi.body_timeout_seconds"] = request_body_timeout_seconds
         timeline_path = re.fullmatch(
             r"/v1/scenes/[^/]{1,256}/timeline",
             request.url.path,
@@ -248,12 +265,6 @@ def create_runtime_app(
         codex_task_admission=codex_task_admission,
         creator_operations=creator_operations,
         effect_ledger=effect_ledger,
-        request_body_max_bytes=request_body_max_bytes,
-    )
-    register_local_other_human_routes(
-        app=app,
-        data_rights=data_rights,
-        other_human_input=other_human_input,
         request_body_max_bytes=request_body_max_bytes,
     )
 

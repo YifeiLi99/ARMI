@@ -1,4 +1,4 @@
-schema_version: armi.runtime-config.v2
+schema_version: armi.runtime-config.v3
 
 environment: {}
 
@@ -26,6 +26,14 @@ creator:
   bind_host: 127.0.0.1
   request_body_max_bytes: 262144
   session_ttl_seconds: 28800
+
+http:
+  header_max_bytes: 16384
+  header_max_count: 64
+  body_timeout_seconds: 10
+  connection_limit: 64
+  backlog: 64
+  keepalive_seconds: 5
 
 voice:
   enabled: false

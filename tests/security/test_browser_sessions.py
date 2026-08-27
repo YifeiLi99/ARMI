@@ -77,6 +77,20 @@ class BrowserSessionStoreTests(unittest.TestCase):
         self.assertEqual(len(set(tokens)), 1)
         self.store.verify(tokens[0])
 
+    def test_lease_is_generation_and_monotonic_deadline_fenced(self) -> None:
+        established = self.store.establish()
+        lease = self.store.lease(established.token)
+        self.assertEqual(self.store.validate_lease(lease).creator_party_id, CREATOR_ID)
+        self.store.revoke_all()
+        with self.assertRaises(BrowserSessionViolation):
+            self.store.validate_lease(lease)
+
+        replacement = self.store.establish()
+        replacement_lease = self.store.lease(replacement.token)
+        self.clock.value += 28_800
+        with self.assertRaises(BrowserSessionViolation):
+            self.store.validate_lease(replacement_lease)
+
 
 if __name__ == "__main__":
     unittest.main()

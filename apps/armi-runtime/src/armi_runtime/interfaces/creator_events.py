@@ -292,24 +292,35 @@ async def stream_creator_events(
     token: str,
     diagnostic: DiagnosticEvent,
 ) -> AsyncIterator[bytes]:
+    lease = sessions.lease(token)
     try:
         for replayed in subscription.replay:
+            sessions.validate_lease(lease)
             yield replayed.frame
         while True:
+            remaining = sessions.lease_remaining_seconds(lease)
+            if remaining <= 0:
+                diagnostic("creator.event_stream.session_expired")
+                return
             try:
                 event = await asyncio.wait_for(
                     subscription.receive(),
-                    timeout=KEEPALIVE_SECONDS,
+                    timeout=min(KEEPALIVE_SECONDS, remaining),
                 )
             except TimeoutError:
                 try:
-                    sessions.verify(token)
+                    sessions.validate_lease(lease)
                 except BrowserSessionViolation:
                     diagnostic("creator.event_stream.session_expired")
                     return
                 yield b": keepalive\n\n"
                 continue
             if event is None:
+                return
+            try:
+                sessions.validate_lease(lease)
+            except BrowserSessionViolation:
+                diagnostic("creator.event_stream.session_expired")
                 return
             yield event.frame
     finally:

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
+import json
 import mimetypes
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -80,7 +82,7 @@ class NapCatHealthSnapshot:
 class NapCatHttpClient(NapCatGateway):
     """Use NapCat's HTTP action endpoint; incoming events use a separate webhook."""
 
-    __slots__ = ("_client", "_owns_client")
+    __slots__ = ("_client", "_media_gate", "_owns_client")
 
     def __init__(
         self,
@@ -98,6 +100,7 @@ class NapCatHttpClient(NapCatGateway):
         ):
             raise NapCatViolation("NAPCAT-TOKEN-INVALID")
         self._owns_client = client is None
+        self._media_gate = asyncio.Semaphore(1)
         self._client = client or httpx.AsyncClient(
             base_url=base_url.rstrip("/"),
             headers={"Authorization": f"Bearer {access_token}"},
@@ -261,7 +264,14 @@ class NapCatHttpClient(NapCatGateway):
         payload: dict[str, int | str] = {"file": locator}
         if kind == "audio":
             payload["out_format"] = "mp3"
-        document = await self._read_action(path, payload)
+        encoded_limit = 64 * 1024 + 4 * ((max_bytes + 2) // 3)
+        async with self._media_gate:
+            document = await self._read_action(
+                path,
+                payload,
+                maximum_bytes=encoded_limit,
+                timeout_seconds=30,
+            )
         data_value = document.get("data")
         if not isinstance(data_value, dict):
             raise NapCatViolation("NAPCAT-MEDIA-INVALID")
@@ -288,17 +298,29 @@ class NapCatHttpClient(NapCatGateway):
         return NapCatDownloadedFile(content, file_name, media_type)
 
     async def _read_action(
-        self, path: str, payload: Mapping[str, int | str]
+        self,
+        path: str,
+        payload: Mapping[str, int | str],
+        *,
+        maximum_bytes: int = 64 * 1024,
+        timeout_seconds: float = 10,
     ) -> dict[str, Any]:
         try:
-            response = await self._client.post(path, json=payload)
-        except httpx.TimeoutException, httpx.NetworkError:
+            status_code, body = await self._post_bounded(
+                path,
+                payload,
+                maximum_bytes=maximum_bytes,
+                timeout_seconds=timeout_seconds,
+            )
+        except httpx.TimeoutException, httpx.NetworkError, TimeoutError:
             raise NapCatViolation("NAPCAT-ACTION-UNAVAILABLE") from None
-        if response.status_code < 200 or response.status_code >= 300:
+        except NapCatViolation:
+            raise
+        if status_code < 200 or status_code >= 300:
             raise NapCatViolation("NAPCAT-ACTION-UNAVAILABLE")
         try:
-            document: object = response.json()
-        except ValueError:
+            document: object = json.loads(body)
+        except UnicodeDecodeError, ValueError:
             raise NapCatViolation("NAPCAT-ACTION-RESPONSE-INVALID") from None
         if not isinstance(document, dict):
             raise NapCatViolation("NAPCAT-ACTION-REJECTED")
@@ -312,16 +334,20 @@ class NapCatHttpClient(NapCatGateway):
 
     async def _read_health_action(self, path: str) -> dict[str, Any]:
         try:
-            response = await self._client.post(path, json={})
-        except httpx.TimeoutException, httpx.NetworkError:
+            status_code, body = await self._post_bounded(
+                path, {}, maximum_bytes=64 * 1024, timeout_seconds=5
+            )
+        except httpx.TimeoutException, httpx.NetworkError, TimeoutError:
             raise NapCatViolation("NAPCAT-HEALTH-UNAVAILABLE") from None
-        if response.status_code in {401, 403}:
+        except NapCatViolation:
+            raise NapCatViolation("NAPCAT-HEALTH-RESPONSE-INVALID") from None
+        if status_code in {401, 403}:
             raise NapCatViolation("NAPCAT-HEALTH-AUTH-REJECTED")
-        if response.status_code < 200 or response.status_code >= 300:
+        if status_code < 200 or status_code >= 300:
             raise NapCatViolation("NAPCAT-HEALTH-UNAVAILABLE")
         try:
-            document: object = response.json()
-        except ValueError:
+            document: object = json.loads(body)
+        except UnicodeDecodeError, ValueError:
             raise NapCatViolation("NAPCAT-HEALTH-RESPONSE-INVALID") from None
         if not isinstance(document, dict):
             raise NapCatViolation("NAPCAT-HEALTH-RESPONSE-INVALID")
@@ -339,17 +365,24 @@ class NapCatHttpClient(NapCatGateway):
         self, path: str, payload: dict[str, int | str], echo: str
     ) -> NapCatActionResponse:
         try:
-            response = await self._client.post(path, json=payload)
-        except httpx.TimeoutException, httpx.NetworkError:
+            status_code, body = await self._post_bounded(
+                path, payload, maximum_bytes=64 * 1024, timeout_seconds=30
+            )
+        except (
+            httpx.TimeoutException,
+            httpx.NetworkError,
+            TimeoutError,
+            NapCatViolation,
+        ):
             raise NapCatAmbiguousDelivery("NAPCAT-DELIVERY-AMBIGUOUS") from None
-        if response.status_code < 200 or response.status_code >= 300:
-            if 400 <= response.status_code < 500:
+        if status_code < 200 or status_code >= 300:
+            if 400 <= status_code < 500:
                 raise NapCatRejected("NAPCAT-DELIVERY-REJECTED")
             raise NapCatAmbiguousDelivery("NAPCAT-DELIVERY-AMBIGUOUS")
         try:
-            document = response.json()
-        except ValueError:
-            raise NapCatViolation("NAPCAT-ACTION-RESPONSE-INVALID") from None
+            document = json.loads(body)
+        except UnicodeDecodeError, ValueError:
+            raise NapCatAmbiguousDelivery("NAPCAT-DELIVERY-AMBIGUOUS") from None
         if isinstance(document, dict):
             document["echo"] = echo
         # OneBot's HTTP endpoint correlates by its synchronous response and does
@@ -361,6 +394,40 @@ class NapCatHttpClient(NapCatGateway):
         if not parsed.succeeded:
             raise NapCatRejected("NAPCAT-DELIVERY-REJECTED")
         return parsed
+
+    async def _post_bounded(
+        self,
+        path: str,
+        payload: Mapping[str, int | str],
+        *,
+        maximum_bytes: int,
+        timeout_seconds: float,
+    ) -> tuple[int, bytes]:
+        chunks: list[bytes] = []
+        total = 0
+        async with asyncio.timeout(timeout_seconds):
+            async with self._client.stream(
+                "POST", path, json=payload, timeout=timeout_seconds
+            ) as response:
+                declared = response.headers.get("content-length")
+                if declared is not None:
+                    try:
+                        declared_size = int(declared)
+                    except ValueError:
+                        raise NapCatViolation(
+                            "NAPCAT-ACTION-RESPONSE-INVALID"
+                        ) from None
+                    if declared_size < 0 or declared_size > maximum_bytes:
+                        raise NapCatViolation("NAPCAT-ACTION-RESPONSE-TOO-LARGE")
+                async for chunk in response.aiter_bytes():
+                    total += len(chunk)
+                    if total > maximum_bytes:
+                        raise NapCatViolation("NAPCAT-ACTION-RESPONSE-TOO-LARGE")
+                    if chunk:
+                        chunks.append(chunk)
+                if declared is not None and total != int(declared):
+                    raise NapCatViolation("NAPCAT-ACTION-RESPONSE-INVALID")
+                return response.status_code, b"".join(chunks)
 
 
 def _validate_base_url(value: str) -> None:
@@ -393,33 +460,7 @@ def _media_bytes(data: dict[str, Any], *, max_bytes: int) -> bytes:
         if not content or len(content) > max_bytes:
             raise NapCatViolation("NAPCAT-MEDIA-TOO-LARGE")
         return content
-    path_value = data.get("file")
-    if type(path_value) is not str or not path_value:
-        raise NapCatViolation("NAPCAT-MEDIA-INVALID")
-    path = Path(path_value)
-    try:
-        size = path.stat().st_size
-        if size <= 0 or size > max_bytes:
-            raise NapCatViolation("NAPCAT-MEDIA-TOO-LARGE")
-        chunks: list[bytes] = []
-        remaining = max_bytes + 1
-        with path.open("rb") as source:
-            while remaining > 0:
-                chunk = source.read(min(64 * 1024, remaining))
-                if not chunk:
-                    break
-                chunks.append(chunk)
-                remaining -= len(chunk)
-        content = b"".join(chunks)
-    except NapCatViolation:
-        raise
-    except OSError:
-        raise NapCatViolation("NAPCAT-MEDIA-UNAVAILABLE") from None
-    if len(content) > max_bytes:
-        raise NapCatViolation("NAPCAT-MEDIA-TOO-LARGE")
-    if len(content) != size:
-        raise NapCatViolation("NAPCAT-MEDIA-UNAVAILABLE")
-    return content
+    raise NapCatViolation("NAPCAT-MEDIA-INVALID")
 
 
 __all__ = (

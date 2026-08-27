@@ -133,6 +133,7 @@ from fastapi.responses import (
 from fastapi.security import HTTPBearer
 from pydantic import ValidationError
 
+from .bounded_http import read_bounded_body
 from .browser_sessions import (
     BrowserSessionStore,
     BrowserSessionViolation,
@@ -423,7 +424,11 @@ async def _creator_input_request(
 ) -> CreatorInputRequest:
     if request.headers.get("content-type") != "application/json":
         raise CreatorInputViolation("INPUT-CONTENT-TYPE")
-    body = await request.body()
+    body = await read_bounded_body(
+        request,
+        maximum_bytes=maximum_bytes,
+        timeout_seconds=float(request.scope.get("armi.body_timeout_seconds", 10)),
+    )
     if not body or len(body) > maximum_bytes:
         raise CreatorInputViolation("INPUT-SIZE")
     try:
@@ -442,7 +447,11 @@ async def _creator_input_request(
 async def _local_json_object(request: Request, maximum_bytes: int) -> dict[str, Any]:
     if request.headers.get("content-type") != "application/json":
         raise OtherHumanInputViolation("OTHER-HUMAN-INPUT-CONTENT-TYPE")
-    body = await request.body()
+    body = await read_bounded_body(
+        request,
+        maximum_bytes=maximum_bytes,
+        timeout_seconds=float(request.scope.get("armi.body_timeout_seconds", 10)),
+    )
     if not body or len(body) > maximum_bytes:
         raise OtherHumanInputViolation("OTHER-HUMAN-INPUT-BODY")
     try:
@@ -464,7 +473,11 @@ async def _creator_scene_create_request(
 ) -> CreatorSceneCreateRequest:
     if request.headers.get("content-type") != "application/json":
         raise SceneQueryViolation("CON-SCENE-CONTENT-TYPE")
-    body = await request.body()
+    body = await read_bounded_body(
+        request,
+        maximum_bytes=min(maximum_bytes, 1024),
+        timeout_seconds=float(request.scope.get("armi.body_timeout_seconds", 10)),
+    )
     if not body or len(body) > min(maximum_bytes, 1024):
         raise SceneQueryViolation("CON-SCENE-BODY")
     try:
@@ -504,7 +517,11 @@ async def _creator_boundary_request(
 ) -> CreatorRelationshipBoundaryRequest:
     if request.headers.get("content-type") != "application/json":
         raise CreatorInputViolation("INPUT-CONTENT-TYPE")
-    body = await request.body()
+    body = await read_bounded_body(
+        request,
+        maximum_bytes=min(maximum_bytes, 4096),
+        timeout_seconds=float(request.scope.get("armi.body_timeout_seconds", 10)),
+    )
     if not body or len(body) > min(maximum_bytes, 4096):
         raise CreatorInputViolation("INPUT-SIZE")
     try:
@@ -545,7 +562,11 @@ async def _creator_codex_task_request(
 ) -> CreatorCodexTaskRequest:
     if request.headers.get("content-type") != "application/json":
         raise CodexDelegationViolation("CODEX-TASK-REQUEST")
-    body = await request.body()
+    body = await read_bounded_body(
+        request,
+        maximum_bytes=min(maximum_bytes, 20 * 1024),
+        timeout_seconds=float(request.scope.get("armi.body_timeout_seconds", 10)),
+    )
     if not body or len(body) > min(maximum_bytes, 20 * 1024):
         raise CodexDelegationViolation("CODEX-TASK-REQUEST-SIZE")
     try:
@@ -567,7 +588,11 @@ async def _capability_decision_request(
 ) -> CapabilityRequestDecisionRequest:
     if request.headers.get("content-type") != "application/json":
         raise CapabilityViolation("CON-CAPABILITY-CONTENT-TYPE")
-    body = await request.body()
+    body = await read_bounded_body(
+        request,
+        maximum_bytes=maximum_bytes,
+        timeout_seconds=float(request.scope.get("armi.body_timeout_seconds", 10)),
+    )
     if not body or len(body) > maximum_bytes:
         raise CapabilityViolation("CON-CAPABILITY-BODY")
     try:
@@ -589,7 +614,11 @@ async def _creator_prompt_revision_request(
 ) -> CreatorPromptRevisionRequest:
     if request.headers.get("content-type") != "application/json":
         raise CreatorPromptViolation("CON-PROMPT-CONTENT-TYPE")
-    body = await request.body()
+    body = await read_bounded_body(
+        request,
+        maximum_bytes=maximum_bytes,
+        timeout_seconds=float(request.scope.get("armi.body_timeout_seconds", 10)),
+    )
     if not body or len(body) > maximum_bytes:
         raise CreatorPromptViolation("CON-PROMPT-BODY")
     try:
@@ -611,7 +640,11 @@ async def _creator_prompt_deactivate_request(
 ) -> CreatorPromptDeactivateRequest:
     if request.headers.get("content-type") != "application/json":
         raise CreatorPromptViolation("CON-PROMPT-CONTENT-TYPE")
-    body = await request.body()
+    body = await read_bounded_body(
+        request,
+        maximum_bytes=min(maximum_bytes, 1024),
+        timeout_seconds=float(request.scope.get("armi.body_timeout_seconds", 10)),
+    )
     if not body or len(body) > min(maximum_bytes, 1024):
         raise CreatorPromptViolation("CON-PROMPT-BODY")
     try:
@@ -633,7 +666,11 @@ async def _creator_export_request(
 ) -> CreatorExportRequest:
     if request.headers.get("content-type") != "application/json":
         raise CreatorExportViolation("CREATOR-EXPORT-COMMAND")
-    body = await request.body()
+    body = await read_bounded_body(
+        request,
+        maximum_bytes=min(maximum_bytes, 4096),
+        timeout_seconds=float(request.scope.get("armi.body_timeout_seconds", 10)),
+    )
     if not body or len(body) > min(maximum_bytes, 4096):
         raise CreatorExportViolation("CREATOR-EXPORT-COMMAND")
     try:
@@ -749,7 +786,11 @@ async def _data_rights_request(
 ) -> DataRightsOrderRequest:
     if request.headers.get("content-type") != "application/json":
         raise DataRightsViolation("DATA-RIGHTS-COMMAND")
-    body = await request.body()
+    body = await read_bounded_body(
+        request,
+        maximum_bytes=min(maximum_bytes, 1024),
+        timeout_seconds=float(request.scope.get("armi.body_timeout_seconds", 10)),
+    )
     if not body or len(body) > min(maximum_bytes, 1024):
         raise DataRightsViolation("DATA-RIGHTS-COMMAND")
     try:

@@ -398,6 +398,54 @@ class NapCatContractTests(unittest.TestCase):
             ],
         )
 
+    def test_media_file_locator_never_reads_the_host_filesystem(self) -> None:
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json={
+                    "status": "ok",
+                    "retcode": 0,
+                    "data": {"file": "C:/secret.txt", "file_name": "secret.txt"},
+                },
+            )
+
+        async def exercise() -> None:
+            async with httpx.AsyncClient(
+                base_url="http://127.0.0.1:3000",
+                transport=httpx.MockTransport(handler),
+            ) as client:
+                gateway = NapCatHttpClient(
+                    base_url="http://127.0.0.1:3000",
+                    access_token="test-token",
+                    client=client,
+                )
+                with self.assertRaisesRegex(NapCatViolation, "NAPCAT-MEDIA-INVALID"):
+                    await gateway.fetch_media(
+                        locator="remote-file", kind="file", max_bytes=1024
+                    )
+
+        asyncio.run(exercise())
+
+    def test_oversized_send_response_is_ambiguous_after_dispatch(self) -> None:
+        async def exercise() -> None:
+            async with httpx.AsyncClient(
+                base_url="http://127.0.0.1:3000",
+                transport=httpx.MockTransport(
+                    lambda _request: httpx.Response(200, content=b"x" * 65_537)
+                ),
+            ) as client:
+                gateway = NapCatHttpClient(
+                    base_url="http://127.0.0.1:3000",
+                    access_token="test-token",
+                    client=client,
+                )
+                with self.assertRaises(NapCatAmbiguousDelivery):
+                    await gateway.send_private_text(
+                        user_id=30003, text="hello", echo="effect:attempt"
+                    )
+
+        asyncio.run(exercise())
+
 
 if __name__ == "__main__":
     unittest.main()

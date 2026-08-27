@@ -42,11 +42,20 @@ class EstablishedSession:
 
 
 @dataclass(frozen=True, slots=True)
+class BrowserSessionLease:
+    token_digest: bytes
+    generation: int
+    expires_monotonic: float
+    metadata: SessionMetadata
+
+
+@dataclass(frozen=True, slots=True)
 class _StoredSession:
     token: str
     digest: bytes
     metadata: SessionMetadata
     expires_monotonic: float
+    generation: int
 
 
 def _token(prefix: str, byte_count: int) -> str:
@@ -65,6 +74,7 @@ class BrowserSessionStore:
         "_creator_party_id",
         "_default_scene_key",
         "_environment_id",
+        "_generation",
         "_lock",
         "_monotonic",
         "_now",
@@ -89,6 +99,7 @@ class BrowserSessionStore:
         self._monotonic = monotonic
         self._now = now if now is not None else lambda: datetime.now(UTC)
         self._session: _StoredSession | None = None
+        self._generation = 0
         self._lock = threading.Lock()
 
     def establish(self) -> EstablishedSession:
@@ -102,6 +113,7 @@ class BrowserSessionStore:
                     self._session.metadata,
                 )
             token = _token("browser-v1", 32)
+            self._generation += 1
             issued_at = self._now()
             metadata = SessionMetadata(
                 self._environment_id,
@@ -115,6 +127,7 @@ class BrowserSessionStore:
                 _digest(b"armi.browser-session.v1", token),
                 metadata,
                 self._monotonic() + self._session_ttl,
+                self._generation,
             )
             return EstablishedSession(token, metadata)
 
@@ -135,12 +148,44 @@ class BrowserSessionStore:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
             return cast(_StoredSession, stored).metadata
 
+    def lease(self, token: str) -> BrowserSessionLease:
+        self.verify(token)
+        with self._lock:
+            stored = self._session
+            if stored is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            return BrowserSessionLease(
+                stored.digest,
+                stored.generation,
+                stored.expires_monotonic,
+                stored.metadata,
+            )
+
+    def validate_lease(self, lease: BrowserSessionLease) -> SessionMetadata:
+        with self._lock:
+            stored = self._session
+            if (
+                stored is None
+                or self._monotonic() >= lease.expires_monotonic
+                or stored.generation != lease.generation
+                or not secrets.compare_digest(stored.digest, lease.token_digest)
+            ):
+                if stored is not None and self._monotonic() >= stored.expires_monotonic:
+                    self._session = None
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            return stored.metadata
+
+    def lease_remaining_seconds(self, lease: BrowserSessionLease) -> float:
+        return max(0.0, lease.expires_monotonic - self._monotonic())
+
     def revoke_all(self) -> None:
         with self._lock:
+            self._generation += 1
             self._session = None
 
 
 __all__ = (
+    "BrowserSessionLease",
     "BrowserSessionStore",
     "BrowserSessionViolation",
     "EstablishedSession",

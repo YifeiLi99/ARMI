@@ -210,7 +210,7 @@ class ExternalContentExtractorTests(unittest.TestCase):
             + chunk(b"IEND", b"")
         )
         with self.assertRaisesRegex(
-            ExternalMessageViolation, "EXTERNAL-MESSAGE-IMAGE-DIMENSIONS"
+            ExternalMessageViolation, "EXTERNAL-MESSAGE-RESOURCE-LIMIT"
         ):
             extract_external_content(
                 kind=ExternalMessagePartKind.IMAGE,

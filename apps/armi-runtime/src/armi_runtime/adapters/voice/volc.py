@@ -8,6 +8,7 @@ import gzip
 import importlib
 import json
 import struct
+import zlib
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
 from typing import Any, cast
@@ -43,6 +44,10 @@ _SESSION_FINISHED = 152
 _SESSION_FAILED = 153
 _TASK_REQUEST = 200
 _TTS_RESPONSE = 352
+_MAX_CONTROL_FRAME_BYTES = 256 * 1024
+_MAX_PCM_FRAME_BYTES = 1024 * 1024
+_MAX_ASR_UTTERANCE_BYTES = 8 * 1024 * 1024
+_MAX_TTS_SESSION_BYTES = 32 * 1024 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,12 +178,22 @@ def decode_message(data: bytes, *, event_has_session: bool = False) -> BinaryMes
     if offset != len(data):
         raise LiveVoiceViolation("VOICE-VOLC-FRAME", "provider frame has trailing data")
     if compression == _COMPRESS_GZIP:
-        try:
-            payload = gzip.decompress(payload)
-        except (OSError, EOFError) as error:
-            raise LiveVoiceViolation(
-                "VOICE-VOLC-FRAME", "provider gzip payload is invalid"
-            ) from error
+        payload = _decompress_gzip_bounded(
+            payload,
+            type_limit=(
+                _MAX_PCM_FRAME_BYTES
+                if serialization == _SERIAL_NONE
+                else _MAX_CONTROL_FRAME_BYTES
+            ),
+        )
+    elif len(payload) > (
+        _MAX_PCM_FRAME_BYTES
+        if serialization == _SERIAL_NONE
+        else _MAX_CONTROL_FRAME_BYTES
+    ):
+        raise LiveVoiceViolation(
+            "VOICE-RESOURCE-LIMIT", "provider frame exceeds the resource budget"
+        )
     return BinaryMessage(
         message_type,
         flags,
@@ -264,14 +279,27 @@ class VolcStreamingAsr:
                             "VOICE-ASR-AUDIO", "ASR audio stream is empty"
                         ) from None
                     sequence = 2
+                    total_audio_bytes = 0
                     while True:
                         try:
                             following = await anext(iterator)
                         except StopAsyncIteration:
+                            total_audio_bytes += len(current)
+                            if total_audio_bytes > _MAX_ASR_UTTERANCE_BYTES:
+                                raise LiveVoiceViolation(
+                                    "VOICE-RESOURCE-LIMIT",
+                                    "ASR utterance exceeds the resource budget",
+                                ) from None
                             await socket.send(
                                 encode_asr_audio(current, sequence, last=True)
                             )
                             return
+                        total_audio_bytes += len(current)
+                        if total_audio_bytes > _MAX_ASR_UTTERANCE_BYTES:
+                            raise LiveVoiceViolation(
+                                "VOICE-RESOURCE-LIMIT",
+                                "ASR utterance exceeds the resource budget",
+                            )
                         await socket.send(encode_asr_audio(current, sequence))
                         current = following
                         sequence += 1
@@ -378,6 +406,7 @@ class VolcStreamingTts:
                     )
 
                 feeder = asyncio.create_task(feed_text())
+                total_audio_bytes = 0
                 try:
                     while True:
                         receiver = asyncio.create_task(socket.recv())
@@ -400,6 +429,12 @@ class VolcStreamingTts:
                         _raise_provider_error(response, "TTS")
                         if response.event == _TTS_RESPONSE:
                             if response.payload:
+                                total_audio_bytes += len(response.payload)
+                                if total_audio_bytes > _MAX_TTS_SESSION_BYTES:
+                                    raise LiveVoiceViolation(
+                                        "VOICE-RESOURCE-LIMIT",
+                                        "TTS session exceeds the resource budget",
+                                    )
                                 yield response.payload
                         elif response.event == _SESSION_FINISHED:
                             await feeder
@@ -490,6 +525,32 @@ def _raise_provider_error(message: BinaryMessage, service: str) -> None:
     if message.message_type != _ERROR_RESPONSE:
         return
     raise LiveVoiceViolation(f"VOICE-{service}-PROVIDER", "provider returned an error")
+
+
+def _decompress_gzip_bounded(payload: bytes, *, type_limit: int) -> bytes:
+    maximum = min(type_limit, max(64 * 1024, len(payload) * 256))
+    inflater = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    try:
+        decoded = inflater.decompress(payload, maximum + 1)
+        if len(decoded) > maximum or inflater.unconsumed_tail:
+            raise LiveVoiceViolation(
+                "VOICE-RESOURCE-LIMIT", "provider gzip payload exceeds its budget"
+            )
+        decoded += inflater.flush(maximum + 1 - len(decoded))
+    except zlib.error as error:
+        raise LiveVoiceViolation(
+            "VOICE-VOLC-FRAME", "provider gzip payload is invalid"
+        ) from error
+    if len(decoded) > maximum:
+        raise LiveVoiceViolation(
+            "VOICE-RESOURCE-LIMIT", "provider gzip payload exceeds its budget"
+        )
+    if not inflater.eof or inflater.unused_data:
+        raise LiveVoiceViolation(
+            "VOICE-VOLC-FRAME",
+            "provider gzip stream is incomplete or has trailing data",
+        )
+    return decoded
 
 
 def _header(

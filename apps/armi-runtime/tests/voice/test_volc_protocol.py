@@ -93,6 +93,27 @@ def test_decoder_rejects_truncated_payload() -> None:
         decode_message(bytes((0x11, 0x90, 0x10, 0, 0, 0, 0, 5, 1)))
 
 
+def _gzip_server_frame(payload: bytes, *, serialization: int = 1) -> bytes:
+    return (
+        bytes((0x11, 0x90, (serialization << 4) | 1, 0))
+        + struct.pack(">I", len(payload))
+        + payload
+    )
+
+
+def test_decoder_rejects_gzip_members_trailing_data_and_expansion() -> None:
+    for payload in (
+        gzip.compress(b"{}") + gzip.compress(b"{}"),
+        gzip.compress(b"{}") + b"trailing",
+    ):
+        with pytest.raises(LiveVoiceViolation, match="gzip"):
+            decode_message(_gzip_server_frame(payload))
+
+    bomb = gzip.compress(b"x" * (256 * 1024 + 1))
+    with pytest.raises(LiveVoiceViolation, match="budget"):
+        decode_message(_gzip_server_frame(bomb))
+
+
 def _server_response(payload: dict[str, object], sequence: int = 1) -> bytes:
     body = json.dumps(payload).encode()
     return bytes((0x11, 0x91, 0x10, 0)) + struct.pack(">iI", sequence, len(body)) + body

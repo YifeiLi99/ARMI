@@ -1,4 +1,4 @@
-"""Strict immutable models for ``armi.runtime-config.v2``."""
+"""Strict immutable models for ``armi.runtime-config.v3``."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from pydantic import (
     model_validator,
 )
 
-RUNTIME_CONFIG_SCHEMA_VERSION = "armi.runtime-config.v2"
+RUNTIME_CONFIG_SCHEMA_VERSION = "armi.runtime-config.v3"
 _LOCATOR_NAME = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 
 
@@ -152,6 +152,15 @@ class CreatorConfig(_FrozenModel):
     session_ttl_seconds: PositiveInt = 28_800
 
 
+class HttpConfig(_FrozenModel):
+    header_max_bytes: Literal[16384] = 16_384
+    header_max_count: Literal[64] = 64
+    body_timeout_seconds: Literal[10] = 10
+    connection_limit: Literal[64] = 64
+    backlog: Literal[64] = 64
+    keepalive_seconds: Literal[5] = 5
+
+
 class VoiceDeviceConfig(_FrozenModel):
     host_api: str
     name: str
@@ -273,13 +282,14 @@ class MaintenanceConfig(_FrozenModel):
 class RuntimeConfig(_FrozenModel):
     """The only supported effective runtime configuration shape."""
 
-    schema_version: Literal["armi.runtime-config.v2"]
+    schema_version: Literal["armi.runtime-config.v3"]
     environment: EnvironmentConfig
     database: DatabaseConfig = DatabaseConfig()
     runtime: RuntimeLeaseConfig = RuntimeLeaseConfig()
     model: ModelConfig = ModelConfig()
     web: WebConfig = WebConfig()
     creator: CreatorConfig
+    http: HttpConfig = HttpConfig()
     voice: VoiceConfig = VoiceConfig()
     vision: VisionConfig = VisionConfig()
     artifacts: ArtifactsConfig = ArtifactsConfig()
@@ -327,6 +337,7 @@ __all__ = (
     "DatabaseConfig",
     "DiagnosticsConfig",
     "EnvironmentConfig",
+    "HttpConfig",
     "LifecycleConfig",
     "LocatorValue",
     "MaintenanceConfig",

@@ -1242,7 +1242,6 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             creator_emergency_wake=self.emergency_wake,
             creator_events=self.events,
             creator_input=self.creator_input,
-            other_human_input=self.other_human_input,
             other_human_record_query=self.other_human_record_query,
             codex_task_admission=self.creator_codex_task,
             creator_operations=self.creator_input,
@@ -1273,18 +1272,8 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         return str(response.json()["browser_session_token"])
 
-    def test_local_other_human_party_scene_and_input_are_role_scoped(self) -> None:
+    def test_local_other_human_http_control_surface_is_absent(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
-            wrong_role = client.post(
-                "/v1/local/other-humans/parties",
-                json={
-                    "party_key": "friend-1",
-                    "display_label": "朋友",
-                    "role": "creator",
-                },
-            )
-            self.assertEqual(wrong_role.status_code, 400)
-
             party = client.post(
                 "/v1/local/other-humans/parties",
                 json={
@@ -1293,55 +1282,19 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                     "role": "other_human",
                 },
             )
-            self.assertEqual(party.status_code, 201)
-            self.assertEqual(party.json()["identity_assurance"], "caller_declared")
-
             scene = client.put(
                 "/v1/local/other-humans/friend-1/scenes/default",
                 json={"status": "open"},
             )
-            self.assertEqual(scene.status_code, 200)
-            accepted = client.post(
+            message = client.post(
                 "/v1/local/other-humans/friend-1/scenes/default/messages",
                 headers={"Idempotency-Key": "message-1"},
                 json={"message": "你好"},
             )
-            self.assertEqual(accepted.status_code, 202)
-            self.assertTrue(accepted.json()["newly_accepted"])
-            self.assertIsInstance(
-                self.other_human_input.commands[-1], OtherHumanInputCommand
-            )
-
-            duplicate = client.post(
-                "/v1/local/other-humans/friend-1/scenes/default/messages",
-                headers={"Idempotency-Key": "message-1"},
-                json={"message": "你好"},
-            )
-            self.assertEqual(duplicate.status_code, 202)
-            self.assertFalse(duplicate.json()["newly_accepted"])
-            mismatch = client.post(
-                "/v1/local/other-humans/friend-1/scenes/default/messages",
-                headers={"Idempotency-Key": "message-1"},
-                json={"message": "不同内容"},
-            )
-            self.assertEqual(mismatch.status_code, 409)
-            cross_party = client.post(
-                "/v1/local/other-humans/stranger/scenes/default/messages",
-                headers={"Idempotency-Key": "message-2"},
-                json={"message": "不应接纳"},
-            )
-            self.assertEqual(cross_party.status_code, 404)
-            closed = client.put(
-                "/v1/local/other-humans/friend-1/scenes/default",
-                json={"status": "closed"},
-            )
-            self.assertEqual(closed.status_code, 200)
-            after_close = client.post(
-                "/v1/local/other-humans/friend-1/scenes/default/messages",
-                headers={"Idempotency-Key": "message-3"},
-                json={"message": "关闭后输入"},
-            )
-            self.assertEqual(after_close.status_code, 404)
+        self.assertEqual(party.status_code, 404)
+        self.assertEqual(scene.status_code, 404)
+        self.assertEqual(message.status_code, 404)
+        self.assertEqual(self.other_human_input.commands, [])
 
     def test_creator_reads_other_human_records_by_party_and_scene(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
@@ -1548,7 +1501,9 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.assertEqual(wrong_origin.status_code, 403)
         self.assertEqual(len(self.creator_export.commands), 1)
 
-    def test_creator_and_other_human_data_rights_are_requester_scoped(self) -> None:
+    def test_creator_data_rights_is_session_bound_and_local_other_http_is_absent(
+        self,
+    ) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
             session = client.post(
                 "/v1/browser-sessions",
@@ -1578,24 +1533,12 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                 headers={"Idempotency-Key": "friend-delete-1"},
                 json={"order_kind": "delete_related"},
             )
-            other_query = client.get(
-                "/v1/local/other-humans/friend-1/data-rights/orders/"
-                f"{other_order.json()['order_id']}"
-            )
             creator_results = client.get(
                 "/v1/data-rights/orders",
                 headers=self._browser_headers(session.json()["browser_session_token"]),
             )
-            creator_reads_other = client.get(
-                f"/v1/data-rights/orders/{other_order.json()['order_id']}",
-                headers=self._browser_headers(session.json()["browser_session_token"]),
-            )
             other_results = client.get(
                 "/v1/local/other-humans/friend-1/data-rights/orders"
-            )
-            wrong_party = client.get(
-                "/v1/local/other-humans/stranger/data-rights/orders/"
-                f"{other_order.json()['order_id']}"
             )
 
         self.assertEqual(creator_order.status_code, 201)
@@ -1604,17 +1547,9 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.assertEqual(creator_repeat.status_code, 200)
         self.assertFalse(creator_repeat.json()["newly_created"])
         self.assertEqual(creator_query.status_code, 200)
-        self.assertEqual(other_order.status_code, 201)
-        self.assertEqual(other_order.json()["execution_status"], "pending")
-        self.assertIsNone(other_order.json()["completed_at"])
-        self.assertEqual(other_query.status_code, 200)
-        self.assertEqual(len(creator_results.json()["orders"]), 2)
-        self.assertEqual(creator_reads_other.json()["requester_kind"], "other_human")
-        self.assertEqual(len(other_results.json()["orders"]), 1)
-        self.assertEqual(
-            other_results.json()["orders"][0]["requester_kind"], "other_human"
-        )
-        self.assertEqual(wrong_party.status_code, 404)
+        self.assertEqual(other_order.status_code, 404)
+        self.assertEqual(len(creator_results.json()["orders"]), 1)
+        self.assertEqual(other_results.status_code, 404)
 
     def test_same_origin_browser_connects_without_login(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:

@@ -28,6 +28,16 @@ from .api import ExternalMediaContent
 _MAX_PROJECTION_BYTES = 256 * 1024
 _TRUNCATED = "\n[内容已按 ARMI 单条认知材料上限截断]"
 _MAX_IMAGE_PIXELS = 36_000_000
+_MAX_IMAGE_FRAMES = 256
+_MAX_IMAGE_TOTAL_PIXELS = 72_000_000
+_MAX_RENDERED_PNG_BYTES = 10 * 1024 * 1024
+_MAX_RENDERED_PNG_TOTAL_BYTES = 25 * 1024 * 1024
+_MAX_ZIP_MEMBERS = 2_048
+_MAX_ZIP_MEMBER_BYTES = 32 * 1024 * 1024
+_MAX_ZIP_TOTAL_BYTES = 64 * 1024 * 1024
+_MAX_XML_MEMBER_BYTES = 8 * 1024 * 1024
+_MAX_XML_TOTAL_BYTES = 32 * 1024 * 1024
+_MAX_STRUCTURE_UNITS = 100_000
 _GENERIC_STICKER_SUMMARIES = frozenset(
     {
         "图片",
@@ -117,6 +127,7 @@ def extract_external_content(
             text = "\n".join(" | ".join(row) for row in csv.reader(io.StringIO(text)))
         return ExtractedExternalContent("text/plain", _bounded(text), False)
     try:
+        _preflight_ooxml(content)
         office_kind = _office_kind(content)
         text = (
             _docx_text(content)
@@ -175,6 +186,35 @@ def _office_kind(content: bytes) -> str | None:
     if "xl/workbook.xml" in names:
         return "xlsx"
     return None
+
+
+def _preflight_ooxml(content: bytes) -> None:
+    if not content.startswith(b"PK"):
+        return
+    total = 0
+    xml_total = 0
+    with ZipFile(io.BytesIO(content)) as archive:
+        members = archive.infolist()
+        if len(members) > _MAX_ZIP_MEMBERS:
+            raise ExternalMessageViolation("EXTERNAL-MESSAGE-RESOURCE-LIMIT")
+        for member in members:
+            if member.is_dir():
+                continue
+            size = member.file_size
+            total += size
+            normalized = member.filename.replace("\\", "/")
+            if (
+                size > _MAX_ZIP_MEMBER_BYTES
+                or total > _MAX_ZIP_TOTAL_BYTES
+                or normalized.startswith("/")
+                or ".." in normalized.split("/")
+                or size > max(1024 * 1024, member.compress_size * 100)
+            ):
+                raise ExternalMessageViolation("EXTERNAL-MESSAGE-RESOURCE-LIMIT")
+            if normalized.casefold().endswith((".xml", ".rels")):
+                xml_total += size
+                if size > _MAX_XML_MEMBER_BYTES or xml_total > _MAX_XML_TOTAL_BYTES:
+                    raise ExternalMessageViolation("EXTERNAL-MESSAGE-RESOURCE-LIMIT")
 
 
 def _decode_text(content: bytes) -> str:
@@ -236,8 +276,18 @@ def _extract_image(
                     or height <= 0
                     or width * height > _MAX_IMAGE_PIXELS
                     or frame_count <= 0
+                    or frame_count > _MAX_IMAGE_FRAMES
                 ):
-                    raise ExternalMessageViolation("EXTERNAL-MESSAGE-IMAGE-DIMENSIONS")
+                    raise ExternalMessageViolation("EXTERNAL-MESSAGE-RESOURCE-LIMIT")
+                total_pixels = 0
+                for index in range(frame_count):
+                    image.seek(index)
+                    frame_width, frame_height = image.size
+                    total_pixels += frame_width * frame_height
+                    if total_pixels > _MAX_IMAGE_TOTAL_PIXELS:
+                        raise ExternalMessageViolation(
+                            "EXTERNAL-MESSAGE-RESOURCE-LIMIT"
+                        )
                 image.verify()
             inputs = _visual_inputs(
                 content,
@@ -274,15 +324,23 @@ def _visual_inputs(
         return (ExternalMediaContent(content, file_name, media_type),)
     indexes = _frame_indexes(frame_count)
     values: list[ExternalMediaContent] = []
+    total_output_bytes = 0
     with Image.open(io.BytesIO(content)) as image:
         for ordinal, index in enumerate(indexes, start=1):
             image.seek(index)
             frame = image.convert("RGBA")
             output = io.BytesIO()
             frame.save(output, format="PNG")
+            rendered = output.getvalue()
+            total_output_bytes += len(rendered)
+            if (
+                len(rendered) > _MAX_RENDERED_PNG_BYTES
+                or total_output_bytes > _MAX_RENDERED_PNG_TOTAL_BYTES
+            ):
+                raise ExternalMessageViolation("EXTERNAL-MESSAGE-RESOURCE-LIMIT")
             values.append(
                 ExternalMediaContent(
-                    output.getvalue(),
+                    rendered,
                     f"{Path(file_name).stem}-frame-{ordinal}.png",
                     "image/png",
                 )
@@ -311,39 +369,85 @@ def _looks_like_mp3_frame(content: bytes) -> bool:
 
 def _docx_text(content: bytes) -> str:
     document = Document(io.BytesIO(content))
-    chunks = [paragraph.text for paragraph in document.paragraphs if paragraph.text]
+    collector = _ProjectionCollector()
+    for paragraph in document.paragraphs:
+        if not collector.add(paragraph.text):
+            return collector.finish()
     for table_index, table in enumerate(document.tables, start=1):
-        chunks.append(f"[表格 {table_index}]")
-        chunks.extend(" | ".join(cell.text for cell in row.cells) for row in table.rows)
-    return "\n".join(chunks)
+        if not collector.add(f"[表格 {table_index}]"):
+            return collector.finish()
+        for row in table.rows:
+            if not collector.add(
+                " | ".join(cell.text for cell in row.cells), units=len(row.cells)
+            ):
+                return collector.finish()
+    return collector.finish()
 
 
 def _pptx_text(content: bytes) -> str:
     presentation = Presentation(io.BytesIO(content))
-    chunks: list[str] = []
+    collector = _ProjectionCollector()
     for index, slide in enumerate(presentation.slides, start=1):
         values: list[str] = []
         for shape in slide.shapes:
+            collector.count_unit()
             text = getattr(shape, "text", None)
             if isinstance(text, str) and text:
                 values.append(text)
-        chunks.append(f"[幻灯片 {index}]\n" + "\n".join(values))
-    return "\n\n".join(chunks)
+        if not collector.add(f"[幻灯片 {index}]\n" + "\n".join(values)):
+            return collector.finish()
+    return collector.finish(separator="\n\n")
 
 
 def _xlsx_text(content: bytes) -> str:
     workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=False)
-    chunks: list[str] = []
+    collector = _ProjectionCollector()
     try:
         for sheet in workbook.worksheets:
-            chunks.append(f"[工作表 {sheet.title}]")
+            if not collector.add(f"[工作表 {sheet.title}]"):
+                return collector.finish()
             for row in sheet.iter_rows(values_only=True):
-                chunks.append(
-                    " | ".join("" if value is None else str(value) for value in row)
-                )
+                if not collector.add(
+                    " | ".join("" if value is None else str(value) for value in row),
+                    units=len(row),
+                ):
+                    return collector.finish()
     finally:
         workbook.close()
-    return "\n".join(chunks)
+    return collector.finish()
+
+
+class _ProjectionCollector:
+    __slots__ = ("_chunks", "_size", "_truncated", "_units")
+
+    def __init__(self) -> None:
+        self._chunks: list[str] = []
+        self._size = 0
+        self._truncated = False
+        self._units = 0
+
+    def count_unit(self, count: int = 1) -> None:
+        self._units += count
+        if self._units > _MAX_STRUCTURE_UNITS:
+            raise ExternalMessageViolation("EXTERNAL-MESSAGE-RESOURCE-LIMIT")
+
+    def add(self, value: str, *, units: int = 1) -> bool:
+        self.count_unit(units)
+        if not value:
+            return True
+        separator_bytes = 1 if self._chunks else 0
+        encoded = value.encode("utf-8", errors="strict")
+        room = _MAX_PROJECTION_BYTES - len(_TRUNCATED.encode("utf-8"))
+        if self._size + separator_bytes + len(encoded) <= room:
+            self._chunks.append(value)
+            self._size += separator_bytes + len(encoded)
+            return True
+        self._truncated = True
+        return False
+
+    def finish(self, *, separator: str = "\n") -> str:
+        value = separator.join(self._chunks)
+        return value + _TRUNCATED if self._truncated else value
 
 
 __all__ = ("ExtractedExternalContent", "extract_external_content")

@@ -2348,7 +2348,6 @@ async def _serve(
         creator_emergency_wake=life_opportunity_pipeline,
         creator_events=creator_events,
         creator_input=creator_input,
-        other_human_input=other_human_input,
         creator_operations=creator_operations,
         subject_summary=subject_summary_provider,
         capability_policy=capability_policy,
@@ -2358,6 +2357,9 @@ async def _serve(
         ),
         expected_authority=f"{config.creator.bind_host}:{config.creator.port}",
         request_body_max_bytes=config.creator.request_body_max_bytes,
+        request_body_timeout_seconds=config.http.body_timeout_seconds,
+        request_header_max_bytes=config.http.header_max_bytes,
+        request_header_max_count=config.http.header_max_count,
         on_started=started,
         on_stopping=stopping,
         on_security_event=security_event,
@@ -2374,6 +2376,10 @@ async def _serve(
             log_level="warning",
             log_config=None,
             server_header=False,
+            limit_concurrency=config.http.connection_limit,
+            backlog=config.http.backlog,
+            timeout_keep_alive=config.http.keepalive_seconds,
+            h11_max_incomplete_event_size=config.http.header_max_bytes,
             timeout_graceful_shutdown=config.lifecycle.graceful_shutdown_seconds,
         )
     )
@@ -2391,6 +2397,10 @@ async def _serve(
                 log_level="warning",
                 log_config=None,
                 server_header=False,
+                limit_concurrency=config.http.connection_limit,
+                backlog=config.http.backlog,
+                timeout_keep_alive=config.http.keepalive_seconds,
+                h11_max_incomplete_event_size=config.http.header_max_bytes,
                 timeout_graceful_shutdown=(config.lifecycle.graceful_shutdown_seconds),
             )
         )
