@@ -58,7 +58,7 @@ class CreatorExportResult:
     segment_count: int
     record_count: int
     artifact_count: int
-    missing_artifacts: tuple[str, ...]
+    missing_artifact_count: int
     error_code: str | None
     created_at: Instant
     completed_at: Instant | None
@@ -78,13 +78,9 @@ class CreatorExportResult:
                     self.segment_count,
                     self.record_count,
                     self.artifact_count,
+                    self.missing_artifact_count,
                 )
             )
-            or type(self.missing_artifacts) is not tuple
-            or any(
-                type(value) is not str or not value for value in self.missing_artifacts
-            )
-            or len(set(self.missing_artifacts)) != len(self.missing_artifacts)
             or (self.error_code is not None and type(self.error_code) is not str)
             or type(self.created_at) is not Instant
             or (

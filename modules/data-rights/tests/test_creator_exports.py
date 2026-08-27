@@ -29,10 +29,15 @@ from armi_kernel.contracts import Digest, IdempotencyKey, Instant, TraceId
 class _Stream:
     def __init__(self, content: bytes) -> None:
         self.content = content
+        self.offset = 0
 
     async def read(self, size: int = -1) -> bytes:
-        del size
-        return self.content
+        if self.offset >= len(self.content):
+            return b""
+        end = len(self.content) if size < 0 else self.offset + size
+        result = self.content[self.offset : end]
+        self.offset += len(result)
+        return result
 
     async def close(self) -> None:
         return None
@@ -112,7 +117,7 @@ class CreatorExportContractTests(unittest.TestCase):
                 1,
                 1,
                 0,
-                (),
+                0,
                 None,
                 now,
                 now,
@@ -168,7 +173,7 @@ class CreatorExportContractTests(unittest.TestCase):
             3,
             4,
             1,
-            (Digest.from_bytes(b"missing").value,),
+            1,
             None,
             now,
             now,
@@ -203,7 +208,9 @@ class CreatorExportArtifactTests(unittest.IsolatedAsyncioTestCase):
             copied, missing = await service._copy_artifacts(  # pyright: ignore[reportPrivateUsage]
                 staging, (first, second)
             )
-            self.assertEqual((copied, missing), (2, ()))
+            self.assertEqual((copied, missing), (2, 0))
+            index_lines = (staging / "objects.jsonl").read_text().splitlines()
+            self.assertEqual(len(index_lines), 2)
             self.assertEqual(len(tuple((staging / "artifacts").iterdir())), 2)
 
     async def test_missing_and_checksum_failure_are_explicit_partial_inputs(
@@ -234,16 +241,10 @@ class CreatorExportArtifactTests(unittest.IsolatedAsyncioTestCase):
                 staging, (missing, corrupt)
             )
             self.assertEqual(copied, 0)
+            self.assertEqual(absent, 2)
             self.assertEqual(
-                absent,
-                tuple(
-                    sorted(
-                        {
-                            missing.ref.content_digest.value,
-                            corrupt.ref.content_digest.value,
-                        }
-                    )
-                ),
+                (staging / "objects.jsonl").read_text().count('"state":"missing"'),
+                2,
             )
 
     async def test_export_destination_permission_failure_is_not_partial(self) -> None:
@@ -263,7 +264,10 @@ class CreatorExportArtifactTests(unittest.IsolatedAsyncioTestCase):
             staging = root / "staging"
             staging.mkdir()
             with (
-                patch.object(Path, "write_bytes", side_effect=PermissionError),
+                patch(
+                    "armi_data_rights._creator_export._append_records",
+                    side_effect=PermissionError,
+                ),
                 self.assertRaises(PermissionError),
             ):
                 await service._copy_artifacts(  # pyright: ignore[reportPrivateUsage]

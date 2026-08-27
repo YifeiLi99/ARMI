@@ -1285,7 +1285,7 @@ class CreatorExportRequest(_StrictWireModel):
 
 class CreatorExportResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["creator-export.v4"]
+    projection_version: Literal["creator-export.v5"]
     export_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     status: Literal[
         "building",
@@ -1300,10 +1300,7 @@ class CreatorExportResponse(_StrictWireModel):
     segment_count: Annotated[int, Field(ge=0)]
     record_count: Annotated[int, Field(ge=0)]
     artifact_count: Annotated[int, Field(ge=0)]
-    missing_artifacts: Annotated[
-        list[Annotated[str, Field(pattern=r"sha256:[0-9a-f]{64}")]],
-        Field(max_length=100_000),
-    ]
+    missing_artifact_count: Annotated[int, Field(ge=0)]
     error_code: Annotated[str, Field(min_length=1, max_length=128)] | None
     created_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
     completed_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None

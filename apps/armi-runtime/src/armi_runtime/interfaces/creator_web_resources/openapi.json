@@ -1176,21 +1176,17 @@
             "title": "Export Id",
             "type": "string"
           },
-          "missing_artifacts": {
-            "items": {
-              "pattern": "sha256:[0-9a-f]{64}",
-              "type": "string"
-            },
-            "maxItems": 100000,
-            "title": "Missing Artifacts",
-            "type": "array"
+          "missing_artifact_count": {
+            "minimum": 0.0,
+            "title": "Missing Artifact Count",
+            "type": "integer"
           },
           "newly_created": {
             "title": "Newly Created",
             "type": "boolean"
           },
           "projection_version": {
-            "const": "creator-export.v4",
+            "const": "creator-export.v5",
             "title": "Projection Version",
             "type": "string"
           },
@@ -1227,7 +1223,7 @@
           "segment_count",
           "record_count",
           "artifact_count",
-          "missing_artifacts",
+          "missing_artifact_count",
           "error_code",
           "created_at",
           "completed_at",

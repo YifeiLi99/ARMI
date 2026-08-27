@@ -634,7 +634,7 @@ class AdminToolService:
             or snapshot.encoding != "UTF8"
             or snapshot.timezone != "UTC"
             or snapshot.revision != "0000"
-            or snapshot.baseline_identity != "armi.schema-baseline.v8"
+            or snapshot.baseline_identity != "armi.schema-baseline.v9"
         ):
             raise ValueError("ADMIN-DB-IDENTITY")
 

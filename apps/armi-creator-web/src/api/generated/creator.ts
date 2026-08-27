@@ -1323,15 +1323,15 @@ export interface components {
       error_code: string | null;
       /** Export Id */
       export_id: string;
-      /** Missing Artifacts */
-      missing_artifacts: string[];
+      /** Missing Artifact Count */
+      missing_artifact_count: number;
       /** Newly Created */
       newly_created: boolean;
       /**
        * Projection Version
        * @constant
        */
-      projection_version: "creator-export.v4";
+      projection_version: "creator-export.v5";
       /** Record Count */
       record_count: number;
       /** Segment Count */

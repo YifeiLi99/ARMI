@@ -112,7 +112,7 @@ export function ExportPanel({ token, onUnauthorized }: ExportPanelProps) {
           </div>
           <div>
             <dt>缺失或损坏</dt>
-            <dd>{result.missing_artifacts.length}</dd>
+            <dd>{result.missing_artifact_count}</dd>
           </div>
           <div>
             <dt>目标路径</dt>

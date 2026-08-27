@@ -737,7 +737,7 @@ def _creator_prompt_error(error: CreatorPromptViolation) -> JSONResponse:
 def _creator_export_response(result: CreatorExportResult) -> CreatorExportResponse:
     return CreatorExportResponse(
         contract_version="1.0",
-        projection_version="creator-export.v4",
+        projection_version="creator-export.v5",
         export_id=str(result.export_id),
         status=result.status.value,
         directory_name=result.directory_name,
@@ -745,7 +745,7 @@ def _creator_export_response(result: CreatorExportResult) -> CreatorExportRespon
         segment_count=result.segment_count,
         record_count=result.record_count,
         artifact_count=result.artifact_count,
-        missing_artifacts=list(result.missing_artifacts),
+        missing_artifact_count=result.missing_artifact_count,
         error_code=result.error_code,
         created_at=result.created_at.to_wire(),
         completed_at=(

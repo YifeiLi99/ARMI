@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import shutil
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -46,7 +48,7 @@ from .api import (
     DataRightsUnitOfWorkFactory,
 )
 
-_EXPORT_FORMAT = "armi.creator-export.v4"
+_EXPORT_FORMAT = "armi.creator-export.v5"
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,10 +172,12 @@ class CreatorExportService(CreatorExportPort):
         try:
             await asyncio.to_thread(self._create_staging, staging, destination)
             snapshot = await self._write_snapshot(staging)
-            copied, missing = await self._copy_artifacts(staging, snapshot.artifacts)
+            copied, missing_count = await self._copy_artifacts(
+                staging, snapshot.artifacts
+            )
             status = (
                 CreatorExportStatus.COMPLETED
-                if not missing
+                if missing_count == 0
                 else CreatorExportStatus.PARTIAL
             )
             manifest = self._manifest(
@@ -181,7 +185,7 @@ class CreatorExportService(CreatorExportPort):
                 command=command,
                 snapshot=snapshot,
                 copied=copied,
-                missing=missing,
+                missing_count=missing_count,
                 status=status,
             )
             manifest_bytes = _pretty_json(manifest)
@@ -195,6 +199,7 @@ class CreatorExportService(CreatorExportPort):
                 segment_count=len(snapshot.segments),
                 record_count=snapshot.record_count,
                 artifact_count=copied,
+                missing_artifact_count=missing_count,
             )
             await asyncio.to_thread(os.replace, staging, destination)
             published = True
@@ -206,7 +211,7 @@ class CreatorExportService(CreatorExportPort):
                 segment_count=len(snapshot.segments),
                 record_count=snapshot.record_count,
                 artifact_count=copied,
-                missing=missing,
+                missing_count=missing_count,
                 error_code=None,
                 party_scopes=snapshot.party_scopes,
             )
@@ -229,11 +234,12 @@ class CreatorExportService(CreatorExportPort):
                     await connection.execute(
                         """
                         SELECT creator_export_id, status, directory_name,
-                               destination_path, table_count,
-                               row_count, artifact_count, missing_artifacts,
+                               destination_path, segment_count,
+                               record_count, artifact_count, missing_artifact_count,
                                error_code, created_at, completed_at,
                                manifest_digest,expected_segment_count,
-                               expected_record_count,expected_artifact_count
+                               expected_record_count,expected_artifact_count,
+                               expected_missing_artifact_count
                         FROM armi.creator_exports
                         WHERE creator_export_id = %s AND creator_party_id = %s
                         """,
@@ -257,7 +263,7 @@ class CreatorExportService(CreatorExportPort):
             CreatorExportStatus.COMPLETED,
             CreatorExportStatus.PARTIAL,
         }:
-            if row[11] is None or any(value is None for value in row[12:15]):
+            if row[11] is None or any(value is None for value in row[12:16]):
                 raise CreatorExportViolation("CREATOR-EXPORT-FORMAT-UNSUPPORTED")
             await asyncio.to_thread(
                 self._verify_bundle,
@@ -267,6 +273,7 @@ class CreatorExportService(CreatorExportPort):
                 int(row[12]),
                 int(row[13]),
                 int(row[14]),
+                int(row[15]),
             )
         return result
 
@@ -394,13 +401,34 @@ class CreatorExportService(CreatorExportPort):
                         if relative_path in seen_paths:
                             raise CreatorExportViolation("CREATOR-EXPORT-SEGMENT")
                         seen_paths.add(relative_path)
-                        records: list[bytes] = []
+                        output_path = staging / relative_path
+                        await asyncio.to_thread(output_path.touch, exist_ok=False)
+                        record_count = 0
+                        digest = hashlib.sha256()
                         while batch := await segment.records.read_batch():
-                            records.extend(record.value for record in batch)
-                        payload = b"".join(records)
-                        await asyncio.to_thread(
-                            (staging / relative_path).write_bytes, payload
-                        )
+                            if len(batch) > 256:
+                                raise CreatorExportViolation(
+                                    "CREATOR-EXPORT-RECORD-BATCH"
+                                )
+                            batch_bytes = 0
+                            values: list[bytes] = []
+                            for record in batch:
+                                value = record.value
+                                if len(value) > 1024 * 1024:
+                                    raise CreatorExportViolation(
+                                        "CREATOR-EXPORT-RECORD-TOO-LARGE"
+                                    )
+                                batch_bytes += len(value)
+                                if batch_bytes > 1024 * 1024:
+                                    raise CreatorExportViolation(
+                                        "CREATOR-EXPORT-RECORD-BATCH"
+                                    )
+                                values.append(value)
+                                digest.update(value)
+                            await asyncio.to_thread(
+                                _append_records, output_path, tuple(values)
+                            )
+                            record_count += len(values)
                         segments.append(
                             _SegmentSnapshot(
                                 owner,
@@ -408,11 +436,11 @@ class CreatorExportService(CreatorExportPort):
                                 segment.segment_name,
                                 relative_path,
                                 segment.media_type,
-                                len(records),
-                                Digest.from_bytes(payload),
+                                record_count,
+                                Digest(f"sha256:{digest.hexdigest()}"),
                             )
                         )
-                        total_rows += len(records)
+                        total_rows += record_count
                         for ref in segment.artifact_refs:
                             artifact_by_digest.setdefault(
                                 ref.content_digest.value,
@@ -445,26 +473,65 @@ class CreatorExportService(CreatorExportPort):
         self,
         staging: Path,
         artifacts: tuple[_ArtifactSnapshot, ...],
-    ) -> tuple[int, tuple[str, ...]]:
+    ) -> tuple[int, int]:
         target = staging / "artifacts"
         await asyncio.to_thread(target.mkdir)
         copied = 0
-        missing: list[str] = []
+        missing_count = 0
+        index_path = staging / "objects.jsonl"
+        await asyncio.to_thread(index_path.touch, exist_ok=False)
         for artifact in artifacts:
             digest = artifact.ref.content_digest.value
-            content = b""
+            destination = target / digest.removeprefix("sha256:")
+            written = 0
+            hasher = hashlib.sha256()
+            writing_output = False
             try:
                 async with await self._storage.open_verified(artifact.ref) as stream:
-                    content = await stream.read()
+                    while chunk := await stream.read(1024 * 1024):
+                        written += len(chunk)
+                        if written > artifact.ref.byte_size:
+                            raise ArtifactViolation("ART-CONTENT-MISMATCH")
+                        hasher.update(chunk)
+                        writing_output = True
+                        await asyncio.to_thread(_append_records, destination, (chunk,))
+                        writing_output = False
             except ArtifactViolation, OSError:
-                missing.append(digest)
+                if writing_output:
+                    raise
+                await asyncio.to_thread(destination.unlink, missing_ok=True)
+                missing_count += 1
+                await asyncio.to_thread(
+                    _append_object_index,
+                    index_path,
+                    digest,
+                    artifact.ref.byte_size,
+                    "missing",
+                )
                 continue
-            await asyncio.to_thread(
-                (target / digest.removeprefix("sha256:")).write_bytes,
-                content,
-            )
+            if (
+                written != artifact.ref.byte_size
+                or f"sha256:{hasher.hexdigest()}" != digest
+            ):
+                await asyncio.to_thread(destination.unlink, missing_ok=True)
+                missing_count += 1
+                await asyncio.to_thread(
+                    _append_object_index,
+                    index_path,
+                    digest,
+                    artifact.ref.byte_size,
+                    "missing",
+                )
+                continue
             copied += 1
-        return copied, tuple(sorted(set(missing)))
+            await asyncio.to_thread(
+                _append_object_index,
+                index_path,
+                digest,
+                artifact.ref.byte_size,
+                "copied",
+            )
+        return copied, missing_count
 
     async def _record_manifest(
         self,
@@ -474,13 +541,15 @@ class CreatorExportService(CreatorExportPort):
         segment_count: int,
         record_count: int,
         artifact_count: int,
+        missing_artifact_count: int,
     ) -> None:
         try:
             async with self._uow_factory.unit_of_work() as unit:
                 result = await unit.transaction.execute(
                     """UPDATE armi.creator_exports
                        SET manifest_digest=%s,expected_segment_count=%s,
-                           expected_record_count=%s,expected_artifact_count=%s
+                           expected_record_count=%s,expected_artifact_count=%s,
+                           expected_missing_artifact_count=%s
                        WHERE creator_export_id=%s AND creator_party_id=%s
                          AND status='building'""",
                     (
@@ -488,6 +557,7 @@ class CreatorExportService(CreatorExportPort):
                         segment_count,
                         record_count,
                         artifact_count,
+                        missing_artifact_count,
                         export_id,
                         self._creator_party_id,
                     ),
@@ -518,7 +588,8 @@ class CreatorExportService(CreatorExportPort):
                     await unit.transaction.execute(
                         """SELECT status,directory_name,manifest_digest,
                                   expected_segment_count,expected_record_count,
-                                  expected_artifact_count
+                                  expected_artifact_count,
+                                  expected_missing_artifact_count
                            FROM armi.creator_exports
                            WHERE creator_export_id=%s AND creator_party_id=%s""",
                         (export_id, self._creator_party_id),
@@ -550,7 +621,7 @@ class CreatorExportService(CreatorExportPort):
                         ),
                     )
                 return next_status != str(row[0])
-            if row[2] is None or any(value is None for value in row[3:6]):
+            if row[2] is None or any(value is None for value in row[3:7]):
                 await self._mark_unknown(export_id, "CREATOR-EXPORT-MANIFEST-UNKNOWN")
                 return str(row[0]) != "unknown"
             try:
@@ -562,19 +633,20 @@ class CreatorExportService(CreatorExportPort):
                     int(row[3]),
                     int(row[4]),
                     int(row[5]),
+                    int(row[6]),
                 )
             except CreatorExportViolation, OSError, ValueError:
                 await self._mark_unknown(export_id, "CREATOR-EXPORT-VERIFY-UNKNOWN")
                 return str(row[0]) != "unknown"
-            status, segments, records, artifacts, missing = verified
+            status, segments, records, artifacts, missing_count = verified
             party_scopes = await asyncio.to_thread(
                 self._published_party_scopes, destination
             )
             async with self._uow_factory.unit_of_work() as unit:
                 await unit.transaction.execute(
                     """UPDATE armi.creator_exports
-                       SET status=%s,table_count=%s,row_count=%s,artifact_count=%s,
-                           missing_artifacts=%s::jsonb,error_code=NULL,
+                       SET status=%s,segment_count=%s,record_count=%s,artifact_count=%s,
+                           missing_artifact_count=%s,error_code=NULL,
                            completed_at=clock_timestamp()
                        WHERE creator_export_id=%s AND creator_party_id=%s
                          AND status IN ('building','published_unsettled','unknown')""",
@@ -583,7 +655,7 @@ class CreatorExportService(CreatorExportPort):
                         segments,
                         records,
                         artifacts,
-                        json.dumps(missing),
+                        missing_count,
                         export_id,
                         self._creator_party_id,
                     ),
@@ -626,7 +698,7 @@ class CreatorExportService(CreatorExportPort):
         segment_count: int,
         record_count: int,
         artifact_count: int,
-        missing: tuple[str, ...],
+        missing_count: int,
         error_code: str | None,
         party_scopes: tuple[tuple[UUID, int, int], ...] = (),
     ) -> CreatorExportResult:
@@ -637,15 +709,15 @@ class CreatorExportService(CreatorExportPort):
                     await connection.execute(
                         """
                         UPDATE armi.creator_exports
-                        SET status = %s, table_count = %s,
-                            row_count = %s, artifact_count = %s,
-                            missing_artifacts = %s::jsonb, error_code = %s,
+                        SET status = %s, segment_count = %s,
+                            record_count = %s, artifact_count = %s,
+                            missing_artifact_count = %s, error_code = %s,
                             completed_at = clock_timestamp()
                         WHERE creator_export_id = %s AND creator_party_id = %s
                           AND status IN ('building','published_unsettled')
                         RETURNING creator_export_id, status, directory_name,
-                                  destination_path, table_count,
-                                  row_count, artifact_count, missing_artifacts,
+                                  destination_path, segment_count,
+                                  record_count, artifact_count, missing_artifact_count,
                                   error_code, created_at, completed_at
                         """,
                         (
@@ -653,7 +725,7 @@ class CreatorExportService(CreatorExportPort):
                             segment_count,
                             record_count,
                             artifact_count,
-                            json.dumps(missing),
+                            missing_count,
                             error_code,
                             export_id,
                             self._creator_party_id,
@@ -719,7 +791,7 @@ class CreatorExportService(CreatorExportPort):
             segment_count=0,
             record_count=0,
             artifact_count=0,
-            missing=(),
+            missing_count=0,
             error_code="CREATOR-EXPORT-FAILED",
         )
 
@@ -730,7 +802,7 @@ class CreatorExportService(CreatorExportPort):
         command: CreatorExportCommand,
         snapshot: _SnapshotResult,
         copied: int,
-        missing: tuple[str, ...],
+        missing_count: int,
         status: CreatorExportStatus,
     ) -> dict[str, object]:
         return {
@@ -765,18 +837,9 @@ class CreatorExportService(CreatorExportPort):
             "artifacts": {
                 "registered": len(snapshot.artifacts),
                 "copied": copied,
-                "missing_or_corrupt": list(missing),
+                "missing_or_corrupt_count": missing_count,
                 "path": "artifacts/<sha256-hex>",
-                "objects": [
-                    {
-                        "digest": artifact.ref.content_digest.value,
-                        "byte_size": artifact.ref.byte_size,
-                        "path": "artifacts/"
-                        + artifact.ref.content_digest.value.removeprefix("sha256:"),
-                    }
-                    for artifact in snapshot.artifacts
-                    if artifact.ref.content_digest.value not in missing
-                ],
+                "index_path": "objects.jsonl",
             },
         }
 
@@ -813,7 +876,8 @@ class CreatorExportService(CreatorExportPort):
         expected_segments: int,
         expected_records: int,
         expected_artifacts: int,
-    ) -> tuple[CreatorExportStatus, int, int, int, tuple[str, ...]]:
+        expected_missing_artifacts: int,
+    ) -> tuple[CreatorExportStatus, int, int, int, int]:
         root = self._exports_root.resolve(strict=True)
         resolved = destination.resolve(strict=True)
         if destination.is_symlink() or resolved.parent != root:
@@ -869,30 +933,50 @@ class CreatorExportService(CreatorExportPort):
                 raise CreatorExportViolation("CREATOR-EXPORT-FORMAT-UNSUPPORTED")
             raw = cast(dict[str, object], raw_value)
             path = self._verified_export_path(resolved, raw.get("path"))
-            if Digest.from_bytes(path.read_bytes()).value != raw.get("digest"):
+            if _file_digest_size(path)[0] != raw.get("digest"):
                 raise CreatorExportViolation("CREATOR-EXPORT-SEGMENT-DIGEST")
             record_count += int(cast(int, raw.get("record_count")))
         artifact_manifest = cast(dict[str, object], artifacts)
-        objects = artifact_manifest.get("objects")
-        missing = artifact_manifest.get("missing_or_corrupt")
-        if not isinstance(objects, list) or not isinstance(missing, list):
-            raise CreatorExportViolation("CREATOR-EXPORT-FORMAT-UNSUPPORTED")
-        object_entries = cast(list[object], objects)
-        missing_entries = cast(list[object], missing)
-        for raw_value in object_entries:
-            if not isinstance(raw_value, dict):
+        index_path = self._verified_export_path(
+            resolved, artifact_manifest.get("index_path")
+        )
+        copied_count = 0
+        missing_count = 0
+        seen_digests: set[str] = set()
+        for raw in _read_object_index(index_path):
+            digest = raw.get("digest")
+            byte_size = raw.get("byte_size")
+            state = raw.get("state")
+            if (
+                type(digest) is not str
+                or type(byte_size) is not int
+                or byte_size < 0
+                or digest in seen_digests
+                or state not in {"copied", "missing"}
+            ):
                 raise CreatorExportViolation("CREATOR-EXPORT-FORMAT-UNSUPPORTED")
-            raw = cast(dict[str, object], raw_value)
-            path = self._verified_export_path(resolved, raw.get("path"))
-            content = path.read_bytes()
-            if Digest.from_bytes(content).value != raw.get("digest") or len(
-                content
-            ) != int(cast(int, raw.get("byte_size"))):
+            seen_digests.add(digest)
+            if state == "missing":
+                missing_count += 1
+                continue
+            copied_count += 1
+            path = self._verified_export_path(
+                resolved, "artifacts/" + digest.removeprefix("sha256:")
+            )
+            actual_digest, actual_size = _file_digest_size(path)
+            if actual_digest != digest or actual_size != byte_size:
                 raise CreatorExportViolation("CREATOR-EXPORT-ARTIFACT-DIGEST")
+        if (
+            artifact_manifest.get("missing_or_corrupt_count") != missing_count
+            or artifact_manifest.get("registered") != copied_count + missing_count
+            or artifact_manifest.get("copied") != copied_count
+        ):
+            raise CreatorExportViolation("CREATOR-EXPORT-FORMAT-UNSUPPORTED")
         if (
             len(segment_entries) != expected_segments
             or record_count != expected_records
-            or len(object_entries) != expected_artifacts
+            or copied_count != expected_artifacts
+            or missing_count != expected_missing_artifacts
         ):
             raise CreatorExportViolation("CREATOR-EXPORT-EXPECTED-COUNTS")
         status = CreatorExportStatus(str(manifest.get("status")))
@@ -902,8 +986,8 @@ class CreatorExportService(CreatorExportPort):
             status,
             len(segment_entries),
             record_count,
-            len(object_entries),
-            tuple(str(item) for item in missing_entries),
+            copied_count,
+            missing_count,
         )
 
     @staticmethod
@@ -953,7 +1037,6 @@ class CreatorExportService(CreatorExportPort):
 
     @staticmethod
     def _result(row: tuple[object, ...], *, newly_created: bool) -> CreatorExportResult:
-        missing_artifacts = cast(tuple[str, ...] | list[str], row[7])
         created_at = cast(datetime, row[9])
         completed_at = cast(datetime | None, row[10])
         return CreatorExportResult(
@@ -964,7 +1047,7 @@ class CreatorExportService(CreatorExportPort):
             segment_count=int(cast(int | str, row[4])),
             record_count=int(cast(int | str, row[5])),
             artifact_count=int(cast(int | str, row[6])),
-            missing_artifacts=tuple(missing_artifacts),
+            missing_artifact_count=int(cast(int | str, row[7])),
             error_code=None if row[8] is None else str(row[8]),
             created_at=Instant(created_at.astimezone(UTC)),
             completed_at=(
@@ -999,6 +1082,51 @@ def _pretty_json(value: dict[str, object]) -> bytes:
     return (
         json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     ).encode("utf-8")
+
+
+def _append_records(path: Path, records: tuple[bytes, ...]) -> None:
+    with path.open("ab", buffering=0) as target:
+        for record in records:
+            target.write(record)
+
+
+def _append_object_index(path: Path, digest: str, byte_size: int, state: str) -> None:
+    record = (
+        json.dumps(
+            {"digest": digest, "byte_size": byte_size, "state": state},
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode("utf-8")
+    _append_records(path, (record,))
+
+
+def _read_object_index(path: Path) -> Iterator[dict[str, object]]:
+    with path.open("rb") as source:
+        while line := source.readline(1024 * 1024 + 1):
+            if len(line) > 1024 * 1024 or not line.endswith(b"\n"):
+                raise CreatorExportViolation("CREATOR-EXPORT-FORMAT-UNSUPPORTED")
+            try:
+                value: object = json.loads(line)
+            except UnicodeDecodeError, json.JSONDecodeError:
+                raise CreatorExportViolation(
+                    "CREATOR-EXPORT-FORMAT-UNSUPPORTED"
+                ) from None
+            if not isinstance(value, dict):
+                raise CreatorExportViolation("CREATOR-EXPORT-FORMAT-UNSUPPORTED")
+            yield cast(dict[str, object], value)
+
+
+def _file_digest_size(path: Path) -> tuple[str, int]:
+    digest = hashlib.sha256()
+    size = 0
+    with path.open("rb") as source:
+        while chunk := source.read(1024 * 1024):
+            size += len(chunk)
+            digest.update(chunk)
+    return f"sha256:{digest.hexdigest()}", size
 
 
 def _remove_staging(path: Path, exports_root: Path) -> None:

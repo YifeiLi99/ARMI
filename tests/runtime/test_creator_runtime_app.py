@@ -804,7 +804,7 @@ class _CreatorExport:
             segment_count=39,
             record_count=120,
             artifact_count=4,
-            missing_artifacts=(Digest.from_bytes(b"missing").value,) if partial else (),
+            missing_artifact_count=1 if partial else 0,
             error_code=None,
             created_at=now,
             completed_at=now,

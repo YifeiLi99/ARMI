@@ -135,14 +135,15 @@ CREATE TABLE armi.creator_exports (
     request_digest text NOT NULL,
     status text NOT NULL,
     destination_path text NOT NULL,
-    table_count integer DEFAULT 0 NOT NULL,
-    row_count bigint DEFAULT 0 NOT NULL,
+    segment_count integer DEFAULT 0 NOT NULL,
+    record_count bigint DEFAULT 0 NOT NULL,
     artifact_count bigint DEFAULT 0 NOT NULL,
-    missing_artifacts jsonb DEFAULT '[]'::jsonb NOT NULL,
+    missing_artifact_count bigint DEFAULT 0 NOT NULL,
     manifest_digest text,
     expected_segment_count integer,
     expected_record_count bigint,
     expected_artifact_count bigint,
+    expected_missing_artifact_count bigint,
     error_code text,
     created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
     completed_at timestamp(6) with time zone,
@@ -151,13 +152,13 @@ CREATE TABLE armi.creator_exports (
     CONSTRAINT creator_exports_creator_export_id_check CHECK ((uuid_extract_version(creator_export_id) = 7)),
     CONSTRAINT creator_exports_directory_name_check CHECK (((directory_name ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'::text) AND (directory_name <> ALL (ARRAY['.'::text, '..'::text])))),
     CONSTRAINT creator_exports_idempotency_key_check CHECK ((idempotency_key ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'::text)),
-    CONSTRAINT creator_exports_missing_artifacts_check CHECK ((jsonb_typeof(missing_artifacts) = 'array'::text)),
+    CONSTRAINT creator_exports_missing_artifact_count_check CHECK ((missing_artifact_count >= 0)),
     CONSTRAINT creator_exports_manifest_digest_check CHECK (((manifest_digest IS NULL) OR (manifest_digest ~ '^sha256:[0-9a-f]{64}$'::text))),
-    CONSTRAINT creator_exports_expected_counts_check CHECK ((((expected_segment_count IS NULL) OR (expected_segment_count >= 0)) AND ((expected_record_count IS NULL) OR (expected_record_count >= 0)) AND ((expected_artifact_count IS NULL) OR (expected_artifact_count >= 0)))),
+    CONSTRAINT creator_exports_expected_counts_check CHECK ((((expected_segment_count IS NULL) OR (expected_segment_count >= 0)) AND ((expected_record_count IS NULL) OR (expected_record_count >= 0)) AND ((expected_artifact_count IS NULL) OR (expected_artifact_count >= 0)) AND ((expected_missing_artifact_count IS NULL) OR (expected_missing_artifact_count >= 0)))),
     CONSTRAINT creator_exports_request_digest_check CHECK ((request_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
-    CONSTRAINT creator_exports_row_count_check CHECK ((row_count >= 0)),
+    CONSTRAINT creator_exports_record_count_check CHECK ((record_count >= 0)),
     CONSTRAINT creator_exports_status_check CHECK ((status = ANY (ARRAY['building'::text, 'published_unsettled'::text, 'completed'::text, 'partial'::text, 'failed'::text, 'unknown'::text]))),
-    CONSTRAINT creator_exports_table_count_check CHECK ((table_count >= 0))
+    CONSTRAINT creator_exports_segment_count_check CHECK ((segment_count >= 0))
 );
 
 CREATE TABLE armi.managed_data_snapshots (

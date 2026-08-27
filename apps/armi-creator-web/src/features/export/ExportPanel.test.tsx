@@ -46,7 +46,7 @@ describe("Creator local export panel", () => {
       return new Response(
         JSON.stringify({
           contract_version: "1.0",
-          projection_version: "creator-export.v4",
+          projection_version: "creator-export.v5",
           export_id: "0198a000-0000-7000-8000-000000000001",
           status: "partial",
           directory_name: "creator-export-20260808",
@@ -54,7 +54,7 @@ describe("Creator local export panel", () => {
           segment_count: 39,
           record_count: 120,
           artifact_count: 4,
-          missing_artifacts: [`sha256:${"2".repeat(64)}`],
+          missing_artifact_count: 1,
           error_code: null,
           created_at: "2026-08-08T05:00:00.000000Z",
           completed_at: "2026-08-08T05:00:01.000000Z",
