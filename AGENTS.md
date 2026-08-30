@@ -41,7 +41,7 @@
 - PostgreSQL 是唯一权威关系数据库。开发/测试固定使用 Docker PostgreSQL 18.4 + pgvector 0.8.6；Runtime 只通过 DSN 使用它，容器和 volume 不是第二事实源。
 - Schema 资源位于 `packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema/`。只保留可重做的唯一 Alembic `0000`，不使用 autogenerate、后续 revision、downgrade、历史迁移或旧数据库兼容。
 - 结构变化直接更新 baseline SQL、`0000` 文档列表、baseline identity、owner registry、ACL、生产者/消费者和测试；目标数据库显式删库重装，不迁移历史数据库、消息或制品。
-- `armi db install` 只接受空库并原子安装。Runtime/普通启动只核验 PostgreSQL/扩展、唯一 revision、baseline/resource/catalog/role digests 与精确 ACL，不自动安装、迁移或用超级用户掩盖权限漂移。
+- `armi db install` 只接受无用户 relation 且不存在 `armi` namespace 的目标库：先在独立短事务建立 namespace，再由唯一 `0000` 原子安装表、约束、静态目录、ACL、revision 与摘要。中段失败可以留下空 namespace，但不能留下业务表或前移 revision。Runtime/普通启动只核验 PostgreSQL/扩展、唯一 revision、baseline/resource/catalog/role digests 与精确 ACL，不自动安装、迁移或用超级用户掩盖权限漂移。
 - 同一 ARMI 内部合同族只保留一个当前数字版本。升级要原子同步生产者、消费者、DDL/约束、配置、OpenAPI、生成代码、工具与测试，并删除旧解析器、旧字段、双读双写和缺字段补默认值。第三方 MCP/NapCat/Provider 协议按其当前标准处理，不恢复 ARMI 旧合同。
 - 人工维护的业务/部署配置集中在 `configs/` 并使用 YAML；环境根也使用严格 YAML。Codex MCP 注册保留其要求的 TOML；OpenAPI、JSON Schema、lock、生成资源和 wire 使用各自机器格式。
 - Runtime config 当前由仓库默认 → 环境 `environment.yaml` → 登记的 `ARMI_*` 合并；unknown/extra/错误类型/敏感明文字段必须拒绝。Secret 只以 scoped locator 出现，不进入仓库、命令行、日志、摘要或导出。
@@ -63,9 +63,9 @@
 
 ## 6. 文档规则
 
-- 根 `README.md` 是产品与最快入口，`DESIGN.md` 是可提交实现总览；`docs/` 按 `01-产品定义/`、`02-系统设计/`、`03-实现参考/`、`04-运行与验证/` 分层，外部证据只放 `00-外部研究参考/`。不要恢复根下扁平编号正文。
-- `docs/` 只保留有助理解“ARMI 是谁、为何这样设计、当前实现如何承载她”的正文、运行证据和来源清楚的研究。不要加入路线图、需求编号矩阵、排期、阶段清单、单次门禁流水、临时评审或字段级合同镜像。
-- 精确字段、路由、表、状态、版本和依赖放代码、DDL、配置、lock、OpenAPI 和测试；文档集中写不变量、责任、闭环、实现锚点和证据边界，避免同一易变数字在多处复制。
+- 根 `README.md` 是产品与最快入口，`DESIGN.md` 是可提交实现总览；`docs/` 按 `01-产品定义/`、`02-系统设计/`、`03-数据设计/`、`04-实现参考/`、`05-运行与验证/` 分层，外部证据只放 `00-外部研究参考/`。不要恢复根下扁平编号正文。
+- `docs/` 只保留有助理解“ARMI 是谁、为何这样设计、当前实现如何承载她”的正文、运行证据和来源清楚的研究。不要加入路线图、需求编号矩阵、排期、阶段清单、单次门禁流水或临时评审；字段级快照只放在专门的数据设计目录，不在其他正文重复镜像。
+- 精确执行合同仍放代码、DDL、配置、lock、OpenAPI 和测试；`docs/03-数据设计/` 维护当前 baseline 的字段级只读快照、关系说明和实现锚点。Schema 变化必须从新 SQL 反算并同步该目录，不能手工保留旧表/字段或把文档当作可执行 DDL。
 - 使用简体中文、UTF-8、LF 和相对链接。重写时删除失效结论/术语/入口，不保留旧版兼容页；性能记录保留日期、环境、方法和未验证边界，历史结果不得冒充本轮复测。
 - 设计变化先分类为产品不变量、owner/跨模块合同、可替换机制、权威 schema、可重建投影或隔离实验。触及不变量、owner、权限或效果语义时，先改最接近事实源头的叙述，再同步代码与下游文档。
 - 不为“完整感”填写占位方案、模拟结果或未经确认的选型。未知项写明未知、所需证据和不影响的边界。
@@ -74,7 +74,7 @@
 
 - 先把任务变成可观察成功标准，运行能回答当前未知的最小静态检查/定向测试。只有风险命中公共合同、schema、依赖锁、生成器、composition、启动或跨模块边界时才扩大。
 - Fast/Release/System、真实 PostgreSQL、浏览器、付费 live gate、外部程序、soak 与部署验证只在风险需要或用户明确授权时运行；不要用测试数量制造完成感。
-- 数据库变化至少用真实 PostgreSQL 证明：空库前态、更新后的唯一 `0000` 原子安装、唯一 head/identity/digests/ACL、重复 install 合同、注入失败回滚且 revision 不前移，以及受影响 owner 主路径。项目没有历史回填/迁移验证。
+- 数据库变化至少用真实 PostgreSQL 证明：空库前态、更新后的唯一 `0000` 事务组原子安装、唯一 head/identity/digests/ACL、重复 install 合同、注入失败后业务表回滚且 revision 不前移，并明确核对可能保留的空 namespace，以及受影响 owner 主路径。项目没有历史回填/迁移验证。
 - 视觉/UI 改动必须在目标 viewport 运行真实页面，用受控浏览器检查层级、比例、重叠、溢出、滚动、关键操作、空态和错误态；只读源码不能宣称视觉完成。
 - 声称目标环境部署或真实 Creator 对话可用，必须在已授权真实调用后运行 `tools/verify_live_creator_roundtrip.py`，确认 cognition、Subject Commit、reply effect 核验、outbox 交付和非空回复 artifact。Component ready、数据库行或 mock/System test 不能替代。
 - 文档变化至少检查：全部相对链接、实现锚点路径、旧目录/术语、当前合同版本、UTF-8/LF，以及与代码/配置/schema 的冲突。未运行的环境/Browser/live 验证明确列出。
