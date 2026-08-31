@@ -6,7 +6,6 @@ import argparse
 import asyncio
 import json
 import os
-import selectors
 import sys
 from collections.abc import Sequence
 from dataclasses import replace
@@ -42,11 +41,6 @@ from armi_runtime.composition.qq_channel import (
     QQ_NAPCAT_ACCESS_TOKEN_PURPOSE,
     QQ_NAPCAT_EVENT_SECRET_LOCATOR,
     QQ_NAPCAT_EVENT_SECRET_PURPOSE,
-)
-from armi_runtime.composition.recovery import (
-    create_recovery_backup,
-    drill_recovery_backup,
-    verify_recovery_backup,
 )
 from armi_runtime.composition.runtime import run_runtime
 from armi_runtime.composition.runtime_capacity import run_runtime_capacity_baseline
@@ -193,23 +187,6 @@ def _parser() -> argparse.ArgumentParser:
     artifacts_cleanup = artifacts_command.add_parser("cleanup")
     artifacts_cleanup.add_argument("--environment-root", type=Path, required=True)
     artifacts_cleanup.add_argument("--apply", action="store_true")
-    recovery = command.add_parser("recovery")
-    recovery_command = recovery.add_subparsers(
-        dest="recovery_command",
-        required=True,
-    )
-    recovery_create = recovery_command.add_parser("create")
-    recovery_create.add_argument("--environment-root", type=Path, required=True)
-    recovery_create.add_argument("--postgresql-client-root", type=Path, required=True)
-    recovery_create.add_argument("--destination", type=Path, required=True)
-    recovery_verify = recovery_command.add_parser("verify")
-    recovery_verify.add_argument("--bundle", type=Path, required=True)
-    recovery_drill = recovery_command.add_parser("drill")
-    recovery_drill.add_argument("--bundle", type=Path, required=True)
-    recovery_drill.add_argument("--quarantine-root", type=Path, required=True)
-    recovery_drill.add_argument("--target-conninfo-file", type=Path, required=True)
-    recovery_drill.add_argument("--postgresql-client-root", type=Path, required=True)
-    recovery_drill.add_argument("--apply", action="store_true", required=True)
     capacity = command.add_parser("capacity")
     capacity_command = capacity.add_subparsers(
         dest="capacity_command",
@@ -388,29 +365,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         )
         return 0
-    if args.command == "recovery" and args.recovery_command in {"verify", "drill"}:
-        try:
-            if args.recovery_command == "verify":
-                recovery_result = verify_recovery_backup(args.bundle)
-            else:
-                recovery_result = drill_recovery_backup(
-                    args.bundle,
-                    quarantine_root=args.quarantine_root,
-                    target_conninfo_file=args.target_conninfo_file,
-                    postgresql_client_root=args.postgresql_client_root,
-                )
-        except RuntimeViolation as error:
-            _safe_failure(error)
-            return 4
-        print(
-            json.dumps(
-                recovery_result.safe_view(),
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            )
-        )
-        return 0
     environment_root = args.environment_root
     if environment_root is None:
         configured_root = os.environ.get("ARMI_ENVIRONMENT_ROOT")
@@ -434,8 +388,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         credential_scope = {
             "database.artifact-maintenance": "database.runtime",
         }
-    elif args.command == "recovery":
-        credential_scope = {"database.recovery": "database.migrator"}
     elif args.command == "bootstrap":
         credential_scope = {"database.birth": "database.runtime"}
     elif args.command == "reset":
@@ -589,30 +541,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         except RuntimeViolation as error:
             _safe_failure(error)
             return 4 if args.apply else 3
-        print(
-            json.dumps(
-                result.safe_view(),
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            )
-        )
-        return 0
-    if args.command == "recovery":
-        try:
-            result = asyncio.run(
-                create_recovery_backup(
-                    prepared,
-                    postgresql_client_root=args.postgresql_client_root,
-                    destination=args.destination,
-                ),
-                loop_factory=lambda: asyncio.SelectorEventLoop(
-                    selectors.SelectSelector()
-                ),
-            )
-        except RuntimeViolation as error:
-            _safe_failure(error)
-            return 4
         print(
             json.dumps(
                 result.safe_view(),

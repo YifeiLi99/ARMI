@@ -34,14 +34,6 @@ class ArtifactAdminSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
-class ArtifactBackupSnapshot:
-    artifact_object_id: UUID
-    content_digest: str
-    byte_size: int
-    storage_locator: str
-
-
-@dataclass(frozen=True, slots=True)
 class ArtifactRetirement:
     artifact_id: UUID
     artifact_object_id: UUID
@@ -71,9 +63,6 @@ class ArtifactDeletionState:
 
 @runtime_checkable
 class ArtifactAdminPort(Protocol):
-    def retained_verified(
-        self, transaction: PostgreSQLAdminTransaction
-    ) -> tuple[ArtifactBackupSnapshot, ...]: ...
     def snapshot(
         self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
     ) -> ArtifactAdminSnapshot | None: ...
@@ -193,7 +182,6 @@ __all__ = (
     "ArtifactAdminPort",
     "ArtifactAdminRetirement",
     "ArtifactAdminSnapshot",
-    "ArtifactBackupSnapshot",
     "ArtifactCatalogPort",
     "ArtifactDeletionState",
     "ArtifactLifecyclePort",

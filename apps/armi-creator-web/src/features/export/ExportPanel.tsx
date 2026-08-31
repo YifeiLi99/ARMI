@@ -40,7 +40,7 @@ export function ExportPanel({ token, onUnauthorized }: ExportPanelProps) {
         value.status === "completed"
           ? "本地完整数据导出已完成。"
           : value.status === "partial"
-            ? "导出已生成，但有登记制品缺失或损坏；它不是完整备份。"
+            ? "导出已生成，但有登记制品缺失或损坏；内容并不完整。"
             : "导出未完成。",
       );
     },

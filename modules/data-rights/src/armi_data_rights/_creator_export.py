@@ -662,8 +662,8 @@ class CreatorExportService(CreatorExportPort):
                 )
                 await unit.transaction.execute(
                     """INSERT INTO armi.managed_data_snapshots (
-                           managed_snapshot_id,snapshot_kind,contract_version,
-                           managed_path) VALUES (%s,'creator_export',%s,%s)
+                           managed_snapshot_id,contract_version,
+                           managed_path) VALUES (%s,%s,%s)
                        ON CONFLICT (managed_snapshot_id) DO NOTHING""",
                     (export_id, _EXPORT_FORMAT, str(destination)),
                 )
@@ -740,9 +740,9 @@ class CreatorExportService(CreatorExportPort):
                 }:
                     await connection.execute(
                         """INSERT INTO armi.managed_data_snapshots (
-                               managed_snapshot_id,snapshot_kind,contract_version,
+                               managed_snapshot_id,contract_version,
                                managed_path)
-                           SELECT creator_export_id,'creator_export',%s,destination_path
+                           SELECT creator_export_id,%s,destination_path
                            FROM armi.creator_exports WHERE creator_export_id=%s
                            ON CONFLICT (managed_snapshot_id) DO NOTHING""",
                         (_EXPORT_FORMAT, export_id),

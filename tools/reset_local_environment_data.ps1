@@ -65,7 +65,6 @@ if (Test-Path -LiteralPath $semanticServicePath -PathType Leaf) {
 
 $relativeTargets = @(
     'data\artifacts',
-    'data\backups',
     'data\codex-runner',
     'data\exports',
     'data\logs',

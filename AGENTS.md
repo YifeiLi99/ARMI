@@ -41,6 +41,7 @@
 - PostgreSQL 是唯一权威关系数据库。开发/测试固定使用 Docker PostgreSQL 18.4 + pgvector 0.8.6；Runtime 只通过 DSN 使用它，容器和 volume 不是第二事实源。
 - Schema 资源位于 `packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema/`。只保留可重做的唯一 Alembic `0000`，不使用 autogenerate、后续 revision、downgrade、历史迁移或旧数据库兼容。
 - 结构变化直接更新 baseline SQL、`0000` 文档列表、baseline identity、owner registry、ACL、生产者/消费者和测试；目标数据库显式删库重装，不迁移历史数据库、消息或制品。
+- 项目不提供数据库、Artifact Store、环境配置或 secret 的离线恢复制品功能。未经用户针对本次操作明确授权，不得为迁移、重置、部署或其他任务复制、打包或导出这些内容；需要额外恢复手段时必须停止并请求授权。
 - `armi db install` 只接受无用户 relation 且不存在 `armi` namespace 的目标库：先在独立短事务建立 namespace，再由唯一 `0000` 原子安装表、约束、静态目录、ACL、revision 与摘要。中段失败可以留下空 namespace，但不能留下业务表或前移 revision。Runtime/普通启动只核验 PostgreSQL/扩展、唯一 revision、baseline/resource/catalog/role digests 与精确 ACL，不自动安装、迁移或用超级用户掩盖权限漂移。
 - 同一 ARMI 内部合同族只保留一个当前数字版本。升级要原子同步生产者、消费者、DDL/约束、配置、OpenAPI、生成代码、工具与测试，并删除旧解析器、旧字段、双读双写和缺字段补默认值。第三方 MCP/NapCat/Provider 协议按其当前标准处理，不恢复 ARMI 旧合同。
 - 人工维护的业务/部署配置集中在 `configs/` 并使用 YAML；环境根也使用严格 YAML。Codex MCP 注册保留其要求的 TOML；OpenAPI、JSON Schema、lock、生成资源和 wire 使用各自机器格式。

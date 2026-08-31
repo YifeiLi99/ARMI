@@ -73,7 +73,7 @@ describe("Creator local export panel", () => {
     );
     await user.click(screen.getByRole("button", { name: "生成本地导出" }));
 
-    expect(await screen.findByText(/它不是完整备份/)).toBeInTheDocument();
+    expect(await screen.findByText(/内容并不完整/)).toBeInTheDocument();
     expect(screen.getByText("partial")).toBeInTheDocument();
     expect(
       screen.getByText("data/exports/creator-export-20260808"),

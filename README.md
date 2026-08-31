@@ -27,8 +27,8 @@ ARMI 不把人格提示词、模型会话或任务 Agent 当成“她”。当�
 | 应用 | 权威 `armi-runtime`、隔离 `armi-admin`、React Creator Web |
 | 业务 | 23 个独立 Python distribution，各自拥有事实、表、恢复和数据权利责任 |
 | 底座/适配器 | Kernel、Runtime Foundation、Artifact Store、PostgreSQL contract、NapCat、QQ、ESP32 display 共 7 个包 |
-| 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；baseline `armi.schema-baseline.v10` |
-| 物理 schema | 当前 baseline 108 张表、1360 个字段、1 个只读 view、65 个显式索引；表和生产 DML 都受 owner registry 检查 |
+| 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；baseline `armi.schema-baseline.v11` |
+| 物理 schema | 当前 baseline 108 张表、1359 个字段、1 个只读 view、65 个显式索引；表和生产 DML 都受 owner registry 检查 |
 | Creator API | 52 个 OpenAPI path；同源 bearer session、签名分页、SSE 投影失效刷新 |
 | 管理面 | 21 个 Admin MCP 工具，仅限 `development` / `system_test` / `acceptance` |
 | 工具链 | Python 3.14.6、Node 24.18.0、uv 0.11.33；精确版本以 lock/manifest 为准 |
@@ -100,7 +100,7 @@ uv run armi bootstrap birth --environment-root $EnvironmentRoot
 .\start_armi.ps1 -EnvironmentRoot $EnvironmentRoot -OpenBrowser
 ```
 
-这些命令会连接或修改目标本地环境，执行前应核对绝对路径和 credential locator。完整环境、QQ、音视频、备份、恢复、维护与重置手册见 [安装、启动与维护](docs/05-运行与验证/01-安装、启动与维护.md)。
+这些命令会连接或修改目标本地环境，执行前应核对绝对路径和 credential locator。完整环境、QQ、音视频、恢复、维护与重置手册见 [安装、启动与维护](docs/05-运行与验证/01-安装、启动与维护.md)。
 
 Creator Web 开发要求先有 ready Runtime：
 
@@ -138,7 +138,7 @@ uv run python tools/verify_live_creator_roundtrip.py `
 - [docs/README.md](docs/README.md)：私有设计资料总索引。
 - [产品定义](docs/01-产品定义/)：ARMI 是谁、生活与关系、真实性/隐私/自主性。
 - [系统设计](docs/02-系统设计/)：权威运行时、认知、权限/效果、恢复、Mood。
-- [数据设计](docs/03-数据设计/)：事实分层、全局关系、字段合同、108 张表/1360 字段、约束、索引与 ACL。
+- [数据设计](docs/03-数据设计/)：事实分层、全局关系、字段合同、108 张表/1359 字段、约束、索引与 ACL。
 - [实现参考](docs/04-实现参考/)：模块、配置、接口、模型/Codex/渠道、设备。
 - [运行与验证](docs/05-运行与验证/)：运行手册、质量门禁和实测性能基线。
 - [外部研究参考](docs/00-外部研究参考/)：带来源的外部证据，不是 ARMI 事实源。

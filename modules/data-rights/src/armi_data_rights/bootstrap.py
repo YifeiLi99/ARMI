@@ -15,7 +15,6 @@ from ._creator_export import CreatorExportService
 from ._data_rights_participant import PostgreSQLDataRightsParticipant
 from ._deletion import LocalDataDeletionExecutor
 from ._deletion_postgresql import LocalDataDeletionRepository
-from ._managed_snapshots import PostgreSQLManagedSnapshotAdmin
 from ._postgresql import DataRightsOrderRepository
 from .api import (
     CreatorExportPort,
@@ -181,15 +180,10 @@ def bootstrap_data_rights_recovery() -> RecoveryParticipant:
     return EmptyRecoveryParticipant("data-rights")
 
 
-def bootstrap_managed_snapshot_admin() -> PostgreSQLManagedSnapshotAdmin:
-    return PostgreSQLManagedSnapshotAdmin()
-
-
 __all__ = (
     "DataRightsCore",
     "DataRightsModule",
     "bootstrap_data_rights",
     "bootstrap_data_rights_core",
     "bootstrap_data_rights_recovery",
-    "bootstrap_managed_snapshot_admin",
 )

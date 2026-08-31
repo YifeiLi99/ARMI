@@ -163,14 +163,12 @@ CREATE TABLE armi.creator_exports (
 
 CREATE TABLE armi.managed_data_snapshots (
     managed_snapshot_id uuid NOT NULL,
-    snapshot_kind text NOT NULL,
     contract_version text NOT NULL,
     managed_path text NOT NULL,
     status text DEFAULT 'active'::text NOT NULL,
     created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
     removed_at timestamp(6) with time zone,
     CONSTRAINT managed_data_snapshots_id_check CHECK ((uuid_extract_version(managed_snapshot_id) = 7)),
-    CONSTRAINT managed_data_snapshots_kind_check CHECK ((snapshot_kind = ANY (ARRAY['creator_export'::text, 'recovery_backup'::text]))),
     CONSTRAINT managed_data_snapshots_status_check CHECK ((((status = 'active'::text) AND (removed_at IS NULL)) OR ((status = 'removed'::text) AND (removed_at IS NOT NULL))))
 );
 

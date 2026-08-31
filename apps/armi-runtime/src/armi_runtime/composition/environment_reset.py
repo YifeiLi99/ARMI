@@ -16,7 +16,7 @@ from .runtime_errors import RuntimeViolation
 from .runtime_process import RuntimeProcessManager
 from .semantic_recall_process import SemanticRecallProcessManager
 
-_DATA_DIRECTORIES = ("artifacts", "backups", "codex-runner", "exports", "logs")
+_DATA_DIRECTORIES = ("artifacts", "codex-runner", "exports", "logs")
 
 
 @dataclass(frozen=True, slots=True)

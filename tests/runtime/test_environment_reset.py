@@ -17,7 +17,7 @@ class EnvironmentResetTests(unittest.TestCase):
     def _prepared(self, root: Path) -> PreparedEnvironment:
         data_root = root / "data"
         data_root.mkdir()
-        for name in ("artifacts", "backups", "codex-runner", "exports", "logs"):
+        for name in ("artifacts", "codex-runner", "exports", "logs"):
             target = data_root / name
             target.mkdir()
             (target / "old-state").write_text("old", encoding="utf-8")
@@ -84,7 +84,6 @@ class EnvironmentResetTests(unittest.TestCase):
                     prepared.data_root / name
                     for name in (
                         "artifacts",
-                        "backups",
                         "codex-runner",
                         "exports",
                         "logs",
