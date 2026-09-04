@@ -4274,8 +4274,17 @@
             "title": "Observation Id",
             "type": "string"
           },
+          "origin_kind": {
+            "enum": [
+              "automatic",
+              "creator",
+              "subject"
+            ],
+            "title": "Origin Kind",
+            "type": "string"
+          },
           "projection_version": {
-            "const": "creator-live-vision-observation.v1",
+            "const": "creator-live-vision-observation.v2",
             "title": "Projection Version",
             "type": "string"
           },
@@ -4284,8 +4293,18 @@
             "title": "Registered At",
             "type": "string"
           },
+          "source_kind": {
+            "enum": [
+              "camera",
+              "screen"
+            ],
+            "title": "Source Kind",
+            "type": "string"
+          },
           "status": {
             "enum": [
+              "capture_pending",
+              "capturing",
               "registered",
               "recognizing",
               "completed",
@@ -4313,7 +4332,8 @@
               "initial",
               "scene_change",
               "periodic_refresh",
-              "manual"
+              "manual",
+              "subject_request"
             ],
             "title": "Trigger",
             "type": "string"
@@ -4322,6 +4342,8 @@
         "required": [
           "projection_version",
           "observation_id",
+          "source_kind",
+          "origin_kind",
           "trigger",
           "status",
           "registered_at",
@@ -4332,7 +4354,7 @@
         "title": "LiveVisionObservationResponse",
         "type": "object"
       },
-      "LiveVisionStatusResponse": {
+      "LiveVisionSourceStatusResponse": {
         "additionalProperties": false,
         "properties": {
           "capture_ready": {
@@ -4356,17 +4378,6 @@
             ],
             "title": "Current Manual Observation Ref"
           },
-          "device": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Device"
-          },
           "enabled": {
             "title": "Enabled",
             "type": "boolean"
@@ -4379,6 +4390,17 @@
             "minimum": 1.0,
             "title": "Hourly Limit",
             "type": "integer"
+          },
+          "identity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Identity"
           },
           "last_frame_at": {
             "anyOf": [
@@ -4419,7 +4441,7 @@
             "type": "boolean"
           },
           "projection_version": {
-            "const": "creator-live-vision-status.v2",
+            "const": "creator-live-vision-source-status.v3",
             "title": "Projection Version",
             "type": "string"
           },
@@ -4430,6 +4452,14 @@
             "maxItems": 16,
             "title": "Reason Codes",
             "type": "array"
+          },
+          "source_kind": {
+            "enum": [
+              "camera",
+              "screen"
+            ],
+            "title": "Source Kind",
+            "type": "string"
           },
           "state": {
             "enum": [
@@ -4448,10 +4478,11 @@
         "required": [
           "contract_version",
           "projection_version",
+          "source_kind",
           "state",
           "enabled",
           "expected_running",
-          "device",
+          "identity",
           "capture_ready",
           "perception_ready",
           "last_frame_at",
@@ -4461,6 +4492,43 @@
           "hourly_limit",
           "observed_at",
           "reason_codes"
+        ],
+        "title": "LiveVisionSourceStatusResponse",
+        "type": "object"
+      },
+      "LiveVisionStatusResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "1.0",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "observed_at": {
+            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
+            "title": "Observed At",
+            "type": "string"
+          },
+          "projection_version": {
+            "const": "creator-live-vision-status.v3",
+            "title": "Projection Version",
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/LiveVisionSourceStatusResponse"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "contract_version",
+          "projection_version",
+          "sources",
+          "observed_at"
         ],
         "title": "LiveVisionStatusResponse",
         "type": "object"
@@ -10196,9 +10264,20 @@
         "summary": "Observe Live Vision"
       }
     },
-    "/v1/vision/preview": {
+    "/v1/vision/sources/{source_kind}/preview": {
       "get": {
-        "operationId": "getLiveVisionPreview",
+        "operationId": "getLiveVisionSourcePreview",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_kind",
+            "required": true,
+            "schema": {
+              "title": "Source Kind",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -10215,12 +10294,23 @@
             "browserSessionBearer": []
           }
         ],
-        "summary": "Live Vision Preview"
+        "summary": "Get Live Vision Preview"
       }
     },
-    "/v1/vision/start": {
+    "/v1/vision/sources/{source_kind}/start": {
       "post": {
-        "operationId": "startLiveVision",
+        "operationId": "startLiveVisionSource",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_kind",
+            "required": true,
+            "schema": {
+              "title": "Source Kind",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -10239,6 +10329,40 @@
           }
         ],
         "summary": "Start Live Vision"
+      }
+    },
+    "/v1/vision/sources/{source_kind}/stop": {
+      "post": {
+        "operationId": "stopLiveVisionSource",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_kind",
+            "required": true,
+            "schema": {
+              "title": "Source Kind",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveVisionStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "Stop Live Vision"
       }
     },
     "/v1/vision/status": {
@@ -10262,29 +10386,6 @@
           }
         ],
         "summary": "Live Vision Status"
-      }
-    },
-    "/v1/vision/stop": {
-      "post": {
-        "operationId": "stopLiveVision",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LiveVisionStatusResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "security": [
-          {
-            "browserSessionBearer": []
-          }
-        ],
-        "summary": "Stop Live Vision"
       }
     },
     "/v1/voice/start": {

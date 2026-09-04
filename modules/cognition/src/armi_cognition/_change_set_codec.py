@@ -39,6 +39,7 @@ from armi_kernel.application import (
     SubjectCommitViolation,
 )
 from armi_kernel.contracts import ContractViolation, Digest
+from armi_live_vision.api import VisualObservationRequestDraft, VisualSourceKind
 from armi_material.api import (
     MaterialCognitionPort,
     MaterialViolation,
@@ -86,6 +87,7 @@ _TOP_KEYS = {
     "capability_requests",
     "action_choices",
     "web_research_requests",
+    "visual_observation_requests",
     "codex_delegations",
     "owner_drafts",
     "exact_life_queries",
@@ -108,7 +110,7 @@ def parse_subject_change_set(
         if type(raw) is not dict:
             raise ValueError
         document = cast(dict[str, Any], raw)
-        if document.get("schema_version") != "armi.subject-change-set.v30":
+        if document.get("schema_version") != "armi.subject-change-set.v31":
             raise ValueError
         if set(document) != _TOP_KEYS:
             raise ValueError
@@ -137,6 +139,10 @@ def parse_subject_change_set(
         web_research_requests = tuple(
             _web_research(item)
             for item in _array(document.get("web_research_requests", []), 1)
+        )
+        visual_observation_requests = tuple(
+            _visual_observation_request(item)
+            for item in _array(document.get("visual_observation_requests", []), 1)
         )
         codex_delegations = tuple(
             _codex_delegation(item)
@@ -240,9 +246,10 @@ def parse_subject_change_set(
             action_choices,
             web_research_requests,
             rejections,
-            codex_delegations,
-            owner_drafts,
-            exact_life_queries,
+            visual_observation_requests=visual_observation_requests,
+            codex_delegations=codex_delegations,
+            owner_drafts=owner_drafts,
+            exact_life_queries=exact_life_queries,
         )
         proposal_refs = [
             item.proposal_ref
@@ -251,6 +258,7 @@ def parse_subject_change_set(
                 *capability_requests,
                 *action_choices,
                 *web_research_requests,
+                *visual_observation_requests,
                 *codex_delegations,
                 *owner_drafts,
                 *exact_life_queries,
@@ -263,6 +271,7 @@ def parse_subject_change_set(
             result.experiences
             or result.capability_requests
             or result.web_research_requests
+            or result.visual_observation_requests
             or result.codex_delegations
             or result.owner_drafts
             or result.exact_life_queries
@@ -430,6 +439,19 @@ def _web_research(value: object) -> WebResearchRequestDraft:
         query,
         _text(item["purpose"]),
         _text(item["operation_class"]),
+    )
+
+
+def _visual_observation_request(value: object) -> VisualObservationRequestDraft:
+    item = _object(
+        value,
+        {"proposal_ref", "atomic_group_ref", "basis_ordinals", "source_kind"},
+    )
+    return VisualObservationRequestDraft(
+        _text(item["proposal_ref"]),
+        _text(item["atomic_group_ref"]),
+        _ordinals(item["basis_ordinals"]),
+        VisualSourceKind(_text(item["source_kind"])),
     )
 
 

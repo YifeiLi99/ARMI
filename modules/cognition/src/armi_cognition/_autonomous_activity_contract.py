@@ -16,7 +16,7 @@ from pydantic import (
 from ._creator_appraisal_contract import AppraisalEventSignalV2
 from ._strict_model_json import strict_model_value
 
-AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION = "armi.autonomous-activity-candidate.v3"
+AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION = "armi.autonomous-activity-candidate.v4"
 
 
 class _StrictModel(BaseModel):
@@ -49,8 +49,16 @@ class AutonomousTerminalDecision(_StrictModel):
     appraisal: AppraisalEventSignalV2 | None = None
 
 
+class AutonomousVisualObservationDecision(_StrictModel):
+    kind: Literal["visual_observation"]
+    source_kind: Literal["camera", "screen"]
+    appraisal: AppraisalEventSignalV2 | None = None
+
+
 AutonomousActivityCandidate = Annotated[
-    StartActivityDecision | AutonomousTerminalDecision,
+    StartActivityDecision
+    | AutonomousTerminalDecision
+    | AutonomousVisualObservationDecision,
     Field(discriminator="kind"),
 ]
 _ADAPTER: TypeAdapter[AutonomousActivityCandidate] = TypeAdapter(
@@ -80,6 +88,7 @@ __all__ = (
     "AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION",
     "AutonomousActivityCandidate",
     "AutonomousTerminalDecision",
+    "AutonomousVisualObservationDecision",
     "StartActivityDecision",
     "autonomous_activity_candidate_schema",
     "parse_autonomous_activity_candidate",

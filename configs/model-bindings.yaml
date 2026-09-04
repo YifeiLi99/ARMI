@@ -8,7 +8,7 @@ bindings:
     version_policy: provider_evolving_alias
     profile: creator_input_cognition
     request_contract_version: armi.model-request.v1
-    response_contract_version: armi.cognition-candidate.v9
+    response_contract_version: armi.cognition-candidate.v10
     response_model_identity_required: true
     credential_identity: armi.model.ark-api-key.v1
     credential_locator: model.ark_api_key
@@ -28,7 +28,7 @@ voice_binding:
   version_policy: fixed_provider_model
   profile: creator_voice_act
   request_contract_version: armi.model-request.v1
-  response_contract_version: armi.creator-voice-act-candidate.v1
+  response_contract_version: armi.creator-voice-act-candidate.v2
   credential_identity: armi.model.ark-api-key.v1
   credential_locator: model.ark_api_key
   credential_purpose: model.request
@@ -41,23 +41,23 @@ voice_binding:
 purpose_profiles:
   consider_creator_input:
     profile: creator_cognitive_act
-    response_contract_version: armi.creator-cognitive-act-candidate.v1
+    response_contract_version: armi.creator-cognitive-act-candidate.v2
     output_token_limit: 2048
   consider_codex_result:
     profile: codex_result
-    response_contract_version: armi.cognition-candidate.v9
+    response_contract_version: armi.cognition-candidate.v10
     output_token_limit: 1024
   consider_codex_task:
     profile: codex_task
-    response_contract_version: armi.cognition-candidate.v9
+    response_contract_version: armi.cognition-candidate.v10
     output_token_limit: 1024
   consider_life_query_result:
     profile: creator_cognitive_act
-    response_contract_version: armi.creator-cognitive-act-candidate.v1
+    response_contract_version: armi.creator-cognitive-act-candidate.v2
     output_token_limit: 2048
   consider_creator_outreach:
     profile: creator_outreach
-    response_contract_version: armi.creator-dialogue-candidate.v23
+    response_contract_version: armi.creator-dialogue-candidate.v24
     output_token_limit: 512
   consider_other_human_input:
     profile: other_human_dialogue
@@ -65,7 +65,7 @@ purpose_profiles:
     output_token_limit: 1024
   consider_autonomous_life:
     profile: autonomous_activity
-    response_contract_version: armi.autonomous-activity-candidate.v3
+    response_contract_version: armi.autonomous-activity-candidate.v4
     output_token_limit: 1024
   consider_activity_attention:
     profile: activity_attention
@@ -81,12 +81,16 @@ purpose_profiles:
     output_token_limit: 256
   consider_web_evidence:
     profile: web_evidence_cognition
-    response_contract_version: armi.cognition-candidate.v9
+    response_contract_version: armi.cognition-candidate.v10
     output_token_limit: 1024
   consider_visual_observation:
     profile: visual_observation
     response_contract_version: armi.visual-observation-candidate.v1
     output_token_limit: 768
+  consider_requested_visual_observation:
+    profile: creator_cognitive_act
+    response_contract_version: armi.creator-cognitive-act-candidate.v2
+    output_token_limit: 2048
   maintain_subjective_memory:
     profile: memory_maintenance
     response_contract_version: armi.maintenance-work-candidate.v1

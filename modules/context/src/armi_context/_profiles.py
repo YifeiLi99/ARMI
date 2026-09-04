@@ -155,6 +155,13 @@ _PROFILES = {
             {"current_scene", "current_relationship", "creator_prompt"}
         ),
     ),
+    "consider_requested_visual_observation": _profile(
+        "consider_requested_visual_observation",
+        required=frozenset(
+            {"current_scene", "current_relationship", "current_evidence"}
+        ),
+        retrieval=frozenset({"current_memory", "current_material"}),
+    ),
     "consider_codex_task": _profile(
         "consider_codex_task",
         required=frozenset(

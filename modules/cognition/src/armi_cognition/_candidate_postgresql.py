@@ -55,6 +55,7 @@ from armi_kernel.contracts import (
     SubjectId,
     TraceId,
 )
+from armi_live_vision.api import VisualObservationRequestDraft
 from armi_material.api import (
     MaterialCandidateContextPort,
     MaterialCandidateSource,
@@ -812,6 +813,7 @@ def _validation_drafts(
     | OtherHumanEndConversationDraft
     | FormalNoActionDraft
     | WebResearchRequestDraft
+    | VisualObservationRequestDraft
     | CodexDelegationDraft
     | CandidateRejection,
     ...,
@@ -823,6 +825,7 @@ def _validation_drafts(
         *change_set.capability_requests,
         *change_set.action_choices,
         *change_set.web_research_requests,
+        *change_set.visual_observation_requests,
         *change_set.codex_delegations,
         *change_set.rejections,
     )
@@ -840,6 +843,7 @@ def _owner(
     | OtherHumanEndConversationDraft
     | FormalNoActionDraft
     | WebResearchRequestDraft
+    | VisualObservationRequestDraft
     | CodexDelegationDraft
     | CandidateRejection,
 ) -> CandidateOwner:
@@ -865,6 +869,8 @@ def _owner(
         return CandidateOwner.ACTION
     if isinstance(value, WebResearchRequestDraft):
         return CandidateOwner.WEB_RESEARCH
+    if isinstance(value, VisualObservationRequestDraft):
+        return CandidateOwner.VISUAL_OBSERVATION
     if isinstance(value, CodexDelegationDraft):
         return CandidateOwner.CODEX_DELEGATION
     return CandidateOwner(value.owner.value)
@@ -882,6 +888,7 @@ def _implicit_fact_class(
     | OtherHumanEndConversationDraft
     | FormalNoActionDraft
     | WebResearchRequestDraft
+    | VisualObservationRequestDraft
     | CodexDelegationDraft
     | CandidateRejection,
 ) -> CandidateFactClass:

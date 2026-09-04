@@ -7,6 +7,7 @@ import {
   getLiveVisionObservation,
   getLiveVisionPreview,
   getLiveVisionStatus,
+  type LiveVisionSourceKind,
   observeLiveVision,
 } from "../../api/client";
 import { createCreatorInputKey } from "../scene/messageIntent";
@@ -19,50 +20,91 @@ const labels: Record<string, string> = {
   idle: "已暂停",
   starting: "正在启动",
   observing: "正在观察",
-  degraded: "连接中断，等待同一设备恢复",
+  degraded: "连接中断，等待同一来源恢复",
   unavailable: "暂不可用",
   stopping: "正在停止",
 };
 
 export function LiveVisionCard({ token, onUnauthorized }: Props) {
-  const queryClient = useQueryClient();
-  const key = ["live-vision-status"] as const;
   const status = useQuery({
-    queryKey: key,
+    queryKey: ["live-vision-status"],
     queryFn: ({ signal }) => getLiveVisionStatus(token, signal),
     refetchInterval: 2_000,
   });
-  const control = useMutation({
-    mutationFn: (action: "start" | "stop") => controlLiveVision(token, action),
-    onSuccess: (value) => queryClient.setQueryData(key, value),
-  });
-  const [manualObservationId, setManualObservationId] = useState<string | null>(
-    null,
+  useEffect(() => {
+    if (status.error instanceof ApiFailure && status.error.status === 401) {
+      onUnauthorized();
+    }
+  }, [onUnauthorized, status.error]);
+  return (
+    <section className="authority-panel" aria-labelledby="live-vision-heading">
+      <div className="panel-heading-row">
+        <div>
+          <p className="eyebrow">私有环境感知</p>
+          <h2 id="live-vision-heading">常驻视觉</h2>
+        </div>
+      </div>
+      {status.isPending ? <p role="status">正在读取视觉状态</p> : null}
+      {status.isError ? <p role="status">当前无法读取视觉状态。</p> : null}
+      {status.data?.sources.map((source) => (
+        <VisionSourcePanel
+          key={source.source_kind}
+          token={token}
+          source={source.source_kind}
+          status={source}
+          onUnauthorized={onUnauthorized}
+        />
+      ))}
+      <p className="boundary-note">
+        预览只读取 Runtime 内存中的缩小画面，不保存、不上传模型，也不形成
+        Evidence。正式屏幕观察会把所选显示器的完整画面发送给视觉模型。
+      </p>
+    </section>
   );
+}
+
+function VisionSourcePanel({
+  token,
+  source,
+  status,
+  onUnauthorized,
+}: {
+  token: string;
+  source: LiveVisionSourceKind;
+  status: Awaited<ReturnType<typeof getLiveVisionStatus>>["sources"][number];
+  onUnauthorized: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [observationId, setObservationId] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string>();
+  const control = useMutation({
+    mutationFn: (action: "start" | "stop") =>
+      controlLiveVision(token, source, action),
+    onSuccess: (value) =>
+      queryClient.setQueryData(["live-vision-status"], value),
+  });
+  const manual = useMutation({
+    mutationFn: () => observeLiveVision(token, source, createCreatorInputKey()),
+    onSuccess: (value) => setObservationId(value.observation_id),
+  });
   const observation = useQuery({
-    queryKey: ["live-vision-observation", manualObservationId],
-    enabled: manualObservationId !== null,
+    queryKey: ["live-vision-observation", source, observationId],
+    enabled: observationId !== null,
     queryFn: ({ signal }) =>
-      getLiveVisionObservation(token, manualObservationId!, signal),
+      getLiveVisionObservation(token, observationId!, signal),
     refetchInterval: (query) =>
       query.state.data !== undefined &&
       ["completed", "failed", "unknown"].includes(query.state.data.status)
         ? false
         : 1_000,
   });
-  const manual = useMutation({
-    mutationFn: () => observeLiveVision(token, createCreatorInputKey()),
-    onSuccess: (value) => setManualObservationId(value.observation_id),
-  });
-  const [previewUrl, setPreviewUrl] = useState<string>();
   const preview = useMutation({
-    mutationFn: () => getLiveVisionPreview(token),
-    onSuccess: (blob) => {
+    mutationFn: () => getLiveVisionPreview(token, source),
+    onSuccess: (blob) =>
       setPreviewUrl((current) => {
         if (current !== undefined) URL.revokeObjectURL(current);
         return blob === null ? undefined : URL.createObjectURL(blob);
-      });
-    },
+      }),
   });
   useEffect(
     () => () => {
@@ -71,46 +113,33 @@ export function LiveVisionCard({ token, onUnauthorized }: Props) {
     [previewUrl],
   );
   useEffect(() => {
-    const errors = [
-      status.error,
-      control.error,
-      preview.error,
-      manual.error,
-      observation.error,
-    ];
     if (
-      errors.some(
+      [control.error, manual.error, observation.error, preview.error].some(
         (error) => error instanceof ApiFailure && error.status === 401,
       )
-    ) {
+    )
       onUnauthorized();
-    }
   }, [
     control.error,
     manual.error,
     observation.error,
     onUnauthorized,
     preview.error,
-    status.error,
   ]);
-
-  const active =
-    status.data?.state === "observing" || status.data?.state === "degraded";
+  const active = status.state === "observing" || status.state === "degraded";
+  const title = source === "camera" ? "摄像头" : "电脑屏幕";
   return (
-    <section className="authority-panel" aria-labelledby="live-vision-heading">
+    <article className="authority-panel" aria-label={title}>
       <div className="panel-heading-row">
-        <div>
-          <p className="eyebrow">私有环境感知</p>
-          <h2 id="live-vision-heading">常驻视觉</h2>
-        </div>
+        <h3>{title}</h3>
         <div className="panel-actions">
           <button
             type="button"
             className="secondary"
-            disabled={!status.data?.capture_ready || preview.isPending}
+            disabled={!status.capture_ready || preview.isPending}
             onClick={() => preview.mutate()}
           >
-            单帧取景检查
+            预览
           </button>
           <button
             type="button"
@@ -121,65 +150,52 @@ export function LiveVisionCard({ token, onUnauthorized }: Props) {
             立即观察
           </button>
           <ComponentSwitch
-            label="常驻视觉"
+            label={title}
             checked={active}
-            disabled={!status.data?.enabled}
+            disabled={!status.enabled}
             pending={control.isPending}
             onChange={(running) => control.mutate(running ? "start" : "stop")}
           />
         </div>
       </div>
-      {status.isPending ? <p role="status">正在读取视觉状态</p> : null}
-      {status.isError ? <p role="status">当前无法读取视觉状态。</p> : null}
-      {status.data === undefined ? null : (
-        <>
-          <p className="maintenance-state" role="status">
-            {labels[status.data.state] ?? status.data.state}
-          </p>
-          <dl>
-            <div>
-              <dt>精确设备</dt>
-              <dd>{status.data.device ?? "尚未配置"}</dd>
-            </div>
-            <div>
-              <dt>采集</dt>
-              <dd>{status.data.capture_ready ? "已就绪" : "未就绪"}</dd>
-            </div>
-            <div>
-              <dt>感知</dt>
-              <dd>{status.data.perception_ready ? "已就绪" : "未就绪"}</dd>
-            </div>
-            <div>
-              <dt>最后帧</dt>
-              <dd>{status.data.last_frame_at ?? "尚无"}</dd>
-            </div>
-            <div>
-              <dt>最后观察</dt>
-              <dd>{status.data.last_observation_at ?? "尚无"}</dd>
-            </div>
-            <div>
-              <dt>手动观察责任</dt>
-              <dd>{status.data.current_manual_observation_ref ?? "尚无"}</dd>
-            </div>
-            <div>
-              <dt>小时预算</dt>
-              <dd>
-                {status.data.observations_last_hour} /{" "}
-                {status.data.hourly_limit}
-              </dd>
-            </div>
-          </dl>
-          {status.data.reason_codes.map((reason) => (
-            <p className="field-note" key={reason}>
-              状态原因：{reason}
-            </p>
-          ))}
-        </>
-      )}
+      <p className="maintenance-state" role="status">
+        {labels[status.state] ?? status.state}
+      </p>
+      <dl>
+        <div>
+          <dt>精确来源</dt>
+          <dd>{status.identity ?? "尚未配置"}</dd>
+        </div>
+        <div>
+          <dt>采集 / 感知</dt>
+          <dd>
+            {status.capture_ready ? "已就绪" : "未就绪"} /{" "}
+            {status.perception_ready ? "已就绪" : "未就绪"}
+          </dd>
+        </div>
+        <div>
+          <dt>最后帧 / 观察</dt>
+          <dd>
+            {status.last_frame_at ?? "尚无"} /{" "}
+            {status.last_observation_at ?? "尚无"}
+          </dd>
+        </div>
+        <div>
+          <dt>小时预算</dt>
+          <dd>
+            {status.observations_last_hour} / {status.hourly_limit}
+          </dd>
+        </div>
+      </dl>
+      {status.reason_codes.map((reason) => (
+        <p className="field-note" key={reason}>
+          状态原因：{reason}
+        </p>
+      ))}
       {previewUrl === undefined ? null : (
         <img
           src={previewUrl}
-          alt="当前摄像头单帧预览"
+          alt={`${title}当前帧预览`}
           style={{ maxWidth: "100%", height: "auto" }}
         />
       )}
@@ -197,10 +213,6 @@ export function LiveVisionCard({ token, onUnauthorized }: Props) {
             : ` · ${observation.data.error_code}`}
         </p>
       )}
-      <p className="boundary-note">
-        浏览器不会申请摄像头权限。预览只读取 Runtime
-        内存中的当前缩小画面，不保存、不上传模型，也不形成 Evidence。
-      </p>
-    </section>
+    </article>
   );
 }

@@ -3,17 +3,18 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid7
 
 from armi_live_vision.api import (
-    CameraDevice,
-    CameraFrame,
+    CameraSourceIdentity,
     ObservationStatus,
     ObservationTrigger,
+    VisualFrame,
     VisualObservation,
+    VisualSourceKind,
 )
 from armi_live_vision.service import LiveVisionService
 
 
 class FakeCamera:
-    def __init__(self, device: CameraDevice) -> None:
+    def __init__(self, device: CameraSourceIdentity) -> None:
         self.device = device
         self.open_count = 0
         self.closed = 0
@@ -21,21 +22,21 @@ class FakeCamera:
         self.fail_next = False
         self.available = True
 
-    def devices(self) -> tuple[CameraDevice, ...]:
+    def sources(self):
         return (self.device,) if self.available else ()
 
-    async def open(self, device, format) -> None:
-        assert device == self.device
+    async def open(self, source, format) -> None:
+        assert source == self.device
         assert (format.width, format.height, format.fps) == (1280, 720, 5)
         self.open_count += 1
 
-    async def next_frame(self) -> CameraFrame:
+    async def next_frame(self) -> VisualFrame:
         await asyncio.sleep(0.001)
         if self.fail_next:
             self.fail_next = False
             raise RuntimeError("disconnected")
         self.frame_no += 1
-        return CameraFrame(
+        return VisualFrame(
             datetime.now(UTC),
             f"jpeg-{self.frame_no}".encode(),
             1280,
@@ -72,20 +73,30 @@ class FakeSink:
         return self.by_key.get(idempotency_key)
 
     async def observe(
-        self, *, trigger, frames, change_score, idempotency_key=None
+        self,
+        *,
+        trigger,
+        frames,
+        change_score,
+        origin_kind,
+        idempotency_key=None,
+        origin_episode_id=None,
+        origin_scene_id=None,
     ) -> VisualObservation:
-        assert 1 <= len(frames) <= 4
+        assert frames == ()
         self.triggers.append(trigger)
         if self.fail_observation:
             self.fail_observation = False
             raise RuntimeError("database unavailable")
         result = VisualObservation(
             uuid7(),
+            VisualSourceKind.CAMERA,
+            origin_kind,
             trigger,
-            ObservationStatus.COMPLETED,
+            ObservationStatus.CAPTURE_PENDING,
             datetime.now(UTC),
             change_score,
-            "fake scene",
+            None,
         )
         if idempotency_key is not None:
             self.by_key[idempotency_key] = result
@@ -94,9 +105,10 @@ class FakeSink:
 
 def _service(camera: FakeCamera, sink: FakeSink) -> LiveVisionService:
     return LiveVisionService(
-        camera=camera,
+        source_kind=VisualSourceKind.CAMERA,
+        source=camera,
         sink=sink,
-        device=camera.device,
+        identity=camera.device,
         reconnect=timedelta(milliseconds=2),
         warmup=timedelta(milliseconds=5),
         selection_interval=timedelta(milliseconds=2),
@@ -105,7 +117,7 @@ def _service(camera: FakeCamera, sink: FakeSink) -> LiveVisionService:
 
 def test_start_observes_once_and_manual_observation_reuses_running_capture() -> None:
     async def scenario() -> None:
-        device = CameraDevice("USB Camera", "path", "location")
+        device = CameraSourceIdentity("USB Camera", "path", "location")
         camera, sink = FakeCamera(device), FakeSink()
         service = _service(camera, sink)
         try:
@@ -122,7 +134,7 @@ def test_start_observes_once_and_manual_observation_reuses_running_capture() -> 
 
 def test_disconnect_closes_old_session_and_reopens_only_configured_device() -> None:
     async def scenario() -> None:
-        device = CameraDevice("USB Camera", "path", "location")
+        device = CameraSourceIdentity("USB Camera", "path", "location")
         camera, sink = FakeCamera(device), FakeSink()
         service = _service(camera, sink)
         try:
@@ -135,7 +147,7 @@ def test_disconnect_closes_old_session_and_reopens_only_configured_device() -> N
                 await asyncio.sleep(0.002)
             assert camera.open_count == 2
             assert sink.open_count == 2
-            assert "VISION-CAMERA-DISCONNECTED" in sink.closes
+            assert "VISION-SOURCE-DISCONNECTED" in sink.closes
         finally:
             await service.stop()
 
@@ -144,7 +156,7 @@ def test_disconnect_closes_old_session_and_reopens_only_configured_device() -> N
 
 def test_missing_configured_device_is_retried_without_switching_identity() -> None:
     async def scenario() -> None:
-        device = CameraDevice("USB Camera", "path", "location")
+        device = CameraSourceIdentity("USB Camera", "path", "location")
         camera, sink = FakeCamera(device), FakeSink()
         camera.available = False
         service = _service(camera, sink)
@@ -170,7 +182,7 @@ def test_missing_configured_device_is_retried_without_switching_identity() -> No
 
 def test_scheduled_observation_failure_is_consumed_and_degrades_service() -> None:
     async def scenario() -> None:
-        device = CameraDevice("USB Camera", "path", "location")
+        device = CameraSourceIdentity("USB Camera", "path", "location")
         camera, sink = FakeCamera(device), FakeSink()
         service = _service(camera, sink)
         try:

@@ -27,8 +27,8 @@ ARMI 不把人格提示词、模型会话或任务 Agent 当成“她”。当�
 | 应用 | 权威 `armi-runtime`、隔离 `armi-admin`、React Creator Web |
 | 业务 | 23 个独立 Python distribution，各自拥有事实、表、恢复和数据权利责任 |
 | 底座/适配器 | Kernel、Runtime Foundation、Artifact Store、PostgreSQL contract、NapCat、QQ、ESP32 display 共 7 个包 |
-| 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；baseline `armi.schema-baseline.v11` |
-| 物理 schema | 当前 baseline 108 张表、1359 个字段、1 个只读 view、65 个显式索引；表和生产 DML 都受 owner registry 检查 |
+| 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；baseline `armi.schema-baseline.v12` |
+| 物理 schema | 当前 baseline 108 张表、1363 个字段、1 个只读 view、65 个显式索引；表和生产 DML 都受 owner registry 检查 |
 | Creator API | 52 个 OpenAPI path；同源 bearer session、签名分页、SSE 投影失效刷新 |
 | 管理面 | 21 个 Admin MCP 工具，仅限 `development` / `system_test` / `acceptance` |
 | 工具链 | Python 3.14.6、Node 24.18.0、uv 0.11.33；精确版本以 lock/manifest 为准 |
@@ -52,7 +52,7 @@ ARMI 不把人格提示词、模型会话或任务 Agent 当成“她”。当�
   → 边界执行与回执核验
 ```
 
-模型候选可表达回复、拒绝、不行动、不改变、延期、需要信息、精确生命查询或网页研究，并可携带有依据的 experience/appraisal/受限 owner changes。模型不能填写主体版本、权限结果、VAD、模型身份、usage 或现实执行结果。慢模型、网络、文件、设备和 Codex I/O 一律在数据库写事务外；回库时重新验证 Runtime fence、work lease、generation 和主体/owner 版本。
+模型候选可表达回复、拒绝、不行动、不改变、延期、需要信息、精确生命查询、网页研究或对已启用 camera/screen 的一次视觉观察请求，并可携带有依据的 experience/appraisal/受限 owner changes。模型不能填写主体版本、权限结果、VAD、模型身份、usage 或现实执行结果。慢模型、网络、文件、设备和 Codex I/O 一律在数据库写事务外；回库时重新验证 Runtime fence、work lease、generation 和主体/owner 版本。
 
 ## 仓库结构
 
@@ -138,7 +138,7 @@ uv run python tools/verify_live_creator_roundtrip.py `
 - [docs/README.md](docs/README.md)：私有设计资料总索引。
 - [产品定义](docs/01-产品定义/)：ARMI 是谁、生活与关系、真实性/隐私/自主性。
 - [系统设计](docs/02-系统设计/)：权威运行时、认知、权限/效果、恢复、Mood。
-- [数据设计](docs/03-数据设计/)：事实分层、全局关系、字段合同、108 张表/1359 字段、约束、索引与 ACL。
+- [数据设计](docs/03-数据设计/)：事实分层、全局关系、字段合同、108 张表/1363 字段、约束、索引与 ACL。
 - [实现参考](docs/04-实现参考/)：模块、配置、接口、模型/Codex/渠道、设备。
 - [运行与验证](docs/05-运行与验证/)：运行手册、质量门禁和实测性能基线。
 - [外部研究参考](docs/00-外部研究参考/)：带来源的外部证据，不是 ARMI 事实源。

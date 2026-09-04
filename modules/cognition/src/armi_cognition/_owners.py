@@ -15,6 +15,7 @@ class CandidateOwner(StrEnum):
     CAPABILITY = "capability"
     ACTION = "action"
     WEB_RESEARCH = "web_research"
+    VISUAL_OBSERVATION = "visual_observation"
     CODEX_DELEGATION = "codex_delegation"
     SLEEP = "sleep"
     MATERIAL = "material"

@@ -36,6 +36,7 @@ from armi_kernel.application import (
     require_cognition_purpose,
 )
 from armi_kernel.contracts import Digest, TraceId
+from armi_live_vision.api import VisualObservationRequestDraft
 from armi_runtime_foundation import (
     PostgreSQLAdminTransaction,
     PostgreSQLRuntimeUnitOfWork,
@@ -114,6 +115,7 @@ class SubjectChangeSet:
     action_choices: tuple[ResponseChoiceDraft, ...]
     web_research_requests: tuple[WebResearchRequestDraft, ...]
     rejections: tuple[CandidateRejection, ...]
+    visual_observation_requests: tuple[VisualObservationRequestDraft, ...] = ()
     codex_delegations: tuple[CodexDelegationDraft, ...] = ()
     owner_drafts: tuple[CandidateOwnerDraft, ...] = ()
     exact_life_queries: tuple[CandidateExactLifeQueryDraft, ...] = ()

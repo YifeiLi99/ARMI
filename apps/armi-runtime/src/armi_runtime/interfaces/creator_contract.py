@@ -742,9 +742,10 @@ class LiveVoiceStatusResponse(_StrictWireModel):
     reason_codes: Annotated[list[ReasonCode], Field(max_length=16)]
 
 
-class LiveVisionStatusResponse(_StrictWireModel):
+class LiveVisionSourceStatusResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["creator-live-vision-status.v2"]
+    projection_version: Literal["creator-live-vision-source-status.v3"]
+    source_kind: Literal["camera", "screen"]
     state: Literal[
         "disabled",
         "idle",
@@ -756,7 +757,7 @@ class LiveVisionStatusResponse(_StrictWireModel):
     ]
     enabled: bool
     expected_running: bool
-    device: str | None
+    identity: str | None
     capture_ready: bool
     perception_ready: bool
     last_frame_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None
@@ -770,17 +771,39 @@ class LiveVisionStatusResponse(_StrictWireModel):
     reason_codes: Annotated[list[ReasonCode], Field(max_length=16)]
 
 
+class LiveVisionStatusResponse(_StrictWireModel):
+    contract_version: Literal["1.0"]
+    projection_version: Literal["creator-live-vision-status.v3"]
+    sources: Annotated[
+        list[LiveVisionSourceStatusResponse], Field(min_length=2, max_length=2)
+    ]
+    observed_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
+
+
 class LiveVisionObservationRequest(_StrictWireModel):
     contract_version: Literal["1.0"] = "1.0"
+    source_kind: Literal["camera", "screen"]
     trigger: Literal["manual"] = "manual"
 
 
 class LiveVisionObservationResponse(_StrictWireModel):
     contract_version: Literal["1.0"] = "1.0"
-    projection_version: Literal["creator-live-vision-observation.v1"]
+    projection_version: Literal["creator-live-vision-observation.v2"]
     observation_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
-    trigger: Literal["initial", "scene_change", "periodic_refresh", "manual"]
-    status: Literal["registered", "recognizing", "completed", "failed", "unknown"]
+    source_kind: Literal["camera", "screen"]
+    origin_kind: Literal["automatic", "creator", "subject"]
+    trigger: Literal[
+        "initial", "scene_change", "periodic_refresh", "manual", "subject_request"
+    ]
+    status: Literal[
+        "capture_pending",
+        "capturing",
+        "registered",
+        "recognizing",
+        "completed",
+        "failed",
+        "unknown",
+    ]
     registered_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
     change_score: Annotated[float, Field(ge=0, le=1)] | None
     summary: Annotated[str, Field(min_length=1, max_length=2048)] | None
@@ -1489,6 +1512,7 @@ __all__ = (
     "LiveResponse",
     "LiveVisionObservationRequest",
     "LiveVisionObservationResponse",
+    "LiveVisionSourceStatusResponse",
     "LiveVisionStatusResponse",
     "LiveVoiceStatusResponse",
     "OperationOutcomeResponse",

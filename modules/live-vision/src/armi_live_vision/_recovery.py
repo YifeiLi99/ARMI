@@ -1,4 +1,4 @@
-"""Terminate interrupted camera sessions; they are never resumed in place."""
+"""Terminate interrupted visual sessions; dispatched work is never guessed."""
 
 from armi_runtime_foundation import (
     OwnerReconciliationContext,
@@ -15,7 +15,10 @@ from armi_runtime_foundation import (
 
 class LiveVisionRecoveryParticipant:
     owner_identity = RecoveryOwnerIdentity("live-vision")
-    work_scopes = (("live_vision_observation", "live.vision.observe"),)
+    work_scopes = (
+        ("live_vision_observation", "live.vision.capture"),
+        ("live_vision_observation", "live.vision.observe"),
+    )
 
     async def recover(
         self,
@@ -38,7 +41,7 @@ class LiveVisionRecoveryParticipant:
                 """UPDATE armi.live_vision_observations
                    SET status='unknown',error_code='VISION-OUTCOME-UNKNOWN',
                        settled_at=statement_timestamp()
-                   WHERE status='recognizing' RETURNING observation_id"""
+                   WHERE status IN ('capturing','recognizing') RETURNING observation_id"""
             )
         ).fetchall()
         unknown_ids = {str(row[0]) for row in observation_rows}

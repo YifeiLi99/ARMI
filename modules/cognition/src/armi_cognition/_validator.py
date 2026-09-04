@@ -48,6 +48,7 @@ from armi_kernel.application import (
     ModelViolation,
 )
 from armi_kernel.contracts import Digest
+from armi_live_vision.api import VisualObservationRequestDraft, VisualSourceKind
 from armi_material.api import (
     CandidateLifeMaterialDraft,
     LifeMaterialKind,
@@ -156,6 +157,7 @@ from ._activity_internal_work_contract import (
 from ._autonomous_activity_contract import (
     AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
     AutonomousTerminalDecision,
+    AutonomousVisualObservationDecision,
     StartActivityDecision,
 )
 from ._creator_appraisal_contract import (
@@ -174,6 +176,7 @@ from ._dialogue_contract import (
     DialogueRelationshipChange,
     DialogueReplyDecision,
     DialogueTerminalDecision,
+    DialogueVisualObservationDecision,
     DialogueWebResearchDecision,
     parse_dialogue_candidate,
     translate_compact_change_set,
@@ -200,6 +203,7 @@ from ._model_contract import (
     RuntimeBoundCreatorReplyPayload,
     RuntimeBoundCreatorSceneReplyRequestPayload,
     SelfState,
+    VisualObservationRequestProposal,
     WebResearchRequestProposal,
     parse_candidate,
 )
@@ -234,7 +238,7 @@ from .api import (
 
 CANDIDATE_POLICY_VERSION = "armi.cognition-candidate-policy.v4"
 CANDIDATE_VALIDATOR_IDENTITY = "armi.candidate-validator.deterministic-v1"
-ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v30"
+ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v31"
 _CODEX_CAPABILITY_ID = UUID("01985d00-0000-7000-8000-000000000038")
 
 
@@ -393,6 +397,7 @@ class CandidateValidationContext:
     other_party_id: UUID | None = None
     scene_kind: str | None = None
     sender_party_kind: str | None = None
+    visual_sources_active: frozenset[str] = frozenset()
 
     def __post_init__(self) -> None:
         if any(
@@ -661,7 +666,11 @@ class DeterministicCandidateValidator:
             )
         if isinstance(
             parsed_candidate,
-            (StartActivityDecision, AutonomousTerminalDecision),
+            (
+                StartActivityDecision,
+                AutonomousTerminalDecision,
+                AutonomousVisualObservationDecision,
+            ),
         ):
             return self._validate_autonomous(
                 parsed_candidate,
@@ -779,6 +788,7 @@ class DeterministicCandidateValidator:
             | CreatorReplyDraft
             | FormalNoActionDraft
             | WebResearchRequestDraft
+            | VisualObservationRequestDraft
             | CodexDelegationDraft,
         ] = {}
         rejected: dict[str, CandidateRejection] = {}
@@ -972,6 +982,22 @@ class DeterministicCandidateValidator:
                         proposal.atomic_group_ref,
                         tuple(basis.ordinal for basis in proposal_bases),
                         query_bytes,
+                    )
+                    continue
+            if failure is None and owner is CandidateOwner.VISUAL_OBSERVATION:
+                visual = cast(VisualObservationRequestProposal, proposal)
+                failure = _visual_observation_request_failure(
+                    visual,
+                    proposal_bases,
+                    active=self._context.visual_sources_active,
+                    purpose=self._context.purpose,
+                )
+                if failure is None:
+                    accepted[proposal.proposal_ref] = VisualObservationRequestDraft(
+                        proposal.proposal_ref,
+                        proposal.atomic_group_ref,
+                        tuple(basis.ordinal for basis in proposal_bases),
+                        VisualSourceKind(visual.payload.source_kind),
                     )
                     continue
             if failure is None and owner is CandidateOwner.CODEX_DELEGATION:
@@ -1190,6 +1216,11 @@ class DeterministicCandidateValidator:
             for _, value in sorted(accepted.items())
             if isinstance(value, WebResearchRequestDraft)
         )
+        visual_observation_requests = tuple(
+            value
+            for _, value in sorted(accepted.items())
+            if isinstance(value, VisualObservationRequestDraft)
+        )
         codex_delegations = tuple(
             value
             for _, value in sorted(accepted.items())
@@ -1218,6 +1249,10 @@ class DeterministicCandidateValidator:
             "web_research_requests": [
                 _web_research_wire(item) for item in web_research_requests
             ],
+            "visual_observation_requests": [
+                _visual_observation_request_wire(item)
+                for item in visual_observation_requests
+            ],
             "codex_delegations": [
                 _codex_delegation_wire(item) for item in codex_delegations
             ],
@@ -1244,7 +1279,8 @@ class DeterministicCandidateValidator:
             action_choices,
             web_research_requests,
             rejections,
-            codex_delegations,
+            visual_observation_requests=visual_observation_requests,
+            codex_delegations=codex_delegations,
             owner_drafts=owner_drafts,
             exact_life_queries=exact_life_queries,
         )
@@ -1336,6 +1372,7 @@ class DeterministicCandidateValidator:
             "capability_requests": [],
             "action_choices": [],
             "web_research_requests": [],
+            "visual_observation_requests": [],
             "codex_delegations": [],
             "owner_drafts": [_owner_draft_wire(item) for item in owner_drafts],
             "exact_life_queries": [],
@@ -1521,6 +1558,7 @@ class DeterministicCandidateValidator:
             "capability_requests": [],
             "action_choices": [_action_wire(item) for item in action_choices],
             "web_research_requests": [],
+            "visual_observation_requests": [],
             "codex_delegations": [],
             "owner_drafts": [
                 _owner_draft_wire(item)
@@ -1576,7 +1614,11 @@ class DeterministicCandidateValidator:
 
     def _validate_autonomous(
         self,
-        candidate: StartActivityDecision | AutonomousTerminalDecision,
+        candidate: (
+            StartActivityDecision
+            | AutonomousTerminalDecision
+            | AutonomousVisualObservationDecision
+        ),
         *,
         bases: tuple[CandidateBasis, ...],
     ) -> CandidateValidationResult:
@@ -1599,8 +1641,21 @@ class DeterministicCandidateValidator:
         )
         if source is None:
             return _rejected("CANDIDATE-ACTIVITY-SOURCE")
+        visual_requests: tuple[VisualObservationRequestDraft, ...] = ()
+        if isinstance(candidate, AutonomousVisualObservationDecision):
+            if candidate.source_kind not in self._context.visual_sources_active:
+                return _rejected("CANDIDATE-VISION-SOURCE-NOT-ACTIVE")
+            visual_requests = (
+                VisualObservationRequestDraft(
+                    "proposal:1",
+                    "group:1",
+                    (source.ordinal,),
+                    VisualSourceKind(candidate.source_kind),
+                ),
+            )
         disposition = {
             "start_activity": CandidateDisposition.CHANGE,
+            "visual_observation": CandidateDisposition.CHANGE,
             "no_activity": CandidateDisposition.NO_CHANGE,
             "defer": CandidateDisposition.DEFER,
             "need_information": CandidateDisposition.NEED_INFORMATION,
@@ -1625,7 +1680,9 @@ class DeterministicCandidateValidator:
         if candidate.appraisal is not None:
             mood_draft, mood_error = _bind_appraisal_draft(
                 candidate.appraisal,
-                proposal_ref="proposal:2" if activities else "proposal:1",
+                proposal_ref=(
+                    "proposal:2" if activities or visual_requests else "proposal:1"
+                ),
                 bases=bases,
                 context=self._context,
                 cognition=self._mood_cognition,
@@ -1651,6 +1708,9 @@ class DeterministicCandidateValidator:
             "capability_requests": [],
             "action_choices": [],
             "web_research_requests": [],
+            "visual_observation_requests": [
+                _visual_observation_request_wire(item) for item in visual_requests
+            ],
             "codex_delegations": [],
             "owner_drafts": [_owner_draft_wire(item) for item in owner_drafts],
             "exact_life_queries": [],
@@ -1673,14 +1733,14 @@ class DeterministicCandidateValidator:
             (),
             (),
             (),
-            (),
+            visual_requests,
             owner_drafts=tuple(owner_drafts),
         )
         return CandidateValidationResult(
             CandidateValidationId(uuid7()),
             CandidateValidationStatus.ACCEPTED,
             change_set,
-            len(owner_drafts),
+            len(owner_drafts) + len(visual_requests),
             0,
             None,
         )
@@ -1742,6 +1802,7 @@ class DeterministicCandidateValidator:
             "capability_requests": [],
             "action_choices": [],
             "web_research_requests": [],
+            "visual_observation_requests": [],
             "codex_delegations": [],
             "owner_drafts": [_owner_draft_wire(owner_draft)],
             "exact_life_queries": [],
@@ -1862,6 +1923,7 @@ class DeterministicCandidateValidator:
             "capability_requests": [],
             "action_choices": [],
             "web_research_requests": [],
+            "visual_observation_requests": [],
             "codex_delegations": [],
             "owner_drafts": [_owner_draft_wire(item) for item in owner_drafts],
             "exact_life_queries": [],
@@ -2014,6 +2076,7 @@ class DeterministicCandidateValidator:
             "capability_requests": [],
             "action_choices": [],
             "web_research_requests": [],
+            "visual_observation_requests": [],
             "codex_delegations": [],
             "owner_drafts": [_owner_draft_wire(item) for item in owner_drafts],
             "exact_life_queries": [],
@@ -2225,6 +2288,7 @@ class DeterministicCandidateValidator:
             "capability_requests": [],
             "action_choices": [],
             "web_research_requests": [],
+            "visual_observation_requests": [],
             "codex_delegations": [],
             "owner_drafts": [_owner_draft_wire(item) for item in all_owner_drafts],
             "exact_life_queries": [],
@@ -2380,6 +2444,7 @@ class DeterministicCandidateValidator:
             "capability_requests": [],
             "action_choices": [],
             "web_research_requests": [],
+            "visual_observation_requests": [],
             "codex_delegations": [],
             "owner_drafts": [_owner_draft_wire(item) for item in owner_drafts],
             "exact_life_queries": [],
@@ -2522,6 +2587,7 @@ def _expand_creator_cognitive_act(
                 "content": source.content,
                 "record_kind": source.record_kind,
                 "query": source.query,
+                "source_kind": source.source_kind,
                 "changes": tuple(
                     item
                     for item in source.changes
@@ -3250,7 +3316,7 @@ def _expand_dialogue_candidate(
             return (
                 CognitionCandidate.model_validate(
                     {
-                        "schema_version": "armi.cognition-candidate.v9",
+                        "schema_version": "armi.cognition-candidate.v10",
                         "base": {
                             "subject_version": context.base_subject_version,
                             "state_epoch": context.base_state_epoch,
@@ -3311,7 +3377,7 @@ def _expand_dialogue_candidate(
             return (
                 CognitionCandidate.model_validate(
                     {
-                        "schema_version": "armi.cognition-candidate.v9",
+                        "schema_version": "armi.cognition-candidate.v10",
                         "base": {
                             "subject_version": context.base_subject_version,
                             "state_epoch": context.base_state_epoch,
@@ -3355,11 +3421,70 @@ def _expand_dialogue_candidate(
             )
         except ValidationError:
             return None, None, "CANDIDATE-CONTRACT"
+    elif isinstance(decision, DialogueVisualObservationDecision):
+        purpose = next(
+            (
+                item
+                for item in bases
+                if item.item_kind == "current_purpose" and item.trust_class == "policy"
+            ),
+            None,
+        )
+        if purpose is None:
+            return None, None, "CANDIDATE-VISION-PURPOSE-BASIS"
+        basis_refs = (evidence_ref, f"ctx:{purpose.ordinal}")
+        try:
+            return (
+                CognitionCandidate.model_validate(
+                    {
+                        "schema_version": "armi.cognition-candidate.v10",
+                        "base": {
+                            "subject_version": context.base_subject_version,
+                            "state_epoch": context.base_state_epoch,
+                            "bundle_activation_id": str(context.bundle_activation_id),
+                            "context_digest": context.context_digest.value,
+                        },
+                        "disposition": "change",
+                        "understanding": {
+                            "text": summary,
+                            "fact_class": "inference",
+                            "basis_refs": basis_refs,
+                        },
+                        "experiences": (),
+                        "component_changes": (),
+                        "memory_changes": (),
+                        "relationship_changes": (),
+                        "activity_changes": (),
+                        "capability_requests": (),
+                        "action_choices": (),
+                        "web_research_requests": (),
+                        "visual_observation_requests": (
+                            {
+                                "proposal_ref": "proposal:1",
+                                "atomic_group_ref": "group:1",
+                                "basis_refs": basis_refs,
+                                "payload": {
+                                    "proposal_kind": "visual_observation_requests",
+                                    "fact_class": "inference",
+                                    "source_kind": decision.source_kind,
+                                },
+                            },
+                        ),
+                        "uncertainties": (),
+                        "reason_summary": summary,
+                    },
+                    strict=True,
+                ),
+                DialogueBoundChanges(),
+                None,
+            )
+        except ValidationError:
+            return None, None, "CANDIDATE-CONTRACT"
     try:
         return (
             CognitionCandidate.model_validate(
                 {
-                    "schema_version": "armi.cognition-candidate.v9",
+                    "schema_version": "armi.cognition-candidate.v10",
                     "base": {
                         "subject_version": context.base_subject_version,
                         "state_epoch": context.base_state_epoch,
@@ -4448,6 +4573,10 @@ def _all_proposals(
             (CandidateOwner.WEB_RESEARCH, item)
             for item in getattr(candidate, "web_research_requests", ())
         ),
+        *(
+            (CandidateOwner.VISUAL_OBSERVATION, item)
+            for item in getattr(candidate, "visual_observation_requests", ())
+        ),
     )
 
 
@@ -4691,6 +4820,35 @@ def _web_research_failure(
     return None
 
 
+def _visual_observation_request_failure(
+    proposal: VisualObservationRequestProposal,
+    bases: tuple[CandidateBasis, ...],
+    *,
+    active: frozenset[str],
+    purpose: str,
+) -> str | None:
+    if proposal.payload.source_kind not in active:
+        return "CANDIDATE-VISION-SOURCE-NOT-ACTIVE"
+    if purpose not in {
+        "consider_creator_input",
+        "consider_creator_voice_input",
+        "consider_autonomous_life",
+    }:
+        return "CANDIDATE-VISION-RECURSION-FORBIDDEN"
+    if not any(
+        basis.item_kind == "current_evidence"
+        and basis.trust_class in {"external_claim", "runtime_authority"}
+        for basis in bases
+    ):
+        return "CANDIDATE-VISION-EVIDENCE-BASIS"
+    if not any(
+        basis.item_kind == "current_purpose" and basis.trust_class == "policy"
+        for basis in bases
+    ):
+        return "CANDIDATE-VISION-PURPOSE-BASIS"
+    return None
+
+
 def _codex_delegation_failure(
     payload: CodexDelegationPayload,
     bases: tuple[CandidateBasis, ...],
@@ -4783,6 +4941,7 @@ def _draft_owner(
     | CreatorReplyDraft
     | FormalNoActionDraft
     | WebResearchRequestDraft
+    | VisualObservationRequestDraft
     | CodexDelegationDraft,
 ) -> CandidateOwner:
     if isinstance(draft, CandidateExperienceDraft):
@@ -4803,6 +4962,8 @@ def _draft_owner(
         return CandidateOwner.ACTION
     if isinstance(draft, WebResearchRequestDraft):
         return CandidateOwner.WEB_RESEARCH
+    if isinstance(draft, VisualObservationRequestDraft):
+        return CandidateOwner.VISUAL_OBSERVATION
     if isinstance(draft, CodexDelegationDraft):
         return CandidateOwner.CODEX_DELEGATION
     return CandidateOwner(draft.owner)
@@ -4821,13 +4982,17 @@ def _draft_fact_class(
     | CreatorReplyDraft
     | FormalNoActionDraft
     | WebResearchRequestDraft
+    | VisualObservationRequestDraft
     | CodexDelegationDraft,
 ) -> CandidateFactClass:
     if isinstance(
         draft, (CapabilityRequestDraft, CreatorReplyDraft, FormalNoActionDraft)
     ):
         return CandidateFactClass.INFERENCE
-    if isinstance(draft, (WebResearchRequestDraft, CodexDelegationDraft)):
+    if isinstance(
+        draft,
+        (WebResearchRequestDraft, VisualObservationRequestDraft, CodexDelegationDraft),
+    ):
         return CandidateFactClass.INFERENCE
     if isinstance(draft, CandidateLifeMaterialDraft):
         return CandidateFactClass.SUBJECTIVE_UNDERSTANDING
@@ -4887,6 +5052,17 @@ def _web_research_wire(value: WebResearchRequestDraft) -> dict[str, object]:
         "purpose": value.purpose,
         "operation_class": value.operation_class,
         "query": value.query_bytes.decode("utf-8", errors="strict"),
+    }
+
+
+def _visual_observation_request_wire(
+    value: VisualObservationRequestDraft,
+) -> dict[str, object]:
+    return {
+        "proposal_ref": value.proposal_ref,
+        "atomic_group_ref": value.atomic_group_ref,
+        "basis_ordinals": list(value.basis_ordinals),
+        "source_kind": value.source_kind.value,
     }
 
 

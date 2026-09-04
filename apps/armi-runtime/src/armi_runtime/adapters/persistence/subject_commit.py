@@ -98,6 +98,10 @@ from armi_kernel.contracts import (
     SubjectId,
     TraceId,
 )
+from armi_live_vision.api import (
+    VisualObservationCommitContext,
+    VisualObservationCommitPort,
+)
 from armi_material.api import (
     CandidateLifeMaterialDraft,
     MaterialCommitPort,
@@ -300,6 +304,20 @@ def _web_research_commit_context(
     )
 
 
+def _visual_observation_commit_context(
+    snapshot: SubjectCommitSnapshot,
+) -> VisualObservationCommitContext:
+    return VisualObservationCommitContext(
+        snapshot.validation_id,
+        snapshot.episode_id,
+        snapshot.opportunity_id,
+        snapshot.subject_id,
+        snapshot.scene_id,
+        snapshot.creator_party_id,
+        snapshot.trace_id,
+    )
+
+
 def _codex_commit_context(snapshot: SubjectCommitSnapshot) -> CodexCommitContext:
     return CodexCommitContext(
         snapshot.validation_id,
@@ -337,6 +355,7 @@ class PostgreSQLSubjectCommitRepository:
         "_relationship_commit",
         "_sleep_commit",
         "_subject_state_commit",
+        "_visual_observation_commit",
         "_web_research_commit",
     )
 
@@ -364,6 +383,7 @@ class PostgreSQLSubjectCommitRepository:
         sleep_commit: SleepCommitPort,
         subject_state_commit: SubjectStateCommitPort,
         web_research_commit: WebResearchCommitPort,
+        visual_observation_commit: VisualObservationCommitPort,
     ) -> None:
         self._activity_commit = activity_commit
         self._capability_commit = capability_commit
@@ -387,6 +407,7 @@ class PostgreSQLSubjectCommitRepository:
         self._sleep_commit = sleep_commit
         self._subject_state_commit = subject_state_commit
         self._web_research_commit = web_research_commit
+        self._visual_observation_commit = visual_observation_commit
 
     async def settle_stale(
         self,
@@ -790,6 +811,7 @@ class PostgreSQLSubjectCommitRepository:
             and not change_set.capability_requests
             and not change_set.action_choices
             and not change_set.web_research_requests
+            and not change_set.visual_observation_requests
             and not change_set.codex_delegations
             and not change_set.owner_drafts
             and not change_set.exact_life_queries
@@ -1099,6 +1121,15 @@ class PostgreSQLSubjectCommitRepository:
             )
         except WebResearchViolation as error:
             raise SubjectCommitViolation(f"SUBJECT-{error.code}") from None
+        try:
+            await self._visual_observation_commit.commit_requests(
+                unit_of_work,
+                context=_visual_observation_commit_context(snapshot),
+                commit_id=commit_id.value,
+                requests=change_set.visual_observation_requests,
+            )
+        except ValueError as error:
+            raise SubjectCommitViolation(f"SUBJECT-{error}") from None
         await _insert_exact_life_query_intent(
             unit_of_work,
             cognition_commit=self._cognition_commit,
@@ -1649,6 +1680,7 @@ def _assert_accepted_change_set(
         ("capability", change_set.capability_requests),
         ("action", change_set.action_choices),
         ("web_research", change_set.web_research_requests),
+        ("visual_observation", change_set.visual_observation_requests),
         ("codex_delegation", change_set.codex_delegations),
         ("exact_life_query", change_set.exact_life_queries),
     )

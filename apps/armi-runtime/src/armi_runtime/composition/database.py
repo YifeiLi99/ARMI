@@ -178,6 +178,7 @@ from armi_kernel.application import (
     ModelViolation,
     RuntimeFence,
 )
+from armi_live_vision.bootstrap import bootstrap_live_vision_commit
 from armi_live_voice.api import VoiceCognitionResultPort
 from armi_live_voice.bootstrap import bootstrap_live_voice_context_read
 from armi_material.api import (
@@ -1530,6 +1531,7 @@ def compose_candidate_validation_pipeline(
     subject_state_cognition: SubjectStateCognitionPort,
     subject_state_read: SubjectStateReadPort,
     catalog: ArtifactCatalogPort,
+    visual_sources_active: frozenset[str] = frozenset(),
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
 ) -> CognitionWorkerPort:
@@ -1568,6 +1570,7 @@ def compose_candidate_validation_pipeline(
         subject_state_cognition=subject_state_cognition,
         subject_state_read=subject_state_read,
         web_search_active=config.web.enabled,
+        visual_sources_active=visual_sources_active,
         wakeups=wakeups,
         diagnostic=diagnostic,
     )
@@ -1660,6 +1663,7 @@ def compose_subject_commit_pipeline(
         subject_state_cognition=subject_state_cognition,
         subject_state_commit=subject_state_commit,
         web_research_commit=bootstrap_web_research_commit(),
+        visual_observation_commit=bootstrap_live_vision_commit(),
         notifier=notifier,
         voice_results=voice_results,
         wakeups=wakeups,

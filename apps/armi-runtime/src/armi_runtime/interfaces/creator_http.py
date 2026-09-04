@@ -255,14 +255,16 @@ RuntimeStatusProvider = Callable[[], RuntimeStatusResponse]
 QQChannelHealthProvider = Callable[[], Awaitable[QQChannelHealthResponse]]
 QQChannelControlProvider = Callable[[str], Awaitable[QQChannelHealthResponse]]
 LiveVoiceControlProvider = Callable[[str], Awaitable[LiveVoiceStatusResponse]]
-LiveVisionControlProvider = Callable[[str], Awaitable[LiveVisionStatusResponse]]
+LiveVisionControlProvider = Callable[
+    [str, str | None], Awaitable[LiveVisionStatusResponse]
+]
 LiveVisionObservationProvider = Callable[
-    [str], Awaitable[LiveVisionObservationResponse]
+    [str, str], Awaitable[LiveVisionObservationResponse]
 ]
 LiveVisionObservationQueryProvider = Callable[
     [UUID], Awaitable[LiveVisionObservationResponse | None]
 ]
-LiveVisionPreviewProvider = Callable[[], bytes | None]
+LiveVisionPreviewProvider = Callable[[str], bytes | None]
 SubjectSummaryProvider = Callable[[], Awaitable[SubjectSummary]]
 SecurityEvent = Callable[[str], None]
 

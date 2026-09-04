@@ -45,6 +45,7 @@ dependencies = [
     "sounddevice==0.5.5",
     "comtypes==1.4.16",
     "opencv-python-headless==4.14.0.94",
+    "pillow==12.3.0",
     "websockets==17.0",
     "uvicorn==0.51.0",
 ]

@@ -2,20 +2,20 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from armi_live_vision.api import (
-    CameraFrame,
     LatestFrameBuffer,
     LiveVisionViolation,
     ObservationBudget,
     ObservationTrigger,
     StableSceneChangeDetector,
     TriggerCoalescer,
+    VisualFrame,
 )
 
 
 def test_latest_frame_buffer_keeps_only_latest() -> None:
     buffer = LatestFrameBuffer()
-    first = CameraFrame(datetime.now(UTC), b"one", 1, 1)
-    second = CameraFrame(datetime.now(UTC), b"two", 1, 1)
+    first = VisualFrame(datetime.now(UTC), b"one", 1, 1)
+    second = VisualFrame(datetime.now(UTC), b"two", 1, 1)
     buffer.put(first)
     buffer.put(second)
     assert buffer.latest() is second

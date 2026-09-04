@@ -15,7 +15,7 @@ from pydantic import (
 
 from ._strict_model_json import strict_model_value
 
-DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v23"
+DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v24"
 DIALOGUE_MODEL_OUTPUT_VERSION = "armi.creator-dialogue-model-output.v2"
 
 Summary = Annotated[str, StringConstraints(min_length=1, max_length=512)]
@@ -343,6 +343,11 @@ class DialogueWebResearchDecision(CreatorDialogueCandidate):
     query: Annotated[str, StringConstraints(min_length=1, max_length=16384)]
 
 
+class DialogueVisualObservationDecision(CreatorDialogueCandidate):
+    kind: Literal["visual_observation"]
+    source_kind: Literal["camera", "screen"]
+
+
 class DialogueExactLifeQueryDecision(CreatorDialogueCandidate):
     kind: Literal["exact_life_query"]
     record_kind: Literal[
@@ -370,6 +375,7 @@ DialogueDecision = Annotated[
     DialogueReplyDecision
     | DialogueTerminalDecision
     | DialogueWebResearchDecision
+    | DialogueVisualObservationDecision
     | DialogueExactLifeQueryDecision,
     Field(discriminator="kind"),
 ]
@@ -429,6 +435,7 @@ class _CompactDialogueEnvelope(_StrictModel):
         "need_information",
         "exact_life_query",
         "web_research",
+        "visual_observation",
     ]
     content: (
         Annotated[str, StringConstraints(min_length=1, max_length=65536)] | None
@@ -447,6 +454,7 @@ class _CompactDialogueEnvelope(_StrictModel):
     query: Annotated[str, StringConstraints(min_length=1, max_length=16384)] | None = (
         None
     )
+    source_kind: Literal["camera", "screen"] | None = None
     experience: DialogueExperience | None = None
     changes: tuple[DialogueCompactChange, ...] = Field(default=(), max_length=8)
 
@@ -457,18 +465,37 @@ class _CompactDialogueEnvelope(_StrictModel):
                 self.content is None
                 or self.record_kind is not None
                 or self.query is not None
+                or self.source_kind is not None
             ):
                 raise ValueError("reply envelope is invalid")
         elif self.kind == "exact_life_query":
-            if self.record_kind is None or self.content is not None or self.changes:
+            if (
+                self.record_kind is None
+                or self.content is not None
+                or self.changes
+                or self.source_kind is not None
+            ):
                 raise ValueError("life query envelope is invalid")
         elif self.kind == "web_research":
-            if self.query is None or self.content is not None or self.changes:
+            if (
+                self.query is None
+                or self.content is not None
+                or self.changes
+                or self.source_kind is not None
+            ):
                 raise ValueError("web query envelope is invalid")
+        elif self.kind == "visual_observation":
+            if self.source_kind is None or self.content is not None or self.changes:
+                raise ValueError("visual observation envelope is invalid")
         elif (
             any(
                 value is not None
-                for value in (self.content, self.record_kind, self.query)
+                for value in (
+                    self.content,
+                    self.record_kind,
+                    self.query,
+                    self.source_kind,
+                )
             )
             or self.experience is not None
             or self.changes
@@ -776,6 +803,10 @@ def _translate_compact_dialogue(
     if envelope.kind == "web_research":
         return DialogueWebResearchDecision.model_validate(
             {"kind": envelope.kind, "query": envelope.query}
+        )
+    if envelope.kind == "visual_observation":
+        return DialogueVisualObservationDecision.model_validate(
+            {"kind": envelope.kind, "source_kind": envelope.source_kind}
         )
     return DialogueTerminalDecision.model_validate({"kind": envelope.kind})
 

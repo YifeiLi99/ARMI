@@ -15,6 +15,7 @@ from armi_adapter_esp32_display import MoodDisplayViolation, probe_device
 from armi_kernel.application import BirthViolation
 
 from armi_runtime.adapters.vision.directshow import DirectShowUsbCamera
+from armi_runtime.adapters.vision.windows_screen import WindowsScreenSource
 from armi_runtime.adapters.voice.wasapi import WasapiRawAudio
 from armi_runtime.composition.bootstrap import execute_birth
 from armi_runtime.composition.configuration import ConfigurationViolation
@@ -159,9 +160,13 @@ def _parser() -> argparse.ArgumentParser:
         voice_action_parser.add_argument("--environment-root", type=Path)
     vision = command.add_parser("vision")
     vision_command = vision.add_subparsers(dest="vision_command", required=True)
-    for vision_action in ("devices", "status", "start", "stop", "observe"):
+    for vision_action in ("sources", "status", "start", "stop", "observe"):
         vision_action_parser = vision_command.add_parser(vision_action)
         vision_action_parser.add_argument("--environment-root", type=Path)
+        if vision_action != "sources":
+            vision_action_parser.add_argument(
+                "--source", required=True, choices=("camera", "screen")
+            )
     device = command.add_parser("device")
     device_command = device.add_subparsers(dest="device_command", required=True)
     mood_display = device_command.add_parser("mood-display")
@@ -305,25 +310,57 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         )
         return 0 if result["status"] == "available" else 3
-    if args.command == "vision" and args.vision_command == "devices":
+    if args.command == "vision" and args.vision_command == "sources":
         try:
-            devices = DirectShowUsbCamera.devices()
+            cameras = DirectShowUsbCamera.sources()
+            screens = WindowsScreenSource.sources()
             result = {
                 "status": "available",
-                "devices": [
+                "sources": [
                     {
+                        "source_kind": "camera",
                         "name": item.name,
                         "device_path": item.device_path,
                         "usb_location_id": item.usb_location_id,
                         "yaml": {
-                            "device": {
-                                "name": item.name,
-                                "device_path": item.device_path,
-                                "usb_location_id": item.usb_location_id,
+                            "vision": {
+                                "camera": {
+                                    "enabled": False,
+                                    "identity": {
+                                        "name": item.name,
+                                        "device_path": item.device_path,
+                                        "usb_location_id": item.usb_location_id,
+                                    },
+                                }
                             }
                         },
                     }
-                    for item in devices
+                    for item in cameras
+                ]
+                + [
+                    {
+                        "source_kind": "screen",
+                        "source_device_name": item.source_device_name,
+                        "monitor_device_path": item.monitor_device_path,
+                        "edid_name": item.edid_name,
+                        "width": item.width,
+                        "height": item.height,
+                        "yaml": {
+                            "vision": {
+                                "screen": {
+                                    "enabled": False,
+                                    "identity": {
+                                        "source_device_name": item.source_device_name,
+                                        "monitor_device_path": item.monitor_device_path,
+                                        "edid_name": item.edid_name,
+                                        "width": item.width,
+                                        "height": item.height,
+                                    },
+                                }
+                            }
+                        },
+                    }
+                    for item in screens
                 ],
             }
         except Exception as error:
@@ -638,7 +675,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             str(prepared.effective.config.environment.environment_id),
         )
         try:
-            result = process.vision(args.vision_command)
+            result = process.vision(args.vision_command, args.source)
         except RuntimeViolation as error:
             _safe_failure(error)
             return 3

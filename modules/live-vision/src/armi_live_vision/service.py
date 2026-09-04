@@ -1,25 +1,28 @@
-"""The process-local camera lifecycle; durable observation belongs to the sink."""
+"""A process-local visual-source lifecycle; durable observation belongs to the sink."""
 
 from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 from .api import (
-    CameraDevice,
-    CameraDevicePort,
-    CameraFormat,
-    CameraFrame,
     LatestFrameBuffer,
     LiveVisionState,
     LiveVisionStatus,
     LiveVisionViolation,
     ObservationBudget,
+    ObservationOriginKind,
     ObservationTrigger,
     StableSceneChangeDetector,
     TriggerCoalescer,
+    VisualCaptureFormat,
+    VisualFrame,
     VisualObservation,
     VisualObservationSinkPort,
+    VisualSourceIdentity,
+    VisualSourceKind,
+    VisualSourcePort,
 )
 
 
@@ -29,10 +32,11 @@ class LiveVisionService:
     def __init__(
         self,
         *,
-        camera: CameraDevicePort,
+        source_kind: VisualSourceKind,
+        source: VisualSourcePort,
         sink: VisualObservationSinkPort,
-        device: CameraDevice,
-        format: CameraFormat | None = None,
+        identity: VisualSourceIdentity,
+        format: VisualCaptureFormat | None = None,
         hourly_limit: int = 12,
         automatic_cooldown: timedelta = timedelta(seconds=30),
         periodic_refresh: timedelta = timedelta(minutes=30),
@@ -41,16 +45,21 @@ class LiveVisionService:
         stable_change_samples: int = 3,
         warmup: timedelta = timedelta(seconds=2),
         selection_interval: timedelta = timedelta(milliseconds=500),
+        sample_interval: timedelta = timedelta(milliseconds=500),
+        capture_interval: timedelta = timedelta(0),
     ) -> None:
-        self._camera = camera
+        self._source_kind = source_kind
+        self._source = source
         self._sink = sink
-        self._device = device
-        self._format = CameraFormat() if format is None else format
+        self._identity = identity
+        self._format = VisualCaptureFormat() if format is None else format
         self._periodic_refresh = periodic_refresh
         self._reconnect = reconnect
         self._hourly_limit = hourly_limit
         self._warmup = warmup
         self._selection_interval = selection_interval
+        self._sample_interval = sample_interval
+        self._capture_interval = capture_interval
         self._budget = ObservationBudget(
             hourly_limit=hourly_limit,
             automatic_cooldown=automatic_cooldown,
@@ -71,7 +80,7 @@ class LiveVisionService:
         self._last_sample_at: datetime | None = None
         self._last_auto_at: datetime | None = None
         self._observation_task: asyncio.Task[VisualObservation | None] | None = None
-        self._observation_baseline: CameraFrame | None = None
+        self._observation_baseline: VisualFrame | None = None
         self._observation_failed = False
 
     async def start(self) -> LiveVisionStatus:
@@ -94,14 +103,14 @@ class LiveVisionService:
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
             await self._settle_interrupted("VISION-START-INTERRUPTED")
-            await self._camera.close()
+            await self._source.close()
             if self._session_open:
                 await self._sink.close_session(
-                    error_code=getattr(error, "code", "VISION-CAMERA-UNAVAILABLE")
+                    error_code=getattr(error, "code", "VISION-SOURCE-UNAVAILABLE")
                 )
                 self._session_open = False
             self._state = LiveVisionState.UNAVAILABLE
-            self._reason = getattr(error, "code", "VISION-CAMERA-UNAVAILABLE")
+            self._reason = getattr(error, "code", "VISION-SOURCE-UNAVAILABLE")
             if self._expected:
                 self._capture_task = asyncio.create_task(self._capture_loop())
         return self.status()
@@ -118,7 +127,7 @@ class LiveVisionService:
             await asyncio.gather(self._observation_task, return_exceptions=True)
             self._observation_task = None
         await self._settle_interrupted("VISION-RUNTIME-STOPPED")
-        await self._camera.close()
+        await self._source.close()
         if self._session_open:
             await self._sink.close_session()
             self._session_open = False
@@ -126,9 +135,21 @@ class LiveVisionService:
         self._state = LiveVisionState.IDLE
         return self.status()
 
-    async def observe(self, *, idempotency_key: str | None = None) -> VisualObservation:
+    async def observe(
+        self,
+        *,
+        trigger: ObservationTrigger = ObservationTrigger.MANUAL,
+        origin_kind: ObservationOriginKind = ObservationOriginKind.CREATOR,
+        idempotency_key: str | None = None,
+        origin_episode_id: UUID | None = None,
+        origin_scene_id: UUID | None = None,
+    ) -> VisualObservation:
         result = await self._request(
-            ObservationTrigger.MANUAL, idempotency_key=idempotency_key
+            trigger,
+            origin_kind=origin_kind,
+            idempotency_key=idempotency_key,
+            origin_episode_id=origin_episode_id,
+            origin_scene_id=origin_scene_id,
         )
         if result is None:
             raise LiveVisionViolation(
@@ -149,45 +170,42 @@ class LiveVisionService:
                 except Exception as error:
                     self._state = LiveVisionState.UNAVAILABLE
                     self._reason = getattr(error, "code", "VISION-DEVICE-UNAVAILABLE")
-                    await self._camera.close()
+                    await self._source.close()
                     continue
             try:
-                frame = await self._camera.next_frame()
+                frame = await self._source.next_frame()
                 self._buffer.put(frame)
                 if not self._observation_failed:
                     self._state = LiveVisionState.OBSERVING
                     self._reason = None
                 self._consider_automatic(frame)
+                if self._capture_interval.total_seconds() > 0:
+                    await asyncio.sleep(self._capture_interval.total_seconds())
             except asyncio.CancelledError:
                 raise
             except Exception as error:
                 self._state = LiveVisionState.DEGRADED
-                self._reason = getattr(error, "code", "VISION-CAMERA-DISCONNECTED")
-                await self._camera.close()
+                self._reason = getattr(error, "code", "VISION-SOURCE-DISCONNECTED")
+                await self._source.close()
                 if self._session_open:
                     await self._sink.close_session(error_code=self._reason)
                     self._session_open = False
 
     async def _connect_exact(self) -> None:
-        exact = tuple(
-            item
-            for item in self._camera.devices()
-            if item.device_path == self._device.device_path
-            and item.usb_location_id == self._device.usb_location_id
-        )
+        exact = tuple(item for item in self._source.sources() if item == self._identity)
         if len(exact) != 1:
             raise LiveVisionViolation(
-                "VISION-DEVICE-UNAVAILABLE", "configured camera is not present"
+                "VISION-SOURCE-UNAVAILABLE", "configured visual source is not present"
             )
-        await self._camera.open(exact[0], self._format)
+        await self._source.open(exact[0], self._format)
         try:
             await self._sink.open_session()
         except BaseException:
-            await self._camera.close()
+            await self._source.close()
             raise
         self._session_open = True
 
-    def _consider_automatic(self, frame: CameraFrame) -> None:
+    def _consider_automatic(self, frame: VisualFrame) -> None:
         now = frame.captured_at
         if (
             self._last_auto_at is not None
@@ -198,7 +216,7 @@ class LiveVisionService:
         if not frame.grayscale_thumbnail:
             return
         if self._last_sample_at is not None and now - self._last_sample_at < timedelta(
-            seconds=0.5
+            seconds=self._sample_interval.total_seconds()
         ):
             return
         self._last_sample_at = now
@@ -254,6 +272,9 @@ class LiveVisionService:
         change_score: float | None = None,
         *,
         idempotency_key: str | None = None,
+        origin_kind: ObservationOriginKind = ObservationOriginKind.AUTOMATIC,
+        origin_episode_id: UUID | None = None,
+        origin_scene_id: UUID | None = None,
     ) -> VisualObservation | None:
         if trigger is ObservationTrigger.MANUAL and idempotency_key is not None:
             existing = await self._sink.get_observation_by_key(idempotency_key)
@@ -272,21 +293,25 @@ class LiveVisionService:
         try:
             while True:
                 self._budget.record(current_trigger, datetime.now(UTC))
-                frames = await self._select_frames()
                 result = await self._sink.observe(
                     trigger=current_trigger,
-                    frames=frames,
+                    frames=(),
                     change_score=current_score,
+                    origin_kind=origin_kind,
                     idempotency_key=idempotency_key
-                    if current_trigger is ObservationTrigger.MANUAL
+                    if current_trigger
+                    in {ObservationTrigger.MANUAL, ObservationTrigger.SUBJECT_REQUEST}
                     else None,
+                    origin_episode_id=origin_episode_id,
+                    origin_scene_id=origin_scene_id,
                 )
                 self._observation_failed = False
                 self._state = LiveVisionState.OBSERVING
                 self._reason = None
                 self._last_observation = result
-                if frames:
-                    self._observation_baseline = frames[-1]
+                frame = self._buffer.latest()
+                if frame is not None:
+                    self._observation_baseline = frame
                 if current_trigger is not ObservationTrigger.MANUAL:
                     self._last_auto_at = datetime.now(UTC)
                 pending = self._coalescer.settle()
@@ -297,8 +322,8 @@ class LiveVisionService:
             self._coalescer.discard()
             raise
 
-    async def _select_frames(self) -> tuple[CameraFrame, ...]:
-        frames: list[CameraFrame] = []
+    async def _select_frames(self) -> tuple[VisualFrame, ...]:
+        frames: list[VisualFrame] = []
         for index in range(3):
             frame = self._buffer.latest()
             if frame is None:
@@ -319,9 +344,10 @@ class LiveVisionService:
     def status(self) -> LiveVisionStatus:
         frame = self._buffer.latest()
         return LiveVisionStatus(
+            source_kind=self._source_kind,
             state=self._state,
             expected_running=self._expected,
-            device=self._device,
+            source=self._identity,
             last_frame_at=None if frame is None else frame.captured_at,
             last_observation=self._last_observation,
             observations_last_hour=self._budget.used(datetime.now(UTC)),
@@ -334,6 +360,23 @@ class LiveVisionService:
         if frame is None:
             return None
         return frame.preview_jpeg or frame.jpeg
+
+    async def capture_frames(self) -> tuple[VisualFrame, ...]:
+        if not self._expected or self._state not in {
+            LiveVisionState.OBSERVING,
+            LiveVisionState.DEGRADED,
+        }:
+            raise LiveVisionViolation(
+                "VISION-SOURCE-NOT-RUNNING", "visual source is not running"
+            )
+        requested_at = datetime.now(UTC)
+        deadline = asyncio.get_running_loop().time() + 3.0
+        while asyncio.get_running_loop().time() < deadline:
+            frame = self._buffer.latest()
+            if frame is not None and frame.captured_at >= requested_at:
+                return await self._select_frames()
+            await asyncio.sleep(0.02)
+        raise LiveVisionViolation("VISION-FRAME-UNAVAILABLE", "no fresh visual frame")
 
 
 __all__ = ("LiveVisionService",)

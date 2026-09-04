@@ -13,6 +13,7 @@ import threading
 from collections.abc import Callable, Generator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 from uuid import UUID, uuid7
 
 import uvicorn
@@ -86,15 +87,19 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import IdempotencyKey, TraceId
 from armi_live_vision.api import (
-    CameraDevice,
-    CameraFormat,
+    CameraSourceIdentity,
     LiveVisionRuntimePort,
     LiveVisionViolation,
+    ObservationOriginKind,
+    ScreenSourceIdentity,
+    VisualCaptureFormat,
     VisualObservation,
+    VisualSourceKind,
 )
 from armi_live_vision.bootstrap import (
     compose_live_vision,
     compose_live_vision_retention,
+    compose_visual_capture_router,
     compose_visual_observation_sink,
 )
 from armi_live_voice.api import LiveVoiceRuntimePort, LiveVoiceViolation
@@ -126,6 +131,7 @@ from armi_runtime.adapters.persistence.unit_of_work import (
     PostgreSQLUnitOfWorkFactory,
 )
 from armi_runtime.adapters.vision.directshow import DirectShowUsbCamera
+from armi_runtime.adapters.vision.windows_screen import WindowsScreenSource
 from armi_runtime.adapters.voice.wasapi import WasapiRawAudio
 from armi_runtime.application.action_lifecycle import RuntimeCodexGrantActivation
 from armi_runtime.application.cognition_cycle import RuntimeCognitionState
@@ -144,6 +150,7 @@ from armi_runtime.interfaces.browser_sessions import (
 from armi_runtime.interfaces.creator_app import create_runtime_app
 from armi_runtime.interfaces.creator_contract import (
     LiveVisionObservationResponse,
+    LiveVisionSourceStatusResponse,
     LiveVisionStatusResponse,
     LiveVoiceStatusResponse,
     QQChannelHealthResponse,
@@ -275,6 +282,132 @@ class _SwitchableIngress:
         await self._app(scope, receive, send)
 
 
+async def _compose_live_vision_sources(
+    *,
+    prepared: PreparedEnvironment,
+    config: Any,
+    factory: Any,
+    catalog: Any,
+    evidence: Any,
+    opportunity: Any,
+    subject_id: UUID,
+    model_locator: Any,
+) -> tuple[
+    dict[VisualSourceKind, LiveVisionRuntimePort],
+    dict[VisualSourceKind, Any],
+]:
+    recognition_binding = load_external_recognition_binding(
+        runtime_config_path("model-bindings.yaml")
+    )
+    source_specs: list[tuple[VisualSourceKind, Any, Any, Any]] = []
+    camera_config = config.vision.camera
+    if camera_config.enabled and camera_config.identity is not None:
+        source_specs.append(
+            (
+                VisualSourceKind.CAMERA,
+                camera_config,
+                CameraSourceIdentity(
+                    camera_config.identity.name,
+                    camera_config.identity.device_path,
+                    camera_config.identity.usb_location_id,
+                ),
+                DirectShowUsbCamera(),
+            )
+        )
+    screen_config = config.vision.screen
+    if screen_config.enabled and screen_config.identity is not None:
+        source_specs.append(
+            (
+                VisualSourceKind.SCREEN,
+                screen_config,
+                ScreenSourceIdentity(
+                    screen_config.identity.source_device_name,
+                    screen_config.identity.monitor_device_path,
+                    screen_config.identity.edid_name,
+                    screen_config.identity.width,
+                    screen_config.identity.height,
+                ),
+                WindowsScreenSource(),
+            )
+        )
+    services: dict[VisualSourceKind, LiveVisionRuntimePort] = {}
+    sinks: dict[VisualSourceKind, Any] = {}
+    for source_kind, source_config, identity, adapter in source_specs:
+        try:
+            width = (
+                identity.width
+                if isinstance(identity, ScreenSourceIdentity)
+                else source_config.width
+            )
+            height = (
+                identity.height
+                if isinstance(identity, ScreenSourceIdentity)
+                else source_config.height
+            )
+            fps = float(
+                source_config.capture_hz
+                if source_kind is VisualSourceKind.SCREEN
+                else source_config.fps
+            )
+            sink = compose_visual_observation_sink(
+                factory=factory,
+                storage=ContentAddressedArtifactStore(
+                    prepared.data_root / "artifacts",
+                    max_object_bytes=config.artifacts.max_object_bytes,
+                    publication_catalog=catalog,
+                    publication_uow_factory=factory,
+                    orphan_grace_seconds=config.artifacts.orphan_grace_seconds,
+                ),
+                catalog=catalog,
+                work=PostgreSQLDurableWorkGateway(factory),
+                recognizer=VolcengineArkExternalContentRecognizer(
+                    credential_port=prepared.credential_port,
+                    locator=model_locator,
+                    binding=recognition_binding.ark,
+                ),
+                attempts=bootstrap_visual_recognition_attempts(),
+                evidence=evidence,
+                opportunity=opportunity,
+                subject_id=subject_id,
+                source_kind=source_kind,
+                source=identity,
+                width=width,
+                height=height,
+                fps=fps,
+                retention=timedelta(seconds=source_config.frame_retention_seconds),
+            )
+            service = compose_live_vision(
+                source_kind=source_kind,
+                source=adapter,
+                sink=sink,
+                identity=identity,
+                format=VisualCaptureFormat(width, height, fps),
+                hourly_limit=source_config.hourly_observation_limit,
+                automatic_cooldown=timedelta(
+                    seconds=source_config.automatic_cooldown_seconds
+                ),
+                periodic_refresh=timedelta(
+                    seconds=source_config.periodic_refresh_seconds
+                ),
+                reconnect=timedelta(seconds=source_config.reconnect_seconds),
+                change_threshold=source_config.change_threshold,
+                stable_change_samples=source_config.stable_change_samples,
+                sample_interval=timedelta(seconds=1 / source_config.change_sample_hz),
+                capture_interval=timedelta(seconds=1 / source_config.capture_hz)
+                if source_kind is VisualSourceKind.SCREEN
+                else timedelta(0),
+            )
+            sink.bind_capture(service.capture_frames)
+            services[source_kind] = service
+            sinks[source_kind] = sink
+            if source_config.auto_start:
+                await service.start()
+        except ValueError, ModelViolation:
+            services.pop(source_kind, None)
+            sinks.pop(source_kind, None)
+    return services, sinks
+
+
 async def _serve(
     prepared: PreparedEnvironment,
     *,
@@ -366,8 +499,9 @@ async def _serve(
     admin_control: RuntimeAdminControlServer | None = None
     work_wakeups = WorkWakeupBus()
     live_voice_service: LiveVoiceRuntimePort | None = None
-    live_vision_service: LiveVisionRuntimePort | None = None
-    vision_sink = None
+    live_vision_services: dict[VisualSourceKind, LiveVisionRuntimePort] = {}
+    vision_sinks: dict[VisualSourceKind, Any] = {}
+    vision_capture_router = None
     live_vision_retention = None
 
     def inject_admin_fault(name: str) -> None:
@@ -813,71 +947,23 @@ async def _serve(
                     raise ExternalMessageViolation(
                         "EXTERNAL-MESSAGE-RECOGNITION-UNAVAILABLE"
                     ) from None
-            if config.vision.enabled and config.vision.device is not None:
-                model_locator = config.secret_locators.get("model.ark_api_key")
-                if model_locator is not None:
-                    try:
-                        recognition_binding = load_external_recognition_binding(
-                            runtime_config_path("model-bindings.yaml")
-                        )
-                        vision_device = CameraDevice(
-                            config.vision.device.name,
-                            config.vision.device.device_path,
-                            config.vision.device.usb_location_id,
-                        )
-                        vision_sink = compose_visual_observation_sink(
-                            factory=runtime_unit_of_work_factory,
-                            storage=ContentAddressedArtifactStore(
-                                prepared.data_root / "artifacts",
-                                max_object_bytes=config.artifacts.max_object_bytes,
-                                publication_catalog=artifact_catalog,
-                                publication_uow_factory=runtime_unit_of_work_factory,
-                                orphan_grace_seconds=config.artifacts.orphan_grace_seconds,
-                            ),
-                            catalog=artifact_catalog,
-                            work=PostgreSQLDurableWorkGateway(
-                                runtime_unit_of_work_factory
-                            ),
-                            recognizer=VolcengineArkExternalContentRecognizer(
-                                credential_port=prepared.credential_port,
-                                locator=model_locator,
-                                binding=recognition_binding.ark,
-                            ),
-                            attempts=bootstrap_visual_recognition_attempts(),
-                            evidence=evidence_module.write,
-                            opportunity=opportunity_admission,
-                            subject_id=authority.require_writable().subject_id,
-                            device=vision_device,
-                            retention=timedelta(
-                                seconds=config.vision.frame_retention_seconds
-                            ),
-                        )
-                        live_vision_service = compose_live_vision(
-                            camera=DirectShowUsbCamera(),
-                            sink=vision_sink,
-                            device=vision_device,
-                            format=CameraFormat(
-                                config.vision.width,
-                                config.vision.height,
-                                float(config.vision.fps),
-                            ),
-                            hourly_limit=config.vision.hourly_observation_limit,
-                            automatic_cooldown=timedelta(
-                                seconds=config.vision.automatic_cooldown_seconds
-                            ),
-                            periodic_refresh=timedelta(
-                                seconds=config.vision.periodic_refresh_seconds
-                            ),
-                            reconnect=timedelta(
-                                seconds=config.vision.reconnect_seconds
-                            ),
-                            change_threshold=config.vision.change_threshold,
-                            stable_change_samples=config.vision.stable_change_samples,
-                        )
-                        if config.vision.auto_start:
-                            await live_vision_service.start()
-                    except ValueError, ModelViolation:
-                        live_vision_service = None
+            model_locator = config.secret_locators.get("model.ark_api_key")
+            if model_locator is not None:
+                live_vision_services, vision_sinks = await _compose_live_vision_sources(
+                    prepared=prepared,
+                    config=config,
+                    factory=runtime_unit_of_work_factory,
+                    catalog=artifact_catalog,
+                    evidence=evidence_module.write,
+                    opportunity=opportunity_admission,
+                    subject_id=authority.require_writable().subject_id,
+                    model_locator=model_locator,
+                )
+            vision_capture_router = compose_visual_capture_router(
+                factory=runtime_unit_of_work_factory,
+                work=PostgreSQLDurableWorkGateway(runtime_unit_of_work_factory),
+                coordinators=vision_sinks,
+            )
             life_opportunity_pipeline = compose_life_opportunity_pipeline(
                 prepared,
                 unit_of_work_factory=runtime_unit_of_work_factory,
@@ -968,6 +1054,9 @@ async def _serve(
                 subject_state_cognition=subject_state_module.cognition,
                 subject_state_read=subject_state_module.read,
                 catalog=artifact_catalog,
+                visual_sources_active=frozenset(
+                    kind.value for kind in live_vision_services
+                ),
                 wakeups=work_wakeups,
                 diagnostic=lambda event: diagnostic.emit(
                     event,
@@ -1425,10 +1514,15 @@ async def _serve(
                 live_vision_retention.run(),
                 name="live-vision-retention",
             )
-        if vision_sink is not None:
+        if vision_capture_router is not None:
             supervisor.start(
-                vision_sink.run_worker(),
-                name="live-vision-worker",
+                vision_capture_router.run(),
+                name="live-vision-capture-worker",
+            )
+        for source_kind, sink in vision_sinks.items():
+            supervisor.start(
+                sink.run_recognition_worker(),
+                name=f"live-vision-{source_kind.value}-recognition-worker",
             )
         if observation_driver is not None:
             supervisor.start(
@@ -1573,6 +1667,8 @@ async def _serve(
             await shutdown_step("browser_sessions", revoke_browser_sessions)
         if live_voice_service is not None:
             await shutdown_step("live_voice_intake", live_voice_service.stop)
+        for source_kind, service in live_vision_services.items():
+            await shutdown_step(f"live_vision_{source_kind.value}_intake", service.stop)
         if observation_driver is not None:
             await shutdown_step("observation_claim", observation_driver.stop)
         await shutdown_step("lifecycle_drain", lifecycle.drain)
@@ -1583,10 +1679,6 @@ async def _serve(
             (
                 "perception",
                 None if perception_module is None else perception_module.stop,
-            ),
-            (
-                "live_vision",
-                None if live_vision_service is None else live_vision_service.stop,
             ),
             ("context", None if context_pipeline is None else context_pipeline.stop),
             (
@@ -1645,11 +1737,11 @@ async def _serve(
                 "vision_retention",
                 None if live_vision_retention is None else live_vision_retention.stop,
             ),
-            (
-                "vision_worker",
-                None if vision_sink is None else vision_sink.stop_worker,
-            ),
         )
+        for sink in vision_sinks.values():
+            sink.stop_worker()
+        if vision_capture_router is not None:
+            vision_capture_router.stop()
         for name, operation in stop_operations:
             if operation is not None:
                 await shutdown_step(f"{name}_stop", operation)
@@ -1989,15 +2081,21 @@ async def _serve(
     async def admin_voice(action: str) -> dict[str, object]:
         return (await live_voice_control(action)).model_dump(mode="json")
 
-    async def admin_vision(action: str) -> dict[str, object]:
-        return (await live_vision_control(action)).model_dump(mode="json")
+    async def admin_vision(action: str, source: str | None) -> dict[str, object]:
+        if action == "observe" and source is not None:
+            return (await live_vision_observe(source, f"cli:{uuid7()}")).model_dump(
+                mode="json"
+            )
+        return (await live_vision_control(action, source)).model_dump(mode="json")
 
     def _vision_observation_response(
         observation: VisualObservation,
     ) -> LiveVisionObservationResponse:
         return LiveVisionObservationResponse(
-            projection_version="creator-live-vision-observation.v1",
+            projection_version="creator-live-vision-observation.v2",
             observation_id=str(observation.observation_id),
+            source_kind=observation.source_kind.value,
+            origin_kind=observation.origin_kind.value,
             trigger=observation.trigger.value,
             status=observation.status.value,
             registered_at=observation.registered_at.isoformat(
@@ -2013,15 +2111,24 @@ async def _serve(
         )
 
     async def live_vision_observe(
+        source_kind: str,
         idempotency_key: str,
     ) -> LiveVisionObservationResponse:
-        if live_vision_service is None:
+        try:
+            kind = VisualSourceKind(source_kind)
+        except ValueError:
+            raise LiveVisionViolation(
+                "VISION-SOURCE-KIND", "unknown visual source"
+            ) from None
+        service = live_vision_services.get(kind)
+        if service is None:
             raise LiveVisionViolation(
                 "VISION-PIPELINE-UNAVAILABLE", "vision pipeline is unavailable"
             )
         try:
-            observation = await live_vision_service.observe(
-                idempotency_key=idempotency_key
+            observation = await service.observe(
+                origin_kind=ObservationOriginKind.CREATOR,
+                idempotency_key=idempotency_key,
             )
         except RuntimeError as error:
             code = str(error)
@@ -2033,87 +2140,110 @@ async def _serve(
     async def live_vision_observation(
         observation_id: UUID,
     ) -> LiveVisionObservationResponse | None:
-        if vision_sink is None:
-            return None
-        observation = await vision_sink.get_observation(observation_id)
-        return (
-            None if observation is None else _vision_observation_response(observation)
-        )
+        for sink in vision_sinks.values():
+            observation = await sink.get_observation(observation_id)
+            if observation is not None:
+                return _vision_observation_response(observation)
+        return None
 
-    async def live_vision_control(action: str) -> LiveVisionStatusResponse:
-        vision_config = config.vision
-        service = live_vision_service
-        reasons: list[str] = []
-        state = "disabled"
-        snapshot = None
-        if vision_config.enabled:
-            if service is None:
-                state = "unavailable"
-                reasons.append("VISION_PIPELINE_UNAVAILABLE")
-            else:
-                snapshot = service.status()
-                try:
-                    if action == "start":
-                        await service.start()
-                    elif action == "stop":
-                        await service.stop()
-                    elif action == "observe":
-                        await service.observe()
-                except LiveVisionViolation as error:
-                    reasons.append(error.code.replace("-", "_"))
-                snapshot = service.status()
-                state = snapshot.state.value
-        device = vision_config.device
+    async def live_vision_control(
+        action: str, selected_source: str | None
+    ) -> LiveVisionStatusResponse:
+        selected = None
+        if selected_source is not None:
+            try:
+                selected = VisualSourceKind(selected_source)
+            except ValueError:
+                raise LiveVisionViolation(
+                    "VISION-SOURCE-KIND", "unknown visual source"
+                ) from None
+        if action in {"start", "stop"} and selected is not None:
+            service = live_vision_services.get(selected)
+            if service is not None:
+                if action == "start":
+                    await service.start()
+                else:
+                    await service.stop()
         now = (
             datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
         )
-        last_observation = None if snapshot is None else snapshot.last_observation
+        source_responses: list[LiveVisionSourceStatusResponse] = []
+        for kind, configured_source in (
+            (VisualSourceKind.CAMERA, config.vision.camera),
+            (VisualSourceKind.SCREEN, config.vision.screen),
+        ):
+            source_config: Any = configured_source
+            service = live_vision_services.get(kind)
+            snapshot = None if service is None else service.status()
+            last_observation = None if snapshot is None else snapshot.last_observation
+            identity = source_config.identity
+            identity_label = None
+            if identity is not None:
+                identity_label = (
+                    f"{identity.name} / {identity.usb_location_id}"
+                    if kind is VisualSourceKind.CAMERA
+                    else f"{identity.edid_name} / {identity.source_device_name}"
+                )
+            reasons: list[str] = []
+            if source_config.enabled and service is None:
+                reasons.append("VISION_PIPELINE_UNAVAILABLE")
+            if snapshot is not None and snapshot.reason_code is not None:
+                reasons.append(snapshot.reason_code.replace("-", "_"))
+            source_responses.append(
+                LiveVisionSourceStatusResponse(
+                    contract_version="1.0",
+                    projection_version="creator-live-vision-source-status.v3",
+                    source_kind=kind.value,
+                    state=(
+                        "disabled"
+                        if not source_config.enabled
+                        else "unavailable"
+                        if snapshot is None
+                        else snapshot.state.value
+                    ),
+                    enabled=source_config.enabled,
+                    expected_running=False
+                    if snapshot is None
+                    else snapshot.expected_running,
+                    identity=identity_label,
+                    capture_ready=snapshot is not None
+                    and snapshot.last_frame_at is not None,
+                    perception_ready=service is not None,
+                    last_frame_at=None
+                    if snapshot is None or snapshot.last_frame_at is None
+                    else snapshot.last_frame_at.isoformat(
+                        timespec="microseconds"
+                    ).replace("+00:00", "Z"),
+                    last_observation_at=None
+                    if last_observation is None
+                    else last_observation.registered_at.isoformat(
+                        timespec="microseconds"
+                    ).replace("+00:00", "Z"),
+                    current_manual_observation_ref=str(last_observation.observation_id)
+                    if last_observation is not None
+                    and last_observation.trigger.value == "manual"
+                    else None,
+                    observations_last_hour=0
+                    if snapshot is None
+                    else snapshot.observations_last_hour,
+                    hourly_limit=source_config.hourly_observation_limit,
+                    observed_at=now,
+                    reason_codes=reasons,
+                )
+            )
         return LiveVisionStatusResponse(
             contract_version="1.0",
-            projection_version="creator-live-vision-status.v2",
-            state=state,
-            enabled=vision_config.enabled,
-            expected_running=False if snapshot is None else snapshot.expected_running,
-            device=None
-            if device is None
-            else f"{device.name} / {device.usb_location_id}",
-            capture_ready=snapshot is not None and snapshot.last_frame_at is not None,
-            perception_ready=service is not None,
-            last_frame_at=(
-                None
-                if snapshot is None or snapshot.last_frame_at is None
-                else snapshot.last_frame_at.isoformat(timespec="microseconds").replace(
-                    "+00:00", "Z"
-                )
-            ),
-            last_observation_at=(
-                None
-                if last_observation is None
-                else last_observation.registered_at.isoformat(
-                    timespec="microseconds"
-                ).replace("+00:00", "Z")
-            ),
-            current_manual_observation_ref=(
-                str(last_observation.observation_id)
-                if last_observation is not None
-                and last_observation.trigger.value == "manual"
-                else None
-            ),
-            observations_last_hour=0
-            if snapshot is None
-            else snapshot.observations_last_hour,
-            hourly_limit=vision_config.hourly_observation_limit,
+            projection_version="creator-live-vision-status.v3",
+            sources=source_responses,
             observed_at=now,
-            reason_codes=reasons
-            + (
-                []
-                if snapshot is None or snapshot.reason_code is None
-                else [snapshot.reason_code.replace("-", "_")]
-            ),
         )
 
-    def live_vision_preview() -> bytes | None:
-        return None if live_vision_service is None else live_vision_service.preview()
+    def live_vision_preview(source_kind: str) -> bytes | None:
+        try:
+            service = live_vision_services.get(VisualSourceKind(source_kind))
+        except ValueError:
+            return None
+        return None if service is None else service.preview()
 
     def security_event(event: str) -> None:
         diagnostic.emit(event, result_code="CREATOR_SECURITY_EVENT")

@@ -11,6 +11,7 @@ export type LiveVisionStatus =
   components["schemas"]["LiveVisionStatusResponse"];
 export type LiveVisionObservation =
   components["schemas"]["LiveVisionObservationResponse"];
+export type LiveVisionSourceKind = "camera" | "screen";
 export type SceneTimelinePage =
   components["schemas"]["SceneTimelinePageResponse"];
 export type CreatorScene = components["schemas"]["CreatorSceneResponse"];
@@ -284,9 +285,10 @@ export async function getLiveVisionStatus(
 
 export async function controlLiveVision(
   token: string,
+  source: LiveVisionSourceKind,
   action: "start" | "stop",
 ): Promise<LiveVisionStatus> {
-  const response = await fetch(`/v1/vision/${action}`, {
+  const response = await fetch(`/v1/vision/sources/${source}/${action}`, {
     method: "POST",
     credentials: "omit",
     headers: { Authorization: `Bearer ${token}` },
@@ -296,6 +298,7 @@ export async function controlLiveVision(
 
 export async function observeLiveVision(
   token: string,
+  source: LiveVisionSourceKind,
   idempotencyKey: string,
 ): Promise<LiveVisionObservation> {
   const response = await fetch("/v1/vision/observe", {
@@ -306,7 +309,7 @@ export async function observeLiveVision(
       "Content-Type": "application/json",
       "Idempotency-Key": idempotencyKey,
     },
-    body: JSON.stringify({ contract_version: "1.0" }),
+    body: JSON.stringify({ contract_version: "1.0", source_kind: source }),
   });
   return requireJson(response);
 }
@@ -329,8 +332,9 @@ export async function getLiveVisionObservation(
 
 export async function getLiveVisionPreview(
   token: string,
+  source: LiveVisionSourceKind,
 ): Promise<Blob | null> {
-  const response = await fetch("/v1/vision/preview", {
+  const response = await fetch(`/v1/vision/sources/${source}/preview`, {
     credentials: "omit",
     cache: "no-store",
     headers: { Authorization: `Bearer ${token}` },

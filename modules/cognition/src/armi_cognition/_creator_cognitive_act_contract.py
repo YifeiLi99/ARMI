@@ -32,18 +32,18 @@ from ._dialogue_contract import (
 )
 from ._strict_model_json import strict_model_value
 
-CREATOR_COGNITIVE_ACT_VERSION = "armi.creator-cognitive-act-candidate.v1"
-CREATOR_VOICE_ACT_VERSION = "armi.creator-voice-act-candidate.v1"
+CREATOR_COGNITIVE_ACT_VERSION = "armi.creator-cognitive-act-candidate.v2"
+CREATOR_VOICE_ACT_VERSION = "armi.creator-voice-act-candidate.v2"
 
 CREATOR_COGNITIVE_ACT_INSTRUCTIONS = """\
 你要一次完成本轮对 Creator 输入的完整认知，只输出一份严格 JSON：同时决定表达或查询、主观经历、Mood v3 语义评价，以及关系、承诺、资料或 Codex 提议。
 模型不得填写主体 ID、主体版本、权限结果、情绪数值、VAD、强度、持续时间、半衰期或任何现实执行结果。Runtime 与各领域 Owner 会分别校验提议，并最多提交一次主体变化。
-kind=reply 时只填写 content；kind=exact_life_query 时只填写 record_kind；kind=web_research 时只填写 query；其他 kind 的三个字段都必须为空。只有 Creator 在当前输入中明确要求记住时，experience.remember 才可为 true 且必须给出 memory_summary。
+kind=reply 时只填写 content；kind=exact_life_query 时只填写 record_kind；kind=web_research 时只填写 query；kind=visual_observation 时只填写 source_kind。只有 Creator 在当前输入中明确要求记住时，experience.remember 才可为 true 且必须给出 memory_summary。
 appraisal 只能使用 Schema 中的语义标签和冻结 Context 引用。new 不引用既有 episode；reinforce、reappraise、resolve 必须引用冻结资料。changes 最多 8 项，只允许关系、承诺、资料和 Codex 操作。
 不要解释 Schema，不要输出 JSON 以外的文字。"""
 
 CREATOR_VOICE_ACT_INSTRUCTIONS = """\
-实时语音。一次完成本轮认知，只输出 armi.creator-voice-act-candidate.v1 的严格紧凑 JSON。它与文字认知语义完全相同，只缩短字段名；回复 text 最多 60 个汉字。关闭工具，不输出解释或额外文字。"""
+实时语音。一次完成本轮认知，只输出 armi.creator-voice-act-candidate.v2 的严格紧凑 JSON。它与文字认知语义完全相同，只缩短字段名；回复 text 最多 60 个汉字。关闭工具，不输出解释或额外文字。"""
 
 
 class _StrictModel(BaseModel):
@@ -59,6 +59,7 @@ ResponseKind = Literal[
     "need_information",
     "exact_life_query",
     "web_research",
+    "visual_observation",
 ]
 RecordKind = Literal[
     "activity", "conversation", "material", "memory", "relationship", "self_change"
@@ -93,6 +94,7 @@ class CreatorCognitiveActCandidate(_StrictModel):
     query: Annotated[str, StringConstraints(min_length=1, max_length=16384)] | None = (
         None
     )
+    source_kind: Literal["camera", "screen"] | None = None
     experience: CreatorAppraisalExperience | None = None
     appraisal: AppraisalEventSignalV2 | None = None
     changes: tuple[DialogueCompactChange, ...] = Field(default=(), max_length=8)
@@ -120,6 +122,7 @@ class CreatorCognitiveActCandidate(_StrictModel):
                 self.content is None
                 or self.record_kind is not None
                 or self.query is not None
+                or self.source_kind is not None
             ):
                 raise ValueError("reply shape is invalid")
         elif self.kind == "exact_life_query":
@@ -127,6 +130,7 @@ class CreatorCognitiveActCandidate(_StrictModel):
                 self.record_kind is None
                 or self.content is not None
                 or self.query is not None
+                or self.source_kind is not None
             ):
                 raise ValueError("life query shape is invalid")
         elif self.kind == "web_research":
@@ -134,10 +138,18 @@ class CreatorCognitiveActCandidate(_StrictModel):
                 self.query is None
                 or self.content is not None
                 or self.record_kind is not None
+                or self.source_kind is not None
             ):
                 raise ValueError("web research shape is invalid")
+        elif self.kind == "visual_observation":
+            if self.source_kind is None or any(
+                value is not None
+                for value in (self.content, self.record_kind, self.query)
+            ):
+                raise ValueError("visual observation shape is invalid")
         elif any(
-            value is not None for value in (self.content, self.record_kind, self.query)
+            value is not None
+            for value in (self.content, self.record_kind, self.query, self.source_kind)
         ):
             raise ValueError("terminal response shape is invalid")
         return self
@@ -295,6 +307,7 @@ class CreatorVoiceActCandidate(_StrictModel):
     query: Annotated[str, StringConstraints(min_length=1, max_length=16384)] | None = (
         None
     )
+    source: Literal["camera", "screen"] | None = None
     exp: VoiceExperience | None = None
     app: VoiceAppraisal | None = None
     ops: tuple[VoiceChange, ...] = Field(default=(), max_length=8)
@@ -315,6 +328,7 @@ class CreatorVoiceActCandidate(_StrictModel):
             content=self.text,
             record_kind=self.record,
             query=self.query,
+            source_kind=self.source,
             experience=experience,
             appraisal=None if self.app is None else self.app.expand(),
             changes=tuple(item.expand() for item in self.ops),

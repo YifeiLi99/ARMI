@@ -271,6 +271,7 @@ def bootstrap_cognition_candidate(
     subject_state_cognition: SubjectStateCognitionPort,
     subject_state_read: SubjectStateReadPort,
     web_search_active: bool = False,
+    visual_sources_active: frozenset[str] = frozenset(),
     wakeups: CognitionWakeupPort | None = None,
     diagnostic: Callable[[str], None] | None = None,
 ) -> CognitionWorkerPort:
@@ -306,6 +307,7 @@ def bootstrap_cognition_candidate(
         subject_state_cognition=subject_state_cognition,
         subject_state_read=subject_state_read,
         web_search_active=web_search_active,
+        visual_sources_active=visual_sources_active,
         wakeups=wakeups,
         diagnostic=diagnostic,
     )

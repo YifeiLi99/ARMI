@@ -2016,7 +2016,7 @@ CREATE INDEX life_materials_subject_current_idx ON armi.life_materials USING btr
 -- Name: live_vision_one_open_session; Type: INDEX; Schema: armi; Owner: -
 --
 
-CREATE UNIQUE INDEX live_vision_one_open_session ON armi.live_vision_sessions USING btree (subject_id) WHERE (ended_at IS NULL);
+CREATE UNIQUE INDEX live_vision_one_open_session ON armi.live_vision_sessions USING btree (subject_id, source_kind) WHERE (ended_at IS NULL);
 
 --
 -- Name: live_voice_one_open_session; Type: INDEX; Schema: armi; Owner: -
@@ -3485,7 +3485,19 @@ ALTER TABLE ONLY armi.live_vision_observations
     ADD CONSTRAINT live_vision_observations_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
 ALTER TABLE ONLY armi.live_vision_observations
-    ADD CONSTRAINT live_vision_observations_work_id_fkey FOREIGN KEY (work_id) REFERENCES armi.durable_work(work_id);
+    ADD CONSTRAINT live_vision_observations_capture_work_id_fkey FOREIGN KEY (capture_work_id) REFERENCES armi.durable_work(work_id);
+
+ALTER TABLE ONLY armi.live_vision_observations
+    ADD CONSTRAINT live_vision_observations_recognition_work_id_fkey FOREIGN KEY (recognition_work_id) REFERENCES armi.durable_work(work_id);
+
+ALTER TABLE ONLY armi.live_vision_observations
+    ADD CONSTRAINT live_vision_observations_origin_episode_id_fkey FOREIGN KEY (origin_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);
+
+ALTER TABLE ONLY armi.live_vision_observations
+    ADD CONSTRAINT live_vision_observations_origin_scene_id_fkey FOREIGN KEY (origin_scene_id) REFERENCES armi.interaction_scenes(scene_id);
+
+ALTER TABLE ONLY armi.live_vision_observations
+    ADD CONSTRAINT live_vision_observations_origin_context_party_id_fkey FOREIGN KEY (origin_context_party_id) REFERENCES armi.parties(party_id);
 
 --
 -- Name: live_vision_sessions live_vision_sessions_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -

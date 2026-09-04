@@ -113,7 +113,7 @@ class RuntimeAdminControlServer:
             Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]] | None
         ) = None,
         on_voice: Callable[[str], Awaitable[dict[str, Any]]] | None = None,
-        on_vision: Callable[[str], Awaitable[dict[str, Any]]] | None = None,
+        on_vision: Callable[[str, str | None], Awaitable[dict[str, Any]]] | None = None,
     ) -> None:
         self._run_root = run_root
         self._manifest = run_root / "runtime-control.manifest.json"
@@ -290,11 +290,14 @@ class RuntimeAdminControlServer:
         elif command == "vision":
             if (
                 self._vision is None
-                or set(arguments) != {"action"}
+                or set(arguments) != {"action", "source"}
                 or arguments["action"] not in {"status", "start", "stop", "observe"}
+                or arguments["source"] not in {"camera", "screen"}
             ):
                 raise RuntimeAdminControlError("ADMIN-CONTROL-VISION")
-            result = await self._vision(str(arguments["action"]))
+            result = await self._vision(
+                str(arguments["action"]), str(arguments["source"])
+            )
         else:
             result = self._fault(arguments)
         return {

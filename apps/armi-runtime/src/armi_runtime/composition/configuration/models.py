@@ -203,7 +203,7 @@ class VoiceConfig(_FrozenModel):
         return self
 
 
-class VisionDeviceConfig(_FrozenModel):
+class CameraSourceConfig(_FrozenModel):
     name: str
     device_path: str
     usb_location_id: str
@@ -217,10 +217,10 @@ class VisionDeviceConfig(_FrozenModel):
         return normalized
 
 
-class VisionConfig(_FrozenModel):
+class CameraVisionConfig(_FrozenModel):
     enabled: bool = False
     auto_start: bool = True
-    device: VisionDeviceConfig | None = None
+    identity: CameraSourceConfig | None = None
     width: Literal[1280] = 1280
     height: Literal[720] = 720
     fps: Literal[5] = 5
@@ -237,9 +237,53 @@ class VisionConfig(_FrozenModel):
 
     @model_validator(mode="after")
     def validate_enabled_device(self) -> Self:
-        if self.enabled and self.device is None:
-            raise ValueError("enabled vision requires an exact USB device")
+        if self.enabled and self.identity is None:
+            raise ValueError("enabled camera vision requires an exact USB identity")
         return self
+
+
+class ScreenSourceConfig(_FrozenModel):
+    source_device_name: str
+    monitor_device_path: str
+    edid_name: str
+    width: PositiveInt
+    height: PositiveInt
+
+    @field_validator("source_device_name", "monitor_device_path", "edid_name")
+    @classmethod
+    def validate_identity(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized or len(normalized) > 1024:
+            raise ValueError("screen source identity is invalid")
+        return normalized
+
+
+class ScreenVisionConfig(_FrozenModel):
+    enabled: bool = False
+    auto_start: bool = True
+    identity: ScreenSourceConfig | None = None
+    capture_hz: Literal[1] = 1
+    change_sample_hz: Literal[1] = 1
+    change_thumbnail_width: Literal[160] = 160
+    change_thumbnail_height: Literal[90] = 90
+    change_threshold: Annotated[float, Field(gt=0, le=1)] = 0.18
+    stable_change_samples: Literal[3] = 3
+    automatic_cooldown_seconds: Literal[300] = 300
+    periodic_refresh_seconds: Literal[1800] = 1800
+    hourly_observation_limit: Literal[6] = 6
+    frame_retention_seconds: Annotated[int, Field(ge=3600, le=604800)] = 86400
+    reconnect_seconds: Annotated[int, Field(ge=5, le=300)] = 30
+
+    @model_validator(mode="after")
+    def validate_enabled_identity(self) -> Self:
+        if self.enabled and self.identity is None:
+            raise ValueError("enabled screen vision requires an exact display identity")
+        return self
+
+
+class VisionConfig(_FrozenModel):
+    camera: CameraVisionConfig = CameraVisionConfig()
+    screen: ScreenVisionConfig = ScreenVisionConfig()
 
 
 class ArtifactsConfig(_FrozenModel):

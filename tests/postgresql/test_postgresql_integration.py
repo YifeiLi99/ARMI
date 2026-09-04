@@ -126,6 +126,7 @@ from armi_kernel.contracts import (
     SubjectId,
     TraceId,
 )
+from armi_live_vision.bootstrap import bootstrap_live_vision_commit
 from armi_live_voice.bootstrap import bootstrap_live_voice_context_read
 from armi_perception.api import (
     ExternalContentRecognitionResult,
@@ -807,6 +808,82 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 environment_id=fixture.environment_id,
             )
         self.assertEqual(repeated.exception.code, "DB-SCHEMA-EXISTS")
+
+    def test_live_vision_allows_one_open_session_per_source(self) -> None:
+        fixture = self.create_database()
+        self._install_current(
+            fixture.migrator_dsn,
+            environment_id=fixture.environment_id,
+        )
+        packaged = packaged_birth_digests()
+        manifest = BirthManifest(
+            schema_version="armi.birth-manifest.v1",
+            environment_id=fixture.environment_id,
+            birth_request_id=_uuid7(),
+            creator_party_id=_uuid7(),
+            idempotency_key="live-vision-session-birth",
+            personality_anchor=PersonalityAnchor(
+                schema_version="armi.personality-anchor.v1",
+                voice_style="约 16 岁少女口吻",
+                traits=("清醒",),
+            ),
+            birth_contract_digest=packaged["birth_contract_digest"],
+            request_digest=Digest.from_bytes(b"live-vision-session-birth"),
+        )
+
+        async def birth_subject(data_root: Path) -> Any:
+            factory = PostgreSQLUnitOfWorkFactory(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+                pool_min=1,
+                pool_max=2,
+                acquire_timeout_seconds=2,
+                statement_timeout_seconds=5,
+                require_runtime_fence=False,
+            )
+            birth = BirthTransaction(
+                _publishing_artifact_store(data_root / "artifacts", factory),
+                ArtifactCatalogRepository(),
+                _birth_repository(),
+                factory,
+            )
+            await factory.open()
+            try:
+                return await birth.birth(manifest)
+            finally:
+                await factory.close()
+
+        with tempfile.TemporaryDirectory() as directory:
+            born = asyncio.run(
+                birth_subject(Path(directory)),
+                loop_factory=lambda: asyncio.SelectorEventLoop(
+                    selectors.SelectSelector()
+                ),
+            )
+        with psycopg.connect(fixture.runtime_dsn) as connection:
+            for source_kind in ("camera", "screen"):
+                connection.execute(
+                    """INSERT INTO armi.live_vision_sessions
+                       (session_id,subject_id,source_kind,state,source_identity,width,height,fps)
+                       VALUES (%s,%s,%s,'observing','{}'::jsonb,1280,720,1)""",
+                    (_uuid7(), born.subject_id, source_kind),
+                )
+            connection.commit()
+            with (
+                self.assertRaises(psycopg.errors.UniqueViolation),
+                connection.transaction(),
+            ):
+                connection.execute(
+                    """INSERT INTO armi.live_vision_sessions
+                       (session_id,subject_id,source_kind,state,source_identity,width,height,fps)
+                       VALUES (%s,%s,'camera','observing','{}'::jsonb,1280,720,5)""",
+                    (_uuid7(), born.subject_id),
+                )
+            count = connection.execute(
+                "SELECT count(*) FROM armi.live_vision_sessions WHERE subject_id=%s AND ended_at IS NULL",
+                (born.subject_id,),
+            ).fetchone()
+        self.assertEqual(count, (2,))
 
     def test_runtime_status_rejects_missing_head_dml_capability(self) -> None:
         fixture = self.create_database()
@@ -5475,7 +5552,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         live_evidence: dict[str, object] | None = None
         if live_environment_root is None:
             change_set_document = {
-                "schema_version": "armi.subject-change-set.v30",
+                "schema_version": "armi.subject-change-set.v31",
                 "subject_id": str(born.subject_id),
                 "generation_id": str(born.life_generation_id),
                 "episode_id": str(ids["episode"]),
@@ -5537,6 +5614,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     }
                 ],
                 "web_research_requests": [],
+                "visual_observation_requests": [],
                 "codex_delegations": [],
                 "owner_drafts": [],
                 "exact_life_queries": [],
@@ -5750,7 +5828,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             if live_evidence is not None
             else 1
         )
-        candidate_contract_version = "armi.cognition-candidate.v9"
+        candidate_contract_version = "armi.cognition-candidate.v10"
 
         def locator(digest: Digest) -> str:
             value = digest.value.removeprefix("sha256:")
@@ -6355,6 +6433,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 sleep_commit=sleep_module.commit,
                 subject_state_commit=subject_state_module.commit,
                 web_research_commit=bootstrap_web_research_commit(),
+                visual_observation_commit=bootstrap_live_vision_commit(),
             )
             await memory_module.open()
             await relationship_module.open()

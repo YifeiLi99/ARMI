@@ -24,6 +24,7 @@ class CognitionPurpose(StrEnum):
     CONSIDER_CREATOR_OUTREACH = "consider_creator_outreach"
     CONSIDER_OTHER_HUMAN_INPUT = "consider_other_human_input"
     CONSIDER_VISUAL_OBSERVATION = "consider_visual_observation"
+    CONSIDER_REQUESTED_VISUAL_OBSERVATION = "consider_requested_visual_observation"
     REFLECT_SELF = "reflect_self"
     REFLECT_MIND = "reflect_mind"
     REFLECT_MOOD = "reflect_mood"
@@ -67,6 +68,7 @@ COGNITION_PURPOSES: Final = MappingProxyType(
                     CognitionPurpose.CONSIDER_CREATOR_INPUT,
                     CognitionPurpose.CONSIDER_CREATOR_VOICE_INPUT,
                     CognitionPurpose.CONSIDER_LIFE_QUERY_RESULT,
+                    CognitionPurpose.CONSIDER_REQUESTED_VISUAL_OBSERVATION,
                 }
                 else "single_candidate"
             ),

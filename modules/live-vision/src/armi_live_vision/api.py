@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -9,7 +10,11 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-from armi_runtime_foundation import PostgreSQLAdminTransaction
+from armi_kernel.contracts import TraceId
+from armi_runtime_foundation import (
+    PostgreSQLAdminTransaction,
+    PostgreSQLRuntimeUnitOfWork,
+)
 
 
 class LiveVisionViolation(ValueError):
@@ -28,14 +33,28 @@ class LiveVisionState(StrEnum):
     STOPPING = "stopping"
 
 
+class VisualSourceKind(StrEnum):
+    CAMERA = "camera"
+    SCREEN = "screen"
+
+
+class ObservationOriginKind(StrEnum):
+    AUTOMATIC = "automatic"
+    CREATOR = "creator"
+    SUBJECT = "subject"
+
+
 class ObservationTrigger(StrEnum):
     INITIAL = "initial"
     SCENE_CHANGE = "scene_change"
     PERIODIC_REFRESH = "periodic_refresh"
     MANUAL = "manual"
+    SUBJECT_REQUEST = "subject_request"
 
 
 class ObservationStatus(StrEnum):
+    CAPTURE_PENDING = "capture_pending"
+    CAPTURING = "capturing"
     REGISTERED = "registered"
     RECOGNIZING = "recognizing"
     COMPLETED = "completed"
@@ -44,7 +63,7 @@ class ObservationStatus(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
-class CameraDevice:
+class CameraSourceIdentity:
     name: str
     device_path: str
     usb_location_id: str
@@ -63,18 +82,42 @@ class CameraDevice:
 
 
 @dataclass(frozen=True, slots=True)
-class CameraFormat:
+class ScreenSourceIdentity:
+    source_device_name: str
+    monitor_device_path: str
+    edid_name: str
+    width: int
+    height: int
+
+    def __post_init__(self) -> None:
+        if (
+            not self.source_device_name.strip()
+            or not self.monitor_device_path.strip()
+            or not self.edid_name.strip()
+            or self.width <= 0
+            or self.height <= 0
+        ):
+            raise LiveVisionViolation(
+                "VISION-SOURCE-IDENTITY", "screen identity is incomplete"
+            )
+
+
+VisualSourceIdentity = CameraSourceIdentity | ScreenSourceIdentity
+
+
+@dataclass(frozen=True, slots=True)
+class VisualCaptureFormat:
     width: int = 1280
     height: int = 720
     fps: float = 5.0
 
     def __post_init__(self) -> None:
         if self.width <= 0 or self.height <= 0 or self.fps <= 0:
-            raise LiveVisionViolation("VISION-CAPTURE-FORMAT", "invalid camera format")
+            raise LiveVisionViolation("VISION-CAPTURE-FORMAT", "invalid visual format")
 
 
 @dataclass(frozen=True, slots=True)
-class CameraFrame:
+class VisualFrame:
     captured_at: datetime
     jpeg: bytes
     width: int
@@ -84,25 +127,77 @@ class CameraFrame:
 
     def __post_init__(self) -> None:
         if not self.jpeg or self.width <= 0 or self.height <= 0:
-            raise LiveVisionViolation("VISION-FRAME-INVALID", "camera frame is invalid")
+            raise LiveVisionViolation("VISION-FRAME-INVALID", "visual frame is invalid")
 
 
 @dataclass(frozen=True, slots=True)
 class VisualObservation:
     observation_id: UUID
+    source_kind: VisualSourceKind
+    origin_kind: ObservationOriginKind
     trigger: ObservationTrigger
     status: ObservationStatus
     registered_at: datetime
     change_score: float | None = None
     summary: str | None = None
     error_code: str | None = None
+    origin_episode_id: UUID | None = None
+    origin_scene_id: UUID | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class VisualObservationRequestDraft:
+    proposal_ref: str
+    atomic_group_ref: str
+    basis_ordinals: tuple[int, ...]
+    source_kind: VisualSourceKind
+
+    def __post_init__(self) -> None:
+        if (
+            re.fullmatch(r"proposal:[1-9][0-9]{0,2}", self.proposal_ref) is None
+            or re.fullmatch(r"group:[1-9][0-9]{0,2}", self.atomic_group_ref) is None
+            or not 1 <= len(self.basis_ordinals) <= 8
+            or len(set(self.basis_ordinals)) != len(self.basis_ordinals)
+            or any(
+                type(item) is not int or not 1 <= item <= 999
+                for item in self.basis_ordinals
+            )
+            or type(self.source_kind) is not VisualSourceKind
+        ):
+            raise LiveVisionViolation(
+                "VISION-SUBJECT-REQUEST", "visual request is invalid"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class VisualObservationCommitContext:
+    validation_id: UUID
+    episode_id: UUID
+    opportunity_id: UUID
+    subject_id: UUID
+    scene_id: UUID | None
+    creator_party_id: UUID | None
+    trace_id: TraceId
+
+
+@runtime_checkable
+class VisualObservationCommitPort(Protocol):
+    async def commit_requests(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        context: VisualObservationCommitContext,
+        commit_id: UUID,
+        requests: tuple[VisualObservationRequestDraft, ...],
+    ) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
 class LiveVisionStatus:
+    source_kind: VisualSourceKind
     state: LiveVisionState
     expected_running: bool
-    device: CameraDevice | None
+    source: VisualSourceIdentity | None
     last_frame_at: datetime | None
     last_observation: VisualObservation | None
     observations_last_hour: int
@@ -114,12 +209,12 @@ class LatestFrameBuffer:
     """A volatile single-frame buffer; replaced frames are immediately released."""
 
     def __init__(self) -> None:
-        self._frame: CameraFrame | None = None
+        self._frame: VisualFrame | None = None
 
-    def put(self, frame: CameraFrame) -> None:
+    def put(self, frame: VisualFrame) -> None:
         self._frame = frame
 
-    def latest(self) -> CameraFrame | None:
+    def latest(self) -> VisualFrame | None:
         return self._frame
 
     def clear(self) -> None:
@@ -177,7 +272,8 @@ class ObservationBudget:
         if len(self._started) >= self._limit:
             return False
         return not (
-            trigger is not ObservationTrigger.MANUAL
+            trigger
+            not in {ObservationTrigger.MANUAL, ObservationTrigger.SUBJECT_REQUEST}
             and self._last_automatic is not None
             and now - self._last_automatic < self._cooldown
         )
@@ -188,7 +284,10 @@ class ObservationBudget:
                 "VISION-OBSERVATION-BUDGET", "observation is rate limited"
             )
         self._started.append(now)
-        if trigger is not ObservationTrigger.MANUAL:
+        if trigger not in {
+            ObservationTrigger.MANUAL,
+            ObservationTrigger.SUBJECT_REQUEST,
+        }:
             self._last_automatic = now
 
     def used(self, now: datetime) -> int:
@@ -224,10 +323,12 @@ class TriggerCoalescer:
 
 
 @runtime_checkable
-class CameraDevicePort(Protocol):
-    def devices(self) -> tuple[CameraDevice, ...]: ...
-    async def open(self, device: CameraDevice, format: CameraFormat) -> None: ...
-    async def next_frame(self) -> CameraFrame: ...
+class VisualSourcePort(Protocol):
+    def sources(self) -> tuple[VisualSourceIdentity, ...]: ...
+    async def open(
+        self, source: VisualSourceIdentity, format: VisualCaptureFormat
+    ) -> None: ...
+    async def next_frame(self) -> VisualFrame: ...
     async def close(self) -> None: ...
 
 
@@ -236,7 +337,13 @@ class LiveVisionRuntimePort(Protocol):
     async def start(self) -> LiveVisionStatus: ...
     async def stop(self) -> LiveVisionStatus: ...
     async def observe(
-        self, *, idempotency_key: str | None = None
+        self,
+        *,
+        trigger: ObservationTrigger = ObservationTrigger.MANUAL,
+        origin_kind: ObservationOriginKind = ObservationOriginKind.CREATOR,
+        idempotency_key: str | None = None,
+        origin_episode_id: UUID | None = None,
+        origin_scene_id: UUID | None = None,
     ) -> VisualObservation: ...
     def status(self) -> LiveVisionStatus: ...
     def preview(self) -> bytes | None: ...
@@ -257,9 +364,12 @@ class VisualObservationSinkPort(Protocol):
         self,
         *,
         trigger: ObservationTrigger,
-        frames: tuple[CameraFrame, ...],
+        frames: tuple[VisualFrame, ...],
         change_score: float | None,
+        origin_kind: ObservationOriginKind,
         idempotency_key: str | None = None,
+        origin_episode_id: UUID | None = None,
+        origin_scene_id: UUID | None = None,
     ) -> VisualObservation: ...
 
 
@@ -271,10 +381,7 @@ class LiveVisionAdminPort(Protocol):
 
 
 __all__ = (
-    "CameraDevice",
-    "CameraDevicePort",
-    "CameraFormat",
-    "CameraFrame",
+    "CameraSourceIdentity",
     "LatestFrameBuffer",
     "LiveVisionAdminPort",
     "LiveVisionRuntimePort",
@@ -282,10 +389,20 @@ __all__ = (
     "LiveVisionStatus",
     "LiveVisionViolation",
     "ObservationBudget",
+    "ObservationOriginKind",
     "ObservationStatus",
     "ObservationTrigger",
+    "ScreenSourceIdentity",
     "StableSceneChangeDetector",
     "TriggerCoalescer",
+    "VisualCaptureFormat",
+    "VisualFrame",
     "VisualObservation",
+    "VisualObservationCommitContext",
+    "VisualObservationCommitPort",
+    "VisualObservationRequestDraft",
     "VisualObservationSinkPort",
+    "VisualSourceIdentity",
+    "VisualSourceKind",
+    "VisualSourcePort",
 )

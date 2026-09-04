@@ -397,8 +397,10 @@ def _visual_observation_message(request: VisualRecognitionRequest) -> dict[str, 
         else f"上一观察摘要: {request.previous_summary}"
     )
     instructions = (
-        "这些画面来自 ARMI 的常驻摄像头,只描述画面中此刻实际可见的环境。"
-        "禁止做人脸识别、猜测人物身份、推断画面外区域或把推测写成事实。"
+        f"这些画面来自 ARMI 的{'常驻摄像头' if request.source_kind == 'camera' else '桌面显示器截图'},"
+        "只描述画面中此刻实际可见的内容。"
+        "禁止做人脸识别、猜测人物身份、推断隐藏或画面外区域。"
+        "模糊或不完整的文字必须明确标为不确定,不能当作事实。"
         f"触发原因是 {request.trigger}。{prior}"
         "严格只输出一个 JSON 对象,键为 scene_summary、visible_change、change_class、uncertainties;"
         "change_class 只能是 none、minor、notable、uncertain,uncertainties 是字符串数组。"

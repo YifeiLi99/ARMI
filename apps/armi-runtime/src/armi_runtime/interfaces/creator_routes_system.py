@@ -320,7 +320,9 @@ def register_system_routes(
     async def stop_live_voice(request: Request) -> JSONResponse:
         return await _voice_control(request, "stop")
 
-    async def _vision_control(request: Request, action: str) -> JSONResponse:
+    async def _vision_control(
+        request: Request, action: str, source_kind: str | None = None
+    ) -> JSONResponse:
         if (
             browser_sessions is None
             or live_vision_control is None
@@ -339,9 +341,14 @@ def register_system_routes(
             return JSONResponse(
                 status_code=error.status_code, content=_rejected(error.code)
             )
-        return JSONResponse(
-            content=(await live_vision_control(action)).model_dump(mode="json")
-        )
+        try:
+            result = await live_vision_control(action, source_kind)
+        except LiveVisionViolation as error:
+            return JSONResponse(
+                status_code=400 if error.code == "VISION-SOURCE-KIND" else 503,
+                content=_rejected(error.code.replace("-", "_")),
+            )
+        return JSONResponse(content=result.model_dump(mode="json"))
 
     @app.get(
         "/v1/vision/status",
@@ -352,29 +359,31 @@ def register_system_routes(
     async def get_live_vision_status(  # pyright: ignore[reportUnusedFunction]
         request: Request,
     ) -> JSONResponse:
-        return await _vision_control(request, "status")
+        return await _vision_control(request, "status", None)
 
     @app.post(
-        "/v1/vision/start",
-        operation_id="startLiveVision",
+        "/v1/vision/sources/{source_kind}/start",
+        operation_id="startLiveVisionSource",
         response_model=LiveVisionStatusResponse,
         dependencies=[Security(bearer)],
     )
     async def start_live_vision(  # pyright: ignore[reportUnusedFunction]
         request: Request,
+        source_kind: str,
     ) -> JSONResponse:
-        return await _vision_control(request, "start")
+        return await _vision_control(request, "start", source_kind)
 
     @app.post(
-        "/v1/vision/stop",
-        operation_id="stopLiveVision",
+        "/v1/vision/sources/{source_kind}/stop",
+        operation_id="stopLiveVisionSource",
         response_model=LiveVisionStatusResponse,
         dependencies=[Security(bearer)],
     )
     async def stop_live_vision(  # pyright: ignore[reportUnusedFunction]
         request: Request,
+        source_kind: str,
     ) -> JSONResponse:
-        return await _vision_control(request, "stop")
+        return await _vision_control(request, "stop", source_kind)
 
     @app.post(
         "/v1/vision/observe",
@@ -386,7 +395,15 @@ def register_system_routes(
     async def observe_live_vision(  # pyright: ignore[reportUnusedFunction]
         request: Request,
     ) -> JSONResponse:
-        authorized = await _vision_control(request, "authorize_observe")
+        try:
+            body = LiveVisionObservationRequest.model_validate(await request.json())
+        except ValueError:
+            return JSONResponse(
+                status_code=400, content=_rejected("CON_VISION_REQUEST")
+            )
+        authorized = await _vision_control(
+            request, "authorize_observe", body.source_kind
+        )
         if authorized.status_code != 200:
             return authorized
         if live_vision_observe is None:
@@ -403,9 +420,7 @@ def register_system_routes(
                 status_code=400, content=_rejected("CON_IDEMPOTENCY_KEY")
             )
         try:
-            body = LiveVisionObservationRequest.model_validate(await request.json())
-            del body
-            result = await live_vision_observe(key)
+            result = await live_vision_observe(body.source_kind, key)
         except LiveVisionViolation as error:
             return JSONResponse(
                 status_code=409 if error.code == "VISION-IDEMPOTENCY-CONFLICT" else 503,
@@ -416,7 +431,10 @@ def register_system_routes(
                 status_code=400, content=_rejected("CON_VISION_REQUEST")
             )
         return JSONResponse(
-            status_code=202 if result.status in {"registered", "recognizing"} else 200,
+            status_code=202
+            if result.status
+            in {"capture_pending", "capturing", "registered", "recognizing"}
+            else 200,
             content=result.model_dump(mode="json"),
         )
 
@@ -449,19 +467,20 @@ def register_system_routes(
         return JSONResponse(content=result.model_dump(mode="json"))
 
     @app.get(
-        "/v1/vision/preview",
-        operation_id="getLiveVisionPreview",
+        "/v1/vision/sources/{source_kind}/preview",
+        operation_id="getLiveVisionSourcePreview",
         response_class=Response,
         responses={200: {"content": {"image/jpeg": {}}}, 404: {}},
         dependencies=[Security(bearer)],
     )
     async def get_live_vision_preview(  # pyright: ignore[reportUnusedFunction]
         request: Request,
+        source_kind: str,
     ) -> Response:
-        denied = await _vision_control(request, "authorize_preview")
+        denied = await _vision_control(request, "authorize_preview", source_kind)
         if denied.status_code != 200:
             return denied
-        jpeg = None if live_vision_preview is None else live_vision_preview()
+        jpeg = None if live_vision_preview is None else live_vision_preview(source_kind)
         if jpeg is None:
             return Response(status_code=404, headers={"Cache-Control": "no-store"})
         return Response(

@@ -175,7 +175,7 @@ async def _verify(environment_root: Path) -> dict[str, object]:
         if choice_scene != scene_id or choice_creator != creator_party_id:
             raise RuntimeError("CANDIDATE-LIVE-SCENE-PREDICATE")
     return {
-        "candidate_contract": "armi.cognition-candidate.v9",
+        "candidate_contract": "armi.cognition-candidate.v10",
         "requested_model_id": binding.model_id,
         "provider_model_id": invocation.provider_model_id,
         "validation_status": validation.status.value,

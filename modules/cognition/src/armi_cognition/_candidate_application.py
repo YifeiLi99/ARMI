@@ -189,6 +189,7 @@ class CandidateValidationPipeline:
         "_stop",
         "_storage",
         "_subject_state_cognition",
+        "_visual_sources_active",
         "_wakeups",
         "_web_search_active",
         "_work",
@@ -228,6 +229,7 @@ class CandidateValidationPipeline:
         subject_state_cognition: SubjectStateCognitionPort,
         subject_state_read: SubjectStateReadPort,
         web_search_active: bool = False,
+        visual_sources_active: frozenset[str] = frozenset(),
         wakeups: CognitionWakeupPort | None = None,
         diagnostic: Diagnostic | None = None,
     ) -> None:
@@ -243,6 +245,7 @@ class CandidateValidationPipeline:
         self._sleep_cognition = sleep_cognition
         self._subject_state_cognition = subject_state_cognition
         self._web_search_active = web_search_active
+        self._visual_sources_active = visual_sources_active
         self._catalog = catalog
         self._repository = PostgreSQLCandidateValidationRepository(
             relationship_read,
@@ -459,6 +462,7 @@ class CandidateValidationPipeline:
                     other_party_id=snapshot.other_party_id,
                     scene_kind=snapshot.scene_kind,
                     sender_party_kind=snapshot.sender_party_kind,
+                    visual_sources_active=self._visual_sources_active,
                 ),
                 activity_cognition=self._activity_cognition,
                 material_cognition=self._material_cognition,

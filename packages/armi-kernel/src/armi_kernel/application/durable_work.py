@@ -48,6 +48,7 @@ class WorkType(StrEnum):
     LIFE_QUERY_EXECUTE = "life.query.execute"
     CONTEXT_EMBEDDING_PROJECT = "context.embedding.project"
     ARTIFACT_OBJECT_DELETE = "artifact.object.delete"
+    LIVE_VISION_CAPTURE = "live.vision.capture"
     LIVE_VISION_OBSERVE = "live.vision.observe"
 
 
@@ -104,6 +105,9 @@ RESPONSIBILITY_BINDINGS: tuple[ResponsibilityBinding, ...] = (
     ),
     ResponsibilityBinding(
         "artifact_object_deletion", WorkType.ARTIFACT_OBJECT_DELETE, "artifact-store"
+    ),
+    ResponsibilityBinding(
+        "live_vision_observation", WorkType.LIVE_VISION_CAPTURE, "live-vision"
     ),
     ResponsibilityBinding(
         "live_vision_observation", WorkType.LIVE_VISION_OBSERVE, "live-vision"

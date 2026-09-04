@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid7
@@ -33,6 +33,7 @@ from armi_kernel.application import (
     WorkLease,
     WorkOwner,
     WorkPayloadRef,
+    WorkRecord,
     WorkResultRef,
     WorkType,
 )
@@ -47,11 +48,15 @@ from armi_perception.api import (
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWorkFactory
 
 from .api import (
-    CameraDevice,
-    CameraFrame,
+    CameraSourceIdentity,
+    LiveVisionViolation,
+    ObservationOriginKind,
     ObservationStatus,
     ObservationTrigger,
+    VisualFrame,
     VisualObservation,
+    VisualSourceIdentity,
+    VisualSourceKind,
 )
 
 
@@ -68,7 +73,11 @@ class DurableVisualObservationCoordinator:
         evidence: EvidenceWritePort,
         opportunity: OpportunityAdmissionPort,
         subject_id: UUID,
-        device: CameraDevice,
+        source_kind: VisualSourceKind,
+        source: VisualSourceIdentity,
+        width: int,
+        height: int,
+        fps: float,
         retention: timedelta = timedelta(hours=24),
     ) -> None:
         self._factory = factory
@@ -80,13 +89,23 @@ class DurableVisualObservationCoordinator:
         self._evidence = evidence
         self._opportunity = opportunity
         self._subject_id = subject_id
-        self._device = device
+        self._source_kind = source_kind
+        self._source = source
+        self._width = width
+        self._height = height
+        self._fps = fps
         self._retention = retention
         self._session_id: UUID | None = None
         self._number = 0
         self._previous_summary: str | None = None
         self._worker_id = uuid7()
         self._stop = asyncio.Event()
+        self._capture: Callable[[], Awaitable[tuple[VisualFrame, ...]]] | None = None
+
+    def bind_capture(
+        self, capture: Callable[[], Awaitable[tuple[VisualFrame, ...]]]
+    ) -> None:
+        self._capture = capture
 
     async def open_session(self) -> None:
         await self._storage.prepare()
@@ -95,14 +114,16 @@ class DurableVisualObservationCoordinator:
         async with self._factory.unit_of_work() as unit:
             await unit.transaction.execute(
                 """INSERT INTO armi.live_vision_sessions
-                   (session_id,subject_id,state,device_name,device_path,usb_location_id,backend,width,height,fps)
-                   VALUES (%s,%s,'observing',%s,%s,%s,'DSHOW',1280,720,5)""",
+                   (session_id,subject_id,source_kind,state,source_identity,width,height,fps)
+                   VALUES (%s,%s,%s,'observing',%s::jsonb,%s,%s,%s)""",
                 (
                     self._session_id,
                     self._subject_id,
-                    self._device.name,
-                    self._device.device_path,
-                    self._device.usb_location_id,
+                    self._source_kind.value,
+                    json.dumps(_source_identity_document(self._source)),
+                    self._width,
+                    self._height,
+                    self._fps,
                 ),
             )
 
@@ -163,7 +184,7 @@ class DurableVisualObservationCoordinator:
         async with self._factory.unit_of_work(read_only=True) as unit:
             row = await (
                 await unit.transaction.execute(
-                    "SELECT observation_id,trigger_kind,status,registered_at,"
+                    "SELECT observation_id,source_kind,origin_kind,trigger_kind,status,registered_at,"
                     "change_score,scene_summary,error_code "
                     "FROM armi.live_vision_observations WHERE idempotency_key=%s",
                     (idempotency_key,),
@@ -175,23 +196,25 @@ class DurableVisualObservationCoordinator:
         self,
         *,
         trigger: ObservationTrigger,
-        frames: tuple[CameraFrame, ...],
+        frames: tuple[VisualFrame, ...],
         change_score: float | None,
+        origin_kind: ObservationOriginKind,
         idempotency_key: str | None = None,
+        origin_episode_id: UUID | None = None,
+        origin_scene_id: UUID | None = None,
     ) -> VisualObservation:
         await self.purge_expired_frames()
         if self._session_id is None:
             raise RuntimeError("live vision session is not open")
-        selected_frames = frames[:4]
+        if frames:
+            raise RuntimeError("VISION-CAPTURE-MUST-BE-DURABLE")
         request_document: dict[str, object] = {
-            "schema_version": "creator-live-vision-observation-request.v1",
+            "schema_version": "armi.visual-capture-request.v1",
+            "source_kind": self._source_kind.value,
+            "origin_kind": origin_kind.value,
             "trigger": trigger.value,
+            "change_score": change_score,
         }
-        if trigger is not ObservationTrigger.MANUAL:
-            request_document["frame_digests"] = [
-                Digest.from_bytes(frame.jpeg).value for frame in selected_frames
-            ]
-            request_document["change_score"] = change_score
         request_bytes = json.dumps(
             request_document,
             ensure_ascii=False,
@@ -203,34 +226,19 @@ class DurableVisualObservationCoordinator:
         async with self._factory.unit_of_work(read_only=True) as unit:
             existing = await (
                 await unit.transaction.execute(
-                    "SELECT observation_id,trigger_kind,status,registered_at,"
+                    "SELECT observation_id,source_kind,origin_kind,trigger_kind,status,registered_at,"
                     "change_score,scene_summary,error_code,request_digest "
                     "FROM armi.live_vision_observations WHERE idempotency_key=%s",
                     (key,),
                 )
             ).fetchone()
         if existing is not None:
-            if str(existing[7]) != request_digest.value:
+            if str(existing[9]) != request_digest.value:
                 raise RuntimeError("VISION-IDEMPOTENCY-CONFLICT")
             return _observation_from_row(existing)
-        observation_id, attempt_id, work_id = uuid7(), uuid7(), uuid7()
+        observation_id, work_id = uuid7(), uuid7()
         trace_id = TraceId(uuid7().hex)
         registered_at = datetime.now(UTC)
-        published_frames = [
-            (
-                frame,
-                await self._publish(
-                    frame.jpeg, "image/jpeg", "live.vision.selected-frame", trace_id
-                ),
-            )
-            for frame in selected_frames
-        ]
-        published_request = await self._publish(
-            request_bytes,
-            "application/json",
-            "live.vision.recognition-request",
-            trace_id,
-        )
         async with self._factory.unit_of_work() as unit:
             session = await (
                 await unit.transaction.execute(
@@ -253,7 +261,7 @@ class DurableVisualObservationCoordinator:
                     raise RuntimeError("VISION-IDEMPOTENCY-CONFLICT")
                 existing = await (
                     await unit.transaction.execute(
-                        "SELECT observation_id,trigger_kind,status,registered_at,"
+                        "SELECT observation_id,source_kind,origin_kind,trigger_kind,status,registered_at,"
                         "change_score,scene_summary,error_code FROM "
                         "armi.live_vision_observations WHERE observation_id=%s",
                         (prior[0],),
@@ -262,20 +270,10 @@ class DurableVisualObservationCoordinator:
                 if existing is None:
                     raise RuntimeError("VISION-IDEMPOTENCY-RACE")
                 return _observation_from_row(existing)
-            number_row = await (
-                await unit.transaction.execute(
-                    "SELECT COALESCE(max(observation_no),0)+1 FROM "
-                    "armi.live_vision_observations WHERE session_id=%s",
-                    (self._session_id,),
-                )
-            ).fetchone()
-            if number_row is None:
-                raise RuntimeError("VISION-OBSERVATION-NUMBER")
-            self._number = int(number_row[0])
             await unit.work.enqueue(
                 WorkDraft(
                     WorkId(work_id),
-                    WorkType.LIVE_VISION_OBSERVE,
+                    WorkType.LIVE_VISION_CAPTURE,
                     WorkOwner("live_vision_observation", observation_id),
                     IdempotencyKey(key),
                     request_digest,
@@ -290,56 +288,29 @@ class DurableVisualObservationCoordinator:
             )
             await unit.transaction.execute(
                 """INSERT INTO armi.live_vision_observations
-                   (observation_id,session_id,subject_id,observation_no,trigger_kind,
-                    idempotency_key,request_digest,work_id,status,change_score)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'registered',%s)""",
+                   (observation_id,subject_id,source_kind,origin_kind,trigger_kind,
+                    origin_episode_id,origin_scene_id,idempotency_key,request_digest,capture_work_id,status,change_score)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'capture_pending',%s)""",
                 (
                     observation_id,
-                    self._session_id,
                     self._subject_id,
-                    self._number,
+                    self._source_kind.value,
+                    origin_kind.value,
                     trigger.value,
+                    origin_episode_id,
+                    origin_scene_id,
                     key,
                     request_digest.value,
                     work_id,
                     change_score,
                 ),
             )
-            for ordinal, (frame, published) in enumerate(published_frames, start=1):
-                registration = await self._catalog.register(
-                    unit, ArtifactId(uuid7()), published
-                )
-                await unit.transaction.execute(
-                    """INSERT INTO armi.live_vision_observation_frames
-                       (observation_id,ordinal,artifact_id,content_digest,byte_size,width,height,captured_at,purge_after)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                    (
-                        observation_id,
-                        ordinal,
-                        registration.ref.artifact_id.value,
-                        registration.ref.content_digest.value,
-                        registration.ref.byte_size,
-                        frame.width,
-                        frame.height,
-                        frame.captured_at,
-                        frame.captured_at + self._retention,
-                    ),
-                )
-            request_registration = await self._catalog.register(
-                unit, ArtifactId(uuid7()), published_request
-            )
-            await self._attempts.begin(
-                unit,
-                attempt_id=attempt_id,
-                observation_id=observation_id,
-                request_artifact_id=request_registration.ref.artifact_id.value,
-                provider="volcengine_ark",
-                model_id="doubao-seed-2-0-lite-260428",
-            )
         return VisualObservation(
             observation_id,
+            self._source_kind,
+            origin_kind,
             trigger,
-            ObservationStatus.REGISTERED,
+            ObservationStatus.CAPTURE_PENDING,
             registered_at,
             change_score,
         )
@@ -360,10 +331,11 @@ class DurableVisualObservationCoordinator:
             await unit.work.validate_lease(lease)
             row = await (
                 await unit.transaction.execute(
-                    "SELECT observation.observation_id,observation.trigger_kind,"
-                    "observation.change_score,observation.registered_at "
+                    "SELECT observation.observation_id,observation.trigger_kind,observation.source_kind,"
+                    "observation.origin_kind,observation.change_score,observation.registered_at,"
+                    "observation.origin_scene_id,observation.origin_context_party_id "
                     "FROM armi.live_vision_observations AS observation "
-                    "WHERE observation.observation_id=%s AND observation.work_id=%s "
+                    "WHERE observation.observation_id=%s AND observation.recognition_work_id=%s "
                     "AND observation.status='registered' FOR UPDATE",
                     (record.draft.owner.reference, record.draft.work_id.value),
                 )
@@ -401,18 +373,19 @@ class DurableVisualObservationCoordinator:
                 "WHERE observation_id=%s AND status='registered'",
                 (row[0],),
             )
-        frame_values: list[CameraFrame] = []
+        frame_values: list[VisualFrame] = []
         for item, ref in zip(frame_rows, refs, strict=True):
             value = b""
             async with await self._storage.open_verified(ref) as stream:
                 value = await stream.read()
-            frame_values.append(CameraFrame(item[3], value, int(item[1]), int(item[2])))
-        previous = await self._previous_completed_summary()
+            frame_values.append(VisualFrame(item[3], value, int(item[1]), int(item[2])))
+        previous = await self._previous_completed_summary(VisualSourceKind(str(row[2])))
         try:
             result = await self._recognizer.recognize_visual(
                 VisualRecognitionRequest(
                     row[0],
                     str(row[1]),
+                    str(row[2]),
                     tuple(
                         VisualRecognitionInput(frame.jpeg, Instant(frame.captured_at))
                         for frame in frame_values
@@ -465,8 +438,8 @@ class DurableVisualObservationCoordinator:
                 EvidenceDraft(
                     evidence_id=evidence_id,
                     subject_id=self._subject_id,
-                    scene_id=None,
-                    context_party_id=None,
+                    scene_id=row[6],
+                    context_party_id=row[7],
                     artifact_id=response_registration.ref.artifact_id.value,
                     source_kind=EvidenceSourceKind.VISUAL_OBSERVATION,
                     privacy_scope=EvidencePrivacyScope.PRIVATE,
@@ -502,7 +475,11 @@ class DurableVisualObservationCoordinator:
             )
             if (
                 ObservationTrigger(str(row[1]))
-                in {ObservationTrigger.INITIAL, ObservationTrigger.MANUAL}
+                in {
+                    ObservationTrigger.INITIAL,
+                    ObservationTrigger.MANUAL,
+                    ObservationTrigger.SUBJECT_REQUEST,
+                }
                 or result.change_class.value == "notable"
             ):
                 await self._opportunity.admit_external_evidence(
@@ -510,9 +487,11 @@ class DurableVisualObservationCoordinator:
                     ExternalEvidenceOpportunityDraft(
                         evidence_id.value,
                         self._subject_id,
-                        None,
-                        None,
-                        OpportunityPurpose.CONSIDER_VISUAL_OBSERVATION,
+                        row[6],
+                        row[7],
+                        OpportunityPurpose.CONSIDER_REQUESTED_VISUAL_OBSERVATION
+                        if row[6] is not None
+                        else OpportunityPurpose.CONSIDER_VISUAL_OBSERVATION,
                     ),
                 )
             await unit.work.validate_lease(lease)
@@ -522,8 +501,204 @@ class DurableVisualObservationCoordinator:
         self._previous_summary = result.scene_summary
         return True
 
+    async def process_capture_once(self) -> bool:
+        records = await self._work.claim(
+            work_kind=WorkType.LIVE_VISION_CAPTURE,
+            lease_owner=self._worker_id,
+            lease_seconds=30,
+        )
+        if not records:
+            return False
+        await self.process_claimed_capture(records[0])
+        return True
+
+    async def process_claimed_capture(self, record: WorkRecord) -> None:
+        lease = record.lease
+        if lease is None:
+            raise RuntimeError("VISION-CAPTURE-WORK-LEASE")
+        observation_id = record.draft.owner.reference
+        async with self._factory.unit_of_work() as unit:
+            await unit.work.validate_lease(lease)
+            row = await (
+                await unit.transaction.execute(
+                    """SELECT source_kind,origin_kind,trigger_kind,origin_episode_id,
+                              origin_scene_id,origin_context_party_id,change_score,idempotency_key
+                       FROM armi.live_vision_observations
+                       WHERE observation_id=%s AND capture_work_id=%s
+                         AND status='capture_pending' FOR UPDATE""",
+                    (observation_id, record.draft.work_id.value),
+                )
+            ).fetchone()
+            if row is None:
+                await unit.work.complete(
+                    lease, WorkResultRef("live_vision_observation", observation_id)
+                )
+                return
+            if str(row[0]) != self._source_kind.value or self._capture is None:
+                await unit.transaction.execute(
+                    "UPDATE armi.live_vision_observations SET status='failed',error_code='VISION-SOURCE-UNAVAILABLE',settled_at=statement_timestamp() WHERE observation_id=%s",
+                    (observation_id,),
+                )
+                await unit.work.complete(
+                    lease, WorkResultRef("live_vision_observation", observation_id)
+                )
+                return
+            await unit.transaction.execute(
+                "UPDATE armi.live_vision_observations SET status='capturing' WHERE observation_id=%s",
+                (observation_id,),
+            )
+        try:
+            frames = await self._capture()
+            await self._attach_captured_frames(
+                observation_id=observation_id,
+                frames=frames,
+                origin_kind=ObservationOriginKind(str(row[1])),
+                trigger=ObservationTrigger(str(row[2])),
+                origin_episode_id=row[3],
+                origin_scene_id=row[4],
+                origin_context_party_id=row[5],
+                change_score=None if row[6] is None else float(row[6]),
+                idempotency_key=str(row[7]),
+                capture_lease=lease,
+            )
+        except Exception as error:
+            code = getattr(error, "code", "VISION-CAPTURE-FAILED")
+            async with self._factory.unit_of_work() as unit:
+                await unit.transaction.execute(
+                    "UPDATE armi.live_vision_observations SET status='failed',error_code=%s,settled_at=statement_timestamp() WHERE observation_id=%s AND status='capturing'",
+                    (code, observation_id),
+                )
+                await unit.work.validate_lease(lease)
+                await unit.work.complete(
+                    lease, WorkResultRef("live_vision_observation", observation_id)
+                )
+
+    async def run_recognition_worker(self) -> None:
+        while not self._stop.is_set():
+            if await self.process_once():
+                continue
+            with suppress(TimeoutError):
+                await asyncio.wait_for(self._stop.wait(), timeout=1.0)
+
+    async def _attach_captured_frames(
+        self,
+        *,
+        observation_id: UUID,
+        frames: tuple[VisualFrame, ...],
+        origin_kind: ObservationOriginKind,
+        trigger: ObservationTrigger,
+        origin_episode_id: UUID | None,
+        origin_scene_id: UUID | None,
+        origin_context_party_id: UUID | None,
+        change_score: float | None,
+        idempotency_key: str,
+        capture_lease: WorkLease,
+    ) -> None:
+        if self._session_id is None:
+            raise LiveVisionViolation(
+                "VISION-SOURCE-NOT-RUNNING", "source has no open session"
+            )
+        selected = frames[:4]
+        trace_id = TraceId(uuid7().hex)
+        request_bytes = json.dumps(
+            {
+                "schema_version": "armi.visual-observation-request.v2",
+                "source_kind": self._source_kind.value,
+                "origin_kind": origin_kind.value,
+                "trigger": trigger.value,
+                "frame_digests": [
+                    Digest.from_bytes(frame.jpeg).value for frame in selected
+                ],
+                "change_score": change_score,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+        published_frames = [
+            (
+                frame,
+                await self._publish(
+                    frame.jpeg, "image/jpeg", "live.vision.selected-frame", trace_id
+                ),
+            )
+            for frame in selected
+        ]
+        published_request = await self._publish(
+            request_bytes,
+            "application/json",
+            "live.vision.recognition-request",
+            trace_id,
+        )
+        work_id, attempt_id = uuid7(), uuid7()
+        now = datetime.now(UTC)
+        async with self._factory.unit_of_work() as unit:
+            await unit.work.validate_lease(capture_lease)
+            number_row = await (
+                await unit.transaction.execute(
+                    "SELECT COALESCE(max(observation_no),0)+1 FROM armi.live_vision_observations WHERE session_id=%s",
+                    (self._session_id,),
+                )
+            ).fetchone()
+            if number_row is None:
+                raise RuntimeError("VISION-OBSERVATION-NUMBER")
+            await unit.work.enqueue(
+                WorkDraft(
+                    WorkId(work_id),
+                    WorkType.LIVE_VISION_OBSERVE,
+                    WorkOwner("live_vision_observation", observation_id),
+                    IdempotencyKey(f"recognize:{idempotency_key}"),
+                    Digest.from_bytes(request_bytes),
+                    50,
+                    Instant(now),
+                    Instant(now + timedelta(minutes=10)),
+                    2,
+                    trace_id,
+                    subject_id=SubjectId(self._subject_id),
+                    payload=WorkPayloadRef("live_vision_observation", observation_id),
+                )
+            )
+            await unit.transaction.execute(
+                "UPDATE armi.live_vision_observations SET session_id=%s,observation_no=%s,recognition_work_id=%s,status='registered' WHERE observation_id=%s AND status='capturing'",
+                (self._session_id, int(number_row[0]), work_id, observation_id),
+            )
+            for ordinal, (frame, published) in enumerate(published_frames, 1):
+                registration = await self._catalog.register(
+                    unit, ArtifactId(uuid7()), published
+                )
+                await unit.transaction.execute(
+                    "INSERT INTO armi.live_vision_observation_frames (observation_id,ordinal,artifact_id,content_digest,byte_size,width,height,captured_at,purge_after) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (
+                        observation_id,
+                        ordinal,
+                        registration.ref.artifact_id.value,
+                        registration.ref.content_digest.value,
+                        registration.ref.byte_size,
+                        frame.width,
+                        frame.height,
+                        frame.captured_at,
+                        frame.captured_at + self._retention,
+                    ),
+                )
+            request_registration = await self._catalog.register(
+                unit, ArtifactId(uuid7()), published_request
+            )
+            await self._attempts.begin(
+                unit,
+                attempt_id=attempt_id,
+                observation_id=observation_id,
+                request_artifact_id=request_registration.ref.artifact_id.value,
+                provider="volcengine_ark",
+                model_id="doubao-seed-2-0-lite-260428",
+            )
+            await unit.work.complete(
+                capture_lease, WorkResultRef("live_vision_observation", observation_id)
+            )
+
     async def run_worker(self) -> None:
         while not self._stop.is_set():
+            if await self.process_capture_once():
+                continue
             if await self.process_once():
                 continue
             with suppress(TimeoutError):
@@ -536,7 +711,7 @@ class DurableVisualObservationCoordinator:
         async with self._factory.unit_of_work(read_only=True) as unit:
             row = await (
                 await unit.transaction.execute(
-                    "SELECT observation_id,trigger_kind,status,registered_at,"
+                    "SELECT observation_id,source_kind,origin_kind,trigger_kind,status,registered_at,"
                     "change_score,scene_summary,error_code FROM "
                     "armi.live_vision_observations WHERE observation_id=%s",
                     (observation_id,),
@@ -544,14 +719,16 @@ class DurableVisualObservationCoordinator:
             ).fetchone()
         return None if row is None else _observation_from_row(row)
 
-    async def _previous_completed_summary(self) -> str | None:
+    async def _previous_completed_summary(
+        self, source_kind: VisualSourceKind
+    ) -> str | None:
         async with self._factory.unit_of_work(read_only=True) as unit:
             row = await (
                 await unit.transaction.execute(
                     "SELECT scene_summary FROM armi.live_vision_observations "
-                    "WHERE subject_id=%s AND status='completed' "
+                    "WHERE subject_id=%s AND source_kind=%s AND status='completed' "
                     "ORDER BY settled_at DESC LIMIT 1",
-                    (self._subject_id,),
+                    (self._subject_id, source_kind.value),
                 )
             ).fetchone()
         return None if row is None else str(row[0])
@@ -600,6 +777,76 @@ class DurableVisualObservationCoordinator:
             ),
         )
         return await self._storage.publish(staged)
+
+
+class VisualCaptureRouter:
+    """Claim each capture once and route it to the exact configured source."""
+
+    def __init__(
+        self,
+        *,
+        factory: PostgreSQLRuntimeUnitOfWorkFactory,
+        work: DurableWorkPort,
+        coordinators: Mapping[VisualSourceKind, DurableVisualObservationCoordinator],
+    ) -> None:
+        self._factory = factory
+        self._work = work
+        self._coordinators = dict(coordinators)
+        self._worker_id = uuid7()
+        self._stop = asyncio.Event()
+
+    async def process_once(self) -> bool:
+        records = await self._work.claim(
+            work_kind=WorkType.LIVE_VISION_CAPTURE,
+            lease_owner=self._worker_id,
+            lease_seconds=30,
+        )
+        if not records:
+            return False
+        record = records[0]
+        observation_id = record.draft.owner.reference
+        async with self._factory.unit_of_work(read_only=True) as unit:
+            row = await (
+                await unit.transaction.execute(
+                    "SELECT source_kind FROM armi.live_vision_observations "
+                    "WHERE observation_id=%s AND capture_work_id=%s",
+                    (observation_id, record.draft.work_id.value),
+                )
+            ).fetchone()
+        coordinator = (
+            None
+            if row is None
+            else self._coordinators.get(VisualSourceKind(str(row[0])))
+        )
+        if coordinator is not None:
+            await coordinator.process_claimed_capture(record)
+            return True
+        lease = record.lease
+        if lease is None:
+            raise RuntimeError("VISION-CAPTURE-WORK-LEASE")
+        async with self._factory.unit_of_work() as unit:
+            await unit.work.validate_lease(lease)
+            await unit.transaction.execute(
+                "UPDATE armi.live_vision_observations "
+                "SET status='failed',error_code='VISION-SOURCE-UNAVAILABLE',"
+                "settled_at=statement_timestamp() "
+                "WHERE observation_id=%s AND status='capture_pending'",
+                (observation_id,),
+            )
+            await unit.work.complete(
+                lease, WorkResultRef("live_vision_observation", observation_id)
+            )
+        return True
+
+    async def run(self) -> None:
+        while not self._stop.is_set():
+            if await self.process_once():
+                continue
+            with suppress(TimeoutError):
+                await asyncio.wait_for(self._stop.wait(), timeout=1.0)
+
+    def stop(self) -> None:
+        self._stop.set()
 
 
 class LiveVisionRetentionCoordinator:
@@ -668,18 +915,41 @@ async def _one_chunk(value: bytes) -> AsyncIterator[bytes]:
 
 def _observation_from_row(row: Sequence[object]) -> VisualObservation:
     observation_id = UUID(str(row[0]))
-    registered_at = row[3]
+    registered_at = row[5]
     if not isinstance(registered_at, datetime):
         raise RuntimeError("VISION-OBSERVATION-ROW")
     return VisualObservation(
         observation_id,
-        ObservationTrigger(str(row[1])),
-        ObservationStatus(str(row[2])),
+        VisualSourceKind(str(row[1])),
+        ObservationOriginKind(str(row[2])),
+        ObservationTrigger(str(row[3])),
+        ObservationStatus(str(row[4])),
         registered_at,
-        None if row[4] is None else float(str(row[4])),
-        None if row[5] is None else str(row[5]),
-        None if row[6] is None else str(row[6]),
+        None if row[6] is None else float(str(row[6])),
+        None if row[7] is None else str(row[7]),
+        None if row[8] is None else str(row[8]),
     )
 
 
-__all__ = ("DurableVisualObservationCoordinator", "LiveVisionRetentionCoordinator")
+def _source_identity_document(source: VisualSourceIdentity) -> dict[str, object]:
+    if isinstance(source, CameraSourceIdentity):
+        return {
+            "name": source.name,
+            "device_path": source.device_path,
+            "usb_location_id": source.usb_location_id,
+            "backend": source.backend,
+        }
+    return {
+        "source_device_name": source.source_device_name,
+        "monitor_device_path": source.monitor_device_path,
+        "edid_name": source.edid_name,
+        "width": source.width,
+        "height": source.height,
+    }
+
+
+__all__ = (
+    "DurableVisualObservationCoordinator",
+    "LiveVisionRetentionCoordinator",
+    "VisualCaptureRouter",
+)

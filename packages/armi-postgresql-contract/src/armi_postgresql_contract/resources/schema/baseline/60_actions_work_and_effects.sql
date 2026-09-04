@@ -255,7 +255,7 @@ CREATE TABLE armi.durable_work (
     CONSTRAINT durable_work_subject_id_check CHECK (((subject_id IS NULL) OR (uuid_extract_version(subject_id) = 7))),
     CONSTRAINT durable_work_trace_id_check CHECK (((trace_id ~ '^[0-9a-f]{32}$'::text) AND (trace_id <> repeat('0'::text, 32)))),
     CONSTRAINT durable_work_work_id_check CHECK ((uuid_extract_version(work_id) = 7)),
-    CONSTRAINT durable_work_work_kind_check CHECK ((work_kind = ANY (ARRAY['cognition.context.prepare'::text, 'cognition.model.invoke'::text, 'cognition.candidate.validate'::text, 'cognition.subject.commit'::text, 'cognition.response.admit'::text, 'effect.register'::text, 'web.observation.admit'::text, 'web.search.invoke'::text, 'external.content.recognize'::text, 'external.content.finalize'::text, 'life.query.execute'::text, 'context.embedding.project'::text, 'artifact.object.delete'::text, 'live.vision.observe'::text])))
+    CONSTRAINT durable_work_work_kind_check CHECK ((work_kind = ANY (ARRAY['cognition.context.prepare'::text, 'cognition.model.invoke'::text, 'cognition.candidate.validate'::text, 'cognition.subject.commit'::text, 'cognition.response.admit'::text, 'effect.register'::text, 'web.observation.admit'::text, 'web.search.invoke'::text, 'external.content.recognize'::text, 'external.content.finalize'::text, 'life.query.execute'::text, 'context.embedding.project'::text, 'artifact.object.delete'::text, 'live.vision.capture'::text, 'live.vision.observe'::text])))
 );
 
 -- Effect owns registration independently from the existence of an Effect row.

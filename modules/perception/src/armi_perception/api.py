@@ -212,6 +212,7 @@ class VisualRecognitionInput:
 class VisualRecognitionRequest:
     observation_id: UUID
     trigger: str
+    source_kind: str
     frames: tuple[VisualRecognitionInput, ...]
     previous_summary: str | None
     trace_id: TraceId
@@ -221,7 +222,14 @@ class VisualRecognitionRequest:
             type(self.observation_id) is not UUID
             or self.observation_id.version != 7
             or self.trigger
-            not in {"initial", "scene_change", "periodic_refresh", "manual"}
+            not in {
+                "initial",
+                "scene_change",
+                "periodic_refresh",
+                "manual",
+                "subject_request",
+            }
+            or self.source_kind not in {"camera", "screen"}
             or not 1 <= len(self.frames) <= 4
             or any(type(frame) is not VisualRecognitionInput for frame in self.frames)
             or type(self.trace_id) is not TraceId

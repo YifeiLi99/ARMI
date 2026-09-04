@@ -96,7 +96,7 @@ Profile 同时声明 required、optional、retrieval、forbidden：Creator 文�
 
 ### 6.3 Creator 单次认知
 
-标准 Creator 文本、语音和精确生命查询结果各只进行一次主认知调用。当前 `armi.creator-cognitive-act-candidate.v1` 允许：reply、decline、no_action、no_change、defer、need_information、exact_life_query、web_research；并可带一项 experience、语义 appraisal、受限 owner changes。
+标准 Creator 文本、语音和精确生命查询结果各只进行一次主认知调用。当前 `armi.creator-cognitive-act-candidate.v2` 允许：reply、decline、no_action、no_change、defer、need_information、exact_life_query、web_research；并可带一项 experience、语义 appraisal、受限 owner changes。
 
 模型只提出业务决定，不能生成 subject/scene ID、revision/version、权限结果、Emotion/VAD 数字、usage/model identity 或现实结果。关系/承诺变化必须有 experience；记忆只在当前 Creator 明确要求 remember 时形成。Voice compact wire 会确定性还原为同一语义，不是旁路合同。
 
@@ -122,7 +122,7 @@ frozen Context + expected subject/owner versions
 
 PostgreSQL 保存 subject、life、work、effect 与治理事实。多数可变事实使用 append-only revision/event + current head；写入携带 expected revision/subject version。数据库 statement time 提供权威时序，UUIDv7 提供稳定身份。
 
-当前 108 张表、1359 个字段、owner、关系、约束、索引与 ACL 的实现派生目录见[数据设计](docs/03-数据设计/)。该目录是 baseline 的只读说明，不替代 packaged SQL、owner registry 或测试。
+当前 108 张表、1363 个字段、owner、关系、约束、索引与 ACL 的实现派生目录见[数据设计](docs/03-数据设计/)。该目录是 baseline 的只读说明，不替代 packaged SQL、owner registry 或测试。
 
 ### 7.2 Artifact
 
@@ -150,7 +150,7 @@ ESP32 心情窗只接收 Mood 映射后的不透明 face、color、energy 和 ve
 
 ## 9. Durable Work 与恢复
 
-数据库是工作 custody；进程 wakeup 只优化延迟。当前 `WorkType` 是 14 项闭集，覆盖 Context、模型、候选、Subject Commit、回复/Effect、Web、外部内容、生命查询、embedding、artifact 删除和视觉观察。每个 `(owner kind, work type)` 映射唯一 reconciliation owner。
+数据库是工作 custody；进程 wakeup 只优化延迟。当前 `WorkType` 是 15 项闭集，覆盖 Context、模型、候选、Subject Commit、回复/Effect、Web、外部内容、生命查询、embedding、artifact 删除、视觉采集和视觉识别。每个 `(owner kind, work type)` 映射唯一 reconciliation owner。
 
 Work 以 ready/leased/completed/failed/cancelled 管理执行资格；业务 owner 决定 attempt/result 和是否可恢复。慢 I/O 前短事务登记，事务外调用，结算事务重新检查 lease/fence/generation/current state。重启后由固定 recovery roster 检查 owner head、过期 work、artifact、effect unknown 和投影 coverage；框架不猜业务修复。
 
@@ -191,7 +191,7 @@ WASAPI 精确设备 → 16kHz mono PCM16 → streaming ASR → 正式 Creator in
 
 ### Vision
 
-DirectShow 精确 USB identity，内存只保留 latest frame。2Hz 缩略图变化检测、连续样本阈值、cooldown/小时预算决定 initial/scene-change/periodic/manual observation；只有选帧保存为 private artifact。视觉结果先成为 Evidence/Opportunity，不能直接回复或记忆。
+`live-vision` 同时拥有 camera 与 screen：摄像头以 DirectShow moniker、DevicePath 和 USB LocationPaths 精确绑定；屏幕以 QueryDisplayConfig 的 source device、monitor path、EDID 名称、尺寸和边界精确绑定，锁屏、安全/非交互桌面及身份变化时拒绝采集。两路各有 session、内存帧缓冲、变化检测、cooldown 和小时预算；所有观察先登记 `live.vision.capture`，事务外抓取新帧，再登记视觉识别。自动或无 scene 结果进入受限私有视觉认知；对话内 subject request 保留原 scene/relationship，并通过 follow-up cognition 回答 Creator。视觉结果先成为 Evidence/Opportunity，不能自行写成记忆。
 
 ## 12. Creator 与 Admin 接口
 
@@ -203,7 +203,7 @@ Admin MCP 当前 21 tools、config v5，只允许 `development`、`system_test`�
 
 ## 13. 数据库与配置
 
-当前数据库要求 PostgreSQL 18.4、UTF-8/UTC/builtin `C.UTF-8`、vector 0.8.6、pg_trgm 1.6、唯一 `0000`、baseline `armi.schema-baseline.v11` 和精确 role policy。Schema 是 package resource，十份有序 baseline SQL 当前创建 108 tables/1359 columns/1 read-only view/65 explicit indexes。安装只接受无用户 relation 且无现存 `armi` namespace 的目标库：namespace 先在独立短事务建立，随后 `0000` 在一个事务组内写入表、约束、ACL、revision、identity 与 digests；中段失败可以留下空 namespace，但不会留下业务表或前移 revision。Runtime 只验证，不安装/迁移。
+当前数据库要求 PostgreSQL 18.4、UTF-8/UTC/builtin `C.UTF-8`、vector 0.8.6、pg_trgm 1.6、唯一 `0000`、baseline `armi.schema-baseline.v12` 和精确 role policy。Schema 是 package resource，十份有序 baseline SQL 当前创建 108 tables/1363 columns/1 read-only view/65 explicit indexes。安装只接受无用户 relation 且无现存 `armi` namespace 的目标库：namespace 先在独立短事务建立，随后 `0000` 在一个事务组内写入表、约束、ACL、revision、identity 与 digests；中段失败可以留下空 namespace，但不会留下业务表或前移 revision。Runtime 只验证，不安装/迁移。
 
 配置合并顺序：仓库 `configs/runtime.yaml` → 环境根 `environment.yaml` → 登记的 `ARMI_*` 覆盖。当前 schema v3，strict/frozen/extra-forbid。环境根必须有普通 `environment.yaml`、`data/`、`secrets/`；data root 精确相等，禁止 reparse。Secret 只用 `env:ARMI_SECRET_*` 或位于 `secrets/` 的 `file:` locator，最大 64KiB，经 scoped handle 消费后清零。
 

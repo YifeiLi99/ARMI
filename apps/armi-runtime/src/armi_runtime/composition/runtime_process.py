@@ -523,10 +523,12 @@ class RuntimeProcessManager:
             **cast(dict[str, Any], response["result"]),
         }
 
-    def vision(self, action: str) -> dict[str, Any]:
+    def vision(self, action: str, source: str) -> dict[str, Any]:
         if action not in {"status", "start", "stop", "observe"}:
             raise ValueError("unsupported vision action")
-        response = self._send_control("vision", {"action": action})
+        if source not in {"camera", "screen"}:
+            raise ValueError("unsupported vision source")
+        response = self._send_control("vision", {"action": action, "source": source})
         return cast(dict[str, Any], response["result"])
 
     def _send_control(

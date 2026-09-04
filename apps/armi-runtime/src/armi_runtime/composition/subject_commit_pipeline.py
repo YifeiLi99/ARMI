@@ -65,6 +65,7 @@ from armi_kernel.application import (
     WorkViolation,
 )
 from armi_kernel.contracts import ContractViolation, Digest, Instant, Purpose, SubjectId
+from armi_live_vision.api import VisualObservationCommitPort
 from armi_live_voice.api import LiveVoiceViolation, VoiceCognitionResultPort
 from armi_material.api import (
     CandidateLifeMaterialDraft,
@@ -194,6 +195,7 @@ class SubjectCommitPipeline:
         subject_state_cognition: SubjectStateCognitionPort,
         subject_state_commit: SubjectStateCommitPort,
         web_research_commit: WebResearchCommitPort,
+        visual_observation_commit: VisualObservationCommitPort,
         notifier: CreatorProjectionNotifier | None,
         voice_results: VoiceCognitionResultPort | None = None,
         wakeups: WorkWakeupBus | None = None,
@@ -237,6 +239,7 @@ class SubjectCommitPipeline:
             sleep_commit,
             subject_state_commit,
             web_research_commit,
+            visual_observation_commit,
         )
         self._work = PostgreSQLDurableWorkGateway(factory)
         self._lease_owner = uuid7()
@@ -294,7 +297,11 @@ class SubjectCommitPipeline:
             research_requests = change_set.web_research_requests
             if len(research_requests) > 1:
                 raise SubjectCommitViolation("SUBJECT-WEB-RESEARCH-COUNT")
-            awaits_followup = bool(research_requests or change_set.exact_life_queries)
+            awaits_followup = bool(
+                research_requests
+                or change_set.exact_life_queries
+                or change_set.visual_observation_requests
+            )
             published_research = (
                 await self._publish_research(research_requests[0], snapshot)
                 if research_requests
@@ -907,6 +914,7 @@ def build_subject_commit_pipeline(
     subject_state_cognition: SubjectStateCognitionPort,
     subject_state_commit: SubjectStateCommitPort,
     web_research_commit: WebResearchCommitPort,
+    visual_observation_commit: VisualObservationCommitPort,
     notifier: CreatorProjectionNotifier | None,
     voice_results: VoiceCognitionResultPort | None = None,
     wakeups: WorkWakeupBus | None = None,
@@ -953,6 +961,7 @@ def build_subject_commit_pipeline(
         subject_state_cognition=subject_state_cognition,
         subject_state_commit=subject_state_commit,
         web_research_commit=web_research_commit,
+        visual_observation_commit=visual_observation_commit,
         notifier=notifier,
         voice_results=voice_results,
         wakeups=wakeups,
