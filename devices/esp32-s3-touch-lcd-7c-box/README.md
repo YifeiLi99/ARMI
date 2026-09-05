@@ -18,6 +18,18 @@ idf.py -p COMx flash monitor
 
 `partitions.csv` 只定义 4 MiB 应用分区，固件不使用 NVS、网络或 OTA；`dependencies.lock` 固定组件来源。烧录使用构建生成的地址，不把单独的应用文件当作从 `0x00` 写入的合并镜像。端口无法同步时，按住 BOOT 重新接入 USB，松开 BOOT 后重新确认 COM 号，烧录完成按 RESET。恢复官方演示程序使用官方测试整包及其说明，不保证恢复原有设置。硬件连接和下载操作见 [官方指南](https://docs.waveshare.net/ESP32-S3-Touch-LCD-7C-BOX/Instructions-For-Use/)。
 
+已烧录的板卡可以从仓库根运行[独立实板演示](../../tools/test_mood_display_board.ps1)，只连接指定 USB 串口，不启动 Runtime、不访问数据库、不修改环境配置。默认轮播 22 种状态，每种 4 秒，活跃度 70；每次发送均检查 applied 应答，长时间停留每 8 秒续期。结束或 Ctrl+C 停止时显示离线颜文字并释放串口。演示数据不代表 ARMI 当前心情。
+
+```powershell
+# 全套轮播；可用 -Cycles 3 连续播放三轮
+.\tools\test_mood_display_board.ps1 -Port COM3
+
+# 单独观察喜悦表情的高活跃度呼吸效果，持续 30 秒
+.\tools\test_mood_display_board.ps1 -Port COM3 -Face joy -Energy 100 -Seconds 30
+```
+
+`-Face` 使用 `joy`、`sadness`、`anger`、`neutral`、`offline` 等英文键，完整列表见 `python -m tools.test_mood_display_board --help`。如果 Runtime 或其他程序正在使用串口，先释放串口再演示；脚本不会强制关闭其他程序。
+
 没有板卡时，可从仓库根目录启动独立桌面预览器。它以 800×480 黑色画布复现当前文字、颜色呼吸与淡入效果，可切换表情、活跃度和自动轮播，不连接 Runtime 或串口：
 
 ```powershell
