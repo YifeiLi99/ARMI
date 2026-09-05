@@ -1,6 +1,8 @@
 #include "board_display.h"
 
 #include "driver/i2c_master.h"
+#include "driver/gpio.h"
+#include "display_idle.h"
 #include "esp_check.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_rgb.h"
@@ -13,6 +15,7 @@
 static esp_lcd_panel_handle_t panel;
 static lv_display_t *display;
 static i2c_master_dev_handle_t extension;
+static i2c_master_dev_handle_t touch;
 static SemaphoreHandle_t frame_finished;
 
 static esp_err_t extension_write(uint8_t reg, uint16_t value)
@@ -36,15 +39,72 @@ static esp_err_t display_power_init(void)
     };
     ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(bus, &device, &extension),
                         "board", "IO extension");
-    // Only LCD reset, backlight and VCOM power are outputs (EXIO0/2/5).
+    // LCD reset/backlight/VCOM and touch reset are outputs (EXIO0/2/5/1).
     ESP_RETURN_ON_ERROR(extension_write(0x03, 0), "board", "LCD off");
-    ESP_RETURN_ON_ERROR(extension_write(0x02, 0x25), "board", "LCD IO mode");
+    ESP_RETURN_ON_ERROR(extension_write(0x02, 0x27), "board", "LCD/touch IO mode");
     ESP_RETURN_ON_ERROR(extension_write(0x03, 0x20), "board", "LCD power");
     vTaskDelay(pdMS_TO_TICKS(100));
     ESP_RETURN_ON_ERROR(extension_write(0x03, 0x21), "board", "LCD reset release");
     vTaskDelay(pdMS_TO_TICKS(100));
-    const uint8_t brightness[] = {0x05, 128};
-    return i2c_master_transmit(extension, brightness, sizeof(brightness), 1000);
+    // Hold INT low while releasing EXIO1 reset to select GT911 address 0x5d.
+    const gpio_config_t touch_int = {
+        .pin_bit_mask = 1ULL << GPIO_NUM_4, .mode = GPIO_MODE_OUTPUT,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    ESP_RETURN_ON_ERROR(gpio_config(&touch_int), "board", "touch INT mode");
+    ESP_RETURN_ON_ERROR(gpio_set_level(GPIO_NUM_4, 0), "board", "touch address");
+    vTaskDelay(pdMS_TO_TICKS(100));
+    ESP_RETURN_ON_ERROR(extension_write(0x03, 0x23), "board", "touch reset release");
+    vTaskDelay(pdMS_TO_TICKS(200));
+    ESP_RETURN_ON_ERROR(gpio_set_direction(GPIO_NUM_4, GPIO_MODE_INPUT),
+                        "board", "touch INT input");
+    const i2c_device_config_t touch_config = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address = 0x5d, .scl_speed_hz = 100000,
+    };
+    ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(bus, &touch_config, &touch),
+                        "board", "GT911 device");
+    const uint8_t id_register[] = {0x81, 0x40};
+    uint8_t product[3];
+    ESP_RETURN_ON_ERROR(i2c_master_transmit_receive(touch, id_register,
+                        sizeof(id_register), product, sizeof(product), 100),
+                        "board", "GT911 identity");
+    ESP_RETURN_ON_FALSE(product[0] == '9' && product[1] == '1' && product[2] == '1',
+                        ESP_ERR_NOT_SUPPORTED, "board", "expected GT911");
+    return ESP_OK;
+}
+
+esp_err_t board_display_brightness(uint8_t brightness)
+{
+    // PWM zero alone is not used as an off contract: disable backlight EXIO2.
+    if (brightness == 0) {
+        return extension_write(0x03, 0x23);
+    }
+    const uint8_t pwm[] = {0x05, brightness};
+    ESP_RETURN_ON_ERROR(i2c_master_transmit(extension, pwm, sizeof(pwm), 100),
+                        "board", "backlight PWM");
+    return extension_write(0x03, 0x27);
+}
+
+esp_err_t board_display_touch(bool *pressed)
+{
+    // Only presence is needed for wakeup; no coordinates leave this device.
+    const uint8_t status_register[] = {0x81, 0x4e};
+    uint8_t status;
+    *pressed = false;
+    ESP_RETURN_ON_ERROR(i2c_master_transmit_receive(touch, status_register,
+                        sizeof(status_register), &status, 1, 100),
+                        "board", "touch status");
+    if ((status & 0x80U) == 0) {
+        return ESP_OK;
+    }
+    const uint8_t clear[] = {0x81, 0x4e, 0};
+    ESP_RETURN_ON_ERROR(i2c_master_transmit(touch, clear, sizeof(clear), 100),
+                        "board", "touch acknowledge");
+    uint8_t count = status & 0x0fU;
+    ESP_RETURN_ON_FALSE(count <= 5, ESP_ERR_INVALID_RESPONSE, "board", "touch count");
+    *pressed = count > 0;
+    return ESP_OK;
 }
 
 static uint32_t tick_ms(void)
@@ -111,5 +171,5 @@ esp_err_t board_display_init(void)
     lv_display_set_flush_cb(display, flush);
     lv_display_set_buffers(display, second, first, 800 * 480 * 2,
                            LV_DISPLAY_RENDER_MODE_FULL);
-    return extension_write(0x03, 0x25);
+    return board_display_brightness(DISPLAY_BRIGHTNESS_NORMAL);
 }

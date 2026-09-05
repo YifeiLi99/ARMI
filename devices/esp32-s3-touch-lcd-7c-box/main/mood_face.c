@@ -4,6 +4,7 @@
 #include <stdlib.h>
 
 #include "lvgl.h"
+#include "display_idle.h"
 #include "mood_text.h"
 
 #define RENDER_INTERVAL_MS 80U
@@ -18,6 +19,7 @@ static lv_obj_t *screen;
 static lv_obj_t *image;
 static lv_image_dsc_t image_descriptors[MOOD_FACE_COUNT];
 static mood_state_t current_state;
+static bool has_state;
 static uint32_t last_tick_ms;
 static uint32_t last_render_ms;
 static uint32_t expression_started_ms;
@@ -70,14 +72,20 @@ void mood_face_init(void)
     mood_face_offline();
 }
 
-void mood_face_apply(const mood_state_t *state)
+bool mood_face_apply(const mood_state_t *state)
 {
+    bool changed = !has_state || !display_style_equal(&current_state, state);
     current_state = *state;
+    has_state = true;
+    if (!changed) {
+        return false;
+    }
     expression_started_ms = last_tick_ms;
     last_render_ms = last_tick_ms - RENDER_INTERVAL_MS;
+    return true;
 }
 
-void mood_face_offline(void)
+bool mood_face_offline(void)
 {
     const mood_state_t offline = {
         .face = MOOD_FACE_OFFLINE,
@@ -85,7 +93,7 @@ void mood_face_offline(void)
         .background_rgb = 0x000000,
         .energy = 0,
     };
-    mood_face_apply(&offline);
+    return mood_face_apply(&offline);
 }
 
 void mood_face_tick(uint32_t elapsed_ms)

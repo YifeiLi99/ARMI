@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include "board_display.h"
+#include "display_idle.h"
 #include "esp_check.h"
 #include "esp_random.h"
 #include "esp_timer.h"
@@ -37,6 +38,9 @@ void app_main(void)
     size_t used = 0;
     mood_offline_state_t offline_state;
     mood_offline_init(&offline_state);
+    display_idle_t idle;
+    display_idle_activity(&idle, esp_timer_get_time());
+    uint8_t brightness = DISPLAY_BRIGHTNESS_NORMAL;
     while (true) {
         int received = usb_serial_jtag_read_bytes(
             input + used, MOOD_FRAME_MAX_BYTES - used, pdMS_TO_TICKS(20)
@@ -50,7 +54,9 @@ void app_main(void)
                 size_t frame_length = (size_t)(newline - input) + 1;
                 mood_parse_result_t parsed = mood_protocol_parse(input, frame_length);
                 if (parsed.kind == MOOD_PARSE_STATE) {
-                    mood_face_apply(&parsed.state);
+                    if (mood_face_apply(&parsed.state)) {
+                        display_idle_activity(&idle, esp_timer_get_time());
+                    }
                     mood_offline_received_state(&offline_state, esp_timer_get_time());
                     output_length = mood_protocol_ack(
                         output, sizeof(output), parsed.state.state_id, "applied"
@@ -78,10 +84,22 @@ void app_main(void)
         }
         int64_t now = esp_timer_get_time();
         if (mood_offline_tick(&offline_state, now)) {
-            mood_face_offline();
+            if (mood_face_offline()) {
+                display_idle_activity(&idle, now);
+            }
+        }
+        bool pressed;
+        ESP_ERROR_CHECK(board_display_touch(&pressed));
+        if (pressed) {
+            display_idle_activity(&idle, now);
         }
         mood_face_tick((uint32_t)(now / 1000));
         lv_timer_handler();
+        uint8_t next_brightness = display_idle_brightness(&idle, now);
+        if (next_brightness != brightness) {
+            ESP_ERROR_CHECK(board_display_brightness(next_brightness));
+            brightness = next_brightness;
+        }
         vTaskDelay(pdMS_TO_TICKS(5));
     }
 }

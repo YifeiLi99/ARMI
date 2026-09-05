@@ -1,6 +1,6 @@
 ARMI Mood Display firmware
 
-Board-level RGB timing, pin assignments and IO extension register definitions were independently adapted from the
+Board-level RGB timing, pin assignments, GT911 reset/status handling and IO extension register definitions were independently adapted from the
 Waveshare ESP32-S3-Touch-LCD-7C engineering examples at commit
 98618ce7e3154cd2f77051288e144008632bbd85.
 

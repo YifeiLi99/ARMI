@@ -19,12 +19,12 @@ def test_firmware_versions_and_wire_contract_are_pinned() -> None:
     assert (ROOT / "host_tests" / "test_mood_display.c").is_file()
 
 
-def test_v1_initializes_only_display_and_usb_serial() -> None:
+def test_firmware_keeps_network_and_audio_disabled() -> None:
     sources = "\n".join(
         path.read_text(encoding="utf-8") for path in (ROOT / "main").glob("*.c")
     ).lower()
 
-    for forbidden in ("esp_wifi", "esp_netif", "touch_init", "i2s_channel"):
+    for forbidden in ("esp_wifi", "esp_netif", "i2s_channel"):
         assert forbidden not in sources
     assert "board_display_init" in sources
     assert "usb_serial_jtag_driver_install" in sources
