@@ -1,15 +1,20 @@
-"""ARMI ESP32 文字心情屏的独立桌面预览器。"""
+"""ARMI ESP32 电子脸的独立桌面预览器。"""
 
 # ruff: noqa: RUF001 -- the confusable Unicode characters are the kaomoji data.
 
 from __future__ import annotations
 
 import argparse
+import re
 import time
 import tkinter as tk
-from dataclasses import dataclass
-from tkinter import font as tkfont
+from dataclasses import dataclass, replace
+from pathlib import Path
 from tkinter import ttk
+
+from PIL import Image, ImageTk
+
+from tools.mood_face_geometry import CYAN
 
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 480
@@ -25,32 +30,50 @@ class FaceSpec:
 
 
 FACES = (
-    FaceSpec("joy", "喜悦", "#FFD166", "ヽ(>∀<☆)ノ"),
-    FaceSpec("contentment", "满足", "#6BCB77", "(￣▽￣)~*"),
+    FaceSpec("joy", "喜悦", "#FFD166", "(＾▽＾)"),
+    FaceSpec("contentment", "满足", "#6BCB77", "(￣▽￣)"),
     FaceSpec("interest", "兴趣", "#4CC9F0", "(☆▽☆)"),
-    FaceSpec("hope", "希望", "#72DDF7", "ヾ(≧▽≦*)o"),
-    FaceSpec("relief", "如释重负", "#52B69A", "(´▽`)ﾉ"),
-    FaceSpec("affection", "喜爱", "#FF7AA2", "(⊃≧▽≦)⊃♡"),
-    FaceSpec("gratitude", "感激", "#F4A261", "☆*:.o(≧▽≦)o.:*☆"),
-    FaceSpec("pride", "自豪", "#C77DFF", "(￣︶￣)↗"),
-    FaceSpec("surprise", "惊讶", "#FF9F1C", "Σ(°△°|||)︴"),
+    FaceSpec("hope", "希望", "#72DDF7", "(☆ω☆)"),
+    FaceSpec("relief", "如释重负", "#52B69A", "(´▽`)"),
+    FaceSpec("affection", "喜爱", "#FF7AA2", "(＾ω＾)"),
+    FaceSpec("gratitude", "感激", "#F4A261", "(⌒▽⌒)"),
+    FaceSpec("pride", "自豪", "#C77DFF", "(￣︶￣)"),
+    FaceSpec("surprise", "惊讶", "#FF9F1C", "(⊙Д⊙)"),
     FaceSpec("sadness", "悲伤", "#4E79A7", "(╥﹏╥)"),
-    FaceSpec("fear", "恐惧", "#6C63A8", "Σ(っ °Д °;)っ"),
-    FaceSpec("anxiety", "焦虑", "#8F77B5", "(⊙﹏⊙;)"),
-    FaceSpec("anger", "愤怒", "#E15759", "(╬▔皿▔)╯"),
-    FaceSpec("frustration", "挫败", "#F05D5E", "(ノ｀Д´)ノ彡┻━┻"),
-    FaceSpec("disgust", "厌恶", "#7A9E3A", "(￢_￢;)"),
-    FaceSpec("shame", "羞耻", "#B565A7", "(*／ω＼*)"),
-    FaceSpec("guilt", "内疚", "#D7799F", "(´；ω；`)"),
+    FaceSpec("fear", "恐惧", "#6C63A8", "(°Д°)"),
+    FaceSpec("anxiety", "焦虑", "#8F77B5", "(⊙﹏⊙)"),
+    FaceSpec("anger", "愤怒", "#E15759", "(｀皿´)"),
+    FaceSpec("frustration", "挫败", "#F05D5E", "(＞皿＜)"),
+    FaceSpec("disgust", "厌恶", "#7A9E3A", "(￢_￢)"),
+    FaceSpec("shame", "羞耻", "#B565A7", "(〃ω〃)"),
+    FaceSpec("guilt", "内疚", "#D7799F", "(；_；)"),
     FaceSpec("jealousy", "嫉妒", "#83A14A", "(￢ω￢)"),
-    FaceSpec("boredom", "无聊", "#7D8597", "(－_－) zzZ"),
-    FaceSpec("confusion", "困惑", "#5DADE2", "(´･ω･`)?"),
+    FaceSpec("boredom", "无聊", "#7D8597", "(－_－)"),
+    FaceSpec("confusion", "困惑", "#5DADE2", "(・へ・)"),
     FaceSpec("neutral", "中性", "#667085", "(・_・)"),
-    FaceSpec("offline", "离线", "#3A3F47", "(－ω－) ..."),
+    FaceSpec("offline", "离线", "#3A3F47", "(－ω－)"),
 )
 FACE_BY_LABEL = {face.label: face for face in FACES}
 FACE_BY_KEY = {face.key: face for face in FACES}
 ONLINE_FACE_KEYS = tuple(face.key for face in FACES if face.key != "offline")
+
+
+def load_face_masks() -> dict[str, Image.Image]:
+    asset_dir = (
+        Path(__file__).resolve().parents[1] / "devices/esp32-s3-touch-lcd-7c-box/main"
+    )
+    catalog = (asset_dir / "mood_text_catalog.inc").read_text(encoding="utf-8")
+    entries = re.findall(r'^\{"(.+)", (\d+)U, (\d+)U, (\d+)U\}', catalog, re.MULTILINE)
+    data = (asset_dir / "mood_text_assets.bin").read_bytes()
+    if len(entries) != len(FACES):
+        raise ValueError("firmware face catalog does not match preview")
+    masks = {}
+    for face, (expression, offset, width, height) in zip(FACES, entries, strict=True):
+        if expression != face.expression:
+            raise ValueError(f"firmware expression does not match preview: {face.key}")
+        start, w, h = int(offset), int(width), int(height)
+        masks[face.key] = Image.frombytes("L", (w, h), data[start : start + w * h])
+    return masks
 
 
 def triangle(frame: int, period: int, amplitude: int) -> int:
@@ -87,8 +110,9 @@ class MoodDisplayPreview:
         self.started_at = time.monotonic()
         self.last_auto_change = self.started_at
         self.current_face = "anger"
-        self.rendered_face: str | None = None
-        root.title("ARMI 文字颜表情预览")
+        self.masks = load_face_masks()
+        self.face_photo: ImageTk.PhotoImage | None = None
+        root.title("ARMI 电子脸预览")
         root.configure(background="#17191E")
         root.resizable(False, False)
 
@@ -113,6 +137,10 @@ class MoodDisplayPreview:
         self.energy_text = ttk.Label(controls, text="70", width=4)
         self.energy_text.grid(row=0, column=4, padx=(4, 16))
         self.auto_play = tk.BooleanVar(value=False)
+        self.cyan = tk.BooleanVar(value=True)
+        ttk.Checkbutton(controls, text="统一青色", variable=self.cyan).grid(
+            row=0, column=6
+        )
         ttk.Checkbutton(controls, text="自动轮播", variable=self.auto_play).grid(
             row=0, column=5
         )
@@ -127,12 +155,9 @@ class MoodDisplayPreview:
             background="#000000",
         )
         self.canvas.pack()
-        self.expression_font = tkfont.Font(family="Noto Sans SC", size=96)
-        self.expression = self.canvas.create_text(
+        self.expression = self.canvas.create_image(
             SCREEN_WIDTH // 2,
             SCREEN_HEIGHT // 2,
-            text="",
-            font=self.expression_font,
             anchor="center",
         )
         self.status = ttk.Label(root, padding=(14, 10, 14, 14), anchor="center")
@@ -143,13 +168,6 @@ class MoodDisplayPreview:
         self.current_face = FACE_BY_LABEL[self.face_label.get()].key
         self.started_at = time.monotonic()
         self.last_auto_change = self.started_at
-
-    def _fit_expression(self, expression: str) -> None:
-        for size in range(96, 43, -2):
-            self.expression_font.configure(size=size)
-            if self.expression_font.measure(expression) <= 720:
-                return
-        raise ValueError(f"expression does not fit preview: {expression}")
 
     def _tick(self) -> None:
         now = time.monotonic()
@@ -167,17 +185,16 @@ class MoodDisplayPreview:
         self.energy_text.configure(text=str(energy))
         elapsed_ms = max(0, int((now - self.started_at) * 1000))
         spec = FACE_BY_KEY[self.current_face]
-        if self.rendered_face != spec.key:
-            self._fit_expression(spec.expression)
-            self.rendered_face = spec.key
-        self.canvas.itemconfigure(
-            self.expression,
-            text=spec.expression,
-            fill=expression_color(spec, energy, elapsed_ms),
+        if self.cyan.get() and spec.key != "offline":
+            spec = replace(spec, color=CYAN)
+        mask = self.masks[spec.key]
+        pixels = Image.new(
+            "RGBA", mask.size, expression_color(spec, energy, elapsed_ms)
         )
-        self.status.configure(
-            text=f"{spec.label}    {spec.expression}    {spec.color}    energy {energy}"
-        )
+        pixels.putalpha(mask)
+        self.face_photo = ImageTk.PhotoImage(pixels)
+        self.canvas.itemconfigure(self.expression, image=self.face_photo)
+        self.status.configure(text=f"{spec.label}    {spec.color}    energy {energy}")
         self.root.after(FRAME_MS, self._tick)
 
 

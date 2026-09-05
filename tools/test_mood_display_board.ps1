@@ -4,7 +4,8 @@ param(
     [ValidateRange(0.1, 3600)][double]$Seconds = 4,
     [ValidateRange(0, 100)][int]$Energy = 70,
     [ValidateRange(1, 1000)][int]$Cycles = 1,
-    [string]$Face
+    [string[]]$Face,
+    [switch]$Cyan
 )
 
 $ErrorActionPreference = 'Stop'
@@ -16,7 +17,8 @@ if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
 $demoArguments = @('-X', 'utf8', '-m', 'tools.test_mood_display_board',
     '--port', $Port, '--seconds', $Seconds.ToString([Globalization.CultureInfo]::InvariantCulture),
     '--energy', "$Energy", '--cycles', "$Cycles")
-if ($Face) { $demoArguments += @('--face', $Face) }
+if ($Face) { $demoArguments += @('--face') + $Face }
+if ($Cyan) { $demoArguments += '--cyan' }
 Push-Location -LiteralPath $repositoryRoot
 try {
     & $python @demoArguments

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import math
 import time
+from dataclasses import replace
 from uuid import uuid4
 
 import serial
@@ -18,6 +19,7 @@ from armi_adapter_esp32_display.wire import (
 )
 
 from tools.mood_display_preview import FACES, FaceSpec
+from tools.mood_face_geometry import CYAN
 
 
 def positive_seconds(value: str) -> float:
@@ -50,13 +52,20 @@ def main() -> None:
     parser.add_argument("--port", required=True, help="实板串口 (例如 COM3)")
     parser.add_argument("--seconds", type=positive_seconds, default=4.0)
     parser.add_argument("--energy", type=int, choices=range(101), default=70)
-    parser.add_argument("--face", choices=[face.key for face in FACES])
+    parser.add_argument("--face", nargs="+", choices=[face.key for face in FACES])
     parser.add_argument("--cycles", type=int, default=1)
+    parser.add_argument("--cyan", action="store_true", help="统一青色观察五官造型")
     parser.add_argument("--device-id", default="armi-mood-window-7c-1")
     args = parser.parse_args()
     if args.cycles < 1:
         parser.error("--cycles 必须大于 0")
-    faces = [face for face in FACES if args.face is None or face.key == args.face]
+    by_key = {face.key: face for face in FACES}
+    faces = FACES if args.face is None else [by_key[key] for key in args.face]
+    if args.cyan:
+        faces = [
+            replace(face, color=CYAN) if face.key != "offline" else face
+            for face in faces
+        ]
     port = serial.Serial(port=None, baudrate=115200, timeout=2, write_timeout=2)
     port.dtr = False
     port.rts = False

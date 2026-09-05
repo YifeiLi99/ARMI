@@ -55,8 +55,8 @@ static void test_every_face_has_a_unique_unicode_asset(void)
         const mood_text_asset_t *asset = mood_text_asset(face);
         const char *expression = asset->text;
         assert(expression[0] != '\0');
-        assert(asset->width > 0 && asset->width <= 720);
-        assert(asset->height > 0 && asset->height <= 160);
+        assert(asset->width > 0 && asset->width <= 768);
+        assert(asset->height > 0 && asset->height <= 432);
         assert(asset->asset_offset == previous_end);
         previous_end = asset->asset_offset +
                        (uint32_t)asset->width * asset->height;

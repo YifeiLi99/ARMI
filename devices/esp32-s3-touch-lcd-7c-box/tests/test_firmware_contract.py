@@ -42,7 +42,7 @@ def test_all_twenty_emotions_and_device_states_have_firmware_names() -> None:
         assert f'"{private_name}"' not in protocol
 
 
-def test_faces_are_rendered_as_unicode_text_assets_and_keep_projected_color() -> None:
+def test_faces_are_rendered_as_a8_assets_and_keep_projected_color() -> None:
     text = (ROOT / "main" / "mood_text.c").read_text(encoding="utf-8")
     catalog = (ROOT / "main" / "mood_text_catalog.inc").read_text(encoding="utf-8")
     asset_data = (ROOT / "main" / "mood_text_assets.bin").read_bytes()
@@ -52,13 +52,12 @@ def test_faces_are_rendered_as_unicode_text_assets_and_keep_projected_color() ->
     entries = re.findall(r'^\{"(.+)", (\d+)U, (\d+)U, (\d+)U\}', catalog, re.MULTILINE)
     assert len(entries) == 22
     assert all(not expression.isascii() for expression, *_ in entries)
-    assert max(len(expression) for expression, *_ in entries) >= 12
+    assert len({expression for expression, *_ in entries}) == 22
     expected_offset = 0
     for expression, offset, width, height in entries:
         assert expression
         assert int(offset) == expected_offset
-        assert 0 < int(width) <= 720
-        assert 0 < int(height) <= 160
+        assert (int(width), int(height)) == (768, 432)
         expected_offset += int(width) * int(height)
     assert expected_offset == len(asset_data)
     assert "mood_text_expression" in text
@@ -75,6 +74,26 @@ def test_faces_are_rendered_as_unicode_text_assets_and_keep_projected_color() ->
     assert not (ROOT / "main" / "mood_animation.c").exists()
 
 
+def test_full_screen_faces_keep_safe_edges_and_preview_uses_exact_assets() -> None:
+    from tools.mood_display_preview import load_face_masks
+
+    masks = load_face_masks()
+    assert len(masks) == 22
+    for mask in masks.values():
+        assert mask.size == (768, 432)
+        bounds = mask.getbbox()
+        assert bounds is not None
+        left, top, right, bottom = bounds
+        assert left >= 8 and top >= 8 and right <= 760 and bottom <= 424
+        assert 530 <= right - left <= 620
+        # Both eyes stay above a small, separate mouth, with no face outline.
+        assert mask.crop((280, 70, 488, 220)).getbbox() is None
+        assert mask.crop((0, 0, 75, 432)).getbbox() is None
+        assert mask.crop((693, 0, 768, 432)).getbbox() is None
+        assert mask.crop((315, 235, 453, 330)).getbbox() is not None
+    assert len({mask.tobytes() for mask in masks.values()}) == 22
+
+
 def test_generator_and_desktop_preview_use_the_firmware_catalog() -> None:
     catalog = (ROOT / "main" / "mood_text_catalog.inc").read_text(encoding="utf-8")
     expressions = re.findall(r'^\{"(.+)",', catalog, re.MULTILINE)
@@ -86,7 +105,6 @@ def test_generator_and_desktop_preview_use_the_firmware_catalog() -> None:
     )
 
     for expression in expressions:
-        assert f'"{expression}"' in generator
         assert f'"{expression}"' in preview
-    assert "unexpected Noto Sans SC source font digest" in generator
-    assert "expression contains unsupported glyphs" in generator
+    assert "from tools.mood_display_preview import FACES" in generator
+    assert "render_face(face.key)" in generator
