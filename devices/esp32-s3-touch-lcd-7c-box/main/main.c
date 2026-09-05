@@ -11,7 +11,7 @@
 #include "mood_face.h"
 #include "mood_offline.h"
 #include "mood_protocol.h"
-#include "usb/usb_serial_jtag.h"
+#include "driver/usb_serial_jtag.h"
 
 static void send_frame(const char *frame, size_t length)
 {
@@ -22,7 +22,7 @@ void app_main(void)
 {
     ESP_ERROR_CHECK(board_display_init());
     mood_face_init();
-    const usb_serial_jtag_driver_config_t usb_config = {
+    usb_serial_jtag_driver_config_t usb_config = {
         .rx_buffer_size = 1024,
         .tx_buffer_size = 1024,
     };
@@ -31,8 +31,7 @@ void app_main(void)
     snprintf(boot_id, sizeof(boot_id), "%08lx%08lx",
              (unsigned long)esp_random(), (unsigned long)esp_random());
     char output[MOOD_FRAME_MAX_BYTES + 1];
-    size_t output_length = mood_protocol_hello(output, sizeof(output), boot_id);
-    send_frame(output, output_length);
+    size_t output_length;
 
     char input[MOOD_FRAME_MAX_BYTES + 1];
     size_t used = 0;
@@ -44,6 +43,8 @@ void app_main(void)
         );
         if (received > 0) {
             used += (size_t)received;
+        }
+        if (used > 0) {
             char *newline = memchr(input, '\n', used);
             if (newline != NULL) {
                 size_t frame_length = (size_t)(newline - input) + 1;
@@ -54,6 +55,9 @@ void app_main(void)
                     output_length = mood_protocol_ack(
                         output, sizeof(output), parsed.state.state_id, "applied"
                     );
+                    send_frame(output, output_length);
+                } else if (parsed.kind == MOOD_PARSE_IDENTIFY) {
+                    output_length = mood_protocol_hello(output, sizeof(output), boot_id);
                     send_frame(output, output_length);
                 } else if (parsed.kind == MOOD_PARSE_PING) {
                     output_length = mood_protocol_pong(

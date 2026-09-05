@@ -28,6 +28,10 @@ def encode_state(state_id: str, state: DisplayState) -> bytes:
     )
 
 
+def encode_identify() -> bytes:
+    return _encode({"type": "identify", "protocol_version": PROTOCOL_VERSION})
+
+
 def encode_ping(ping_id: str) -> bytes:
     return _encode(
         {"type": "ping", "protocol_version": PROTOCOL_VERSION, "ping_id": ping_id}
@@ -91,6 +95,7 @@ __all__ = (
     "MAX_FRAME_BYTES",
     "PROTOCOL_VERSION",
     "decode_frame",
+    "encode_identify",
     "encode_ping",
     "encode_pong",
     "encode_state",

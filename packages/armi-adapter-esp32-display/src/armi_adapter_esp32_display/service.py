@@ -15,7 +15,14 @@ from armi_mood.api import MoodSnapshot
 
 from .api import MoodDisplayConfig, MoodDisplayStatus, MoodDisplayViolation, ProbeResult
 from .mapping import map_mood_snapshot
-from .wire import decode_frame, encode_ping, encode_pong, encode_state, parse_hello
+from .wire import (
+    decode_frame,
+    encode_identify,
+    encode_ping,
+    encode_pong,
+    encode_state,
+    parse_hello,
+)
 
 
 class SerialPort(Protocol):
@@ -32,17 +39,20 @@ ResultT = TypeVar("ResultT")
 def _open_serial(port: str) -> SerialPort:
     import serial
 
-    return cast(
-        SerialPort,
-        serial.Serial(
-            port=port,
-            baudrate=115200,
-            bytesize=8,
-            parity="N",
-            stopbits=1,
-            timeout=1,
-        ),
+    connection = serial.Serial(
+        port=None,
+        baudrate=115200,
+        bytesize=8,
+        parity="N",
+        stopbits=1,
+        timeout=1,
     )
+    # Set control lines before opening: their default levels reset native USB ESP32-S3.
+    connection.dtr = False
+    connection.rts = False
+    connection.port = port
+    connection.open()
+    return cast(SerialPort, connection)
 
 
 def _read(port: SerialPort) -> bytes:
@@ -59,6 +69,7 @@ def probe_device(
 ) -> ProbeResult:
     connection = serial_factory(port)
     try:
+        _write(connection, encode_identify())
         return parse_hello(_read(connection))
     finally:
         connection.close()
@@ -118,6 +129,7 @@ class MoodDisplayAdapter:
                     connection = await self._serial_call(
                         self._serial_factory, self._config.port
                     )
+                    await self._serial_call(_write, connection, encode_identify())
                     hello = parse_hello(await self._serial_call(_read, connection))
                     if hello.device_id != self._config.expected_device_id:
                         raise MoodDisplayViolation("MOOD-DISPLAY-DEVICE-ID")
@@ -155,6 +167,7 @@ class MoodDisplayAdapter:
 
     async def _session(self, connection: SerialPort) -> None:
         last_state = None
+        last_state_sent = 0.0
         last_ping = time.monotonic()
         while True:
             try:
@@ -164,11 +177,12 @@ class MoodDisplayAdapter:
             except Exception as error:
                 raise MoodDisplayViolation("MOOD-DISPLAY-SNAPSHOT") from error
             state = map_mood_snapshot(snapshot)
-            if state != last_state:
+            if state != last_state or time.monotonic() - last_state_sent >= 10:
                 state_id = str(uuid4())
                 frame = encode_state(state_id, state)
                 await self._send_with_ack(connection, frame, state_id)
                 last_state = state
+                last_state_sent = time.monotonic()
             if time.monotonic() - last_ping >= 10:
                 await self._heartbeat(connection)
                 last_ping = time.monotonic()

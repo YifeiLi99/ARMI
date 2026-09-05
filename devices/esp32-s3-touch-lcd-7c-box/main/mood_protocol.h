@@ -46,6 +46,7 @@ typedef struct {
 typedef enum {
     MOOD_PARSE_STATE,
     MOOD_PARSE_PING,
+    MOOD_PARSE_IDENTIFY,
     MOOD_PARSE_REJECT,
 } mood_parse_kind_t;
 

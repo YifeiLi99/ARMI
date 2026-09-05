@@ -7,6 +7,7 @@ from pathlib import Path
 from uuid import uuid7
 
 import pytest
+import serial
 from armi_adapter_esp32_display import (
     DisplayExpression,
     MoodDisplayAdapter,
@@ -16,9 +17,11 @@ from armi_adapter_esp32_display import (
     map_mood_snapshot,
     probe_device,
 )
+from armi_adapter_esp32_display.service import _open_serial
 from armi_adapter_esp32_display.wire import (
     MAX_FRAME_BYTES,
     decode_frame,
+    encode_identify,
     encode_ping,
     encode_state,
 )
@@ -111,12 +114,15 @@ class _ProbeSerial:
     def __init__(self, frame: bytes) -> None:
         self.frame = frame
         self.closed = False
+        self.identified = False
 
     def read_until(self, expected: bytes = b"\n", size: int | None = None) -> bytes:
         del expected, size
+        assert self.identified, "device waits for an identity request after connection"
         return self.frame
 
     def write(self, data: bytes) -> int:
+        self.identified = data == encode_identify()
         return len(data)
 
     def close(self) -> None:
@@ -157,6 +163,62 @@ def test_probe_reads_identity_and_closes_port() -> None:
     assert result.device_id == "mood-window-1"
     assert result.protocol_version == "armi.mood-display.v2"
     assert serial_port.closed
+
+
+def test_serial_open_does_not_assert_board_reset_lines(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ControlLines:
+        def __init__(self, **settings: object) -> None:
+            assert settings["port"] is None
+            self.dtr = True
+            self.rts = True
+            self.port: str | None = None
+
+        def open(self) -> None:
+            assert self.port == "COM3"
+            assert not self.dtr and not self.rts
+
+    monkeypatch.setattr(serial, "Serial", ControlLines)
+    _open_serial("COM3")
+
+
+def test_unchanged_state_is_renewed_before_device_expiry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = 0.0
+    sent_at: list[float] = []
+    snapshot = _snapshot()
+    adapter = MoodDisplayAdapter(
+        MoodDisplayConfig(True, "COM7", "mood-window-1"),
+        lambda: asyncio.sleep(0, result=snapshot),
+    )
+
+    async def get_snapshot() -> MoodSnapshot:
+        return snapshot
+
+    async def send(*_args: object) -> None:
+        sent_at.append(now)
+
+    async def heartbeat(*_args: object) -> None:
+        pass
+
+    async def advance(_delay: float) -> None:
+        nonlocal now
+        now += 1
+        if now > 31:
+            raise asyncio.CancelledError
+
+    adapter._snapshot = get_snapshot
+    monkeypatch.setattr(
+        "armi_adapter_esp32_display.service.time.monotonic", lambda: now
+    )
+    monkeypatch.setattr("armi_adapter_esp32_display.service.asyncio.sleep", advance)
+    monkeypatch.setattr(MoodDisplayAdapter, "_send_with_ack", send)
+    monkeypatch.setattr(MoodDisplayAdapter, "_heartbeat", heartbeat)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(adapter._session(_ScriptedSerial([])))
+    assert sent_at == [0, 10, 20, 30]
 
 
 def test_state_ack_timeout_reuses_same_frame_once() -> None:

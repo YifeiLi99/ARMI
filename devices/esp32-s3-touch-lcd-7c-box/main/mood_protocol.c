@@ -67,6 +67,13 @@ mood_parse_result_t mood_protocol_parse(const char *frame, size_t length)
         cJSON_Delete(root);
         return result;
     }
+    if (strcmp(type->valuestring, "identify") == 0) {
+        if (cJSON_GetArraySize(root) == 2) {
+            result.kind = MOOD_PARSE_IDENTIFY;
+        }
+        cJSON_Delete(root);
+        return result;
+    }
     if (strcmp(type->valuestring, "ping") == 0) {
         if (cJSON_GetArraySize(root) == 3 &&
             copy_text(result.ping_id, cJSON_GetObjectItemCaseSensitive(root, "ping_id"))) {

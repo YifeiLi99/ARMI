@@ -88,6 +88,10 @@ static void test_transition_and_energy_only_change_text_appearance(void)
 
 int main(void)
 {
+    const char *identify = "{\"type\":\"identify\",\"protocol_version\":\"armi.mood-display.v2\"}\n";
+    assert(mood_protocol_parse(identify, strlen(identify)).kind == MOOD_PARSE_IDENTIFY);
+    const char *bad_identify = "{\"type\":\"identify\",\"protocol_version\":\"armi.mood-display.v2\",\"extra\":1}\n";
+    assert(mood_protocol_parse(bad_identify, strlen(bad_identify)).kind == MOOD_PARSE_REJECT);
     test_offline_state();
     test_protocol_state();
     test_every_face_has_a_unique_unicode_asset();
