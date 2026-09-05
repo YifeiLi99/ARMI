@@ -1,13 +1,15 @@
 # ARMI 项目协作规则
 
-本文件只保存 ARMI 特有、会长期改变实现行为的事实与边界。通用安全、Windows、Git、实现和验证规则继续遵循上级 `AGENTS.md`；冲突时按更高优先级指令执行。
+本文件适用于整个 ARMI 仓库，保存项目特有的开发入口、事实源和决策边界。通用安全、Windows、Git 与沟通约定沿用已加载的全局规则；当前用户明确要求和更高优先级指令优先。
+
+进入子目录修改前，检查路径上是否有更具体的项目规则；同目录 `AGENTS.override.md` 优先于 `AGENTS.md`，不会同时加载。子目录规则只补充或覆盖其作用域，不复制整份根规则。维护方式遵循 [OpenAI AGENTS.md 约定](https://learn.chatgpt.com/docs/agent-configuration/agents-md)；本文件中的产品和工程选择是 ARMI 约定，不是 OpenAI 的通用要求。
 
 ## 1. 开始前先固定事实
 
-- 先读根 `README.md`、`DESIGN.md`、`docs/README.md`，再按任务读取最接近事实源头的设计正文、当前代码、配置和测试。不要从目录名或旧文档猜实现。
-- 事实优先级：当前代码 → `packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema/` 与唯一 `0000` → `configs/`、锁文件、生成合同 → 测试与目标环境证据 → `DESIGN.md`/`docs/` 正文 → `docs/00-外部研究参考/`。
+- 首次进入项目先读 [README.md](README.md)、[DESIGN.md](DESIGN.md) 和本地 [docs/README.md](docs/README.md)，已有且未失效的信息直接复用；后续按任务读取相关正文、代码、配置和测试。
+- 判断当前实现先看代码、packaged schema/唯一 `0000`、配置、锁文件和生成合同，再用测试与目标环境证据确认实际行为；叙述性文档和外部研究不能覆盖机器事实。预期行为由用户需求、产品不变量和正式接口约定决定，现有代码或测试与之冲突时应定位偏差，不能以“代码优先”保留缺陷。
 - 明确区分：代码存在、配置声明启用、目标环境完成配置、外部服务/设备可用、端到端 live 通过。证据只允许支撑对应强度的结论。
-- `docs/` 被 Git 忽略但仍是本地设计资料；涉及设计语义时必须同步。外部研究只提供带来源证据，只有被正式正文吸收后才成为 ARMI 决策。
+- `docs/` 被 Git 忽略但仍是本地设计资料；涉及设计语义时必须同步。新 checkout 若缺少该目录，先用可提交入口和机器合同推进；只有缺失正文影响设计判断或必须同步时才报告缺口，不臆造原文。外部研究只有被正式正文吸收后才成为 ARMI 决策。
 - 后续工作由用户逐项指定。不得从历史路线图、阶段号、研究建议或“顺手完善”自行扩大开发范围。
 - 项目当前未授予开源许可证；不得擅自声明开源、复制不兼容源码/素材，或删除研究资料中的来源与许可证记录。
 
@@ -26,21 +28,21 @@
 ## 3. 架构与实现边界
 
 - 当前是单权威 Runtime 的模块化单体。依赖方向为 `Interface → Application → Domain`，适配器经稳定 port 接入，具体实现只在 `apps/armi-runtime/src/armi_runtime/composition/` 选择。
-- 23 个业务 distribution 是事实 owner，不是微服务或 Agent。公共面只在模块 `api.py`，组合入口只在 `bootstrap.py`，`_*.py` 为私有；跨模块不得深导入、反向依赖或用共享 repository 绕过 owner。
+- `modules/` 下的业务 distribution 是事实 owner，不是微服务或 Agent。公共面只在模块 `api.py`，组合入口只在 `bootstrap.py`，`_*.py` 为私有；跨模块不得深导入、反向依赖或用共享 repository 绕过 owner。
 - Owner 对自己的领域合同、表、DML、head/revisions、恢复、数据权利和 Admin 校正负责。跨 owner 变化通过公共端口和 Subject Commit；生产 SQL 写入必须符合 `tools/schema_ownership.py`。
 - 模型、网络、文件、设备、Codex 与其他慢 I/O 不得处于权威数据库写事务内。短事务先登记稳定 identity/work/effect，事务外调用，结算事务重新验证 Runtime fence、lease、generation、subject/owner version 和幂等状态。
 - 并发变化不得采用最后写入者覆盖。旧候选返回时若版本已推进，明确 stale/失败或重新认知；不能只重放旧 JSON。
 - Durable work 使用 `armi_kernel.application.durable_work.WorkType` 闭集和责任 registry。进程 wakeup 只优化延迟，不能承载唯一 payload/完成事实；新增 work 同步 owner kind、reconciliation owner、恢复和测试。
 - 高变化机制接收冻结、获准、带版本输入，只返回候选/证据/回执。实验 variant 仅在隔离环境、离线回放或只读 shadow 比较，未激活前不得写 Active 主体、work 或 effect。
 - 新能力优先进入现有 owner。只有存在独立 owner、生命周期、一对多关系、权限/保留策略或显著独立查询模式才新增表/模块；渠道、party kind、枚举或 adapter 差异本身不构成理由。
-- 只有第二个真实实现、外部消费者或已声明扩展合同存在时才引入通用抽象。机制替换完成后删除旧入口、接线、selector、配置、类型、别名和无调用者兼容路径。
+- 机制替换完成后删除旧入口、接线、selector、配置、类型、别名和无调用者兼容路径；通用抽象按全局规则判断真实复用需求。
 - 不为未来可能性预建微服务、多 ARMI、跨设备多活、通用插件市场、运行时热加载、万能数据模型或永久兼容层。
 
 ## 4. 数据库、配置与机器合同
 
 - PostgreSQL 是唯一权威关系数据库。开发/测试固定使用 Docker PostgreSQL 18.4 + pgvector 0.8.6；Runtime 只通过 DSN 使用它，容器和 volume 不是第二事实源。
 - Schema 资源位于 `packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema/`。只保留可重做的唯一 Alembic `0000`，不使用 autogenerate、后续 revision、downgrade、历史迁移或旧数据库兼容。
-- 结构变化直接更新 baseline SQL、`0000` 文档列表、baseline identity、owner registry、ACL、生产者/消费者和测试；目标数据库显式删库重装，不迁移历史数据库、消息或制品。
+- 结构变化直接更新 baseline SQL、`0000` 文档列表、baseline identity、owner registry、ACL、生产者/消费者和测试；目标数据库采用显式删库重装，不迁移历史数据库、消息或制品。修改 schema 的授权不自动包含删除现有目标库；重装须有覆盖该环境和数据影响的明确授权。
 - 项目不提供数据库、Artifact Store、环境配置或 secret 的离线恢复制品功能。未经用户针对本次操作明确授权，不得为迁移、重置、部署或其他任务复制、打包或导出这些内容；需要额外恢复手段时必须停止并请求授权。
 - `armi db install` 只接受无用户 relation 且不存在 `armi` namespace 的目标库：先在独立短事务建立 namespace，再由唯一 `0000` 原子安装表、约束、静态目录、ACL、revision 与摘要。中段失败可以留下空 namespace，但不能留下业务表或前移 revision。Runtime/普通启动只核验 PostgreSQL/扩展、唯一 revision、baseline/resource/catalog/role digests 与精确 ACL，不自动安装、迁移或用超级用户掩盖权限漂移。
 - 同一 ARMI 内部合同族只保留一个当前数字版本。升级要原子同步生产者、消费者、DDL/约束、配置、OpenAPI、生成代码、工具与测试，并删除旧解析器、旧字段、双读双写和缺字段补默认值。第三方 MCP/NapCat/Provider 协议按其当前标准处理，不恢复 ARMI 旧合同。
@@ -56,7 +58,7 @@
 - 模型 identity、usage、subject/party/scene、version、digest、权限和现实结果由 adapter/Runtime 绑定。模型不得生成这些权威字段，也不得直接填写 Mood VAD/强度。
 - Owner 分别验证 cognition candidate，最终最多一次原子 Subject Commit；任何 owner 失败不留下半提交。`no_action`/`no_change`/`decline` 是主体决定，不是错误 fallback。
 - ARMI 自身 Web research 与 Codex built-in Web Search 是两条独立只读链；启用 Web Search 不等于 shell 有网络。网页结果先成为 Evidence/Opportunity，不能直接写 Memory/Relationship/回复。
-- ARMI→Codex 使用官方 SDK和用户订阅 auth。每项委托可显式选择当前批准的 `gpt-5.6-sol|terra|luna`、reasoning 和内置 Web Search；不得固定退回某模型/低思考/一律禁网。
+- ARMI→Codex 使用官方 SDK 和用户订阅 auth。每项委托可显式选择项目当前批准的模型、reasoning 和内置 Web Search，具体允许值以当前配置与合同为准；不得固定退回某模型/低思考/一律禁网。此约束针对 ARMI 的委托链，不指定开发本仓库时 Codex 使用的模型。
 - Codex runner 只操作 task manifest 的一次性 workspace，遵守 allowed/forbidden paths；不得读取 ARMI DB、Admin、宿主 secret/配置或未经授权的外部系统。纯内容生成 `result.md`，代码/文件任务由独立 validator 和 custody 副本核验。
 - ARMI→Codex runner 与 Codex→ARMI Admin MCP 必须隔离，不能互相发现、调用或继承 credential。Admin 仅限 `development`、`system_test`、`acceptance`，使用独立 config、role、pool 和 owner Admin ports，不暴露任意 SQL。
 - 通过 Codex/自动化向运行中 ARMI 发话时使用 Admin `inject_creator_input` 或 `armi creator send` 正式 intake，并复用稳定 idempotency key；不得直写数据库或伪造浏览器 session。只有用户要求界面操作/视觉验收时才驱动浏览器。
@@ -73,10 +75,28 @@
 
 ## 7. 验证与收尾
 
-- 先把任务变成可观察成功标准，运行能回答当前未知的最小静态检查/定向测试。只有风险命中公共合同、schema、依赖锁、生成器、composition、启动或跨模块边界时才扩大。
-- Fast/Release/System、真实 PostgreSQL、浏览器、付费 live gate、外部程序、soak 与部署验证只在风险需要或用户明确授权时运行；不要用测试数量制造完成感。
+- 按影响选择定向检查；公共合同、schema、依赖锁、生成器、composition、启动或跨模块边界变化应扩大到受影响消费者。Fast/Release/System 不是每次修改都必须执行的固定流程。
+- 真实 PostgreSQL、浏览器、live gate、外部程序、soak 与部署验证按风险选择；涉及 Docker、真实账号/设备或付费调用时仍须满足相应授权边界，测试需要本身不构成授权。
 - 数据库变化至少用真实 PostgreSQL 证明：空库前态、更新后的唯一 `0000` 事务组原子安装、唯一 head/identity/digests/ACL、重复 install 合同、注入失败后业务表回滚且 revision 不前移，并明确核对可能保留的空 namespace，以及受影响 owner 主路径。项目没有历史回填/迁移验证。
-- 视觉/UI 改动必须在目标 viewport 运行真实页面，用受控浏览器检查层级、比例、重叠、溢出、滚动、关键操作、空态和错误态；只读源码不能宣称视觉完成。
+- 视觉/UI 改动按全局规则进行真实页面验证；Creator Web 必须连接已就绪的 Runtime，不能用 mock 代替正式页面验收。
 - 声称目标环境部署或真实 Creator 对话可用，必须在已授权真实调用后运行 `tools/verify_live_creator_roundtrip.py`，确认 cognition、Subject Commit、reply effect 核验、outbox 交付和非空回复 artifact。Component ready、数据库行或 mock/System test 不能替代。
-- 文档变化至少检查：全部相对链接、实现锚点路径、旧目录/术语、当前合同版本、UTF-8/LF，以及与代码/配置/schema 的冲突。未运行的环境/Browser/live 验证明确列出。
-- 修改前后检查 Git 状态并保留用户已有变化。仓库修改默认按可独立验证模块提交，只暂存本任务文件；`docs/` 被忽略不进入提交，最终同时报告本地 docs 变化和实际提交文件。
+- 文档变化检查改动文件中的相对链接、实现锚点、旧目录/术语、涉及的合同版本、UTF-8/LF，以及与代码/配置/schema 的冲突。报告影响结论的未验证边界；纯文档修改不要求运行环境、Browser 或 live 验证。
+- Git 操作沿用全局规则；`docs/` 被忽略，不强制加入提交，涉及其修改时单独报告本地 docs 变化与实际提交文件。
+
+## 8. 开发与检查入口
+
+命令从仓库根在 Windows x86_64 / PowerShell 7 执行。工具链精确版本读取 [tools/toolchain-manifest.json](tools/toolchain-manifest.json)、[pyproject.toml](pyproject.toml)、锁文件与 [Web package.json](apps/armi-creator-web/package.json)，不在本文件维护第二份版本快照。
+
+| 场景 | 入口与边界 |
+|---|---|
+| 首次准备工具链 | `./tools/bootstrap_toolchain.ps1 -ApprovedOfficialDirect`；会从官方源下载依赖，先确认当前任务允许联网安装 |
+| 定向架构检查 | `./tools/quality.ps1 -Gate ARC-SURFACE` |
+| 定向仓库卫生检查 | `./tools/quality.ps1 -Gate SEC-REPOSITORY` |
+| Fast | `./tools/quality.ps1`：锁、格式、lint、类型、离线测试、架构、安全、前端 |
+| Release | `./tools/quality.ps1 -Release`：Fast 加构建和 wheel 隔离安装 |
+| System | `./tools/quality.ps1 -System`：Release 加隔离 PostgreSQL、固定 Chromium 和 Creator 系统旅程；不连接真实模型、Web、Codex、QQ 或设备 |
+| Creator Web 开发 | `./tools/start_creator_web_dev.ps1 -EnvironmentRoot <环境根> -OpenBrowser`；连接已有 ready Runtime，Vite 固定 `127.0.0.1:5173`，不启动第二个后端 |
+
+完整 gate ID、依赖和实际命令见 [tools/quality.py](tools/quality.py)；`-Gate`、`-Release`、`-System` 互斥。缺少受管工具时明确报告，不改用未核对版本绕过门禁。定向测试沿用该脚本的环境和 [pytest 配置](pyproject.toml)，数据库测试与 Creator 系统测试分别受 `postgresql`、`creator_system` marker 隔离。
+
+环境建立、启动和重置按 [README.md](README.md) 与本地[运行手册](docs/05-运行与验证/01-安装、启动与维护.md)执行；命令表是入口说明，不授予目标环境、数据库或真实 Provider 操作权限。
