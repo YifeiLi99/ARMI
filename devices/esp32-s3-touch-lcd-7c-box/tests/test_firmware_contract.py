@@ -85,13 +85,25 @@ def test_full_screen_faces_keep_safe_edges_and_preview_uses_exact_assets() -> No
         assert bounds is not None
         left, top, right, bottom = bounds
         assert left >= 8 and top >= 8 and right <= 760 and bottom <= 424
-        assert 530 <= right - left <= 620
+        # Resting eyes are narrower; eye centers retain the common layout.
+        assert 500 <= right - left <= 620
         # Both eyes stay above a small, separate mouth, with no face outline.
         assert mask.crop((280, 70, 488, 220)).getbbox() is None
         assert mask.crop((0, 0, 75, 432)).getbbox() is None
         assert mask.crop((693, 0, 768, 432)).getbbox() is None
         assert mask.crop((315, 235, 453, 330)).getbbox() is not None
     assert len({mask.tobytes() for mask in masks.values()}) == 22
+
+
+def test_anxiety_has_no_tears_and_offline_has_sleep_marks() -> None:
+    from tools.mood_display_preview import load_face_masks
+
+    masks = load_face_masks()
+    for left, right in ((100, 220), (548, 668)):
+        assert masks["anxiety"].crop((left, 205, right, 260)).getbbox() is None
+        assert masks["sadness"].crop((left, 205, right, 260)).getbbox() is not None
+    assert masks["offline"].crop((500, 20, 680, 125)).getbbox() is not None
+    assert masks["neutral"].crop((500, 20, 680, 125)).getbbox() is None
 
 
 def test_generator_and_desktop_preview_use_the_firmware_catalog() -> None:

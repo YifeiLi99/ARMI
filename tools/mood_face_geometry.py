@@ -16,17 +16,17 @@ STYLES = {
     "pride": ("confident", "smirk"),
     "surprise": ("round", "o"),
     "sadness": ("sad", "frown"),
-    "fear": ("ring", "o"),
-    "anxiety": ("worried", "wave"),
-    "anger": ("angry", "flat"),
+    "fear": ("frightened", "gasp"),
+    "anxiety": ("tense", "wave"),
+    "anger": ("angry", "grit"),
     "frustration": ("squeeze", "wave"),
-    "disgust": ("half", "frown"),
-    "shame": ("down", "small"),
-    "guilt": ("worried", "small"),
-    "jealousy": ("side", "flat"),
+    "disgust": ("squint", "disgust"),
+    "shame": ("bashful", "small"),
+    "guilt": ("remorse", "frown"),
+    "jealousy": ("side", "pout"),
     "boredom": ("double", "small"),
-    "confusion": ("uneven", "slant"),
-    "neutral": ("double", "flat"),
+    "confusion": ("questioning", "slant"),
+    "neutral": ("resting", "small"),
     "offline": ("closed", "small"),
 }
 
@@ -62,8 +62,8 @@ def render_face(key: str) -> Image.Image:
         ) -> None:
             line([(cx + x * inward, cy + y) for x, y in points], width)
 
-        if eye in ("round", "ring", "shine"):
-            oval(cx, cy, 54, 54, eye == "ring")
+        if eye in ("round", "shine"):
+            oval(cx, cy, 54, 54)
             if eye == "shine":
                 draw.ellipse(
                     (
@@ -111,26 +111,57 @@ def render_face(key: str) -> Image.Image:
             path([(-51, 0), (51, 0)])
             if eye == "double":
                 path([(-51, -30), (51, -30)])
-        elif eye in ("angry", "confident"):
+        elif eye == "confident":
             path([(-51, -28), (48, 3)], 20)
-            if eye == "angry":
-                path([(-36, 29), (33, 29)], 13)
-        elif eye in ("sad", "worried"):
+        elif eye == "angry":
+            points = [(-52, -33), (49, 4), (33, 27), (-32, 27), (-51, 9)]
+            draw.polygon(
+                [((cx + x * inward) * scale, (cy + y) * scale) for x, y in points],
+                fill=255,
+            )
+        elif eye == "sad":
             path([(-49, 6), (47, -26)], 18)
-            if eye == "sad":
-                path([(-22, 35), (-22, 79)], 13)
-            else:
-                oval(cx, cy + 27, 14, 22)
-        elif eye in ("half", "side"):
-            path([(-51, -20), (51, -20)])
-            oval(cx + (26 if eye == "side" else 0), cy + 13, 16, 23)
-        elif eye == "down":
-            path([(-44, 7), (0, 29), (44, 7)], 17)
-        elif eye == "uneven":
+            # A pointed top joins a round drop, separated from the eyelid.
+            tx = cx - 28 * inward
+            draw.polygon(
+                [
+                    ((tx - 14) * scale, (cy + 63) * scale),
+                    (tx * scale, (cy + 34) * scale),
+                    ((tx + 14) * scale, (cy + 63) * scale),
+                ],
+                fill=255,
+            )
+            oval(tx, cy + 65, 14, 16)
+        elif eye == "frightened":
+            oval(cx, cy, 43, 57, True)
+            oval(cx, cy + 3, 9, 19)
+            path([(-43, -76), (0, -89), (43, -77)], 11)
+        elif eye == "tense":
+            path([(-47, 8), (-20, -7), (17, -13), (46, -7)], 20)
+            path([(-44, -36), (40, -58)], 11)
+        elif eye == "squint":
+            path([(-49, -4), (0, 9), (45, 0)], 19)
+            path([(-39, -36), (42, -25 if index == 0 else -48)], 11)
+        elif eye == "bashful":
+            path([(-42, 2), (-15, 20), (15, 20), (42, 2)], 15)
+            for dx in (-24, 0, 24):
+                path([(dx - 5, 56), (dx + 5, 39)], 8)
+        elif eye == "remorse":
+            path([(-44, -39), (39, -61)], 11)
+            path([(-43, 3), (0, 15), (43, 3)], 16)
+        elif eye == "side":
+            path([(-48, -21), (47, -8)], 15)
+            path([(-43, 28), (43, 28)], 10)
+            # Both pupils look to the same side, inside the narrowed lids.
+            oval(cx + 23, cy + 7, 12, 15)
+        elif eye == "questioning":
+            oval(cx, cy, 30, 35)
             if index == 0:
-                oval(cx, cy, 43, 43)
+                path([(-40, -67), (0, -81), (40, -67)], 11)
             else:
-                path([(-45, -18), (45, -18)])
+                path([(-40, -42), (40, -24)], 11)
+        elif eye == "resting":
+            oval(cx, cy, 29, 36)
 
     # The mouth stays within 112 x 56, substantially smaller than either eye pair.
     mx, my = 384, 278
@@ -154,11 +185,33 @@ def render_face(key: str) -> Image.Image:
         "wave": [(-49, 0), (-32, -10), (-16, 9), (0, -9), (16, 9), (32, -10), (49, 0)],
         "smirk": [(-43, 8), (0, 8), (27, -1), (43, -17)],
         "slant": [(-32, 12), (32, -10)],
+        "disgust": [(-42, 15), (-21, -8), (7, -8), (34, 7)],
+        "pout": [(-36, 1), (0, 9), (36, 1)],
     }
     if mouth == "o":
         oval(mx, my, 24, 31, True)
+    elif mouth == "gasp":
+        oval(mx, my, 28, 34)
+    elif mouth == "grit":
+        line(
+            [
+                (mx - 42, my + 12),
+                (mx - 33, my - 12),
+                (mx + 33, my - 12),
+                (mx + 42, my + 12),
+                (mx - 42, my + 12),
+            ],
+            10,
+        )
+        line([(mx - 36, my), (mx + 36, my)], 6)
     else:
         line([(mx + x, my + y) for x, y in mouths[mouth]], 13)
+
+    if key == "offline":
+        for zx, zy, size in ((516, 98, 18), (566, 75, 24), (628, 45, 30)):
+            line(
+                [(zx, zy), (zx + size, zy), (zx, zy + size), (zx + size, zy + size)], 6
+            )
 
     ink = image.resize(SIZE, Image.Resampling.LANCZOS)
     glow = ink.filter(ImageFilter.GaussianBlur(3)).point([p // 5 for p in range(256)])
