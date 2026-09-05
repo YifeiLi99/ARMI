@@ -28,7 +28,7 @@ _COLORS = {
     DisplayExpression.BOREDOM: "#7D8597",
     DisplayExpression.CONFUSION: "#5DADE2",
     DisplayExpression.NEUTRAL: "#667085",
-    DisplayExpression.OFFLINE: "#3A3F47",
+    DisplayExpression.OFFLINE: "#AAB4C4",
 }
 
 

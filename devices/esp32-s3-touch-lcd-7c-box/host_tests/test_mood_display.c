@@ -81,9 +81,10 @@ static void test_transition_and_energy_only_change_text_appearance(void)
     assert(low.opacity == 255);
     assert(high.color_lift > low.color_lift);
     mood_text_frame(MOOD_FACE_OFFLINE, 0, 0, &offline_first);
-    mood_text_frame(MOOD_FACE_OFFLINE, 100, 4000, &offline_later);
-    assert(memcmp(&offline_first, &offline_later, sizeof(offline_first)) == 0);
-    assert(offline_first.opacity == 180);
+    mood_text_frame(MOOD_FACE_OFFLINE, 0, 800, &offline_later);
+    assert(offline_first.opacity == first.opacity);
+    assert(offline_later.opacity == low.opacity);
+    assert(offline_later.color_lift == low.color_lift);
 }
 
 int main(void)

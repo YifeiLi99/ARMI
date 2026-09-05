@@ -89,7 +89,7 @@ bool mood_face_offline(void)
 {
     const mood_state_t offline = {
         .face = MOOD_FACE_OFFLINE,
-        .foreground_rgb = 0x3A3F47,
+        .foreground_rgb = 0xAAB4C4,
         .background_rgb = 0x000000,
         .energy = 0,
     };

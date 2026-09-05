@@ -120,3 +120,17 @@ def test_generator_and_desktop_preview_use_the_firmware_catalog() -> None:
         assert f'"{expression}"' in preview
     assert "from tools.mood_display_preview import FACES" in generator
     assert "render_face(face.key)" in generator
+
+
+def test_offline_uses_the_same_rendering_curve_as_other_faces() -> None:
+    from dataclasses import replace
+
+    from tools.mood_display_preview import FACE_BY_KEY, expression_color
+
+    neutral = FACE_BY_KEY["neutral"]
+    offline = replace(FACE_BY_KEY["offline"], color=neutral.color)
+    for energy in (0, 50, 100):
+        for elapsed_ms in (0, 80, 320, 800, 2000, 4000):
+            assert expression_color(offline, energy, elapsed_ms) == expression_color(
+                neutral, energy, elapsed_ms
+            )

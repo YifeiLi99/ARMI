@@ -62,10 +62,7 @@ def main() -> None:
     by_key = {face.key: face for face in FACES}
     faces = FACES if args.face is None else [by_key[key] for key in args.face]
     if args.cyan:
-        faces = [
-            replace(face, color=CYAN) if face.key != "offline" else face
-            for face in faces
-        ]
+        faces = [replace(face, color=CYAN) for face in faces]
     port = serial.Serial(port=None, baudrate=115200, timeout=2, write_timeout=2)
     port.dtr = False
     port.rts = False

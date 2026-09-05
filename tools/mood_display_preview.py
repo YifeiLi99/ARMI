@@ -51,7 +51,7 @@ FACES = (
     FaceSpec("boredom", "无聊", "#7D8597", "(－_－)"),
     FaceSpec("confusion", "困惑", "#5DADE2", "(・へ・)"),
     FaceSpec("neutral", "中性", "#667085", "(・_・)"),
-    FaceSpec("offline", "离线", "#3A3F47", "(－ω－)"),
+    FaceSpec("offline", "离线", "#AAB4C4", "(－ω－)"),
 )
 FACE_BY_LABEL = {face.label: face for face in FACES}
 FACE_BY_KEY = {face.key: face for face in FACES}
@@ -96,8 +96,6 @@ def blend_black(foreground: str, opacity: int) -> str:
 
 
 def expression_color(face: FaceSpec, energy: int, elapsed_ms: int) -> str:
-    if face.key == "offline":
-        return blend_black(face.color, 180)
     frame = elapsed_ms // FRAME_MS
     lift = triangle(frame, 50, 2 + energy // 18)
     opacity = min(255, 96 + elapsed_ms * 159 // 320)
@@ -185,7 +183,7 @@ class MoodDisplayPreview:
         self.energy_text.configure(text=str(energy))
         elapsed_ms = max(0, int((now - self.started_at) * 1000))
         spec = FACE_BY_KEY[self.current_face]
-        if self.cyan.get() and spec.key != "offline":
+        if self.cyan.get():
             spec = replace(spec, color=CYAN)
         mask = self.masks[spec.key]
         pixels = Image.new(
@@ -208,9 +206,8 @@ def smoke_test() -> None:
             for elapsed_ms in (0, 80, 320, 4_000):
                 color = expression_color(face, energy, elapsed_ms)
                 assert len(color) == 7 and color.startswith("#")
-    assert expression_color(FACE_BY_KEY["offline"], 0, 0) == expression_color(
-        FACE_BY_KEY["offline"], 100, 4_000
-    )
+    for face in FACES:
+        assert expression_color(face, 0, 0) != expression_color(face, 0, 320)
 
 
 def main() -> None:

@@ -40,11 +40,6 @@ void mood_text_frame(
 )
 {
     target->asset = mood_text_asset(face);
-    if (face == MOOD_FACE_OFFLINE) {
-        target->color_lift = 0;
-        target->opacity = 180;
-        return;
-    }
     uint32_t frame = elapsed_ms / FRAME_MS;
     target->color_lift = triangle(frame, 50U, (uint8_t)(2U + energy / 18U));
     target->opacity = elapsed_ms >= 320U ? 255U :
