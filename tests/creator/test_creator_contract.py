@@ -9,7 +9,6 @@ from typing import Any, cast
 from armi_runtime.application.creator_contract import (
     BrowserSessionCurrentResponse,
     BrowserSessionResponse,
-    CapabilityRequestItemResponse,
     CreatorLifeMaterialResponse,
     CreatorMaintenanceStatusResponse,
     CreatorMaintenanceTimelineItemResponse,
@@ -17,7 +16,6 @@ from armi_runtime.application.creator_contract import (
     CreatorProjectionEventResponse,
     CreatorRelationshipBoundaryRequest,
     CreatorRelationshipCurrentResponse,
-    EffectResponse,
     FailedOutcomeResponse,
     LifeRecordItemResponse,
     RejectedOutcomeResponse,
@@ -44,6 +42,11 @@ def runtime_status() -> dict[str, object]:
         "runtime_state": "starting",
         "readiness": "not_ready",
         "authority_state": "active",
+        "codex": {
+            "enabled": False,
+            "available": False,
+            "reason_code": "CODEX-DISABLED",
+        },
         "reason_codes": ["RUNTIME_RECOVERING"],
         "components": [
             {"component": "database", "state": "ready", "reason_codes": []},
@@ -147,8 +150,6 @@ class CreatorContractTests(unittest.TestCase):
                 "/v1/effects/{effect_id}",
                 "/v1/effects/{effect_id}/artifacts/{artifact_kind}",
                 "/v1/subject/summary",
-                "/v1/capability-requests",
-                "/v1/capability-requests/{capability_request_id}/decision",
                 "/v1/scenes",
                 "/v1/scenes/{scene_key}/close",
                 "/v1/scenes/{scene_key}/events",
@@ -733,63 +734,18 @@ class CreatorContractTests(unittest.TestCase):
                 }
             )
 
-    def test_capability_and_effect_projections_keep_the_authority_link(self) -> None:
-        request_id = "01890f47-7ac2-7cc4-98c2-9f4e3f13b9ab"
-        grant_id = "01890f47-7ac2-7cc4-98c2-9f4e3f13b9ac"
-        request = CapabilityRequestItemResponse.model_validate(
-            {
-                "capability_request_id": request_id,
-                "capability_kind": "codex.delegated-work",
-                "operation": "execute",
-                "subject_id": ENVIRONMENT_ID,
-                "scene_id": "01890f47-7ac2-7cc4-98c2-9f4e3f13b9ad",
-                "purpose": "delegate_codex_work",
-                "workspace_scope": "isolated_ephemeral",
-                "artifact_scope": "explicit_only",
-                "network_access": False,
-                "valid_for_seconds": 600,
-                "max_uses": 1,
-                "status": "limited",
-                "capability_availability": "available",
-                "request_version": 2,
-                "created_at": INSTANT,
-                "status_changed_at": INSTANT,
-                "effective_grant": {
-                    "scope_kind": "codex_delegated_work",
-                    "grant_ref": grant_id,
-                    "status": "active",
-                    "valid_from": INSTANT,
-                    "valid_until": "2026-07-29T10:10:00.000000Z",
-                    "max_uses": 1,
-                    "consumed_uses": 0,
-                    "remaining_uses": 1,
-                    "workspace_scope": "isolated_ephemeral",
-                    "artifact_scope": "explicit_only",
-                    "network_access": False,
-                },
-            }
-        )
-        assert request.effective_grant is not None
-        self.assertEqual(request.effective_grant.grant_ref, grant_id)
-        effect = EffectResponse.model_validate(
-            {
-                "contract_version": "1.0",
-                "projection_version": "creator-effect.v5",
-                "effect_id": "01890f47-7ac2-7cc4-98c2-9f4e3f13b9ae",
-                "action_intent_ref": "01890f47-7ac2-7cc4-98c2-9f4e3f13b9af",
-                "action_intent_revision_ref": request_id,
-                "capability_kind": "creator.scene.reply",
-                "effect_kind": "creator_response",
-                "status": "registered",
-                "verification_status": "not_started",
-                "registered_at": INSTANT,
-                "attempt_count": 0,
-            }
-        )
-        self.assertEqual(effect.action_intent_revision_ref, request_id)
-        self.assertIsNone(effect.policy_decision_ref)
-        self.assertIsNone(effect.capability_request_ref)
-        self.assertIsNone(effect.permission_grant_ref)
+    def test_approval_surface_is_removed(self) -> None:
+        schema = cast(dict[str, Any], build_creator_openapi())
+        self.assertFalse(any("capability-requests" in path for path in schema["paths"]))
+        for model in ("EffectResponse", "CreatorOperationDetails"):
+            properties = schema["components"]["schemas"][model]["properties"]
+            for field in (
+                "policy_decision_ref",
+                "capability_request_ref",
+                "permission_grant_ref",
+                "effect_registration_ref",
+            ):
+                self.assertNotIn(field, properties)
 
     def test_timeline_v5_exposes_creator_text_and_public_refs(self) -> None:
         operation_ref = "01890f47-7ac2-7cc4-98c2-9f4e3f13b9ad"

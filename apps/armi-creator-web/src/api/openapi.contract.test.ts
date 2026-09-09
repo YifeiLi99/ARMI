@@ -36,7 +36,6 @@ describe("generated Creator OpenAPI types", () => {
       | "material.invalidated"
       | "relationship.invalidated"
       | "scene.timeline.invalidated"
-      | "capability.request.invalidated"
       | "operation.invalidated"
       | "other_human.record.invalidated"
       | "effect.invalidated"

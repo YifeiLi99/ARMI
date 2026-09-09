@@ -12,7 +12,6 @@ from armi_attention.api import (
     OpportunityCognitionSelectionPort,
     OpportunityContextReadPort,
 )
-from armi_capability.api import CapabilityRequestDraft
 from armi_codex.api import CodexDelegationDraft, CodexTaskSourceReadPort
 from armi_context.api import ContextCognitionReadPort
 from armi_evidence.api import EvidenceId, EvidenceReadPort
@@ -807,7 +806,6 @@ def _validation_drafts(
     | CandidateMemoryRevisionDraft
     | CandidateOwnerDraft
     | CandidateExactLifeQueryDraft
-    | CapabilityRequestDraft
     | CreatorReplyDraft
     | OtherHumanReplyDraft
     | OtherHumanEndConversationDraft
@@ -822,7 +820,6 @@ def _validation_drafts(
         *change_set.experiences,
         *change_set.owner_drafts,
         *change_set.exact_life_queries,
-        *change_set.capability_requests,
         *change_set.action_choices,
         *change_set.web_research_requests,
         *change_set.visual_observation_requests,
@@ -837,7 +834,6 @@ def _owner(
     | CandidateMemoryRevisionDraft
     | CandidateOwnerDraft
     | CandidateExactLifeQueryDraft
-    | CapabilityRequestDraft
     | CreatorReplyDraft
     | OtherHumanReplyDraft
     | OtherHumanEndConversationDraft
@@ -855,8 +851,6 @@ def _owner(
         return CandidateOwner(value.owner)
     if isinstance(value, CandidateExactLifeQueryDraft):
         return CandidateOwner.EXACT_LIFE_QUERY
-    if isinstance(value, CapabilityRequestDraft):
-        return CandidateOwner.CAPABILITY
     if isinstance(
         value,
         (
@@ -882,7 +876,6 @@ def _implicit_fact_class(
     | CandidateMemoryRevisionDraft
     | CandidateOwnerDraft
     | CandidateExactLifeQueryDraft
-    | CapabilityRequestDraft
     | CreatorReplyDraft
     | OtherHumanReplyDraft
     | OtherHumanEndConversationDraft

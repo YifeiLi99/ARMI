@@ -11,14 +11,6 @@ from uuid import UUID, uuid7
 
 from armi_activity.api import ActivityReadPort, ActivityViolation
 from armi_attention.api import LifeViolation
-from armi_capability.api import (
-    CapabilityDecisionId,
-    CapabilityPolicyPort,
-    CapabilityRequestId,
-    CapabilityViolation,
-    CreatorGrantCommand,
-    CreatorGrantDecision,
-)
 from armi_codex.api import (
     CodexDelegationViolation,
     CodexModel,
@@ -128,9 +120,6 @@ from armi_runtime.application.creator_contract import (
     AppliedOutcomeResponse,
     BrowserSessionCurrentResponse,
     BrowserSessionResponse,
-    CapabilityRequestDecisionRequest,
-    CapabilityRequestItemResponse,
-    CapabilityRequestPageResponse,
     CreatorActivityItemResponse,
     CreatorActivityPageResponse,
     CreatorActivityTimelineItemResponse,
@@ -664,46 +653,6 @@ def _operation_outcome_wire(operation: CreatorOperation) -> dict[str, object]:
             waiting_for="subject_commit",
             resume_condition="subject_commit_available",
         ).to_wire()
-    if operation.phase is CreatorOperationPhase.EFFECT_REGISTRATION:
-        return WaitingOutcome(
-            **_outcome_common(),
-            message="The accepted response is waiting for effect registration.",
-            result_ref=result_ref,
-            waiting_for="effect_registration",
-            resume_condition="effect_registered",
-        ).to_wire()
-    if operation.phase is CreatorOperationPhase.EFFECT_REGISTRATION_UNAUTHORIZED:
-        return RejectedOutcome(
-            **_outcome_common(),
-            message="Effect registration was refused by the active policy.",
-            error=ErrorDescriptor(
-                ErrorCategory.POLICY, "POLICY_EFFECT_REGISTRATION_REFUSED"
-            ),
-        ).to_wire()
-    if operation.phase is CreatorOperationPhase.EFFECT_REGISTRATION_UNAVAILABLE:
-        return UnavailableOutcome(
-            **_outcome_common(),
-            message="Effect registration is unavailable.",
-            error=ErrorDescriptor(
-                ErrorCategory.DEPENDENCY, "DEPENDENCY_EFFECT_REGISTRATION_UNAVAILABLE"
-            ),
-        ).to_wire()
-    if operation.phase is CreatorOperationPhase.EFFECT_REGISTRATION_FAILED:
-        return FailedOutcome(
-            **_outcome_common(),
-            message="Effect registration was confirmed failed.",
-            error=ErrorDescriptor(
-                ErrorCategory.INTERNAL, "INTERNAL_EFFECT_REGISTRATION_FAILED"
-            ),
-        ).to_wire()
-    if operation.phase is CreatorOperationPhase.EFFECT_REGISTRATION_CANCELLED:
-        return RejectedOutcome(
-            **_outcome_common(),
-            message="Effect registration was cancelled before an Effect existed.",
-            error=ErrorDescriptor(
-                ErrorCategory.POLICY, "POLICY_EFFECT_REGISTRATION_CANCELLED"
-            ),
-        ).to_wire()
     if operation.phase is CreatorOperationPhase.EFFECT_REGISTERED:
         return AcceptedOutcome(
             **_outcome_common(),
@@ -749,14 +698,6 @@ def _operation_outcome_wire(operation: CreatorOperation) -> dict[str, object]:
             message="The registered effect was cancelled before dispatch.",
             error=ErrorDescriptor(ErrorCategory.POLICY, "POLICY_EFFECT_CANCELLED"),
         ).to_wire()
-    if operation.phase is CreatorOperationPhase.CODEX_CAPABILITY_DECISION:
-        return WaitingOutcome(
-            **_outcome_common(),
-            message="The Codex delegation is waiting for a Creator capability decision.",
-            result_ref=result_ref,
-            waiting_for="capability_decision",
-            resume_condition="codex_grant_resolved",
-        ).to_wire()
     if operation.phase is CreatorOperationPhase.CODEX_DISPATCHING:
         return WaitingOutcome(
             **_outcome_common(),
@@ -776,7 +717,7 @@ def _operation_outcome_wire(operation: CreatorOperation) -> dict[str, object]:
     if operation.phase is CreatorOperationPhase.CODEX_RESULT_ACCEPTANCE:
         return WaitingOutcome(
             **_outcome_common(),
-            message="The verified Codex result is waiting for cognition acceptance.",
+            message="The Codex execution result is being processed by cognition.",
             result_ref=result_ref,
             waiting_for="codex_result_acceptance",
             resume_condition="codex_result_accepted",
@@ -792,7 +733,7 @@ def _operation_outcome_wire(operation: CreatorOperation) -> dict[str, object]:
     if operation.phase is CreatorOperationPhase.CODEX_COMPLETED:
         return CompletedOutcome(
             **_outcome_common(),
-            message="The Codex result was verified and accepted through cognition.",
+            message="Codex execution and subsequent cognition have finished; see their separate results.",
             result_ref=result_ref,
         ).to_wire()
     if operation.phase is CreatorOperationPhase.CODEX_FAILED:
@@ -891,7 +832,7 @@ def operation_wire(operation: CreatorOperation) -> dict[str, object]:
     stage = _operation_stage(phase)
     outcome = _operation_outcome(phase)
     wire["details"] = {
-        "projection_version": "creator-operation.v5",
+        "projection_version": "creator-operation.v6",
         "operation_ref": str(operation.acceptance.opportunity_id),
         "operation_kind": operation.operation_kind,
         "stage": stage,
@@ -903,28 +844,8 @@ def operation_wire(operation: CreatorOperation) -> dict[str, object]:
             else {}
         ),
         **(
-            {"policy_decision_ref": str(operation.policy_decision_ref)}
-            if operation.policy_decision_ref
-            else {}
-        ),
-        **(
-            {"capability_request_ref": str(operation.capability_request_ref)}
-            if operation.capability_request_ref is not None
-            else {}
-        ),
-        **(
-            {"permission_grant_ref": str(operation.permission_grant_ref)}
-            if operation.permission_grant_ref is not None
-            else {}
-        ),
-        **(
             {"effect_ref": str(operation.effect_ref)}
             if operation.effect_ref is not None
-            else {}
-        ),
-        **(
-            {"effect_registration_ref": str(operation.effect_registration_ref)}
-            if operation.effect_registration_ref is not None
             else {}
         ),
         **({"work_ref": str(operation.work_ref)} if operation.work_ref else {}),
@@ -976,6 +897,8 @@ def operation_wire(operation: CreatorOperation) -> dict[str, object]:
                     if operation.codex_execution.verification_ref is None
                     else str(operation.codex_execution.verification_ref),
                     "execution_status": operation.codex_execution.execution_status,
+                    "result_processing_phase": operation.codex_execution.result_processing_phase,
+                    "result_processing_reason": operation.codex_execution.result_processing_reason,
                     "model_id": operation.codex_execution.model_id,
                     "sdk_identity": operation.codex_execution.sdk_identity,
                     "validator_id": operation.codex_execution.validator_id,
@@ -1003,21 +926,15 @@ def _operation_stage(phase: CreatorOperationPhase) -> str:
         CreatorOperationPhase.CANDIDATE_VALIDATED: "candidate_validating",
         CreatorOperationPhase.CANDIDATE_REJECTED: "candidate_rejected",
         CreatorOperationPhase.SUBJECT_COMMITTING: "subject_committing",
-        CreatorOperationPhase.EFFECT_REGISTRATION: "registering_effect",
-        CreatorOperationPhase.EFFECT_REGISTRATION_UNAUTHORIZED: "authorization_denied",
-        CreatorOperationPhase.EFFECT_REGISTRATION_UNAVAILABLE: "unavailable",
-        CreatorOperationPhase.EFFECT_REGISTRATION_FAILED: "failed",
-        CreatorOperationPhase.EFFECT_REGISTRATION_CANCELLED: "cancelled",
         CreatorOperationPhase.EFFECT_REGISTERED: "registered",
         CreatorOperationPhase.EFFECT_DISPATCHING: "dispatching",
         CreatorOperationPhase.EFFECT_COMPLETED: "completed",
         CreatorOperationPhase.EFFECT_FAILED: "failed",
         CreatorOperationPhase.EFFECT_UNKNOWN: "unknown",
         CreatorOperationPhase.EFFECT_CANCELLED: "cancelled",
-        CreatorOperationPhase.CODEX_CAPABILITY_DECISION: "awaiting_authorization",
         CreatorOperationPhase.CODEX_DISPATCHING: "dispatching",
         CreatorOperationPhase.CODEX_VERIFYING: "dispatching",
-        CreatorOperationPhase.CODEX_RESULT_ACCEPTANCE: "completed",
+        CreatorOperationPhase.CODEX_RESULT_ACCEPTANCE: "model_pending",
         CreatorOperationPhase.CODEX_RESULT_REJECTED: "candidate_rejected",
         CreatorOperationPhase.CODEX_COMPLETED: "completed",
         CreatorOperationPhase.CODEX_FAILED: "failed",
@@ -1050,13 +967,8 @@ def _operation_outcome(phase: CreatorOperationPhase) -> str:
     if phase is CreatorOperationPhase.STALE_CONFLICT:
         return "stale"
     if phase in {
-        CreatorOperationPhase.EFFECT_REGISTRATION_UNAVAILABLE,
-    }:
-        return "unavailable"
-    if phase in {
         CreatorOperationPhase.EFFECT_FAILED,
         CreatorOperationPhase.CODEX_FAILED,
-        CreatorOperationPhase.EFFECT_REGISTRATION_FAILED,
         CreatorOperationPhase.FAILED,
     }:
         return "failed"
@@ -1068,14 +980,12 @@ def _operation_outcome(phase: CreatorOperationPhase) -> str:
     if phase in {
         CreatorOperationPhase.EFFECT_CANCELLED,
         CreatorOperationPhase.CODEX_CANCELLED,
-        CreatorOperationPhase.EFFECT_REGISTRATION_CANCELLED,
     }:
         return "cancelled"
     if phase in {
         CreatorOperationPhase.CANDIDATE_REJECTED,
         CreatorOperationPhase.CODEX_RESULT_REJECTED,
         CreatorOperationPhase.FORMAL_DECLINED,
-        CreatorOperationPhase.EFFECT_REGISTRATION_UNAUTHORIZED,
     }:
         return "rejected"
     return "pending"
@@ -1120,13 +1030,6 @@ __all__ = (
     "BrowserSessionCurrentResponse",
     "BrowserSessionResponse",
     "Callable",
-    "CapabilityDecisionId",
-    "CapabilityPolicyPort",
-    "CapabilityRequestDecisionRequest",
-    "CapabilityRequestId",
-    "CapabilityRequestItemResponse",
-    "CapabilityRequestPageResponse",
-    "CapabilityViolation",
     "CodexDelegationViolation",
     "CodexModel",
     "CodexReasoningEffort",
@@ -1146,8 +1049,6 @@ __all__ = (
     "CreatorExportResponse",
     "CreatorExportResult",
     "CreatorExportViolation",
-    "CreatorGrantCommand",
-    "CreatorGrantDecision",
     "CreatorInputAcceptance",
     "CreatorInputAcceptancePort",
     "CreatorInputCommand",

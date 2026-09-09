@@ -1,106 +1,41 @@
-"""CON-CAPABILITY and DOM-POLICY contract checks."""
+"""Runtime availability, without approval or permission state."""
 
-from datetime import UTC, datetime, timedelta
-from typing import cast
+import json
+from typing import Any, cast
 from uuid import uuid7
 
 import pytest
-from armi_capability.api import (
-    CapabilityAuthorizationOutcome,
-    CapabilityConsumptionRequest,
-    CapabilityConsumptionResult,
-    CapabilityDecisionId,
-    CapabilityKind,
-    CapabilityOperation,
-    CapabilityRequestDraft,
-    CapabilityRequestId,
-    CapabilityViolation,
-    CodexDelegatedWorkScope,
-    CreatorGrantCommand,
-    CreatorGrantDecision,
-    GrantStatus,
-    PermissionGrant,
-    PermissionGrantId,
+from armi_capability.api import CapabilityAvailability
+from armi_capability.bootstrap import bootstrap_capability
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "availability",
+    [
+        CapabilityAvailability(False, False, "CODEX-DISABLED"),
+        CapabilityAvailability(True, False, "CODEX-CREDENTIAL-MISSING"),
+        CapabilityAvailability(True, True, None),
+    ],
 )
+async def test_catalog_uses_runtime_availability(
+    availability: CapabilityAvailability,
+) -> None:
+    class Transaction:
+        async def execute(self, *_args: object) -> Any:
+            return self
 
+        async def fetchall(self) -> list[tuple[object, ...]]:
+            return [(uuid7(), "codex.delegated-work", "execute", 1)]
 
-def test_scope_cannot_be_wildcarded_or_expanded() -> None:
-    with pytest.raises(CapabilityViolation, match="CON-CAPABILITY-CODEX-SCOPE"):
-        CodexDelegatedWorkScope(3601)
-    with pytest.raises(CapabilityViolation, match="CON-CAPABILITY-REQUEST"):
-        CapabilityRequestDraft(
-            "proposal:1",
-            "group:1",
-            (1,),
-            CapabilityKind.CODEX_DELEGATED_WORK,
-            cast(CapabilityOperation, "send"),
-            CodexDelegatedWorkScope(60),
-        )
-
-
-def test_codex_grant_must_stay_within_one_hour() -> None:
-    now = datetime.now(UTC)
-    scope = CodexDelegatedWorkScope(60)
-    with pytest.raises(CapabilityViolation, match="CON-CAPABILITY-GRANT"):
-        PermissionGrant(
-            PermissionGrantId(uuid7()),
-            CapabilityRequestId(uuid7()),
-            CapabilityKind.CODEX_DELEGATED_WORK,
-            CapabilityOperation.EXECUTE,
-            uuid7(),
-            uuid7(),
-            uuid7(),
-            scope,
-            now,
-            now + timedelta(seconds=3601),
-            0,
-            GrantStatus.ACTIVE,
-        )
-
-
-def test_limit_requires_an_explicit_narrowing_field() -> None:
-    with pytest.raises(CapabilityViolation, match="CON-CAPABILITY-DECISION"):
-        CreatorGrantCommand(
-            CapabilityDecisionId(uuid7()),
-            CapabilityRequestId(uuid7()),
-            1,
-            CreatorGrantDecision.LIMIT,
-        )
-    command = CreatorGrantCommand(
-        CapabilityDecisionId(uuid7()),
-        CapabilityRequestId(uuid7()),
-        1,
-        CreatorGrantDecision.LIMIT,
-        max_uses=1,
+    catalog = bootstrap_capability(lambda: availability)
+    rows = await catalog.context_state_payloads(
+        cast(Any, Transaction()), subject_id=uuid7()
     )
-    assert command.max_uses == 1
-
-
-def test_effect_consumption_contract_keeps_authorization_owner_explicit() -> None:
-    request = CapabilityConsumptionRequest(
-        uuid7(),
-        uuid7(),
-        "codex.delegated-work",
-        "execute",
-        uuid7(),
-        uuid7(),
-        uuid7(),
-        "delegate_codex_work",
-        "codex_delegation",
-        64,
+    payload = json.loads(rows[0][2])
+    assert payload["enabled"] is availability.enabled
+    assert payload["availability_status"] == (
+        "available" if availability.available else "unavailable"
     )
-    result = CapabilityConsumptionResult(
-        CapabilityAuthorizationOutcome.ALLOWED,
-        "POLICY-GRANT-ALLOWED",
-        uuid7(),
-        datetime.now(UTC),
-    )
-    assert request.payload_bytes == 64
-    assert result.grant_id is not None
-    with pytest.raises(CapabilityViolation, match="CON-CAPABILITY-CONSUMPTION"):
-        CapabilityConsumptionResult(
-            CapabilityAuthorizationOutcome.DENIED,
-            "POLICY-GRANT-NOT-CURRENT",
-            uuid7(),
-            datetime.now(UTC),
-        )
+    assert payload["reason_code"] == availability.reason_code
+    assert "grants" not in payload

@@ -14,6 +14,7 @@ import zipfile
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
+from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 from typing import Any, Final, cast
 
@@ -47,6 +48,24 @@ from ._workspace import (
 _PURPOSE = CredentialPurpose("codex.runner.auth")
 _SDK_VERSION: Final = "0.144.4"
 _PLATFORM_STATE = "runner-state.json"
+
+
+def check_local_runner() -> None:
+    """Check installed SDK/binary resources without starting a process."""
+    try:
+        sdk = distribution("openai-codex")
+        binary = distribution("openai-codex-cli-bin")
+        executable = Path(str(binary.locate_file("codex_cli_bin/bin/codex.exe")))
+        if (
+            sdk.version != _SDK_VERSION
+            or binary.version != _SDK_VERSION
+            or not executable.is_file()
+        ):
+            raise CodexRunnerViolation("CODEX-RUNTIME-UNAVAILABLE")
+    except PackageNotFoundError, OSError:
+        raise CodexRunnerViolation("CODEX-RUNTIME-UNAVAILABLE") from None
+
+
 _PERSISTENT_PLATFORM_CHILDREN = frozenset({".sandbox", _PLATFORM_STATE})
 
 
@@ -227,7 +246,7 @@ class IsolatedCodexRunner(CodexRunnerPort):
             with suppress(OSError):
                 _write_platform_state(platform_home, usable=False)
         try:
-            _remove_private(private)
+            remove_private_directory(private)
         except CodexRunnerViolation as error:
             cleanup_error = cleanup_error or error
         return cleanup_error
@@ -641,7 +660,7 @@ def _owner_only(path: Path) -> None:
         raise CodexRunnerViolation("CODEX-AUTH-ACL")
 
 
-def _remove_private(path: Path) -> None:
+def remove_private_directory(path: Path) -> None:
     try:
         if path.exists():
             _reset_owner_access(path)

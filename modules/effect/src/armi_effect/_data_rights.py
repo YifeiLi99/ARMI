@@ -25,12 +25,6 @@ _OWNER = DataRightsOwnerIdentity("effect")
 _VERSION = DataRightsContributionVersion(1)
 _SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
-        "effect_registrations",
-        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
-           FROM armi.effect_registrations AS source
-           ORDER BY to_jsonb(source)::text""",
-    ),
-    (
         "effect_attempts",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8')
            FROM armi.effect_attempts AS source ORDER BY to_jsonb(source)::text""",

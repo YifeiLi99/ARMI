@@ -10,19 +10,10 @@ from armi_runtime.application.creator_contract import EffectResponse
 def effect_wire(view: EffectView) -> dict[str, Any]:
     return EffectResponse(
         contract_version="1.0",
-        projection_version="creator-effect.v5",
+        projection_version="creator-effect.v6",
         effect_id=str(view.effect_id.value),
         action_intent_ref=str(view.action_intent_ref),
         action_intent_revision_ref=str(view.action_intent_revision_ref),
-        policy_decision_ref=None
-        if view.policy_decision_ref is None
-        else str(view.policy_decision_ref),
-        capability_request_ref=None
-        if view.capability_request_ref is None
-        else str(view.capability_request_ref),
-        permission_grant_ref=None
-        if view.permission_grant_ref is None
-        else str(view.permission_grant_ref),
         capability_kind=view.capability_kind,
         effect_kind=view.effect_kind,
         status=view.status.value,

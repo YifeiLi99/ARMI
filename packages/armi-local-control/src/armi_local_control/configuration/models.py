@@ -1,4 +1,4 @@
-"""Strict immutable models for ``armi.runtime-config.v3``."""
+"""Strict immutable models for ``armi.runtime-config.v4``."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from pydantic import (
     model_validator,
 )
 
-RUNTIME_CONFIG_SCHEMA_VERSION = "armi.runtime-config.v3"
+RUNTIME_CONFIG_SCHEMA_VERSION = "armi.runtime-config.v4"
 _LOCATOR_NAME = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 
 
@@ -323,10 +323,14 @@ class MaintenanceConfig(_FrozenModel):
         return self
 
 
+class CodexConfig(_FrozenModel):
+    enabled: bool = False
+
+
 class RuntimeConfig(_FrozenModel):
     """The only supported effective runtime configuration shape."""
 
-    schema_version: Literal["armi.runtime-config.v3"]
+    schema_version: Literal["armi.runtime-config.v4"]
     environment: EnvironmentConfig
     database: DatabaseConfig = DatabaseConfig()
     runtime: RuntimeLeaseConfig = RuntimeLeaseConfig()
@@ -334,6 +338,7 @@ class RuntimeConfig(_FrozenModel):
     web: WebConfig = WebConfig()
     creator: CreatorConfig
     http: HttpConfig = HttpConfig()
+    codex: CodexConfig = CodexConfig()
     voice: VoiceConfig = VoiceConfig()
     vision: VisionConfig = VisionConfig()
     artifacts: ArtifactsConfig = ArtifactsConfig()
@@ -378,6 +383,7 @@ __all__ = (
     "AbsolutePath",
     "ArtifactsConfig",
     "CameraSourceConfig",
+    "CodexConfig",
     "CreatorConfig",
     "DatabaseConfig",
     "DiagnosticsConfig",

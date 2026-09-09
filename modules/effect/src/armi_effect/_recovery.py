@@ -4,7 +4,6 @@ from uuid import uuid7
 
 from armi_kernel.contracts import Digest
 from armi_runtime_foundation import (
-    OwnerReconciliationContext,
     PostgreSQLTransaction,
     RecoveryAuditContribution,
     RecoveryContribution,
@@ -19,7 +18,7 @@ from armi_runtime_foundation import (
 
 class EffectRecoveryParticipant:
     owner_identity = RecoveryOwnerIdentity("effect")
-    work_scopes = (("action_intent", "effect.register"),)
+    work_scopes: tuple[tuple[str, str], ...] = ()
 
     async def recover(
         self,
@@ -29,50 +28,6 @@ class EffectRecoveryParticipant:
         *,
         conversation_only: bool = False,
     ) -> RecoveryContribution:
-        if conversation_only:
-            work = ()
-        reconciliation = OwnerReconciliationContext(
-            transaction, self.owner_identity, work
-        )
-        for item in work:
-            if not item.reconciliation_required:
-                continue
-            row = await (
-                await transaction.execute(
-                    """SELECT registration.effect_registration_id,
-                              registration.status,registration.effect_id,
-                              registration.action_intent_id
-                       FROM armi.effect_registrations AS registration
-                       WHERE registration.work_id=%s
-                       FOR UPDATE OF registration""",
-                    (item.work_id,),
-                )
-            ).fetchone()
-            if row is None:
-                raise ValueError("effect registration responsibility is missing")
-            if str(row[1]) == "succeeded" and row[2] is not None:
-                await reconciliation.complete(
-                    item.work_id, result_kind="effect", result_ref=row[2]
-                )
-            elif str(row[1]) != "pending":
-                await reconciliation.complete(
-                    item.work_id,
-                    result_kind="creator_response_operation",
-                    result_ref=row[3],
-                )
-            else:
-                await transaction.execute(
-                    """UPDATE armi.effect_registrations
-                       SET status='failed',reason_code='EFFECT-WORK-EXHAUSTED',
-                           attempt_count=attempt_count+1,
-                           settled_at=statement_timestamp()
-                       WHERE effect_registration_id=%s""",
-                    (row[0],),
-                )
-                await reconciliation.fail(
-                    item.work_id,
-                    reason_code="REC-EFFECT-WORK-EXHAUSTED",
-                )
         # A normal reply belongs to the running conversation. Startup closes
         # unsent replies; it never turns them into another delivery attempt.
         await transaction.execute(
@@ -80,7 +35,7 @@ class EffectRecoveryParticipant:
                SET dispatch_state='settled',result_status='cancelled',
                    settled_at=statement_timestamp()
                FROM armi.effects AS effect
-               WHERE effect.subject_id=%s AND effect.effect_kind='creator_response'
+               WHERE effect.subject_id=%s AND effect.effect_kind IN ('creator_response','codex_delegation')
                  AND effect.current_attempt_id=attempt.effect_attempt_id
                  AND attempt.dispatch_state='prepared'""",
             (scope.subject_id,),
@@ -90,7 +45,7 @@ class EffectRecoveryParticipant:
                 """UPDATE armi.effects AS effect
                    SET status='cancelled',verification_status='verified',
                        cancelled_at=statement_timestamp(),settled_at=statement_timestamp()
-                   WHERE subject_id=%s AND effect_kind='creator_response'
+                   WHERE subject_id=%s AND effect_kind IN ('creator_response','codex_delegation')
                      AND (status='registered' OR (status='dispatching' AND EXISTS (
                        SELECT 1 FROM armi.effect_attempts AS attempt
                        WHERE attempt.effect_attempt_id=effect.current_attempt_id
@@ -120,7 +75,7 @@ class EffectRecoveryParticipant:
                   ON outbox.effect_id = effect.effect_id
                 WHERE effect.subject_id = %s
                   AND effect.status = 'dispatching'
-                  AND (NOT %s OR effect.effect_kind='creator_response')
+                  AND (NOT %s OR effect.effect_kind IN ('creator_response','codex_delegation'))
                   AND attempt.dispatch_state = 'dispatching'
                   AND outbox.status = 'claimed'
                 ORDER BY effect.effect_id
@@ -133,7 +88,7 @@ class EffectRecoveryParticipant:
         for effect_id, attempt_id, outbox_id, claim_token, effect_kind in dispatched:
             reason = (
                 "EFFECT-RUNTIME-INTERRUPTED"
-                if effect_kind == "creator_response"
+                if effect_kind in {"creator_response", "codex_delegation"}
                 else "EFFECT-RESULT-UNKNOWN"
             )
             observation_id = uuid7()
@@ -205,7 +160,7 @@ class EffectRecoveryParticipant:
                SET last_error_code='EFFECT-RUNTIME-INTERRUPTED'
                FROM armi.effects AS effect
                WHERE outbox.effect_id=effect.effect_id AND effect.subject_id=%s
-                 AND effect.effect_kind='creator_response' AND effect.status='unknown'""",
+                 AND effect.effect_kind IN ('creator_response','codex_delegation') AND effect.status='unknown'""",
             (scope.subject_id,),
         )
         row = await (
@@ -214,7 +169,7 @@ class EffectRecoveryParticipant:
             SELECT
                 count(*) FILTER (
                     WHERE effect.status IN ('registered', 'dispatching', 'unknown')
-                      AND effect.effect_kind <> 'creator_response'
+                      AND effect.effect_kind NOT IN ('creator_response','codex_delegation')
                 ),
                 count(*) FILTER (
                     WHERE (effect.status = 'registered' AND outbox.status <> 'ready')
@@ -244,7 +199,9 @@ class EffectRecoveryParticipant:
         ).fetchone()
         resumable, invalid = (0, 0) if row is None else (int(row[0]), int(row[1]))
         uncertain_external_work = [
-            row for row in dispatched if row[4] != "creator_response"
+            row
+            for row in dispatched
+            if row[4] not in {"creator_response", "codex_delegation"}
         ]
         return RecoveryContribution(
             self.owner_identity,

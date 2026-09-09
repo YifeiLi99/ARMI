@@ -8,7 +8,6 @@ export type WorkspacePage =
   | "relationships"
   | "people"
   | "prompt"
-  | "capabilities"
   | "maintenance"
   | "export"
   | "data-rights"
@@ -61,10 +60,7 @@ const navigationGroups: NavigationGroup[] = [
   },
   {
     label: "心智与权限",
-    items: [
-      { page: "prompt", label: "认知指导", icon: "prompt" },
-      { page: "capabilities", label: "能力授权", icon: "shield" },
-    ],
+    items: [{ page: "prompt", label: "认知指导", icon: "prompt" }],
   },
   {
     label: "系统",
@@ -106,10 +102,6 @@ const pageMeta: Record<WorkspacePage, { title: string; description: string }> =
     prompt: {
       title: "认知指导",
       description: "查看和更新 Creator 提供的认知指导 Prompt。",
-    },
-    capabilities: {
-      title: "能力授权",
-      description: "逐项审阅能力申请、约束范围并管理当前授权。",
     },
     maintenance: {
       title: "运行与维护",

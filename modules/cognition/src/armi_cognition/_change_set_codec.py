@@ -11,12 +11,6 @@ from armi_activity.api import (
     ActivityCognitionPort,
     ActivityViolation,
 )
-from armi_capability.api import (
-    CapabilityKind,
-    CapabilityOperation,
-    CapabilityRequestDraft,
-    CodexDelegatedWorkScope,
-)
 from armi_codex.api import CodexDelegationDraft, CodexTaskSourceId
 from armi_expression.api import (
     CreatorReplyDraft,
@@ -83,7 +77,6 @@ _TOP_KEYS = {
     "disposition",
     "experiences",
     "rejections",
-    "capability_requests",
     "action_choices",
     "web_research_requests",
     "visual_observation_requests",
@@ -109,7 +102,7 @@ def parse_subject_change_set(
         if type(raw) is not dict:
             raise ValueError
         document = cast(dict[str, Any], raw)
-        if document.get("schema_version") != "armi.subject-change-set.v32":
+        if document.get("schema_version") != "armi.subject-change-set.v33":
             raise ValueError
         if set(document) != _TOP_KEYS:
             raise ValueError
@@ -127,10 +120,6 @@ def parse_subject_change_set(
         )
         experiences = tuple(
             _experience(item) for item in _array(document["experiences"], 16)
-        )
-        capability_requests = tuple(
-            _capability(item)
-            for item in _array(document.get("capability_requests", []), 4)
         )
         action_choices = tuple(
             _action(item) for item in _array(document.get("action_choices", []), 1)
@@ -241,7 +230,6 @@ def parse_subject_change_set(
             Digest(_text(base["context_digest"])),
             CandidateDisposition(_text(document["disposition"])),
             experiences,
-            capability_requests,
             action_choices,
             web_research_requests,
             rejections,
@@ -254,7 +242,6 @@ def parse_subject_change_set(
             item.proposal_ref
             for item in (
                 *experiences,
-                *capability_requests,
                 *action_choices,
                 *web_research_requests,
                 *visual_observation_requests,
@@ -268,7 +255,6 @@ def parse_subject_change_set(
             raise ValueError
         change_material = (
             result.experiences
-            or result.capability_requests
             or result.web_research_requests
             or result.visual_observation_requests
             or result.codex_delegations
@@ -509,49 +495,6 @@ def _codex_delegation(value: object) -> CodexDelegationDraft:
         CodexTaskSourceId(_uuid7(item["task_source_id"])),
         Digest(_text(item["task_manifest_digest"])),
         _text(item["validator_id"]),
-    )
-
-
-def _capability(value: object) -> CapabilityRequestDraft:
-    item = _object(
-        value,
-        {
-            "proposal_ref",
-            "atomic_group_ref",
-            "basis_ordinals",
-            "capability_kind",
-            "operation",
-            "scope",
-        },
-    )
-    capability = CapabilityKind(_text(item["capability_kind"]))
-    operation = CapabilityOperation(_text(item["operation"]))
-    scope = _object(
-        item["scope"],
-        {
-            "workspace_scope",
-            "artifact_scope",
-            "network_access",
-            "max_uses",
-            "valid_for_seconds",
-        },
-    )
-    if type(scope["network_access"]) is not bool:
-        raise ValueError
-    parsed_scope = CodexDelegatedWorkScope(
-        _positive(scope["valid_for_seconds"]),
-        _text(scope["workspace_scope"]),
-        _text(scope["artifact_scope"]),
-        scope["network_access"],
-        _positive(scope["max_uses"]),
-    )
-    return CapabilityRequestDraft(
-        _text(item["proposal_ref"]),
-        _text(item["atomic_group_ref"]),
-        _ordinals(item["basis_ordinals"]),
-        capability,
-        operation,
-        parsed_scope,
     )
 
 

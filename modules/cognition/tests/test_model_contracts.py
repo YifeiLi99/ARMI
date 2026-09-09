@@ -264,7 +264,7 @@ def test_maintenance_work_contract_is_phase_bounded_and_context_referenced() -> 
 
 def _candidate() -> dict[str, object]:
     return {
-        "schema_version": "armi.cognition-candidate.v11",
+        "schema_version": "armi.cognition-candidate.v12",
         "base": {
             "subject_version": 0,
             "state_epoch": 0,
@@ -282,7 +282,6 @@ def _candidate() -> dict[str, object]:
         "memory_changes": [],
         "relationship_changes": [],
         "activity_changes": [],
-        "capability_requests": [],
         "action_choices": [],
         "uncertainties": [],
         "reason_summary": "No proposal is warranted by the provided context.",
@@ -412,7 +411,7 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     assert dialogue.model_id == active.model_id == ACTIVE_MODEL_ID
     assert dialogue.profile == "creator_cognitive_act"
     assert (
-        dialogue.response_contract_version == "armi.creator-cognitive-act-candidate.v2"
+        dialogue.response_contract_version == "armi.creator-cognitive-act-candidate.v3"
     )
     assert dialogue.output_token_limit == 2048
 
@@ -420,42 +419,19 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     assert request["schema_version"] == "armi.model-request.v1"
     assert (
         request["output_contract"]["schema_version"]
-        == "armi.creator-cognitive-act-candidate.v2"
+        == "armi.creator-cognitive-act-candidate.v3"
     )
     assert request["candidate_base"]["bundle_activation_id"] == str(_BUNDLE_ID)
 
 
-def test_active_codex_capability_schema_matches_domain_fact_classes() -> None:
+def test_codex_candidate_has_no_permission_request_contract() -> None:
     schema = candidate_schema()
-    payload = schema["$defs"]["CapabilityRequestPayload"]
-    assert payload["properties"]["fact_class"]["enum"] == [
-        "subjective_understanding",
-        "inference",
-    ]
-
+    assert "capability_requests" not in schema["properties"]
     candidate = _candidate()
-    candidate["capability_requests"] = [
-        {
-            "proposal_ref": "proposal:1",
-            "atomic_group_ref": "group:1",
-            "basis_refs": ["ctx:1"],
-            "payload": {
-                "proposal_kind": "capability_requests",
-                "fact_class": "external_claim",
-                "capability_kind": "codex.delegated-work",
-                "operation": "execute",
-                "workspace_scope": "isolated_ephemeral",
-                "artifact_scope": "explicit_only",
-                "network_access": False,
-                "max_uses": 1,
-                "valid_for_seconds": 900,
-            },
-        }
-    ]
+    candidate["capability_requests"] = []
     with pytest.raises(ModelViolation):
         parse_candidate(
-            json.dumps(candidate).encode(),
-            allowed_context_refs=frozenset({"ctx:1"}),
+            json.dumps(candidate).encode(), allowed_context_refs=frozenset({"ctx:1"})
         )
 
 
@@ -594,7 +570,7 @@ def test_creator_dialogue_request_prioritizes_exact_recent_turns_and_local_refs(
     assert request["context_digest"] == Digest.from_bytes(compiled).value
     assert request["candidate_base"]["subject_version"] == 9
     assert request["output_contract"]["schema_version"] == (
-        "armi.creator-cognitive-act-candidate.v2"
+        "armi.creator-cognitive-act-candidate.v3"
     )
 
 
@@ -876,7 +852,6 @@ def test_creator_dialogue_growth_contract_requires_same_turn_experience() -> Non
             },
             "subject_prompt_change",
         ),
-        ({"op": "codex.request", "target_ref": "ctx:1"}, "capability_request"),
     ],
 )
 def test_compact_dialogue_change_ops_translate_to_existing_domain_candidate(
@@ -899,47 +874,15 @@ def test_compact_dialogue_change_ops_translate_to_existing_domain_candidate(
     assert parsed.model_dump(mode="json", exclude_none=True)[owner]
 
 
-def test_creator_dialogue_capability_request_is_context_bound() -> None:
-    parsed = parse_candidate(
-        json.dumps(
-            {
-                "kind": "reply",
-                "content": "我想申请使用受限执行能力。",
-                "changes": [{"op": "codex.request", "target_ref": "ctx:6"}],
-            },
-            ensure_ascii=False,
-        ).encode(),
-        allowed_context_refs=frozenset({"ctx:6"}),
-    )
-    assert parsed.model_dump(mode="json")["capability_request"] == {
-        "capability_ref": "ctx:6"
-    }
-
-    with pytest.raises(ModelViolation, match="MODEL-RESPONSE-REFERENCE"):
-        parse_candidate(
-            json.dumps(
-                {
-                    "kind": "reply",
-                    "content": "这条申请引用了不存在的能力。",
-                    "changes": [{"op": "codex.request", "target_ref": "ctx:7"}],
-                },
-                ensure_ascii=False,
-            ).encode(),
-            allowed_context_refs=frozenset({"ctx:6"}),
-        )
-
+def test_creator_dialogue_rejects_removed_codex_request_operation() -> None:
     with pytest.raises(ModelViolation, match="MODEL-RESPONSE-SCHEMA"):
         parse_candidate(
             json.dumps(
                 {
                     "kind": "reply",
-                    "content": "聊天内容不能直接授予能力。",
-                    "capability_request": {
-                        "capability_ref": "ctx:6",
-                        "authorization_status": "granted",
-                    },
-                },
-                ensure_ascii=False,
+                    "content": "旧申请操作已移除。",
+                    "changes": [{"op": "codex.request", "target_ref": "ctx:6"}],
+                }
             ).encode(),
             allowed_context_refs=frozenset({"ctx:6"}),
         )

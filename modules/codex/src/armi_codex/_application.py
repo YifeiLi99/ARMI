@@ -7,7 +7,6 @@ import contextlib
 import hashlib
 import io
 import json
-import shutil
 import threading
 import zipfile
 from collections.abc import AsyncIterator, Callable, Mapping
@@ -24,7 +23,7 @@ from armi_data_rights.api import (
     DataRightsFencePort,
     DataRightsInteractionGate,
 )
-from armi_effect.api import EffectCodexLifecyclePort
+from armi_effect.api import EffectCodexLifecyclePort, EffectViolation
 from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
 from armi_expression.api import ExpressionIntentReadPort
 from armi_interaction.api import (
@@ -77,7 +76,11 @@ from ._postgresql import (
     CodexDispatchSnapshot,
     PostgreSQLCodexDelegationRepository,
 )
-from ._runner import CodexRunArtifactSet
+from ._runner import (
+    CodexRunArtifactSet,
+    remove_private_directory,
+    sanitize_platform_home,
+)
 from ._runner_contract import (
     CodexExecutionId,
     CodexModel,
@@ -112,6 +115,7 @@ class CodexTaskSourceGateway(
         "_notifier",
         "_repository",
         "_storage",
+        "_unavailable_reason",
     )
 
     def __init__(
@@ -132,6 +136,7 @@ class CodexTaskSourceGateway(
         effect: EffectCodexLifecyclePort,
         expression: ExpressionIntentReadPort,
         sources: CodexTaskSourceReadPort,
+        unavailable_reason: Callable[[], str | None],
         notifier: CreatorProjectionNotifier | None,
         diagnostic: Diagnostic,
     ) -> None:
@@ -156,6 +161,7 @@ class CodexTaskSourceGateway(
         )
         self._input_repository = input_repository
         self._catalog = catalog
+        self._unavailable_reason = unavailable_reason
 
     async def admit(self, draft: CodexTaskSourceDraft) -> CodexTaskSourceId:
         try:
@@ -219,6 +225,9 @@ class CodexTaskSourceGateway(
         existing = await self._existing(command, context, request_digest)
         if existing is not None:
             return existing
+        reason = self._unavailable_reason()
+        if reason is not None:
+            raise CodexDelegationViolation(reason)
         task_source_id = CodexTaskSourceId(uuid7())
         bundle, source_tree_digest = _creator_task_bundle(task_source_id)
         manifest = _creator_task_manifest(
@@ -377,7 +386,7 @@ class CodexTaskSourceGateway(
                     CreatorResourceKind("operation"),
                     str(acceptance.opportunity_id),
                     now,
-                    "creator-operation.v5",
+                    "creator-operation.v6",
                 )
             )
         except Exception:
@@ -386,6 +395,7 @@ class CodexTaskSourceGateway(
 
 class CodexEffectPipeline:
     __slots__ = (
+        "_cancellation",
         "_catalog",
         "_custody",
         "_data_rights",
@@ -400,6 +410,7 @@ class CodexEffectPipeline:
         "_runtime_admission",
         "_stop",
         "_storage",
+        "_unavailable_reason",
         "task_sources",
     )
 
@@ -420,6 +431,7 @@ class CodexEffectPipeline:
         effect: EffectCodexLifecyclePort,
         expression: ExpressionIntentReadPort,
         sources: CodexTaskSourceReadPort,
+        unavailable_reason: Callable[[], str | None],
         custody: ExecutionCustodyPort,
         data_rights: DataRightsEffectGate,
         interaction_data_rights: DataRightsInteractionGate,
@@ -446,12 +458,14 @@ class CodexEffectPipeline:
             creator_input,
         )
         self._catalog = catalog
+        self._unavailable_reason = unavailable_reason
         self._custody = custody
         self._data_rights = data_rights
         self._data_rights_fence = data_rights_fence
         self._runtime_admission = runtime_admission
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
+        self._cancellation = threading.Event()
         self._diagnostic = diagnostic or _ignore_diagnostic
         self.task_sources = CodexTaskSourceGateway(
             factory,
@@ -466,6 +480,7 @@ class CodexEffectPipeline:
             effect=effect,
             expression=expression,
             sources=sources,
+            unavailable_reason=unavailable_reason,
             custody=custody,
             data_rights=interaction_data_rights,
             data_rights_fence=data_rights_fence,
@@ -476,17 +491,24 @@ class CodexEffectPipeline:
     async def open(self) -> None:
         try:
             await self._storage.prepare()
-        except ArtifactViolation:
+            _cleanup_abandoned_runs(self._run_root)
+        except ArtifactViolation, CodexRunnerViolation, OSError:
             raise CodexDelegationViolation("CODEX-TASK-ARTIFACT") from None
 
     async def close(self) -> None:
-        self._stop.set()
+        self.stop()
 
     def stop(self) -> None:
         self._stop.set()
+        self._cancellation.set()
 
     async def dispatch_once(self) -> bool:
+        if self._stop.is_set():
+            return False
+        self._cancellation.clear()
         snapshot: CodexDispatchSnapshot | None = None
+        task: CodexTaskManifest | None = None
+        dispatched = False
         intake_cleanup_failed = False
         custody_context = None
         try:
@@ -496,6 +518,9 @@ class CodexEffectPipeline:
                 )
             if snapshot is None:
                 return False
+            reason = self._unavailable_reason()
+            if reason is not None:
+                raise CodexDelegationViolation(reason)
             runtime_fence = self._runtime_admission()
             requests = ordered_custody_requests(
                 ExecutionCustodyRequest(
@@ -527,6 +552,7 @@ class CodexEffectPipeline:
             bundle = await self._read(snapshot.source_bundle)
             manifest_bytes = await self._read(snapshot.task_manifest)
             task = _task_manifest(snapshot, manifest_bytes)
+            _install_intake(self._run_root, task, bundle)
             async with self._factory.unit_of_work() as uow:
                 if uow.runtime_fence != runtime_fence:
                     raise CodexDelegationViolation("CODEX-DELEGATION-STALE")
@@ -553,9 +579,11 @@ class CodexEffectPipeline:
                 )
             if not dispatching:
                 return True
-            _install_intake(self._run_root, task, bundle)
+            if self._stop.is_set():
+                return True
+            dispatched = True
             heartbeat = asyncio.create_task(self._heartbeat(snapshot))
-            cancellation = threading.Event()
+            cancellation = self._cancellation
             runner_task = asyncio.create_task(
                 asyncio.to_thread(
                     run_custodied_subprocess,
@@ -578,8 +606,7 @@ class CodexEffectPipeline:
                 result, artifact_set = await runner_task
             finally:
                 heartbeat.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await heartbeat
+                await asyncio.gather(heartbeat, return_exceptions=True)
                 if not runner_task.done():
                     cancellation.set()
                     try:
@@ -587,17 +614,22 @@ class CodexEffectPipeline:
                             asyncio.shield(runner_task),
                             timeout=10,
                         )
+                    except CodexRunnerViolation:
+                        pass  # The cancelled child has exited; continue local cleanup.
                     except TimeoutError:
                         runner_task.cancel()
                         self._diagnostic("codex.dispatch.cancel_timeout")
                 try:
-                    _cleanup_intake(self._run_root, task.execution_id)
+                    _cleanup_execution(self._run_root, task.execution_id)
                 except CodexDelegationViolation:
                     intake_cleanup_failed = True
+                task = None
             if intake_cleanup_failed:
                 cleanup_error = CodexRunnerViolation("CODEX-CLEANUP")
                 cleanup_error.record_cleanup_failure("CODEX-CLEANUP")
                 raise cleanup_error
+            if self._stop.is_set():
+                return True
             published = await self._publish_success(
                 snapshot.trace_id, result.status, artifact_set
             )
@@ -614,6 +646,8 @@ class CodexEffectPipeline:
             )
             return True
         except CodexRunnerViolation as error:
+            if self._stop.is_set():
+                return True
             if intake_cleanup_failed and error.cleanup_error_code is None:
                 error.record_cleanup_failure("CODEX-CLEANUP")
             if snapshot is None:
@@ -643,15 +677,36 @@ class CodexEffectPipeline:
                 cleanup_error_code=error.cleanup_error_code,
             )
             return True
+        except EffectViolation as error:
+            if error.code != "EFFECT-SETTLEMENT-STALE":
+                raise
+            self._diagnostic("codex.dispatch.result_superseded")
+            return True
         except (
             ArtifactViolation,
             CodexDelegationViolation,
             ExecutionCustodyViolation,
-            RuntimeTransactionFailure,
-        ):
-            self._diagnostic("codex.dispatch.custody_failed")
+        ) as error:
+            if snapshot is not None and not self._stop.is_set():
+                try:
+                    async with self._factory.unit_of_work() as uow:
+                        await self._repository.fail_dispatch(
+                            uow, snapshot, reason_code=error.code, started=dispatched
+                        )
+                except RuntimeTransactionFailure, EffectViolation:
+                    self._diagnostic("codex.dispatch.settlement_deferred")
+            else:
+                self._diagnostic("codex.dispatch.custody_failed")
+            return True
+        except RuntimeTransactionFailure:
+            self._diagnostic("codex.dispatch.database_unavailable")
             return True
         finally:
+            if task is not None:
+                try:
+                    _cleanup_execution(self._run_root, task.execution_id)
+                except CodexDelegationViolation:
+                    self._diagnostic("codex.dispatch.cleanup_failed")
             if custody_context is not None:
                 await custody_context.__aexit__(None, None, None)
 
@@ -823,26 +878,31 @@ class CodexEffectPipeline:
         execution_error_code: str | None,
         cleanup_error_code: str | None,
     ) -> None:
-        async with self._factory.unit_of_work() as uow:
-            refs: dict[str, ArtifactRef] = {}
-            for name, artifact in published.items():
-                registration = await self._catalog.register(
-                    uow, ArtifactId(uuid7()), artifact
+        try:
+            async with self._factory.unit_of_work() as uow:
+                refs: dict[str, ArtifactRef] = {}
+                for name, artifact in published.items():
+                    registration = await self._catalog.register(
+                        uow, ArtifactId(uuid7()), artifact
+                    )
+                    refs[name] = registration.ref
+                await self._repository.settle(
+                    uow,
+                    snapshot=snapshot,
+                    status=status,
+                    cleanup_status=cleanup_status,
+                    artifacts=refs,
+                    source_tree_digest=snapshot.source_tree_digest,
+                    final_tree_digest=final_tree_digest,
+                    patch_digest=patch_digest,
+                    changed_path_count=changed_path_count,
+                    execution_error_code=execution_error_code,
+                    cleanup_error_code=cleanup_error_code,
                 )
-                refs[name] = registration.ref
-            await self._repository.settle(
-                uow,
-                snapshot=snapshot,
-                status=status,
-                cleanup_status=cleanup_status,
-                artifacts=refs,
-                source_tree_digest=snapshot.source_tree_digest,
-                final_tree_digest=final_tree_digest,
-                patch_digest=patch_digest,
-                changed_path_count=changed_path_count,
-                execution_error_code=execution_error_code,
-                cleanup_error_code=cleanup_error_code,
-            )
+        except EffectViolation as error:
+            if error.code != "EFFECT-SETTLEMENT-STALE":
+                raise
+            self._diagnostic("codex.dispatch.result_superseded")
 
 
 def _creator_task_bundle(task_source_id: CodexTaskSourceId) -> tuple[bytes, Digest]:
@@ -1004,16 +1064,52 @@ def _install_intake(run_root: Path, task: CodexTaskManifest, bundle: bytes) -> N
         raise CodexDelegationViolation("CODEX-TASK-INTAKE") from None
 
 
-def _cleanup_intake(run_root: Path, execution_id: CodexExecutionId) -> None:
-    intake_root = (run_root / "intake").resolve()
-    target = (intake_root / execution_id.value.hex).resolve()
-    if target.parent != intake_root:
+def _cleanup_execution(run_root: Path, execution_id: CodexExecutionId) -> None:
+    base = run_root.resolve()
+    for segment in ("intake", "private", "process-temp"):
+        root = (base / segment).resolve()
+        target = (root / execution_id.value.hex).resolve()
+        if root.parent != base or target.parent != root:
+            raise CodexDelegationViolation("CODEX-TASK-CLEANUP")
+        try:
+            remove_private_directory(target)
+        except CodexRunnerViolation:
+            raise CodexDelegationViolation("CODEX-TASK-CLEANUP") from None
+    _cleanup_platform_home(base)
+
+
+def _cleanup_platform_home(base: Path) -> None:
+    platform = (base / "platform-home").resolve()
+    if platform.parent != base:
         raise CodexDelegationViolation("CODEX-TASK-CLEANUP")
-    try:
-        if target.exists():
-            shutil.rmtree(target)
-    except OSError:
-        raise CodexDelegationViolation("CODEX-TASK-CLEANUP") from None
+    if platform.exists():
+        try:
+            sanitize_platform_home(platform)
+        except CodexRunnerViolation:
+            raise CodexDelegationViolation("CODEX-TASK-CLEANUP") from None
+
+
+def _cleanup_abandoned_runs(run_root: Path) -> None:
+    base = run_root.resolve()
+    execution_ids: set[UUID] = set()
+    for segment in ("intake", "private", "process-temp"):
+        root = (base / segment).resolve()
+        if root.parent != base:
+            raise CodexDelegationViolation("CODEX-TASK-CLEANUP")
+        if not root.exists():
+            continue
+        for child in root.iterdir():
+            try:
+                execution = UUID(hex=child.name)
+            except ValueError:
+                raise CodexDelegationViolation("CODEX-TASK-CLEANUP") from None
+            if execution.version != 7 or execution.hex != child.name:
+                raise CodexDelegationViolation("CODEX-TASK-CLEANUP")
+            execution_ids.add(execution)
+    for execution in execution_ids:
+        _cleanup_execution(base, CodexExecutionId(execution))
+    if not execution_ids:
+        _cleanup_platform_home(base)
 
 
 async def _one_chunk(value: bytes) -> AsyncIterator[bytes]:

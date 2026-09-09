@@ -8,10 +8,7 @@ from armi_runtime.application.creator_calls import CreatorUseCase
 from armi_runtime.application.creator_governance import create_governance_use_cases
 
 from .creator_http import (
-    AppliedOutcomeResponse,
     BrowserSessionStore,
-    CapabilityPolicyPort,
-    CapabilityRequestPageResponse,
     CreatorEventBroker,
     CreatorExportPort,
     CreatorExportResponse,
@@ -37,7 +34,6 @@ def register_governance_routes(
     canonical_origin: str,
     emit: SecurityEvent,
     browser_sessions: BrowserSessionStore | None,
-    capability_policy: CapabilityPolicyPort | None,
     creator_events: CreatorEventBroker | None,
     creator_export: CreatorExportPort | None,
     data_rights: DataRightsOrderPort | None,
@@ -45,7 +41,6 @@ def register_governance_routes(
 ) -> dict[str, CreatorUseCase]:
     use_cases = create_governance_use_cases(
         emit=emit,
-        capability_policy=capability_policy,
         creator_events=creator_events,
         creator_export=creator_export,
         data_rights=data_rights,
@@ -196,57 +191,6 @@ def register_governance_routes(
     del get_creator_data_rights_order
     del retry_creator_data_rights_order
 
-    @app.get(
-        "/v1/capability-requests",
-        operation_id="listCapabilityRequests",
-        response_model=CapabilityRequestPageResponse,
-        responses={
-            400: {"model": RejectedOutcomeResponse},
-            401: {"model": RejectedOutcomeResponse},
-            403: {"model": RejectedOutcomeResponse},
-            409: {"model": RejectedOutcomeResponse},
-            503: {"model": UnavailableOutcomeResponse},
-        },
-        dependencies=[Security(bearer)],
-    )
-    async def list_capability_requests(request: Request) -> Response:
-        return await invoke_creator_http(
-            request,
-            "capability_list",
-            use_cases["capability_list"],
-            browser_sessions=browser_sessions,
-            canonical_origin=canonical_origin,
-            maximum_bytes=request_body_max_bytes,
-        )
-
-    @app.post(
-        "/v1/capability-requests/{capability_request_id}/decision",
-        operation_id="decideCapabilityRequest",
-        response_model=AppliedOutcomeResponse,
-        responses={
-            400: {"model": RejectedOutcomeResponse},
-            401: {"model": RejectedOutcomeResponse},
-            403: {"model": RejectedOutcomeResponse},
-            404: {"model": RejectedOutcomeResponse},
-            409: {"model": RejectedOutcomeResponse},
-            413: {"model": RejectedOutcomeResponse},
-            503: {"model": UnavailableOutcomeResponse},
-        },
-        dependencies=[Security(bearer)],
-    )
-    async def decide_capability_request(
-        capability_request_id: str, request: Request
-    ) -> Response:
-        return await invoke_creator_http(
-            request,
-            "capability_decide",
-            use_cases["capability_decide"],
-            browser_sessions=browser_sessions,
-            canonical_origin=canonical_origin,
-            maximum_bytes=request_body_max_bytes,
-        )
-
-    del list_capability_requests, decide_capability_request
     return use_cases
 
 

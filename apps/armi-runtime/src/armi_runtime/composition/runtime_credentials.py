@@ -1,5 +1,8 @@
 """The actual Runtime credential grants and their effect-free diagnostics."""
 
+from armi_capability.api import CapabilityAvailability
+from armi_codex.api import CodexRunnerViolation
+from armi_codex.bootstrap import check_local_runner
 from armi_kernel.application import CredentialPurpose
 from armi_local_control.configuration import ConfigurationViolation
 
@@ -30,6 +33,26 @@ def runtime_credential_scope() -> dict[str, str]:
         QQ_NAPCAT_ACCESS_TOKEN_PURPOSE: QQ_NAPCAT_ACCESS_TOKEN_LOCATOR,
         QQ_NAPCAT_EVENT_SECRET_PURPOSE: QQ_NAPCAT_EVENT_SECRET_LOCATOR,
     }
+
+
+def codex_local_availability(prepared: PreparedEnvironment) -> CapabilityAvailability:
+    if not prepared.effective.config.codex.enabled:
+        return CapabilityAvailability(False, False, "CODEX-DISABLED")
+    locator = prepared.effective.config.secret_locators.get("codex.auth_json")
+    if locator is None:
+        return CapabilityAvailability(True, False, "CODEX-CREDENTIAL-MISSING")
+    try:
+        handle = prepared.credential_port.resolve(
+            locator, CredentialPurpose("codex.runner.auth")
+        )
+        handle.close()
+    except ConfigurationViolation:
+        return CapabilityAvailability(True, False, "CODEX-CREDENTIAL-UNAVAILABLE")
+    try:
+        check_local_runner()
+    except CodexRunnerViolation:
+        return CapabilityAvailability(True, False, "CODEX-UNAVAILABLE")
+    return CapabilityAvailability(True, True, None)
 
 
 def inspect_runtime_credentials(prepared: PreparedEnvironment) -> dict[str, object]:

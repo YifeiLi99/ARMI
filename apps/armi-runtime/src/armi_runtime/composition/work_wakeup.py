@@ -12,7 +12,6 @@ CONTEXT_PREPARE = "cognition.context.prepare"
 MODEL_INVOKE = "cognition.model.invoke"
 CANDIDATE_VALIDATE = "cognition.candidate.validate"
 SUBJECT_COMMIT = "cognition.subject.commit"
-EFFECT_REGISTER = "effect.register"
 EXACT_LIFE_QUERY = "life.query.execute"
 EXTERNAL_CONTENT = "external.content"
 
@@ -83,7 +82,6 @@ class WorkWakeupBus:
 __all__ = (
     "CANDIDATE_VALIDATE",
     "CONTEXT_PREPARE",
-    "EFFECT_REGISTER",
     "EXACT_LIFE_QUERY",
     "EXTERNAL_CONTENT",
     "MODEL_INVOKE",

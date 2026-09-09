@@ -598,7 +598,6 @@ class CreatorProjectionEventResponse(_StrictWireModel):
         "material.invalidated",
         "relationship.invalidated",
         "scene.timeline.invalidated",
-        "capability.request.invalidated",
         "operation.invalidated",
         "other_human.record.invalidated",
         "effect.invalidated",
@@ -612,7 +611,6 @@ class CreatorProjectionEventResponse(_StrictWireModel):
         "material",
         "relationship",
         "scene_timeline",
-        "capability_request",
         "operation",
         "other_human_record",
         "effect",
@@ -627,10 +625,9 @@ class CreatorProjectionEventResponse(_StrictWireModel):
         "life-record-query.v2",
         "creator-relationship.v3",
         "scene-timeline.v6",
-        "capability-request.v6",
-        "creator-operation.v5",
+        "creator-operation.v6",
         "other-human-record.v1",
-        "creator-effect.v5",
+        "creator-effect.v6",
         "subject-summary.v1",
         "data-rights-order-collection.v3",
     ]
@@ -656,7 +653,14 @@ class RuntimeComponentHealthResponse(_StrictWireModel):
     reason_codes: Annotated[list[ReasonCode], Field(max_length=16)]
 
 
+class CodexAvailabilityResponse(_StrictWireModel):
+    enabled: bool
+    available: bool
+    reason_code: str | None
+
+
 class RuntimeStatusResponse(_StrictWireModel):
+    codex: CodexAvailabilityResponse
     contract_version: Literal["1.0"]
     environment_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     runtime_state: RuntimeState
@@ -850,9 +854,7 @@ class WaitingOutcomeResponse(_CommonOutcomeResponse):
         "model_response",
         "candidate_validation",
         "subject_commit",
-        "effect_registration",
         "effect_dispatch",
-        "capability_decision",
         "codex_dispatch",
         "codex_verification",
         "codex_result_acceptance",
@@ -868,9 +870,7 @@ class WaitingOutcomeResponse(_CommonOutcomeResponse):
         "subject_commit_available",
         "opportunity_available",
         "creator_evidence_accepted",
-        "effect_registered",
         "effect_settled",
-        "codex_grant_resolved",
         "codex_dispatched",
         "codex_verified",
         "codex_result_accepted",
@@ -916,6 +916,8 @@ class UnavailableOutcomeResponse(_CommonOutcomeResponse):
 
 
 class CreatorCodexExecutionDetails(_StrictWireModel):
+    result_processing_phase: str | None
+    result_processing_reason: str | None
     task_source_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     verification_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
     execution_status: Annotated[str, Field(min_length=1, max_length=64)] | None = None
@@ -927,7 +929,7 @@ class CreatorCodexExecutionDetails(_StrictWireModel):
 
 
 class CreatorOperationDetails(_StrictWireModel):
-    projection_version: Literal["creator-operation.v5"]
+    projection_version: Literal["creator-operation.v6"]
     operation_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     operation_kind: Literal[
         "cognition",
@@ -939,13 +941,7 @@ class CreatorOperationDetails(_StrictWireModel):
     ]
     intent_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
     dialogue_decision_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
-    policy_decision_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
-    capability_request_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
-    permission_grant_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
     effect_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
-    effect_registration_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = (
-        None
-    )
     work_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
     effect_attempt_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
     effect_attempt_no: Annotated[int, Field(ge=1, le=2)] | None = None
@@ -1075,13 +1071,10 @@ class SubjectSummaryResponse(_StrictWireModel):
 
 class EffectResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["creator-effect.v5"]
+    projection_version: Literal["creator-effect.v6"]
     effect_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     action_intent_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     action_intent_revision_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
-    policy_decision_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
-    capability_request_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
-    permission_grant_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
     capability_kind: Literal["creator.scene.reply", "codex.delegated-work"]
     effect_kind: Literal["creator_response", "codex_delegation"]
     status: Literal[
@@ -1133,120 +1126,13 @@ class EffectResponse(_StrictWireModel):
 
     @model_validator(mode="after")
     def validate_effect_family(self) -> Self:
-        refs = (
-            self.policy_decision_ref,
-            self.capability_request_ref,
-            self.permission_grant_ref,
+        expected = (
+            "creator.scene.reply"
+            if self.effect_kind == "creator_response"
+            else "codex.delegated-work"
         )
-        if self.effect_kind == "creator_response":
-            if self.capability_kind != "creator.scene.reply" or any(
-                ref is not None for ref in refs
-            ):
-                raise ValueError(
-                    "ordinary replies do not carry grants or policy decisions"
-                )
-        elif self.capability_kind != "codex.delegated-work" or any(
-            ref is None for ref in refs
-        ):
-            raise ValueError(
-                "Codex effects require their capability authority references"
-            )
-        return self
-
-
-class _EffectiveGrantResponseBase(_StrictWireModel):
-    grant_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
-    status: Literal["active", "revoked", "expired", "consumed"]
-    valid_from: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
-    valid_until: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
-    ended_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None = None
-
-
-class CodexEffectiveGrantResponse(_EffectiveGrantResponseBase):
-    scope_kind: Literal["codex_delegated_work"]
-    max_uses: Literal[1]
-    consumed_uses: Annotated[int, Field(ge=0, le=1)]
-    remaining_uses: Annotated[int, Field(ge=0, le=1)]
-    workspace_scope: Literal["isolated_ephemeral"]
-    artifact_scope: Literal["explicit_only"]
-    network_access: Literal[False]
-
-
-type EffectiveGrantResponse = CodexEffectiveGrantResponse
-
-
-class CapabilityRequestItemResponse(_StrictWireModel):
-    capability_request_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
-    capability_kind: Literal["codex.delegated-work"]
-    operation: Literal["execute"]
-    subject_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
-    scene_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
-    purpose: Literal["delegate_codex_work"]
-    audience_scope: Literal["creator"] | None = None
-    data_scope: Literal["creator_visible_response"] | None = None
-    workspace_scope: Literal["isolated_ephemeral"] | None = None
-    artifact_scope: Literal["explicit_only"] | None = None
-    network_access: Literal[False] | None = None
-    valid_for_seconds: Annotated[int, Field(ge=60, le=604800)]
-    max_uses: Annotated[int, Field(ge=1, le=16)]
-    max_payload_bytes: Annotated[int, Field(ge=1, le=65536)] | None = None
-    status: Literal[
-        "pending", "granted", "limited", "denied", "revoked", "expired", "consumed"
-    ]
-    capability_availability: Literal["available", "unavailable"]
-    request_version: Annotated[int, Field(ge=1)]
-    created_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
-    status_changed_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
-    resolution_reason_code: (
-        Annotated[str, Field(pattern=r"[A-Z][A-Z0-9-]{2,127}")] | None
-    ) = None
-    effective_grant: EffectiveGrantResponse | None = None
-
-
-class CapabilityRequestPageResponse(_StrictWireModel):
-    contract_version: Literal["1.0"]
-    projection_version: Literal["capability-request.v6"]
-    items: Annotated[list[CapabilityRequestItemResponse], Field(max_length=100)]
-    next_cursor: (
-        Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
-    ) = None
-
-
-class CapabilityRequestDecisionRequest(_StrictWireModel):
-    contract_version: Literal["1.0"]
-    decision_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
-    expected_request_version: Annotated[int, Field(ge=1)]
-    decision: Literal["grant", "limit", "deny", "revoke"]
-    valid_for_seconds: Annotated[int, Field(ge=60, le=604800)] | None = None
-    max_uses: Annotated[int, Field(ge=1, le=16)] | None = None
-    max_payload_bytes: Annotated[int, Field(ge=1, le=65536)] | None = None
-    reason_code: (
-        Annotated[
-            str,
-            Field(pattern=r"(?:CON|CAPABILITY|POLICY|CONFLICT|SCOPE)-[A-Z0-9-]{1,96}"),
-        ]
-        | None
-    ) = None
-
-    @field_validator("decision_id")
-    @classmethod
-    def validate_decision_id(cls, value: str) -> str:
-        parsed = UUID(value)
-        if parsed.version != 7 or str(parsed) != value:
-            raise ValueError("CON-CAPABILITY-ID: decision identity must be UUIDv7")
-        return value
-
-    @model_validator(mode="after")
-    def validate_decision_scope(self) -> CapabilityRequestDecisionRequest:
-        limits = (
-            self.valid_for_seconds,
-            self.max_uses,
-            self.max_payload_bytes,
-        )
-        if self.decision == "limit" and all(value is None for value in limits):
-            raise ValueError("CON-CAPABILITY-LIMIT: limit must narrow scope")
-        if self.decision != "limit" and any(value is not None for value in limits):
-            raise ValueError("CON-CAPABILITY-LIMIT: only limit accepts scope fields")
+        if self.capability_kind != expected:
+            raise ValueError("effect capability does not match its kind")
         return self
 
 
@@ -1468,9 +1354,7 @@ __all__ = (
     "AppliedOutcomeResponse",
     "BrowserSessionCurrentResponse",
     "BrowserSessionResponse",
-    "CapabilityRequestDecisionRequest",
-    "CapabilityRequestItemResponse",
-    "CapabilityRequestPageResponse",
+    "CodexAvailabilityResponse",
     "CompletedOutcomeResponse",
     "CreatorActivityItemResponse",
     "CreatorActivityPageResponse",

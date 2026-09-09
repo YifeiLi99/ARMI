@@ -1,4 +1,4 @@
-schema_version: armi.runtime-config.v3
+schema_version: armi.runtime-config.v4
 
 environment: {}
 
@@ -17,6 +17,9 @@ runtime:
 model:
   concurrency: 2
   semantic_recall_enabled: false
+
+codex:
+  enabled: false
 
 web:
   enabled: false

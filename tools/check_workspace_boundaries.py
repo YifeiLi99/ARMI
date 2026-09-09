@@ -2471,8 +2471,7 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
                 and ".runtime_resources.schema.alembic." not in module
                 and re.search(
                     r"\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+armi\."
-                    r"(?:capability_requests|capability_request_decisions|"
-                    r"capability_request_basis_links|permission_grants|capabilities)\b",
+                    r"capabilities\b",
                     source,
                     re.IGNORECASE,
                 )
@@ -2482,7 +2481,7 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
                         "ARC-CAPABILITY-SQL",
                         relative,
                         1,
-                        "capability and permission writes are owned by armi-capability",
+                        "capability catalog writes are owned by armi-capability",
                     )
                 )
             if (
@@ -2596,8 +2595,8 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         "armi_interaction",
         "armi_attention",
         "creator-activity.v2",
-        "creator-effect.v5",
-        "creator-operation.v5",
+        "creator-effect.v6",
+        "creator-operation.v6",
     )
     for paths in kernel_foundation_paths:
         for path in paths:
@@ -2695,7 +2694,7 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
             "candidate_pipeline = compose_candidate_validation_pipeline(",
         ),
         "effect": (
-            "effect_pipeline = compose_effect_registration_pipeline(",
+            "effect_pipeline = compose_effect_pipeline(",
             "effect_ledger=effect_pipeline",
         ),
         "web observation": (
@@ -2738,7 +2737,7 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
                 "default Runtime composition must bind the expression module",
             )
         )
-    if "return bootstrap_capability(" not in database_source:
+    if "capability_read = bootstrap_capability(" not in runtime_source:
         violations.append(
             Violation(
                 "ARC-ACTIVE-MODULE",
@@ -2880,6 +2879,9 @@ def check_repository(root: Path) -> list[Violation]:
             )
         ]
     for table in TABLE_OWNERSHIP:
+        # The packaged capability catalog contains no subject or personal records.
+        if table == "capabilities":
+            continue
         mappings = export_tables.get(table, [])
         if len(mappings) != 1:
             violations.append(

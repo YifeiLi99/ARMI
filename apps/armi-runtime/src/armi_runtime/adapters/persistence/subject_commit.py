@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, cast
@@ -18,14 +17,6 @@ from armi_activity.api import (
 )
 from armi_artifact_store.api import ArtifactCatalogPort
 from armi_attention.api import LifeViolation, OpportunityTransitionPort
-from armi_capability.api import (
-    CapabilityAcceptedBasis,
-    CapabilityCommitContext,
-    CapabilityCommitPort,
-    CapabilityKind,
-    CapabilityReadPort,
-    CapabilityViolation,
-)
 from armi_codex.api import (
     CodexCommitContext,
     CodexCommitPort,
@@ -141,24 +132,6 @@ from .unit_of_work import PostgreSQLUnitOfWork
 _WORK_KIND = WorkType.COGNITION_SUBJECT_COMMIT
 
 
-def _bound_action_request_ids(
-    change_set: SubjectChangeSet,
-    request_ids: Mapping[str, UUID],
-) -> dict[str, UUID]:
-    result: dict[str, UUID] = {}
-    for delegation in change_set.codex_delegations:
-        matches = tuple(
-            request
-            for request in change_set.capability_requests
-            if request.atomic_group_ref == delegation.atomic_group_ref
-            and request.capability is CapabilityKind.CODEX_DELEGATED_WORK
-        )
-        if len(matches) != 1 or matches[0].proposal_ref not in request_ids:
-            raise SubjectCommitViolation("SUBJECT-CAPABILITY-REQUEST")
-        result[delegation.proposal_ref] = request_ids[matches[0].proposal_ref]
-    return result
-
-
 @dataclass(frozen=True, slots=True)
 class SubjectCommitSnapshot:
     validation_id: UUID
@@ -255,24 +228,6 @@ def _expression_commit_context(
     )
 
 
-def _capability_commit_context(
-    snapshot: SubjectCommitSnapshot,
-) -> CapabilityCommitContext:
-    return CapabilityCommitContext(
-        snapshot.validation_id,
-        snapshot.episode_id,
-        snapshot.subject_id,
-        snapshot.scene_id,
-        snapshot.creator_party_id,
-        snapshot.trace_id,
-        tuple(
-            CapabilityAcceptedBasis(item.proposal_ref, item.basis_context_ids)
-            for item in snapshot.accepted_candidates
-            if item.owner_identity == "capability"
-        ),
-    )
-
-
 def _web_research_commit_context(
     snapshot: SubjectCommitSnapshot,
 ) -> WebResearchCommitContext:
@@ -319,8 +274,6 @@ class PostgreSQLSubjectCommitRepository:
     __slots__ = (
         "_activity_commit",
         "_artifact_catalog",
-        "_capability_commit",
-        "_capability_read",
         "_codex_commit",
         "_cognition_commit",
         "_context_projections",
@@ -345,8 +298,6 @@ class PostgreSQLSubjectCommitRepository:
     def __init__(
         self,
         activity_commit: ActivityCommitPort,
-        capability_commit: CapabilityCommitPort,
-        capability_read: CapabilityReadPort,
         codex_commit: CodexCommitPort,
         cognition_commit: CognitionSubjectCommitPort,
         experience_commit: ExperienceCommitPort,
@@ -369,8 +320,6 @@ class PostgreSQLSubjectCommitRepository:
         visual_observation_commit: VisualObservationCommitPort,
     ) -> None:
         self._activity_commit = activity_commit
-        self._capability_commit = capability_commit
-        self._capability_read = capability_read
         self._codex_commit = codex_commit
         self._cognition_commit = cognition_commit
         self._experience_commit = experience_commit
@@ -464,16 +413,6 @@ class PostgreSQLSubjectCommitRepository:
                 subject_id=SubjectId(cognition.subject_id),
                 request=AuditReference("durable_work", lease.work_id.value),
             )
-        )
-
-    async def capability_request_ids(
-        self,
-        unit_of_work: PostgreSQLUnitOfWork,
-        subject_commit_id: SubjectCommitId,
-    ) -> tuple[UUID, ...]:
-        return await self._capability_read.request_ids_for_commit(
-            unit_of_work.transaction,
-            commit_id=subject_commit_id.value,
         )
 
     async def affected_activity_ids(
@@ -791,7 +730,6 @@ class PostgreSQLSubjectCommitRepository:
             )
         if (
             not change_set.experiences
-            and not change_set.capability_requests
             and not change_set.action_choices
             and not change_set.web_research_requests
             and not change_set.visual_observation_requests
@@ -871,6 +809,10 @@ class PostgreSQLSubjectCommitRepository:
                         ExperienceSourcePerspective.CREATOR_CLAIM,
                     ),
                     "consider_creator_voice_input": (
+                        ExperienceKind.CREATOR_INPUT,
+                        ExperienceSourcePerspective.CREATOR_CLAIM,
+                    ),
+                    "consider_codex_task": (
                         ExperienceKind.CREATOR_INPUT,
                         ExperienceSourcePerspective.CREATOR_CLAIM,
                     ),
@@ -1072,18 +1014,6 @@ class PostgreSQLSubjectCommitRepository:
             )
 
         try:
-            capability_request_ids = await self._capability_commit.commit_requests(
-                unit_of_work,
-                context=_capability_commit_context(snapshot),
-                commit_id=commit_id.value,
-                requests=change_set.capability_requests,
-            )
-        except CapabilityViolation as error:
-            raise SubjectCommitViolation(f"SUBJECT-{error.code}") from None
-        bound_request_ids = _bound_action_request_ids(
-            change_set, capability_request_ids
-        )
-        try:
             await self._expression_commit.commit(
                 unit_of_work,
                 context=_expression_commit_context(snapshot),
@@ -1125,7 +1055,6 @@ class PostgreSQLSubjectCommitRepository:
                 context=_codex_commit_context(snapshot),
                 commit_id=commit_id.value,
                 delegations=change_set.codex_delegations,
-                capability_request_ids=bound_request_ids,
             )
         except CodexDelegationViolation as error:
             raise SubjectCommitViolation(f"SUBJECT-{error.code}") from None
@@ -1659,7 +1588,6 @@ def _assert_accepted_change_set(
     actual: dict[tuple[str, str], object] = {}
     groups = (
         ("experience", change_set.experiences),
-        ("capability", change_set.capability_requests),
         ("action", change_set.action_choices),
         ("web_research", change_set.web_research_requests),
         ("visual_observation", change_set.visual_observation_requests),

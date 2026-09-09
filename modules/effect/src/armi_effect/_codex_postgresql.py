@@ -4,23 +4,18 @@ from __future__ import annotations
 
 from uuid import UUID, uuid7
 
-from armi_capability.api import CapabilityDispatchAuthorizationPort
 from armi_data_rights.api import DataRightsFence
 from armi_kernel.application import RuntimeFence
 from armi_kernel.contracts import Digest, Instant, TraceId
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
 
-from ._grant import PostgreSQLEffectDispatchBoundary
 from .api import EffectCodexClaim, EffectViolation
 
 _BINDING = "armi.codex-runner.openai-python-sdk-v1"
 
 
 class PostgreSQLEffectCodexLifecycle:
-    __slots__ = ("_boundary",)
-
-    def __init__(self, authorization: CapabilityDispatchAuthorizationPort) -> None:
-        self._boundary = PostgreSQLEffectDispatchBoundary(authorization)
+    __slots__ = ()
 
     async def claim_codex(
         self,
@@ -41,7 +36,7 @@ class PostgreSQLEffectCodexLifecycle:
                 JOIN armi.effects AS effect ON effect.effect_id=outbox.effect_id
                 WHERE outbox.status='ready'
                   AND outbox.available_at<=statement_timestamp()
-                  AND statement_timestamp()<outbox.dispatch_deadline
+                  AND (outbox.dispatch_deadline IS NULL OR statement_timestamp()<outbox.dispatch_deadline)
                   AND outbox.attempt_count=0 AND outbox.max_attempts=1
                   AND effect.status='registered'
                   AND effect.effect_kind='codex_delegation'
@@ -91,7 +86,7 @@ class PostgreSQLEffectCodexLifecycle:
             row[5],
             row[6],
             TraceId(str(row[7])),
-            Instant(row[9]),
+            None if row[9] is None else Instant(row[9]),
         )
 
     async def mark_codex_dispatching(
@@ -102,31 +97,23 @@ class PostgreSQLEffectCodexLifecycle:
         runtime_fence: RuntimeFence,
         data_rights_fence: DataRightsFence,
     ) -> bool:
-        boundary = await self._boundary.coordinate(
-            unit_of_work,
-            effect_id=claim.effect_id,
-            attempt_id=claim.attempt_id,
-            outbox_id=claim.outbox_id,
-            claim_owner=claim.claim_owner,
-            claim_token=claim.claim_token,
-            expected_operation_status="codex_dispatching",
-            cancelled_operation_status="codex_cancelled",
-        )
-        if boundary is None:
-            raise EffectViolation("EFFECT-CLAIM-STALE")
-        if not boundary.allowed:
-            return False
         row = await (
             await unit_of_work.transaction.execute(
                 """
-                UPDATE armi.effect_attempts SET dispatch_state='dispatching',
+                UPDATE armi.effect_attempts AS attempt SET dispatch_state='dispatching',
                     dispatched_at=statement_timestamp(),
                     dispatch_runtime_instance_id=%s,
                     dispatch_runtime_fence_token=%s,
                     data_rights_contact_generation=%s,
                     data_rights_use_generation=%s
-                WHERE effect_attempt_id=%s AND dispatch_state='prepared'
-                RETURNING effect_attempt_id
+                FROM armi.effect_outbox_items AS outbox, armi.effects AS effect
+                WHERE attempt.effect_attempt_id=%s AND attempt.dispatch_state='prepared'
+                  AND effect.current_attempt_id=attempt.effect_attempt_id
+                  AND effect.effect_id=outbox.effect_id AND effect.status='dispatching'
+                  AND outbox.effect_outbox_item_id=%s AND outbox.status='claimed'
+                  AND outbox.claim_owner=%s AND outbox.claim_token=%s
+                  AND outbox.claim_expires_at>statement_timestamp()
+                RETURNING attempt.effect_attempt_id
                 """,
                 (
                     runtime_fence.runtime_instance_id.value,
@@ -134,6 +121,9 @@ class PostgreSQLEffectCodexLifecycle:
                     data_rights_fence.contact_generation,
                     data_rights_fence.use_generation,
                     claim.attempt_id,
+                    claim.outbox_id,
+                    claim.claim_owner,
+                    claim.claim_token,
                 ),
             )
         ).fetchone()
@@ -167,6 +157,33 @@ class PostgreSQLEffectCodexLifecycle:
         observation_digest: Digest,
         error_code: str | None,
     ) -> None:
+        current = await (
+            await transaction.execute(
+                """SELECT attempt.dispatch_state
+               FROM armi.effects AS effect
+               JOIN armi.effect_outbox_items AS outbox USING (effect_id)
+               JOIN armi.effect_attempts AS attempt
+                 ON attempt.effect_attempt_id=effect.current_attempt_id
+               WHERE effect.effect_id=%s AND effect.status='dispatching'
+                 AND attempt.effect_attempt_id=%s
+                 AND attempt.dispatch_state IN ('prepared','dispatching')
+                 AND outbox.effect_outbox_item_id=%s AND outbox.status='claimed'
+                 AND outbox.claim_owner=%s AND outbox.claim_token=%s
+                 AND outbox.claim_expires_at>statement_timestamp()
+               FOR UPDATE OF effect,outbox,attempt""",
+                (
+                    claim.effect_id,
+                    claim.attempt_id,
+                    claim.outbox_id,
+                    claim.claim_owner,
+                    claim.claim_token,
+                ),
+            )
+        ).fetchone()
+        if current is None or (
+            current[0] == "prepared" and status in {"verified", "unknown"}
+        ):
+            raise EffectViolation("EFFECT-SETTLEMENT-STALE")
         mapping = {
             "verified": (
                 "succeeded",
@@ -243,7 +260,7 @@ class PostgreSQLEffectCodexLifecycle:
             """
             UPDATE armi.effect_attempts SET dispatch_state='settled',
                 result_status=%s, error_code=%s, settled_at=statement_timestamp()
-            WHERE effect_attempt_id=%s AND dispatch_state='dispatching'
+            WHERE effect_attempt_id=%s AND dispatch_state IN ('prepared','dispatching')
             """,
             (attempt_result, error_code, claim.attempt_id),
         )

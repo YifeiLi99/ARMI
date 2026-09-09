@@ -14,13 +14,6 @@ from armi_activity.api import (
     CreatorActivityTimeline,
     CreatorActivityTimelineItem,
 )
-from armi_capability.api import (
-    CapabilityRequestPage,
-    CapabilityRequestSnapshot,
-    CapabilityRequestStatus,
-    CreatorGrantCommand,
-    CreatorGrantResult,
-)
 from armi_codex.api import CodexModel, CreatorCodexTaskCommand
 from armi_data_rights.api import (
     CreatorExportCommand,
@@ -124,6 +117,7 @@ from armi_relationship.api import (
     RelationshipViolation as CreatorRelationshipViolation,
 )
 from armi_runtime.application.creator_contract import (
+    CodexAvailabilityResponse,
     QQChannelHealthResponse,
     Readiness,
     RuntimeComponentHealthResponse,
@@ -664,70 +658,6 @@ class _CreatorCodexTask:
         return self.acceptance
 
 
-class _CapabilityPolicy:
-    def __init__(self) -> None:
-        self.request_id = uuid7()
-        self.commands: list[CreatorGrantCommand] = []
-
-    async def open(self) -> None:
-        return None
-
-    async def close(self) -> None:
-        return None
-
-    def stop(self) -> None:
-        return None
-
-    async def run_expiry_reconciler(self) -> None:
-        return None
-
-    async def expire_once(self, *, limit: int = 100) -> int:
-        del limit
-        return 0
-
-    async def list_requests(
-        self,
-        *,
-        creator_party_id: UUID,
-        limit: int,
-        cursor: str | None,
-    ) -> CapabilityRequestPage:
-        del cursor
-        item = CapabilityRequestSnapshot(
-            self.request_id,
-            "codex.delegated-work",
-            "execute",
-            UUID(ENVIRONMENT_ID),
-            UUID(ENVIRONMENT_ID),
-            None,
-            None,
-            "delegate_codex_work",
-            "isolated_ephemeral",
-            "explicit_only",
-            False,
-            60,
-            1,
-            None,
-            "pending",
-            1,
-            datetime.now(UTC),
-            datetime.now(UTC),
-            "available",
-            None,
-            None,
-        )
-        del creator_party_id
-        return CapabilityRequestPage((item,)[:limit], None)
-
-    async def decide(self, command: CreatorGrantCommand) -> CreatorGrantResult:
-        self.commands.append(command)
-        return CreatorGrantResult(
-            command.request_id,
-            command.expected_version + 1,
-            CapabilityRequestStatus.DENIED,
-        )
-
-
 class _CreatorPrompt:
     def __init__(self) -> None:
         self.document_id = uuid7()
@@ -1011,7 +941,6 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.other_human_record_query = _OtherHumanRecordQuery()
         self.creator_scenes = _CreatorScenes()
         self.creator_codex_task = _CreatorCodexTask()
-        self.capability_policy = _CapabilityPolicy()
         self.creator_prompt = _CreatorPrompt()
         self.creator_export = _CreatorExport()
         self.activity_query = _CreatorActivityQuery()
@@ -1033,18 +962,12 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             CreatorOperationPhase.CANDIDATE_VALIDATED: "waiting",
             CreatorOperationPhase.CANDIDATE_REJECTED: "rejected",
             CreatorOperationPhase.SUBJECT_COMMITTING: "waiting",
-            CreatorOperationPhase.EFFECT_REGISTRATION: "waiting",
-            CreatorOperationPhase.EFFECT_REGISTRATION_UNAUTHORIZED: "rejected",
-            CreatorOperationPhase.EFFECT_REGISTRATION_UNAVAILABLE: "unavailable",
-            CreatorOperationPhase.EFFECT_REGISTRATION_FAILED: "failed",
-            CreatorOperationPhase.EFFECT_REGISTRATION_CANCELLED: "rejected",
             CreatorOperationPhase.EFFECT_REGISTERED: "accepted",
             CreatorOperationPhase.EFFECT_DISPATCHING: "waiting",
             CreatorOperationPhase.EFFECT_COMPLETED: "completed",
             CreatorOperationPhase.EFFECT_FAILED: "failed",
             CreatorOperationPhase.EFFECT_UNKNOWN: "unknown",
             CreatorOperationPhase.EFFECT_CANCELLED: "rejected",
-            CreatorOperationPhase.CODEX_CAPABILITY_DECISION: "waiting",
             CreatorOperationPhase.CODEX_DISPATCHING: "waiting",
             CreatorOperationPhase.CODEX_VERIFYING: "waiting",
             CreatorOperationPhase.CODEX_RESULT_ACCEPTANCE: "waiting",
@@ -1072,18 +995,12 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             CreatorOperationPhase.CANDIDATE_VALIDATED: "cognition",
             CreatorOperationPhase.CANDIDATE_REJECTED: "cognition",
             CreatorOperationPhase.SUBJECT_COMMITTING: "cognition",
-            CreatorOperationPhase.EFFECT_REGISTRATION: "response_effect",
-            CreatorOperationPhase.EFFECT_REGISTRATION_UNAUTHORIZED: "response_effect",
-            CreatorOperationPhase.EFFECT_REGISTRATION_UNAVAILABLE: "response_effect",
-            CreatorOperationPhase.EFFECT_REGISTRATION_FAILED: "response_effect",
-            CreatorOperationPhase.EFFECT_REGISTRATION_CANCELLED: "response_effect",
             CreatorOperationPhase.EFFECT_REGISTERED: "response_effect",
             CreatorOperationPhase.EFFECT_DISPATCHING: "response_effect",
             CreatorOperationPhase.EFFECT_COMPLETED: "response_effect",
             CreatorOperationPhase.EFFECT_FAILED: "response_effect",
             CreatorOperationPhase.EFFECT_UNKNOWN: "response_effect",
             CreatorOperationPhase.EFFECT_CANCELLED: "response_effect",
-            CreatorOperationPhase.CODEX_CAPABILITY_DECISION: "codex_effect",
             CreatorOperationPhase.CODEX_DISPATCHING: "codex_effect",
             CreatorOperationPhase.CODEX_VERIFYING: "codex_effect",
             CreatorOperationPhase.CODEX_RESULT_ACCEPTANCE: "codex_effect",
@@ -1118,10 +1035,6 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             CreatorOperationPhase.CODEX_CANCELLED,
         }
         failure_phases = {
-            CreatorOperationPhase.EFFECT_REGISTRATION_UNAUTHORIZED,
-            CreatorOperationPhase.EFFECT_REGISTRATION_UNAVAILABLE,
-            CreatorOperationPhase.EFFECT_REGISTRATION_FAILED,
-            CreatorOperationPhase.EFFECT_REGISTRATION_CANCELLED,
             CreatorOperationPhase.EFFECT_FAILED,
             CreatorOperationPhase.EFFECT_UNKNOWN,
             CreatorOperationPhase.CODEX_FAILED,
@@ -1155,7 +1068,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                 details = cast(dict[str, object], wire["details"])
                 self.assertIsInstance(details, dict)
                 self.assertEqual(wire["status"], expected_status[phase])
-                self.assertEqual(details["projection_version"], "creator-operation.v5")
+                self.assertEqual(details["projection_version"], "creator-operation.v6")
                 self.assertEqual(
                     details["operation_ref"], str(acceptance.opportunity_id)
                 )
@@ -1181,6 +1094,9 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             runtime_state=snapshot.runtime_state,
             readiness=snapshot.readiness,
             authority_state="active",
+            codex=CodexAvailabilityResponse(
+                enabled=False, available=False, reason_code="CODEX-DISABLED"
+            ),
             reason_codes=list(snapshot.reason_codes),
             components=[
                 RuntimeComponentHealthResponse(
@@ -1257,7 +1173,6 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             creator_prompt=self.creator_prompt,
             creator_export=self.creator_export,
             data_rights=self.data_rights,
-            capability_policy=self.capability_policy,
         )
 
     @staticmethod
@@ -1349,45 +1264,26 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             self.assertEqual(client.get("/openapi.json").status_code, 404)
         self.assertEqual(self.lifecycle.snapshot().runtime_state.value, "stopped")
 
-    def test_capability_request_list_and_decision_are_session_bound(self) -> None:
+    def test_capability_approval_routes_are_removed(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
             session = client.post(
-                "/v1/browser-sessions",
-                headers=self._browser_headers(),
-                content=b"",
+                "/v1/browser-sessions", headers=self._browser_headers(), content=b""
             )
             token = session.json()["browser_session_token"]
-            page = client.get(
-                "/v1/capability-requests?limit=50",
-                headers=self._browser_headers(token),
+            self.assertEqual(
+                client.get(
+                    "/v1/capability-requests", headers=self._browser_headers(token)
+                ).status_code,
+                404,
             )
-            self.assertEqual(page.status_code, 200)
-            self.assertEqual(len(page.json()["items"]), 1)
-            decision = client.post(
-                f"/v1/capability-requests/{self.capability_policy.request_id}/decision",
-                headers=self._browser_headers(token),
-                json={
-                    "contract_version": "1.0",
-                    "decision_id": str(uuid7()),
-                    "expected_request_version": 1,
-                    "decision": "deny",
-                },
+            self.assertEqual(
+                client.post(
+                    f"/v1/capability-requests/{uuid7()}/decision",
+                    headers=self._browser_headers(token),
+                    json={},
+                ).status_code,
+                404,
             )
-            self.assertEqual(decision.status_code, 200)
-            self.assertEqual(decision.json()["status"], "applied")
-            self.assertEqual(decision.json()["state_version"], 2)
-            self.assertEqual(len(self.capability_policy.commands), 1)
-            rejected = client.post(
-                f"/v1/capability-requests/{self.capability_policy.request_id}/decision",
-                headers={**self._browser_headers(token), "Origin": "http://invalid"},
-                json={
-                    "contract_version": "1.0",
-                    "decision_id": str(uuid7()),
-                    "expected_request_version": 1,
-                    "decision": "deny",
-                },
-            )
-            self.assertEqual(rejected.status_code, 403)
 
     def test_creator_prompt_create_revise_stale_and_deactivate(self) -> None:
         with TestClient(self._app(), base_url=f"http://{AUTHORITY}") as client:
@@ -1520,7 +1416,6 @@ class CreatorRuntimeAppTests(unittest.TestCase):
 
         use_cases = create_governance_use_cases(
             emit=lambda _: None,
-            capability_policy=None,
             creator_events=None,
             creator_export=None,
             data_rights=self.data_rights,

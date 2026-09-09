@@ -31,9 +31,6 @@ ALTER TABLE ONLY armi.action_intent_revisions
 ALTER TABLE ONLY armi.action_intent_revisions
     ADD CONSTRAINT action_intent_revisions_owner_key UNIQUE (action_intent_revision_id, action_intent_id);
 
-ALTER TABLE ONLY armi.action_intent_revisions
-    ADD CONSTRAINT action_intent_revisions_capability_request_key UNIQUE (capability_request_id);
-
 --
 -- Name: action_intent_revisions action_intent_revisions_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
 --
@@ -231,49 +228,36 @@ ALTER TABLE ONLY armi.capabilities
     ADD CONSTRAINT capabilities_pkey PRIMARY KEY (capability_id);
 
 --
--- Name: capability_request_basis_links capability_request_basis_link_capability_request_id_context_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.capability_request_basis_links
-    ADD CONSTRAINT capability_request_basis_link_capability_request_id_context_key UNIQUE (capability_request_id, context_item_id);
+
 
 --
--- Name: capability_request_basis_links capability_request_basis_links_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.capability_request_basis_links
-    ADD CONSTRAINT capability_request_basis_links_pkey PRIMARY KEY (capability_request_id, ordinal);
+
 
 --
--- Name: capability_request_decisions capability_request_decisions_capability_request_id_resultin_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.capability_request_decisions
-    ADD CONSTRAINT capability_request_decisions_capability_request_id_resultin_key UNIQUE (capability_request_id, resulting_request_version);
+
 
 --
--- Name: capability_request_decisions capability_request_decisions_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.capability_request_decisions
-    ADD CONSTRAINT capability_request_decisions_pkey PRIMARY KEY (capability_decision_id);
+
 
 --
--- Name: capability_requests capability_requests_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.capability_requests
-    ADD CONSTRAINT capability_requests_pkey PRIMARY KEY (capability_request_id);
+
 
 --
--- Name: capability_requests capability_requests_subject_commit_id_proposal_ref_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.capability_requests
-    ADD CONSTRAINT capability_requests_subject_commit_id_proposal_ref_key UNIQUE (subject_commit_id, proposal_ref);
 
-ALTER TABLE ONLY armi.capability_requests
-    ADD CONSTRAINT capability_requests_action_owner_key UNIQUE (capability_request_id, subject_commit_id);
+
+
 
 --
 -- Name: codex_result_sources codex_result_sources_codex_verification_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -682,14 +666,11 @@ ALTER TABLE ONLY armi.durable_work
 ALTER TABLE ONLY armi.durable_work
     ADD CONSTRAINT durable_work_pkey PRIMARY KEY (work_id);
 
-ALTER TABLE ONLY armi.effect_registrations
-    ADD CONSTRAINT effect_registrations_pkey PRIMARY KEY (effect_registration_id);
 
-ALTER TABLE ONLY armi.effect_registrations
-    ADD CONSTRAINT effect_registrations_action_key UNIQUE (action_intent_id);
 
-ALTER TABLE ONLY armi.effect_registrations
-    ADD CONSTRAINT effect_registrations_work_key UNIQUE (work_id);
+
+
+
 
 --
 -- Name: effect_attempts effect_attempts_attempt_owner_key; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -1331,35 +1312,26 @@ ALTER TABLE ONLY armi.party_input_interactions
     ADD CONSTRAINT party_input_interactions_scope_key UNIQUE (interaction_id, subject_id, scene_id, source_party_id);
 
 --
--- Name: permission_grants permission_grants_capability_request_id_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.permission_grants
-    ADD CONSTRAINT permission_grants_capability_request_id_key UNIQUE (capability_request_id);
 
-ALTER TABLE ONLY armi.permission_grants
-    ADD CONSTRAINT permission_grants_request_owner_key UNIQUE (grant_id, capability_request_id);
+
+
 
 --
--- Name: permission_grants permission_grants_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.permission_grants
-    ADD CONSTRAINT permission_grants_pkey PRIMARY KEY (grant_id);
+
 
 --
--- Name: policy_decisions policy_decisions_effect_owner_key; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.policy_decisions
-    ADD CONSTRAINT policy_decisions_effect_owner_key UNIQUE (policy_decision_id, action_intent_revision_id);
+
 
 --
--- Name: policy_decisions policy_decisions_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.policy_decisions
-    ADD CONSTRAINT policy_decisions_pkey PRIMARY KEY (policy_decision_id);
+
 
 --
 -- Name: prompt_documents prompt_documents_pkey; Type: CONSTRAINT; Schema: armi; Owner: -
@@ -1844,16 +1816,14 @@ CREATE INDEX audit_events_trace_idx ON armi.audit_events USING btree (trace_id, 
 CREATE INDEX candidate_applications_resolution_idx ON armi.cognitive_candidate_applications USING btree (resolution, resolved_at, candidate_application_id);
 
 --
--- Name: capability_requests_creator_page_idx; Type: INDEX; Schema: armi; Owner: -
 --
 
-CREATE INDEX capability_requests_creator_page_idx ON armi.capability_requests USING btree (creator_party_id, created_at DESC, capability_request_id DESC);
+
 
 --
--- Name: capability_requests_pending_idx; Type: INDEX; Schema: armi; Owner: -
 --
 
-CREATE INDEX capability_requests_pending_idx ON armi.capability_requests USING btree (current_status, created_at, capability_request_id);
+
 
 --
 -- Name: cognition_maintenance_batches_active_idx; Type: INDEX; Schema: armi; Owner: -
@@ -2088,10 +2058,9 @@ CREATE UNIQUE INDEX parties_social_group_declared_identity_idx ON armi.parties U
 CREATE UNIQUE INDEX party_input_interactions_external_message_idx ON armi.party_input_interactions USING btree (external_binding_id, external_message_key) WHERE (external_binding_id IS NOT NULL);
 
 --
--- Name: policy_decisions_one_current; Type: INDEX; Schema: armi; Owner: -
 --
 
-CREATE UNIQUE INDEX policy_decisions_one_current ON armi.policy_decisions USING btree (action_intent_revision_id) WHERE is_current;
+
 
 --
 -- Name: relationship_revisions_interpretation_trgm_idx; Type: INDEX; Schema: armi; Owner: -
@@ -2232,6 +2201,9 @@ ALTER TABLE ONLY armi.action_intent_revisions
 ALTER TABLE ONLY armi.action_intent_revisions
     ADD CONSTRAINT action_intent_revisions_codex_source_fkey FOREIGN KEY (codex_task_source_id) REFERENCES armi.codex_task_sources(codex_task_source_id);
 
+ALTER TABLE ONLY armi.action_intent_revisions
+    ADD CONSTRAINT action_intent_revisions_codex_source_key UNIQUE (codex_task_source_id);
+
 --
 -- Name: action_intent_revisions action_intent_revisions_commit_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
@@ -2246,11 +2218,9 @@ ALTER TABLE ONLY armi.action_intent_revisions
 ALTER TABLE ONLY armi.action_intent_revisions
     ADD CONSTRAINT action_intent_revisions_intent_fkey FOREIGN KEY (action_intent_id) REFERENCES armi.action_intents(action_intent_id);
 
-ALTER TABLE ONLY armi.action_intent_revisions
-    ADD CONSTRAINT action_intent_revisions_capability_request_fkey FOREIGN KEY (capability_request_id) REFERENCES armi.capability_requests(capability_request_id);
 
-ALTER TABLE ONLY armi.action_intent_revisions
-    ADD CONSTRAINT action_intent_revisions_capability_owner_fkey FOREIGN KEY (capability_request_id, subject_commit_id) REFERENCES armi.capability_requests(capability_request_id, subject_commit_id);
+
+
 
 --
 -- Name: action_intents action_intents_current_revision_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2393,74 +2363,54 @@ ALTER TABLE ONLY armi.activity_revisions
     ADD CONSTRAINT activity_revisions_subject_commit_id_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
 
 --
--- Name: capability_request_basis_links capability_request_basis_links_capability_request_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.capability_request_basis_links
-    ADD CONSTRAINT capability_request_basis_links_capability_request_id_fkey FOREIGN KEY (capability_request_id) REFERENCES armi.capability_requests(capability_request_id);
+
 
 --
--- Name: capability_request_basis_links capability_request_basis_links_context_item_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.capability_request_basis_links
-    ADD CONSTRAINT capability_request_basis_links_context_item_id_fkey FOREIGN KEY (context_item_id) REFERENCES armi.cognitive_context_items(context_item_id);
+
 
 --
--- Name: capability_request_decisions capability_request_decisions_capability_request_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.capability_request_decisions
-    ADD CONSTRAINT capability_request_decisions_capability_request_id_fkey FOREIGN KEY (capability_request_id) REFERENCES armi.capability_requests(capability_request_id);
+
 
 --
--- Name: capability_request_decisions capability_request_decisions_creator_party_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.capability_request_decisions
-    ADD CONSTRAINT capability_request_decisions_creator_party_id_fkey FOREIGN KEY (creator_party_id) REFERENCES armi.parties(party_id);
+
 
 --
--- Name: capability_requests capability_requests_capability_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.capability_requests
-    ADD CONSTRAINT capability_requests_capability_id_fkey FOREIGN KEY (capability_id) REFERENCES armi.capabilities(capability_id);
+
 
 --
--- Name: capability_requests capability_requests_creator_party_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.capability_requests
-    ADD CONSTRAINT capability_requests_creator_party_id_fkey FOREIGN KEY (creator_party_id) REFERENCES armi.parties(party_id);
+
 
 --
--- Name: capability_requests capability_requests_interaction_scene_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.capability_requests
-    ADD CONSTRAINT capability_requests_interaction_scene_id_fkey FOREIGN KEY (interaction_scene_id) REFERENCES armi.interaction_scenes(scene_id);
+
 
 --
--- Name: capability_requests capability_requests_resolved_by_party_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.capability_requests
-    ADD CONSTRAINT capability_requests_resolved_by_party_id_fkey FOREIGN KEY (resolved_by_party_id) REFERENCES armi.parties(party_id);
+
 
 --
--- Name: capability_requests capability_requests_subject_commit_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.capability_requests
-    ADD CONSTRAINT capability_requests_subject_commit_id_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
+
 
 --
--- Name: capability_requests capability_requests_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.capability_requests
-    ADD CONSTRAINT capability_requests_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
+
 
 --
 -- Name: codex_result_sources codex_result_sources_codex_verification_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -2991,23 +2941,17 @@ ALTER TABLE ONLY armi.dialogue_decisions
 ALTER TABLE ONLY armi.durable_work
     ADD CONSTRAINT durable_work_subject_fk FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id) ON DELETE RESTRICT;
 
-ALTER TABLE ONLY armi.effect_registrations
-    ADD CONSTRAINT effect_registrations_action_fk FOREIGN KEY (action_intent_id) REFERENCES armi.action_intents(action_intent_id) ON DELETE RESTRICT;
 
-ALTER TABLE ONLY armi.effect_registrations
-    ADD CONSTRAINT effect_registrations_work_fk FOREIGN KEY (work_id) REFERENCES armi.durable_work(work_id) ON DELETE RESTRICT;
 
-ALTER TABLE ONLY armi.effect_registrations
-    ADD CONSTRAINT effect_registrations_effect_fk FOREIGN KEY (effect_id) REFERENCES armi.effects(effect_id) ON DELETE RESTRICT;
 
-ALTER TABLE ONLY armi.effect_registrations
-    ADD CONSTRAINT effect_registrations_request_fk FOREIGN KEY (capability_request_id) REFERENCES armi.capability_requests(capability_request_id) ON DELETE RESTRICT;
 
-ALTER TABLE ONLY armi.effect_registrations
-    ADD CONSTRAINT effect_registrations_grant_fk FOREIGN KEY (permission_grant_id) REFERENCES armi.permission_grants(grant_id) ON DELETE RESTRICT;
 
-ALTER TABLE ONLY armi.effect_registrations
-    ADD CONSTRAINT effect_registrations_grant_owner_fk FOREIGN KEY (permission_grant_id, capability_request_id) REFERENCES armi.permission_grants(grant_id, capability_request_id) ON DELETE RESTRICT;
+
+
+
+
+
+
 
 --
 -- Name: effect_attempts effect_attempts_effect_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3089,17 +3033,13 @@ ALTER TABLE ONLY armi.effects
 -- Name: effects effects_policy_owner_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.effects
-    ADD CONSTRAINT effects_policy_owner_fkey FOREIGN KEY (policy_decision_id, action_intent_revision_id) REFERENCES armi.policy_decisions(policy_decision_id, action_intent_revision_id);
 
-ALTER TABLE ONLY armi.effects
-    ADD CONSTRAINT effects_capability_request_fkey FOREIGN KEY (capability_request_id) REFERENCES armi.capability_requests(capability_request_id);
 
-ALTER TABLE ONLY armi.effects
-    ADD CONSTRAINT effects_permission_grant_fkey FOREIGN KEY (permission_grant_id) REFERENCES armi.permission_grants(grant_id);
 
-ALTER TABLE ONLY armi.effects
-    ADD CONSTRAINT effects_grant_owner_fkey FOREIGN KEY (permission_grant_id, capability_request_id) REFERENCES armi.permission_grants(grant_id, capability_request_id);
+
+
+
+
 
 --
 -- Name: effects effects_revision_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
@@ -3868,60 +3808,44 @@ ALTER TABLE ONLY armi.party_input_interactions
     ADD CONSTRAINT party_input_interactions_scene_participant_fkey FOREIGN KEY (scene_id, subject_id, source_party_id) REFERENCES armi.scene_participants(scene_id, subject_id, party_id);
 
 --
--- Name: permission_grants permission_grants_capability_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.permission_grants
-    ADD CONSTRAINT permission_grants_capability_id_fkey FOREIGN KEY (capability_id) REFERENCES armi.capabilities(capability_id);
+
 
 --
--- Name: permission_grants permission_grants_capability_request_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.permission_grants
-    ADD CONSTRAINT permission_grants_capability_request_id_fkey FOREIGN KEY (capability_request_id) REFERENCES armi.capability_requests(capability_request_id);
+
 
 --
--- Name: permission_grants permission_grants_creator_party_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.permission_grants
-    ADD CONSTRAINT permission_grants_creator_party_id_fkey FOREIGN KEY (creator_party_id) REFERENCES armi.parties(party_id);
+
 
 --
--- Name: permission_grants permission_grants_interaction_scene_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.permission_grants
-    ADD CONSTRAINT permission_grants_interaction_scene_id_fkey FOREIGN KEY (interaction_scene_id) REFERENCES armi.interaction_scenes(scene_id);
+
 
 --
--- Name: permission_grants permission_grants_subject_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.permission_grants
-    ADD CONSTRAINT permission_grants_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
+
 
 --
--- Name: policy_decisions policy_decisions_action_intent_revision_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.policy_decisions
-    ADD CONSTRAINT policy_decisions_action_intent_revision_id_fkey FOREIGN KEY (action_intent_revision_id) REFERENCES armi.action_intent_revisions(action_intent_revision_id);
+
 
 --
--- Name: policy_decisions policy_decisions_matched_grant_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.policy_decisions
-    ADD CONSTRAINT policy_decisions_matched_grant_id_fkey FOREIGN KEY (matched_grant_id) REFERENCES armi.permission_grants(grant_id);
+
 
 --
--- Name: policy_decisions policy_decisions_supersedes_policy_decision_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --
 
-ALTER TABLE ONLY armi.policy_decisions
-    ADD CONSTRAINT policy_decisions_supersedes_policy_decision_id_fkey FOREIGN KEY (supersedes_policy_decision_id) REFERENCES armi.policy_decisions(policy_decision_id);
+
 
 --
 -- Name: prompt_documents prompt_documents_current_revision_owner_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -

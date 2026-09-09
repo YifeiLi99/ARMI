@@ -12,7 +12,6 @@ from .api import (
     EffectObservationKind,
     EffectObservationReliability,
     EffectObservationSnapshot,
-    EffectResponsibilitySnapshot,
     EffectStatus,
     EffectVerificationStatus,
 )
@@ -20,24 +19,6 @@ from .api import (
 
 class PostgreSQLEffectOperationRead:
     __slots__ = ()
-
-    async def registration_by_intent(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        action_intent_id: UUID,
-    ) -> EffectResponsibilitySnapshot | None:
-        row = await (
-            await transaction.execute(
-                """SELECT effect_registration_id,status,reason_code,
-                          capability_request_id,permission_grant_id
-                   FROM armi.effect_registrations WHERE action_intent_id=%s""",
-                (action_intent_id,),
-            )
-        ).fetchone()
-        if row is None:
-            return None
-        return EffectResponsibilitySnapshot(row[0], str(row[1]), row[2], row[3], row[4])
 
     async def observe(
         self, transaction: PostgreSQLTransaction
@@ -85,9 +66,7 @@ class PostgreSQLEffectOperationRead:
             await transaction.execute(
                 """
                 SELECT effect.effect_id, effect.action_intent_revision_id,
-                       effect.action_intent_id, effect.policy_decision_id,
-                       effect.capability_request_id,effect.permission_grant_id,
-                       effect.subject_id, effect.scene_id, effect.context_party_id,
+                       effect.action_intent_id, effect.subject_id, effect.scene_id, effect.context_party_id,
                        effect.payload_artifact_id, effect.payload_digest,
                        effect.payload_bytes, effect.effect_kind,
                        effect.capability_kind, effect.status,
@@ -98,11 +77,12 @@ class PostgreSQLEffectOperationRead:
                        observation.observation_kind, observation.reliability,
                        attempt.effect_attempt_id,attempt.attempt_no,
                        attempt.dispatch_state,observation.effect_observation_id,
-                       observation.conclusion,observation.reason_code,
+                       observation.conclusion,coalesce(observation.reason_code, outbox.last_error_code),
                        observation.evidence_kind
                 FROM armi.effects AS effect
                 LEFT JOIN armi.effect_observations AS observation
                   ON observation.effect_observation_id=effect.current_observation_id
+                LEFT JOIN armi.effect_outbox_items AS outbox ON outbox.effect_id=effect.effect_id
                 LEFT JOIN armi.effect_attempts AS attempt
                   ON attempt.effect_attempt_id=effect.current_attempt_id
                 WHERE effect.effect_id=%s
@@ -116,34 +96,31 @@ class PostgreSQLEffectOperationRead:
             effect_id=row[0],
             action_intent_revision_id=row[1],
             action_intent_id=row[2],
-            policy_decision_id=row[3],
-            capability_request_id=row[4],
-            permission_grant_id=row[5],
-            subject_id=row[6],
-            scene_id=row[7],
-            context_party_id=row[8],
-            payload_artifact_id=row[9],
-            payload_digest=Digest(str(row[10])),
-            payload_bytes=int(row[11]),
-            effect_kind=str(row[12]),
-            capability_kind=str(row[13]),
-            status=EffectStatus(str(row[14])),
-            verification_status=EffectVerificationStatus(str(row[15])),
-            registered_at=Instant(row[16]),
-            cancelled_at=None if row[17] is None else Instant(row[17]),
-            settled_at=None if row[18] is None else Instant(row[18]),
-            attempt_count=int(row[19]),
+            subject_id=row[3],
+            scene_id=row[4],
+            context_party_id=row[5],
+            payload_artifact_id=row[6],
+            payload_digest=Digest(str(row[7])),
+            payload_bytes=int(row[8]),
+            effect_kind=str(row[9]),
+            capability_kind=str(row[10]),
+            status=EffectStatus(str(row[11])),
+            verification_status=EffectVerificationStatus(str(row[12])),
+            registered_at=Instant(row[13]),
+            cancelled_at=None if row[14] is None else Instant(row[14]),
+            settled_at=None if row[15] is None else Instant(row[15]),
+            attempt_count=int(row[16]),
             current_observation_kind=(
-                None if row[20] is None else EffectObservationKind(str(row[20]))
+                None if row[17] is None else EffectObservationKind(str(row[17]))
             ),
             current_observation_reliability=(
-                None if row[21] is None else EffectObservationReliability(str(row[21]))
+                None if row[18] is None else EffectObservationReliability(str(row[18]))
             ),
-            current_attempt_id=row[22],
-            current_attempt_no=None if row[23] is None else int(row[23]),
-            current_dispatch_state=None if row[24] is None else str(row[24]),
-            current_observation_id=row[25],
-            observation_conclusion=None if row[26] is None else str(row[26]),
-            observation_reason=None if row[27] is None else str(row[27]),
-            observation_evidence_kind=None if row[28] is None else str(row[28]),
+            current_attempt_id=row[19],
+            current_attempt_no=None if row[20] is None else int(row[20]),
+            current_dispatch_state=None if row[21] is None else str(row[21]),
+            current_observation_id=row[22],
+            observation_conclusion=None if row[23] is None else str(row[23]),
+            observation_reason=None if row[24] is None else str(row[24]),
+            observation_evidence_kind=None if row[25] is None else str(row[25]),
         )

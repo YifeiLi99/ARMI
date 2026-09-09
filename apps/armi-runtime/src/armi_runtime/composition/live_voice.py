@@ -76,7 +76,7 @@ def compose_runtime_live_voice(
             or voice_binding.get("profile") != "creator_voice_act"
             or voice_binding.get("request_contract_version") != "armi.model-request.v1"
             or voice_binding.get("response_contract_version")
-            != "armi.creator-voice-act-candidate.v2"
+            != "armi.creator-voice-act-candidate.v3"
             or voice_binding.get("output_token_limit") != 512
             or voice_binding.get("thinking") != "disabled"
             or voice_binding.get("tools") != "disabled"

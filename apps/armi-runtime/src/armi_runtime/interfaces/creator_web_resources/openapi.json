@@ -100,58 +100,6 @@
         ],
         "type": "string"
       },
-      "AppliedOutcomeResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "contract_version": {
-            "const": "1.0",
-            "title": "Contract Version",
-            "type": "string"
-          },
-          "message": {
-            "maxLength": 4096,
-            "minLength": 1,
-            "title": "Message",
-            "type": "string"
-          },
-          "occurred_at": {
-            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
-            "title": "Occurred At",
-            "type": "string"
-          },
-          "result_ref": {
-            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
-            "title": "Result Ref",
-            "type": "string"
-          },
-          "state_version": {
-            "minimum": 0.0,
-            "title": "State Version",
-            "type": "integer"
-          },
-          "status": {
-            "const": "applied",
-            "title": "Status",
-            "type": "string"
-          },
-          "trace_id": {
-            "pattern": "[0-9a-f]{32}",
-            "title": "Trace Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "contract_version",
-          "trace_id",
-          "occurred_at",
-          "message",
-          "status",
-          "result_ref",
-          "state_version"
-        ],
-        "title": "AppliedOutcomeResponse",
-        "type": "object"
-      },
       "BrowserSessionCurrentResponse": {
         "additionalProperties": false,
         "properties": {
@@ -248,64 +196,20 @@
         "title": "BrowserSessionResponse",
         "type": "object"
       },
-      "CapabilityRequestDecisionRequest": {
+      "CodexAvailabilityResponse": {
         "additionalProperties": false,
         "properties": {
-          "contract_version": {
-            "const": "1.0",
-            "title": "Contract Version",
-            "type": "string"
+          "available": {
+            "title": "Available",
+            "type": "boolean"
           },
-          "decision": {
-            "enum": [
-              "grant",
-              "limit",
-              "deny",
-              "revoke"
-            ],
-            "title": "Decision",
-            "type": "string"
-          },
-          "decision_id": {
-            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
-            "title": "Decision Id",
-            "type": "string"
-          },
-          "expected_request_version": {
-            "minimum": 1.0,
-            "title": "Expected Request Version",
-            "type": "integer"
-          },
-          "max_payload_bytes": {
-            "anyOf": [
-              {
-                "maximum": 65536.0,
-                "minimum": 1.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Max Payload Bytes"
-          },
-          "max_uses": {
-            "anyOf": [
-              {
-                "maximum": 16.0,
-                "minimum": 1.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Max Uses"
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
           },
           "reason_code": {
             "anyOf": [
               {
-                "pattern": "(?:CON|CAPABILITY|POLICY|CONFLICT|SCOPE)-[A-Z0-9-]{1,96}",
                 "type": "string"
               },
               {
@@ -313,266 +217,14 @@
               }
             ],
             "title": "Reason Code"
-          },
-          "valid_for_seconds": {
-            "anyOf": [
-              {
-                "maximum": 604800.0,
-                "minimum": 60.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Valid For Seconds"
           }
         },
         "required": [
-          "contract_version",
-          "decision_id",
-          "expected_request_version",
-          "decision"
+          "enabled",
+          "available",
+          "reason_code"
         ],
-        "title": "CapabilityRequestDecisionRequest",
-        "type": "object"
-      },
-      "CapabilityRequestItemResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "artifact_scope": {
-            "anyOf": [
-              {
-                "const": "explicit_only",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Artifact Scope"
-          },
-          "audience_scope": {
-            "anyOf": [
-              {
-                "const": "creator",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Audience Scope"
-          },
-          "capability_availability": {
-            "enum": [
-              "available",
-              "unavailable"
-            ],
-            "title": "Capability Availability",
-            "type": "string"
-          },
-          "capability_kind": {
-            "const": "codex.delegated-work",
-            "title": "Capability Kind",
-            "type": "string"
-          },
-          "capability_request_id": {
-            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
-            "title": "Capability Request Id",
-            "type": "string"
-          },
-          "created_at": {
-            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
-            "title": "Created At",
-            "type": "string"
-          },
-          "data_scope": {
-            "anyOf": [
-              {
-                "const": "creator_visible_response",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Data Scope"
-          },
-          "effective_grant": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/EffectiveGrantResponse"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "max_payload_bytes": {
-            "anyOf": [
-              {
-                "maximum": 65536.0,
-                "minimum": 1.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Max Payload Bytes"
-          },
-          "max_uses": {
-            "maximum": 16.0,
-            "minimum": 1.0,
-            "title": "Max Uses",
-            "type": "integer"
-          },
-          "network_access": {
-            "anyOf": [
-              {
-                "const": false,
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Network Access"
-          },
-          "operation": {
-            "const": "execute",
-            "title": "Operation",
-            "type": "string"
-          },
-          "purpose": {
-            "const": "delegate_codex_work",
-            "title": "Purpose",
-            "type": "string"
-          },
-          "request_version": {
-            "minimum": 1.0,
-            "title": "Request Version",
-            "type": "integer"
-          },
-          "resolution_reason_code": {
-            "anyOf": [
-              {
-                "pattern": "[A-Z][A-Z0-9-]{2,127}",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Resolution Reason Code"
-          },
-          "scene_id": {
-            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
-            "title": "Scene Id",
-            "type": "string"
-          },
-          "status": {
-            "enum": [
-              "pending",
-              "granted",
-              "limited",
-              "denied",
-              "revoked",
-              "expired",
-              "consumed"
-            ],
-            "title": "Status",
-            "type": "string"
-          },
-          "status_changed_at": {
-            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
-            "title": "Status Changed At",
-            "type": "string"
-          },
-          "subject_id": {
-            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
-            "title": "Subject Id",
-            "type": "string"
-          },
-          "valid_for_seconds": {
-            "maximum": 604800.0,
-            "minimum": 60.0,
-            "title": "Valid For Seconds",
-            "type": "integer"
-          },
-          "workspace_scope": {
-            "anyOf": [
-              {
-                "const": "isolated_ephemeral",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Workspace Scope"
-          }
-        },
-        "required": [
-          "capability_request_id",
-          "capability_kind",
-          "operation",
-          "subject_id",
-          "scene_id",
-          "purpose",
-          "valid_for_seconds",
-          "max_uses",
-          "status",
-          "capability_availability",
-          "request_version",
-          "created_at",
-          "status_changed_at"
-        ],
-        "title": "CapabilityRequestItemResponse",
-        "type": "object"
-      },
-      "CapabilityRequestPageResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "contract_version": {
-            "const": "1.0",
-            "title": "Contract Version",
-            "type": "string"
-          },
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/CapabilityRequestItemResponse"
-            },
-            "maxItems": 100,
-            "title": "Items",
-            "type": "array"
-          },
-          "next_cursor": {
-            "anyOf": [
-              {
-                "maxLength": 2048,
-                "pattern": "v1\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Next Cursor"
-          },
-          "projection_version": {
-            "const": "capability-request.v6",
-            "title": "Projection Version",
-            "type": "string"
-          }
-        },
-        "required": [
-          "contract_version",
-          "projection_version",
-          "items"
-        ],
-        "title": "CapabilityRequestPageResponse",
+        "title": "CodexAvailabilityResponse",
         "type": "object"
       },
       "CreatorActivityItemResponse": {
@@ -911,6 +563,28 @@
             ],
             "title": "Model Id"
           },
+          "result_processing_phase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Processing Phase"
+          },
+          "result_processing_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Processing Reason"
+          },
           "sdk_identity": {
             "anyOf": [
               {
@@ -954,6 +628,8 @@
           }
         },
         "required": [
+          "result_processing_phase",
+          "result_processing_reason",
           "task_source_ref",
           "validator_id",
           "source_tree_digest"
@@ -1816,18 +1492,6 @@
       "CreatorOperationDetails": {
         "additionalProperties": false,
         "properties": {
-          "capability_request_ref": {
-            "anyOf": [
-              {
-                "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Capability Request Ref"
-          },
           "codex_execution": {
             "anyOf": [
               {
@@ -1948,18 +1612,6 @@
             ],
             "title": "Effect Ref"
           },
-          "effect_registration_ref": {
-            "anyOf": [
-              {
-                "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Effect Registration Ref"
-          },
           "intent_ref": {
             "anyOf": [
               {
@@ -2019,32 +1671,8 @@
             ],
             "title": "Owner Reason"
           },
-          "permission_grant_ref": {
-            "anyOf": [
-              {
-                "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Permission Grant Ref"
-          },
-          "policy_decision_ref": {
-            "anyOf": [
-              {
-                "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Policy Decision Ref"
-          },
           "projection_version": {
-            "const": "creator-operation.v5",
+            "const": "creator-operation.v6",
             "title": "Projection Version",
             "type": "string"
           },
@@ -2137,7 +1765,6 @@
               "material.invalidated",
               "relationship.invalidated",
               "scene.timeline.invalidated",
-              "capability.request.invalidated",
               "operation.invalidated",
               "other_human.record.invalidated",
               "effect.invalidated",
@@ -2160,10 +1787,9 @@
               "life-record-query.v2",
               "creator-relationship.v3",
               "scene-timeline.v6",
-              "capability-request.v6",
-              "creator-operation.v5",
+              "creator-operation.v6",
               "other-human-record.v1",
-              "creator-effect.v5",
+              "creator-effect.v6",
               "subject-summary.v1",
               "data-rights-order-collection.v3"
             ],
@@ -2178,7 +1804,6 @@
               "material",
               "relationship",
               "scene_timeline",
-              "capability_request",
               "operation",
               "other_human_record",
               "effect",
@@ -3546,18 +3171,6 @@
             "title": "Capability Kind",
             "type": "string"
           },
-          "capability_request_ref": {
-            "anyOf": [
-              {
-                "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Capability Request Ref"
-          },
           "contract_version": {
             "const": "1.0",
             "title": "Contract Version",
@@ -3709,32 +3322,8 @@
             ],
             "title": "Observation Reason"
           },
-          "permission_grant_ref": {
-            "anyOf": [
-              {
-                "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Permission Grant Ref"
-          },
-          "policy_decision_ref": {
-            "anyOf": [
-              {
-                "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Policy Decision Ref"
-          },
           "projection_version": {
-            "const": "creator-effect.v5",
+            "const": "creator-effect.v6",
             "title": "Projection Version",
             "type": "string"
           },
@@ -3822,100 +3411,6 @@
           "attempt_count"
         ],
         "title": "EffectResponse",
-        "type": "object"
-      },
-      "EffectiveGrantResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "artifact_scope": {
-            "const": "explicit_only",
-            "title": "Artifact Scope",
-            "type": "string"
-          },
-          "consumed_uses": {
-            "maximum": 1.0,
-            "minimum": 0.0,
-            "title": "Consumed Uses",
-            "type": "integer"
-          },
-          "ended_at": {
-            "anyOf": [
-              {
-                "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ended At"
-          },
-          "grant_ref": {
-            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
-            "title": "Grant Ref",
-            "type": "string"
-          },
-          "max_uses": {
-            "const": 1,
-            "title": "Max Uses",
-            "type": "integer"
-          },
-          "network_access": {
-            "const": false,
-            "title": "Network Access",
-            "type": "boolean"
-          },
-          "remaining_uses": {
-            "maximum": 1.0,
-            "minimum": 0.0,
-            "title": "Remaining Uses",
-            "type": "integer"
-          },
-          "scope_kind": {
-            "const": "codex_delegated_work",
-            "title": "Scope Kind",
-            "type": "string"
-          },
-          "status": {
-            "enum": [
-              "active",
-              "revoked",
-              "expired",
-              "consumed"
-            ],
-            "title": "Status",
-            "type": "string"
-          },
-          "valid_from": {
-            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
-            "title": "Valid From",
-            "type": "string"
-          },
-          "valid_until": {
-            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
-            "title": "Valid Until",
-            "type": "string"
-          },
-          "workspace_scope": {
-            "const": "isolated_ephemeral",
-            "title": "Workspace Scope",
-            "type": "string"
-          }
-        },
-        "required": [
-          "grant_ref",
-          "status",
-          "valid_from",
-          "valid_until",
-          "scope_kind",
-          "max_uses",
-          "consumed_uses",
-          "remaining_uses",
-          "workspace_scope",
-          "artifact_scope",
-          "network_access"
-        ],
-        "title": "CodexEffectiveGrantResponse",
         "type": "object"
       },
       "ErrorCategoryValue": {
@@ -5158,9 +4653,7 @@
               "subject_commit_available",
               "opportunity_available",
               "creator_evidence_accepted",
-              "effect_registered",
               "effect_settled",
-              "codex_grant_resolved",
               "codex_dispatched",
               "codex_verified",
               "codex_result_accepted"
@@ -5185,9 +4678,7 @@
               "model_response",
               "candidate_validation",
               "subject_commit",
-              "effect_registration",
               "effect_dispatch",
-              "capability_decision",
               "codex_dispatch",
               "codex_verification",
               "codex_result_acceptance",
@@ -5826,6 +5317,9 @@
             "title": "Authority State",
             "type": "string"
           },
+          "codex": {
+            "$ref": "#/components/schemas/CodexAvailabilityResponse"
+          },
           "components": {
             "items": {
               "$ref": "#/components/schemas/RuntimeComponentHealthResponse"
@@ -5866,6 +5360,7 @@
           }
         },
         "required": [
+          "codex",
           "contract_version",
           "environment_id",
           "runtime_state",
@@ -6574,226 +6069,6 @@
           }
         ],
         "summary": "Current Browser Session"
-      }
-    },
-    "/v1/capability-requests": {
-      "get": {
-        "operationId": "listCapabilityRequests",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 50,
-              "maximum": 100,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "cursor",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "maxLength": 2048,
-                  "pattern": "v1\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cursor"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CapabilityRequestPageResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
-                }
-              }
-            },
-            "description": "Bad Request"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
-                }
-              }
-            },
-            "description": "Conflict"
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UnavailableOutcomeResponse"
-                }
-              }
-            },
-            "description": "Service Unavailable"
-          }
-        },
-        "security": [
-          {
-            "browserSessionBearer": []
-          }
-        ],
-        "summary": "List Capability Requests"
-      }
-    },
-    "/v1/capability-requests/{capability_request_id}/decision": {
-      "post": {
-        "operationId": "decideCapabilityRequest",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "capability_request_id",
-            "required": true,
-            "schema": {
-              "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
-              "title": "Capability Request Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CapabilityRequestDecisionRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AppliedOutcomeResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
-                }
-              }
-            },
-            "description": "Bad Request"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
-                }
-              }
-            },
-            "description": "Not Found"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
-                }
-              }
-            },
-            "description": "Conflict"
-          },
-          "413": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RejectedOutcomeResponse"
-                }
-              }
-            },
-            "description": "Content Too Large"
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UnavailableOutcomeResponse"
-                }
-              }
-            },
-            "description": "Service Unavailable"
-          }
-        },
-        "security": [
-          {
-            "browserSessionBearer": []
-          }
-        ],
-        "summary": "Decide Capability Request"
       }
     },
     "/v1/channels/qq/start": {

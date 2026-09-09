@@ -106,40 +106,6 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/v1/capability-requests": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** List Capability Requests */
-    get: operations["listCapabilityRequests"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/v1/capability-requests/{capability_request_id}/decision": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** Decide Capability Request */
-    post: operations["decideCapabilityRequest"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
   "/v1/channels/qq/start": {
     parameters: {
       query?: never;
@@ -947,29 +913,6 @@ export interface components {
       | "complete"
       | "abandon"
       | "system_fail";
-    /** AppliedOutcomeResponse */
-    AppliedOutcomeResponse: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
-      /** Message */
-      message: string;
-      /** Occurred At */
-      occurred_at: string;
-      /** Result Ref */
-      result_ref: string;
-      /** State Version */
-      state_version: number;
-      /**
-       * Status
-       * @constant
-       */
-      status: "applied";
-      /** Trace Id */
-      trace_id: string;
-    };
     /** BrowserSessionCurrentResponse */
     BrowserSessionCurrentResponse: {
       /**
@@ -1008,113 +951,14 @@ export interface components {
       /** Issued At */
       issued_at: string;
     };
-    /** CapabilityRequestDecisionRequest */
-    CapabilityRequestDecisionRequest: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
-      /**
-       * Decision
-       * @enum {string}
-       */
-      decision: "grant" | "limit" | "deny" | "revoke";
-      /** Decision Id */
-      decision_id: string;
-      /** Expected Request Version */
-      expected_request_version: number;
-      /** Max Payload Bytes */
-      max_payload_bytes?: number | null;
-      /** Max Uses */
-      max_uses?: number | null;
+    /** CodexAvailabilityResponse */
+    CodexAvailabilityResponse: {
+      /** Available */
+      available: boolean;
+      /** Enabled */
+      enabled: boolean;
       /** Reason Code */
-      reason_code?: string | null;
-      /** Valid For Seconds */
-      valid_for_seconds?: number | null;
-    };
-    /** CapabilityRequestItemResponse */
-    CapabilityRequestItemResponse: {
-      /** Artifact Scope */
-      artifact_scope?: "explicit_only" | null;
-      /** Audience Scope */
-      audience_scope?: "creator" | null;
-      /**
-       * Capability Availability
-       * @enum {string}
-       */
-      capability_availability: "available" | "unavailable";
-      /**
-       * Capability Kind
-       * @constant
-       */
-      capability_kind: "codex.delegated-work";
-      /** Capability Request Id */
-      capability_request_id: string;
-      /** Created At */
-      created_at: string;
-      /** Data Scope */
-      data_scope?: "creator_visible_response" | null;
-      effective_grant?: components["schemas"]["EffectiveGrantResponse"] | null;
-      /** Max Payload Bytes */
-      max_payload_bytes?: number | null;
-      /** Max Uses */
-      max_uses: number;
-      /** Network Access */
-      network_access?: false | null;
-      /**
-       * Operation
-       * @constant
-       */
-      operation: "execute";
-      /**
-       * Purpose
-       * @constant
-       */
-      purpose: "delegate_codex_work";
-      /** Request Version */
-      request_version: number;
-      /** Resolution Reason Code */
-      resolution_reason_code?: string | null;
-      /** Scene Id */
-      scene_id: string;
-      /**
-       * Status
-       * @enum {string}
-       */
-      status:
-        | "pending"
-        | "granted"
-        | "limited"
-        | "denied"
-        | "revoked"
-        | "expired"
-        | "consumed";
-      /** Status Changed At */
-      status_changed_at: string;
-      /** Subject Id */
-      subject_id: string;
-      /** Valid For Seconds */
-      valid_for_seconds: number;
-      /** Workspace Scope */
-      workspace_scope?: "isolated_ephemeral" | null;
-    };
-    /** CapabilityRequestPageResponse */
-    CapabilityRequestPageResponse: {
-      /**
-       * Contract Version
-       * @constant
-       */
-      contract_version: "1.0";
-      /** Items */
-      items: components["schemas"]["CapabilityRequestItemResponse"][];
-      /** Next Cursor */
-      next_cursor?: string | null;
-      /**
-       * Projection Version
-       * @constant
-       */
-      projection_version: "capability-request.v6";
+      reason_code: string | null;
     };
     /** CreatorActivityItemResponse */
     CreatorActivityItemResponse: {
@@ -1209,6 +1053,10 @@ export interface components {
       final_tree_digest?: string | null;
       /** Model Id */
       model_id?: string | null;
+      /** Result Processing Phase */
+      result_processing_phase: string | null;
+      /** Result Processing Reason */
+      result_processing_reason: string | null;
       /** Sdk Identity */
       sdk_identity?: string | null;
       /** Source Tree Digest */
@@ -1537,8 +1385,6 @@ export interface components {
     };
     /** CreatorOperationDetails */
     CreatorOperationDetails: {
-      /** Capability Request Ref */
-      capability_request_ref?: string | null;
       codex_execution?:
         components["schemas"]["CreatorCodexExecutionDetails"] | null;
       /** Dialogue Decision Ref */
@@ -1559,8 +1405,6 @@ export interface components {
         ("reliable" | "operator_attested" | "inconclusive") | null;
       /** Effect Ref */
       effect_ref?: string | null;
-      /** Effect Registration Ref */
-      effect_registration_ref?: string | null;
       /** Intent Ref */
       intent_ref?: string | null;
       /**
@@ -1594,15 +1438,11 @@ export interface components {
         | "stale";
       /** Owner Reason */
       owner_reason?: string | null;
-      /** Permission Grant Ref */
-      permission_grant_ref?: string | null;
-      /** Policy Decision Ref */
-      policy_decision_ref?: string | null;
       /**
        * Projection Version
        * @constant
        */
-      projection_version: "creator-operation.v5";
+      projection_version: "creator-operation.v6";
       /** Reason Code */
       reason_code?: string | null;
       /**
@@ -1658,7 +1498,6 @@ export interface components {
         | "material.invalidated"
         | "relationship.invalidated"
         | "scene.timeline.invalidated"
-        | "capability.request.invalidated"
         | "operation.invalidated"
         | "other_human.record.invalidated"
         | "effect.invalidated"
@@ -1677,10 +1516,9 @@ export interface components {
         | "life-record-query.v2"
         | "creator-relationship.v3"
         | "scene-timeline.v6"
-        | "capability-request.v6"
-        | "creator-operation.v5"
+        | "creator-operation.v6"
         | "other-human-record.v1"
-        | "creator-effect.v5"
+        | "creator-effect.v6"
         | "subject-summary.v1"
         | "data-rights-order-collection.v3";
       /**
@@ -1694,7 +1532,6 @@ export interface components {
         | "material"
         | "relationship"
         | "scene_timeline"
-        | "capability_request"
         | "operation"
         | "other_human_record"
         | "effect"
@@ -2238,8 +2075,6 @@ export interface components {
        * @enum {string}
        */
       capability_kind: "creator.scene.reply" | "codex.delegated-work";
-      /** Capability Request Ref */
-      capability_request_ref?: string | null;
       /**
        * Contract Version
        * @constant
@@ -2283,15 +2118,11 @@ export interface components {
       observation_evidence_kind?: string | null;
       /** Observation Reason */
       observation_reason?: string | null;
-      /** Permission Grant Ref */
-      permission_grant_ref?: string | null;
-      /** Policy Decision Ref */
-      policy_decision_ref?: string | null;
       /**
        * Projection Version
        * @constant
        */
-      projection_version: "creator-effect.v5";
+      projection_version: "creator-effect.v6";
       /** Registered At */
       registered_at: string;
       /** Response Text */
@@ -2327,51 +2158,6 @@ export interface components {
         | "verified"
         | "operator_attested"
         | "inconclusive";
-    };
-    /** CodexEffectiveGrantResponse */
-    EffectiveGrantResponse: {
-      /**
-       * Artifact Scope
-       * @constant
-       */
-      artifact_scope: "explicit_only";
-      /** Consumed Uses */
-      consumed_uses: number;
-      /** Ended At */
-      ended_at?: string | null;
-      /** Grant Ref */
-      grant_ref: string;
-      /**
-       * Max Uses
-       * @constant
-       */
-      max_uses: 1;
-      /**
-       * Network Access
-       * @constant
-       */
-      network_access: false;
-      /** Remaining Uses */
-      remaining_uses: number;
-      /**
-       * Scope Kind
-       * @constant
-       */
-      scope_kind: "codex_delegated_work";
-      /**
-       * Status
-       * @enum {string}
-       */
-      status: "active" | "revoked" | "expired" | "consumed";
-      /** Valid From */
-      valid_from: string;
-      /** Valid Until */
-      valid_until: string;
-      /**
-       * Workspace Scope
-       * @constant
-       */
-      workspace_scope: "isolated_ephemeral";
     };
     /** @enum {string} */
     ErrorCategoryValue:
@@ -2911,9 +2697,7 @@ export interface components {
         | "subject_commit_available"
         | "opportunity_available"
         | "creator_evidence_accepted"
-        | "effect_registered"
         | "effect_settled"
-        | "codex_grant_resolved"
         | "codex_dispatched"
         | "codex_verified"
         | "codex_result_accepted";
@@ -2934,9 +2718,7 @@ export interface components {
         | "model_response"
         | "candidate_validation"
         | "subject_commit"
-        | "effect_registration"
         | "effect_dispatch"
-        | "capability_decision"
         | "codex_dispatch"
         | "codex_verification"
         | "codex_result_acceptance"
@@ -3192,6 +2974,7 @@ export interface components {
        */
       authority_state:
         "inactive" | "active" | "suspended" | "draining" | "lost";
+      codex: components["schemas"]["CodexAvailabilityResponse"];
       /** Components */
       components: components["schemas"]["RuntimeComponentHealthResponse"][];
       /**
@@ -3591,163 +3374,6 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["RejectedOutcomeResponse"];
-        };
-      };
-    };
-  };
-  listCapabilityRequests: {
-    parameters: {
-      query?: {
-        limit?: number;
-        cursor?: string | null;
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["CapabilityRequestPageResponse"];
-        };
-      };
-      /** @description Bad Request */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["RejectedOutcomeResponse"];
-        };
-      };
-      /** @description Unauthorized */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["RejectedOutcomeResponse"];
-        };
-      };
-      /** @description Forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["RejectedOutcomeResponse"];
-        };
-      };
-      /** @description Conflict */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["RejectedOutcomeResponse"];
-        };
-      };
-      /** @description Service Unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["UnavailableOutcomeResponse"];
-        };
-      };
-    };
-  };
-  decideCapabilityRequest: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        capability_request_id: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["CapabilityRequestDecisionRequest"];
-      };
-    };
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["AppliedOutcomeResponse"];
-        };
-      };
-      /** @description Bad Request */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["RejectedOutcomeResponse"];
-        };
-      };
-      /** @description Unauthorized */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["RejectedOutcomeResponse"];
-        };
-      };
-      /** @description Forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["RejectedOutcomeResponse"];
-        };
-      };
-      /** @description Not Found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["RejectedOutcomeResponse"];
-        };
-      };
-      /** @description Conflict */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["RejectedOutcomeResponse"];
-        };
-      };
-      /** @description Content Too Large */
-      413: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["RejectedOutcomeResponse"];
-        };
-      };
-      /** @description Service Unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["UnavailableOutcomeResponse"];
         };
       };
     };

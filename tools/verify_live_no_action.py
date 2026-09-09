@@ -89,7 +89,6 @@ async def _verify(environment_root: Path) -> dict[str, object]:
                                     ],
                                     "forbidden_proposals": [
                                         "creator_reply",
-                                        "capability_request",
                                         "experience",
                                         "component_change",
                                     ],
@@ -257,7 +256,6 @@ async def _verify(environment_root: Path) -> dict[str, object]:
         or formal_choice.reason is not FormalNoActionReason.SUBJECTIVE_SILENCE
         or change_set.experiences
         or change_set.owner_drafts
-        or change_set.capability_requests
     )
     return {
         "requested_model_id": binding.model_id,
@@ -278,9 +276,6 @@ async def _verify(environment_root: Path) -> dict[str, object]:
         ),
         "experience_count": len(change_set.experiences) if change_set else None,
         "owner_draft_count": len(change_set.owner_drafts) if change_set else None,
-        "capability_request_count": (
-            len(change_set.capability_requests) if change_set else None
-        ),
         "action_choice_count": len(change_set.action_choices) if change_set else None,
         "input_tokens": invocation.usage.input_tokens,
         "output_tokens": invocation.usage.output_tokens,

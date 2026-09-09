@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock
 from uuid import uuid7
 
 import pytest
-from armi_effect._application import EffectRegistrationPipeline
+from armi_effect._application import EffectPipeline
 from armi_effect._dispatch import EffectDispatchSnapshot
 from armi_effect.api import (
     EffectAdapterReceipt,
@@ -31,7 +31,7 @@ class _UnitOfWork:
 
 
 def _pipeline(*, receipt: EffectAdapterReceipt | None) -> Any:
-    pipeline = cast(Any, object.__new__(EffectRegistrationPipeline))
+    pipeline = cast(Any, object.__new__(EffectPipeline))
     pipeline._factory = SimpleNamespace(unit_of_work=lambda **_kwargs: _UnitOfWork())
     pipeline._dispatcher = AsyncMock()
     pipeline._adapter = AsyncMock()
@@ -119,9 +119,9 @@ async def test_direct_reply_checks_send_boundary_without_permissions(
     pipeline._fault_injector = Mock()
     read = AsyncMock(return_value=None if boundary == "corrupt" else b"reply")
     send = AsyncMock(return_value=_receipt())
-    monkeypatch.setattr(EffectRegistrationPipeline, "_read_payload", read)
-    monkeypatch.setattr(EffectRegistrationPipeline, "_dispatch_with_heartbeat", send)
-    monkeypatch.setattr(EffectRegistrationPipeline, "_notify_dispatch", AsyncMock())
+    monkeypatch.setattr(EffectPipeline, "_read_payload", read)
+    monkeypatch.setattr(EffectPipeline, "_dispatch_with_heartbeat", send)
+    monkeypatch.setattr(EffectPipeline, "_notify_dispatch", AsyncMock())
     await pipeline._dispatch_claimed(snapshot, _UnitOfWork.runtime_fence)
     read.assert_awaited_once()
     if boundary == "send":
@@ -180,7 +180,7 @@ async def test_verified_receipt_records_every_party_destination(
         Instant(datetime.now(UTC)),
     )
     timeline = AsyncMock()
-    pipeline = object.__new__(EffectRegistrationPipeline)
+    pipeline = object.__new__(EffectPipeline)
     pipeline._interaction_delivery = timeline
     transaction = object()
 

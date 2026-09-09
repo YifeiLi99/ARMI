@@ -22,7 +22,6 @@ def _contract(
 DATA_RIGHTS_OWNER_CONTRACTS = (
     _contract("activity", ("activity",), ()),
     _contract("artifact-store", ("artifact",), ()),
-    _contract("capability", (), ()),
     _contract(
         "expression",
         ("effect",),

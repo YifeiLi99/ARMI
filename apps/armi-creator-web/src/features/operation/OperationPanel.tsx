@@ -20,12 +20,10 @@ const waitingLabels = {
   subject_commit: "候选已校验，等待主体提交",
   future_opportunity: "已暂缓，等待未来机会",
   new_evidence: "需要新的证据",
-  effect_registration: "Codex 委托已接纳，正在登记效果账本",
   effect_dispatch: "效果已登记，正在等待接收与核验",
-  capability_decision: "Codex 委托正在等待创造者授权",
   codex_dispatch: "Codex 效果已登记，正在等待受限执行",
   codex_verification: "Codex 执行结束，正在核验结果",
-  codex_result_acceptance: "Codex 结果已保管，正在等待主体接纳",
+  codex_result_acceptance: "Codex 结果已保存，ARMI 正在处理后续认知和回复",
 } as const;
 
 const operationKindLabels = {
@@ -136,24 +134,6 @@ export function OperationPanel({
                 <dd>{data.details.intent_ref}</dd>
               </div>
             ) : null}
-            {data.details.policy_decision_ref ? (
-              <div>
-                <dt>Policy</dt>
-                <dd>{data.details.policy_decision_ref}</dd>
-              </div>
-            ) : null}
-            {data.details.capability_request_ref ? (
-              <div>
-                <dt>Capability Request</dt>
-                <dd>{data.details.capability_request_ref}</dd>
-              </div>
-            ) : null}
-            {data.details.permission_grant_ref ? (
-              <div>
-                <dt>Permission Grant</dt>
-                <dd>{data.details.permission_grant_ref}</dd>
-              </div>
-            ) : null}
             {data.details.effect_attempt_ref ? (
               <div>
                 <dt>当前 Effect Attempt</dt>
@@ -188,6 +168,21 @@ export function OperationPanel({
                     {data.details.codex_execution.execution_status ?? "待核验"}
                   </dd>
                 </div>
+                <div>
+                  <dt>后续处理</dt>
+                  <dd>
+                    {data.details.codex_execution.result_processing_phase ??
+                      "尚未开始"}
+                  </dd>
+                </div>
+                {data.details.codex_execution.result_processing_reason ? (
+                  <div>
+                    <dt>后续处理原因</dt>
+                    <dd>
+                      {data.details.codex_execution.result_processing_reason}
+                    </dd>
+                  </div>
+                ) : null}
                 <div>
                   <dt>Codex Task Source</dt>
                   <dd>{data.details.codex_execution.task_source_ref}</dd>
@@ -231,7 +226,7 @@ export function OperationPanel({
           {data.details.stage === "dispatching" ? (
             <p className="critical-note" role="status">
               {data.details.operation_kind === "codex_delegation"
-                ? "效果已进入派发边界；撤回 grant 不会把在途事实改写为未发生。"
+                ? "委托正在执行；中断后不会重跑，实际结果按核验记录保留。"
                 : "回复正在发送，最终结果以实际回执为准。"}
             </p>
           ) : null}

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 from uuid import UUID
@@ -84,7 +83,6 @@ class CodexCommitPort(Protocol):
         context: CodexCommitContext,
         commit_id: UUID,
         delegations: tuple[CodexDelegationDraft, ...],
-        capability_request_ids: Mapping[str, UUID],
     ) -> None: ...
 
 
@@ -113,6 +111,7 @@ class CodexExecutionSnapshot:
     validator_id: str
     source_tree_digest: Digest
     final_tree_digest: Digest | None
+    result_opportunity_id: UUID | None
 
 
 @runtime_checkable

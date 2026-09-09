@@ -24,7 +24,6 @@ import { RequiredComponentsCard } from "../maintenance/RequiredComponentsCard";
 import { MaterialPanel } from "../material/MaterialPanel";
 import { MemoryPanel } from "../memory/MemoryPanel";
 import { RelationshipPanel } from "../relationship/RelationshipPanel";
-import { CapabilityInbox } from "../capability/CapabilityInbox";
 import { EffectDetail } from "../effect/EffectDetail";
 import { ExportPanel } from "../export/ExportPanel";
 import { DataRightsPanel } from "../dataRights/DataRightsPanel";
@@ -388,14 +387,6 @@ export function SessionPanel() {
           </div>
           <div hidden={activePage !== "people"}>
             <OtherHumanRecordPanel
-              token={view.stored.token}
-              environmentId={view.session.environment_id}
-              creatorPartyId={view.session.creator_party_id}
-              onUnauthorized={unauthorized}
-            />
-          </div>
-          <div hidden={activePage !== "capabilities"}>
-            <CapabilityInbox
               token={view.stored.token}
               environmentId={view.session.environment_id}
               creatorPartyId={view.session.creator_party_id}

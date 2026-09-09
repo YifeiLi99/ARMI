@@ -6,7 +6,6 @@ import pytest
 from armi_runtime.composition.work_wakeup import (
     CANDIDATE_VALIDATE,
     CONTEXT_PREPARE,
-    EFFECT_REGISTER,
     MODEL_INVOKE,
     OPPORTUNITY_AVAILABLE,
     SUBJECT_COMMIT,
@@ -58,7 +57,6 @@ async def test_payload_free_pulses_wake_the_interactive_chain_immediately() -> N
         MODEL_INVOKE,
         CANDIDATE_VALIDATE,
         SUBJECT_COMMIT,
-        EFFECT_REGISTER,
     )
     completed: list[str] = []
 

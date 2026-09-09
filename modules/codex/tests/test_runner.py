@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import ctypes
 import json
 import subprocess
 import sys
+import threading
+import time
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 from uuid import uuid7
@@ -21,7 +25,7 @@ from armi_codex._runner import (
     _result_bundle,
 )
 from armi_codex._sdk_codec import SdkTurnEvidence
-from armi_codex._subprocess_client import _decode_failure
+from armi_codex._subprocess_client import _decode_failure, run_custodied_subprocess
 from armi_codex._workspace import capture_tree, changed_paths, snapshot_tree
 from armi_codex.api import (
     CodexExecutionId,
@@ -52,6 +56,51 @@ def test_result_bundle_uses_the_single_custodied_byte_set(tmp_path: Path) -> Non
 
     with zipfile.ZipFile(runner_module.io.BytesIO(_result_bundle(custody))) as bundle:
         assert bundle.read("result.md") == b"captured\n"
+
+
+def test_supervisor_cancellation_terminates_child_process_tree(tmp_path: Path) -> None:
+    task, _workspace = _prepare_output_task(tmp_path)
+    module = tmp_path / "controlled_runner.py"
+    module.write_text(
+        "import subprocess,sys,time\nfrom pathlib import Path\n"
+        "child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'])\n"
+        "Path('child.pid').write_text(str(child.pid))\ntime.sleep(60)\n",
+        encoding="utf-8",
+    )
+    cancellation = threading.Event()
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.OpenProcess.restype = ctypes.c_void_p
+    kernel.OpenProcess.argtypes = (ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32)
+    kernel.WaitForSingleObject.argtypes = (ctypes.c_void_p, ctypes.c_uint32)
+    kernel.CloseHandle.argtypes = (ctypes.c_void_p,)
+    handle = None
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(
+            run_custodied_subprocess,
+            runner_entry_module="controlled_runner",
+            environment_root=tmp_path,
+            process_temp=tmp_path / "supervisor-temp",
+            task=task,
+            cancellation=cancellation,
+        )
+        try:
+            deadline = time.monotonic() + 10
+            marker = tmp_path / "child.pid"
+            while not marker.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert marker.exists()
+            handle = kernel.OpenProcess(0x00100000, False, int(marker.read_text()))
+            assert handle
+        finally:
+            cancellation.set()
+        try:
+            with pytest.raises(CodexRunnerViolation, match="CODEX-CANCELLED"):
+                future.result(timeout=20)
+            assert kernel.WaitForSingleObject(handle, 5000) == 0
+            assert not (tmp_path / "supervisor-temp").exists()
+        finally:
+            if handle:
+                kernel.CloseHandle(handle)
 
 
 class _Handle:
@@ -441,7 +490,7 @@ async def test_cleanup_failure_does_not_replace_execution_failure(
         raise CodexRunnerViolation("CODEX-CLEANUP")
 
     monkeypatch.setattr(runner_module, "_invoke_sdk", fake_invoke_sdk)
-    monkeypatch.setattr(runner_module, "_remove_private", fake_cleanup)
+    monkeypatch.setattr(runner_module, "remove_private_directory", fake_cleanup)
     runner = IsolatedCodexRunner(
         run_root=run_root,
         credential_port=_Credentials(),

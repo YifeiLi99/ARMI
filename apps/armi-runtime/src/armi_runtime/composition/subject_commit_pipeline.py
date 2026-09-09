@@ -22,7 +22,6 @@ from armi_artifact_store.life_material_codec import (
     build_life_material_artifact,
 )
 from armi_attention.api import OpportunityTransitionPort
-from armi_capability.api import CapabilityCommitPort, CapabilityReadPort
 from armi_codex.api import CodexCommitPort
 from armi_cognition.api import (
     CognitionSubjectCommitPort,
@@ -114,7 +113,6 @@ from armi_runtime.adapters.transaction_errors import (
 )
 
 from .work_wakeup import (
-    EFFECT_REGISTER,
     EXACT_LIFE_QUERY,
     OPPORTUNITY_AVAILABLE,
     SUBJECT_COMMIT,
@@ -167,8 +165,6 @@ class SubjectCommitPipeline:
         catalog: ArtifactCatalogPort,
         activity_cognition: ActivityCognitionPort,
         activity_commit: ActivityCommitPort,
-        capability_commit: CapabilityCommitPort,
-        capability_read: CapabilityReadPort,
         codex_commit: CodexCommitPort,
         cognition_commit: CognitionSubjectCommitPort,
         experience_commit: ExperienceCommitPort,
@@ -217,8 +213,6 @@ class SubjectCommitPipeline:
         self._subject_state_cognition = subject_state_cognition
         self._repository = PostgreSQLSubjectCommitRepository(
             activity_commit,
-            capability_commit,
-            capability_read,
             codex_commit,
             cognition_commit,
             experience_commit,
@@ -484,7 +478,6 @@ class SubjectCommitPipeline:
     def _wake_downstream(self) -> None:
         self._wakeups.notify(OPPORTUNITY_AVAILABLE)
         self._wakeups.notify(EXACT_LIFE_QUERY)
-        self._wakeups.notify(EFFECT_REGISTER)
 
     async def _notify_voice(
         self,
@@ -745,7 +738,7 @@ class SubjectCommitPipeline:
                 CreatorResourceKind("operation"),
                 str(snapshot.root_opportunity_id),
                 now,
-                "creator-operation.v5",
+                "creator-operation.v6",
             )
         ]
         if result.subject_commit_id is not None:
@@ -766,22 +759,6 @@ class SubjectCommitPipeline:
                     "subject-summary.v1",
                 )
             )
-            try:
-                async with self._factory.unit_of_work(read_only=True) as unit_of_work:
-                    request_ids = await self._repository.capability_request_ids(
-                        unit_of_work, result.subject_commit_id
-                    )
-                invalidations.extend(
-                    CreatorProjectionInvalidation(
-                        CreatorResourceKind("capability_request"),
-                        str(request_id),
-                        now,
-                        "capability-request.v6",
-                    )
-                    for request_id in request_ids
-                )
-            except DatabaseTransactionError:
-                self._diagnostic("subject_commit.notification.lookup_failed")
         try:
             async with self._factory.unit_of_work(read_only=True) as unit_of_work:
                 activity_ids = await self._repository.affected_activity_ids(
@@ -885,8 +862,6 @@ def build_subject_commit_pipeline(
     change_set_codec: SubjectChangeSetCodec,
     activity_cognition: ActivityCognitionPort,
     activity_commit: ActivityCommitPort,
-    capability_commit: CapabilityCommitPort,
-    capability_read: CapabilityReadPort,
     codex_commit: CodexCommitPort,
     cognition_commit: CognitionSubjectCommitPort,
     experience_commit: ExperienceCommitPort,
@@ -932,8 +907,6 @@ def build_subject_commit_pipeline(
         change_set_codec=change_set_codec,
         activity_cognition=activity_cognition,
         activity_commit=activity_commit,
-        capability_commit=capability_commit,
-        capability_read=capability_read,
         codex_commit=codex_commit,
         cognition_commit=cognition_commit,
         experience_commit=experience_commit,

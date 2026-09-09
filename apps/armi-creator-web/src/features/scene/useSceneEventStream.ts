@@ -79,7 +79,6 @@ export function useSceneEventStream({
               "maintenance-timeline",
               "relationship-current",
               "relationship-timeline",
-              "capability-requests",
               "creator-operation",
               "creator-effect",
               "subject-summary",
@@ -195,7 +194,6 @@ export function useSceneEventStream({
         return;
       }
       const prefix = {
-        capability_request: "capability-requests",
         operation: "creator-operation",
         effect: "creator-effect",
         subject_summary: "subject-summary",
@@ -207,8 +205,7 @@ export function useSceneEventStream({
         {
           predicate: (query) =>
             query.queryKey[0] === prefix &&
-            (prefix === "capability-requests" ||
-              prefix === "subject-summary" ||
+            (prefix === "subject-summary" ||
               query.queryKey.includes(resourceRef)),
         },
         { throwOnError: true },
@@ -339,7 +336,6 @@ export function useSceneEventStream({
             "maintenance-timeline",
             "relationship-current",
             "relationship-timeline",
-            "capability-requests",
             "creator-operation",
             "creator-effect",
             "subject-summary",

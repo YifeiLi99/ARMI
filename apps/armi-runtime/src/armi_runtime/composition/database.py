@@ -33,20 +33,11 @@ from armi_attention.bootstrap import (
     bootstrap_opportunity_admission,
 )
 from armi_capability.api import (
-    CapabilityActionAuthorizationPort,
-    CapabilityCommitPort,
-    CapabilityDispatchAuthorizationPort,
-    CapabilityOperationReadPort,
     CapabilityReadPort,
-)
-from armi_capability.bootstrap import (
-    CapabilityModule,
-    bootstrap_capability,
 )
 from armi_codex.api import (
     CodexCommitPort,
     CodexContextReadPort,
-    CodexDelegationViolation,
     CodexExecutionReadPort,
     CodexRuntimePort,
     CodexTaskSourceReadPort,
@@ -111,16 +102,12 @@ from armi_data_rights.bootstrap import (
 from armi_effect.api import (
     ActionAdapterPort,
     EffectCodexArtifactPort,
-    EffectGrantCancellationPort,
     EffectOperationReadPort,
     EffectReadPort,
-    EffectRegistrationContextPort,
     EffectRuntimePort,
 )
 from armi_effect.bootstrap import (
     bootstrap_effect_codex_lifecycle,
-    bootstrap_effect_grant_cancellation,
-    bootstrap_effect_responsibility,
     bootstrap_effect_runtime,
     bootstrap_expression_effect_registration,
 )
@@ -132,7 +119,6 @@ from armi_evidence.bootstrap import (
 from armi_experience.api import ExperienceCommitPort, ExperienceLifeRecordPort
 from armi_expression.api import (
     ExpressionCommitPort,
-    ExpressionEffectLinkPort,
     ExpressionIntentReadPort,
 )
 from armi_expression.bootstrap import (
@@ -301,8 +287,6 @@ from armi_runtime.adapters.persistence.schema_gateway import (
 from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWorkFactory
 from armi_runtime.application.action_lifecycle import (
     RuntimeCodexArtifactReference,
-    RuntimeCodexGrantActivation,
-    RuntimeEffectRegistrationContext,
 )
 from armi_runtime.application.cognition_cycle import (
     RuntimeCognitionCycleSelector,
@@ -627,7 +611,6 @@ def compose_creator_operation_query(
     interaction: CreatorInputTransactionPort,
     evidence: EvidenceReadPort,
     expression: ExpressionIntentReadPort,
-    capability: CapabilityOperationReadPort,
     codex: CodexTaskSourceReadPort,
     codex_executions: CodexExecutionReadPort,
     opportunity: OpportunityOperationReadPort,
@@ -642,7 +625,6 @@ def compose_creator_operation_query(
         interaction=interaction,
         evidence=evidence,
         expression=expression,
-        capability=capability,
         effect=effect,
         codex=codex,
         codex_executions=codex_executions,
@@ -1523,6 +1505,7 @@ def compose_candidate_validation_pipeline(
     opportunity_transitions: OpportunityCognitionSelectionPort,
     evidence: EvidenceReadPort,
     codex: CodexTaskSourceReadPort,
+    codex_available: Callable[[], bool],
     memory_cognition: MemoryCognitionPort,
     memory_read: MemoryReadPort,
     mood_cognition: MoodCognitionPort,
@@ -1562,6 +1545,7 @@ def compose_candidate_validation_pipeline(
         opportunity_transitions=opportunity_transitions,
         evidence=evidence,
         codex=codex,
+        codex_available=codex_available,
         memory_cognition=memory_cognition,
         memory_read=memory_read,
         mood_cognition=mood_cognition,
@@ -1589,8 +1573,6 @@ def compose_subject_commit_pipeline(
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     activity_cognition: ActivityCognitionPort,
     activity_commit: ActivityCommitPort,
-    capability_commit: CapabilityCommitPort,
-    capability_read: CapabilityReadPort,
     codex_commit: CodexCommitPort,
     cognition_commit: CognitionSubjectCommitPort,
     experience_commit: ExperienceCommitPort,
@@ -1643,8 +1625,6 @@ def compose_subject_commit_pipeline(
         ),
         activity_cognition=activity_cognition,
         activity_commit=activity_commit,
-        capability_commit=capability_commit,
-        capability_read=capability_read,
         codex_commit=codex_commit,
         cognition_commit=cognition_commit,
         experience_commit=experience_commit,
@@ -1679,10 +1659,6 @@ def compose_subject_commit_pipeline(
     )
 
 
-def compose_effect_grant_cancellation() -> EffectGrantCancellationPort:
-    return bootstrap_effect_grant_cancellation()
-
-
 def compose_expression_module(
     *,
     relationship_read: RelationshipReadPort,
@@ -1697,27 +1673,6 @@ def compose_expression_module(
         interaction_routes,
         interaction_scenes,
         bootstrap_live_voice_context_read(),
-    )
-
-
-def compose_capability_policy(
-    prepared: PreparedEnvironment,
-    *,
-    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
-    cursor_key: bytes,
-    effect_cancellation: EffectGrantCancellationPort,
-    codex_activation: RuntimeCodexGrantActivation,
-    notifier: CreatorProjectionNotifier | None = None,
-) -> CapabilityModule:
-    """Resolve the Runtime credential for the sole active T-04 policy."""
-
-    return bootstrap_capability(
-        unit_of_work_factory,
-        environment_id=prepared.effective.config.environment.environment_id,
-        cursor_key=cursor_key,
-        effect_cancellation=effect_cancellation,
-        codex_activation=codex_activation,
-        notifier=notifier,
     )
 
 
@@ -1744,14 +1699,11 @@ def compose_runtime_recovery(
     )
 
 
-def compose_effect_registration_pipeline(
+def compose_effect_pipeline(
     prepared: PreparedEnvironment,
     *,
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
-    authorization: CapabilityActionAuthorizationPort,
     intents: ExpressionIntentReadPort,
-    effect_links: ExpressionEffectLinkPort,
-    registration_context: EffectRegistrationContextPort,
     codex_artifacts: EffectCodexArtifactPort,
     routes: InteractionEffectRoutePort,
     interaction_delivery: InteractionEffectDeliveryPort,
@@ -1774,11 +1726,7 @@ def compose_effect_registration_pipeline(
             prepared.data_root / "artifacts",
             max_object_bytes=prepared.effective.config.artifacts.max_object_bytes,
         ),
-        work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
-        authorization=authorization,
         intents=intents,
-        effect_links=effect_links,
-        registration_context=registration_context,
         codex_artifacts=codex_artifacts,
         routes=routes,
         interaction_delivery=interaction_delivery,
@@ -1787,7 +1735,6 @@ def compose_effect_registration_pipeline(
         data_rights_fence=data_rights_fence,
         runtime_admission=runtime_admission,
         notifier=notifier,
-        wakeups=wakeups,
         diagnostic=diagnostic,
         fault_injector=fault_injector,
         external_message_adapter=external_message_adapter,
@@ -1801,23 +1748,10 @@ def compose_codex_read_ports() -> CodexReadPorts:
 
 def compose_effect_owner_context(
     *,
-    expression: ExpressionIntentReadPort,
-    interaction: InteractionEffectRoutePort,
     codex: CodexReadPorts,
     catalog: ArtifactCatalogPort,
-) -> tuple[RuntimeEffectRegistrationContext, RuntimeCodexArtifactReference]:
-    return (
-        RuntimeEffectRegistrationContext(
-            artifacts=catalog,
-            codex=codex.task_sources,
-            expression=expression,
-            registrations=bootstrap_effect_responsibility(),
-        ),
-        RuntimeCodexArtifactReference(
-            artifacts=catalog,
-            codex=codex.artifacts,
-        ),
-    )
+) -> RuntimeCodexArtifactReference:
+    return RuntimeCodexArtifactReference(artifacts=catalog, codex=codex.artifacts)
 
 
 def compose_codex_pipeline(
@@ -1830,9 +1764,9 @@ def compose_codex_pipeline(
     evidence_read: EvidenceReadPort,
     identity: InteractionIdentityPort,
     opportunity: OpportunityAdmissionPort,
-    dispatch_authorization: CapabilityDispatchAuthorizationPort,
     expression: ExpressionIntentReadPort,
     sources: CodexTaskSourceReadPort,
+    unavailable_reason: Callable[[], str | None],
     custody: ExecutionCustodyPort,
     data_rights: DataRightsEffectGate,
     interaction_data_rights: DataRightsInteractionGate,
@@ -1844,9 +1778,6 @@ def compose_codex_pipeline(
 ) -> CodexRuntimePort:
     """Compose the one active S039 Codex dispatcher without exposing auth."""
 
-    auth_locator = prepared.effective.config.secret_locators.get(CODEX_LOCATOR_NAME)
-    if auth_locator is None:
-        raise CodexDelegationViolation("CODEX-DELEGATION-CREDENTIAL")
     run_root = prepared.data_root / "codex-runner"
     return bootstrap_codex(
         factory=unit_of_work_factory,
@@ -1860,9 +1791,10 @@ def compose_codex_pipeline(
         evidence_read=evidence_read,
         identity=identity,
         opportunity=opportunity,
-        effect=bootstrap_effect_codex_lifecycle(dispatch_authorization),
+        effect=bootstrap_effect_codex_lifecycle(),
         expression=expression,
         sources=sources,
+        unavailable_reason=unavailable_reason,
         custody=custody,
         data_rights=data_rights,
         interaction_data_rights=interaction_data_rights,
@@ -1882,7 +1814,6 @@ __all__ = (
     "DatabaseViolation",
     "compose_activity_module",
     "compose_candidate_validation_pipeline",
-    "compose_capability_policy",
     "compose_codex_pipeline",
     "compose_codex_read_ports",
     "compose_cognition_exact_life_query",
@@ -1891,9 +1822,8 @@ __all__ = (
     "compose_creator_operation_query",
     "compose_data_rights_core",
     "compose_data_rights_module",
-    "compose_effect_grant_cancellation",
     "compose_effect_owner_context",
-    "compose_effect_registration_pipeline",
+    "compose_effect_pipeline",
     "compose_evidence_module",
     "compose_exact_life_query_pipeline",
     "compose_execution_custody",

@@ -44,8 +44,6 @@ _COLUMNS = """
     request_ref,
     before_version,
     after_version,
-    policy_ref,
-    grant_ref,
     error_category,
     occurred_at
 """
@@ -82,13 +80,10 @@ class PostgreSQLAuditWriter:
                     request_ref,
                     before_version,
                     after_version,
-                    policy_ref,
-                    grant_ref,
                     error_category)
                 VALUES (
                     %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s)
+                    %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 _draft_parameters(draft),
             )
@@ -147,8 +142,6 @@ def _draft_parameters(draft: AuditDraft) -> tuple[object, ...]:
         draft.request.reference if draft.request is not None else None,
         draft.before_version,
         draft.after_version,
-        draft.policy.reference if draft.policy is not None else None,
-        draft.grant.reference if draft.grant is not None else None,
         draft.error_category.value if draft.error_category is not None else None,
     )
 
@@ -188,13 +181,11 @@ def _row_to_record(row: Sequence[Any]) -> AuditRecord:
             request=request,
             before_version=row[13],
             after_version=row[14],
-            policy=(AuditReference("policy", row[15]) if row[15] is not None else None),
-            grant=AuditReference("grant", row[16]) if row[16] is not None else None,
             error_category=(
-                ErrorCategory(str(row[17])) if row[17] is not None else None
+                ErrorCategory(str(row[15])) if row[15] is not None else None
             ),
         )
-        return AuditRecord(draft, Instant(row[18]))
+        return AuditRecord(draft, Instant(row[16]))
     except AuditViolation, TypeError, ValueError:
         raise AuditViolation("AUD-READ") from None
 

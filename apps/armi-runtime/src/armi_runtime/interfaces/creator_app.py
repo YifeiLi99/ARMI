@@ -20,7 +20,6 @@ from .creator_http import (
     Awaitable,
     BrowserSessionStore,
     Callable,
-    CapabilityPolicyPort,
     CreatorCodexTaskAdmissionPort,
     CreatorEmergencyWakePort,
     CreatorEventBroker,
@@ -101,7 +100,6 @@ def create_runtime_app(
     creator_prompt: CreatorPromptPort | None = None,
     creator_export: CreatorExportPort | None = None,
     data_rights: DataRightsOrderPort | None = None,
-    capability_policy: CapabilityPolicyPort | None = None,
     effect_ledger: EffectLedgerPort | None = None,
     codex_task_admission: CreatorCodexTaskAdmissionPort[CreatorInputAcceptance]
     | None = None,
@@ -160,7 +158,7 @@ def create_runtime_app(
                         CreatorResourceKind("operation"),
                         str(acceptance.opportunity_id),
                         Instant(datetime.now(UTC)),
-                        "creator-operation.v5",
+                        "creator-operation.v6",
                     )
                 )
             except Exception:
@@ -171,6 +169,7 @@ def create_runtime_app(
         inputs=creator_input,
         scenes=creator_scenes,
         codex=codex_task_admission,
+        codex_unavailable_reason=lambda: runtime_status().codex.reason_code,
         accepted=input_accepted,
         operations=creator_operations,
         effects=effect_ledger,
@@ -237,7 +236,6 @@ def create_runtime_app(
             request.url.query
             and request.url.path.startswith("/v1/")
             and timeline_path is None
-            and request.url.path != "/v1/capability-requests"
             and not paged_query_path
         ):
             emit("creator.request.url_token_rejected")
@@ -292,7 +290,6 @@ def create_runtime_app(
         canonical_origin=canonical_origin,
         emit=emit,
         browser_sessions=browser_sessions,
-        capability_policy=capability_policy,
         creator_events=creator_events,
         creator_export=creator_export,
         data_rights=data_rights,

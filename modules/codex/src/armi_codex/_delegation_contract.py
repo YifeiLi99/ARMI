@@ -14,7 +14,8 @@ from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId, Tr
 from ._runner_contract import CodexModel, CodexReasoningEffort
 
 _CODE = re.compile(
-    r"^(?:CON-)?CODEX-(?:TASK|DELEGATION|VERIFICATION|RESULT)-[A-Z0-9-]+$"
+    r"^(?:CON-)?CODEX-(?:(?:TASK|DELEGATION|VERIFICATION|RESULT)-[A-Z0-9-]+"
+    r"|DISABLED|UNAVAILABLE|CREDENTIAL-(?:MISSING|UNAVAILABLE)|DATA-RIGHTS-STALE)$"
 )
 _REF = re.compile(r"^proposal:[1-9][0-9]{0,2}$")
 _GROUP = re.compile(r"^group:[1-9][0-9]{0,2}$")

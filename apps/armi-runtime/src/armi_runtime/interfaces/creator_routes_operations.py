@@ -129,6 +129,19 @@ def register_operation_routes(
                 status, content = 413, _rejected("INPUT_MESSAGE_TOO_LARGE")
             elif code == "CODEX-TASK-REQUEST":
                 status, content = 400, _rejected("INPUT_MESSAGE_INVALID")
+            elif code in {
+                "CODEX-DISABLED",
+                "CODEX-CREDENTIAL-MISSING",
+                "CODEX-CREDENTIAL-UNAVAILABLE",
+                "CODEX-UNAVAILABLE",
+            }:
+                reason = {
+                    "CODEX-DISABLED": "DEPENDENCY_CODEX_DISABLED",
+                    "CODEX-CREDENTIAL-MISSING": "DEPENDENCY_CODEX_CREDENTIAL_MISSING",
+                    "CODEX-CREDENTIAL-UNAVAILABLE": "DEPENDENCY_CODEX_CREDENTIAL_UNAVAILABLE",
+                    "CODEX-UNAVAILABLE": "DEPENDENCY_CODEX_EXECUTOR_UNAVAILABLE",
+                }[code]
+                status, content = 503, _unavailable(reason)
             elif code == "CODEX-TASK-SUBJECT":
                 status, content = 404, _rejected("SCOPE_SCENE_NOT_VISIBLE")
             else:

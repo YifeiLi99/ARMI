@@ -37,10 +37,12 @@ from ._codec import decode_result, decode_task, encode_result, encode_task
 from ._commit import PostgreSQLCodexCommit
 from ._custody_codec import encode_custodied_result
 from ._data_rights import PostgreSQLCodexDataRightsParticipant
+from ._postgresql import PostgreSQLCodexDelegationRepository
 from ._read_postgresql import PostgreSQLCodexReadOwner
 from ._recovery import CodexRecoveryParticipant
 from ._runner import (
     IsolatedCodexRunner,
+    check_local_runner,
     owner_only,
     runner_config,
     sanitize_platform_home,
@@ -67,6 +69,7 @@ def bootstrap_codex_admin() -> CodexAdminPort:
 
 
 compose_codex_task_source_gateway = CodexTaskSourceGateway
+compose_codex_delegation_repository = PostgreSQLCodexDelegationRepository
 
 
 Diagnostic = Callable[[str], None]
@@ -75,8 +78,10 @@ Diagnostic = Callable[[str], None]
 def bootstrap_codex_commit(
     sources: CodexTaskSourceReadPort,
     expression: ExpressionCommitPort,
+    catalog: ArtifactCatalogPort,
+    available: Callable[[], bool],
 ) -> CodexCommitPort:
-    return PostgreSQLCodexCommit(sources, expression)
+    return PostgreSQLCodexCommit(sources, expression, catalog, available)
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,6 +117,7 @@ def bootstrap_codex(
     effect: EffectCodexLifecyclePort,
     expression: ExpressionIntentReadPort,
     sources: CodexTaskSourceReadPort,
+    unavailable_reason: Callable[[], str | None],
     custody: ExecutionCustodyPort,
     data_rights: DataRightsEffectGate,
     interaction_data_rights: DataRightsInteractionGate,
@@ -138,6 +144,7 @@ def bootstrap_codex(
         effect=effect,
         expression=expression,
         sources=sources,
+        unavailable_reason=unavailable_reason,
         custody=custody,
         data_rights=data_rights,
         interaction_data_rights=interaction_data_rights,
@@ -190,6 +197,8 @@ __all__ = (
     "bootstrap_codex_recovery",
     "bootstrap_codex_runner",
     "bootstrap_codex_timeline_projection",
+    "check_local_runner",
+    "compose_codex_delegation_repository",
     "compose_codex_task_source_gateway",
     "decode_runner_result",
     "decode_runner_task",

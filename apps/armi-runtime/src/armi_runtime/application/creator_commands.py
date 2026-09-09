@@ -53,6 +53,7 @@ class CreatorCommands:
         scenes: CreatorScenePort | None,
         codex: CreatorCodexTaskAdmissionPort[CreatorInputAcceptance] | None,
         accepted: Callable[[CreatorInputAcceptance], Awaitable[None]],
+        codex_unavailable_reason: Callable[[], str | None],
         operations: CreatorOperationQueryPort | None = None,
         effects: EffectLedgerPort | None = None,
         media: CreatorMedia | None = None,
@@ -60,6 +61,7 @@ class CreatorCommands:
         self.inputs = inputs
         self.scenes = scenes
         self.codex = codex
+        self._codex_unavailable_reason = codex_unavailable_reason
         self._accepted = accepted
         self.operations = operations
         self.effects = effects
@@ -181,7 +183,9 @@ class CreatorCommands:
         from armi_codex.api import CodexDelegationViolation
 
         if self.codex is None:
-            raise CodexDelegationViolation("CODEX-TASK-DEPENDENCY")
+            raise CodexDelegationViolation(
+                self._codex_unavailable_reason() or "CODEX-UNAVAILABLE"
+            )
         return await self.codex.accept(
             CreatorCodexTaskCommand(
                 scene_key,

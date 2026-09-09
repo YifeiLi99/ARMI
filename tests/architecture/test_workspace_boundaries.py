@@ -241,7 +241,6 @@ OWN = "UPDATE armi.cognitive_episodes SET status = 'done'"
                 / package
                 / "_recovery.py"
                 for owner, distribution, package in (
-                    ("capability", "capability", "armi_capability"),
                     ("codex", "codex", "armi_codex"),
                     ("cognition", "cognition", "armi_cognition"),
                     ("effect", "effect", "armi_effect"),

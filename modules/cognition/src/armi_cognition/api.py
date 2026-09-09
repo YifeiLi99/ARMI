@@ -10,7 +10,6 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-from armi_capability.api import CapabilityRequestDraft
 from armi_codex.api import CodexDelegationDraft
 from armi_expression.api import ResponseChoiceDraft
 from armi_kernel.application import (
@@ -111,7 +110,6 @@ class SubjectChangeSet:
     context_digest: Digest
     disposition: CandidateDisposition
     experiences: tuple[CandidateExperienceDraft, ...]
-    capability_requests: tuple[CapabilityRequestDraft, ...]
     action_choices: tuple[ResponseChoiceDraft, ...]
     web_research_requests: tuple[WebResearchRequestDraft, ...]
     rejections: tuple[CandidateRejection, ...]

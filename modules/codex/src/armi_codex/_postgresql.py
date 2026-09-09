@@ -80,7 +80,7 @@ class CodexDispatchSnapshot:
     validator_id: str
     deadline_seconds: int
     trace_id: TraceId
-    dispatch_deadline: Instant
+    dispatch_deadline: Instant | None
 
 
 class PostgreSQLCodexDelegationRepository:
@@ -366,6 +366,22 @@ class PostgreSQLCodexDelegationRepository:
             True,
         )
 
+    async def fail_dispatch(
+        self,
+        uow: PostgreSQLRuntimeUnitOfWork,
+        snapshot: CodexDispatchSnapshot,
+        *,
+        reason_code: str,
+        started: bool,
+    ) -> None:
+        await self._effect.settle_codex(
+            uow.transaction,
+            claim=_effect_claim(snapshot),
+            status="unknown" if started else "failed",
+            observation_digest=Digest.from_bytes(reason_code.encode()),
+            error_code=reason_code,
+        )
+
     async def claim(
         self,
         uow: PostgreSQLRuntimeUnitOfWork,
@@ -394,7 +410,14 @@ class PostgreSQLCodexDelegationRepository:
             ArtifactId(source.task_manifest_artifact_id),
         )
         if bundle is None or manifest is None:
-            raise CodexDelegationViolation("CODEX-TASK-ARTIFACT")
+            await self._effect.settle_codex(
+                uow.transaction,
+                claim=claim,
+                status="failed",
+                observation_digest=Digest.from_bytes(b"CODEX-TASK-ARTIFACT"),
+                error_code="CODEX-TASK-ARTIFACT",
+            )
+            return None
         return CodexDispatchSnapshot(
             claim.outbox_id,
             claim.effect_id,

@@ -18,12 +18,6 @@ from armi_activity.api import (
     CandidateActivityDecisionDraft,
     CandidateActivityDraft,
 )
-from armi_capability.api import (
-    CapabilityKind,
-    CapabilityOperation,
-    CapabilityRequestDraft,
-    CodexDelegatedWorkScope,
-)
 from armi_codex.api import CodexDelegationDraft, CodexTaskSourceId
 from armi_expression.api import (
     CreatorReplyDraft,
@@ -236,7 +230,7 @@ from .api import (
 
 CANDIDATE_POLICY_VERSION = "armi.cognition-candidate-policy.v4"
 CANDIDATE_VALIDATOR_IDENTITY = "armi.candidate-validator.deterministic-v1"
-ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v32"
+ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v33"
 _CODEX_CAPABILITY_ID = UUID("01985d00-0000-7000-8000-000000000038")
 
 
@@ -724,10 +718,6 @@ class DeterministicCandidateValidator:
             and not unified_creator_act
             and any(
                 not (
-                    owner is CandidateOwner.CAPABILITY
-                    and proposal.payload.capability_kind == "creator.scene.reply"
-                )
-                and not (
                     owner is CandidateOwner.ACTION
                     and isinstance(
                         proposal.payload,
@@ -782,7 +772,6 @@ class DeterministicCandidateValidator:
             | CandidatePromptDraft
             | CandidateExactLifeQueryDraft
             | CandidateOwnerDraft
-            | CapabilityRequestDraft
             | CreatorReplyDraft
             | FormalNoActionDraft
             | WebResearchRequestDraft
@@ -904,25 +893,6 @@ class DeterministicCandidateValidator:
                                 )
                             )
                             continue
-            if failure is None and owner is CandidateOwner.CAPABILITY:
-                capability = proposal
-                failure = _capability_failure(
-                    capability,
-                    proposal_bases,
-                    context=self._context,
-                )
-                if failure is None:
-                    payload = capability.payload
-                    scope = CodexDelegatedWorkScope(payload.valid_for_seconds)
-                    accepted[proposal.proposal_ref] = CapabilityRequestDraft(
-                        proposal.proposal_ref,
-                        proposal.atomic_group_ref,
-                        tuple(basis.ordinal for basis in proposal_bases),
-                        CapabilityKind(payload.capability_kind),
-                        CapabilityOperation(payload.operation),
-                        scope,
-                    )
-                    continue
             if failure is None and owner is CandidateOwner.ACTION:
                 action = cast(ActionChoiceProposal, proposal)
                 failure = _action_failure(action, proposal_bases, context=self._context)
@@ -1082,32 +1052,6 @@ class DeterministicCandidateValidator:
                 )
                 accepted.pop(proposal_ref)
 
-        for proposal_ref, draft in tuple(accepted.items()):
-            expected_scope: type[CodexDelegatedWorkScope]
-            error_code: str
-            if isinstance(draft, CodexDelegationDraft):
-                expected_scope = CodexDelegatedWorkScope
-                error_code = "CANDIDATE-CODEX-CAPABILITY-REQUEST"
-            else:
-                continue
-            matching_requests = tuple(
-                value
-                for value in accepted.values()
-                if isinstance(value, CapabilityRequestDraft)
-                and value.atomic_group_ref == draft.atomic_group_ref
-                and isinstance(value.scope, expected_scope)
-            )
-            if len(matching_requests) != 1:
-                rejected[proposal_ref] = CandidateRejection(
-                    proposal_ref,
-                    draft.atomic_group_ref,
-                    draft.basis_ordinals,
-                    _draft_fact_class(draft),
-                    CandidateOwnerIdentity(_draft_owner(draft).value),
-                    error_code,
-                )
-                accepted.pop(proposal_ref)
-
         failed_groups = {rejection.atomic_group_ref for rejection in rejected.values()}
         for group in failed_groups:
             for proposal_ref in group_members[group]:
@@ -1185,11 +1129,6 @@ class DeterministicCandidateValidator:
             for _, value in sorted(accepted.items())
             if isinstance(value, CandidateExactLifeQueryDraft)
         )
-        capability_requests = tuple(
-            value
-            for _, value in sorted(accepted.items())
-            if isinstance(value, CapabilityRequestDraft)
-        )
         action_choices = tuple(
             value
             for _, value in sorted(accepted.items())
@@ -1226,9 +1165,6 @@ class DeterministicCandidateValidator:
             },
             "disposition": disposition.value,
             "experiences": [_experience_wire(item) for item in experiences],
-            "capability_requests": [
-                _capability_wire(item) for item in capability_requests
-            ],
             "action_choices": [_action_wire(item) for item in action_choices],
             "web_research_requests": [
                 _web_research_wire(item) for item in web_research_requests
@@ -1259,7 +1195,6 @@ class DeterministicCandidateValidator:
             self._context.context_digest,
             disposition,
             experiences,
-            capability_requests,
             action_choices,
             web_research_requests,
             rejections,
@@ -1353,7 +1288,6 @@ class DeterministicCandidateValidator:
             },
             "disposition": disposition.value,
             "experiences": [] if experience is None else [_experience_wire(experience)],
-            "capability_requests": [],
             "action_choices": [],
             "web_research_requests": [],
             "visual_observation_requests": [],
@@ -1374,7 +1308,6 @@ class DeterministicCandidateValidator:
             context_digest=self._context.context_digest,
             disposition=disposition,
             experiences=() if experience is None else (experience,),
-            capability_requests=(),
             action_choices=(),
             web_research_requests=(),
             rejections=(),
@@ -1539,7 +1472,6 @@ class DeterministicCandidateValidator:
             },
             "disposition": disposition.value,
             "experiences": [] if experience is None else [_experience_wire(experience)],
-            "capability_requests": [],
             "action_choices": [_action_wire(item) for item in action_choices],
             "web_research_requests": [],
             "visual_observation_requests": [],
@@ -1571,7 +1503,6 @@ class DeterministicCandidateValidator:
             context_digest=self._context.context_digest,
             disposition=disposition,
             experiences=() if experience is None else (experience,),
-            capability_requests=(),
             action_choices=action_choices,
             web_research_requests=(),
             rejections=(),
@@ -1689,7 +1620,6 @@ class DeterministicCandidateValidator:
             },
             "disposition": disposition.value,
             "experiences": [],
-            "capability_requests": [],
             "action_choices": [],
             "web_research_requests": [],
             "visual_observation_requests": [
@@ -1712,12 +1642,11 @@ class DeterministicCandidateValidator:
             self._context.bundle_activation_id,
             self._context.context_digest,
             disposition,
-            (),
-            (),
-            (),
-            (),
-            (),
-            visual_requests,
+            experiences=(),
+            action_choices=(),
+            web_research_requests=(),
+            rejections=(),
+            visual_observation_requests=visual_requests,
             owner_drafts=tuple(owner_drafts),
         )
         return CandidateValidationResult(
@@ -1783,7 +1712,6 @@ class DeterministicCandidateValidator:
             },
             "disposition": disposition.value,
             "experiences": [],
-            "capability_requests": [],
             "action_choices": [],
             "web_research_requests": [],
             "visual_observation_requests": [],
@@ -1904,7 +1832,6 @@ class DeterministicCandidateValidator:
             },
             "disposition": disposition.value,
             "experiences": [],
-            "capability_requests": [],
             "action_choices": [],
             "web_research_requests": [],
             "visual_observation_requests": [],
@@ -2057,7 +1984,6 @@ class DeterministicCandidateValidator:
             },
             "disposition": CandidateDisposition.CHANGE.value,
             "experiences": [],
-            "capability_requests": [],
             "action_choices": [],
             "web_research_requests": [],
             "visual_observation_requests": [],
@@ -2079,7 +2005,6 @@ class DeterministicCandidateValidator:
             context_digest=context.context_digest,
             disposition=CandidateDisposition.CHANGE,
             experiences=(),
-            capability_requests=(),
             action_choices=(),
             web_research_requests=(),
             rejections=(),
@@ -2269,7 +2194,6 @@ class DeterministicCandidateValidator:
             },
             "disposition": CandidateDisposition.CHANGE.value,
             "experiences": [],
-            "capability_requests": [],
             "action_choices": [],
             "web_research_requests": [],
             "visual_observation_requests": [],
@@ -2290,7 +2214,6 @@ class DeterministicCandidateValidator:
             context_digest=context.context_digest,
             disposition=CandidateDisposition.CHANGE,
             experiences=(),
-            capability_requests=(),
             action_choices=(),
             web_research_requests=(),
             rejections=(),
@@ -2425,7 +2348,6 @@ class DeterministicCandidateValidator:
             },
             "disposition": CandidateDisposition.CHANGE.value,
             "experiences": [],
-            "capability_requests": [],
             "action_choices": [],
             "web_research_requests": [],
             "visual_observation_requests": [],
@@ -2447,7 +2369,6 @@ class DeterministicCandidateValidator:
             context_digest=context.context_digest,
             disposition=CandidateDisposition.CHANGE,
             experiences=(),
-            capability_requests=(),
             action_choices=(),
             web_research_requests=(),
             rejections=(),
@@ -2547,7 +2468,6 @@ def _optional_dialogue_failure_owner(
         ("CANDIDATE-RELATIONSHIP-", CandidateOwner.RELATIONSHIP),
         ("CANDIDATE-MATERIAL-", CandidateOwner.MATERIAL),
         ("CANDIDATE-SUBJECT-PROMPT-", CandidateOwner.PROMPT),
-        ("CANDIDATE-CAPABILITY-", CandidateOwner.CAPABILITY),
     ):
         if error_code.startswith(prefix):
             return owner
@@ -2573,9 +2493,7 @@ def _expand_creator_cognitive_act(
                 "query": source.query,
                 "source_kind": source.source_kind,
                 "changes": tuple(
-                    item
-                    for item in source.changes
-                    if item.op.startswith("material.") or item.op == "codex.request"
+                    item for item in source.changes if item.op.startswith("material.")
                 ),
             },
             version=DIALOGUE_CANDIDATE_VERSION,
@@ -2970,7 +2888,6 @@ def _expand_dialogue_candidate(
                 decision.relationship_change,
                 decision.material_change,
                 decision.subject_prompt_change,
-                decision.capability_request,
             )
         ):
             return None, None, "CANDIDATE-CREATOR-OUTREACH-SCOPE"
@@ -2992,7 +2909,6 @@ def _expand_dialogue_candidate(
                 decision.relationship_change,
                 decision.material_change,
                 decision.subject_prompt_change,
-                decision.capability_request,
             )
         )
     ):
@@ -3011,7 +2927,6 @@ def _expand_dialogue_candidate(
     experiences: list[dict[str, Any]] = []
     component_changes: list[dict[str, Any]] = []
     memory_changes: list[dict[str, Any]] = []
-    capability_requests: list[dict[str, Any]] = []
     action_choices: list[dict[str, Any]] = []
     memory_revision: CandidateMemoryRevisionDraft | None = None
     relationship: CandidateRelationshipDraft | None = None
@@ -3020,15 +2935,6 @@ def _expand_dialogue_candidate(
     experience_ref: str | None = None
     understanding_basis_refs = (evidence_ref,)
     if isinstance(decision, DialogueReplyDecision):
-        catalog = next(
-            (
-                item
-                for item in bases
-                if item.item_kind == "capability_catalog"
-                and item.trust_class == "policy"
-            ),
-            None,
-        )
         if scene_ref is None:
             return None, None, "CANDIDATE-ACTION-SCENE-BASIS"
         proposal_no = 1
@@ -3174,50 +3080,6 @@ def _expand_dialogue_candidate(
             prompt = replace(prompt, atomic_group_ref="group:2")
             proposal_no += 1
         shared_bases = (evidence_ref, scene_ref)
-        capability_request = getattr(decision, "capability_request", None)
-        if capability_request is not None:
-            if catalog is None:
-                return None, None, "CANDIDATE-CAPABILITY-BASIS"
-            catalog_ref = f"ctx:{catalog.ordinal}"
-            capability_state = next(
-                (
-                    item
-                    for item in bases
-                    if f"ctx:{item.ordinal}" == capability_request.capability_ref
-                ),
-                None,
-            )
-            if (
-                capability_state is None
-                or capability_state.section != "capability"
-                or not capability_state.item_kind.startswith("capability_state_")
-                or capability_state.trust_class != "runtime_authority"
-                or capability_state.source_ref != _CODEX_CAPABILITY_ID
-            ):
-                return None, None, "CANDIDATE-CAPABILITY-STATE-BASIS"
-            capability_requests.append(
-                {
-                    "proposal_ref": f"proposal:{proposal_no}",
-                    "atomic_group_ref": "group:3",
-                    "basis_refs": (
-                        *shared_bases,
-                        catalog_ref,
-                        capability_request.capability_ref,
-                    ),
-                    "payload": {
-                        "proposal_kind": "capability_requests",
-                        "fact_class": "inference",
-                        "capability_kind": "codex.delegated-work",
-                        "operation": "execute",
-                        "workspace_scope": "isolated_ephemeral",
-                        "artifact_scope": "explicit_only",
-                        "network_access": False,
-                        "valid_for_seconds": 3600,
-                        "max_uses": 1,
-                    },
-                }
-            )
-            proposal_no += 1
         action_choices.append(
             {
                 "proposal_ref": f"proposal:{proposal_no}",
@@ -3284,7 +3146,7 @@ def _expand_dialogue_candidate(
             return (
                 CognitionCandidate.model_validate(
                     {
-                        "schema_version": "armi.cognition-candidate.v11",
+                        "schema_version": "armi.cognition-candidate.v12",
                         "base": {
                             "subject_version": context.base_subject_version,
                             "state_epoch": context.base_state_epoch,
@@ -3302,7 +3164,6 @@ def _expand_dialogue_candidate(
                         "memory_changes": (),
                         "relationship_changes": (),
                         "activity_changes": (),
-                        "capability_requests": (),
                         "action_choices": (),
                         "uncertainties": (),
                         "reason_summary": summary,
@@ -3345,7 +3206,7 @@ def _expand_dialogue_candidate(
             return (
                 CognitionCandidate.model_validate(
                     {
-                        "schema_version": "armi.cognition-candidate.v11",
+                        "schema_version": "armi.cognition-candidate.v12",
                         "base": {
                             "subject_version": context.base_subject_version,
                             "state_epoch": context.base_state_epoch,
@@ -3363,7 +3224,6 @@ def _expand_dialogue_candidate(
                         "memory_changes": (),
                         "relationship_changes": (),
                         "activity_changes": (),
-                        "capability_requests": (),
                         "action_choices": (),
                         "web_research_requests": (
                             {
@@ -3405,7 +3265,7 @@ def _expand_dialogue_candidate(
             return (
                 CognitionCandidate.model_validate(
                     {
-                        "schema_version": "armi.cognition-candidate.v11",
+                        "schema_version": "armi.cognition-candidate.v12",
                         "base": {
                             "subject_version": context.base_subject_version,
                             "state_epoch": context.base_state_epoch,
@@ -3423,7 +3283,6 @@ def _expand_dialogue_candidate(
                         "memory_changes": (),
                         "relationship_changes": (),
                         "activity_changes": (),
-                        "capability_requests": (),
                         "action_choices": (),
                         "web_research_requests": (),
                         "visual_observation_requests": (
@@ -3452,7 +3311,7 @@ def _expand_dialogue_candidate(
         return (
             CognitionCandidate.model_validate(
                 {
-                    "schema_version": "armi.cognition-candidate.v11",
+                    "schema_version": "armi.cognition-candidate.v12",
                     "base": {
                         "subject_version": context.base_subject_version,
                         "state_epoch": context.base_state_epoch,
@@ -3470,7 +3329,6 @@ def _expand_dialogue_candidate(
                     "memory_changes": tuple(memory_changes),
                     "relationship_changes": (),
                     "activity_changes": (),
-                    "capability_requests": tuple(capability_requests),
                     "action_choices": tuple(action_choices),
                     "uncertainties": (),
                     "reason_summary": summary,
@@ -4527,7 +4385,6 @@ def _all_proposals(
             for item in candidate.relationship_changes
         ),
         *((CandidateOwner.ACTIVITY, item) for item in candidate.activity_changes),
-        *((CandidateOwner.CAPABILITY, item) for item in candidate.capability_requests),
         *(
             (
                 CandidateOwner.CODEX_DELEGATION
@@ -4632,61 +4489,6 @@ def _component_failure(
     if owner is CandidateOwner.LIFE_MODE:
         return "CANDIDATE-LIFE-MODE-TRANSITION-NOT-ACTIVE"
     return None
-
-
-def _capability_failure(
-    proposal: Any,
-    bases: tuple[CandidateBasis, ...],
-    *,
-    context: CandidateValidationContext,
-) -> str | None:
-    payload = proposal.payload
-    if payload.fact_class not in {"subjective_understanding", "inference"}:
-        return "CANDIDATE-CAPABILITY-FACT"
-    if not any(
-        basis.section == "capability"
-        and basis.item_kind == "capability_catalog"
-        and basis.trust_class == "policy"
-        for basis in bases
-    ):
-        return "CANDIDATE-CAPABILITY-BASIS"
-    if not any(
-        basis.item_kind == "current_scene" and basis.source_ref == context.scene_id
-        for basis in bases
-    ):
-        return "CANDIDATE-CAPABILITY-SCENE-BASIS"
-    if not any(
-        basis.item_kind in {"current_evidence", "codex_task_source"}
-        and (
-            basis.trust_class == "external_claim"
-            or (
-                context.purpose
-                in {"consider_life_query_result", "consider_creator_outreach"}
-                and basis.trust_class == "runtime_authority"
-            )
-        )
-        for basis in bases
-    ):
-        return "CANDIDATE-CAPABILITY-EVIDENCE-BASIS"
-    if payload.capability_kind == "codex.delegated-work":
-        capability_states = tuple(
-            basis for basis in bases if basis.item_kind.startswith("capability_state_")
-        )
-        if capability_states:
-            if (
-                len(capability_states) != 1
-                or capability_states[0].section != "capability"
-                or capability_states[0].trust_class != "runtime_authority"
-                or capability_states[0].source_ref != _CODEX_CAPABILITY_ID
-            ):
-                return "CANDIDATE-CAPABILITY-STATE-BASIS"
-            status = capability_states[0].item_kind.removeprefix("capability_state_")
-            if status in {"pending", "granted", "limited"}:
-                return "CANDIDATE-CAPABILITY-DUPLICATE"
-            if status not in {"unauthorized", "denied", "revoked", "expired"}:
-                return "CANDIDATE-CAPABILITY-STATE"
-        return None
-    return "CANDIDATE-CAPABILITY-UNKNOWN"
 
 
 def _action_failure(
@@ -4831,13 +4633,6 @@ def _codex_delegation_failure(
         for basis in bases
     ):
         return "CANDIDATE-CODEX-TASK-BASIS"
-    if not any(
-        basis.section == "capability"
-        and basis.item_kind == "capability_catalog"
-        and basis.trust_class == "policy"
-        for basis in bases
-    ):
-        return "CANDIDATE-CODEX-CAPABILITY-BASIS"
     return None
 
 
@@ -4894,7 +4689,6 @@ def _draft_owner(
     | CandidatePromptDraft
     | CandidateExactLifeQueryDraft
     | CandidateOwnerDraft
-    | CapabilityRequestDraft
     | CreatorReplyDraft
     | FormalNoActionDraft
     | WebResearchRequestDraft
@@ -4913,8 +4707,6 @@ def _draft_owner(
         return CandidateOwner.PROMPT
     if isinstance(draft, CandidateExactLifeQueryDraft):
         return CandidateOwner.EXACT_LIFE_QUERY
-    if isinstance(draft, CapabilityRequestDraft):
-        return CandidateOwner.CAPABILITY
     if isinstance(draft, (CreatorReplyDraft, FormalNoActionDraft)):
         return CandidateOwner.ACTION
     if isinstance(draft, WebResearchRequestDraft):
@@ -4935,16 +4727,13 @@ def _draft_fact_class(
     | CandidatePromptDraft
     | CandidateExactLifeQueryDraft
     | CandidateOwnerDraft
-    | CapabilityRequestDraft
     | CreatorReplyDraft
     | FormalNoActionDraft
     | WebResearchRequestDraft
     | VisualObservationRequestDraft
     | CodexDelegationDraft,
 ) -> CandidateFactClass:
-    if isinstance(
-        draft, (CapabilityRequestDraft, CreatorReplyDraft, FormalNoActionDraft)
-    ):
+    if isinstance(draft, (CreatorReplyDraft, FormalNoActionDraft)):
         return CandidateFactClass.INFERENCE
     if isinstance(
         draft,
@@ -5048,25 +4837,6 @@ def _codex_delegation_wire(value: CodexDelegationDraft) -> dict[str, object]:
         "capability_kind": value.capability_kind,
         "operation": value.operation,
         "purpose": value.purpose,
-    }
-
-
-def _capability_wire(value: CapabilityRequestDraft) -> dict[str, object]:
-    scope = value.scope
-    scope_value = {
-        "workspace_scope": scope.workspace_scope,
-        "artifact_scope": scope.artifact_scope,
-        "network_access": scope.network_access,
-        "max_uses": scope.max_uses,
-        "valid_for_seconds": scope.valid_for_seconds,
-    }
-    return {
-        "proposal_ref": value.proposal_ref,
-        "atomic_group_ref": value.atomic_group_ref,
-        "basis_ordinals": list(value.basis_ordinals),
-        "capability_kind": value.capability.value,
-        "operation": value.operation.value,
-        "scope": scope_value,
     }
 
 

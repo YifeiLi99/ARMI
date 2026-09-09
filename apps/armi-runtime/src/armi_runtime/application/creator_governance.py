@@ -2,28 +2,15 @@ from __future__ import annotations
 
 from .creator_calls import CreatorCall, CreatorEventSink, CreatorUseCase, creator_result
 from .creator_inputs import (
-    _capability_decision_request,
     _creator_export_request,
     _data_rights_request,
 )
 from .creator_projection import (
-    UTC,
     UUID,
-    AppliedOutcome,
-    CapabilityDecisionId,
-    CapabilityPolicyPort,
-    CapabilityRequestId,
-    CapabilityRequestItemResponse,
-    CapabilityRequestPageResponse,
-    CapabilityViolation,
     ContractViolation,
     CreatorExportCommand,
     CreatorExportPort,
     CreatorExportViolation,
-    CreatorGrantCommand,
-    CreatorGrantDecision,
-    CreatorProjectionInvalidation,
-    CreatorResourceKind,
     DataRightsOrderCollectionResponse,
     DataRightsOrderCommand,
     DataRightsOrderKind,
@@ -31,8 +18,6 @@ from .creator_projection import (
     DataRightsRetryCommand,
     DataRightsViolation,
     IdempotencyKey,
-    Instant,
-    ResultRef,
     SecurityEvent,
     TraceId,
     _creator_export_error,
@@ -40,10 +25,8 @@ from .creator_projection import (
     _data_rights_detail_response,
     _data_rights_error,
     _data_rights_response,
-    _outcome_common,
     _rejected,
     _unavailable,
-    datetime,
     secrets,
 )
 from .interaction import InteractionResult
@@ -52,7 +35,6 @@ from .interaction import InteractionResult
 def create_governance_use_cases(
     *,
     emit: SecurityEvent,
-    capability_policy: CapabilityPolicyPort | None,
     creator_events: CreatorEventSink | None,
     creator_export: CreatorExportPort | None,
     data_rights: DataRightsOrderPort | None,
@@ -220,186 +202,6 @@ def create_governance_use_cases(
             content=_data_rights_response(result).model_dump(mode="json")
         )
 
-    async def list_capability_requests(call: CreatorCall) -> InteractionResult:
-        if capability_policy is None:
-            return creator_result(
-                status_code=503,
-                content=_unavailable("DEPENDENCY_CAPABILITY_POLICY_UNAVAILABLE"),
-            )
-        metadata = call.actor
-        pairs = list(call.parameters)
-        names = [name for name, _value in pairs]
-        if set(names) - {"limit", "cursor"} or any(
-            names.count(name) > 1 for name in {"limit", "cursor"}
-        ):
-            return creator_result(
-                status_code=400, content=_rejected("INPUT_PAGE_LIMIT")
-            )
-        values = dict(pairs)
-        limit_text = values.get("limit", "50")
-        if not limit_text.isascii() or not limit_text.isdecimal():
-            return creator_result(
-                status_code=400, content=_rejected("INPUT_PAGE_LIMIT")
-            )
-        limit = int(limit_text)
-        if not 1 <= limit <= 100:
-            return creator_result(
-                status_code=400, content=_rejected("INPUT_PAGE_LIMIT")
-            )
-        try:
-            page = await capability_policy.list_requests(
-                creator_party_id=metadata.creator_party_id,
-                limit=limit,
-                cursor=values.get("cursor"),
-            )
-        except CapabilityViolation as error:
-            if error.code == "CONFLICT-CAPABILITY-CURSOR-STALE":
-                return creator_result(
-                    status_code=409, content=_rejected("CONFLICT_CURSOR_STALE")
-                )
-            if error.code == "CON-CAPABILITY-CURSOR":
-                return creator_result(
-                    status_code=400, content=_rejected("INPUT_CURSOR_INVALID")
-                )
-            return creator_result(
-                status_code=503,
-                content=_unavailable("DEPENDENCY_CAPABILITY_POLICY_UNAVAILABLE"),
-            )
-        response = CapabilityRequestPageResponse(
-            contract_version="1.0",
-            projection_version="capability-request.v6",
-            items=[
-                CapabilityRequestItemResponse.model_validate(
-                    {
-                        "capability_request_id": str(item.capability_request_id),
-                        "capability_kind": item.capability_kind,
-                        "operation": item.operation,
-                        "subject_id": str(item.subject_id),
-                        "scene_id": str(item.scene_id),
-                        "audience_scope": item.audience_scope,
-                        "data_scope": item.data_scope,
-                        "purpose": item.purpose,
-                        "workspace_scope": item.workspace_scope,
-                        "artifact_scope": item.artifact_scope,
-                        "network_access": item.network_access,
-                        "valid_for_seconds": item.valid_for_seconds,
-                        "max_uses": item.max_uses,
-                        "max_payload_bytes": item.max_payload_bytes,
-                        "status": item.status,
-                        "request_version": item.request_version,
-                        "capability_availability": item.capability_availability,
-                        "resolution_reason_code": item.resolution_reason_code,
-                        "created_at": Instant(item.created_at).to_wire(),
-                        "status_changed_at": Instant(item.status_changed_at).to_wire(),
-                        **(
-                            {
-                                "effective_grant": {
-                                    "scope_kind": item.effective_grant.scope_kind,
-                                    "grant_ref": str(item.effective_grant.grant_ref),
-                                    "status": item.effective_grant.status,
-                                    "max_uses": item.effective_grant.max_uses,
-                                    "consumed_uses": item.effective_grant.consumed_uses,
-                                    "remaining_uses": item.effective_grant.remaining_uses,
-                                    "max_payload_bytes": item.effective_grant.max_payload_bytes,
-                                    "workspace_scope": item.effective_grant.workspace_scope,
-                                    "artifact_scope": item.effective_grant.artifact_scope,
-                                    "network_access": item.effective_grant.network_access,
-                                    "valid_from": Instant(
-                                        item.effective_grant.valid_from
-                                    ).to_wire(),
-                                    "valid_until": Instant(
-                                        item.effective_grant.valid_until
-                                    ).to_wire(),
-                                    **(
-                                        {
-                                            "ended_at": Instant(
-                                                item.effective_grant.ended_at
-                                            ).to_wire()
-                                        }
-                                        if item.effective_grant.ended_at is not None
-                                        else {}
-                                    ),
-                                }
-                            }
-                            if item.effective_grant is not None
-                            else {}
-                        ),
-                    }
-                )
-                for item in page.items
-            ],
-            next_cursor=page.next_cursor,
-        )
-        return creator_result(
-            content=response.model_dump(mode="json", exclude_none=True)
-        )
-
-    async def decide_capability_request(
-        capability_request_id: str, call: CreatorCall
-    ) -> InteractionResult:
-        if capability_policy is None:
-            return creator_result(
-                status_code=503,
-                content=_unavailable("DEPENDENCY_CAPABILITY_POLICY_UNAVAILABLE"),
-            )
-        try:
-            body = await _capability_decision_request(call)
-            command = CreatorGrantCommand(
-                CapabilityDecisionId(UUID(body.decision_id)),
-                CapabilityRequestId(UUID(capability_request_id)),
-                body.expected_request_version,
-                CreatorGrantDecision(body.decision),
-                body.valid_for_seconds,
-                body.max_uses,
-                body.max_payload_bytes,
-                body.reason_code,
-                delegate_id=call.actor.delegate_id,
-            )
-            result = await capability_policy.decide(command)
-        except (CapabilityViolation, ValueError) as error:
-            code = (
-                error.code
-                if isinstance(error, CapabilityViolation)
-                else "CON-CAPABILITY-REQUEST-ID"
-            )
-            if code == "SCOPE-CAPABILITY-REQUEST":
-                return creator_result(
-                    status_code=404,
-                    content=_rejected("SCOPE_CAPABILITY_REQUEST_NOT_VISIBLE"),
-                )
-            if code.startswith(("CONFLICT-", "POLICY-", "CAPABILITY-")):
-                return creator_result(
-                    status_code=409, content=_rejected("CONFLICT_CAPABILITY_DECISION")
-                )
-            if code.startswith("CON-CAPABILITY"):
-                return creator_result(
-                    status_code=400,
-                    content=_rejected("INPUT_CAPABILITY_DECISION_INVALID"),
-                )
-            return creator_result(
-                status_code=503,
-                content=_unavailable("DEPENDENCY_CAPABILITY_POLICY_UNAVAILABLE"),
-            )
-        applied = AppliedOutcome(
-            **_outcome_common(),
-            message="The Creator capability decision was applied.",
-            result_ref=ResultRef(result.request_id.value),
-            state_version=result.request_version,
-        )
-        if creator_events is not None:
-            try:
-                await creator_events.notify(
-                    CreatorProjectionInvalidation(
-                        CreatorResourceKind("capability_request"),
-                        str(result.request_id.value),
-                        Instant(datetime.now(UTC)),
-                        "capability-request.v6",
-                    )
-                )
-            except Exception:
-                emit("creator.capability.notification_failed")
-        return creator_result(content=applied.to_wire())
-
     return {
         "export_create": create_creator_export,
         "export_get": get_creator_export,
@@ -407,8 +209,6 @@ def create_governance_use_cases(
         "data_rights_request": create_creator_data_rights_order,
         "data_rights_get": get_creator_data_rights_order,
         "data_rights_retry": retry_creator_data_rights_order,
-        "capability_list": list_capability_requests,
-        "capability_decide": decide_capability_request,
     }
 
 

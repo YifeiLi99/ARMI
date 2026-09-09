@@ -185,6 +185,13 @@ async def invoke_command(
             "CODEX-TASK-REQUEST-SIZE": (413, "INPUT_MESSAGE_TOO_LARGE"),
             "CODEX-TASK-REQUEST": (400, "INPUT_MESSAGE_INVALID"),
             "CODEX-TASK-SUBJECT": (404, "SCOPE_SCENE_NOT_VISIBLE"),
+            "CODEX-DISABLED": (503, "DEPENDENCY_CODEX_DISABLED"),
+            "CODEX-CREDENTIAL-MISSING": (503, "DEPENDENCY_CODEX_CREDENTIAL_MISSING"),
+            "CODEX-CREDENTIAL-UNAVAILABLE": (
+                503,
+                "DEPENDENCY_CODEX_CREDENTIAL_UNAVAILABLE",
+            ),
+            "CODEX-UNAVAILABLE": (503, "DEPENDENCY_CODEX_EXECUTOR_UNAVAILABLE"),
         }
         status, code = failures.get(
             error.code, (503, "DEPENDENCY_CODEX_TASK_UNAVAILABLE")

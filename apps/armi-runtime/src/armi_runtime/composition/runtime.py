@@ -34,7 +34,8 @@ from armi_attention.bootstrap import (
     bootstrap_opportunity_owner,
     bootstrap_opportunity_sleep,
 )
-from armi_capability.api import CapabilityViolation
+from armi_capability.api import CapabilityAvailability
+from armi_capability.bootstrap import bootstrap_capability
 from armi_codex.api import CodexDelegationViolation, CodexRuntimePort
 from armi_codex.bootstrap import bootstrap_codex_commit
 from armi_cognition.bootstrap import (
@@ -53,7 +54,6 @@ from armi_data_rights.api import (
 from armi_effect.api import EffectViolation
 from armi_effect.bootstrap import (
     bootstrap_effect_operation_read,
-    bootstrap_effect_responsibility,
 )
 from armi_experience.bootstrap import bootstrap_experience_owner
 from armi_expression.api import ResponseViolation
@@ -134,9 +134,9 @@ from armi_runtime.adapters.persistence.unit_of_work import (
 from armi_runtime.adapters.vision.directshow import DirectShowUsbCamera
 from armi_runtime.adapters.vision.windows_screen import WindowsScreenSource
 from armi_runtime.adapters.voice.wasapi import WasapiRawAudio
-from armi_runtime.application.action_lifecycle import RuntimeCodexGrantActivation
 from armi_runtime.application.cognition_cycle import RuntimeCognitionState
 from armi_runtime.application.creator_contract import (
+    CodexAvailabilityResponse,
     LiveVisionObservationResponse,
     LiveVisionSourceStatusResponse,
     LiveVisionStatusResponse,
@@ -181,7 +181,6 @@ from .database import (
     DatabaseViolation,
     compose_activity_module,
     compose_candidate_validation_pipeline,
-    compose_capability_policy,
     compose_codex_pipeline,
     compose_codex_read_ports,
     compose_cognition_exact_life_query,
@@ -193,9 +192,8 @@ from .database import (
     compose_creator_operation_query,
     compose_data_rights_core,
     compose_data_rights_module,
-    compose_effect_grant_cancellation,
     compose_effect_owner_context,
-    compose_effect_registration_pipeline,
+    compose_effect_pipeline,
     compose_evidence_module,
     compose_exact_life_query_pipeline,
     compose_execution_custody,
@@ -233,6 +231,7 @@ from .live_voice import compose_runtime_live_voice
 from .napcat_process import compose_qq_health, disabled_qq_health
 from .owner_roster import compose_runtime_owner_roster
 from .qq_channel import QQChannelBinding, compose_qq_channel
+from .runtime_credentials import codex_local_availability
 from .runtime_observability import RuntimeObservationDriver
 from .supervisor import RuntimeSupervisor
 from .work_wakeup import WorkWakeupBus
@@ -503,7 +502,12 @@ async def _serve(
     model_pipeline = None
     candidate_pipeline = None
     subject_commit_pipeline = None
-    capability_policy = None
+    codex_availability = CapabilityAvailability(
+        config.codex.enabled,
+        False,
+        "CODEX-DISABLED" if not config.codex.enabled else "CODEX-UNAVAILABLE",
+    )
+    capability_read = bootstrap_capability(lambda: codex_availability)
     effect_pipeline = None
     web_search_pipeline: WebObservationRuntimePort | None = None
     web_research_pipeline: WebResearchRuntimePort | None = None
@@ -873,9 +877,7 @@ async def _serve(
                 interaction_routes=interaction_module.effect_routes,
                 interaction_scenes=interaction_module.scene_transitions,
             )
-            effect_registration_context, codex_artifacts = compose_effect_owner_context(
-                expression=expression_module.intents,
-                interaction=interaction_module.effect_routes,
+            codex_artifacts = compose_effect_owner_context(
                 codex=codex_reads,
                 catalog=artifact_catalog,
             )
@@ -916,26 +918,12 @@ async def _serve(
             )
             other_human_input = interaction_module.other_human_input
             external_message_input = interaction_module.external_message_input
-            effect_grant_cancellation = compose_effect_grant_cancellation()
-            capability_policy = compose_capability_policy(
-                prepared,
-                unit_of_work_factory=runtime_unit_of_work_factory,
-                cursor_key=derive_timeline_cursor_key(prepared),
-                effect_cancellation=effect_grant_cancellation,
-                codex_activation=RuntimeCodexGrantActivation(
-                    expression_module.intents,
-                    bootstrap_effect_responsibility(),
-                ),
-                notifier=creator_events,
-            )
-            await capability_policy.open()
             creator_operations = compose_creator_operation_query(
                 unit_of_work_factory=runtime_unit_of_work_factory,
                 creator_party_id=creator_context.party_id,
                 interaction=interaction_module.creator_transaction,
                 evidence=evidence_module.read,
                 expression=expression_module.intents,
-                capability=capability_policy.operations,
                 codex=codex_reads.task_sources,
                 codex_executions=codex_reads.executions,
                 opportunity=opportunity_owner,
@@ -1020,7 +1008,7 @@ async def _serve(
                 prepared,
                 unit_of_work_factory=runtime_unit_of_work_factory,
                 activity_read=activity_module.read,
-                capability_read=capability_policy.read,
+                capability_read=capability_read,
                 codex_read=codex_reads.task_sources,
                 codex_context=codex_reads.context,
                 cognition_context=cognition_context,
@@ -1067,6 +1055,7 @@ async def _serve(
                 opportunity_transitions=opportunity_cognition,
                 evidence=evidence_module.read,
                 codex=codex_reads.task_sources,
+                codex_available=lambda: codex_availability.available,
                 memory_cognition=memory_module.cognition,
                 memory_read=memory_module.read,
                 mood_cognition=mood_module.cognition,
@@ -1097,11 +1086,11 @@ async def _serve(
                 unit_of_work_factory=runtime_unit_of_work_factory,
                 activity_cognition=activity_module.cognition,
                 activity_commit=activity_module.commit,
-                capability_commit=capability_policy.commit,
-                capability_read=capability_policy.read,
                 codex_commit=bootstrap_codex_commit(
                     codex_reads.task_sources,
                     expression_module.commit,
+                    artifact_catalog,
+                    lambda: codex_availability.available,
                 ),
                 cognition_commit=cognition_owner,
                 experience_commit=experience_owner,
@@ -1145,13 +1134,10 @@ async def _serve(
                 fault_injector=inject_admin_fault,
             )
             await subject_commit_pipeline.open()
-            effect_pipeline = compose_effect_registration_pipeline(
+            effect_pipeline = compose_effect_pipeline(
                 prepared,
                 unit_of_work_factory=runtime_unit_of_work_factory,
-                authorization=capability_policy.authorization,
                 intents=expression_module.intents,
-                effect_links=expression_module.effect_links,
-                registration_context=effect_registration_context,
                 codex_artifacts=codex_artifacts,
                 routes=interaction_module.effect_routes,
                 interaction_delivery=interaction_module.effect_delivery,
@@ -1179,42 +1165,42 @@ async def _serve(
                 ),
             )
             await effect_pipeline.open()
-            if "codex.auth_json" in config.secret_locators:
-                try:
-                    codex_pipeline = compose_codex_pipeline(
-                        prepared,
-                        unit_of_work_factory=runtime_unit_of_work_factory,
-                        creator_party_id=creator_context.party_id,
-                        creator_input=interaction_module.creator_transaction,
-                        evidence=evidence_module.write,
-                        evidence_read=evidence_module.read,
-                        identity=interaction_module.identity,
-                        opportunity=opportunity_admission,
-                        dispatch_authorization=(
-                            capability_policy.dispatch_authorization
-                        ),
-                        expression=expression_module.intents,
-                        sources=codex_reads.task_sources,
-                        custody=execution_custody,
-                        data_rights=data_rights_module.effect_gate,
-                        interaction_data_rights=data_rights_module.gate,
-                        data_rights_fence=data_rights_module.fence,
-                        runtime_admission=authority.require_writable,
-                        catalog=artifact_catalog,
-                        notifier=creator_events,
-                        diagnostic=lambda event: diagnostic.emit(
-                            event, result_code="CODEX_DELEGATION"
-                        ),
-                    )
-                    await codex_pipeline.open()
-                except CodexDelegationViolation:
-                    codex_pipeline = None
-                    lifecycle.add_degradation("RUNTIME_CODEX_UNAVAILABLE")
-                    diagnostic.emit(
-                        "runtime.codex.unavailable",
-                        level=logging.WARNING,
-                        result_code="CODEX_UNAVAILABLE",
-                    )
+            codex_availability = codex_local_availability(prepared)
+            codex_pipeline = compose_codex_pipeline(
+                prepared,
+                unit_of_work_factory=runtime_unit_of_work_factory,
+                creator_party_id=creator_context.party_id,
+                creator_input=interaction_module.creator_transaction,
+                evidence=evidence_module.write,
+                evidence_read=evidence_module.read,
+                identity=interaction_module.identity,
+                opportunity=opportunity_admission,
+                expression=expression_module.intents,
+                sources=codex_reads.task_sources,
+                unavailable_reason=lambda: codex_availability.reason_code,
+                custody=execution_custody,
+                data_rights=data_rights_module.effect_gate,
+                interaction_data_rights=data_rights_module.gate,
+                data_rights_fence=data_rights_module.fence,
+                runtime_admission=authority.require_writable,
+                catalog=artifact_catalog,
+                notifier=creator_events,
+                diagnostic=lambda event: diagnostic.emit(
+                    event, result_code="CODEX_DELEGATION"
+                ),
+            )
+            try:
+                await codex_pipeline.open()
+            except CodexDelegationViolation:
+                codex_availability = CapabilityAvailability(
+                    config.codex.enabled, False, "CODEX-UNAVAILABLE"
+                )
+                lifecycle.add_degradation("RUNTIME_CODEX_UNAVAILABLE")
+                diagnostic.emit(
+                    "runtime.codex.unavailable",
+                    level=logging.WARNING,
+                    result_code="CODEX_UNAVAILABLE",
+                )
             if config.model.semantic_recall_enabled:
                 try:
                     with configuration_consumption.consumer("context-embedding"):
@@ -1352,7 +1338,6 @@ async def _serve(
         except (
             BrowserSessionViolation,
             CandidateViolation,
-            CapabilityViolation,
             ContextViolation,
             CreatorInputViolation,
             ActivityViolation,
@@ -1431,8 +1416,6 @@ async def _serve(
                 await effect_pipeline.close()
             if codex_pipeline is not None:
                 await codex_pipeline.close()
-            if capability_policy is not None:
-                await capability_policy.close()
             if authority is not None:
                 await authority.release()
             if observation_port is not None:
@@ -1620,15 +1603,10 @@ async def _serve(
                 qq_server.serve(),
                 name="qq-napcat-event-listener",
             )
-        if codex_pipeline is not None:
+        if codex_pipeline is not None and codex_availability.available:
             supervisor.start(
                 codex_pipeline.run_worker(),
                 name="codex-delegation-worker",
-            )
-        if capability_policy is not None:
-            supervisor.start(
-                capability_policy.run_expiry_reconciler(),
-                name="capability-grant-expiry",
             )
         if admin_control is not None:
             await admin_control.start()
@@ -1735,10 +1713,6 @@ async def _serve(
             ),
             ("effect", None if effect_pipeline is None else effect_pipeline.stop),
             ("codex", None if codex_pipeline is None else codex_pipeline.stop),
-            (
-                "capability",
-                None if capability_policy is None else capability_policy.stop,
-            ),
             (
                 "artifact",
                 None if artifact_lifecycle is None else artifact_lifecycle.stop,
@@ -1848,10 +1822,6 @@ async def _serve(
             ("effect", None if effect_pipeline is None else effect_pipeline.close),
             ("qq_channel", None if qq_channel is None else qq_channel.close),
             ("codex", None if codex_pipeline is None else codex_pipeline.close),
-            (
-                "capability",
-                None if capability_policy is None else capability_policy.close,
-            ),
         )
         for name, operation in close_operations:
             if operation is not None:
@@ -1935,6 +1905,11 @@ async def _serve(
         )
         database_reasons = [] if database_ready else [database_reason]
         return RuntimeStatusResponse(
+            codex=CodexAvailabilityResponse(
+                enabled=codex_availability.enabled,
+                available=codex_availability.available,
+                reason_code=codex_availability.reason_code,
+            ),
             contract_version="1.0",
             environment_id=snapshot.environment_id,
             runtime_state=snapshot.runtime_state,
@@ -2304,7 +2279,6 @@ async def _serve(
             subject_commit_pipeline,
             effect_pipeline,
             codex_pipeline,
-            capability_policy,
         ):
             if pipeline is not None:
                 pipeline.stop()
@@ -2589,7 +2563,6 @@ async def _serve(
         creator_input=creator_input,
         creator_operations=creator_operations,
         subject_summary=subject_summary_provider,
-        capability_policy=capability_policy,
         effect_ledger=effect_pipeline,
         codex_task_admission=(
             codex_pipeline.task_sources if codex_pipeline is not None else None
@@ -2728,8 +2701,6 @@ async def _serve(
             await life_opportunity_pipeline.close()
         if candidate_pipeline is not None:
             await candidate_pipeline.close()
-        if capability_policy is not None:
-            await capability_policy.close()
         if effect_pipeline is not None:
             await effect_pipeline.close()
         if qq_channel is not None:

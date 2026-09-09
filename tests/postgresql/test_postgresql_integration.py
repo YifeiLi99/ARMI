@@ -52,17 +52,11 @@ from armi_artifact_store.content_store import (
     ContentAddressedArtifactStore,
 )
 from armi_attention.api import OpportunityAdmissionOutcome, OpportunityAdmissionStatus
-from armi_capability.api import (
-    CapabilityDecisionId,
-    CapabilityDispatchAuthorization,
-    CapabilityRequestId,
-    CapabilityRequestStatus,
-    CapabilityViolation,
-    CodexDelegatedWorkScope,
-    CreatorGrantCommand,
-    CreatorGrantDecision,
+from armi_codex.api import (
+    CodexCleanupStatus,
+    CodexVerificationStatus,
+    CreatorCodexTaskCommand,
 )
-from armi_codex.api import CreatorCodexTaskCommand
 from armi_cognition.api import CognitionSchemaDocument
 from armi_context.api import EMBEDDING_BINDING_ID
 from armi_data_rights.api import DataRightsFence
@@ -197,13 +191,13 @@ from armi_runtime.composition.postgresql_test import (
     ExternalMessageInputRepository,
     ExternalMessageInputService,
     OtherHumanInputRepository,
+    PostgreSQLCodexDelegationRepository,
     PostgreSQLEffectDispatchRepository,
     PostgreSQLInteractionPerception,
     PostgreSQLLocalInbox,
     PostgreSQLSceneTimelineQuery,
     bootstrap_activity,
     bootstrap_activity_cognition,
-    bootstrap_capability,
     bootstrap_codex_commit,
     bootstrap_codex_read_ports,
     bootstrap_codex_timeline_projection,
@@ -212,7 +206,6 @@ from armi_runtime.composition.postgresql_test import (
     bootstrap_cognition_subject_commit,
     bootstrap_data_rights_core,
     bootstrap_effect_codex_lifecycle,
-    bootstrap_effect_grant_cancellation,
     bootstrap_effect_operation_read,
     bootstrap_evidence,
     bootstrap_experience_owner,
@@ -252,7 +245,6 @@ from armi_runtime.composition.postgresql_test import (
     parse_candidate,
 )
 from armi_runtime.composition.work_wakeup import WorkWakeupBus
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
 from armi_sleep.api import CreatorMaintenanceViolation
 from armi_web_observation.api import (
     WebObservationDraft,
@@ -267,18 +259,6 @@ from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 from tools.live_ark_credential import load_live_ark_credential
-
-
-class _NoopCodexActivation:
-    async def activate_codex_registration(
-        self,
-        unit_of_work: PostgreSQLRuntimeUnitOfWork,
-        *,
-        subject_commit_id: UUID,
-        grant_id: UUID,
-        valid_until: datetime,
-    ) -> None:
-        del unit_of_work, subject_commit_id, grant_id, valid_until
 
 
 class _TestIdentityTokens:
@@ -309,23 +289,6 @@ def _life_opportunity_facts(
         expression=bootstrap_expression_action_ports().intents,
         interaction=bootstrap_interaction_identity(_TEST_IDENTITY_TOKENS),
     )
-
-
-class _AllowDispatchAuthorization:
-    async def authorize_dispatch(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        policy_decision_id: UUID,
-        action_intent_revision_id: UUID,
-        before_dispatch_deadline: bool,
-    ) -> CapabilityDispatchAuthorization:
-        del transaction, policy_decision_id, action_intent_revision_id
-        return CapabilityDispatchAuthorization(
-            before_dispatch_deadline,
-            None,
-            None if before_dispatch_deadline else "POLICY-GRANT-EXPIRED",
-        )
 
 
 _ADMIN_DSN = os.environ.get("S009_ADMIN_DSN")
@@ -628,7 +591,6 @@ def _verify_local_media_machine(
             # explicit so a transport-shaped empty object cannot pass this matrix.
             read_cases = (
                 ("activity", "list", "activity_list", "items", list),
-                ("capability", "list", "capability_list", "items", list),
                 ("memory", "list", "memory_list", "items", list),
                 ("life-record", "query", "life_record_query", "items", list),
                 ("other-human", "list", "other_human_list", "items", list),
@@ -786,15 +748,11 @@ _REMOVED_REDUNDANT_DIGEST_COLUMNS = {
     ("maintenance_sessions", "schedule_digest"),
     ("sleep_decisions", "source_digest"),
     ("capabilities", "configuration_digest"),
-    ("capability_request_decisions", "scope_digest"),
-    ("capability_requests", "request_digest"),
     ("effect_attempts", "request_digest"),
     ("effect_outbox_items", "payload_digest"),
     ("effects", "settlement_digest"),
     ("dialogue_decisions", "basis_digest"),
     ("outbox_items", "payload_digest"),
-    ("permission_grants", "scope_digest"),
-    ("policy_decisions", "decision_digest"),
     ("audit_events", "request_digest"),
     ("audit_events", "response_digest"),
     ("audit_events", "artifact_digest"),
@@ -1532,6 +1490,38 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         assert response is not None
                         self.assertEqual(response.status, 200)
                         page.locator(".authenticated-view").wait_for()
+                        self.assertEqual(
+                            page.get_by_role(
+                                "button", name="能力授权", exact=True
+                            ).count(),
+                            0,
+                        )
+                        page.get_by_role(
+                            "button", name="运行与维护", exact=True
+                        ).click()
+                        codex_status = page.locator("article.component-row").filter(
+                            has=page.get_by_role("heading", name="Codex 委托")
+                        )
+                        codex_status.get_by_text(
+                            "已关闭 · 不可用", exact=True
+                        ).wait_for()
+                        codex_status.get_by_text(
+                            "CODEX-DISABLED", exact=False
+                        ).wait_for()
+                        self.assertFalse(
+                            page.evaluate(
+                                "document.documentElement.scrollWidth > innerWidth"
+                            )
+                        )
+                        page.screenshot(
+                            path=str(
+                                Path.cwd()
+                                / ".armi-tools"
+                                / "codex-runtime-maintenance.png"
+                            ),
+                            full_page=True,
+                        )
+                        page.get_by_role("button", name="对话", exact=True).click()
                         with page.expect_response(
                             lambda item: (
                                 item.request.method == "POST"
@@ -2574,7 +2564,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         "/v1/other-human-records?limit=1": "other-human-record.v1",
                         "/v1/data-rights/orders": "data-rights-order-collection.v3",
                         "/v1/subject/summary": "subject-summary.v1",
-                        "/v1/capability-requests?limit=1": "capability-request.v6",
                     }
                     for path, projection_version in p1_read_projections.items():
                         with self.subTest(p1_read_path=path):
@@ -3570,8 +3559,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     factory,
                 ).birth(manifest)
                 data_rights = bootstrap_data_rights_core()
+                codex_reason: str | None = None
                 gateway = CodexTaskSourceGateway(
                     factory,
+                    unavailable_reason=lambda: codex_reason,
                     storage=storage,
                     catalog=ArtifactCatalogRepository(),
                     creator_party_id=creator_party_id,
@@ -3584,9 +3575,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     evidence_read=bootstrap_evidence().read,
                     identity=bootstrap_interaction_identity(_TEST_IDENTITY_TOKENS),
                     opportunity=bootstrap_opportunity_admission(),
-                    effect=bootstrap_effect_codex_lifecycle(
-                        _AllowDispatchAuthorization()
-                    ),
+                    effect=bootstrap_effect_codex_lifecycle(),
                     expression=bootstrap_expression_action_ports().intents,
                     sources=bootstrap_codex_read_ports().task_sources,
                     custody=custody,
@@ -3605,6 +3594,18 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 first = await gateway.accept(command)
                 repeated = await gateway.accept(command)
                 self.assertEqual(first, repeated)
+                codex_reason = "CODEX-DISABLED"
+                self.assertEqual(await gateway.accept(command), repeated)
+                with self.assertRaisesRegex(RuntimeError, "CODEX-DISABLED"):
+                    await gateway.accept(
+                        CreatorCodexTaskCommand(
+                            "default",
+                            "关闭时不得创建等待批准的新任务。",
+                            IdempotencyKey("codex-disabled-new-key"),
+                            TraceId("8" * 32),
+                        )
+                    )
+                codex_reason = None
                 timeline_query = PostgreSQLSceneTimelineQuery(
                     factory,
                     environment_id=fixture.environment_id,
@@ -5152,43 +5153,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             fixture.provisioner_dsn,
             autocommit=True,
         ) as connection:
-            invalid_creator_request = """
-                INSERT INTO armi.capability_requests (
-                    capability_request_id, subject_commit_id, proposal_ref,
-                    subject_id, interaction_scene_id, creator_party_id,
-                    capability_id, capability_kind, operation_class,
-                    audience_scope, data_scope, purpose,
-                    requested_valid_for_seconds, requested_max_uses,
-                    requested_max_payload_bytes
-                ) VALUES (
-                    uuidv7(), uuidv7(), 'proposal:1', uuidv7(), uuidv7(),
-                    uuidv7(), uuidv7(), 'creator.scene.reply', 'send',
-                    NULL, 'creator_visible_response', 'respond_to_creator',
-                    60, 1, 1024
-                )
-            """
-            with self.assertRaises(psycopg.errors.CheckViolation):
-                connection.execute(invalid_creator_request)
-
-            invalid_codex_request = """
-                INSERT INTO armi.capability_requests (
-                    capability_request_id, subject_commit_id, proposal_ref,
-                    subject_id, interaction_scene_id, creator_party_id,
-                    capability_id, capability_kind, operation_class,
-                    audience_scope, data_scope, purpose, workspace_scope,
-                    artifact_scope, network_access,
-                    requested_valid_for_seconds, requested_max_uses,
-                    requested_max_payload_bytes
-                ) VALUES (
-                    uuidv7(), uuidv7(), 'proposal:1', uuidv7(), uuidv7(),
-                    uuidv7(), uuidv7(), 'codex.delegated-work', 'execute',
-                    NULL, NULL, 'delegate_codex_work', NULL,
-                    'explicit_only', false, 60, 1, NULL
-                )
-            """
-            with self.assertRaises(psycopg.errors.CheckViolation):
-                connection.execute(invalid_codex_request)
-
             connection.execute("SET session_replication_role = replica")
             connection.execute(
                 """
@@ -5223,8 +5187,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 """
                 INSERT INTO armi.effects (
                     effect_id, action_intent_revision_id,
-                    policy_decision_id, capability_request_id,
-                    permission_grant_id, subject_id, scene_id,
+                    subject_id, scene_id,
                     context_party_id, payload_artifact_id, payload_digest,
                     payload_bytes, effect_kind, capability_kind,
                     operation_class, audience_scope, data_scope, purpose,
@@ -5234,7 +5197,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     current_observation_id, settled_at,
                     action_intent_id
                 )
-                SELECT uuidv7(), uuidv7(), NULL, NULL, NULL, %s,
+                SELECT uuidv7(), uuidv7(), %s,
                        uuidv7(), uuidv7(), uuidv7(),
                        'sha256:' || repeat('e', 64), 1,
                        'creator_response', 'creator.scene.reply', 'send',
@@ -6028,7 +5991,23 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             with self.subTest(stage=stage):
                 self._exercise_creator_reply(interruption_stage=stage)
 
-    def _exercise_creator_reply(self, *, interruption_stage: str | None = None) -> None:
+    def test_codex_direct_commit_and_interruption(self) -> None:
+        for stage in (
+            "cognition_unfinished",
+            "candidate_validated",
+            "rollback",
+            "result_saved",
+            "result_cognition",
+            "registered",
+            "prepared",
+            "dispatching",
+        ):
+            with self.subTest(stage=stage):
+                self._exercise_creator_reply(interruption_stage=stage, codex=True)
+
+    def _exercise_creator_reply(
+        self, *, interruption_stage: str | None = None, codex: bool = False
+    ) -> None:
         fixture = self.create_database()
         self._install_current(
             fixture.migrator_dsn,
@@ -6091,6 +6070,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         ids = {
             name: _uuid7()
             for name in (
+                "codex_source",
                 "runtime",
                 "interaction",
                 "evidence",
@@ -6198,7 +6178,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         live_evidence: dict[str, object] | None = None
         if live_environment_root is None:
             change_set_document = {
-                "schema_version": "armi.subject-change-set.v32",
+                "schema_version": "armi.subject-change-set.v33",
                 "subject_id": str(born.subject_id),
                 "generation_id": str(born.life_generation_id),
                 "episode_id": str(ids["episode"]),
@@ -6221,7 +6201,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         "privacy_scope": "private",
                     }
                 ],
-                "capability_requests": [],
                 "action_choices": [
                     {
                         "proposal_ref": "proposal:3",
@@ -6247,6 +6226,21 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "exact_life_queries": [],
                 "rejections": [],
             }
+            if codex:
+                change_set_document["action_choices"] = []
+                change_set_document["codex_delegations"] = [
+                    {
+                        "proposal_ref": "proposal:3",
+                        "atomic_group_ref": "group:2",
+                        "basis_ordinals": [1],
+                        "task_source_id": str(ids["codex_source"]),
+                        "task_manifest_digest": digests["input"].value,
+                        "validator_id": "codex.output-artifact.v1",
+                        "capability_kind": "codex.delegated-work",
+                        "operation": "execute",
+                        "purpose": "delegate_codex_work",
+                    }
+                ]
             change_set = bootstrap_cognition_change_set_codec(
                 activity=bootstrap_activity_cognition(),
                 material=bootstrap_material_cognition(),
@@ -6380,7 +6374,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 if validation.change_set is None or not (
                     validation.change_set.experiences
                     or validation.change_set.owner_drafts
-                    or validation.change_set.capability_requests
                     or validation.change_set.action_choices
                 ):
                     self.fail(validation.error_code or "CANDIDATE-NOT-COMMITTABLE")
@@ -6445,7 +6438,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             if live_evidence is not None
             else 1
         )
-        candidate_contract_version = "armi.cognition-candidate.v11"
+        candidate_contract_version = "armi.cognition-candidate.v12"
 
         def locator(digest: Digest) -> str:
             value = digest.value.removeprefix("sha256:")
@@ -6767,8 +6760,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     artifact_ids["change_set"],
                     len(change_set.experiences)
                     + len(change_set.owner_drafts)
-                    + len(change_set.capability_requests)
-                    + len(change_set.action_choices),
+                    + len(change_set.action_choices)
+                    + len(change_set.codex_delegations),
                     ids["runtime"],
                 ),
             )
@@ -6842,62 +6835,23 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             basis_ordinal,
                         ),
                     )
-            for ordinal, request in enumerate(change_set.capability_requests, 1):
+            for ordinal, action in enumerate(
+                (*change_set.action_choices, *change_set.codex_delegations), 1
+            ):
                 connection.execute(
                     """
                     INSERT INTO armi.cognitive_candidate_validation_items (
                         candidate_validation_id, proposal_ref, atomic_group_ref,
                         owner_kind, fact_class, validation_status, ordinal)
-                        VALUES (%s, %s, %s, 'capability', 'inference', 'accepted', %s)
-                    """,
-                    (
-                        ids["validation"],
-                        request.proposal_ref,
-                        request.atomic_group_ref,
-                        len(change_set.experiences)
-                        + len(change_set.owner_drafts)
-                        + ordinal,
-                    ),
-                )
-                for basis_ordinal in request.basis_ordinals:
-                    context_item_id = (
-                        ids["context_item"]
-                        if basis_ordinal == 1
-                        else (
-                            ids["context_scene"]
-                            if basis_ordinal == 2
-                            else ids["context_capability"]
-                        )
-                    )
-                    connection.execute(
-                        """
-                        INSERT INTO armi.cognitive_candidate_basis_links (
-                            candidate_validation_id, proposal_ref,
-                            context_item_id, ordinal
-                        ) VALUES (%s, %s, %s, %s)
-                        """,
-                        (
-                            ids["validation"],
-                            request.proposal_ref,
-                            context_item_id,
-                            basis_ordinal,
-                        ),
-                    )
-            for ordinal, action in enumerate(change_set.action_choices, 1):
-                connection.execute(
-                    """
-                    INSERT INTO armi.cognitive_candidate_validation_items (
-                        candidate_validation_id, proposal_ref, atomic_group_ref,
-                        owner_kind, fact_class, validation_status, ordinal)
-                        VALUES (%s, %s, %s, 'action', 'inference', 'accepted', %s)
+                        VALUES (%s, %s, %s, %s, 'inference', 'accepted', %s)
                     """,
                     (
                         ids["validation"],
                         action.proposal_ref,
                         action.atomic_group_ref,
+                        "codex_delegation" if codex else "action",
                         len(change_set.experiences)
                         + len(change_set.owner_drafts)
-                        + len(change_set.capability_requests)
                         + ordinal,
                     ),
                 )
@@ -6925,6 +6879,42 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             basis_ordinal,
                         ),
                     )
+            if codex:
+                connection.execute(
+                    """
+                    INSERT INTO armi.codex_task_sources (
+                        codex_task_source_id, subject_id, source_bundle_artifact_id,
+                        source_bundle_digest, source_tree_digest, task_manifest_artifact_id,
+                        task_manifest_digest, validator_id, deadline_seconds, trace_id)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,'codex.output-artifact.v1',900,%s)
+                    """,
+                    (
+                        ids["codex_source"],
+                        born.subject_id,
+                        artifact_ids["request"],
+                        digests["request"].value,
+                        digests["request"].value,
+                        artifact_ids["input"],
+                        digests["input"].value,
+                        trace,
+                    ),
+                )
+                connection.execute(
+                    "UPDATE armi.party_input_interactions SET purpose='codex_task_request' WHERE interaction_id=%s",
+                    (ids["interaction"],),
+                )
+                connection.execute(
+                    "UPDATE armi.external_evidence SET source_kind='codex_task_source', interaction_id=NULL, codex_task_source_id=%s WHERE evidence_id=%s",
+                    (ids["codex_source"], ids["evidence"]),
+                )
+                connection.execute(
+                    "UPDATE armi.opportunities SET purpose='consider_codex_task' WHERE opportunity_id=%s",
+                    (ids["opportunity"],),
+                )
+                connection.execute(
+                    "UPDATE armi.cognitive_episodes SET purpose='consider_codex_task' WHERE cognitive_episode_id=%s",
+                    (ids["episode"],),
+                )
             insert_work(
                 ids["commit_work"],
                 "cognition.subject.commit",
@@ -6951,7 +6941,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             1,
         )
 
-        async def settle() -> tuple[CandidateApplicationStatus, int]:
+        async def settle(
+            *, rollback: bool = False
+        ) -> tuple[CandidateApplicationStatus, int]:
             factory = PostgreSQLUnitOfWorkFactory(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
@@ -7016,22 +7008,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 interaction_actions.scenes,
                 bootstrap_live_voice_context_read(),
             )
-            capability_module = bootstrap_capability(
-                factory,
-                environment_id=fixture.environment_id,
-                cursor_key=hashlib.sha256(b"t03-capability-cursor-key").digest(),
-                effect_cancellation=bootstrap_effect_grant_cancellation(),
-                codex_activation=_NoopCodexActivation(),
-            )
             evidence_module = bootstrap_evidence()
             data_rights_core = bootstrap_data_rights_core()
             repository = PostgreSQLSubjectCommitRepository(
                 activity_commit=activity_module.commit,
-                capability_commit=capability_module.commit,
-                capability_read=capability_module.read,
                 codex_commit=bootstrap_codex_commit(
                     bootstrap_codex_read_ports().task_sources,
                     expression_module.commit,
+                    ArtifactCatalogRepository(),
+                    lambda: True,
                 ),
                 cognition_commit=bootstrap_cognition_subject_commit(),
                 experience_commit=bootstrap_experience_owner(),
@@ -7129,6 +7114,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             else None
                         ),
                     )
+                    if rollback:
+                        raise RuntimeError("injected after subject and effect writes")
                 return result.status, result.subject_version or -1
             finally:
                 await factory.close()
@@ -7153,9 +7140,30 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
         if interruption_stage in {"cognition_unfinished", "candidate_validated"}:
             self._verify_reply_interruption(
-                fixture, fence, ids, payloads, interruption_stage
+                fixture, fence, ids, payloads, interruption_stage, codex=codex
             )
             return
+        if interruption_stage == "rollback":
+            with self.assertRaisesRegex(
+                RuntimeError, "injected after subject and effect writes"
+            ):
+                asyncio.run(
+                    settle(rollback=True),
+                    loop_factory=lambda: asyncio.SelectorEventLoop(
+                        selectors.SelectSelector()
+                    ),
+                )
+            with psycopg.connect(fixture.provisioner_dsn) as connection:
+                self.assertEqual(
+                    connection.execute("""
+                    SELECT (SELECT subject_version FROM armi.subjects),
+                           (SELECT count(*) FROM armi.subject_commits),
+                           (SELECT count(*) FROM armi.action_intents),
+                           (SELECT count(*) FROM armi.effects),
+                           (SELECT count(*) FROM armi.effect_outbox_items)
+                """).fetchone(),
+                    (0, 0, 0, 0, 0),
+                )
         status, version = asyncio.run(
             settle(),
             loop_factory=lambda: asyncio.SelectorEventLoop(selectors.SelectSelector()),
@@ -7164,7 +7172,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertEqual(version, 1)
         if interruption_stage is not None:
             self._verify_reply_interruption(
-                fixture, fence, ids, payloads, interruption_stage
+                fixture, fence, ids, payloads, interruption_stage, codex=codex
             )
             return
         with psycopg.connect(fixture.provisioner_dsn) as connection:
@@ -7175,8 +7183,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     (SELECT count(*) FROM armi.subject_commits),
                     (SELECT count(*) FROM armi.accepted_experiences),
                     (SELECT count(*) FROM armi.experience_evidence_links),
-                    (SELECT count(*) FROM armi.capability_requests),
-                    (SELECT count(*) FROM armi.capability_request_basis_links),
                     (SELECT count(*) FROM armi.action_intents),
                     (SELECT count(*) FROM armi.action_intent_revisions),
                     (SELECT count(*) FROM armi.scene_timeline_items WHERE source_kind = 'subject_commit'),
@@ -7191,11 +7197,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     1,
                     len(change_set.experiences),
                     sum(len(item.basis_ordinals) for item in change_set.experiences),
-                    len(change_set.capability_requests),
-                    sum(
-                        len(item.basis_ordinals)
-                        for item in change_set.capability_requests
-                    ),
                     len(change_set.action_choices),
                     len(change_set.action_choices),
                     1,
@@ -7211,168 +7212,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             ).fetchone()
             assert result_ref is not None and application is not None
             self.assertEqual(result_ref[0], application[0])
-            self.assertEqual(
-                connection.execute(
-                    "SELECT count(*) FROM armi.permission_grants"
-                ).fetchone(),
-                (0,),
-            )
-            self.assertEqual(
-                connection.execute(
-                    "SELECT count(*) FROM armi.policy_decisions"
-                ).fetchone(),
-                (0,),
-            )
-            self.assertEqual(
-                connection.execute(
-                    "SELECT count(*) FROM armi.effect_registrations"
-                ).fetchone(),
-                (0,),
-            )
-            self.assertEqual(
-                connection.execute(
-                    "SELECT count(*) FROM armi.capability_requests"
-                ).fetchone(),
-                (0,),
-            )
-            initial_request_id = _uuid7()
-            connection.execute(
-                """INSERT INTO armi.capability_requests (
-                    capability_request_id,subject_commit_id,proposal_ref,
-                    subject_id,interaction_scene_id,creator_party_id,
-                    capability_id,capability_kind,operation_class,purpose,
-                    workspace_scope,artifact_scope,network_access,
-                    requested_valid_for_seconds,requested_max_uses)
-                   SELECT %s,commit.subject_commit_id,'proposal:20',%s,%s,%s,
-                     capability.capability_id,'codex.delegated-work','execute',
-                     'delegate_codex_work','isolated_ephemeral','explicit_only',
-                     false,3600,1
-                   FROM armi.subject_commits AS commit
-                   CROSS JOIN armi.capabilities AS capability
-                   WHERE capability.capability_kind='codex.delegated-work'""",
-                (initial_request_id, born.subject_id, scene_id, creator_party_id),
-            )
-            connection.execute(
-                """INSERT INTO armi.capability_request_basis_links
-                   (capability_request_id,context_item_id,ordinal)
-                   VALUES (%s,%s,1)""",
-                (initial_request_id, ids["context_item"]),
-            )
-            limited_request_id = _uuid7()
-            expiry_request_id = _uuid7()
-            codex_request_id = _uuid7()
-            connection.execute(
-                """
-                INSERT INTO armi.capability_requests (
-                    capability_request_id, subject_commit_id, proposal_ref,
-                    subject_id, interaction_scene_id, creator_party_id,
-                    capability_id, capability_kind, operation_class,
-                    audience_scope, data_scope, purpose, workspace_scope,
-                    artifact_scope, network_access, requested_valid_for_seconds,
-                    requested_max_uses, requested_max_payload_bytes
-                )
-                SELECT %s, subject_commit_id, 'proposal:3', subject_id,
-                       interaction_scene_id, creator_party_id, capability_id,
-                       capability_kind, operation_class, audience_scope,
-                       data_scope, purpose, workspace_scope, artifact_scope,
-                       network_access, requested_valid_for_seconds,
-                       requested_max_uses, requested_max_payload_bytes
-                FROM armi.capability_requests
-                WHERE capability_request_id = %s
-                """,
-                (
-                    limited_request_id,
-                    initial_request_id,
-                ),
-            )
-            connection.execute(
-                """
-                INSERT INTO armi.capability_request_basis_links (
-                    capability_request_id, context_item_id, ordinal
-                )
-                SELECT %s, context_item_id, ordinal
-                FROM armi.capability_request_basis_links
-                WHERE capability_request_id = %s
-                """,
-                (limited_request_id, initial_request_id),
-            )
-            connection.execute(
-                """
-                INSERT INTO armi.capability_requests (
-                    capability_request_id, subject_commit_id, proposal_ref,
-                    subject_id, interaction_scene_id, creator_party_id,
-                    capability_id, capability_kind, operation_class,
-                    audience_scope, data_scope, purpose, workspace_scope,
-                    artifact_scope, network_access, requested_valid_for_seconds,
-                    requested_max_uses, requested_max_payload_bytes
-                )
-                SELECT %s, subject_commit_id, 'proposal:5', subject_id,
-                       interaction_scene_id, creator_party_id, capability_id,
-                       capability_kind, operation_class, audience_scope,
-                       data_scope, purpose, workspace_scope, artifact_scope,
-                       network_access, 60, 1, requested_max_payload_bytes
-                FROM armi.capability_requests
-                WHERE capability_request_id = %s
-                """,
-                (expiry_request_id, initial_request_id),
-            )
-            connection.execute(
-                """
-                INSERT INTO armi.capability_request_basis_links (
-                    capability_request_id, context_item_id, ordinal
-                )
-                SELECT %s, context_item_id, ordinal
-                FROM armi.capability_request_basis_links
-                WHERE capability_request_id = %s
-                """,
-                (expiry_request_id, initial_request_id),
-            )
-            connection.execute(
-                """
-                INSERT INTO armi.capability_requests (
-                    capability_request_id, subject_commit_id, proposal_ref,
-                    subject_id, interaction_scene_id, creator_party_id,
-                    capability_id, capability_kind, operation_class,
-                    audience_scope, data_scope, purpose, workspace_scope,
-                    artifact_scope, network_access, requested_valid_for_seconds,
-                    requested_max_uses, requested_max_payload_bytes
-                )
-                SELECT %s, request.subject_commit_id, 'proposal:4',
-                       request.subject_id, request.interaction_scene_id,
-                       request.creator_party_id, capability.capability_id,
-                       'codex.delegated-work', 'execute', NULL, NULL,
-                       'delegate_codex_work', 'isolated_ephemeral',
-                       'explicit_only', false, 600, 1, NULL
-                FROM armi.capability_requests AS request
-                JOIN armi.capabilities AS capability
-                  ON capability.capability_kind = 'codex.delegated-work'
-                WHERE request.capability_request_id = %s
-                """,
-                (
-                    codex_request_id,
-                    initial_request_id,
-                ),
-            )
-            connection.execute(
-                """
-                INSERT INTO armi.capability_request_basis_links (
-                    capability_request_id, context_item_id, ordinal
-                )
-                SELECT %s, context_item_id, ordinal
-                FROM armi.capability_request_basis_links
-                WHERE capability_request_id = %s
-                """,
-                (codex_request_id, initial_request_id),
-            )
 
-        limited_duration = 3599
-        limited_uses = None
-        limited_payload_bytes = None
-
-        async def exercise_policy() -> tuple[
-            str, int, str, str, int, int, str, str, str
-        ]:
-            policy_factory = PostgreSQLUnitOfWorkFactory(
+        async def dispatch_reply() -> None:
+            response_factory = PostgreSQLUnitOfWorkFactory(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
                 pool_min=1,
@@ -7381,221 +7223,68 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 statement_timeout_seconds=5,
                 authority_admission=lambda: fence,
             )
-            policy = bootstrap_capability(
-                policy_factory,
-                environment_id=fixture.environment_id,
-                cursor_key=b"s027-capability-policy-cursor-key",
-                effect_cancellation=bootstrap_effect_grant_cancellation(),
-                codex_activation=_NoopCodexActivation(),
-            )
-            await policy_factory.open()
-            await policy.open()
+            await response_factory.open()
             try:
-                page = await policy.list_requests(
-                    creator_party_id=creator_party_id,
-                    limit=10,
-                    cursor=None,
+                interaction_actions = bootstrap_interaction_action_ports()
+                dispatch_repository = PostgreSQLEffectDispatchRepository(
+                    interaction_actions.routes,
                 )
-                items = page.items
-                self.assertEqual(len(items), 4)
-                codex_item = next(
-                    item
-                    for item in items
-                    if item.capability_request_id == codex_request_id
-                )
-                self.assertEqual(codex_item.capability_availability, "available")
-                self.assertEqual(codex_item.workspace_scope, "isolated_ephemeral")
-                codex_granted = await policy.decide(
-                    CreatorGrantCommand(
-                        CapabilityDecisionId(_uuid7()),
-                        CapabilityRequestId(codex_request_id),
-                        1,
-                        CreatorGrantDecision.GRANT,
-                        reason_code="POLICY-CODEX-GRANTED",
+                async with response_factory.unit_of_work() as unit_of_work:
+                    dispatch_snapshot = await dispatch_repository.claim(
+                        unit_of_work,
+                        claim_owner=ids["runtime"],
                     )
-                )
-                self.assertIsNotNone(codex_granted.grant)
-                assert codex_granted.grant is not None
-                self.assertIsInstance(
-                    codex_granted.grant.scope, CodexDelegatedWorkScope
-                )
-                codex_revoked = await policy.decide(
-                    CreatorGrantCommand(
-                        CapabilityDecisionId(_uuid7()),
-                        CapabilityRequestId(codex_request_id),
-                        2,
-                        CreatorGrantDecision.REVOKE,
-                        reason_code="POLICY-CODEX-REVOKED",
-                    )
-                )
-                request_id = CapabilityRequestId(limited_request_id)
-                command = CreatorGrantCommand(
-                    CapabilityDecisionId(_uuid7()),
-                    request_id,
-                    1,
-                    CreatorGrantDecision.LIMIT,
-                    valid_for_seconds=limited_duration,
-                    max_uses=limited_uses,
-                    max_payload_bytes=limited_payload_bytes,
-                    reason_code="POLICY-CREATOR-LIMITED-SCOPE",
-                )
-                limited = await policy.decide(command)
-                repeated = await policy.decide(command)
-                self.assertEqual(repeated, limited)
-                response_factory = PostgreSQLUnitOfWorkFactory(
-                    fixture.runtime_dsn,
-                    environment_id=fixture.environment_id,
-                    pool_min=1,
-                    pool_max=1,
-                    acquire_timeout_seconds=2,
-                    statement_timeout_seconds=5,
-                    authority_admission=lambda: fence,
-                )
-                await response_factory.open()
-                try:
-                    interaction_actions = bootstrap_interaction_action_ports()
-                    dispatch_repository = PostgreSQLEffectDispatchRepository(
-                        policy.dispatch_authorization,
-                        interaction_actions.routes,
-                    )
-                    async with response_factory.unit_of_work() as unit_of_work:
-                        dispatch_snapshot = await dispatch_repository.claim(
-                            unit_of_work,
-                            claim_owner=ids["runtime"],
-                        )
-                    assert dispatch_snapshot is not None
-                    async with response_factory.unit_of_work() as unit_of_work:
-                        await dispatch_repository.mark_dispatching(
-                            unit_of_work,
-                            dispatch_snapshot,
-                            runtime_fence=fence,
-                            data_rights_fence=DataRightsFence(
-                                dispatch_snapshot.request.destination_party_id,
-                                1,
-                                1,
-                            ),
-                        )
-                    response_timeline = PostgreSQLInteractionPerception()
-                    adapter = PostgreSQLLocalInbox(response_factory)
-                    receipt = await adapter.dispatch(
-                        dispatch_snapshot.request,
-                        payloads["reply"],
-                    )
-                    duplicate_receipt = await adapter.dispatch(
-                        dispatch_snapshot.request,
-                        payloads["reply"],
-                    )
-                    self.assertTrue(duplicate_receipt.duplicate)
-                    self.assertEqual(
-                        duplicate_receipt.delivery_id,
-                        receipt.delivery_id,
-                    )
-                    async with response_factory.unit_of_work() as unit_of_work:
-                        await dispatch_repository.settle_receipt(
-                            unit_of_work,
-                            dispatch_snapshot,
-                            receipt,
-                        )
-                        await response_timeline.record_party_response(
-                            unit_of_work.transaction,
-                            scene_id=dispatch_snapshot.request.scene_id,
-                            effect_id=dispatch_snapshot.request.effect_id.value,
-                            occurred_at=receipt.received_at,
-                        )
-                        await response_timeline.record_party_response(
-                            unit_of_work.transaction,
-                            scene_id=dispatch_snapshot.request.scene_id,
-                            effect_id=dispatch_snapshot.request.effect_id.value,
-                            occurred_at=receipt.received_at,
-                        )
-                finally:
-                    await response_factory.close()
-                with self.assertRaisesRegex(
-                    CapabilityViolation, "CONFLICT-POLICY-VERSION"
-                ):
-                    await policy.decide(
-                        CreatorGrantCommand(
-                            CapabilityDecisionId(_uuid7()),
-                            request_id,
+                assert dispatch_snapshot is not None
+                async with response_factory.unit_of_work() as unit_of_work:
+                    await dispatch_repository.mark_dispatching(
+                        unit_of_work,
+                        dispatch_snapshot,
+                        runtime_fence=fence,
+                        data_rights_fence=DataRightsFence(
+                            dispatch_snapshot.request.destination_party_id,
                             1,
-                            CreatorGrantDecision.GRANT,
-                        )
+                            1,
+                        ),
                     )
-                revoked = await policy.decide(
-                    CreatorGrantCommand(
-                        CapabilityDecisionId(_uuid7()),
-                        request_id,
-                        2,
-                        CreatorGrantDecision.REVOKE,
-                        reason_code="POLICY-CREATOR-REVOKED",
+                response_timeline = PostgreSQLInteractionPerception()
+                adapter = PostgreSQLLocalInbox(response_factory)
+                receipt = await adapter.dispatch(
+                    dispatch_snapshot.request,
+                    payloads["reply"],
+                )
+                duplicate_receipt = await adapter.dispatch(
+                    dispatch_snapshot.request,
+                    payloads["reply"],
+                )
+                self.assertTrue(duplicate_receipt.duplicate)
+                self.assertEqual(
+                    duplicate_receipt.delivery_id,
+                    receipt.delivery_id,
+                )
+                async with response_factory.unit_of_work() as unit_of_work:
+                    await dispatch_repository.settle_receipt(
+                        unit_of_work,
+                        dispatch_snapshot,
+                        receipt,
                     )
-                )
-                granted = await policy.decide(
-                    CreatorGrantCommand(
-                        CapabilityDecisionId(_uuid7()),
-                        CapabilityRequestId(expiry_request_id),
-                        1,
-                        CreatorGrantDecision.GRANT,
-                        reason_code="POLICY-CREATOR-GRANTED",
+                    await response_timeline.record_party_response(
+                        unit_of_work.transaction,
+                        scene_id=dispatch_snapshot.request.scene_id,
+                        effect_id=dispatch_snapshot.request.effect_id.value,
+                        occurred_at=receipt.received_at,
                     )
-                )
-                self.assertIs(granted.status, CapabilityRequestStatus.GRANTED)
-                with psycopg.connect(
-                    fixture.provisioner_dsn, autocommit=True
-                ) as connection:
-                    connection.execute(
-                        """
-                        UPDATE armi.permission_grants
-                        SET valid_from = statement_timestamp() - interval '61 seconds',
-                            valid_until = statement_timestamp() - interval '1 second'
-                        WHERE capability_request_id = %s
-                        """,
-                        (expiry_request_id,),
+                    await response_timeline.record_party_response(
+                        unit_of_work.transaction,
+                        scene_id=dispatch_snapshot.request.scene_id,
+                        effect_id=dispatch_snapshot.request.effect_id.value,
+                        occurred_at=receipt.received_at,
                     )
-                expired_count = await policy.expire_once()
-                final_page = await policy.list_requests(
-                    creator_party_id=creator_party_id,
-                    limit=10,
-                    cursor=None,
-                )
-                final_items = final_page.items
-                expired_status = next(
-                    item.status
-                    for item in final_items
-                    if item.capability_request_id == expiry_request_id
-                )
-                return (
-                    limited.status.value,
-                    limited.grant.scope.max_uses if limited.grant else -1,
-                    "direct",
-                    revoked.status.value,
-                    revoked.request_version,
-                    expired_count,
-                    expired_status,
-                    codex_granted.status.value,
-                    codex_revoked.status.value,
-                )
             finally:
-                await policy.close()
-                await policy_factory.close()
+                await response_factory.close()
 
-        policy_result = asyncio.run(
-            exercise_policy(),
+        asyncio.run(
+            dispatch_reply(),
             loop_factory=lambda: asyncio.SelectorEventLoop(selectors.SelectSelector()),
-        )
-        self.assertEqual(
-            policy_result,
-            (
-                CapabilityRequestStatus.LIMITED.value,
-                1,
-                "direct",
-                CapabilityRequestStatus.REVOKED.value,
-                3,
-                1,
-                CapabilityRequestStatus.EXPIRED.value,
-                CapabilityRequestStatus.GRANTED.value,
-                CapabilityRequestStatus.REVOKED.value,
-            ),
         )
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             action_owner = connection.execute(
@@ -7633,8 +7322,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 """
                 SELECT effect.status, effect_outbox.status,
                        'effect_' || effect.status,
-                       effect.permission_grant_id,
-                       effect.capability_request_id,effect.policy_decision_id,
                        effect_outbox.dispatch_deadline,
                        (SELECT count(*) FROM armi.local_inbox_deliveries),
                        (SELECT count(*) FROM armi.effect_attempts),
@@ -7652,9 +7339,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "delivered",
                 "effect_completed",
                 None,
-                None,
-                None,
-                None,
                 1,
                 1,
                 1,
@@ -7669,6 +7353,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         ids: dict[str, UUID],
         payloads: dict[str, bytes],
         stage: str,
+        *,
+        codex: bool = False,
     ) -> None:
         async def exercise() -> None:
             factory = PostgreSQLUnitOfWorkFactory(
@@ -7680,17 +7366,26 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 statement_timeout_seconds=5,
                 authority_admission=lambda: fence,
             )
-            policy = bootstrap_capability(
-                factory,
-                environment_id=fixture.environment_id,
-                cursor_key=hashlib.sha256(b"reply-interruption").digest(),
-                effect_cancellation=bootstrap_effect_grant_cancellation(),
-                codex_activation=_NoopCodexActivation(),
-            )
             dispatcher = PostgreSQLEffectDispatchRepository(
-                policy.dispatch_authorization,
                 bootstrap_interaction_action_ports().routes,
             )
+            codex_effect = bootstrap_effect_codex_lifecycle()
+            codex_repository = PostgreSQLCodexDelegationRepository(
+                bootstrap_evidence().write,
+                bootstrap_opportunity_admission(),
+                codex_effect,
+                bootstrap_expression_action_ports().intents,
+                ArtifactCatalogRepository(),
+                bootstrap_codex_read_ports().task_sources,
+                bootstrap_evidence().read,
+                bootstrap_interaction_identity(_TEST_IDENTITY_TOKENS),
+                CreatorInputRepository(
+                    bootstrap_evidence().write,
+                    bootstrap_evidence().read,
+                    bootstrap_opportunity_admission(),
+                ),
+            )
+            codex_claim = None
             roster = compose_runtime_owner_roster(
                 data_rights=bootstrap_data_rights_core().participant,
                 mood_read=bootstrap_mood().read,
@@ -7709,32 +7404,147 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             await factory.open()
             try:
-                if stage in {"prepared", "dispatching", "receipt_saved"}:
+                if stage in {
+                    "prepared",
+                    "dispatching",
+                    "receipt_saved",
+                    "result_saved",
+                    "result_cognition",
+                }:
                     async with factory.unit_of_work() as unit:
-                        snapshot = await dispatcher.claim(
-                            unit, claim_owner=ids["runtime"]
-                        )
+                        if codex:
+                            codex_claim = await codex_repository.claim(
+                                unit, claim_owner=ids["runtime"]
+                            )
+                            snapshot = codex_claim
+                        else:
+                            snapshot = await dispatcher.claim(
+                                unit, claim_owner=ids["runtime"]
+                            )
                     assert snapshot is not None
                     self.assertIsNone(snapshot.dispatch_deadline)
-                    if stage in {"dispatching", "receipt_saved"}:
+                    if codex and stage in {
+                        "dispatching",
+                        "result_saved",
+                        "result_cognition",
+                    }:
+                        async with factory.unit_of_work() as unit:
+                            assert snapshot is not None
+                            self.assertTrue(
+                                await codex_repository.mark_dispatching(
+                                    unit,
+                                    cast(Any, snapshot),
+                                    runtime_fence=fence,
+                                    data_rights_fence=DataRightsFence(
+                                        cast(Any, snapshot).creator_party_id, 1, 1
+                                    ),
+                                )
+                            )
+                    elif stage in {"dispatching", "receipt_saved"}:
                         async with factory.unit_of_work() as unit:
                             self.assertTrue(
                                 await dispatcher.mark_dispatching(
                                     unit,
-                                    snapshot,
+                                    cast(Any, snapshot),
                                     runtime_fence=fence,
                                     data_rights_fence=DataRightsFence(
-                                        snapshot.request.destination_party_id, 1, 1
+                                        cast(
+                                            Any, snapshot
+                                        ).request.destination_party_id,
+                                        1,
+                                        1,
                                     ),
                                 )
                             )
                     if stage == "receipt_saved":
                         receipt = await PostgreSQLLocalInbox(factory).dispatch(
-                            snapshot.request, payloads["reply"]
+                            cast(Any, snapshot).request, payloads["reply"]
                         )
                         async with factory.unit_of_work() as unit:
-                            await dispatcher.settle_receipt(unit, snapshot, receipt)
+                            await dispatcher.settle_receipt(
+                                unit, cast(Any, snapshot), receipt
+                            )
+                if codex_claim is not None and stage in {
+                    "result_saved",
+                    "result_cognition",
+                }:
+                    async with factory.unit_of_work() as unit:
+                        await codex_repository.settle(
+                            unit,
+                            snapshot=codex_claim,
+                            status=CodexVerificationStatus.VERIFIED,
+                            cleanup_status=CodexCleanupStatus.CLEAN,
+                            artifacts={
+                                "validation_report": codex_claim.task_manifest,
+                                "final_result": codex_claim.source_bundle,
+                                "patch": codex_claim.task_manifest,
+                                "result_bundle": codex_claim.source_bundle,
+                            },
+                            source_tree_digest=codex_claim.source_tree_digest,
+                            final_tree_digest=Digest.from_bytes(
+                                b"controlled final tree"
+                            ),
+                            patch_digest=Digest.from_bytes(b"controlled patch"),
+                            changed_path_count=1,
+                            execution_error_code=None,
+                            cleanup_error_code=None,
+                        )
+                    if stage == "result_cognition":
+                        async with factory.unit_of_work() as unit:
+                            result_episode = uuid7()
+                            await unit.transaction.execute(
+                                """
+                                INSERT INTO armi.cognitive_episodes (
+                                    cognitive_episode_id, opportunity_id, subject_id, scene_id,
+                                    context_party_id, purpose, status, base_subject_version,
+                                    base_state_epoch, bundle_activation_id, mechanism_identity,
+                                    context_manifest_artifact_id, compiled_context_artifact_id,
+                                    context_manifest_digest, compiled_context_digest,
+                                    trace_id, prepared_at)
+                                SELECT %s, result.opportunity_id, original.subject_id,
+                                    original.scene_id, original.context_party_id,
+                                    'consider_codex_result', 'calling_model', 1,
+                                    original.base_state_epoch, original.bundle_activation_id,
+                                    original.mechanism_identity,
+                                    original.context_manifest_artifact_id,
+                                    original.compiled_context_artifact_id,
+                                    original.context_manifest_digest, original.compiled_context_digest,
+                                    original.trace_id, statement_timestamp()
+                                FROM armi.cognitive_episodes AS original
+                                CROSS JOIN armi.codex_result_sources AS result
+                                WHERE original.cognitive_episode_id=%s
+                            """,
+                                (result_episode, ids["episode"]),
+                            )
+                            await unit.transaction.execute(
+                                """
+                                INSERT INTO armi.durable_work (
+                                    work_id, work_kind, owner_kind, owner_ref, subject_id,
+                                    idempotency_key, payload_digest, priority, not_before,
+                                    deadline_at, status, max_attempts, trace_id)
+                                SELECT uuidv7(), 'cognition.model.invoke', 'cognitive_episode',
+                                    cognitive_episode_id, subject_id,
+                                    'controlled-codex-result-work', %s, 50, statement_timestamp(),
+                                    statement_timestamp() + interval '5 minutes', 'ready', 1, trace_id
+                                FROM armi.cognitive_episodes WHERE cognitive_episode_id=%s
+                            """,
+                                (
+                                    Digest.from_bytes(b"controlled result work").value,
+                                    result_episode,
+                                ),
+                            )
                 await recovery.end_conversations()
+                if codex_claim is not None:
+                    with self.assertRaisesRegex(
+                        RuntimeError, "EFFECT-SETTLEMENT-STALE"
+                    ):
+                        async with factory.unit_of_work() as unit:
+                            await codex_repository.fail_dispatch(
+                                unit,
+                                codex_claim,
+                                reason_code="CODEX-LATE-RESULT",
+                                started=True,
+                            )
                 # A second lifecycle pass must not recreate work or dispatch.
                 await recovery.end_conversations()
                 async with factory.unit_of_work() as unit:
@@ -7742,6 +7552,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         await dispatcher.claim(unit, claim_owner=ids["runtime"])
                     )
                     self.assertIsNone(await dispatcher.unknown(unit))
+                    if codex:
+                        self.assertIsNone(
+                            await codex_effect.claim_codex(
+                                unit, claim_owner=ids["runtime"]
+                            )
+                        )
             finally:
                 await factory.close()
 
@@ -7750,30 +7566,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             loop_factory=lambda: asyncio.SelectorEventLoop(selectors.SelectSelector()),
         )
         with psycopg.connect(fixture.provisioner_dsn) as connection:
-            self.assertEqual(
-                connection.execute(
-                    "SELECT count(*) FROM armi.capability_requests"
-                ).fetchone(),
-                (0,),
-            )
-            self.assertEqual(
-                connection.execute(
-                    "SELECT count(*) FROM armi.permission_grants"
-                ).fetchone(),
-                (0,),
-            )
-            self.assertEqual(
-                connection.execute(
-                    "SELECT count(*) FROM armi.policy_decisions"
-                ).fetchone(),
-                (0,),
-            )
-            self.assertEqual(
-                connection.execute(
-                    "SELECT count(*) FROM armi.effect_registrations"
-                ).fetchone(),
-                (0,),
-            )
             self.assertEqual(
                 connection.execute(
                     "SELECT count(*) FROM armi.durable_work WHERE status IN ('ready','leased') AND owner_kind='cognitive_episode'"
@@ -7802,7 +7594,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
                 expected = (
                     "completed"
-                    if stage == "receipt_saved"
+                    if stage in {"receipt_saved", "result_saved", "result_cognition"}
                     else "unknown"
                     if stage == "dispatching"
                     else "cancelled"
@@ -7811,6 +7603,30 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.execute("SELECT status FROM armi.effects").fetchone(),
                     (expected,),
                 )
+
+            if stage in {"result_saved", "result_cognition"}:
+                self.assertEqual(
+                    connection.execute(
+                        "SELECT execution_status FROM armi.codex_verification_results"
+                    ).fetchall(),
+                    [("verified",)],
+                )
+                self.assertEqual(
+                    connection.execute("""
+                    SELECT opportunity.current_disposition
+                    FROM armi.codex_result_sources AS result
+                    JOIN armi.opportunities AS opportunity
+                      ON opportunity.opportunity_id=result.opportunity_id
+                """).fetchall(),
+                    [("cancelled",)],
+                )
+                if stage == "result_cognition":
+                    self.assertEqual(
+                        connection.execute(
+                            "SELECT status FROM armi.cognitive_episodes WHERE purpose='consider_codex_result'"
+                        ).fetchall(),
+                        [("cancelled",)],
+                    )
 
     def test_runtime_authority_heartbeat_takeover_and_fence(self) -> None:
         fixture = self.create_database()
@@ -8484,7 +8300,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         (
                             "operation",
                             accepted["result_ref"],
-                            "creator-operation.v5",
+                            "creator-operation.v6",
                         ),
                     )
                     self.assertEqual(operation_event_lines[3], b"\n")

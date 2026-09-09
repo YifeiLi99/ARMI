@@ -54,14 +54,6 @@ export type CreatorExport = components["schemas"]["CreatorExportResponse"];
 export type DataRightsOrder = components["schemas"]["DataRightsOrderResponse"];
 export type DataRightsOrderCollection =
   components["schemas"]["DataRightsOrderCollectionResponse"];
-export type CapabilityRequestPage =
-  components["schemas"]["CapabilityRequestPageResponse"];
-export type CapabilityRequest =
-  components["schemas"]["CapabilityRequestItemResponse"];
-export type CapabilityDecision =
-  components["schemas"]["CapabilityRequestDecisionRequest"];
-export type CapabilityDecisionResult =
-  components["schemas"]["AppliedOutcomeResponse"];
 export type EffectDetail = components["schemas"]["EffectResponse"];
 
 export class ApiFailure extends Error {
@@ -829,46 +821,6 @@ export async function deactivateCreatorPrompt(
     }),
     ...(signal === undefined ? {} : { signal }),
   });
-  return requireJson(response);
-}
-
-export async function getCapabilityRequests(
-  token: string,
-  limit: number,
-  cursor?: string,
-  signal?: AbortSignal,
-): Promise<CapabilityRequestPage> {
-  const query = new URLSearchParams({ limit: String(limit) });
-  if (cursor !== undefined) {
-    query.set("cursor", cursor);
-  }
-  const response = await fetch(`/v1/capability-requests?${query.toString()}`, {
-    credentials: "omit",
-    headers: { Authorization: `Bearer ${token}` },
-    ...(signal === undefined ? {} : { signal }),
-  });
-  return requireJson(response);
-}
-
-export async function decideCapabilityRequest(
-  token: string,
-  requestId: string,
-  decision: CapabilityDecision,
-  signal?: AbortSignal,
-): Promise<CapabilityDecisionResult> {
-  const response = await fetch(
-    `/v1/capability-requests/${encodeURIComponent(requestId)}/decision`,
-    {
-      method: "POST",
-      credentials: "omit",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(decision),
-      ...(signal === undefined ? {} : { signal }),
-    },
-  );
   return requireJson(response);
 }
 

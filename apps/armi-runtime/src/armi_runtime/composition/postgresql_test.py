@@ -20,6 +20,7 @@ from armi_codex.bootstrap import (
     bootstrap_codex_commit,
     bootstrap_codex_read_ports,
     bootstrap_codex_timeline_projection,
+    compose_codex_delegation_repository,
     compose_codex_task_source_gateway,
 )
 from armi_cognition.bootstrap import (
@@ -37,9 +38,7 @@ from armi_cognition.bootstrap import (
 from armi_data_rights.bootstrap import bootstrap_data_rights_core
 from armi_effect.bootstrap import (
     bootstrap_effect_codex_lifecycle,
-    bootstrap_effect_grant_cancellation,
     bootstrap_effect_operation_read,
-    bootstrap_effect_responsibility,
     bootstrap_expression_effect_registration,
     compose_effect_dispatch_repository,
     compose_effect_ledger_repository,
@@ -85,6 +84,7 @@ from armi_web_observation.bootstrap import (
 
 ArtifactCatalogRepository = bootstrap_artifact_catalog
 CodexTaskSourceGateway = compose_codex_task_source_gateway
+PostgreSQLCodexDelegationRepository = compose_codex_delegation_repository
 PostgreSQLEffectDispatchRepository = compose_effect_dispatch_repository
 PostgreSQLLocalInbox = compose_local_inbox
 PostgreSQLEffectLedgerRepository = compose_effect_ledger_repository
@@ -114,6 +114,7 @@ __all__ = (
     "ExternalMessageInputRepository",
     "ExternalMessageInputService",
     "OtherHumanInputRepository",
+    "PostgreSQLCodexDelegationRepository",
     "PostgreSQLEffectDispatchRepository",
     "PostgreSQLEffectLedgerRepository",
     "PostgreSQLInteractionPerception",
@@ -131,9 +132,7 @@ __all__ = (
     "bootstrap_cognition_subject_commit",
     "bootstrap_data_rights_core",
     "bootstrap_effect_codex_lifecycle",
-    "bootstrap_effect_grant_cancellation",
     "bootstrap_effect_operation_read",
-    "bootstrap_effect_responsibility",
     "bootstrap_evidence",
     "bootstrap_experience_owner",
     "bootstrap_expression",

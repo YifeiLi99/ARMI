@@ -205,7 +205,6 @@ def compose_data_rights_participants(
         "prompt",
         "sleep",
         "expression",
-        "capability",
         "effect",
         "web-observation",
         "codex",

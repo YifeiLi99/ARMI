@@ -12,6 +12,7 @@ const runtime: RuntimeStatus = {
   runtime_state: "ready",
   readiness: "ready",
   authority_state: "active",
+  codex: { enabled: false, available: false, reason_code: "CODEX-DISABLED" },
   reason_codes: [],
   components: [
     { component: "database", state: "ready", reason_codes: [] },

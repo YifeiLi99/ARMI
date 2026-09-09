@@ -9,7 +9,6 @@ from armi_kernel.contracts import CONTRACT_VERSION
 from fastapi import FastAPI
 
 from armi_runtime.application.creator_contract import (
-    CapabilityRequestDecisionRequest,
     CreatorProjectionEventResponse,
     CreatorRelationshipBoundaryRequest,
     QQChannelHealthResponse,
@@ -110,27 +109,6 @@ def build_creator_openapi() -> dict[str, object]:
         dict[str, object], schemas[CreatorRelationshipBoundaryRequest.__name__]
     )
     relationship_boundary.pop("$defs", None)
-    capability_decision = cast(
-        dict[str, Any], schemas[CapabilityRequestDecisionRequest.__name__]
-    )
-    capability_properties = cast(
-        dict[str, dict[str, Any]], capability_decision["properties"]
-    )
-    for name in (
-        "valid_for_seconds",
-        "max_uses",
-        "max_payload_bytes",
-        "reason_code",
-    ):
-        capability_properties[name].pop("default", None)
-    for name in ("expected_request_version",):
-        capability_properties[name]["minimum"] = float(
-            capability_properties[name]["minimum"]
-        )
-    for name in ("valid_for_seconds", "max_uses", "max_payload_bytes"):
-        constrained = capability_properties[name]["anyOf"][0]
-        constrained["minimum"] = float(constrained["minimum"])
-        constrained["maximum"] = float(constrained["maximum"])
     return cast(dict[str, object], schema)
 
 

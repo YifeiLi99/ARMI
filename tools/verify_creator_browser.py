@@ -16,7 +16,6 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import ViewportSize, sync_playwright
 
 VIEWPORTS: tuple[ViewportSize, ...] = (
@@ -36,12 +35,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
     event_streams = 0
     input_accepted = False
     opportunity_id = "018f47a6-7b2d-7c35-8b18-684e38ab6ef9"
-    capability_request_id = "018f47a6-7b2d-7c35-8b18-684e38ab6efa"
-    codex_request_id = "018f47a6-7b2d-7c35-8b18-684e38ab6efb"
-    grant_id = "018f47a6-7b2d-7c35-8b18-684e38ab6efc"
     effect_id = "018f47a6-7b2d-7c35-8b18-684e38ab6efd"
-    capability_status = "pending"
-    capability_version = 1
     effect_reads = 0
 
     def log_message(self, format: str, *args: object) -> None:
@@ -67,44 +61,6 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         }
 
     def do_POST(self) -> None:
-        if self.path == (
-            f"/v1/capability-requests/{self.capability_request_id}/decision"
-        ):
-            length = int(self.headers.get("Content-Length", "0"))
-            try:
-                request = json.loads(self.rfile.read(length))
-            except json.JSONDecodeError:
-                self.send_error(400)
-                return
-            if (
-                request.get("contract_version") != "1.0"
-                or request.get("decision") != "limit"
-                or request.get("expected_request_version") != 1
-                or request.get("valid_for_seconds") != 300
-                or re.fullmatch(
-                    r"[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-"
-                    r"[89ab][0-9a-f]{3}-[0-9a-f]{12}",
-                    str(request.get("decision_id", "")),
-                )
-                is None
-            ):
-                self.send_error(400)
-                return
-            type(self).capability_status = "limited"
-            type(self).capability_version = 2
-            self._json_response(
-                200,
-                {
-                    "contract_version": "1.0",
-                    "status": "applied",
-                    "trace_id": "c" * 32,
-                    "occurred_at": "2026-07-30T10:01:00.000000Z",
-                    "message": "decision applied",
-                    "result_ref": self.capability_request_id,
-                    "state_version": 2,
-                },
-            )
-            return
         if self.path == "/v1/scenes/default/messages":
             if (
                 self.headers.get("Authorization") != f"Bearer {self.session_token}"
@@ -170,7 +126,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             "message": "Creator response verified.",
             "result_ref": cls.effect_id,
             "details": {
-                "projection_version": "creator-operation.v5",
+                "projection_version": "creator-operation.v6",
                 "operation_ref": cls.opportunity_id,
                 "operation_kind": "creator_response",
                 "stage": "completed",
@@ -178,64 +134,6 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                 "effect_ref": cls.effect_id,
             },
         }
-
-    @classmethod
-    def _capability_items(cls) -> list[dict[str, object]]:
-        reply: dict[str, object] = {
-            "capability_request_id": cls.capability_request_id,
-            "capability_kind": "codex.delegated-work",
-            "operation": "execute",
-            "subject_id": cls.environment_id,
-            "scene_id": cls.creator_party_id,
-            "workspace_scope": "isolated_ephemeral",
-            "artifact_scope": "explicit_only",
-            "network_access": False,
-            "purpose": "delegate_codex_work",
-            "valid_for_seconds": 600,
-            "max_uses": 1,
-            "status": cls.capability_status,
-            "capability_availability": "available",
-            "resolution_reason_code": None,
-            "request_version": cls.capability_version,
-            "created_at": "2026-07-30T10:00:00.000000Z",
-            "status_changed_at": "2026-07-30T10:00:01.000000Z",
-        }
-        if cls.capability_status == "limited":
-            reply["effective_grant"] = {
-                "scope_kind": "codex_delegated_work",
-                "workspace_scope": "isolated_ephemeral",
-                "artifact_scope": "explicit_only",
-                "network_access": False,
-                "grant_ref": cls.grant_id,
-                "status": "active",
-                "valid_from": "2026-07-30T10:01:00.000000Z",
-                "valid_until": "2026-07-30T10:06:00.000000Z",
-                "max_uses": 1,
-                "consumed_uses": 0,
-                "remaining_uses": 1,
-            }
-        return [
-            reply,
-            {
-                "capability_request_id": cls.codex_request_id,
-                "capability_kind": "codex.delegated-work",
-                "operation": "execute",
-                "subject_id": cls.environment_id,
-                "scene_id": cls.creator_party_id,
-                "purpose": "delegate_codex_work",
-                "workspace_scope": "isolated_ephemeral",
-                "artifact_scope": "explicit_only",
-                "network_access": False,
-                "valid_for_seconds": 600,
-                "max_uses": 1,
-                "status": "pending",
-                "capability_availability": "unavailable",
-                "resolution_reason_code": "CODEX-UNAVAILABLE",
-                "request_version": 1,
-                "created_at": "2026-07-30T09:59:00.000000Z",
-                "status_changed_at": "2026-07-30T10:00:01.000000Z",
-            },
-        ]
 
     def do_GET(self) -> None:
         if self.path == "/v1/browser-sessions/current":
@@ -250,6 +148,11 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                     "runtime_state": "ready",
                     "readiness": "ready",
                     "reason_codes": [],
+                    "codex": {
+                        "enabled": False,
+                        "available": False,
+                        "reason_code": "CODEX-DISABLED",
+                    },
                     "components": [
                         {
                             "component": component,
@@ -291,16 +194,6 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                     ],
                     "latest_commit_ref": self.opportunity_id,
                     "observed_at": "2026-07-30T10:00:01.000000Z",
-                },
-            )
-            return
-        if self.path == "/v1/capability-requests?limit=50":
-            self._json_response(
-                200,
-                {
-                    "contract_version": "1.0",
-                    "projection_version": "capability-request.v6",
-                    "items": self._capability_items(),
                 },
             )
             return
@@ -347,7 +240,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                 200,
                 {
                     "contract_version": "1.0",
-                    "projection_version": "creator-effect.v5",
+                    "projection_version": "creator-effect.v6",
                     "effect_id": self.effect_id,
                     "action_intent_ref": self.opportunity_id,
                     "action_intent_revision_ref": "018f47a6-7b2d-7c35-8b18-684e38ab6efe",
@@ -461,8 +354,6 @@ def main() -> int:
                         QuietHandler.timeline_reads = 0
                         QuietHandler.event_streams = 0
                         QuietHandler.input_accepted = False
-                        QuietHandler.capability_status = "pending"
-                        QuietHandler.capability_version = 1
                         QuietHandler.effect_reads = 0
                         page = browser.new_page(viewport=viewport)
                         requests: list[str] = []
@@ -497,10 +388,10 @@ def main() -> int:
                                 "() => document.querySelector('.workspace-sidebar')"
                                 ".getBoundingClientRect().left >= 0"
                             )
-                        capability_navigation = page.get_by_role(
-                            "button", name="能力授权", exact=True
+                        maintenance_navigation = page.get_by_role(
+                            "button", name="运行与维护", exact=True
                         )
-                        if not capability_navigation.evaluate(
+                        if not maintenance_navigation.evaluate(
                             "element => { const rect = element.getBoundingClientRect(); "
                             "return rect.top >= 0 && rect.left >= 0 && "
                             "rect.bottom <= innerHeight && rect.right <= innerWidth; }"
@@ -514,7 +405,7 @@ def main() -> int:
                                 "rect: element.getBoundingClientRect().toJSON()})"
                             )
                             raise RuntimeError(
-                                "WEB-BROWSER-NAVIGATION: capability navigation is "
+                                "WEB-BROWSER-NAVIGATION: maintenance navigation is "
                                 f"unreachable; layout={navigation_layout}"
                             )
                         if viewport != VIEWPORTS[0]:
@@ -562,50 +453,6 @@ def main() -> int:
                             )
                             page.close()
                             continue
-                        try:
-                            capability_navigation.click(timeout=2_000)
-                        except PlaywrightTimeoutError as error:
-                            navigation_layout = page.evaluate(
-                                "() => { const nav = document.querySelector("
-                                "'.primary-navigation'); const item = Array.from("
-                                "document.querySelectorAll('.navigation-item')).find("
-                                "element => element.textContent.includes('能力授权')); "
-                                "const sidebar = document.querySelector("
-                                "'.workspace-sidebar'); return {innerHeight, "
-                                "nav: nav.getBoundingClientRect().toJSON(), "
-                                "navClientHeight: nav.clientHeight, "
-                                "navScrollHeight: nav.scrollHeight, "
-                                "navScrollTop: nav.scrollTop, "
-                                "item: item.getBoundingClientRect().toJSON(), "
-                                "sidebar: sidebar.getBoundingClientRect().toJSON(), "
-                                "sidebarClass: sidebar.className}; }"
-                            )
-                            raise RuntimeError(
-                                "WEB-BROWSER-NAVIGATION: click failed at "
-                                f"{viewport}; layout={navigation_layout}"
-                            ) from error
-                        capability_item = (
-                            page.locator("li.capability-item")
-                            .filter(has_text="codex.delegated-work")
-                            .first
-                        )
-                        capability_item.get_by_role(
-                            "button", name="设置更严格限制", exact=True
-                        ).click()
-                        maximum_uses = capability_item.get_by_label("有效秒数")
-                        maximum_uses.fill("300")
-                        maximum_uses.press("Enter")
-                        capability_item.get_by_text("limited", exact=True).wait_for()
-                        capability_item.get_by_text("1/1 次").wait_for()
-                        codex_item = page.locator("li.capability-item").filter(
-                            has_text="CODEX-UNAVAILABLE"
-                        )
-                        if codex_item.get_by_role(
-                            "button", name="允许申请范围", exact=True
-                        ).count():
-                            raise RuntimeError(
-                                "WEB-BROWSER-CAPABILITY: unavailable Codex can be granted"
-                            )
                         if (
                             QuietHandler.timeline_reads < 2
                             or QuietHandler.event_streams < 1
@@ -614,11 +461,7 @@ def main() -> int:
                                 "WEB-BROWSER-SSE: invalidation did not refetch "
                                 "the authoritative timeline"
                             )
-                        if mobile_menu.is_visible():
-                            mobile_menu.click()
-                        page.get_by_role(
-                            "button", name="运行与维护", exact=True
-                        ).click()
+                        maintenance_navigation.click()
                         with page.expect_response(
                             lambda item: item.url.endswith("/v1/runtime/status")
                         ):
@@ -756,7 +599,7 @@ def main() -> int:
                                 "session_flow": "pass",
                                 "event_stream": "pass",
                                 "creator_input_loop": "pass",
-                                "capability_effect_loop": "pass",
+                                "effect_loop": "pass",
                                 "zoom_200_percent": "pass",
                             }
                         )

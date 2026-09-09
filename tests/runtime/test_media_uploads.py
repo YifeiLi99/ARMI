@@ -189,7 +189,7 @@ async def test_completed_cognition_keeps_partial_attachment_result(
         "occurred_at": "2026-09-09T00:00:00.000000Z",
         "message": "Completed",
         "details": {
-            "projection_version": "creator-operation.v5",
+            "projection_version": "creator-operation.v6",
             "operation_ref": str(opportunity),
             "operation_kind": "cognition",
             "stage": "no_action",

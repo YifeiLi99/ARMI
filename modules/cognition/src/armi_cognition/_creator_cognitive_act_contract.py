@@ -32,18 +32,18 @@ from ._dialogue_contract import (
 )
 from ._strict_model_json import strict_model_value
 
-CREATOR_COGNITIVE_ACT_VERSION = "armi.creator-cognitive-act-candidate.v2"
-CREATOR_VOICE_ACT_VERSION = "armi.creator-voice-act-candidate.v2"
+CREATOR_COGNITIVE_ACT_VERSION = "armi.creator-cognitive-act-candidate.v3"
+CREATOR_VOICE_ACT_VERSION = "armi.creator-voice-act-candidate.v3"
 
 CREATOR_COGNITIVE_ACT_INSTRUCTIONS = """\
-你要一次完成本轮对 Creator 输入的完整认知，只输出一份严格 JSON：同时决定表达或查询、主观经历、Mood v3 语义评价，以及关系、承诺、资料或 Codex 提议。
+你要一次完成本轮对 Creator 输入的完整认知，只输出一份严格 JSON：同时决定表达或查询、主观经历、Mood v3 语义评价，以及关系、承诺或资料提议。
 模型不得填写主体 ID、主体版本、权限结果、情绪数值、VAD、强度、持续时间、半衰期或任何现实执行结果。Runtime 与各领域 Owner 会分别校验提议，并最多提交一次主体变化。
 kind=reply 时只填写 content；kind=exact_life_query 时只填写 record_kind；kind=web_research 时只填写 query；kind=visual_observation 时只填写 source_kind。只有 Creator 在当前输入中明确要求记住时，experience.remember 才可为 true 且必须给出 memory_summary。
-appraisal 只能使用 Schema 中的语义标签和冻结 Context 引用。new 不引用既有 episode；reinforce、reappraise、resolve 必须引用冻结资料。changes 最多 8 项，只允许关系、承诺、资料和 Codex 操作。
+appraisal 只能使用 Schema 中的语义标签和冻结 Context 引用。new 不引用既有 episode；reinforce、reappraise、resolve 必须引用冻结资料。changes 最多 8 项，只允许关系、承诺和资料操作。
 不要解释 Schema，不要输出 JSON 以外的文字。"""
 
 CREATOR_VOICE_ACT_INSTRUCTIONS = """\
-实时语音。一次完成本轮认知，只输出 armi.creator-voice-act-candidate.v2 的严格紧凑 JSON。它与文字认知语义完全相同，只缩短字段名；回复 text 最多 60 个汉字。关闭工具，不输出解释或额外文字。"""
+实时语音。一次完成本轮认知，只输出 armi.creator-voice-act-candidate.v3 的严格紧凑 JSON。它与文字认知语义完全相同，只缩短字段名；回复 text 最多 60 个汉字。关闭工具，不输出解释或额外文字。"""
 
 
 class _StrictModel(BaseModel):
@@ -70,7 +70,6 @@ _OPS = frozenset(
         "material.update",
         "material.visibility",
         "material.delete",
-        "codex.request",
         "relationship.interpret",
         "relationship.fact",
         "relationship.boundary",

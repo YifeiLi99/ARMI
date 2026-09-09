@@ -5,11 +5,6 @@ from __future__ import annotations
 from uuid import UUID
 
 from armi_attention.api import OpportunityOperationReadPort
-from armi_capability.api import (
-    CapabilityAuthorizationOutcome,
-    CapabilityOperationReadPort,
-    CapabilityPolicyDecisionSnapshot,
-)
 from armi_codex.api import CodexExecutionReadPort, CodexTaskSourceReadPort
 from armi_cognition.api import CognitionOperationReadPort
 from armi_effect.api import EffectOperationReadPort, EffectStatus
@@ -31,7 +26,6 @@ class RuntimeCreatorOperationAssembler(CreatorOperationQueryPort):
     """Combine owner-authored snapshots inside one read transaction."""
 
     __slots__ = (
-        "_capability",
         "_codex",
         "_codex_executions",
         "_cognition",
@@ -54,7 +48,6 @@ class RuntimeCreatorOperationAssembler(CreatorOperationQueryPort):
         interaction: CreatorInputTransactionPort,
         evidence: EvidenceReadPort,
         expression: ExpressionIntentReadPort,
-        capability: CapabilityOperationReadPort,
         effect: EffectOperationReadPort,
         codex: CodexTaskSourceReadPort,
         codex_executions: CodexExecutionReadPort,
@@ -66,7 +59,6 @@ class RuntimeCreatorOperationAssembler(CreatorOperationQueryPort):
         self._interaction = interaction
         self._evidence = evidence
         self._expression = expression
-        self._capability = capability
         self._effect = effect
         self._codex = codex
         self._codex_executions = codex_executions
@@ -79,7 +71,10 @@ class RuntimeCreatorOperationAssembler(CreatorOperationQueryPort):
                 root_opportunity_id=opportunity_id.value,
                 context_party_id=self._creator_party_id,
             )
-            if opportunity is None:
+            if opportunity is None or opportunity.purpose not in {
+                "consider_creator_input",
+                "consider_codex_task",
+            }:
                 raise CreatorInputViolation("SCOPE-OPERATION-NOT-VISIBLE")
             evidence = await self._evidence.snapshot(
                 transaction,
@@ -111,29 +106,9 @@ class RuntimeCreatorOperationAssembler(CreatorOperationQueryPort):
                 transaction,
                 operation_ref=opportunity.root_opportunity_id,
             )
-            policy = None
             effect = None
-            if (
-                expression is not None
-                and expression.action_kind == "codex_delegation"
-                and expression.intent_revision_id is not None
-            ):
-                policy = await self._capability.policy_for_revision(
-                    transaction,
-                    action_intent_revision_id=expression.intent_revision_id,
-                )
             if expression is not None and expression.intent_id is not None:
                 effect = await self._effect.by_action_intent(
-                    transaction,
-                    action_intent_id=expression.intent_id,
-                )
-            effect_registration = None
-            if (
-                expression is not None
-                and expression.action_kind == "codex_delegation"
-                and expression.intent_id is not None
-            ):
-                effect_registration = await self._effect.registration_by_intent(
                     transaction,
                     action_intent_id=expression.intent_id,
                 )
@@ -144,13 +119,7 @@ class RuntimeCreatorOperationAssembler(CreatorOperationQueryPort):
                 cognition_failure=cognition.failure_code,
                 application_resolution=cognition.application_resolution,
                 expression=expression,
-                policy=policy,
                 effect_status=None if effect is None else effect.status,
-                effect_registration=(
-                    None
-                    if effect_registration is None
-                    else (effect_registration.status, effect_registration.reason_code)
-                ),
             )
             if (
                 effect is not None
@@ -174,6 +143,75 @@ class RuntimeCreatorOperationAssembler(CreatorOperationQueryPort):
                     task_source_id=evidence.codex_task_source_id,
                 )
                 if execution is not None:
+                    result_phase = None
+                    result_reason = None
+                    if execution.result_opportunity_id is not None:
+                        result_opportunity = await self._opportunity.operation_snapshot(
+                            transaction,
+                            root_opportunity_id=execution.result_opportunity_id,
+                            context_party_id=self._creator_party_id,
+                        )
+                        if result_opportunity is None:
+                            raise CreatorInputViolation("DB-INPUT-STATE")
+                        result_cognition = await self._cognition.operation_snapshot(
+                            transaction,
+                            opportunity_id=result_opportunity.current_opportunity_id,
+                        )
+                        result_expression = await self._expression.operation_snapshot(
+                            transaction,
+                            operation_ref=result_opportunity.root_opportunity_id,
+                        )
+                        result_effect = None
+                        if (
+                            result_expression is not None
+                            and result_expression.intent_id is not None
+                        ):
+                            result_effect = await self._effect.by_action_intent(
+                                transaction,
+                                action_intent_id=result_expression.intent_id,
+                            )
+                        result_phase, result_reason = _derive_phase(
+                            disposition=result_opportunity.disposition,
+                            reconsideration_no=result_opportunity.reconsideration_no,
+                            episode_status=result_cognition.episode_status,
+                            cognition_failure=result_cognition.failure_code,
+                            application_resolution=result_cognition.application_resolution,
+                            expression=result_expression,
+                            effect_status=None
+                            if result_effect is None
+                            else result_effect.status,
+                        )
+                        if (
+                            result_effect is not None
+                            and result_effect.observation_reason
+                            == "EFFECT-RUNTIME-INTERRUPTED"
+                        ):
+                            result_reason = "ACTION-RUNTIME-INTERRUPTED"
+                        if result_phase in {
+                            CreatorOperationPhase.ACCEPTED,
+                            CreatorOperationPhase.CONTEXT_PREPARING,
+                            CreatorOperationPhase.CONTEXT_PREPARED,
+                            CreatorOperationPhase.MODEL_CALLING,
+                            CreatorOperationPhase.MODEL_RETURNED,
+                            CreatorOperationPhase.CANDIDATE_VALIDATING,
+                            CreatorOperationPhase.CANDIDATE_VALIDATED,
+                            CreatorOperationPhase.SUBJECT_COMMITTING,
+                            CreatorOperationPhase.EFFECT_REGISTERED,
+                            CreatorOperationPhase.EFFECT_DISPATCHING,
+                        }:
+                            phase = CreatorOperationPhase.CODEX_RESULT_ACCEPTANCE
+                        elif result_phase in {
+                            CreatorOperationPhase.FAILED,
+                            CreatorOperationPhase.EFFECT_FAILED,
+                        }:
+                            phase = CreatorOperationPhase.CODEX_FAILED
+                        elif result_phase is CreatorOperationPhase.EFFECT_CANCELLED:
+                            phase = CreatorOperationPhase.CODEX_CANCELLED
+                        elif result_phase is CreatorOperationPhase.EFFECT_UNKNOWN:
+                            phase = CreatorOperationPhase.CODEX_UNKNOWN
+                        elif result_phase is CreatorOperationPhase.CANDIDATE_REJECTED:
+                            phase = CreatorOperationPhase.CODEX_RESULT_REJECTED
+                        failure_code = result_reason
                     codex_execution = CreatorCodexExecutionSummary(
                         execution.task_source_id,
                         execution.verification_id,
@@ -183,6 +221,8 @@ class RuntimeCreatorOperationAssembler(CreatorOperationQueryPort):
                         execution.validator_id,
                         execution.source_tree_digest,
                         execution.final_tree_digest,
+                        None if result_phase is None else result_phase.value,
+                        result_reason,
                     )
             return CreatorOperation(
                 acceptance=acceptance,
@@ -198,23 +238,9 @@ class RuntimeCreatorOperationAssembler(CreatorOperationQueryPort):
                     if effect is None or not _phase_has_effect(phase)
                     else effect.effect_id
                 ),
-                effect_registration_ref=(
-                    None
-                    if effect_registration is None
-                    else effect_registration.effect_registration_id
-                ),
                 intent_ref=None if expression is None else expression.intent_id,
                 dialogue_decision_ref=(
                     None if expression is None else expression.dialogue_decision_id
-                ),
-                policy_decision_ref=(
-                    None if policy is None else policy.policy_decision_id
-                ),
-                capability_request_ref=(
-                    None if expression is None else expression.capability_request_id
-                ),
-                permission_grant_ref=(
-                    None if effect is None else effect.permission_grant_id
                 ),
                 effect_attempt_ref=(
                     None if effect is None else effect.current_attempt_id
@@ -256,9 +282,7 @@ def _derive_phase(
     cognition_failure: str | None,
     application_resolution: str | None,
     expression: ExpressionOperationSnapshot | None,
-    policy: CapabilityPolicyDecisionSnapshot | None,
     effect_status: EffectStatus | None,
-    effect_registration: tuple[str, str | None] | None,
 ) -> tuple[CreatorOperationPhase, str | None]:
     if expression is not None:
         decision_kind = expression.decision_kind
@@ -272,30 +296,6 @@ def _derive_phase(
         if decision_kind == "end_conversation":
             return CreatorOperationPhase.COMPLETED, None
         if action_kind is not None:
-            if action_kind == "codex_delegation":
-                if policy is None:
-                    return CreatorOperationPhase.CODEX_CAPABILITY_DECISION, None
-                if policy.outcome is CapabilityAuthorizationOutcome.DENIED:
-                    return (
-                        CreatorOperationPhase.EFFECT_REGISTRATION_UNAUTHORIZED,
-                        policy.reason_code,
-                    )
-                if policy.outcome is CapabilityAuthorizationOutcome.UNAVAILABLE:
-                    return (
-                        CreatorOperationPhase.EFFECT_REGISTRATION_UNAVAILABLE,
-                        policy.reason_code,
-                    )
-                if effect_registration is None or effect_registration[0] == "pending":
-                    return CreatorOperationPhase.EFFECT_REGISTRATION, None
-                registration_status, registration_reason = effect_registration
-                registration_phases = {
-                    "unauthorized": CreatorOperationPhase.EFFECT_REGISTRATION_UNAUTHORIZED,
-                    "unavailable": CreatorOperationPhase.EFFECT_REGISTRATION_UNAVAILABLE,
-                    "failed": CreatorOperationPhase.EFFECT_REGISTRATION_FAILED,
-                    "cancelled": CreatorOperationPhase.EFFECT_REGISTRATION_CANCELLED,
-                }
-                if registration_status in registration_phases:
-                    return registration_phases[registration_status], registration_reason
             if effect_status is None:
                 raise CreatorInputViolation("DB-INPUT-STATE")
             phases = {

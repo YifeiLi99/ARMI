@@ -13,10 +13,6 @@ from armi_attention.bootstrap import (
     bootstrap_opportunity_data_rights,
     bootstrap_opportunity_recovery,
 )
-from armi_capability.bootstrap import (
-    bootstrap_capability_data_rights,
-    bootstrap_capability_recovery,
-)
 from armi_codex.bootstrap import bootstrap_codex_data_rights, bootstrap_codex_recovery
 from armi_cognition.bootstrap import (
     bootstrap_cognition_data_rights,
@@ -137,7 +133,6 @@ _DATA_RIGHTS_ORDER = (
     "prompt",
     "sleep",
     "expression",
-    "capability",
     "effect",
     "web-observation",
     "codex",
@@ -164,7 +159,6 @@ _RECOVERY_ORDER = (
     "experience",
     "opportunity",
     "expression",
-    "capability",
     "effect",
     "web-observation",
     "codex",
@@ -199,7 +193,6 @@ def compose_runtime_owner_roster(
         "prompt": bootstrap_prompt_recovery(prompt_read),
         "sleep": bootstrap_sleep_recovery(),
         "expression": bootstrap_expression_recovery(),
-        "capability": bootstrap_capability_recovery(),
         "effect": bootstrap_effect_recovery(),
         "web-observation": bootstrap_web_observation_recovery(),
         "codex": bootstrap_codex_recovery(),
@@ -224,7 +217,6 @@ def compose_runtime_owner_roster(
         "prompt": bootstrap_prompt_data_rights(),
         "sleep": bootstrap_sleep_data_rights(),
         "expression": bootstrap_expression_data_rights(),
-        "capability": bootstrap_capability_data_rights(),
         "effect": bootstrap_effect_data_rights(),
         "web-observation": bootstrap_web_observation_data_rights(),
         "codex": bootstrap_codex_data_rights(),

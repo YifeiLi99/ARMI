@@ -13,14 +13,6 @@ from uuid import UUID, uuid7
 
 from armi_activity.api import ActivityReadPort, ActivityViolation
 from armi_attention.api import LifeViolation
-from armi_capability.api import (
-    CapabilityDecisionId,
-    CapabilityPolicyPort,
-    CapabilityRequestId,
-    CapabilityViolation,
-    CreatorGrantCommand,
-    CreatorGrantDecision,
-)
 from armi_codex.api import (
     CodexDelegationViolation,
     CodexModel,
@@ -118,9 +110,6 @@ from armi_runtime.application.creator_contract import (
     AppliedOutcomeResponse,
     BrowserSessionCurrentResponse,
     BrowserSessionResponse,
-    CapabilityRequestDecisionRequest,
-    CapabilityRequestItemResponse,
-    CapabilityRequestPageResponse,
     CreatorActivityItemResponse,
     CreatorActivityPageResponse,
     CreatorActivityTimelineItemResponse,
@@ -436,31 +425,6 @@ async def _creator_codex_task_request(
         raise CodexDelegationViolation("CODEX-TASK-REQUEST") from None
 
 
-async def _capability_decision_request(
-    request: Request, maximum_bytes: int
-) -> CapabilityRequestDecisionRequest:
-    if request.headers.get("content-type") != "application/json":
-        raise CapabilityViolation("CON-CAPABILITY-CONTENT-TYPE")
-    body = await read_bounded_body(
-        request,
-        maximum_bytes=maximum_bytes,
-        timeout_seconds=float(request.scope.get("armi.body_timeout_seconds", 10)),
-    )
-    if not body or len(body) > maximum_bytes:
-        raise CapabilityViolation("CON-CAPABILITY-BODY")
-    try:
-        value = json.loads(
-            body.decode("utf-8", errors="strict"),
-            object_pairs_hook=_strict_object_pairs,
-            parse_constant=lambda _value: (_ for _ in ()).throw(
-                ValueError("non-finite JSON")
-            ),
-        )
-        return CapabilityRequestDecisionRequest.model_validate(value)
-    except UnicodeDecodeError, ValueError, ValidationError:
-        raise CapabilityViolation("CON-CAPABILITY-BODY") from None
-
-
 async def _creator_prompt_revision_request(
     request: Request, maximum_bytes: int
 ) -> CreatorPromptRevisionRequest:
@@ -629,12 +593,6 @@ __all__ = (
     "BrowserSessionStore",
     "BrowserSessionViolation",
     "Callable",
-    "CapabilityDecisionId",
-    "CapabilityPolicyPort",
-    "CapabilityRequestId",
-    "CapabilityRequestItemResponse",
-    "CapabilityRequestPageResponse",
-    "CapabilityViolation",
     "CodexDelegationViolation",
     "CodexModel",
     "CodexReasoningEffort",
@@ -652,8 +610,6 @@ __all__ = (
     "CreatorExportPort",
     "CreatorExportResponse",
     "CreatorExportViolation",
-    "CreatorGrantCommand",
-    "CreatorGrantDecision",
     "CreatorInputAcceptance",
     "CreatorInputAcceptancePort",
     "CreatorInputCommand",
@@ -778,7 +734,6 @@ __all__ = (
     "_bearer",
     "_boundary_message",
     "_browser_boundary",
-    "_capability_decision_request",
     "_creator_boundary_request",
     "_creator_codex_task_request",
     "_creator_export_error",

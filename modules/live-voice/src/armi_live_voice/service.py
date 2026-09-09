@@ -108,7 +108,7 @@ class LiveVoiceService:
             )
             await self._transition(
                 LiveVoiceSessionState.LISTENING,
-                context_version="armi.creator-voice-act-candidate.v2",
+                context_version="armi.creator-voice-act-candidate.v3",
             )
             self._ready.set()
             while not self._stop.is_set():
@@ -141,7 +141,7 @@ class LiveVoiceService:
             session_id=self._session_id,
             turn_id=turn_id,
             turn_no=self._turn_no,
-            context_version="armi.creator-voice-act-candidate.v2",
+            context_version="armi.creator-voice-act-candidate.v3",
         )
         try:
             outcome, _spoken, silent = await self._execute_turn(turn_id)

@@ -8,7 +8,6 @@ from typing import Any, Literal, cast
 from uuid import UUID, uuid7
 
 import rfc8785
-from armi_capability.api import CapabilityDispatchAuthorizationPort
 from armi_data_rights.api import DataRightsFence
 from armi_interaction.api import InteractionEffectRoutePort, OtherHumanInputViolation
 from armi_kernel.application import (
@@ -22,7 +21,6 @@ from armi_kernel.application import (
 from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId, TraceId
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
-from ._grant import coordinate_dispatch_boundary
 from .api import (
     EffectAdapterReceipt,
     EffectAttemptId,
@@ -38,9 +36,6 @@ _EXTERNAL_MESSAGE_ADAPTER_BINDING = "armi.external-message-adapter.v1"
 class _AbsentDisposition(StrEnum):
     RETRY = "retry"
     FAILED = "failed"
-    CANCELLED_REVOKED = "cancelled_revoked"
-    CANCELLED_EXPIRED = "cancelled_expired"
-    CANCELLED_SUPERSEDED = "cancelled_superseded"
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,14 +53,12 @@ class EffectDispatchSnapshot:
 class PostgreSQLEffectDispatchRepository:
     """The only effect-ledger writer used by the dispatcher."""
 
-    __slots__ = ("_authorization", "_routes")
+    __slots__ = ("_routes",)
 
     def __init__(
         self,
-        authorization: CapabilityDispatchAuthorizationPort,
         routes: InteractionEffectRoutePort,
     ) -> None:
-        self._authorization = authorization
         self._routes = routes
 
     async def claim(
@@ -260,7 +253,6 @@ class PostgreSQLEffectDispatchRepository:
                 SELECT outbox.effect_outbox_item_id, outbox.attempt_count,
                        effect.effect_id, effect.subject_id, effect.purpose,
                        effect.trace_id, effect.authorization_basis,
-                       effect.policy_decision_id, effect.action_intent_revision_id,
                        effect.destination_kind, outbox.claim_token
                 FROM armi.effect_outbox_items AS outbox
                 JOIN armi.effects AS effect ON effect.effect_id=outbox.effect_id
@@ -280,27 +272,15 @@ class PostgreSQLEffectDispatchRepository:
         if row is None:
             return False
         cancelled = False
-        grant_id: UUID | None = None
-        if str(row[6]) == "creator_grant":
-            if row[7] is None:
-                raise EffectViolation("EFFECT-SETTLEMENT-STALE")
-            authorization = await self._authorization.authorize_dispatch(
-                connection,
-                policy_decision_id=row[7],
-                action_intent_revision_id=row[8],
-                before_dispatch_deadline=False,
-            )
-            cancelled = authorization.reason_code == "POLICY-GRANT-REVOKED"
-            grant_id = authorization.grant_id
         attempt_id = uuid7()
         observation_id = uuid7()
         attempt_no = int(row[1]) + 1
-        claim_token = int(row[10]) + 1
+        claim_token = int(row[8]) + 1
         error_code = None if cancelled else "EFFECT-DISPATCH-DEADLINE"
         result_status = "cancelled" if cancelled else "failed"
         effect_status = "cancelled" if cancelled else "failed"
         outbox_status = "cancelled" if cancelled else "dead"
-        adapter_binding = _adapter_binding(str(row[9]))
+        adapter_binding = _adapter_binding(str(row[7]))
         digest = Digest.from_bytes(
             rfc8785.dumps(
                 {
@@ -399,11 +379,6 @@ class PostgreSQLEffectDispatchRepository:
                 TraceId(str(row[5])),
                 AuditSensitivity.PRIVATE,
                 subject_id=SubjectId(row[3]),
-                grant=(
-                    None
-                    if grant_id is None
-                    else AuditReference("permission_grant", grant_id)
-                ),
             )
         )
         return True
@@ -595,23 +570,7 @@ class PostgreSQLEffectDispatchRepository:
             raise EffectViolation("EFFECT-CLAIM-STALE")
         basis = str(authorization[0])
         destination_kind = str(authorization[1])
-        if basis == "creator_grant":
-            boundary = await coordinate_dispatch_boundary(
-                uow,
-                authorization=self._authorization,
-                effect_id=snapshot.request.effect_id.value,
-                attempt_id=snapshot.request.attempt_id.value,
-                outbox_id=snapshot.outbox_id,
-                claim_owner=snapshot.claim_owner,
-                claim_token=snapshot.claim_token,
-                expected_operation_status="effect_dispatching",
-                cancelled_operation_status="effect_cancelled",
-            )
-            if boundary is None:
-                raise EffectViolation("EFFECT-CLAIM-STALE")
-            if not boundary.allowed:
-                return False
-        elif basis in {"runtime_builtin", "runtime_configuration"}:
+        if basis in {"runtime_builtin", "runtime_configuration"}:
             try:
                 route = await self._routes.effect_route(
                     connection,
@@ -773,7 +732,7 @@ class PostgreSQLEffectDispatchRepository:
         self, uow: PostgreSQLRuntimeUnitOfWork, snapshot: EffectDispatchSnapshot
     ) -> bool:
         connection = uow.transaction
-        disposition, grant_id, attempt_state = await self._absent_disposition(
+        disposition, attempt_state = await self._absent_disposition(
             connection, snapshot
         )
         digest = _observation_digest(snapshot, "query", "not_delivered")
@@ -785,22 +744,6 @@ class PostgreSQLEffectDispatchRepository:
                 was_dispatched=attempt_state == "dispatching",
             )
             return True
-        cancellation_reason = {
-            _AbsentDisposition.CANCELLED_REVOKED: "POLICY-GRANT-REVOKED",
-            _AbsentDisposition.CANCELLED_EXPIRED: "POLICY-GRANT-EXPIRED",
-            _AbsentDisposition.CANCELLED_SUPERSEDED: "POLICY-GRANT-NOT-CURRENT",
-        }.get(disposition)
-        if cancellation_reason is not None:
-            if grant_id is None:
-                raise EffectViolation("EFFECT-SETTLEMENT-STALE")
-            await self._settle_cancelled(
-                uow,
-                snapshot,
-                observation_digest=digest,
-                grant_id=grant_id,
-                reason_code=cancellation_reason,
-            )
-            return False
         await self._settle(
             uow,
             snapshot,
@@ -822,15 +765,13 @@ class PostgreSQLEffectDispatchRepository:
         self,
         connection: Any,
         snapshot: EffectDispatchSnapshot,
-    ) -> tuple[_AbsentDisposition, UUID | None, str]:
+    ) -> tuple[_AbsentDisposition, str]:
         current = await (
             await connection.execute(
                 """
                 SELECT outbox.attempt_count, outbox.max_attempts,
                        (outbox.dispatch_deadline IS NULL OR statement_timestamp() < outbox.dispatch_deadline),
-                       attempt.dispatch_state, effect.authorization_basis,
-                       effect.policy_decision_id,
-                       effect.action_intent_revision_id
+                       attempt.dispatch_state
                 FROM armi.effect_outbox_items AS outbox
                 JOIN armi.effects AS effect ON effect.effect_id = outbox.effect_id
                 JOIN armi.effect_attempts AS attempt
@@ -856,40 +797,10 @@ class PostgreSQLEffectDispatchRepository:
         ).fetchone()
         if current is None:
             raise EffectViolation("EFFECT-SETTLEMENT-STALE")
-        if str(current[4]) != "creator_grant":
-            return (
-                _AbsentDisposition.RETRY
-                if int(current[0]) < int(current[1]) and bool(current[2])
-                else _AbsentDisposition.FAILED,
-                None,
-                str(current[3]),
-            )
-        if current[5] is None:
-            raise EffectViolation("EFFECT-SETTLEMENT-STALE")
-        authorization = await self._authorization.authorize_dispatch(
-            connection,
-            policy_decision_id=current[5],
-            action_intent_revision_id=current[6],
-            before_dispatch_deadline=bool(current[2]),
-        )
-        if authorization.allowed:
-            disposition = _classify_absent_effect(
-                attempt_count=int(current[0]),
-                max_attempts=int(current[1]),
-                before_dispatch_deadline=True,
-                policy_current=True,
-                grant_status="active",
-                grant_time_valid=True,
-            )
-        elif authorization.reason_code == "POLICY-GRANT-REVOKED":
-            disposition = _AbsentDisposition.CANCELLED_REVOKED
-        elif authorization.reason_code == "POLICY-GRANT-EXPIRED":
-            disposition = _AbsentDisposition.CANCELLED_EXPIRED
-        else:
-            disposition = _AbsentDisposition.CANCELLED_SUPERSEDED
         return (
-            disposition,
-            authorization.grant_id,
+            _AbsentDisposition.RETRY
+            if int(current[0]) < int(current[1]) and bool(current[2])
+            else _AbsentDisposition.FAILED,
             str(current[3]),
         )
 
@@ -1038,96 +949,6 @@ class PostgreSQLEffectDispatchRepository:
                 snapshot.outbox_id,
                 snapshot.claim_token,
             ),
-        )
-
-    async def _settle_cancelled(
-        self,
-        uow: PostgreSQLRuntimeUnitOfWork,
-        snapshot: EffectDispatchSnapshot,
-        *,
-        observation_digest: Digest,
-        grant_id: UUID,
-        reason_code: str,
-    ) -> None:
-        connection = uow.transaction
-        observation_id = uuid7()
-        await self._insert_observation(
-            connection,
-            snapshot,
-            observation_id,
-            "query",
-            "reliable",
-            observation_digest,
-            None,
-            None,
-            "cancelled",
-            reason_code,
-            "owner_state",
-        )
-        attempt = await (
-            await connection.execute(
-                """
-                UPDATE armi.effect_attempts
-                SET dispatch_state='settled', result_status='cancelled',
-                    error_code=NULL,
-                    settled_at=statement_timestamp()
-                WHERE effect_attempt_id=%s
-                  AND dispatch_state IN ('prepared','dispatching')
-                RETURNING settled_at
-                """,
-                (snapshot.request.attempt_id.value,),
-            )
-        ).fetchone()
-        if attempt is None:
-            raise EffectViolation("EFFECT-SETTLEMENT-STALE")
-        effect = await (
-            await connection.execute(
-                """
-                UPDATE armi.effects
-                SET status='cancelled', verification_status='verified',
-                    current_observation_id=%s,
-                    settled_at=%s, cancelled_at=%s
-                WHERE effect_id=%s AND current_attempt_id=%s
-                  AND status='dispatching'
-                RETURNING effect_id
-                """,
-                (
-                    observation_id,
-                    attempt[0],
-                    attempt[0],
-                    snapshot.request.effect_id.value,
-                    snapshot.request.attempt_id.value,
-                ),
-            )
-        ).fetchone()
-        outbox = await (
-            await connection.execute(
-                """
-                UPDATE armi.effect_outbox_items
-                SET status='cancelled', claim_owner=NULL, claim_expires_at=NULL,
-                    cancelled_at=%s, delivered_at=NULL, last_error_code=NULL
-                WHERE effect_outbox_item_id=%s AND status='claimed'
-                  AND claim_token=%s
-                RETURNING effect_outbox_item_id
-                """,
-                (attempt[0], snapshot.outbox_id, snapshot.claim_token),
-            )
-        ).fetchone()
-        if effect is None or outbox is None:
-            raise EffectViolation("EFFECT-SETTLEMENT-STALE")
-        await uow.audit.append(
-            AuditDraft(
-                AuditEventId(uuid7()),
-                AuditReference("runtime", uow.environment_id),
-                Purpose("effect.settlement"),
-                "effect.cancelled",
-                AuditReference("effect", snapshot.request.effect_id.value),
-                AuditResultStatus.APPLIED,
-                snapshot.request.trace_id,
-                AuditSensitivity.PRIVATE,
-                subject_id=SubjectId(snapshot.request.subject_id),
-                grant=AuditReference("permission_grant", grant_id),
-            )
         )
 
     async def _settle(
@@ -1413,32 +1234,6 @@ def _observation_digest(
             )
         )
     )
-
-
-def _classify_absent_effect(
-    *,
-    attempt_count: int,
-    max_attempts: int,
-    before_dispatch_deadline: bool,
-    policy_current: bool,
-    grant_status: str,
-    grant_time_valid: bool,
-) -> _AbsentDisposition:
-    if not policy_current:
-        return _AbsentDisposition.CANCELLED_SUPERSEDED
-    if grant_status == "revoked":
-        return _AbsentDisposition.CANCELLED_REVOKED
-    if (
-        grant_status == "expired"
-        or not grant_time_valid
-        or not before_dispatch_deadline
-    ):
-        return _AbsentDisposition.CANCELLED_EXPIRED
-    if grant_status != "active":
-        return _AbsentDisposition.CANCELLED_SUPERSEDED
-    if attempt_count < max_attempts:
-        return _AbsentDisposition.RETRY
-    return _AbsentDisposition.FAILED
 
 
 __all__ = ("EffectDispatchSnapshot", "PostgreSQLEffectDispatchRepository")

@@ -1,32 +1,16 @@
-"""PostgreSQL owner for T-05 policy and effect registration."""
+"""PostgreSQL owner for atomic effect registration and ledger reads."""
 
 from __future__ import annotations
 
-from typing import Any, Literal, cast
+from typing import Literal, cast
 from uuid import UUID, uuid7
 
 import rfc8785
-from armi_capability.api import (
-    CapabilityAuthorizationOutcome,
-    CapabilityConsumptionRequest,
-    CapabilityEffectAuthorizationPort,
-)
 from armi_expression.api import (
+    CodexEffectDraft,
     DeclaredResponseEffectDraft,
-    ExpressionEffectLinkPort,
-    ExpressionIntentReadPort,
 )
-from armi_kernel.application import (
-    AuditDraft,
-    AuditEventId,
-    AuditReference,
-    AuditResultStatus,
-    AuditSensitivity,
-    WorkLease,
-    WorkRecord,
-    WorkResultRef,
-)
-from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId
+from armi_kernel.contracts import Digest, Instant
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWork,
     PostgreSQLTransaction,
@@ -37,14 +21,10 @@ from .api import (
     EffectLedgerSnapshot,
     EffectObservationKind,
     EffectObservationReliability,
-    EffectRegistrationContext,
-    EffectRegistrationResult,
-    EffectResponsibilitySnapshot,
     EffectStatus,
     EffectVerificationStatus,
     EffectView,
     EffectViolation,
-    PolicyDecisionId,
 )
 
 
@@ -53,49 +33,52 @@ class PostgreSQLDeclaredResponseEffectRegistration:
 
     __slots__ = ()
 
-    async def schedule_registration(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        action_intent_id: UUID,
-        work_id: UUID,
-        capability_request_id: UUID,
-        permission_grant_id: UUID,
+    async def register_codex_delegation(
+        self, transaction: PostgreSQLTransaction, draft: CodexEffectDraft
     ) -> UUID:
-        registration_id = uuid7()
+        task = draft.delegation
+        effect_id = uuid7()
+        digest = Digest.from_bytes(
+            rfc8785.dumps(
+                {
+                    "action_intent_revision_id": str(draft.action_intent_revision_id),
+                    "task_source_id": str(task.task_source_id),
+                    "manifest_digest": task.task_manifest_digest.value,
+                }
+            )
+        )
         await transaction.execute(
-            """INSERT INTO armi.effect_registrations (
-                   effect_registration_id,action_intent_id,work_id,
-                   capability_request_id,
-                   permission_grant_id)
-               VALUES (%s,%s,%s,%s,%s)""",
+            """INSERT INTO armi.effects (
+                effect_id,action_intent_id,action_intent_revision_id,
+                subject_id,scene_id,context_party_id,payload_artifact_id,
+                payload_digest,payload_bytes,effect_kind,capability_kind,
+                operation_class,purpose,authorization_basis,destination_kind,
+                destination_party_id,registration_digest,trace_id,status,verification_status)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'codex_delegation',
+                 'codex.delegated-work','execute','delegate_codex_work',
+                 'runtime_configuration','codex_workspace',%s,%s,%s,'registered','not_started')""",
             (
-                registration_id,
-                action_intent_id,
-                work_id,
-                capability_request_id,
-                permission_grant_id,
+                effect_id,
+                draft.action_intent_id,
+                draft.action_intent_revision_id,
+                task.subject_id,
+                task.scene_id,
+                task.creator_party_id,
+                task.task_manifest_artifact_id,
+                task.task_manifest_digest.value,
+                task.task_manifest_bytes,
+                task.creator_party_id,
+                digest.value,
+                task.trace_id.value,
             ),
         )
-        return registration_id
-
-    async def registration_by_intent(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        action_intent_id: UUID,
-    ) -> EffectResponsibilitySnapshot | None:
-        row = await (
-            await transaction.execute(
-                """SELECT effect_registration_id,status,reason_code,
-                          capability_request_id,permission_grant_id
-                   FROM armi.effect_registrations WHERE action_intent_id=%s""",
-                (action_intent_id,),
-            )
-        ).fetchone()
-        if row is None:
-            return None
-        return EffectResponsibilitySnapshot(row[0], str(row[1]), row[2], row[3], row[4])
+        await transaction.execute(
+            """INSERT INTO armi.effect_outbox_items (
+                effect_outbox_item_id,effect_id,message_kind,status,dispatch_deadline,max_attempts)
+               VALUES (%s,%s,'effect.dispatch','ready',NULL,1)""",
+            (uuid7(), effect_id),
+        )
+        return effect_id
 
     async def register_declared_response(
         self,
@@ -183,17 +166,7 @@ class PostgreSQLDeclaredResponseEffectRegistration:
 
 
 class PostgreSQLEffectLedgerRepository:
-    __slots__ = ("_authorization", "_effect_links", "_intents")
-
-    def __init__(
-        self,
-        authorization: CapabilityEffectAuthorizationPort,
-        intents: ExpressionIntentReadPort,
-        effect_links: ExpressionEffectLinkPort,
-    ) -> None:
-        self._authorization = authorization
-        self._intents = intents
-        self._effect_links = effect_links
+    __slots__ = ()
 
     async def by_action_intent(
         self,
@@ -223,9 +196,7 @@ class PostgreSQLEffectLedgerRepository:
             await transaction.execute(
                 """
                 SELECT effect.effect_id, effect.action_intent_revision_id,
-                       effect.action_intent_id, effect.policy_decision_id,
-                       effect.capability_request_id,effect.permission_grant_id,
-                       effect.subject_id, effect.scene_id, effect.context_party_id,
+                       effect.action_intent_id, effect.subject_id, effect.scene_id, effect.context_party_id,
                        effect.payload_artifact_id, effect.payload_digest,
                        effect.payload_bytes, effect.effect_kind,
                        effect.capability_kind, effect.status,
@@ -255,303 +226,34 @@ class PostgreSQLEffectLedgerRepository:
             effect_id=row[0],
             action_intent_revision_id=row[1],
             action_intent_id=row[2],
-            policy_decision_id=row[3],
-            capability_request_id=row[4],
-            permission_grant_id=row[5],
-            subject_id=row[6],
-            scene_id=row[7],
-            context_party_id=row[8],
-            payload_artifact_id=row[9],
-            payload_digest=Digest(str(row[10])),
-            payload_bytes=int(row[11]),
-            effect_kind=str(row[12]),
-            capability_kind=str(row[13]),
-            status=EffectStatus(str(row[14])),
-            verification_status=EffectVerificationStatus(str(row[15])),
-            registered_at=Instant(row[16]),
-            cancelled_at=None if row[17] is None else Instant(row[17]),
-            settled_at=None if row[18] is None else Instant(row[18]),
-            attempt_count=int(row[19]),
+            subject_id=row[3],
+            scene_id=row[4],
+            context_party_id=row[5],
+            payload_artifact_id=row[6],
+            payload_digest=Digest(str(row[7])),
+            payload_bytes=int(row[8]),
+            effect_kind=str(row[9]),
+            capability_kind=str(row[10]),
+            status=EffectStatus(str(row[11])),
+            verification_status=EffectVerificationStatus(str(row[12])),
+            registered_at=Instant(row[13]),
+            cancelled_at=None if row[14] is None else Instant(row[14]),
+            settled_at=None if row[15] is None else Instant(row[15]),
+            attempt_count=int(row[16]),
             current_observation_kind=(
-                None if row[20] is None else EffectObservationKind(str(row[20]))
+                None if row[17] is None else EffectObservationKind(str(row[17]))
             ),
             current_observation_reliability=(
-                None if row[21] is None else EffectObservationReliability(str(row[21]))
+                None if row[18] is None else EffectObservationReliability(str(row[18]))
             ),
-            current_attempt_id=row[22],
-            current_attempt_no=None if row[23] is None else int(row[23]),
-            current_dispatch_state=None if row[24] is None else str(row[24]),
-            current_observation_id=row[25],
-            observation_conclusion=None if row[26] is None else str(row[26]),
-            observation_reason=None if row[27] is None else str(row[27]),
-            observation_evidence_kind=None if row[28] is None else str(row[28]),
+            current_attempt_id=row[19],
+            current_attempt_no=None if row[20] is None else int(row[20]),
+            current_dispatch_state=None if row[21] is None else str(row[21]),
+            current_observation_id=row[22],
+            observation_conclusion=None if row[23] is None else str(row[23]),
+            observation_reason=None if row[24] is None else str(row[24]),
+            observation_evidence_kind=None if row[25] is None else str(row[25]),
         )
-
-    async def settle_current_work(
-        self,
-        unit_of_work: PostgreSQLRuntimeUnitOfWork,
-        work: WorkRecord,
-    ) -> None:
-        connection = unit_of_work.transaction
-        lease = work.lease
-        if lease is None:
-            return
-        row = await (
-            await connection.execute(
-                """
-                SELECT effect_id FROM armi.effects
-                WHERE action_intent_id=%s
-                """,
-                (work.draft.owner.reference,),
-            )
-        ).fetchone()
-        if row is not None:
-            await connection.execute(
-                """UPDATE armi.effect_registrations
-                   SET status='succeeded',effect_id=%s,
-                       attempt_count=attempt_count+1,
-                       settled_at=statement_timestamp()
-                   WHERE work_id=%s AND status='pending'""",
-                (row[0], lease.work_id.value),
-            )
-            await unit_of_work.work.complete(
-                lease,
-                WorkResultRef("effect", row[0]),
-            )
-            return
-        await self._fail_locked(unit_of_work, lease, "EFFECT-REGISTRATION-STATE")
-
-    async def fail_current_work(
-        self,
-        unit_of_work: PostgreSQLRuntimeUnitOfWork,
-        work: WorkRecord,
-        *,
-        code: str,
-    ) -> None:
-        lease = work.lease
-        if lease is None:
-            return
-        await self._fail_locked(unit_of_work, lease, code)
-
-    async def _fail_locked(
-        self,
-        unit_of_work: PostgreSQLRuntimeUnitOfWork,
-        lease: WorkLease,
-        code: str,
-    ) -> None:
-        await unit_of_work.transaction.execute(
-            """UPDATE armi.effect_registrations
-               SET status='failed',reason_code=%s,
-                   attempt_count=attempt_count+1,
-                   settled_at=statement_timestamp()
-               WHERE work_id=%s AND status='pending'""",
-            (code, lease.work_id.value),
-        )
-        await unit_of_work.work.fail(lease, error_code=code)
-
-    async def settle(
-        self,
-        uow: PostgreSQLRuntimeUnitOfWork,
-        *,
-        lease: WorkLease,
-        snapshot: EffectRegistrationContext,
-        integrity_ok: bool,
-    ) -> EffectRegistrationResult | None:
-        connection = uow.transaction
-        if uow.runtime_fence is None:
-            raise EffectViolation("EFFECT-FENCE")
-        registration = await (
-            await connection.execute(
-                """SELECT effect_registration_id,capability_request_id,
-                          permission_grant_id
-                   FROM armi.effect_registrations
-                   WHERE work_id=%s AND action_intent_id=%s AND status='pending'
-                   FOR UPDATE""",
-                (lease.work_id.value, snapshot.action_intent_id),
-            )
-        ).fetchone()
-        if registration is None:
-            raise EffectViolation("EFFECT-WORK-STALE")
-        if (
-            registration[1] != snapshot.capability_request_id
-            or registration[2] != snapshot.permission_grant_id
-        ):
-            raise EffectViolation("EFFECT-CAPABILITY-IDENTITY")
-        intent = await self._intents.intent_snapshot(
-            connection,
-            action_intent_id=snapshot.action_intent_id,
-        )
-        if intent.operation_ref != snapshot.operation_ref:
-            raise EffectViolation("EFFECT-WORK-STALE")
-        registration_digest = _registration_digest(snapshot)
-        existing = await self._existing(connection, snapshot, registration_digest)
-        if existing is not None:
-            await connection.execute(
-                """UPDATE armi.effect_registrations
-                   SET status='succeeded',effect_id=%s,
-                       attempt_count=attempt_count+1,
-                       settled_at=statement_timestamp()
-                   WHERE effect_registration_id=%s""",
-                (existing.effect_id.value, registration[0]),
-            )
-            await uow.work.complete(
-                lease, WorkResultRef("effect", existing.effect_id.value)
-            )
-            return existing
-
-        if integrity_ok:
-            authorization = await self._authorization.authorize_effect(
-                connection,
-                action_intent_revision_id=snapshot.action_intent_revision_id,
-                request=CapabilityConsumptionRequest(
-                    capability_request_id=snapshot.capability_request_id,
-                    permission_grant_id=snapshot.permission_grant_id,
-                    capability_kind=snapshot.capability_kind,
-                    operation_class=snapshot.operation_class,
-                    subject_id=snapshot.subject_id,
-                    scene_id=snapshot.scene_id,
-                    creator_party_id=snapshot.context_party_id,
-                    purpose=snapshot.purpose,
-                    effect_kind=snapshot.effect_kind,
-                    payload_bytes=snapshot.payload_bytes,
-                ),
-            )
-        else:
-            authorization = await self._authorization.record_effect_outcome(
-                connection,
-                action_intent_revision_id=snapshot.action_intent_revision_id,
-                outcome=CapabilityAuthorizationOutcome.UNAVAILABLE,
-                reason_code="POLICY-PAYLOAD-UNAVAILABLE",
-            )
-        outcome = authorization.outcome.value
-        grant_id = authorization.grant_id
-        valid_until = authorization.valid_until
-        if authorization.outcome is CapabilityAuthorizationOutcome.ALLOWED:
-            assert grant_id is not None and valid_until is not None
-
-        decision_id = authorization.policy_decision_id
-        result: EffectRegistrationResult | None = None
-        if outcome == "allowed":
-            effect_id, outbox_id = uuid7(), uuid7()
-            row = await (
-                await connection.execute(
-                    """
-                INSERT INTO armi.effects (
-                    effect_id, action_intent_revision_id, action_intent_id,
-                    policy_decision_id, capability_request_id,
-                    permission_grant_id, subject_id, scene_id, context_party_id,
-                    payload_artifact_id, payload_digest, payload_bytes, effect_kind,
-                    capability_kind, operation_class, audience_scope, data_scope, purpose,
-                    authorization_basis, destination_kind, destination_party_id,
-                    destination_binding_id, live_voice_turn_id,
-                    registration_digest, trace_id, status, verification_status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                    %s,%s,%s,%s,%s,'creator_grant',%s,%s,%s,%s,%s,%s,
-                    'registered','not_started')
-                RETURNING registered_at
-                """,
-                    (
-                        effect_id,
-                        snapshot.action_intent_revision_id,
-                        snapshot.action_intent_id,
-                        decision_id,
-                        snapshot.capability_request_id,
-                        snapshot.permission_grant_id,
-                        snapshot.subject_id,
-                        snapshot.scene_id,
-                        snapshot.context_party_id,
-                        snapshot.payload_artifact_id,
-                        snapshot.payload_digest.value,
-                        snapshot.payload_bytes,
-                        snapshot.effect_kind,
-                        snapshot.capability_kind,
-                        snapshot.operation_class,
-                        None,
-                        None,
-                        snapshot.purpose,
-                        snapshot.destination_kind,
-                        snapshot.destination_party_id,
-                        snapshot.destination_binding_id,
-                        snapshot.live_voice_turn_id,
-                        registration_digest.value,
-                        snapshot.trace_id.value,
-                    ),
-                )
-            ).fetchone()
-            row = cast(tuple[Any, ...], row)
-            await connection.execute(
-                """
-                INSERT INTO armi.effect_outbox_items (
-                    effect_outbox_item_id, effect_id, message_kind,
-                    status, dispatch_deadline, max_attempts) VALUES (%s, %s, 'effect.dispatch', 'ready', %s, %s)
-                """,
-                (
-                    outbox_id,
-                    effect_id,
-                    valid_until,
-                    1
-                    if snapshot.effect_kind == "codex_delegation"
-                    or snapshot.live_voice_turn_id is not None
-                    or snapshot.destination_binding_id is not None
-                    else 2,
-                ),
-            )
-            await connection.execute(
-                """UPDATE armi.effect_registrations
-                   SET status='succeeded',effect_id=%s,
-                       attempt_count=attempt_count+1,
-                       settled_at=statement_timestamp()
-                   WHERE effect_registration_id=%s""",
-                (effect_id, registration[0]),
-            )
-            await uow.work.complete(lease, WorkResultRef("effect", effect_id))
-            result = EffectRegistrationResult(
-                EffectId(effect_id),
-                PolicyDecisionId(decision_id),
-                EffectStatus.REGISTERED,
-                EffectVerificationStatus.NOT_STARTED,
-                registration_digest,
-                Instant(row[0]),
-            )
-        else:
-            await connection.execute(
-                """UPDATE armi.effect_registrations
-                   SET status=%s,reason_code=%s,
-                       attempt_count=attempt_count+1,
-                       settled_at=statement_timestamp()
-                   WHERE effect_registration_id=%s""",
-                (
-                    "unauthorized" if outcome == "denied" else "unavailable",
-                    authorization.reason_code,
-                    registration[0],
-                ),
-            )
-            await uow.work.complete(
-                lease,
-                WorkResultRef("creator_response_operation", snapshot.operation_ref),
-            )
-        await uow.audit.append(
-            AuditDraft(
-                AuditEventId(uuid7()),
-                AuditReference("runtime", uow.environment_id),
-                Purpose("effect.registration"),
-                "effect.registration.settled",
-                AuditReference("creator_response_operation", snapshot.operation_ref),
-                AuditResultStatus.ACCEPTED
-                if outcome == "allowed"
-                else (
-                    AuditResultStatus.REJECTED
-                    if outcome == "denied"
-                    else AuditResultStatus.UNAVAILABLE
-                ),
-                snapshot.trace_id,
-                AuditSensitivity.PRIVATE,
-                subject_id=SubjectId(snapshot.subject_id),
-                grant=AuditReference("permission_grant", grant_id)
-                if grant_id is not None
-                else None,
-            )
-        )
-        return result
 
     async def get_effect(
         self,
@@ -564,9 +266,7 @@ class PostgreSQLEffectLedgerRepository:
             await connection.execute(
                 """
             SELECT effect.effect_id, effect.action_intent_id,
-                   effect.action_intent_revision_id, effect.policy_decision_id,
-                   effect.capability_request_id,effect.permission_grant_id,
-                   effect.effect_kind, effect.capability_kind, effect.status,
+                   effect.action_intent_revision_id, effect.effect_kind, effect.capability_kind, effect.status,
                    effect.verification_status, effect.registered_at, effect.cancelled_at,
                    (SELECT count(*) FROM armi.effect_attempts AS attempt
                     WHERE attempt.effect_id = effect.effect_id),
@@ -589,7 +289,7 @@ class PostgreSQLEffectLedgerRepository:
         ).fetchone()
         if row is None:
             raise EffectViolation("SCOPE-EFFECT-NOT-VISIBLE")
-        raw_effect_kind = str(row[6])
+        raw_effect_kind = str(row[3])
         if raw_effect_kind not in {"creator_response", "codex_delegation"}:
             raise EffectViolation("CON-EFFECT-KIND")
         effect_kind = cast(
@@ -599,45 +299,42 @@ class PostgreSQLEffectLedgerRepository:
             effect_id=EffectId(row[0]),
             action_intent_ref=row[1],
             action_intent_revision_ref=row[2],
-            policy_decision_ref=row[3],
-            capability_request_ref=row[4],
-            permission_grant_ref=row[5],
             effect_kind=effect_kind,
-            status=EffectStatus(str(row[8])),
-            verification_status=EffectVerificationStatus(str(row[9])),
-            registered_at=Instant(row[10]),
+            status=EffectStatus(str(row[5])),
+            verification_status=EffectVerificationStatus(str(row[6])),
+            registered_at=Instant(row[7]),
             capability_kind=cast(
-                Literal["creator.scene.reply", "codex.delegated-work"], str(row[7])
+                Literal["creator.scene.reply", "codex.delegated-work"], str(row[4])
             ),
-            cancelled_at=Instant(row[11]) if row[11] is not None else None,
-            attempt_count=int(row[12]),
+            cancelled_at=Instant(row[8]) if row[8] is not None else None,
+            attempt_count=int(row[9]),
             last_observation_kind=(
-                EffectObservationKind(str(row[13])) if row[13] is not None else None
+                EffectObservationKind(str(row[10])) if row[10] is not None else None
             ),
             last_observation_reliability=(
-                EffectObservationReliability(str(row[14]))
-                if row[14] is not None
+                EffectObservationReliability(str(row[11]))
+                if row[11] is not None
                 else None
             ),
-            current_attempt_ref=row[17],
-            current_attempt_no=None if row[18] is None else int(row[18]),
-            current_dispatch_state=None if row[19] is None else str(row[19]),
-            current_observation_ref=row[20],
-            observation_conclusion=None if row[21] is None else str(row[21]),
-            observation_reason=None if row[22] is None else str(row[22]),
-            observation_evidence_kind=None if row[23] is None else str(row[23]),
+            current_attempt_ref=row[14],
+            current_attempt_no=None if row[15] is None else int(row[15]),
+            current_dispatch_state=None if row[16] is None else str(row[16]),
+            current_observation_ref=row[17],
+            observation_conclusion=None if row[18] is None else str(row[18]),
+            observation_reason=None if row[19] is None else str(row[19]),
+            observation_evidence_kind=None if row[20] is None else str(row[20]),
             verification_action=(
                 (
                     "verify_codex_result"
                     if effect_kind == "codex_delegation"
                     else "verify_external_delivery"
-                    if str(row[16]) in {"external_private", "external_group"}
+                    if str(row[13]) in {"external_private", "external_group"}
                     else "verify_local_inbox"
                 )
-                if str(row[8]) == "unknown" and row[22] != "EFFECT-RUNTIME-INTERRUPTED"
+                if str(row[5]) == "unknown" and row[19] != "EFFECT-RUNTIME-INTERRUPTED"
                 else None
             ),
-            settled_at=Instant(row[15]) if row[15] is not None else None,
+            settled_at=Instant(row[12]) if row[12] is not None else None,
         )
 
     async def payload_reference(
@@ -653,65 +350,6 @@ class PostgreSQLEffectLedgerRepository:
         if row is None:
             raise EffectViolation("EFFECT-PAYLOAD-UNAVAILABLE")
         return row[0], Digest(str(row[1])), int(row[2])
-
-    async def _existing(
-        self,
-        connection: Any,
-        snapshot: EffectRegistrationContext,
-        registration_digest: Digest,
-    ) -> EffectRegistrationResult | None:
-        row = await (
-            await connection.execute(
-                """
-            SELECT effect.effect_id, effect.policy_decision_id, effect.status,
-                   effect.verification_status, effect.registration_digest, effect.registered_at
-            FROM armi.effects AS effect
-            WHERE effect.action_intent_revision_id=%s AND effect.effect_kind=%s
-            """,
-                (snapshot.action_intent_revision_id, snapshot.effect_kind),
-            )
-        ).fetchone()
-        if row is None:
-            return None
-        if str(row[4]) != registration_digest.value:
-            raise EffectViolation("EFFECT-IDEMPOTENCY-CONFLICT")
-        return EffectRegistrationResult(
-            EffectId(row[0]),
-            PolicyDecisionId(row[1]),
-            EffectStatus(str(row[2])),
-            EffectVerificationStatus(str(row[3])),
-            Digest(str(row[4])),
-            Instant(row[5]),
-        )
-
-
-def _registration_digest(snapshot: EffectRegistrationContext) -> Digest:
-    return Digest.from_bytes(
-        rfc8785.dumps(
-            cast(
-                Any,
-                {
-                    "schema_version": "armi.effect-registration.v1",
-                    "action_intent_revision_id": str(
-                        snapshot.action_intent_revision_id
-                    ),
-                    "effect_kind": snapshot.effect_kind,
-                    "subject_id": str(snapshot.subject_id),
-                    "scene_id": str(snapshot.scene_id),
-                    "creator_party_id": str(snapshot.context_party_id),
-                    "payload_digest": snapshot.payload_digest.value,
-                    "payload_bytes": snapshot.payload_bytes,
-                    "purpose": snapshot.purpose,
-                    "destination_kind": snapshot.destination_kind,
-                    "live_voice_turn_id": (
-                        None
-                        if snapshot.live_voice_turn_id is None
-                        else str(snapshot.live_voice_turn_id)
-                    ),
-                },
-            )
-        )
-    )
 
 
 __all__ = (

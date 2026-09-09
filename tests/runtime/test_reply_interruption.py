@@ -49,6 +49,8 @@ def test_interrupted_conversation_returns_terminal_without_recovery_action(
     assert wire["status"] == "failed"
     assert "waiting_for" not in wire
     assert "recovery_action" not in wire
-    assert operation.policy_decision_ref is None
-    assert operation.capability_request_ref is None
-    assert operation.permission_grant_ref is None
+    details = wire["details"]
+    assert isinstance(details, dict)
+    assert "policy_decision_ref" not in details
+    assert "capability_request_ref" not in details
+    assert "permission_grant_ref" not in details

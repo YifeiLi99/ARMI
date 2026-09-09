@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from .creator_calls import CreatorCall
 from .creator_contract import (
-    CapabilityRequestDecisionRequest,
     CreatorExportRequest,
     CreatorPromptDeactivateRequest,
     CreatorPromptRevisionRequest,
@@ -10,7 +9,6 @@ from .creator_contract import (
     DataRightsOrderRequest,
 )
 from .creator_projection import (
-    CapabilityViolation,
     ContractViolation,
     CreatorExportViolation,
     CreatorInputViolation,
@@ -28,15 +26,6 @@ async def _creator_boundary_request(
         return CreatorRelationshipBoundaryRequest.model_validate(dict(call.input))
     except ValueError:
         raise CreatorInputViolation("INPUT-BODY") from None
-
-
-async def _capability_decision_request(
-    call: CreatorCall,
-) -> CapabilityRequestDecisionRequest:
-    try:
-        return CapabilityRequestDecisionRequest.model_validate(dict(call.input))
-    except ValueError:
-        raise CapabilityViolation("CON-CAPABILITY-BODY") from None
 
 
 async def _creator_prompt_revision_request(
@@ -122,7 +111,6 @@ def _life_query_parameters(
 
 
 __all__ = (
-    "_capability_decision_request",
     "_creator_boundary_request",
     "_creator_export_request",
     "_creator_prompt_deactivate_request",

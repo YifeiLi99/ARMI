@@ -56,6 +56,8 @@ function runtimeStatusResponse(): object {
     contract_version: "1.0",
     environment_id: ENVIRONMENT_ID,
     runtime_state: "ready",
+    authority_state: "active",
+    codex: { enabled: false, available: false, reason_code: "CODEX-DISABLED" },
     readiness: "ready",
     reason_codes: [],
     components: [
@@ -95,7 +97,7 @@ function acceptedOperationProjection(): object {
     result_ref: OPPORTUNITY_ID,
     custodian: "runtime",
     details: {
-      projection_version: "creator-operation.v5",
+      projection_version: "creator-operation.v6",
       operation_ref: OPPORTUNITY_ID,
       operation_kind: "cognition",
       stage: "accepted",
@@ -115,20 +117,12 @@ function preparedContextOperation(): object {
     waiting_for: "model_attempt",
     resume_condition: "model_step_available",
     details: {
-      projection_version: "creator-operation.v5",
+      projection_version: "creator-operation.v6",
       operation_ref: OPPORTUNITY_ID,
       operation_kind: "cognition",
       stage: "context_preparing",
       outcome: "pending",
     },
-  };
-}
-
-function capabilityPageResponse(): object {
-  return {
-    contract_version: "1.0",
-    projection_version: "capability-request.v6",
-    items: [],
   };
 }
 
@@ -332,7 +326,6 @@ describe("Creator local connection shell", () => {
       .mockResolvedValueOnce(jsonResponse(memoryPageResponse()))
       .mockResolvedValueOnce(jsonResponse(lifeRecordPageResponse()))
       .mockResolvedValueOnce(jsonResponse(relationshipCurrentResponse()))
-      .mockResolvedValueOnce(jsonResponse(capabilityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(subjectSummaryResponse()))
       .mockResolvedValueOnce(streamResponse());
     vi.stubGlobal("fetch", fetchMock);
@@ -440,7 +433,6 @@ describe("Creator local connection shell", () => {
       .mockResolvedValueOnce(jsonResponse(memoryPageResponse()))
       .mockResolvedValueOnce(jsonResponse(lifeRecordPageResponse()))
       .mockResolvedValueOnce(jsonResponse(relationshipCurrentResponse()))
-      .mockResolvedValueOnce(jsonResponse(capabilityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(subjectSummaryResponse()))
       .mockResolvedValueOnce(streamResponse())
       .mockResolvedValueOnce(
@@ -517,7 +509,6 @@ describe("Creator local connection shell", () => {
       .mockResolvedValueOnce(jsonResponse(memoryPageResponse()))
       .mockResolvedValueOnce(jsonResponse(lifeRecordPageResponse()))
       .mockResolvedValueOnce(jsonResponse(relationshipCurrentResponse()))
-      .mockResolvedValueOnce(jsonResponse(capabilityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(subjectSummaryResponse()))
       .mockResolvedValueOnce(
         finiteStreamResponse(
@@ -544,7 +535,7 @@ describe("Creator local connection shell", () => {
     render(<CreatorShell />);
 
     expect(await screen.findByText("authoritative.event")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(16);
+    expect(fetchMock).toHaveBeenCalledTimes(15);
   });
 
   it("uses an Activity invalidation only to refetch its read projection", async () => {
@@ -589,9 +580,6 @@ describe("Creator local connection shell", () => {
           scene_key: "default",
           items: [],
         });
-      }
-      if (url.startsWith("/v1/capability-requests?")) {
-        return jsonResponse(capabilityPageResponse());
       }
       if (url === "/v1/subject/summary") {
         return jsonResponse(subjectSummaryResponse());
@@ -691,9 +679,6 @@ describe("Creator local connection shell", () => {
           next_cursor: null,
         });
       }
-      if (url.startsWith("/v1/capability-requests")) {
-        return jsonResponse(capabilityPageResponse());
-      }
       if (url === "/v1/subject/summary") {
         return jsonResponse(subjectSummaryResponse());
       }
@@ -742,7 +727,6 @@ describe("Creator local connection shell", () => {
       .mockResolvedValueOnce(jsonResponse(memoryPageResponse()))
       .mockResolvedValueOnce(jsonResponse(lifeRecordPageResponse()))
       .mockResolvedValueOnce(jsonResponse(relationshipCurrentResponse()))
-      .mockResolvedValueOnce(jsonResponse(capabilityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(subjectSummaryResponse()))
       .mockResolvedValueOnce(new Response(null, { status: 401 }));
     vi.stubGlobal("fetch", fetchMock);
@@ -777,9 +761,6 @@ describe("Creator local connection shell", () => {
       }
       if (url.startsWith("/v1/activities?")) {
         return jsonResponse(activityPageResponse());
-      }
-      if (url.startsWith("/v1/capability-requests?")) {
-        return jsonResponse(capabilityPageResponse());
       }
       if (url.includes("/timeline?")) {
         return jsonResponse({
@@ -830,11 +811,10 @@ describe("Creator local connection shell", () => {
       if (url === `/v1/effects/${EFFECT_ID}`) {
         return jsonResponse({
           contract_version: "1.0",
-          projection_version: "creator-effect.v5",
+          projection_version: "creator-effect.v6",
           effect_id: EFFECT_ID,
           action_intent_ref: OPPORTUNITY_ID,
           action_intent_revision_ref: "018f47a6-7b2d-7c35-8b18-684e38ab6efb",
-          policy_decision_ref: "018f47a6-7b2d-7c35-8b18-684e38ab6efc",
           capability_kind: "creator.scene.reply",
           effect_kind: "creator_response",
           status: "completed",
@@ -907,9 +887,6 @@ describe("Creator local connection shell", () => {
       }
       if (url.startsWith("/v1/activities?")) {
         return jsonResponse(activityPageResponse());
-      }
-      if (url.startsWith("/v1/capability-requests?")) {
-        return jsonResponse(capabilityPageResponse());
       }
       if (url.includes("/timeline?")) {
         return jsonResponse({

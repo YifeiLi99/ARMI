@@ -71,8 +71,6 @@ class AuditDraft:
     request: AuditReference | None = None
     before_version: int | None = None
     after_version: int | None = None
-    policy: AuditReference | None = None
-    grant: AuditReference | None = None
     error_category: ErrorCategory | None = None
 
     def __post_init__(self) -> None:
@@ -93,9 +91,8 @@ class AuditDraft:
             raise AuditViolation("AUD-DECLARATION")
         if self.subject_id is not None and type(self.subject_id) is not SubjectId:
             raise AuditViolation("AUD-DECLARATION")
-        for value in (self.request, self.policy, self.grant):
-            if value is not None and type(value) is not AuditReference:
-                raise AuditViolation("AUD-DECLARATION")
+        if self.request is not None and type(self.request) is not AuditReference:
+            raise AuditViolation("AUD-DECLARATION")
         _validate_versions(self.before_version, self.after_version)
         if (
             self.error_category is not None

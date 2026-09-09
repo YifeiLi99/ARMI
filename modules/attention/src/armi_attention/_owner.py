@@ -41,7 +41,8 @@ class PostgreSQLOpportunityOwner:
                      ON root.opportunity_id=item.root_opportunity_id
                    WHERE root.subject_id=%s AND root.purpose IN (
                      'consider_creator_input','consider_creator_voice_input',
-                     'consider_creator_outreach')""",
+                     'consider_creator_outreach','consider_codex_task',
+                     'consider_codex_result')""",
                 (subject_id,),
             )
         ).fetchall()
@@ -262,7 +263,8 @@ class PostgreSQLOpportunityOwner:
                 WHERE root.opportunity_id=%s
                   AND root.root_opportunity_id=root.opportunity_id
                   AND current.context_party_id=%s
-                  AND root.purpose IN ('consider_creator_input','consider_codex_task')
+                  AND root.purpose IN ('consider_creator_input','consider_codex_task',
+                                       'consider_codex_result')
                   AND current.eligibility_status='eligible'
                   AND current.expires_at IS NULL
                 """,

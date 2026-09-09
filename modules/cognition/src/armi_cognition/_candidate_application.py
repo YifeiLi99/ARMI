@@ -175,6 +175,7 @@ class CandidateValidationPipeline:
     __slots__ = (
         "_activity_cognition",
         "_catalog",
+        "_codex_available",
         "_custody",
         "_diagnostic",
         "_factory",
@@ -214,6 +215,7 @@ class CandidateValidationPipeline:
         opportunity_transitions: OpportunityCognitionSelectionPort,
         evidence: EvidenceReadPort,
         codex: CodexTaskSourceReadPort,
+        codex_available: Callable[[], bool],
         memory_cognition: MemoryCognitionPort,
         memory_read: MemoryReadPort,
         mood_cognition: MoodCognitionPort,
@@ -245,6 +247,7 @@ class CandidateValidationPipeline:
         self._sleep_cognition = sleep_cognition
         self._subject_state_cognition = subject_state_cognition
         self._web_search_active = web_search_active
+        self._codex_available = codex_available
         self._visual_sources_active = visual_sources_active
         self._catalog = catalog
         self._repository = PostgreSQLCandidateValidationRepository(
@@ -363,7 +366,7 @@ class CandidateValidationPipeline:
                     snapshot.current_components,
                     snapshot.purpose,
                     self._web_search_active,
-                    True,
+                    self._codex_available(),
                     snapshot.codex_task_sources,
                     snapshot.opportunity_id,
                     snapshot.current_activity_id,

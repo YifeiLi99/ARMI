@@ -177,18 +177,12 @@ class CreatorOperationPhase(StrEnum):
     CANDIDATE_VALIDATED = "candidate_validated"
     CANDIDATE_REJECTED = "candidate_rejected"
     SUBJECT_COMMITTING = "subject_committing"
-    EFFECT_REGISTRATION = "effect_registration"
-    EFFECT_REGISTRATION_UNAUTHORIZED = "effect_registration_unauthorized"
-    EFFECT_REGISTRATION_UNAVAILABLE = "effect_registration_unavailable"
-    EFFECT_REGISTRATION_FAILED = "effect_registration_failed"
-    EFFECT_REGISTRATION_CANCELLED = "effect_registration_cancelled"
     EFFECT_REGISTERED = "effect_registered"
     EFFECT_DISPATCHING = "effect_dispatching"
     EFFECT_COMPLETED = "effect_completed"
     EFFECT_FAILED = "effect_failed"
     EFFECT_UNKNOWN = "effect_unknown"
     EFFECT_CANCELLED = "effect_cancelled"
-    CODEX_CAPABILITY_DECISION = "codex_capability_decision"
     CODEX_DISPATCHING = "codex_dispatching"
     CODEX_VERIFYING = "codex_verifying"
     CODEX_RESULT_ACCEPTANCE = "codex_result_acceptance"
@@ -217,6 +211,8 @@ class CreatorCodexExecutionSummary:
     validator_id: str
     source_tree_digest: Digest
     final_tree_digest: Digest | None
+    result_processing_phase: str | None
+    result_processing_reason: str | None
 
     def __post_init__(self) -> None:
         if (
@@ -250,12 +246,8 @@ class CreatorOperation:
     failure_code: str | None = None
     subject_version: int | None = None
     effect_ref: UUID | None = None
-    effect_registration_ref: UUID | None = None
     intent_ref: UUID | None = None
     dialogue_decision_ref: UUID | None = None
-    policy_decision_ref: UUID | None = None
-    capability_request_ref: UUID | None = None
-    permission_grant_ref: UUID | None = None
     effect_attempt_ref: UUID | None = None
     effect_attempt_no: int | None = None
     effect_dispatch_state: str | None = None
@@ -305,13 +297,9 @@ class CreatorOperation:
         for owner_ref in (
             self.intent_ref,
             self.dialogue_decision_ref,
-            self.policy_decision_ref,
-            self.capability_request_ref,
-            self.permission_grant_ref,
             self.effect_attempt_ref,
             self.effect_observation_ref,
             self.work_ref,
-            self.effect_registration_ref,
         ):
             if owner_ref is not None and (
                 type(owner_ref) is not UUID or owner_ref.version != 7
@@ -354,10 +342,6 @@ class CreatorOperation:
             if self.failure_code != "CONFLICT_SUBJECT_STATE_STALE":
                 raise CreatorInputViolation("CON-INPUT-OPERATION")
         elif self.phase in {
-            CreatorOperationPhase.EFFECT_REGISTRATION_UNAUTHORIZED,
-            CreatorOperationPhase.EFFECT_REGISTRATION_UNAVAILABLE,
-            CreatorOperationPhase.EFFECT_REGISTRATION_FAILED,
-            CreatorOperationPhase.EFFECT_REGISTRATION_CANCELLED,
             CreatorOperationPhase.EFFECT_FAILED,
             CreatorOperationPhase.EFFECT_UNKNOWN,
             CreatorOperationPhase.CODEX_FAILED,

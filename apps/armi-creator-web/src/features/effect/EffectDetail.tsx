@@ -84,29 +84,11 @@ export function EffectDetail({
               <dt>Intent Revision</dt>
               <dd>{effect.data.action_intent_revision_ref}</dd>
             </div>
-            {effect.data.policy_decision_ref ? (
-              <div>
-                <dt>Policy Decision</dt>
-                <dd>{effect.data.policy_decision_ref}</dd>
-              </div>
-            ) : null}
-            {effect.data.capability_request_ref ? (
-              <div>
-                <dt>Capability Request</dt>
-                <dd>{effect.data.capability_request_ref}</dd>
-              </div>
-            ) : null}
-            {effect.data.permission_grant_ref ? (
-              <div>
-                <dt>Permission Grant</dt>
-                <dd>{effect.data.permission_grant_ref}</dd>
-              </div>
-            ) : null}
             {effect.data.observation_reason === "EFFECT-RUNTIME-INTERRUPTED" ? (
               <div>
                 <dt>对话已结束</dt>
                 <dd>
-                  运行中断，未完成的回复不会补发。已发送部分的实际结果保留。
+                  运行中断，未完成的回复或委托不会重放。已经发生的实际结果保留。
                 </dd>
               </div>
             ) : null}
@@ -242,8 +224,7 @@ export function EffectDetail({
           ) : null}
           {effect.data.status === "cancelled" ? (
             <p className="authority-note" role="status">
-              账本确认该效果已在派发前取消；intent、policy、attempt
-              与取消历史仍被保留。
+              账本确认该效果已在派发前取消；intent、attempt 与取消历史仍被保留。
             </p>
           ) : null}
         </>

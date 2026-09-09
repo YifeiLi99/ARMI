@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable
 from uuid import UUID, uuid7
 
+from armi_artifact_store.api import ArtifactCatalogPort
 from armi_expression.api import DelegatedActionIntentDraft, ExpressionCommitPort
 from armi_kernel.application import (
+    ArtifactId,
     AuditDraft,
     AuditEventId,
     AuditReference,
@@ -21,14 +23,18 @@ from .api import CodexCommitContext, CodexTaskSourceReadPort
 
 
 class PostgreSQLCodexCommit:
-    __slots__ = ("_expression", "_sources")
+    __slots__ = ("_available", "_catalog", "_expression", "_sources")
 
     def __init__(
         self,
         sources: CodexTaskSourceReadPort,
         expression: ExpressionCommitPort,
+        catalog: ArtifactCatalogPort,
+        available: Callable[[], bool],
     ) -> None:
         self._sources = sources
+        self._catalog = catalog
+        self._available = available
         self._expression = expression
 
     async def commit_delegations(
@@ -38,18 +44,16 @@ class PostgreSQLCodexCommit:
         context: CodexCommitContext,
         commit_id: UUID,
         delegations: tuple[CodexDelegationDraft, ...],
-        capability_request_ids: Mapping[str, UUID],
     ) -> None:
         if type(commit_id) is not UUID or commit_id.version != 7:
             raise CodexDelegationViolation("CODEX-DELEGATION-COMMIT-ID")
         if not delegations:
             return
+        if not self._available():
+            raise CodexDelegationViolation("CODEX-UNAVAILABLE")
         if len(delegations) != 1:
             raise CodexDelegationViolation("CODEX-DELEGATION-COUNT")
         draft = delegations[0]
-        capability_request_id = capability_request_ids.get(draft.proposal_ref)
-        if capability_request_id is None:
-            raise CodexDelegationViolation("CODEX-DELEGATION-CAPABILITY")
         source = await self._sources.task_source(
             unit_of_work.transaction,
             task_source_id=draft.task_source_id.value,
@@ -62,6 +66,11 @@ class PostgreSQLCodexCommit:
             raise CodexDelegationViolation("CODEX-DELEGATION-VALIDATION")
         if context.scene_id is None or context.creator_party_id is None:
             raise CodexDelegationViolation("CODEX-DELEGATION-COMMIT-CONTEXT")
+        manifest = await self._catalog.retained_ref_in(
+            unit_of_work.transaction, ArtifactId(source.task_manifest_artifact_id)
+        )
+        if manifest is None or manifest.content_digest != source.task_manifest_digest:
+            raise CodexDelegationViolation("CODEX-TASK-ARTIFACT")
         await self._expression.commit_delegation(
             unit_of_work,
             commit_id=commit_id,
@@ -73,10 +82,12 @@ class PostgreSQLCodexCommit:
                 context.root_opportunity_id,
                 context.validation_id,
                 draft.proposal_ref,
-                capability_request_id,
                 draft.task_source_id.value,
                 draft.task_manifest_digest,
                 draft.validator_id,
+                source.task_manifest_artifact_id,
+                manifest.byte_size,
+                context.trace_id,
             ),
         )
         await unit_of_work.audit.append(

@@ -35,7 +35,7 @@ class PostgreSQLExpressionActionOwner:
                        revision.response_artifact_id, revision.response_digest,
                        revision.response_bytes, revision.codex_task_source_id,
                        revision.task_manifest_digest, revision.validator_id
-                       , revision.capability_request_id, intent.created_at
+                       , intent.created_at
                 FROM armi.action_intents AS intent
                 JOIN armi.action_intent_revisions AS revision
                   ON revision.action_intent_revision_id=intent.current_revision_id
@@ -59,7 +59,6 @@ class PostgreSQLExpressionActionOwner:
             capability_kind=str(row[8]),
             operation_class=str(row[9]),
             purpose=str(row[10]),
-            capability_request_id=row[17],
             response_artifact_id=row[11],
             response_digest=Digest(str(row[12])) if row[12] is not None else None,
             response_bytes=int(row[13]) if row[13] is not None else None,
@@ -68,7 +67,7 @@ class PostgreSQLExpressionActionOwner:
                 Digest(str(row[15])) if row[15] is not None else None
             ),
             validator_id=str(row[16]) if row[16] is not None else None,
-            created_at=row[18],
+            created_at=row[17],
         )
 
     async def operation_snapshot(
@@ -84,7 +83,7 @@ class PostgreSQLExpressionActionOwner:
                        COALESCE(intent.action_intent_id, dialogue.action_intent_id),
                        intent.current_revision_id, dialogue.dialogue_decision_id,
                        intent.action_kind, dialogue.decision_kind,
-                       dialogue.reason_class, revision.capability_request_id
+                       dialogue.reason_class
                 FROM (SELECT %s::uuid AS operation_ref) AS requested
                 LEFT JOIN armi.action_intents AS intent
                   ON intent.operation_ref=requested.operation_ref
@@ -109,7 +108,6 @@ class PostgreSQLExpressionActionOwner:
             action_kind=str(row[4]) if row[4] is not None else None,
             decision_kind=str(row[5]) if row[5] is not None else None,
             reason_code=str(row[6]) if row[6] is not None else None,
-            capability_request_id=row[7],
         )
 
     async def revision_snapshot(

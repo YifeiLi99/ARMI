@@ -2,7 +2,7 @@
 
 本文描述仓库当前代码姿态，不是路线图。精确字段、状态、枚举、DDL、依赖和默认值以当前代码、`armi-postgresql-contract` 打包 schema、唯一 Alembic `0000`、`configs/`、锁文件和测试为准。
 
-产品约束以本节及 [AGENTS.md](AGENTS.md) 为准；下文的现存申请/许可链路是实现现状，不能据此要求未来保留多余手续。
+产品约束以本节及 [AGENTS.md](AGENTS.md) 为准。普通 Creator 回复与 Codex 委托均在配置范围内直接执行，中断即结束；管理端授权保持独立合同。
 
 ## 1. 目标与边界
 
@@ -106,7 +106,7 @@ Profile 同时声明 required、optional、retrieval、forbidden：Creator 文�
 
 ### 6.3 Creator 单次认知
 
-标准 Creator 文本、语音和精确生命查询结果各只进行一次主认知调用。当前 `armi.creator-cognitive-act-candidate.v2` 允许：reply、decline、no_action、no_change、defer、need_information、exact_life_query、web_research；并可带一项 experience、语义 appraisal、受限 owner changes。
+标准 Creator 文本、语音和精确生命查询结果各只进行一次主认知调用。当前 `armi.creator-cognitive-act-candidate.v3` 允许：reply、decline、no_action、no_change、defer、need_information、exact_life_query、web_research；并可带一项 experience、语义 appraisal、受限 owner changes。
 
 模型只提出业务决定，不能生成 subject/scene ID、revision/version、权限结果、Emotion/VAD 数字、usage/model identity 或现实结果。关系/承诺变化必须有 experience；记忆只在当前 Creator 明确要求 remember 时形成。Voice compact wire 会确定性还原为同一语义，不是旁路合同。
 
@@ -160,7 +160,7 @@ ESP32 心情窗只接收 Mood 映射后的不透明 face、color、energy 和 ve
 
 ## 9. Durable Work 与恢复
 
-数据库是工作 custody；进程 wakeup 只优化延迟。当前 `WorkType` 是 14 项闭集，覆盖 Context、模型、候选、Subject Commit、Codex Effect 登记、Web、外部内容、生命查询、embedding、artifact 删除、视觉采集和视觉识别。每个 `(owner kind, work type)` 映射唯一 reconciliation owner。
+数据库是工作 custody；进程 wakeup 只优化延迟。当前 `WorkType` 是 14 项闭集，覆盖 Context、模型、候选、Subject Commit、Web、外部内容、生命查询、embedding、artifact 删除、视觉采集和视觉识别。每个 `(owner kind, work type)` 映射唯一 reconciliation owner。
 
 Work 以 ready/leased/completed/failed/cancelled 管理执行资格；业务 owner 决定 attempt/result 和是否可恢复。慢 I/O 前短事务登记，事务外调用，结算事务重新检查 lease/fence/generation/current state。重启后由固定 recovery roster 检查 owner head、过期 work、artifact、effect unknown 和投影 coverage；框架不猜业务修复。
 
@@ -179,9 +179,9 @@ Cognition decision
 
 Effect 保持 registered、dispatching、completed 等当前机器状态，并保留失败、拒绝、不可用、取消和 unknown 的不同语义。平台模糊超时、部分语音播放等可能已经产生副作用，不能安全重试。所有重试共享一个语义操作预算和稳定 effect identity。
 
-回复正文在事务外保存，提交只登记引用；发送时核验实际读取的正文及当前接收目标、渠道配置、隐私和数据权利。普通回复 outbox 的发送截止时间为空；网络超时、worker 租约与并发 fence 只负责执行控制。普通回复不生成回复准入 work 或 `effect.register` work；后者保留给 Codex 委托。
+回复正文在事务外保存，提交只登记引用；发送时核验实际读取的正文及当前接收目标、渠道配置、隐私和数据权利。普通回复 outbox 的发送截止时间为空；网络超时、worker 租约与并发 fence 只负责执行控制。普通回复不生成回复准入 work。Codex 也在 Subject Commit 同事务登记 Effect/outbox，`effect.register` 工作类型及后台登记流程已删除。
 
-普通对话中断即结束。停机和启动入口调用现有 owner 的收尾逻辑，终结这一轮未完成的机会、认知和派生 work；已提交的主体变化与完成的发送保留，尚未发送的回复取消，已开始发送但结果不确定的回复保留 unknown/部分完成，不重发，也不要求人为恢复这一轮。新输入和新的主动表达可以继续，旧动作不得重放。Codex 及管理端授权、真实完整性故障的检查保持各自语义；现有数据库不会自动迁移、重装或清空。
+普通对话中断即结束。停机和启动入口调用现有 owner 的收尾逻辑，终结这一轮未完成的机会、认知和派生 work；已提交的主体变化与完成的发送保留，尚未发送的回复取消，已开始发送但结果不确定的回复保留 unknown/部分完成，不重发，也不要求人为恢复这一轮。新输入和新的主动表达可以继续，旧动作不得重放。Codex 委托沿用相同的中断原则，管理端授权和真实完整性故障的检查保持各自语义；现有数据库不会自动迁移、重装或清空。
 
 Creator operation 投影聚合 cognition、Codex 与 effect 阶段，但不把 operation 完成等同于外部送达核验。SSE 只提示投影失效，UI 必须重新 GET 权威投影。
 
@@ -192,6 +192,12 @@ Creator operation 投影聚合 cognition、Codex 与 effect 阶段，但不把 o
 模型绑定由 `configs/model-bindings.yaml` v2 统一管理；purpose 决定 response contract/token budget。普通 Creator 使用一次严格 cognitive act。ARMI 网页研究由 `web_research` 决定触发，Web owner 只允许 search/open/find，并把来源/content 作为 Evidence；普通 cognition tools 列表为空，不自动给主模型上网。
 
 ### Codex
+
+`codex.enabled` 默认关闭，由现有配置管理保存、重启生效。Context 和 Runtime 状态读取同一份实际可用性，包括开启状态、本地执行器与凭据是否就绪及失败原因。关闭或不可用时新任务明确失败；旧幂等键仍指向原任务，不重跑。
+
+主链为：Creator／代理提交任务 → ARMI 决定是否委托 → Subject Commit 原子登记主体变化、委托意图和 Effect/outbox → 执行与核验 → 结果进入认知。普通对话不自主生成 Codex 任务。申请、申请依据与决定、grant、policy decision、effect registration 六类表和审批接口均已删除。任务制品在事务外保存，提交登记引用，执行时验证实际内容；outbox 无业务有效期，执行器继续执行既有超时与隔离限制。
+
+停机、崩溃或 Runtime 更换后，未启动的委托取消；已启动且无可靠结果的保留 unknown，取消信号终止子进程树并清理临时工作区，不重跑、不回读临时目录。已提交主体事实、核验结果和受治理制品保留。原任务和独立结果机会链及其派生工作均由现有 owner 收尾；收尾后的旧执行结果不能越过 fence 和终态，也不能派生工作。任务投影分别显示执行与后续认知状态，执行完成不代表结果已被 ARMI 理解或采纳。
 
 Creator 可逐任务选择 `gpt-5.6-sol|terra|luna`、`low..max` reasoning 和内置 Web Search。Runner 使用官方 SDK/订阅 auth、一次性 2GiB workspace、20MiB diff、500 modified files、workspace-write sandbox；shell network 始终 false。显式 Web Search 只打开 Codex 内置只读搜索。MCP/apps/skills/hooks/workspace dependencies/credentials 关闭。结果在私有 custody 副本验证后成为 Evidence/Opportunity，不能直接提交主体。
 
@@ -233,7 +239,7 @@ Admin 的业务结果模型由操作目录统一生成 CLI/MCP 合同并校验�
 
 ## 13. 数据库与配置
 
-当前数据库要求 PostgreSQL 18.4、UTF-8/UTC/builtin `C.UTF-8`、vector 0.8.6、pg_trgm 1.6、唯一 `0000`、baseline `armi.schema-baseline.v14` 和精确 role policy。Schema 是 package resource，十份有序 baseline SQL 当前创建 108 tables/1364 columns/1 read-only view/65 explicit indexes。安装只接受无用户 relation 且无现存 `armi` namespace 的目标库：namespace 先在独立短事务建立，随后 `0000` 在一个事务组内写入表、约束、ACL、revision、identity 与 digests；中段失败可以留下空 namespace，但不会留下业务表或前移 revision。Runtime 只验证，不安装/迁移。
+当前数据库要求 PostgreSQL 18.4、UTF-8/UTC/builtin `C.UTF-8`、vector 0.8.6、pg_trgm 1.6、唯一 `0000`、baseline `armi.schema-baseline.v15` 和精确 role policy。Schema 是 package resource，十份有序 baseline SQL 当前创建 108 tables/1364 columns/1 read-only view/65 explicit indexes。安装只接受无用户 relation 且无现存 `armi` namespace 的目标库：namespace 先在独立短事务建立，随后 `0000` 在一个事务组内写入表、约束、ACL、revision、identity 与 digests；中段失败可以留下空 namespace，但不会留下业务表或前移 revision。Runtime 只验证，不安装/迁移。
 
 配置合并顺序：仓库 `configs/runtime.yaml` → 环境根 `environment.yaml` → 登记的 `ARMI_*` 覆盖。当前 schema v3，strict/frozen/extra-forbid。环境根必须有普通 `environment.yaml`、`data/`、`secrets/`；data root 精确相等，禁止 reparse。Secret 只用 `env:ARMI_SECRET_*` 或位于 `secrets/` 的 `file:` locator，最大 64KiB，经 scoped handle 消费后清零。
 

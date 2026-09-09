@@ -351,7 +351,7 @@ def test_capability_state_separates_availability_authorization_and_desire() -> N
         2,
         rfc8785.dumps(
             {
-                "schema_version": "armi.capability-state.v1",
+                "schema_version": "armi.capability-state.v2",
                 "capability_ref": str(unavailable_id),
                 "capability_kind": "codex.delegated-work",
                 "operation": "execute",
@@ -370,7 +370,7 @@ def test_capability_state_separates_availability_authorization_and_desire() -> N
         2,
         rfc8785.dumps(
             {
-                "schema_version": "armi.capability-state.v1",
+                "schema_version": "armi.capability-state.v2",
                 "capability_ref": str(denied_id),
                 "capability_kind": "codex.delegated-work",
                 "operation": "execute",

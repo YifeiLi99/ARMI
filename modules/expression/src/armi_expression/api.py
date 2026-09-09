@@ -352,7 +352,6 @@ class ExpressionIntentSnapshot:
     capability_kind: str
     operation_class: str
     purpose: str
-    capability_request_id: UUID | None
     response_artifact_id: UUID | None
     response_digest: Digest | None
     response_bytes: int | None
@@ -371,7 +370,6 @@ class ExpressionOperationSnapshot:
     action_kind: str | None
     decision_kind: str | None
     reason_code: str | None
-    capability_request_id: UUID | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -383,10 +381,19 @@ class DelegatedActionIntentDraft:
     root_opportunity_id: UUID
     validation_id: UUID
     proposal_ref: str
-    capability_request_id: UUID
     task_source_id: UUID
     task_manifest_digest: Digest
     validator_id: str
+    task_manifest_artifact_id: UUID
+    task_manifest_bytes: int
+    trace_id: TraceId
+
+
+@dataclass(frozen=True, slots=True)
+class CodexEffectDraft:
+    action_intent_id: UUID
+    action_intent_revision_id: UUID
+    delegation: DelegatedActionIntentDraft
 
 
 @runtime_checkable
@@ -442,6 +449,10 @@ class ExpressionEffectLinkPort(Protocol):
 
 @runtime_checkable
 class ExpressionEffectRegistrationPort(Protocol):
+    async def register_codex_delegation(
+        self, transaction: PostgreSQLTransaction, draft: CodexEffectDraft
+    ) -> UUID: ...
+
     async def register_declared_response(
         self,
         transaction: PostgreSQLTransaction,
@@ -508,6 +519,7 @@ def _uuid7(value: UUID, code: str) -> None:
 
 __all__ = (
     "ActionIntentId",
+    "CodexEffectDraft",
     "CreatorReplyDraft",
     "CreatorResponseOperationId",
     "DeclaredResponseEffectDraft",

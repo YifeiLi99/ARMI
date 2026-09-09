@@ -22,10 +22,6 @@ from armi_runtime.composition.environment import prepare_environment
 class _Lifecycle:
     task_source_id: str | None
     first_episode_status: str | None
-    capability_request_id: str | None
-    capability_request_version: int | None
-    capability_status: str | None
-    grant_status: str | None
     effect_id: str | None
     effect_status: str | None
     verification_id: str | None
@@ -52,12 +48,6 @@ WITH task AS (
     SELECT commit.subject_commit_id FROM first_episode
     JOIN armi.subject_commits AS commit
       ON commit.cognitive_episode_id=first_episode.cognitive_episode_id
-), request AS (
-    SELECT capability.capability_request_id,capability.request_version,
-           capability.current_status FROM first_commit
-    JOIN armi.capability_requests AS capability
-      ON capability.subject_commit_id=first_commit.subject_commit_id
-    WHERE capability.capability_kind='codex.delegated-work'
 ), effect AS (
     SELECT effect.effect_id,effect.status FROM task
     JOIN armi.action_intent_revisions AS revision
@@ -93,10 +83,6 @@ WITH task AS (
 )
 SELECT
     (SELECT codex_task_source_id FROM task),(SELECT status FROM first_episode),
-    (SELECT capability_request_id FROM request),(SELECT request_version FROM request),
-    (SELECT current_status FROM request),
-    (SELECT grant.status FROM request JOIN armi.permission_grants AS grant
-      USING (capability_request_id)),
     (SELECT effect_id FROM effect),(SELECT status FROM effect),
     (SELECT codex_verification_id FROM verification),
     (SELECT execution_status FROM verification),
@@ -129,17 +115,13 @@ def _read(connection: psycopg.Connection[Any], trace_id: str) -> _Lifecycle:
         text(row[0]),
         text(row[1]),
         text(row[2]),
-        None if row[3] is None else int(row[3]),
+        text(row[3]),
         text(row[4]),
         text(row[5]),
         text(row[6]),
         text(row[7]),
         text(row[8]),
         text(row[9]),
-        text(row[10]),
-        text(row[11]),
-        text(row[12]),
-        text(row[13]),
     )
 
 
@@ -208,32 +190,10 @@ def verify(
             raise RuntimeError("LIVE-CODEX-INTAKE")
         trace_id = str(accepted["trace_id"])
         deadline = time.monotonic() + timeout_seconds
-        granted = False
-        last = _Lifecycle(*((None,) * 14))
+        last = _Lifecycle(*((None,) * 10))
         with psycopg.connect(_conninfo(prepared.root), autocommit=True) as database:
             while time.monotonic() < deadline:
                 last = _read(database, trace_id)
-                if (
-                    not granted
-                    and last.capability_status == "pending"
-                    and last.capability_request_id is not None
-                    and last.capability_request_version is not None
-                ):
-                    decision_status, _decision = _request(
-                        connection,
-                        "POST",
-                        f"/v1/capability-requests/{last.capability_request_id}/decision",
-                        headers=headers,
-                        body={
-                            "contract_version": "1.0",
-                            "decision_id": str(uuid7()),
-                            "expected_request_version": last.capability_request_version,
-                            "decision": "grant",
-                        },
-                    )
-                    if decision_status != 200:
-                        raise RuntimeError("LIVE-CODEX-GRANT")
-                    granted = True
                 if last.effect_status in {"failed", "unknown", "cancelled"}:
                     raise RuntimeError(
                         f"LIVE-CODEX-EFFECT-{last.effect_status.upper()}"
@@ -243,9 +203,7 @@ def verify(
                         f"LIVE-CODEX-VERIFICATION-{last.verification_status.upper()}"
                     )
                 if (
-                    last.capability_status == "consumed"
-                    and last.grant_status == "consumed"
-                    and last.effect_status == "completed"
+                    last.effect_status == "completed"
                     and last.verification_status == "verified"
                     and last.result_source_id is not None
                     and last.second_episode_status == "completed"
@@ -257,7 +215,6 @@ def verify(
                         "trace_id": trace_id,
                         "operation_ref": accepted["result_ref"],
                         "task_source_id": last.task_source_id,
-                        "capability_request_id": last.capability_request_id,
                         "effect_id": last.effect_id,
                         "verification_id": last.verification_id,
                         "result_source_id": last.result_source_id,

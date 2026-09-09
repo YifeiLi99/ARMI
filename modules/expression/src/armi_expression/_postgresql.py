@@ -22,6 +22,7 @@ from armi_relationship.api import RelationshipPolicyPort, RelationshipReadPort
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
 from .api import (
+    CodexEffectDraft,
     CreatorReplyDraft,
     DeclaredResponseEffectDraft,
     DelegatedActionIntentDraft,
@@ -178,10 +179,10 @@ class PostgreSQLExpressionOwner:
                 action_intent_revision_id, action_intent_id, revision_no,
                 capability_kind, operation_class, purpose,
                 candidate_validation_id, proposal_ref, subject_commit_id,
-                capability_request_id, codex_task_source_id, task_manifest_digest,
+                codex_task_source_id, task_manifest_digest,
                 validator_id) VALUES (
                 %s,%s,1,'codex.delegated-work','execute','delegate_codex_work',
-                %s,%s,%s,%s,%s,%s,%s)
+                %s,%s,%s,%s,%s,%s)
             """,
             (
                 revision_id,
@@ -189,7 +190,6 @@ class PostgreSQLExpressionOwner:
                 draft.validation_id,
                 draft.proposal_ref,
                 commit_id,
-                draft.capability_request_id,
                 draft.task_source_id,
                 draft.task_manifest_digest.value,
                 draft.validator_id,
@@ -199,6 +199,9 @@ class PostgreSQLExpressionOwner:
             "UPDATE armi.action_intents SET current_revision_id=%s "
             "WHERE action_intent_id=%s",
             (revision_id, action_id),
+        )
+        await self._effect_registration.register_codex_delegation(
+            connection, CodexEffectDraft(action_id, revision_id, draft)
         )
 
     async def record_terminal(

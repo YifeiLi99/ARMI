@@ -15,8 +15,8 @@ from pydantic import (
 
 from ._strict_model_json import strict_model_value
 
-DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v24"
-DIALOGUE_MODEL_OUTPUT_VERSION = "armi.creator-dialogue-model-output.v2"
+DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v25"
+DIALOGUE_MODEL_OUTPUT_VERSION = "armi.creator-dialogue-model-output.v3"
 
 Summary = Annotated[str, StringConstraints(min_length=1, max_length=512)]
 ContextRef = Annotated[
@@ -27,10 +27,6 @@ ContextRef = Annotated[
 
 class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-
-class DialogueCapabilityRequest(_StrictModel):
-    capability_ref: ContextRef
 
 
 class DialogueNameReplacement(_StrictModel):
@@ -310,7 +306,6 @@ class DialogueReplyDecision(CreatorDialogueCandidate):
     memory_change: DialogueMemoryChange | None = None
     relationship_change: DialogueRelationshipChange | None = None
     material_change: DialogueMaterialChange | None = None
-    capability_request: DialogueCapabilityRequest | None = None
     self_change: DialogueSelfChange | None = None
     mind_change: DialogueMindChange | None = None
     subject_prompt_change: DialogueSubjectPromptChange | None = None
@@ -403,7 +398,6 @@ CompactChangeOp = Literal[
     "self.set",
     "mind.set",
     "prompt.set",
-    "codex.request",
 ]
 
 
@@ -763,11 +757,6 @@ def translate_compact_change_set(
             set_once("subject_prompt_change", metadata)
             continue
 
-        if op == "codex.request":
-            _require_compact_shape(change, target=True)
-            _compact_metadata(change)
-            set_once("capability_request", {"capability_ref": change.target_ref})
-            continue
         raise ValueError("unsupported compact change")
 
     if relationship:
@@ -828,7 +817,6 @@ __all__ = (
     "DIALOGUE_CANDIDATE_VERSION",
     "DIALOGUE_MODEL_OUTPUT_VERSION",
     "CreatorDialogueCandidate",
-    "DialogueCapabilityRequest",
     "DialogueCommitmentChange",
     "DialogueExactLifeQueryDecision",
     "DialogueExperience",

@@ -1,110 +1,15 @@
-"""Capability module composition entry point."""
+"""Read-only capability catalog composition."""
 
-from __future__ import annotations
+from collections.abc import Callable
 
-from dataclasses import dataclass
-from uuid import UUID
-
-from armi_data_rights.api import DataRightsParticipant
-from armi_kernel.application import CreatorProjectionNotifier
-from armi_runtime_foundation import (
-    PostgreSQLRuntimeUnitOfWorkFactory,
-    RecoveryParticipant,
-)
-
-from ._data_rights import PostgreSQLCapabilityDataRightsParticipant
-from ._postgresql import PostgreSQLCreatorGrantPolicy
-from ._recovery import CapabilityRecoveryParticipant
-from .api import (
-    CapabilityActionAuthorizationPort,
-    CapabilityCodexActivationPort,
-    CapabilityCommitPort,
-    CapabilityDispatchAuthorizationPort,
-    CapabilityEffectCancellationPort,
-    CapabilityGrantConsumptionPort,
-    CapabilityOperationReadPort,
-    CapabilityPolicyPort,
-    CapabilityReadPort,
-    CapabilityRequestPage,
-    CreatorGrantCommand,
-    CreatorGrantResult,
-)
-
-
-@dataclass(frozen=True, slots=True)
-class CapabilityModule:
-    policy: CapabilityPolicyPort
-    read: CapabilityReadPort
-    commit: CapabilityCommitPort
-    consumption: CapabilityGrantConsumptionPort
-    authorization: CapabilityActionAuthorizationPort
-    dispatch_authorization: CapabilityDispatchAuthorizationPort
-    operations: CapabilityOperationReadPort
-    _owner: PostgreSQLCreatorGrantPolicy
-
-    async def open(self) -> None:
-        await self._owner.open()
-
-    async def close(self) -> None:
-        await self._owner.close()
-
-    def stop(self) -> None:
-        self._owner.stop()
-
-    async def run_expiry_reconciler(self) -> None:
-        await self._owner.run_expiry_reconciler()
-
-    async def list_requests(
-        self,
-        *,
-        creator_party_id: UUID,
-        limit: int,
-        cursor: str | None,
-    ) -> CapabilityRequestPage:
-        return await self._owner.list_requests(
-            creator_party_id=creator_party_id,
-            limit=limit,
-            cursor=cursor,
-        )
-
-    async def decide(self, command: CreatorGrantCommand) -> CreatorGrantResult:
-        return await self._owner.decide(command)
-
-    async def expire_once(self, *, limit: int = 100) -> int:
-        return await self._owner.expire_once(limit=limit)
+from ._postgresql import PostgreSQLCapabilityCatalog
+from .api import CapabilityAvailability, CapabilityReadPort
 
 
 def bootstrap_capability(
-    factory: PostgreSQLRuntimeUnitOfWorkFactory,
-    *,
-    environment_id: UUID,
-    cursor_key: bytes,
-    effect_cancellation: CapabilityEffectCancellationPort,
-    codex_activation: CapabilityCodexActivationPort,
-    notifier: CreatorProjectionNotifier | None = None,
-) -> CapabilityModule:
-    owner = PostgreSQLCreatorGrantPolicy(
-        factory,
-        environment_id=environment_id,
-        cursor_key=cursor_key,
-        effect_cancellation=effect_cancellation,
-        codex_activation=codex_activation,
-        notifier=notifier,
-    )
-    return CapabilityModule(owner, owner, owner, owner, owner, owner, owner, owner)
+    availability: Callable[[], CapabilityAvailability],
+) -> CapabilityReadPort:
+    return PostgreSQLCapabilityCatalog(availability)
 
 
-def bootstrap_capability_data_rights() -> DataRightsParticipant:
-    return PostgreSQLCapabilityDataRightsParticipant()
-
-
-def bootstrap_capability_recovery() -> RecoveryParticipant:
-    return CapabilityRecoveryParticipant()
-
-
-__all__ = (
-    "CapabilityModule",
-    "bootstrap_capability",
-    "bootstrap_capability_data_rights",
-    "bootstrap_capability_recovery",
-)
+__all__ = ("bootstrap_capability",)

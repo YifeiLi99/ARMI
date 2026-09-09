@@ -12,7 +12,6 @@ class CandidateOwner(StrEnum):
     MEMORY = "memory"
     RELATIONSHIP = "relationship"
     ACTIVITY = "activity"
-    CAPABILITY = "capability"
     ACTION = "action"
     WEB_RESEARCH = "web_research"
     VISUAL_OBSERVATION = "visual_observation"

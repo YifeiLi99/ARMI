@@ -64,6 +64,19 @@ export function RequiredComponentsCard({
           );
         })}
       </div>
+      <article className="component-row">
+        <div className="component-copy">
+          <h3>Codex 委托</h3>
+          <p>
+            {runtime.codex.enabled ? "已开启" : "已关闭"} ·{" "}
+            {runtime.codex.available ? "可用" : "不可用"}
+          </p>
+          {runtime.codex.reason_code ? (
+            <small>状态原因：{runtime.codex.reason_code}</small>
+          ) : null}
+          <p>通过配置管理修改开关，重启 Runtime 后生效。</p>
+        </div>
+      </article>
       <p className="boundary-note">
         必需组件由本机启动器统一管理，因此固定开启。数据库或 Runtime
         停止后此页面也会不可达，恢复仍使用本机启动入口。
