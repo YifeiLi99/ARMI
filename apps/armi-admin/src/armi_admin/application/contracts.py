@@ -6,7 +6,7 @@ import re
 from typing import Annotated, Literal, Self
 from uuid import UUID
 
-from armi_local_control.maintenance import MaintenanceAction
+from armi_local_control.maintenance import MaintenanceParameters
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 _TOKEN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$", re.ASCII)
@@ -193,12 +193,7 @@ class OtherHumanRequest(MutationRequest):
     ]
 
 
-class MaintenanceRequest(MutationRequest):
-    action: MaintenanceAction
-    apply: bool = False
-    approved_official_direct: bool = False
-    duration_seconds: int = Field(default=30, ge=1, le=300)
-
+class MaintenanceRequest(MutationRequest, MaintenanceParameters):
     @model_validator(mode="after")
     def _no_reset_bypass(self) -> Self:
         if self.action == "reset":

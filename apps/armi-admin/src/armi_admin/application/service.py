@@ -17,6 +17,7 @@ from armi_local_control.lifecycle import LocalEnvironmentController
 from armi_local_control.maintenance import (
     ConfigurationInvocation,
     MaintenanceInvocation,
+    MaintenanceParameters,
 )
 from armi_local_control.runtime_errors import RuntimeViolation
 
@@ -669,10 +670,9 @@ class AdminToolService:
                         {
                             "environment_root": self._config.environment_root,
                             "environment_id": self._config.environment_id,
-                            "action": typed_maintenance.action,
-                            "apply": typed_maintenance.apply,
-                            "duration_seconds": typed_maintenance.duration_seconds,
-                            "approved_official_direct": typed_maintenance.approved_official_direct,
+                            **typed_maintenance.model_dump(
+                                include=set(MaintenanceParameters.model_fields)
+                            ),
                         }
                     )
                 )

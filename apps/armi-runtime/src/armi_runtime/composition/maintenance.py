@@ -17,10 +17,21 @@ from armi_runtime.adapters.vision.windows_screen import WindowsScreenSource
 from armi_runtime.adapters.voice.wasapi import WasapiRawAudio
 
 from .bootstrap import execute_birth
-from .database import inspect_operator_schema, install_operator_schema
+from .database import (
+    inspect_operator_schema,
+    inspect_semantic_recall_storage,
+    install_operator_schema,
+)
 from .environment import prepare_environment
 from .environment_reset import reset_environment
+from .napcat_process import NapCatProcessManager
 from .operational_maintenance import run_artifact_retention, run_database_maintenance
+from .qq_channel import (
+    QQ_NAPCAT_ACCESS_TOKEN_LOCATOR,
+    QQ_NAPCAT_ACCESS_TOKEN_PURPOSE,
+    QQ_NAPCAT_EVENT_SECRET_LOCATOR,
+    QQ_NAPCAT_EVENT_SECRET_PURPOSE,
+)
 from .runtime_capacity import run_runtime_capacity_baseline
 
 
@@ -28,6 +39,14 @@ def execute_maintenance(request: MaintenanceInvocation) -> dict[str, Any]:
     scopes = {
         "database_install": {"database.migrator": "database.migrator"},
         "database_check": {"database.status": "database.runtime"},
+        "semantic_status": {"database.status": "database.runtime"},
+        "napcat_status": {
+            QQ_NAPCAT_ACCESS_TOKEN_PURPOSE: QQ_NAPCAT_ACCESS_TOKEN_LOCATOR
+        },
+        "napcat_start": {
+            QQ_NAPCAT_ACCESS_TOKEN_PURPOSE: QQ_NAPCAT_ACCESS_TOKEN_LOCATOR,
+            QQ_NAPCAT_EVENT_SECRET_PURPOSE: QQ_NAPCAT_EVENT_SECRET_LOCATOR,
+        },
         "database_maintain": {"database.maintenance": "database.migrator"},
         "birth": {"database.birth": "database.runtime"},
         "reset": {
@@ -44,6 +63,16 @@ def execute_maintenance(request: MaintenanceInvocation) -> dict[str, Any]:
             "ADMIN-ENVIRONMENT-MISMATCH", "bound environment identity differs"
         )
     match request.action:
+        case "napcat_status":
+            return NapCatProcessManager(prepared).status().safe_view()
+        case "napcat_start":
+            return NapCatProcessManager(prepared).start().safe_view()
+        case "napcat_open":
+            return (
+                NapCatProcessManager(prepared)
+                .open_webui(auto_login=request.auto_login)
+                .safe_view()
+            )
         case "voice_devices":
             return {"devices": [asdict(device) for device in WasapiRawAudio.devices()]}
         case "vision_sources":
@@ -103,11 +132,11 @@ def execute_maintenance(request: MaintenanceInvocation) -> dict[str, Any]:
             return run_runtime_capacity_baseline(
                 manager.status,
                 duration_seconds=request.duration_seconds,
-                sample_interval_seconds=1,
-                max_rss_growth_bytes=67108864,
-                max_backlog_growth=0,
-                max_open_backlog_age_seconds=120,
-                max_log_growth_bytes=16777216,
+                sample_interval_seconds=request.sample_interval_seconds,
+                max_rss_growth_bytes=request.max_rss_growth_bytes,
+                max_backlog_growth=request.max_backlog_growth,
+                max_open_backlog_age_seconds=request.max_open_backlog_age_seconds,
+                max_log_growth_bytes=request.max_log_growth_bytes,
             ).safe_view()
         case "semantic_install" | "semantic_calibrate" | "semantic_status":
             semantic = SemanticRecallProcessManager(
@@ -119,8 +148,16 @@ def execute_maintenance(request: MaintenanceInvocation) -> dict[str, Any]:
                     approved_official_direct=request.approved_official_direct
                 )
             if request.action == "semantic_calibrate":
+                runtime = RuntimeProcessManager(
+                    prepared.root, str(request.environment_id)
+                ).status()
+                if runtime["status"] != "stopped":
+                    raise RuntimeViolation(
+                        "SEMANTIC-RECALL-CALIBRATION-BUSY",
+                        "Runtime must be stopped before semantic recall calibration",
+                    )
                 return semantic.calibrate()
-            return semantic.status()
+            return {**semantic.status(), **inspect_semantic_recall_storage(prepared)}
 
 
 __all__ = ("execute_maintenance",)
