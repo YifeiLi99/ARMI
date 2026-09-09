@@ -26,7 +26,7 @@ from armi_kernel.application import (
     TransactionIsolation,
     ordered_custody_requests,
 )
-from armi_kernel.contracts import Digest, Instant, Purpose
+from armi_kernel.contracts import Digest, IdempotencyKey, Instant, Purpose
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWork,
     RuntimeTransactionFailure,
@@ -245,6 +245,33 @@ class DataRightsOrderService(DataRightsOrderPort):
             party_key=None,
             order_id=order_id,
         )
+
+    async def find_deletion_request(
+        self, party_key: DataRightsPartyKey | None, idempotency_key: IdempotencyKey
+    ) -> DataRightsOrderResult | None:
+        requester_kind = (
+            DataRightsRequesterKind.CREATOR
+            if party_key is None
+            else DataRightsRequesterKind.OTHER_HUMAN
+        )
+        async with self._uow_factory.unit_of_work(
+            read_only=True, isolation=TransactionIsolation.REPEATABLE_READ
+        ) as unit:
+            party_id = await self._requester_party(unit, requester_kind, party_key)
+            snapshot = await self._repository.find_existing(
+                unit,
+                requester_party_id=party_id,
+                order_kind=DataRightsOrderKind.DELETE_RELATED,
+                idempotency_key=idempotency_key.value,
+                lock=False,
+            )
+            if (
+                snapshot is None
+                or snapshot.idempotency_key != idempotency_key.value
+                or snapshot.order_kind is not DataRightsOrderKind.DELETE_RELATED
+            ):
+                return None
+            return self._result(snapshot, False)
 
     async def get_other_human(
         self,

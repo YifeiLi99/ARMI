@@ -681,6 +681,10 @@ class CognitionAdminEpisodeSnapshot:
 
 @runtime_checkable
 class CognitionAdminPort(Protocol):
+    def artifact_episodes(
+        self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
+    ) -> tuple[UUID, ...]: ...
+
     def episode_for_opportunity(
         self, transaction: PostgreSQLAdminTransaction, *, opportunity_id: UUID
     ) -> CognitionAdminEpisodeSnapshot | None: ...

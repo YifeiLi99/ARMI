@@ -22,6 +22,7 @@ from .database import (
     inspect_semantic_recall_storage,
     install_operator_schema,
 )
+from .device_binding_checks import inspect_device_bindings
 from .environment import prepare_environment
 from .environment_reset import reset_environment
 from .napcat_process import NapCatProcessManager
@@ -33,10 +34,12 @@ from .qq_channel import (
     QQ_NAPCAT_EVENT_SECRET_PURPOSE,
 )
 from .runtime_capacity import run_runtime_capacity_baseline
+from .runtime_credentials import inspect_runtime_credentials, runtime_credential_scope
 
 
 def execute_maintenance(request: MaintenanceInvocation) -> dict[str, Any]:
     scopes = {
+        "credential_check": runtime_credential_scope(),
         "database_install": {"database.migrator": "database.migrator"},
         "database_check": {"database.status": "database.runtime"},
         "semantic_status": {"database.status": "database.runtime"},
@@ -63,6 +66,8 @@ def execute_maintenance(request: MaintenanceInvocation) -> dict[str, Any]:
             "ADMIN-ENVIRONMENT-MISMATCH", "bound environment identity differs"
         )
     match request.action:
+        case "credential_check":
+            return inspect_runtime_credentials(prepared)
         case "napcat_status":
             return NapCatProcessManager(prepared).status().safe_view()
         case "napcat_start":
@@ -87,6 +92,11 @@ def execute_maintenance(request: MaintenanceInvocation) -> dict[str, Any]:
                 "voice": config.voice.model_dump(mode="json"),
                 "vision": config.vision.model_dump(mode="json"),
                 "mood_display": None if display is None else asdict(display),
+                "checks": inspect_device_bindings(config),
+                "mood_display_binding": "disabled"
+                if display is None or not display.enabled
+                else "not_verified",
+                "mood_display_next_operation": "maintenance.mood_display_probe",
                 "collection_performed": False,
             }
         case "mood_display_probe":

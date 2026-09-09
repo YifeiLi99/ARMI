@@ -11,6 +11,31 @@ from .api import InteractionAdminInputSnapshot
 class PostgreSQLInteractionAdmin:
     __slots__ = ()
 
+    def scene_links(
+        self, transaction: PostgreSQLAdminTransaction, *, scene_id: UUID
+    ) -> tuple[UUID | None, tuple[UUID, ...]]:
+        row = transaction.execute(
+            "SELECT subject_id FROM armi.interaction_scenes WHERE scene_id=%s",
+            (scene_id,),
+        ).fetchone()
+        inputs = transaction.execute(
+            "SELECT interaction_id FROM armi.party_input_interactions WHERE scene_id=%s ORDER BY interaction_id LIMIT 201",
+            (scene_id,),
+        ).fetchall()
+        return (
+            None if row is None else cast(UUID, row[0]),
+            tuple(cast(UUID, item[0]) for item in inputs),
+        )
+
+    def subject_scenes(
+        self, transaction: PostgreSQLAdminTransaction, *, subject_id: UUID
+    ) -> tuple[UUID, ...]:
+        rows = transaction.execute(
+            "SELECT scene_id FROM armi.interaction_scenes WHERE subject_id=%s ORDER BY scene_id LIMIT 201",
+            (subject_id,),
+        ).fetchall()
+        return tuple(cast(UUID, row[0]) for row in rows)
+
     def input_snapshot(
         self, transaction: PostgreSQLAdminTransaction, *, interaction_id: UUID
     ) -> InteractionAdminInputSnapshot | None:

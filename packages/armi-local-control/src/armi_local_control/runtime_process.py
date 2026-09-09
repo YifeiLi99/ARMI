@@ -16,7 +16,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, BinaryIO, cast
-from uuid import uuid7
+from uuid import UUID, uuid7
 
 import psutil
 from armi_interaction.api import CreatorInputCommand, CreatorInputViolation
@@ -242,8 +242,16 @@ class RuntimeProcessManager:
         self,
         *,
         creator_web_resources: Path | None = None,
+        launch_instance_id: str | None = None,
     ) -> dict[str, Any]:
         resolved_creator_resources: Path | None = None
+        if launch_instance_id is not None and (
+            UUID(launch_instance_id).version != 7
+            or str(UUID(launch_instance_id)) != launch_instance_id
+        ):
+            raise RuntimeViolation(
+                "CLI-RUNTIME-INSTANCE", "invalid Runtime instance identity"
+            )
         if creator_web_resources is not None:
             if not creator_web_resources.is_absolute():
                 raise RuntimeViolation(
@@ -306,6 +314,8 @@ class RuntimeProcessManager:
                     "--creator-web-resources",
                     os.fspath(resolved_creator_resources),
                 )
+            if launch_instance_id is not None:
+                command += ("--instance-id", launch_instance_id)
             environment = {
                 name: value
                 for name, value in os.environ.items()

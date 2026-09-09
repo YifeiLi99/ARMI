@@ -211,6 +211,10 @@ class EvidenceAdminSnapshot:
 
 @runtime_checkable
 class EvidenceAdminPort(Protocol):
+    def artifact_evidence(
+        self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
+    ) -> tuple[UUID, ...]: ...
+
     def snapshot(
         self, transaction: PostgreSQLAdminTransaction, *, evidence_id: UUID
     ) -> EvidenceAdminSnapshot | None: ...

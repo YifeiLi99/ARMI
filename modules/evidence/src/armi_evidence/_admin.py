@@ -11,6 +11,15 @@ from .api import EvidenceAdminSnapshot
 class PostgreSQLEvidenceAdmin:
     __slots__ = ()
 
+    def artifact_evidence(
+        self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
+    ) -> tuple[UUID, ...]:
+        rows = transaction.execute(
+            "SELECT evidence_id FROM armi.external_evidence WHERE artifact_id=%s ORDER BY evidence_id LIMIT 201",
+            (artifact_id,),
+        ).fetchall()
+        return tuple(cast(UUID, row[0]) for row in rows)
+
     def snapshot(
         self, transaction: PostgreSQLAdminTransaction, *, evidence_id: UUID
     ) -> EvidenceAdminSnapshot | None:

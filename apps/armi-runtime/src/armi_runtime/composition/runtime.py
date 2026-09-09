@@ -69,7 +69,6 @@ from armi_interaction.api import (
     SceneQueryViolation,
     SceneStatus,
 )
-from armi_kernel import observe_configuration_reads
 from armi_kernel.application import (
     CandidateViolation,
     ExecutionCustodyMode,
@@ -417,15 +416,17 @@ async def _serve(
     *,
     creator_web_resources: Path | None,
     configuration_consumption: ConfigurationConsumption,
+    instance_uuid: UUID | None = None,
 ) -> int:
     config = prepared.effective.config
     try:
-        mood_display_config = load_mood_display_config(prepared.root)
+        with configuration_consumption.consumer("mood-display"):
+            mood_display_config = load_mood_display_config(prepared.root)
     except MoodDisplayViolation as error:
         raise RuntimeViolation(
             error.code, "mood display configuration is invalid"
         ) from error
-    instance_uuid = uuid7()
+    instance_uuid = instance_uuid or uuid7()
     instance_id = str(instance_uuid)
     lifecycle = LifecycleController(
         environment_id=str(config.environment.environment_id)
@@ -893,14 +894,15 @@ async def _serve(
             )
             if config.voice.enabled:
                 try:
-                    live_voice_service = compose_runtime_live_voice(
-                        prepared,
-                        factory=runtime_unit_of_work_factory,
-                        subject_id=authority.require_writable().subject_id,
-                        creator=creator_context,
-                        interaction=interaction_module.creator_input,
-                        timeline=interaction_module.effect_delivery,
-                    )
+                    with configuration_consumption.consumer("voice"):
+                        live_voice_service = compose_runtime_live_voice(
+                            prepared,
+                            factory=runtime_unit_of_work_factory,
+                            subject_id=authority.require_writable().subject_id,
+                            creator=creator_context,
+                            interaction=interaction_module.creator_input,
+                            timeline=interaction_module.effect_delivery,
+                        )
                 except LiveVoiceViolation:
                     live_voice_service = None
                     lifecycle.add_degradation("RUNTIME_LIVE_VOICE_UNAVAILABLE")
@@ -942,46 +944,52 @@ async def _serve(
                 cognition=cognition_owner,
                 effect=effect_owner,
             )
-            qq_channel = await compose_qq_channel(
-                prepared,
-                input_port=external_message_input,
-            )
-            try:
-                perception_module = compose_perception_module(
+            with configuration_consumption.consumer("qq"):
+                qq_channel = await compose_qq_channel(
                     prepared,
-                    unit_of_work_factory=runtime_unit_of_work_factory,
-                    fetch=qq_channel.media_fetch
-                    if qq_channel is not None
-                    else UnavailableMediaFetch(),
-                    evidence=evidence_module.write,
-                    evidence_read=evidence_module.read,
-                    interaction=interaction_module.perception,
-                    data_rights=data_rights_core.fence,
-                    opportunity=opportunity_admission,
-                    catalog=artifact_catalog,
-                    wakeups=work_wakeups,
-                    diagnostic=lambda event: diagnostic.emit(
-                        event,
-                        result_code="EXTERNAL_CONTENT",
-                    ),
+                    input_port=external_message_input,
                 )
-                await perception_module.open()
+            try:
+                with configuration_consumption.consumer("perception"):
+                    perception_module = compose_perception_module(
+                        prepared,
+                        unit_of_work_factory=runtime_unit_of_work_factory,
+                        fetch=qq_channel.media_fetch
+                        if qq_channel is not None
+                        else UnavailableMediaFetch(),
+                        evidence=evidence_module.write,
+                        evidence_read=evidence_module.read,
+                        interaction=interaction_module.perception,
+                        data_rights=data_rights_core.fence,
+                        opportunity=opportunity_admission,
+                        catalog=artifact_catalog,
+                        wakeups=work_wakeups,
+                        diagnostic=lambda event: diagnostic.emit(
+                            event,
+                            result_code="EXTERNAL_CONTENT",
+                        ),
+                    )
+                    await perception_module.open()
             except ModelViolation:
                 raise ExternalMessageViolation(
                     "EXTERNAL-MESSAGE-RECOGNITION-UNAVAILABLE"
                 ) from None
             model_locator = config.secret_locators.get("model.ark_api_key")
             if model_locator is not None:
-                live_vision_services, vision_sinks = await _compose_live_vision_sources(
-                    prepared=prepared,
-                    config=config,
-                    factory=runtime_unit_of_work_factory,
-                    catalog=artifact_catalog,
-                    evidence=evidence_module.write,
-                    opportunity=opportunity_admission,
-                    subject_id=authority.require_writable().subject_id,
-                    model_locator=model_locator,
-                )
+                with configuration_consumption.consumer("vision"):
+                    (
+                        live_vision_services,
+                        vision_sinks,
+                    ) = await _compose_live_vision_sources(
+                        prepared=prepared,
+                        config=config,
+                        factory=runtime_unit_of_work_factory,
+                        catalog=artifact_catalog,
+                        evidence=evidence_module.write,
+                        opportunity=opportunity_admission,
+                        subject_id=authority.require_writable().subject_id,
+                        model_locator=model_locator,
+                    )
             vision_capture_router = compose_visual_capture_router(
                 factory=runtime_unit_of_work_factory,
                 work=PostgreSQLDurableWorkGateway(runtime_unit_of_work_factory),
@@ -1226,14 +1234,15 @@ async def _serve(
                     )
             if config.model.semantic_recall_enabled:
                 try:
-                    context_embedding_pipeline = compose_context_embedding_pipeline(
-                        prepared,
-                        unit_of_work_factory=runtime_unit_of_work_factory,
-                        custody=execution_custody,
-                        memory_projection=memory_module.projection,
-                        material_projection=material_module.projection,
-                    )
-                    await context_embedding_pipeline.open()
+                    with configuration_consumption.consumer("context-embedding"):
+                        context_embedding_pipeline = compose_context_embedding_pipeline(
+                            prepared,
+                            unit_of_work_factory=runtime_unit_of_work_factory,
+                            custody=execution_custody,
+                            memory_projection=memory_module.projection,
+                            material_projection=material_module.projection,
+                        )
+                        await context_embedding_pipeline.open()
                 except ModelViolation:
                     context_embedding_pipeline = None
                     lifecycle.add_degradation("RUNTIME_SEMANTIC_RECALL_UNAVAILABLE")
@@ -1244,20 +1253,21 @@ async def _serve(
                     )
             if "model.ark_api_key" in config.secret_locators:
                 try:
-                    model_pipeline = compose_model_pipeline(
-                        prepared,
-                        unit_of_work_factory=runtime_unit_of_work_factory,
-                        context=candidate_context.cognition,
-                        opportunities=opportunity_cognition,
-                        catalog=artifact_catalog,
-                        custody=execution_custody,
-                        wakeups=work_wakeups,
-                        diagnostic=lambda event: diagnostic.emit(
-                            event,
-                            result_code="MODEL_PIPELINE",
-                        ),
-                    )
-                    await model_pipeline.open()
+                    with configuration_consumption.consumer("cognition"):
+                        model_pipeline = compose_model_pipeline(
+                            prepared,
+                            unit_of_work_factory=runtime_unit_of_work_factory,
+                            context=candidate_context.cognition,
+                            opportunities=opportunity_cognition,
+                            catalog=artifact_catalog,
+                            custody=execution_custody,
+                            wakeups=work_wakeups,
+                            diagnostic=lambda event: diagnostic.emit(
+                                event,
+                                result_code="MODEL_PIPELINE",
+                            ),
+                        )
+                        await model_pipeline.open()
                 except ModelViolation:
                     model_pipeline = None
                     lifecycle.add_degradation("RUNTIME_MODEL_UNAVAILABLE")
@@ -1269,32 +1279,36 @@ async def _serve(
                     )
                 if config.web.enabled:
                     try:
-                        web_search_pipeline = compose_web_search_pipeline(
-                            prepared,
-                            unit_of_work_factory=runtime_unit_of_work_factory,
-                            evidence=evidence_module.write,
-                            opportunity=opportunity_admission,
-                            catalog=artifact_catalog,
-                            custody=execution_custody,
-                            diagnostic=lambda event: diagnostic.emit(
-                                event,
-                                result_code="WEB_SEARCH_CUSTODY",
-                            ),
-                        )
-                        await web_search_pipeline.open()
-                        web_research_pipeline = compose_web_research_admission_pipeline(
-                            prepared,
-                            unit_of_work_factory=runtime_unit_of_work_factory,
-                            custody=web_search_pipeline,
-                            evidence=evidence_module.write,
-                            opportunity=opportunity_admission,
-                            catalog=artifact_catalog,
-                            diagnostic=lambda event: diagnostic.emit(
-                                event,
-                                result_code="WEB_RESEARCH_ADMISSION",
-                            ),
-                        )
-                        await web_research_pipeline.open()
+                        with configuration_consumption.consumer("web-search"):
+                            web_search_pipeline = compose_web_search_pipeline(
+                                prepared,
+                                unit_of_work_factory=runtime_unit_of_work_factory,
+                                evidence=evidence_module.write,
+                                opportunity=opportunity_admission,
+                                catalog=artifact_catalog,
+                                custody=execution_custody,
+                                diagnostic=lambda event: diagnostic.emit(
+                                    event,
+                                    result_code="WEB_SEARCH_CUSTODY",
+                                ),
+                            )
+                            await web_search_pipeline.open()
+                        with configuration_consumption.consumer("web-research"):
+                            web_research_pipeline = (
+                                compose_web_research_admission_pipeline(
+                                    prepared,
+                                    unit_of_work_factory=runtime_unit_of_work_factory,
+                                    custody=web_search_pipeline,
+                                    evidence=evidence_module.write,
+                                    opportunity=opportunity_admission,
+                                    catalog=artifact_catalog,
+                                    diagnostic=lambda event: diagnostic.emit(
+                                        event,
+                                        result_code="WEB_RESEARCH_ADMISSION",
+                                    ),
+                                )
+                            )
+                            await web_research_pipeline.open()
                     except WebObservationViolation, WebResearchViolation:
                         if web_research_pipeline is not None:
                             await web_research_pipeline.close()
@@ -1302,6 +1316,8 @@ async def _serve(
                         if web_search_pipeline is not None:
                             await web_search_pipeline.close()
                         web_search_pipeline = None
+                        configuration_consumption.release("web-search")
+                        configuration_consumption.release("web-research")
                         diagnostic.emit(
                             "runtime.web_search.unavailable",
                             level=logging.WARNING,
@@ -2277,14 +2293,24 @@ async def _serve(
         from armi_local_control.configuration.editing import configuration_digest
 
         snapshot = lifecycle.snapshot()
+        configuration_values = config.model_dump(mode="json")
         result: dict[str, object] = {
             "runtime_state": snapshot.runtime_state.value,
+            "instance_id": instance_id,
             "readiness": snapshot.readiness.value,
             "reason_codes": list(snapshot.reason_codes),
             "runtime_configuration_digest": configuration_digest(
                 config.model_dump(mode="json")
             ),
             "configuration_sources": list(prepared.effective.applied_sources),
+            "configuration_overrides": [
+                {
+                    "variable": name,
+                    "path": list(path),
+                    "value": configuration_values[path[0]][path[1]],
+                }
+                for name, path in prepared.effective.environment_overrides
+            ],
             "configuration_assets": configuration_consumption.snapshot(),
         }
         if observation_driver is not None:
@@ -2494,9 +2520,14 @@ async def _serve(
         expected = (
             {"action", "party_key"}
             if action == "preview"
+            else {"action", "party_key", "idempotency_key"}
+            if action == "reconcile"
             else {"action", "party_key", "scope_digest", "idempotency_key"}
         )
-        if action not in {"preview", "apply"} or set(arguments) != expected:
+        if (
+            action not in {"preview", "apply", "reconcile"}
+            or set(arguments) != expected
+        ):
             raise RuntimeViolation(
                 "ADMIN-CONTROL-DATA-RIGHTS-INPUT", "invalid deletion request"
             )
@@ -2505,6 +2536,11 @@ async def _serve(
             if arguments["party_key"] is None
             else OtherHumanPartyKey(arguments["party_key"])
         )
+        if action == "reconcile":
+            found = await orders.find_deletion_request(
+                key, IdempotencyKey(arguments["idempotency_key"])
+            )
+            return {"order": None if found is None else data_rights_result_wire(found)}
         if action == "preview":
             preview = await orders.preview_deletion(key)
             return {
@@ -2751,22 +2787,21 @@ def run_runtime(
     prepared: PreparedEnvironment,
     *,
     creator_web_resources: Path | None = None,
+    instance_uuid: UUID | None = None,
 ) -> int:
     """Run exactly one process-local Runtime; no reload or worker discovery."""
 
     try:
         consumption = ConfigurationConsumption(prepared.root)
-        with observe_configuration_reads(consumption.record):
-            return asyncio.run(
-                _serve(
-                    prepared,
-                    creator_web_resources=creator_web_resources,
-                    configuration_consumption=consumption,
-                ),
-                loop_factory=lambda: asyncio.SelectorEventLoop(
-                    selectors.SelectSelector()
-                ),
-            )
+        return asyncio.run(
+            _serve(
+                prepared,
+                creator_web_resources=creator_web_resources,
+                configuration_consumption=consumption,
+                instance_uuid=instance_uuid,
+            ),
+            loop_factory=lambda: asyncio.SelectorEventLoop(selectors.SelectSelector()),
+        )
     except KeyboardInterrupt:
         return EXIT_GRACEFUL
     except RuntimeViolation:

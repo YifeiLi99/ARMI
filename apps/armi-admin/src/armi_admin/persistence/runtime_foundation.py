@@ -56,6 +56,35 @@ class RuntimeFoundationAdminAdapter:
             ("armi.runtime-authority:" + self._environment_id,),
         )
 
+    def subject_work_ids(
+        self, transaction: PostgreSQLAdminTransaction, *, subject_id: UUID
+    ) -> tuple[UUID, ...]:
+        rows = transaction.execute(
+            "SELECT work_id FROM armi.durable_work WHERE subject_id=%s ORDER BY work_id LIMIT 201",
+            (subject_id,),
+        ).fetchall()
+        return tuple(cast(UUID, row[0]) for row in rows)
+
+    def work_links(
+        self, transaction: PostgreSQLAdminTransaction, *, work_id: UUID
+    ) -> tuple[tuple[str, UUID], ...]:
+        row = transaction.execute(
+            "SELECT subject_id,owner_kind,owner_ref,predecessor_work_id,lease_owner FROM armi.durable_work WHERE work_id=%s",
+            (work_id,),
+        ).fetchone()
+        if row is None:
+            return ()
+        return tuple(
+            (kind, cast(UUID, value))
+            for kind, value in (
+                ("subject", row[0]),
+                (str(row[1]), row[2]),
+                ("work", row[3]),
+                ("runtime_instance", row[4]),
+            )
+            if value is not None
+        )
+
     def diagnostics(self, transaction: PostgreSQLAdminTransaction) -> dict[str, object]:
         work = transaction.execute(
             "SELECT status,count(*),count(*) FILTER (WHERE lease_expires_at < clock_timestamp()),count(*) FILTER (WHERE deadline_at < clock_timestamp()) FROM armi.durable_work GROUP BY status ORDER BY status"

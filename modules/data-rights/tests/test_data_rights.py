@@ -13,7 +13,10 @@ import pytest
 from armi_data_rights._application import DataRightsOrderService
 from armi_data_rights._deletion import LocalDataDeletionExecutor
 from armi_data_rights._deletion_postgresql import LocalDataDeletionRepository
-from armi_data_rights._postgresql import DataRightsOrderRepository
+from armi_data_rights._postgresql import (
+    DataRightsOrderRepository,
+    DataRightsOrderSnapshot,
+)
 from armi_data_rights.api import (
     DataRightsDeletionPreview,
     DataRightsExecutionStatus,
@@ -165,6 +168,44 @@ async def test_stale_deletion_preview_is_rejected_before_owner_writes():
     preview = await service.preview_deletion(None)
     assert preview.party_id == party
     assert factory.unit_of_work.call_args.kwargs["read_only"] is True
+
+
+@pytest.mark.asyncio
+async def test_find_deletion_request_checks_exact_owner_key_without_writing():
+    party = uuid7()
+    context = AsyncMock()
+    factory = SimpleNamespace(unit_of_work=Mock(return_value=context))
+    repository = Mock(spec=DataRightsOrderRepository)
+    snapshot = DataRightsOrderSnapshot(
+        uuid7(),
+        party,
+        DataRightsRequesterKind.CREATOR,
+        DataRightsOrderKind.DELETE_RELATED,
+        DataRightsScopeKind.PARTY_LOCAL_DATA,
+        party,
+        DataRightsExecutionStatus.PENDING,
+        "original-key",
+        Digest.from_bytes(b"request"),
+        Instant(datetime.now(UTC)),
+        None,
+    )
+    repository.find_existing.return_value = snapshot
+    service = object.__new__(DataRightsOrderService)
+    service._uow_factory = cast(Any, factory)
+    service._repository = repository
+    service._creator_party_id = party
+    service._parties = cast(
+        Any, SimpleNamespace(creator_party=AsyncMock(return_value=party))
+    )
+    found = await service.find_deletion_request(None, IdempotencyKey("original-key"))
+    assert found is not None and found.order_id == snapshot.order_id
+    assert found.newly_created is False
+    assert (
+        await service.find_deletion_request(None, IdempotencyKey("other-key")) is None
+    )
+    assert factory.unit_of_work.call_args.kwargs["read_only"] is True
+    repository.insert.assert_not_called()
+    repository.advance_fence.assert_not_called()
 
 
 def test_delete_related_tracks_pending_and_terminal_s015_execution() -> None:

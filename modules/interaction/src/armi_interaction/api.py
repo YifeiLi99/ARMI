@@ -116,6 +116,13 @@ class InteractionAdminInputSnapshot:
 
 @runtime_checkable
 class InteractionAdminPort(Protocol):
+    def scene_links(
+        self, transaction: PostgreSQLAdminTransaction, *, scene_id: UUID
+    ) -> tuple[UUID | None, tuple[UUID, ...]]: ...
+    def subject_scenes(
+        self, transaction: PostgreSQLAdminTransaction, *, subject_id: UUID
+    ) -> tuple[UUID, ...]: ...
+
     def input_snapshot(
         self, transaction: PostgreSQLAdminTransaction, *, interaction_id: UUID
     ) -> InteractionAdminInputSnapshot | None: ...

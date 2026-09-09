@@ -4237,6 +4237,36 @@
         "title": "LiveResponse",
         "type": "object"
       },
+      "LiveVisionObservationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "source_kind": {
+            "enum": [
+              "camera",
+              "screen"
+            ],
+            "title": "Source Kind",
+            "type": "string"
+          },
+          "trigger": {
+            "const": "manual",
+            "default": "manual",
+            "title": "Trigger",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_kind"
+        ],
+        "title": "LiveVisionObservationRequest",
+        "type": "object"
+      },
       "LiveVisionObservationResponse": {
         "additionalProperties": false,
         "properties": {
@@ -10246,7 +10276,27 @@
     "/v1/vision/observe": {
       "post": {
         "operationId": "observeLiveVision",
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LiveVisionObservationRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {

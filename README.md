@@ -130,6 +130,8 @@ armi-admin --config <Creator授权绑定> authorization approve --request-id <re
 
 普通代理绑定没有签发权限或私钥 locator。执行重置或主体内容校正时提交对应 `authorization_id`；同一凭据不能供另一调用重用。用 `armi-admin invocation get --operation-name <操作名> --idempotency-key <原调用键>` 查询耐久回执；配置修改与包升级不会使旧回执失联。
 
+调用中断后，使用同参数的 `armi-admin invocation reconcile`（MCP：`invocation_reconcile`）核验原结果。核验依据已记录的完成阶段、配置替换文件身份或 owner 幂等记录，不重新执行原操作；证据不足仍返回 `unknown`。配置 `status` 区分已采用、部分消费者采用、需要重启、组件未运行、环境变量覆盖和无法核验；仅保存文件不证明已生效或必须重启。
+
 Creator Web 开发要求先有 ready Runtime：
 
 ```powershell

@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import cast
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from armi_admin.application import (
     AdminConfig,
@@ -33,6 +33,7 @@ from armi_admin.application.contracts import (
     SchemaStatusRequest,
     SubjectSnapshotRequest,
 )
+from armi_admin.application.invocations import InvocationEvidence, InvocationReferences
 from armi_admin.application.service import AdminToolService
 from armi_admin.mcp.server import create_admin_server
 from armi_admin.persistence import (
@@ -654,6 +655,76 @@ class AdminProtocolTests(unittest.TestCase):
                 return bool(result.is_error)
 
         self.assertTrue(asyncio.run(exercise()))
+
+
+def test_mcp_scope_arrays_retain_strict_elements_and_reach_the_owner() -> None:
+    async def exercise() -> None:
+        service = _service()
+        gateway = Mock(spec=AdminObservationGateway)
+        gateway.inspect_scope.return_value = {
+            "schema_version": "armi.admin-scope-graph.v2", "nodes": [{"kind": "subject", "id": ENVIRONMENT_ID,
+            "owner": "runtime-foundation", "attributes": {}}], "edges": [], "missing": [],
+            "relations": ["current_owner"], "truncated": False, "cursor": None,
+            "expansion_limit": 200, "expansion_truncated": False,
+        }
+        service._observation = gateway
+        async with Client(create_admin_server(service)) as client:
+            request = {"environment_id": ENVIRONMENT_ID, "kind": "subject", "object_ids": [ENVIRONMENT_ID], "relations": ["current_owner"]}
+            result = await client.call_tool("inspect_scope", {"request": request})
+            assert not result.is_error and result.structured_content is not None
+            assert result.structured_content["result"]["nodes"][0]["id"] == ENVIRONMENT_ID
+            gateway.inspect_scope.assert_called_once_with("subject", (ENVIRONMENT_ID,), relations=("current_owner",), limit=100, cursor=None)
+            invalid = await client.call_tool("inspect_scope", {"request": {**request, "object_ids": [123]}})
+            assert invalid.is_error
+            assert gateway.inspect_scope.call_count == 1
+    asyncio.run(exercise())
+
+
+def test_reconcile_start_requires_preidentified_ready_runtime() -> None:
+    service = _service()
+    expected = "018f3f4a-7b8c-7def-8abc-1234567890ab"
+    evidence = InvocationEvidence(
+        operation="environment_start",
+        idempotency_key="start",
+        request_digest="digest",
+        references=InvocationReferences(
+            component="runtime", launch_instance_id=expected
+        ),
+    )
+    current = {
+        "status": "running",
+        "pid": 123,
+        "runtime": {
+            "instance_id": expected,
+            "runtime_state": "ready",
+            "readiness": "ready",
+        },
+    }
+    with (
+        patch.object(AdminControlPlane, "runtime_status", return_value=current),
+        patch.object(
+            AdminControlPlane,
+            "maintenance",
+            side_effect=AssertionError("must not dispatch maintenance"),
+        ),
+    ):
+        result, observation = service._reconcile_invocation(evidence)
+    assert result is not None and result["status"] == "succeeded"
+    assert observation["basis"] == "preidentified_runtime"
+    changed = {
+        **current,
+        "runtime": {**current["runtime"], "instance_id": "different-instance"},
+    }
+    with (
+        patch.object(AdminControlPlane, "runtime_status", return_value=changed),
+        patch(
+            "armi_admin.application.service.LocalEnvironmentController.execute",
+            return_value=changed,
+        ),
+    ):
+        result, observation = service._reconcile_invocation(evidence)
+    assert result is None
+    assert observation["basis"] == "current_process_state_only"
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 from typing import cast
 from uuid import uuid7
@@ -7,7 +8,11 @@ import pytest
 from armi_kernel import load_yaml_file
 from armi_local_control import ConfigurationViolation
 from armi_local_control.configuration import load_effective_config
-from armi_local_control.configuration.editing import EnvironmentConfiguration
+from armi_local_control.configuration.editing import (
+    EnvironmentConfiguration,
+    verify_write,
+    write_identity,
+)
 from armi_local_control.maintenance import ConfigurationInvocation
 from armi_runtime.composition.config_assets import runtime_config_path
 from armi_runtime.composition.configuration_management import ConfigurationAsset
@@ -39,7 +44,8 @@ def test_configuration_preview_apply_and_concurrent_version(tmp_path: Path) -> N
     assert config.read()["version"] == before["version"]
     result = config.apply({"creator": {"port": 54321}}, before["version"])
     assert result["activation"] == "saved"
-    assert result["restart_required"] is True
+    # Saving without observing a consumer cannot establish a restart requirement.
+    assert result["restart_required"] is False
     assert (
         load_effective_config(
             defaults_path=DEFAULTS, environment_path=tmp_path / "environment.yaml"
@@ -231,3 +237,39 @@ def test_new_device_configuration_uses_owner_validation(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         config.apply({"secret": "must-never-be-saved"}, config.read()["version"])
     assert "secret" not in config.read()["values"]
+
+
+def test_configuration_reconciliation_requires_the_original_replaced_file(
+    tmp_path: Path, monkeypatch
+) -> None:
+    root = tmp_path / "environment"
+    root.mkdir()
+    config = editor(root)
+    environment_id = config.read()["values"]["environment"]["environment_id"]
+    config = EnvironmentConfiguration(root, DEFAULTS, environment_id=environment_id)
+    version = config.read()["version"]
+    identity = write_identity("isolated-binding", "stable-edit")
+    replace = os.replace
+
+    def interrupted(source, target):
+        replace(source, target)
+        if target == config.path:
+            raise OSError("receipt lost after replacement")
+
+    monkeypatch.setattr(os, "replace", interrupted)
+    with pytest.raises(OSError, match="receipt lost"):
+        config.apply({"creator": {"port": 54321}}, version, write_id=identity)
+    proven = verify_write(
+        root, environment_id, identity, target=config.path, expected_version=version
+    )
+    assert proven == config.read()["version"]
+    # An unrelated replacement with identical bytes must not prove this invocation.
+    another = root / "another.yaml"
+    another.write_bytes(config.path.read_bytes())
+    replace(another, config.path)
+    assert (
+        verify_write(
+            root, environment_id, identity, target=config.path, expected_version=version
+        )
+        is None
+    )

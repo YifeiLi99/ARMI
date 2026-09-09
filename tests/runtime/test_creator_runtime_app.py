@@ -830,6 +830,11 @@ class _CreatorExport:
 
 
 class _DataRightsOrders:
+    async def find_deletion_request(self, party_key: Any, idempotency_key: Any) -> Any:
+        raise AssertionError(
+            "browser use cases do not reconcile administrative requests"
+        )
+
     async def preview_deletion(self, party_key: Any) -> Any:
         raise AssertionError(
             "browser use cases do not use administrative deletion previews"

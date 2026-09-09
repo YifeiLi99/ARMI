@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .configuration.models import AbsolutePath, Uuid7
 
 type MaintenanceAction = Literal[
+    "credential_check",
     "database_install",
     "database_check",
     "database_maintain",
@@ -45,6 +46,7 @@ class MaintenanceParameters(BaseModel):
     @property
     def read_only(self) -> bool:
         return self.action in {
+            "credential_check",
             "database_check",
             "capacity_check",
             "semantic_status",
@@ -75,15 +77,15 @@ class MaintenanceParameters(BaseModel):
 
 
 class MaintenanceInvocation(MaintenanceParameters):
-    schema_version: Literal["armi.local-maintenance.v1"] = "armi.local-maintenance.v1"
+    schema_version: Literal["armi.local-maintenance.v2"] = "armi.local-maintenance.v2"
     environment_root: AbsolutePath
     environment_id: Uuid7
 
 
 class ConfigurationInvocation(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-    schema_version: Literal["armi.local-configuration.v2"] = (
-        "armi.local-configuration.v2"
+    schema_version: Literal["armi.local-configuration.v3"] = (
+        "armi.local-configuration.v3"
     )
     environment_root: AbsolutePath
     environment_id: Uuid7
@@ -92,6 +94,13 @@ class ConfigurationInvocation(BaseModel):
     patch: dict[str, object] = Field(default_factory=dict)
     document: dict[str, object] | None = None
     expected_version: str | None = None
+    write_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def write_identity_scope(self) -> Self:
+        if self.write_id is not None and self.action != "apply":
+            raise ValueError("ADMIN-CONFIG-WRITE-IDENTITY")
+        return self
 
 
 __all__ = (

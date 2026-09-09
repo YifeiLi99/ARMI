@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Annotated, Literal, Self
+from typing import Annotated, Literal, Self, cast
 from uuid import UUID
 
 from armi_local_control.maintenance import MaintenanceParameters
@@ -142,6 +142,13 @@ class InspectScopeRequest(EnvironmentRequest):
     ] = Field(default=(), max_length=3)
     limit: int = Field(default=100, ge=1, le=200)
     cursor: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{8,512}$")
+
+    @field_validator("object_ids", "relations", mode="before")
+    @classmethod
+    def _wire_arrays(cls, value: object) -> object:
+        # MCP validates decoded JSON; CLI validates JSON bytes. Both represent
+        # arrays identically, while element validation remains strictly typed.
+        return tuple(cast(list[object], value)) if type(value) is list else value
 
     @field_validator("object_ids")
     @classmethod

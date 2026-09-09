@@ -10,15 +10,8 @@ from fastapi import FastAPI
 
 from armi_runtime.application.creator_contract import (
     CapabilityRequestDecisionRequest,
-    CreatorCodexTaskRequest,
-    CreatorExportRequest,
-    CreatorInputRequest,
     CreatorProjectionEventResponse,
-    CreatorPromptDeactivateRequest,
-    CreatorPromptRevisionRequest,
     CreatorRelationshipBoundaryRequest,
-    CreatorSceneCreateRequest,
-    DataRightsOrderRequest,
     QQChannelHealthResponse,
     Readiness,
 )
@@ -45,16 +38,10 @@ _OPERATION_OVERRIDES["streamSceneEvents"] = {
     ],
     "summary": "Scene Events",
 }
-_REQUEST_MODELS = (
-    CapabilityRequestDecisionRequest,
-    CreatorCodexTaskRequest,
-    CreatorExportRequest,
-    CreatorInputRequest,
-    CreatorPromptDeactivateRequest,
-    CreatorPromptRevisionRequest,
-    CreatorRelationshipBoundaryRequest,
-    CreatorSceneCreateRequest,
-    DataRightsOrderRequest,
+_REQUEST_MODELS = tuple(
+    dict.fromkeys(
+        item.body_model for item in OPERATION_CONTRACTS if item.body_model is not None
+    )
 )
 
 

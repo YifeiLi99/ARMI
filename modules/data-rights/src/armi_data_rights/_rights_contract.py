@@ -218,6 +218,10 @@ class DataRightsDeletionPreview:
 
 @runtime_checkable
 class DataRightsOrderPort(Protocol):
+    async def find_deletion_request(
+        self, party_key: DataRightsPartyKey | None, idempotency_key: IdempotencyKey
+    ) -> DataRightsOrderResult | None: ...
+
     async def preview_deletion(
         self, party_key: DataRightsPartyKey | None
     ) -> DataRightsDeletionPreview: ...

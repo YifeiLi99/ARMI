@@ -18,7 +18,7 @@ from armi_effect.api import EffectAdminPort
 from armi_evidence.api import EvidenceAdminPort
 from armi_expression.api import ExpressionAdminPort
 from armi_interaction.api import InteractionAdminPort
-from armi_kernel.application import ArtifactViolation
+from armi_kernel.application import RESPONSIBILITY_BINDINGS, ArtifactViolation
 from armi_material.api import MaterialAdminItem, MaterialAdminReadPort
 from armi_mood.api import MoodAdminReadPort
 from armi_runtime_foundation import (
@@ -31,6 +31,14 @@ from .role_session import AdminRoleBoundPool
 from .runtime_foundation import RuntimeFoundationAdminAdapter
 
 _OWNER_BY_KIND = {
+    **{
+        binding.owner_kind: binding.reconciliation_owner
+        for binding in RESPONSIBILITY_BINDINGS
+    },
+    "artifact_object": "artifact-store",
+    "runtime_instance": "runtime-foundation",
+    "life_generation": "runtime-foundation",
+    "bundle_activation": "runtime-foundation",
     "artifact": "artifact-store",
     "audit_event": "runtime-foundation",
     "effect": "effect",
@@ -487,6 +495,12 @@ class AdminObservationGateway:
         ) -> None:
             if target_id is None:
                 return
+            source_key = (source_kind, str(source_id))
+            if source_key not in known:
+                if len(nodes) >= 200:
+                    return
+                nodes.append(_node(source_kind, source_id))
+                known.add(source_key)
             key = (target_kind, str(target_id))
             if key not in known:
                 if len(nodes) >= 200:
@@ -528,7 +542,82 @@ class AdminObservationGateway:
                         )
                 continue
             identity = UUID(value)
-            if kind == "operation":
+            if kind == "subject":
+                subject = self._runtime.subject(tx, for_update=False, detailed=True)
+                if subject is not None and subject.subject_id == identity:
+                    link(
+                        kind,
+                        identity,
+                        "current_generation",
+                        "life_generation",
+                        subject.generation_id,
+                        "runtime-foundation",
+                    )
+                    link(
+                        kind,
+                        identity,
+                        "current_bundle",
+                        "bundle_activation",
+                        subject.bundle_activation_id,
+                        "runtime-foundation",
+                    )
+                for work in self._runtime.subject_work_ids(tx, subject_id=identity):
+                    link(
+                        "work", work, "belongs_to", kind, identity, "runtime-foundation"
+                    )
+                for scene in self._interaction.subject_scenes(tx, subject_id=identity):
+                    link("scene", scene, "belongs_to", kind, identity, "interaction")
+            elif kind == "work":
+                for target_kind, target_id in self._runtime.work_links(
+                    tx, work_id=identity
+                ):
+                    link(
+                        kind,
+                        identity,
+                        "references",
+                        audit_kinds.get(target_kind, target_kind),
+                        target_id,
+                        "runtime-foundation",
+                    )
+            elif kind == "scene":
+                subject_id, inputs = self._interaction.scene_links(
+                    tx, scene_id=identity
+                )
+                link(kind, identity, "belongs_to", "subject", subject_id, "interaction")
+                for input_id in inputs:
+                    link("input", input_id, "in_scene", kind, identity, "interaction")
+            elif kind == "artifact":
+                link(
+                    kind,
+                    identity,
+                    "stored_as",
+                    "artifact_object",
+                    self._artifacts.object_identity(tx, artifact_id=identity),
+                    "artifact-store",
+                )
+                for episode in self._cognition.artifact_episodes(
+                    tx, artifact_id=identity
+                ):
+                    link(
+                        "episode",
+                        episode,
+                        "references_artifact",
+                        kind,
+                        identity,
+                        "cognition",
+                    )
+                for evidence_id in self._evidence.artifact_evidence(
+                    tx, artifact_id=identity
+                ):
+                    link(
+                        "evidence",
+                        evidence_id,
+                        "materialized_as",
+                        kind,
+                        identity,
+                        "evidence",
+                    )
+            elif kind == "operation":
                 operation = self._expression.operation(
                     tx, operation_ref=identity
                 ) or self._expression.intent(tx, action_intent_id=identity)
@@ -764,8 +853,10 @@ class AdminObservationGateway:
                 found = self._interaction.inspect_ids(tx, object_ids=ids)
             nodes = [_node(kind, identity) for identity in sorted(set(found), key=str)]
             edges: list[dict[str, object]] = []
+            expansion_truncated = False
             if "direct_dependencies" in relations or "direct_dependents" in relations:
                 self._expand_flow(tx, nodes, edges)
+                expansion_truncated = len(nodes) >= 200
                 roots = {(kind, str(identity)) for identity in found}
 
                 def endpoint(edge: dict[str, object], end: str) -> tuple[str, str]:
@@ -811,7 +902,9 @@ class AdminObservationGateway:
         page = nodes[offset : offset + limit]
         next_offset = offset + len(page)
         return {
-            "schema_version": "armi.admin-scope-graph.v1",
+            "schema_version": "armi.admin-scope-graph.v2",
+            "expansion_limit": 200,
+            "expansion_truncated": expansion_truncated,
             "nodes": page,
             "edges": edges,
             "missing": missing,

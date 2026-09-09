@@ -46,6 +46,15 @@ class PostgreSQLArtifactAdmin:
             )
         )
 
+    def object_identity(
+        self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
+    ) -> UUID | None:
+        row = transaction.execute(
+            "SELECT artifact_object_id FROM armi.artifacts WHERE artifact_id=%s",
+            (artifact_id,),
+        ).fetchone()
+        return None if row is None else cast(UUID, row[0])
+
     def diagnostic_counts(
         self, transaction: PostgreSQLAdminTransaction
     ) -> tuple[tuple[str, int], ...]:

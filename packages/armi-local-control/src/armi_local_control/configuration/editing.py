@@ -16,6 +16,7 @@ from armi_local_control.runtime_process import LocalProcessLock
 from .errors import ConfigurationViolation
 from .loader import validate_environment_values
 from .paths import has_reparse_point
+from .write_evidence import verify_write, write_identity
 
 
 def _digest(value: bytes) -> str:
@@ -90,7 +91,7 @@ class EnvironmentConfiguration:
             "desired_digest": configuration_digest(effective.model_dump(mode="json")),
             "sources": [str(self.defaults), str(self.path)],
             "activation": "not_verified",
-            "restart_required": True,
+            "restart_required": False,
         }
 
     def _invalid(self, content: bytes, code: str) -> dict[str, Any]:
@@ -134,7 +135,7 @@ class EnvironmentConfiguration:
             "expected_version": expected_version,
             "values": values,
             "effective_on_next_start": effective.model_dump(mode="json"),
-            "restart_required": True,
+            "restart_required": False,
             "activation": "not_saved",
         }
 
@@ -144,6 +145,7 @@ class EnvironmentConfiguration:
         expected_version: str,
         *,
         document: dict[str, Any] | None = None,
+        write_id: str | None = None,
     ) -> dict[str, Any]:
         import yaml
 
@@ -167,11 +169,25 @@ class EnvironmentConfiguration:
                     != expected_version
                 ):
                     raise ValueError("ADMIN-CONFIG-VERSION-CONFLICT")
+                if write_id is not None:
+                    from .write_evidence import prepare_write
+
+                    if self.environment_id is None:
+                        raise ValueError("ADMIN-CONFIG-BOUND-IDENTITY-REQUIRED")
+                    prepare_write(
+                        self.root,
+                        self.environment_id,
+                        write_id,
+                        self.path,
+                        temporary,
+                        expected_version,
+                        _digest(content),
+                    )
                 os.replace(temporary, self.path)
                 return {
                     "version": _digest(content),
                     "activation": "saved",
-                    "restart_required": True,
+                    "restart_required": False,
                 }
         finally:
             temporary.unlink(missing_ok=True)
@@ -188,4 +204,9 @@ class EnvironmentConfiguration:
         return result
 
 
-__all__ = ("EnvironmentConfiguration", "configuration_digest")
+__all__ = (
+    "EnvironmentConfiguration",
+    "configuration_digest",
+    "verify_write",
+    "write_identity",
+)

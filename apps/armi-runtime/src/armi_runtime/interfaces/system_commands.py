@@ -94,7 +94,7 @@ async def invoke_system(
             return InteractionResult(
                 "returned", {}, content=content, media_type="image/jpeg"
             )
-        raise CreatorSystemViolation("INTERACTION_OPERATION_UNKNOWN", 400)
+        raise CreatorSystemViolation("INPUT_INTERACTION_OPERATION_UNKNOWN", 400)
     except CreatorSystemViolation as error:
         return InteractionResult(
             "unavailable" if error.status_code >= 500 else "rejected",

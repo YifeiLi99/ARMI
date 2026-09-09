@@ -12,6 +12,15 @@ from .api import CognitionAdminEpisodeSnapshot
 class PostgreSQLCognitionAdmin:
     __slots__ = ()
 
+    def artifact_episodes(
+        self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
+    ) -> tuple[UUID, ...]:
+        rows = transaction.execute(
+            "SELECT cognitive_episode_id FROM armi.cognitive_episodes WHERE context_manifest_artifact_id=%s OR compiled_context_artifact_id=%s ORDER BY cognitive_episode_id LIMIT 201",
+            (artifact_id, artifact_id),
+        ).fetchall()
+        return tuple(cast(UUID, row[0]) for row in rows)
+
     def opportunity_consumed(
         self, transaction: PostgreSQLAdminTransaction, *, opportunity_id: UUID
     ) -> bool:

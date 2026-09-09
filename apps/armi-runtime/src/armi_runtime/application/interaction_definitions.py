@@ -40,6 +40,7 @@ from .creator_contract import (
     EffectResponse,
     LifeRecordPageResponse,
     LiveResponse,
+    LiveVisionObservationRequest,
     LiveVisionObservationResponse,
     LiveVisionStatusResponse,
     LiveVoiceStatusResponse,
@@ -1514,8 +1515,18 @@ OPERATION_CONTRACTS = (
         "observe",
         "post",
         "/v1/vision/observe",
-        parameters=(),
-        body_model=None,
+        parameters=(
+            {
+                "in": "header",
+                "name": "Idempotency-Key",
+                "required": True,
+                "schema": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+                },
+            },
+        ),
+        body_model=LiveVisionObservationRequest,
         responses={
             "200": LiveVisionObservationResponse,
             "202": LiveVisionObservationResponse,

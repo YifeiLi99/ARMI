@@ -2497,6 +2497,26 @@ export interface components {
        */
       status: "alive";
     };
+    /** LiveVisionObservationRequest */
+    LiveVisionObservationRequest: {
+      /**
+       * Contract Version
+       * @default 1.0
+       * @constant
+       */
+      contract_version: "1.0";
+      /**
+       * Source Kind
+       * @enum {string}
+       */
+      source_kind: "camera" | "screen";
+      /**
+       * Trigger
+       * @default manual
+       * @constant
+       */
+      trigger: "manual";
+    };
     /** LiveVisionObservationResponse */
     LiveVisionObservationResponse: {
       /** Change Score */
@@ -6230,11 +6250,17 @@ export interface operations {
   observeLiveVision: {
     parameters: {
       query?: never;
-      header?: never;
+      header: {
+        "Idempotency-Key": string;
+      };
       path?: never;
       cookie?: never;
     };
-    requestBody?: never;
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["LiveVisionObservationRequest"];
+      };
+    };
     responses: {
       /** @description Successful Response */
       200: {

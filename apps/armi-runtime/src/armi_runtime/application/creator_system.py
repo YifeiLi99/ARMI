@@ -26,6 +26,14 @@ class CreatorSystemViolation(ValueError):
         self.status_code = status_code
         super().__init__(code)
 
+    @classmethod
+    def from_vision(cls, error: LiveVisionViolation) -> CreatorSystemViolation:
+        if error.code == "VISION-SOURCE-KIND":
+            return cls("INPUT_VISION_SOURCE_KIND", 400)
+        if error.code == "VISION-IDEMPOTENCY-CONFLICT":
+            return cls("IDEMPOTENCY_VISION_CONFLICT", 409)
+        return cls("DEPENDENCY_" + error.code.replace("-", "_"), 503)
+
 
 @dataclass(frozen=True, slots=True)
 class CreatorSystem:
@@ -69,10 +77,7 @@ class CreatorSystem:
         try:
             return await self.vision_control(action, source_kind)
         except LiveVisionViolation as error:
-            raise CreatorSystemViolation(
-                error.code.replace("-", "_"),
-                400 if error.code == "VISION-SOURCE-KIND" else 503,
-            ) from None
+            raise CreatorSystemViolation.from_vision(error) from None
 
     async def observe(
         self, source_kind: str, idempotency_key: str
@@ -81,16 +86,13 @@ class CreatorSystem:
         if self.vision_observe is None:
             raise CreatorSystemViolation("DEPENDENCY_LIVE_VISION_UNAVAILABLE")
         if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", idempotency_key) is None:
-            raise CreatorSystemViolation("CON_IDEMPOTENCY_KEY", 400)
+            raise CreatorSystemViolation("INPUT_IDEMPOTENCY_KEY", 400)
         try:
             return await self.vision_observe(source_kind, idempotency_key)
         except LiveVisionViolation as error:
-            raise CreatorSystemViolation(
-                error.code.replace("-", "_"),
-                409 if error.code == "VISION-IDEMPOTENCY-CONFLICT" else 503,
-            ) from None
+            raise CreatorSystemViolation.from_vision(error) from None
         except ValueError:
-            raise CreatorSystemViolation("CON_VISION_REQUEST", 400) from None
+            raise CreatorSystemViolation("INPUT_VISION_REQUEST", 400) from None
 
     async def observation(self, observation_id: str) -> LiveVisionObservationResponse:
         await self.vision("authorize_observation")
@@ -99,14 +101,14 @@ class CreatorSystem:
             if parsed.version != 7 or str(parsed) != observation_id:
                 raise ValueError
         except ValueError:
-            raise CreatorSystemViolation("VISION_NOT_FOUND", 404) from None
+            raise CreatorSystemViolation("INPUT_VISION_NOT_FOUND", 404) from None
         result = (
             None
             if self.vision_observation is None
             else await self.vision_observation(parsed)
         )
         if result is None:
-            raise CreatorSystemViolation("VISION_NOT_FOUND", 404)
+            raise CreatorSystemViolation("INPUT_VISION_NOT_FOUND", 404)
         return result
 
     async def preview(self, source_kind: str) -> bytes:
@@ -115,7 +117,7 @@ class CreatorSystem:
             None if self.vision_preview is None else self.vision_preview(source_kind)
         )
         if result is None:
-            raise CreatorSystemViolation("VISION_NOT_FOUND", 404)
+            raise CreatorSystemViolation("INPUT_VISION_NOT_FOUND", 404)
         return result
 
 

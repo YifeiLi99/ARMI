@@ -30,7 +30,11 @@ from .config_assets import runtime_config_path
 
 class ConfigurationAsset(EnvironmentConfiguration):
     def __init__(self, request: ConfigurationInvocation) -> None:
-        super().__init__(request.environment_root, runtime_config_path("runtime.yaml"))
+        super().__init__(
+            request.environment_root,
+            runtime_config_path("runtime.yaml"),
+            environment_id=str(request.environment_id),
+        )
         self.target: Literal["model-bindings", "web-search", "qq", "mood-display"] = (
             request.target
         )
@@ -80,7 +84,7 @@ class ConfigurationAsset(EnvironmentConfiguration):
             else "sha256:" + hashlib.sha256(source_raw).hexdigest(),
             "activation": "not_verified",
             "configuration_state": "configured" if source is not None else "missing",
-            "restart_required": True,
+            "restart_required": False,
         }
 
     def preview(
@@ -112,7 +116,7 @@ class ConfigurationAsset(EnvironmentConfiguration):
             "expected_version": expected_version,
             "values": values,
             "activation": "not_saved",
-            "restart_required": True,
+            "restart_required": False,
         }
 
     def _validate(self, values: dict[str, Any]) -> None:
@@ -162,7 +166,12 @@ def execute_configuration(request: ConfigurationInvocation) -> dict[str, Any]:
     if request.expected_version is None:
         raise ValueError("ADMIN-CONFIG-VERSION-REQUIRED")
     return (
-        config.apply(request.patch, request.expected_version, document=request.document)
+        config.apply(
+            request.patch,
+            request.expected_version,
+            document=request.document,
+            write_id=request.write_id,
+        )
         if request.action == "apply"
         else config.preview(
             request.patch, request.expected_version, document=request.document

@@ -2615,6 +2615,7 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
 
     runtime_path = root / "apps/armi-runtime/src/armi_runtime/composition/runtime.py"
     runtime_source = runtime_path.read_text(encoding="utf-8")
+    runtime_syntax = ast.unparse(ast.parse(runtime_source))
     for module_name, required in {
         "relationship": (
             "relationship_module = compose_relationship_module(",
@@ -2715,7 +2716,10 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
             "parties=interaction_module.identity",
         ),
     }.items():
-        if any(item not in runtime_source for item in required):
+        if any(
+            item not in runtime_source and item not in runtime_syntax
+            for item in required
+        ):
             violations.append(
                 Violation(
                     "ARC-ACTIVE-MODULE",

@@ -106,7 +106,7 @@ def create_governance_use_cases(
             return _creator_export_error(error)
         if result is None:
             return creator_result(
-                status_code=404, content=_rejected("CREATOR_EXPORT_NOT_FOUND")
+                status_code=404, content=_rejected("SCOPE_CREATOR_EXPORT_NOT_FOUND")
             )
         return creator_result(
             content=_creator_export_response(result).model_dump(mode="json")

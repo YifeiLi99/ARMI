@@ -58,6 +58,8 @@ class LocalEnvironmentController:
         defaults_path: Path,
         postgresql: PostgreSQLControlBinding | None = None,
         progress: Callable[[str], None] | None = None,
+        completed_step: Callable[[str, dict[str, Any]], None] | None = None,
+        launch_instance_id: str | None = None,
         expected_instance_id: str | None = None,
         creator_web_resources: Path | None = None,
         database_probe: Callable[[], dict[str, Any]] | None = None,
@@ -67,6 +69,8 @@ class LocalEnvironmentController:
         self.postgresql = postgresql
         self.environment_id = environment_id
         self.progress = progress
+        self.completed_step = completed_step
+        self.launch_instance_id = launch_instance_id
         self.phase = "accepted"
         self.expected_instance_id = expected_instance_id
         self.creator_web_resources = creator_web_resources
@@ -76,6 +80,11 @@ class LocalEnvironmentController:
         )
 
     def _start_runtime(self) -> dict[str, Any]:
+        if self.launch_instance_id is not None:
+            return self.runtime.start(
+                creator_web_resources=self.creator_web_resources,
+                launch_instance_id=self.launch_instance_id,
+            )
         if self.creator_web_resources is None:
             return self.runtime.start()
         return self.runtime.start(creator_web_resources=self.creator_web_resources)
@@ -275,7 +284,10 @@ class LocalEnvironmentController:
         self.phase = phase
         if self.progress is not None:
             self.progress(phase)
-        return operation()
+        result = operation()
+        if self.completed_step is not None:
+            self.completed_step(phase, result)
+        return result
 
     def _ready(self, started: dict[str, Any]) -> dict[str, Any]:
         deadline = time.monotonic() + 120

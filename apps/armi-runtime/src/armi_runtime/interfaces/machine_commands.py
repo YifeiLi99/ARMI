@@ -196,7 +196,7 @@ async def invoke_command(
         elif call.operation == "operation_get":
             status, content = 404, _rejected("SCOPE_OPERATION_NOT_VISIBLE")
         else:
-            status, content = 400, _rejected("INTERACTION-ARGUMENTS")
+            status, content = 400, _rejected("INPUT_INTERACTION_ARGUMENTS")
     return InteractionResult(
         "rejected" if status < 500 else "unavailable", content, status
     )

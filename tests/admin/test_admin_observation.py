@@ -8,6 +8,7 @@ from unittest.mock import Mock
 from uuid import UUID, uuid7
 
 import pytest
+from armi_admin.application.results import FlowGraphPayload, ScopeGraphPayload
 from armi_admin.persistence.observation_gateway import AdminObservationGateway
 from armi_admin.persistence.runtime_foundation import (
     RuntimeAdminSubject,
@@ -71,6 +72,11 @@ def test_trace_connects_input_context_commit_effect_and_delivery_without_private
             "manifest",
             "compiled",
             "material",
+            "object",
+            "subject",
+            "scene",
+            "work",
+            "generation",
         )
     }
     ports = {
@@ -132,12 +138,32 @@ def test_trace_connects_input_context_commit_effect_and_delivery_without_private
     ports["effects"].snapshot.return_value = effect
     ports["effects"].for_intent.return_value = (effect,)
     ports["runtime"].commits_for_episode.return_value = ((ids["commit"], 2),)
+    ports["artifacts"].object_identity.return_value = ids["object"]
+    ports["cognition"].artifact_episodes.side_effect = lambda tx, artifact_id: (
+        (ids["episode"],) if artifact_id in {ids["manifest"], ids["compiled"]} else ()
+    )
+    ports["evidence"].artifact_evidence.side_effect = lambda tx, artifact_id: (
+        (ids["evidence"],) if artifact_id == ids["material"] else ()
+    )
+    ports["runtime"].subject.return_value = SimpleNamespace(
+        subject_id=ids["subject"],
+        generation_id=ids["generation"],
+        bundle_activation_id=None,
+    )
+    ports["runtime"].subject_work_ids.return_value = (ids["work"],)
+    ports["runtime"].work_links.return_value = (
+        ("subject", ids["subject"]),
+        ("cognitive_episode", ids["episode"]),
+    )
+    ports["interaction"].subject_scenes.return_value = (ids["scene"],)
+    ports["interaction"].scene_links.return_value = (ids["subject"], (ids["input"],))
     gateway = AdminObservationGateway(
         factory=cast(PostgreSQLAdminUnitOfWorkFactory, _Factory()), **ports
     )
     graph = gateway.trace_flow(
         ("interaction_id", str(ids["input"])), limit=100, cursor=None
     )
+    FlowGraphPayload.model_validate(graph)
     nodes = cast(list[dict[str, Any]], graph["nodes"])
     assert {node["kind"] for node in nodes} >= {
         "input",
@@ -181,10 +207,35 @@ def test_trace_connects_input_context_commit_effect_and_delivery_without_private
         cursor=None,
     )
     assert scope["edges"]
+    ScopeGraphPayload.model_validate(scope)
     assert all(
         edge["source"]["id"] == str(ids["episode"])
         for edge in cast(list[dict[str, Any]], scope["edges"])
     )
+    for kind, port, method in (
+        ("subject", "runtime", "inspect_subject_ids"),
+        ("work", "runtime", "inspect_work_ids"),
+        ("scene", "interaction", "inspect_ids"),
+        ("artifact", "artifacts", "inspect_ids"),
+    ):
+        root = ids["manifest"] if kind == "artifact" else ids[kind]
+        getattr(ports[port], method).return_value = (root,)
+        graph = gateway.inspect_scope(
+            kind,
+            (str(root),),
+            relations=("direct_dependencies", "direct_dependents"),
+            limit=100,
+            cursor=None,
+        )
+        ScopeGraphPayload.model_validate(graph)
+        assert graph["edges"], kind
+        assert graph["expansion_truncated"] is False
+        if kind == "artifact":
+            assert any(
+                edge["source"]["id"] == str(ids["episode"])
+                and edge["target"]["id"] == str(root)
+                for edge in cast(list[dict[str, Any]], graph["edges"])
+            )
 
 
 class _BrokenMaterials:

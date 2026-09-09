@@ -432,6 +432,17 @@ def _admin_cli_binding(
                 "operator_id": "isolated-system-agent",
                 "authorized_operations": [
                     "configuration.read",
+                    "configuration.status",
+                    "schema_status",
+                    "runtime_status",
+                    "subject_snapshot",
+                    "inspect_scope",
+                    "doctor",
+                    "invocation_get",
+                    "invocation_wait",
+                    "invocation_reconcile",
+                    "maintenance.device_bindings",
+                    "maintenance.credential_check",
                     "maintenance.database_install",
                     "maintenance.database_check",
                     "maintenance.birth",
@@ -1449,7 +1460,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 self.assertNotIn(fixture.runtime_dsn, completed.stdout)
                 self.assertNotIn(fixture.migrator_dsn, completed.stdout)
                 self.assertNotIn(creator_bearer, completed.stdout)
-                return cast(dict[str, Any], json.loads(completed.stdout)["result"])
+                from .machine_transport import verify_admin_replay
+
+                receipt = cast(dict[str, Any], json.loads(completed.stdout))
+                verify_admin_replay(
+                    admin_binding, clean_environment, arguments, receipt
+                )
+                return cast(dict[str, Any], receipt["result"])
 
             self.assertEqual(
                 invoke("configuration", "--action", "read")["configuration_state"],
@@ -2386,7 +2403,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 self.assertNotIn(fixture.runtime_dsn, completed.stdout)
                 self.assertNotIn(fixture.migrator_dsn, completed.stdout)
                 self.assertNotIn(creator_bearer, completed.stdout)
-                return cast(dict[str, Any], json.loads(completed.stdout)["result"])
+                from .machine_transport import verify_admin_replay
+
+                receipt = cast(dict[str, Any], json.loads(completed.stdout))
+                verify_admin_replay(
+                    admin_binding, clean_environment, arguments, receipt
+                )
+                return cast(dict[str, Any], receipt["result"])
 
             def invoke_rejected(*arguments: str) -> dict[str, Any]:
                 completed = subprocess.run(
@@ -2874,6 +2897,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     lambda reference: invoke(
                         "trace-flow", "--interaction-id", reference
                     ),
+                )
+                from .machine_transport import verify_admin_observation_scenarios
+
+                verify_admin_observation_scenarios(
+                    admin_binding, clean_environment, born["subject_id"]
                 )
                 stopped_again = invoke("stop", "--component", "runtime")
                 self.assertEqual(stopped_again["status"], "stopped")

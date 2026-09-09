@@ -196,6 +196,29 @@ def register_machine_api(
                     "operations": [
                         {
                             "name": item.name,
+                            "request_schema": dict(item.input_schema),
+                            "result_schema": dict(item.output_schema),
+                            "read_only": not item.mutating,
+                            "runtime_readiness": system.readiness().value,
+                            "configuration_state": "not_checked",
+                            "availability": "unavailable"
+                            if (
+                                "interaction.write"
+                                if item.mutating
+                                else "interaction.read"
+                            )
+                            not in caller.scopes
+                            else "available"
+                            if item.name == "health_live"
+                            else "not_verified",
+                            "unavailable_reason": "scope_not_granted"
+                            if (
+                                "interaction.write"
+                                if item.mutating
+                                else "interaction.read"
+                            )
+                            not in caller.scopes
+                            else None,
                             "required_scope": "interaction.write"
                             if item.mutating
                             else "interaction.read",

@@ -13,9 +13,14 @@ from datetime import UTC, datetime
 from typing import Any, Literal, cast
 from uuid import uuid7
 
+from armi_kernel.application import CredentialPurpose
 from armi_local_control import ConfigurationViolation
 from armi_local_control.configuration.defaults import runtime_defaults_file
-from armi_local_control.configuration.editing import EnvironmentConfiguration
+from armi_local_control.configuration.editing import (
+    EnvironmentConfiguration,
+    verify_write,
+    write_identity,
+)
 from armi_local_control.lifecycle import (
     LocalEnvironmentController,
     environment_control_lock,
@@ -46,6 +51,7 @@ from armi_admin.persistence import (
 from armi_admin.persistence.role_session import AdminRoleBoundPool
 
 from .authorization import AuthorizationError, AuthorizationStore
+from .configuration_activation import asset_activation, runtime_activation
 from .contracts import (
     AdminIdentity,
     AdminMutationRequest,
@@ -82,13 +88,21 @@ from .contracts import (
     TraceFlowRequest,
 )
 from .credentials import AdminSecretError
-from .invocations import InvocationJournal, invocation_progress
+from .invocations import (
+    InvocationEvidence,
+    InvocationJournal,
+    InvocationReferences,
+    invocation_completed_step,
+    invocation_launch_identity,
+    invocation_progress,
+)
 
 _DIAGNOSTIC_TOTAL_BYTES = 2 * 1024 * 1024
 _DIAGNOSTIC_LINE_BYTES = 64 * 1024
 ObservationToolName = Literal[
     "invocation_get",
     "invocation_wait",
+    "invocation_reconcile",
     "doctor",
     "correction_status",
     "inspect_scope",
@@ -227,6 +241,19 @@ class AdminToolService:
                         "authorized": authorized(operation.name),
                         "requires_runtime": operation.name in runtime_required,
                         "unavailable_reason": unavailable(operation.name),
+                        "availability": "unavailable"
+                        if unavailable(operation.name)
+                        else "available"
+                        if operation.name == "capabilities"
+                        else "not_verified",
+                        "suboperations": [
+                            {
+                                **variant,
+                                "authorized": variant["required_scope"]
+                                in self._config.authorized_operations,
+                            }
+                            for variant in operation.suboperations()
+                        ],
                     }
                     for operation in ADMIN_OPERATIONS
                 ],
@@ -296,6 +323,19 @@ class AdminToolService:
     def _configuration_once(
         self, request: ConfigurationRequest
     ) -> AdminToolResult[dict[str, Any]]:
+        if request.action == "apply":
+            try:
+                with environment_control_lock(
+                    self._config.environment_root, self._config.environment_id
+                ):
+                    return self._configuration_execute(request)
+            except RuntimeViolation as error:
+                return self._tool_failure(datetime.now(UTC), "conflict", error.code)
+        return self._configuration_execute(request)
+
+    def _configuration_execute(
+        self, request: ConfigurationRequest
+    ) -> AdminToolResult[dict[str, Any]]:
         started = datetime.now(UTC)
         try:
             editor = EnvironmentConfiguration(
@@ -314,6 +354,12 @@ class AdminToolService:
                             "patch": dict(request.patch),
                             "document": request.document,
                             "expected_version": request.expected_version,
+                            "write_id": write_identity(
+                                self._config.invocation_identity(),
+                                request.idempotency_key,
+                            )
+                            if request.action == "apply" and request.idempotency_key
+                            else None,
                         }
                     )
                 )
@@ -322,32 +368,12 @@ class AdminToolService:
                     and result.get("configuration_state") != "invalid"
                 ):
                     runtime = self._control.runtime_status()
-                    loaded = (
-                        runtime.get("runtime", {})
-                        .get("configuration_assets", {})
-                        .get(request.target, {})
-                    )
-                    effective = loaded.get("state") == "loaded" and loaded.get(
-                        "versions"
-                    ) == [result.get("desired_source_version")]
-                    activation = (
-                        "effective"
-                        if effective
-                        else "not_running"
-                        if runtime.get("status") == "stopped"
-                        else "not_loaded"
-                        if loaded.get("state") == "not_loaded"
-                        else "mixed_versions"
-                        if loaded.get("state") == "mixed_versions"
-                        else "restart_required"
-                        if loaded.get("versions")
-                        else "not_verified"
-                    )
                     result.update(
-                        activation=activation,
-                        restart_required=activation
-                        in {"restart_required", "mixed_versions"},
-                        loaded=loaded,
+                        asset_activation(
+                            runtime,
+                            request.target,
+                            result.get("desired_source_version"),
+                        )
                     )
             elif request.action in {"read", "status"}:
                 result = editor.read()
@@ -360,31 +386,7 @@ class AdminToolService:
                     runtime = RuntimeProcessManager(
                         self._config.environment_root, self._config.environment_id
                     ).status()
-                    running = runtime.get("runtime", {})
-                    actual = running.get("runtime_configuration_digest")
-                    environment_overrides = "explicit-environment" in running.get(
-                        "configuration_sources", []
-                    )
-                    effective = (
-                        actual is not None and actual == result["desired_digest"]
-                    )
-                    result.update(
-                        {
-                            "activation": "effective"
-                            if effective
-                            else "not_running"
-                            if runtime.get("status") == "stopped"
-                            else "environment_override"
-                            if environment_overrides
-                            else "restart_required"
-                            if actual is not None
-                            else "not_verified",
-                            "restart_required": not effective
-                            and not environment_overrides,
-                            "running_digest": actual,
-                            "running_sources": running.get("configuration_sources", []),
-                        }
-                    )
+                    result.update(runtime_activation(runtime, result))
             else:
                 if request.expected_version is None:
                     return self._tool_failure(
@@ -395,6 +397,11 @@ class AdminToolService:
                         dict(request.patch),
                         request.expected_version,
                         document=request.document,
+                        write_id=write_identity(
+                            self._config.invocation_identity(), request.idempotency_key
+                        )
+                        if request.idempotency_key
+                        else None,
                     )
                     if request.action == "apply"
                     else editor.preview(
@@ -488,6 +495,8 @@ class AdminToolService:
             creator_web_resources=self._config.creator_web_resources,
             database_probe=self._database_probe,
             progress=invocation_progress,
+            completed_step=invocation_completed_step,
+            launch_instance_id=invocation_launch_identity(),
             expected_instance_id=expected_instance_id,
         )
 
@@ -634,7 +643,7 @@ class AdminToolService:
         if request.environment_id != self._config.environment_id:
             return self._tool_failure(started, "rejected", "ADMIN-ENVIRONMENT-MISMATCH")
         try:
-            if name in {"invocation_get", "invocation_wait"}:
+            if name in {"invocation_get", "invocation_wait", "invocation_reconcile"}:
                 typed_invocation = cast(InvocationStatusRequest, request)
                 journal = InvocationJournal(
                     self._config.environment_root.parent
@@ -653,7 +662,14 @@ class AdminToolService:
                     return self._tool_failure(
                         started, "rejected", "ADMIN-SCOPE-REQUIRED"
                     )
-                if name == "invocation_wait":
+                if name == "invocation_reconcile":
+                    result = journal.reconcile(
+                        typed_invocation.operation_name,
+                        typed_invocation.idempotency_key,
+                        authorized_scopes=self._config.authorized_operations,
+                        observe=self._reconcile_invocation,
+                    )
+                elif name == "invocation_wait":
                     deadline = (
                         time.monotonic()
                         + cast(InvocationWaitRequest, request).timeout_seconds
@@ -725,11 +741,234 @@ class AdminToolService:
             return self._tool_success(started, result)
         except AdminCorrectionError as exc:
             return self._correction_failure(started, exc.code)
+        except RuntimeViolation as exc:
+            return self._tool_failure(
+                started,
+                "conflict" if exc.code == "CLI-RUNTIME-CONTROL-BUSY" else "failed",
+                exc.code,
+            )
         except Exception:
             return self._tool_failure(started, "failed", "ADMIN-OBSERVATION-FAILED")
 
+    def _reconcile_invocation(
+        self, evidence: InvocationEvidence
+    ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+        with environment_control_lock(
+            self._config.environment_root, self._config.environment_id
+        ):
+            return self._reconcile_invocation_facts(evidence)
+
+    def _reconcile_invocation_facts(
+        self, evidence: InvocationEvidence
+    ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+        refs = evidence.references
+        if evidence.operation == "data_deletion_apply":
+            observed = self._control.send_control(
+                "data_deletion",
+                {
+                    "action": "reconcile",
+                    "party_key": refs.deletion_party_key,
+                    "idempotency_key": evidence.idempotency_key,
+                },
+            )["result"]
+            order = observed["order"]
+            return (
+                None
+                if order is None
+                else self._tool_success(datetime.now(UTC), order).model_dump(
+                    mode="json"
+                )
+            ), {
+                "basis": "owner_deletion_request",
+                "next_operations": ["other_human", "invocation_get"],
+            }
+        if evidence.operation in {
+            "environment_start",
+            "environment_stop",
+            "environment_restart",
+            "runtime_start",
+            "runtime_stop",
+            "runtime_restart",
+        }:
+            action = "stop" if evidence.operation.endswith("_stop") else "start"
+            component = refs.component or (
+                "runtime"
+                if evidence.operation.startswith("runtime_")
+                else "environment"
+            )
+            steps = dict(evidence.completed_steps)
+            basis = "recorded_steps"
+            if (
+                action == "start"
+                and component in {"runtime", "environment"}
+                and "runtime.readiness" not in steps
+                and refs.launch_instance_id
+            ):
+                current = self._control.runtime_status()
+                runtime = current.get("runtime", {})
+                if (
+                    current.get("status") == "running"
+                    and runtime.get("instance_id") == refs.launch_instance_id
+                    and runtime.get("readiness") == "ready"
+                ):
+                    steps["runtime.readiness"] = {
+                        **current,
+                        "status": "started",
+                        "readiness": "ready",
+                    }
+                    basis = "preidentified_runtime"
+            required: tuple[str, ...] = (
+                (
+                    "postgresql." + action,
+                    "semantic." + action,
+                    "runtime.readiness" if action == "start" else "runtime.stop",
+                )
+                if component == "environment"
+                else (
+                    "runtime.readiness"
+                    if component == "runtime" and action == "start"
+                    else ("semantic" if component == "semantic-recall" else component)
+                    + "."
+                    + action,
+                )
+            )
+            if all(phase in steps for phase in required):
+                final = steps[required[-1]]
+                confirmed = (
+                    final.get("readiness") == "ready"
+                    if action == "start" and component in {"environment", "runtime"}
+                    else final.get("status")
+                    in {"stopped", "running", "already_running", "disabled", "started"}
+                    or final.get("action") == "not_managed"
+                )
+                if confirmed:
+                    payload = (
+                        {
+                            "runtime": final,
+                            "postgresql": steps[required[0]],
+                            "semantic_recall": steps["semantic." + action],
+                            **({"status": "ready"} if action == "start" else {}),
+                        }
+                        if component == "environment"
+                        else final
+                    )
+                    return self._tool_success(datetime.now(UTC), payload).model_dump(
+                        mode="json"
+                    ), {
+                        "basis": basis,
+                        "next_operations": ["environment_status"],
+                    }
+        if evidence.operation == "apply_correction" and refs.preview_token is not None:
+            observed = self._corrections.status(refs.preview_token)
+            if observed["status"] == "applied":
+                return self._tool_success(
+                    datetime.now(UTC), {**observed, "reconciled": True}
+                ).model_dump(mode="json"), {
+                    "basis": "owner_correction",
+                    "observed": observed,
+                }
+            return None, {"basis": "owner_correction", "observed": observed}
+        if (
+            evidence.operation == "configuration"
+            and refs.configuration_target is not None
+        ):
+            if refs.configuration_write_id and refs.expected_version:
+                relative = {
+                    "runtime": "environment.yaml",
+                    "model-bindings": "configs/model-bindings.yaml",
+                    "web-search": "configs/web-search.yaml",
+                    "qq": "channels/qq-napcat.yaml",
+                    "mood-display": "devices/mood-display.yaml",
+                }[refs.configuration_target]
+                version = verify_write(
+                    self._config.environment_root,
+                    self._config.environment_id,
+                    refs.configuration_write_id,
+                    target=self._config.environment_root / relative,
+                    expected_version=refs.expected_version,
+                )
+                if version is not None:
+                    return self._tool_success(
+                        datetime.now(UTC),
+                        {
+                            "version": version,
+                            "activation": "saved",
+                            "restart_required": False,
+                        },
+                    ).model_dump(mode="json"), {
+                        "basis": "configuration_file_identity",
+                        "next_operations": ["configuration"],
+                    }
+            result = self._configuration_once(
+                ConfigurationRequest(
+                    environment_id=self._config.environment_id,
+                    action="status",
+                    target=refs.configuration_target,
+                )
+            )
+            return None, {
+                "basis": "current_configuration_only",
+                "observed": {
+                    "status": result.status,
+                    "error_code": result.error_code,
+                    "version": (result.result or {}).get("version"),
+                    "activation": (result.result or {}).get("activation"),
+                },
+                "reason": "Current bytes do not prove which invocation wrote them.",
+            }
+        if evidence.operation.startswith(("environment_", "runtime_")):
+            return None, {
+                "basis": "current_process_state_only",
+                "observed": self._environment_controller().execute("status"),
+                "reason": "Current process state alone does not prove the original outcome.",
+            }
+        return None, {
+            "basis": "insufficient_evidence",
+            "next_operations": ["trace_flow", "inspect_scope"],
+        }
+
     def _diagnose(self) -> dict[str, Any]:
         checks: list[dict[str, Any]] = []
+        for purpose, locator, scopes in (
+            ("database.admin", self._config.locator, ("health", "schema_status")),
+            (
+                "database.migrator",
+                self._config.migrator_locator,
+                (
+                    "maintenance.database_install",
+                    "maintenance.database_check",
+                    "maintenance.database_maintain",
+                ),
+            ),
+            (
+                "admin.correction.preview",
+                self._config.preview_locator,
+                ("preview_correction", "apply_correction", "correction_status"),
+            ),
+        ):
+            permitted = any(
+                scope in self._config.authorized_operations for scope in scopes
+            )
+            code: str | None = None
+            status = "not_authorized"
+            if permitted:
+                try:
+                    with self._credentials.resolve(locator, CredentialPurpose(purpose)):
+                        status = "observed"
+                except AdminSecretError:
+                    status, code = "unavailable", "ADMIN-SECRET-UNAVAILABLE"
+            checks.append(
+                {
+                    "component": "credential." + purpose,
+                    "status": status,
+                    "error_code": code,
+                    "evidence": {
+                        "locator": locator.identity(),
+                        "resolvable": status == "observed",
+                    },
+                    "next_operations": list(scopes),
+                }
+            )
         health = self.health(HealthRequest())
         checks.append(
             {
@@ -834,7 +1073,12 @@ class AdminToolService:
                     "next_operations": ["configuration"],
                 }
             )
-        for action in ("semantic_status", "device_bindings"):
+        for action in (
+            "semantic_status",
+            "device_bindings",
+            "napcat_status",
+            "credential_check",
+        ):
             maintenance = self.mutate(
                 "maintenance",
                 MaintenanceRequest.model_validate(
@@ -859,7 +1103,7 @@ class AdminToolService:
             runtime = self._control.runtime_status()
             checks.append(
                 {
-                    "component": "runtime_work_recovery_and_channels",
+                    "component": "runtime_process_and_readiness",
                     "status": "observed",
                     "evidence": runtime,
                     "next_operations": [
@@ -873,7 +1117,7 @@ class AdminToolService:
         except AdminControlError as error:
             checks.append(
                 {
-                    "component": "runtime_work_recovery_and_channels",
+                    "component": "runtime_process_and_readiness",
                     "status": "unavailable",
                     "error_code": str(error),
                     "next_operations": [
@@ -956,6 +1200,36 @@ class AdminToolService:
                 name=name,
                 key=key,
                 request_digest=digest,
+                references=InvocationReferences(
+                    configuration_target=request.target
+                    if isinstance(request, ConfigurationRequest)
+                    else None,
+                    expected_version=getattr(request, "expected_version", None),
+                    configuration_write_id=write_identity(
+                        self._config.invocation_identity(), key
+                    )
+                    if isinstance(request, ConfigurationRequest)
+                    else None,
+                    preview_token=request.preview_token
+                    if isinstance(request, ApplyCorrectionRequest)
+                    else None,
+                    component=request.component
+                    if isinstance(request, EnvironmentLifecycleRequest)
+                    else None,
+                    expected_instance_id=getattr(request, "expected_instance_id", None),
+                    launch_instance_id=str(uuid7())
+                    if name
+                    in {
+                        "environment_start",
+                        "environment_restart",
+                        "runtime_start",
+                        "runtime_restart",
+                    }
+                    else None,
+                    deletion_party_key=request.party_key
+                    if isinstance(request, DataDeletionApplyRequest)
+                    else None,
+                ),
                 audit={
                     "operator_id": self._config.operator_id,
                     "authorization_ref": getattr(request, "authorization_ref", None),

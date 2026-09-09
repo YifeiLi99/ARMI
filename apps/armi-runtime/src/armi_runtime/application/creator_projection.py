@@ -226,17 +226,7 @@ def _outcome_common() -> _OutcomeArguments:
 def _rejected(
     code: str, message: str = "The request was rejected."
 ) -> dict[str, object]:
-    category = (
-        ErrorCategory.INPUT
-        if code.startswith("INPUT_")
-        else ErrorCategory.SCOPE
-        if code.startswith("SCOPE_")
-        else ErrorCategory.CONFLICT
-        if code.startswith("CONFLICT_")
-        else ErrorCategory.IDEMPOTENCY
-        if code.startswith("IDEMPOTENCY_")
-        else ErrorCategory.AUTH
-    )
+    category = ErrorCategory(code.partition("_")[0].lower())
     return RejectedOutcome(
         **_outcome_common(), message=message, error=ErrorDescriptor(category, code)
     ).to_wire()

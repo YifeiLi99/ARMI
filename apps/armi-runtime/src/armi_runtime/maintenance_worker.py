@@ -32,7 +32,7 @@ def main() -> int:
         if (
             isinstance(values, dict)
             and cast(dict[str, Any], values).get("schema_version")
-            == "armi.local-configuration.v2"
+            == "armi.local-configuration.v3"
         ):
             result = execute_configuration(
                 ConfigurationInvocation.model_validate(values)

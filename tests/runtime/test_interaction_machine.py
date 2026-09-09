@@ -133,6 +133,40 @@ def machine(
 
 
 @pytest.mark.asyncio
+async def test_vision_observation_arguments_reach_shared_application(
+    tmp_path: Path, monkeypatch
+) -> None:
+    app, binding, _ = machine(tmp_path, writable=True)
+    client = InteractionClient(binding, transport=httpx.ASGITransport(app=app))
+    result = await InteractionMCPServer(client).call_tool(
+        "vision_observe",
+        {"source_kind": "camera", "idempotency_key": "vision-contract"},
+    )
+    assert result.structured_content is not None
+    assert (
+        result.structured_content["result"]["error"]["code"]
+        == "DEPENDENCY_LIVE_VISION_UNAVAILABLE"
+    )
+    config = tmp_path / "client.yaml"
+    config.write_text(binding.model_dump_json(), encoding="utf-8")
+    monkeypatch.setattr(cli, "InteractionClient", lambda _binding: client)
+    arguments = cli.parser().parse_args(
+        [
+            "--config",
+            str(config),
+            "vision",
+            "observe",
+            "--source-kind",
+            "camera",
+            "--idempotency-key",
+            "vision-contract",
+        ]
+    )
+    called = await cli._execute(arguments)
+    assert called["result"]["error"]["code"] == "DEPENDENCY_LIVE_VISION_UNAVAILABLE"
+
+
+@pytest.mark.asyncio
 async def test_artifact_chunks_and_cli_output_preserve_governed_content(
     tmp_path: Path, monkeypatch
 ) -> None:

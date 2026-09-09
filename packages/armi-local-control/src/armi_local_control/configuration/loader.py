@@ -115,6 +115,7 @@ _ENV_OVERRIDES: dict[str, tuple[tuple[str, str], str]] = {
 class EffectiveConfig:
     config: RuntimeConfig
     applied_sources: tuple[str, ...]
+    environment_overrides: tuple[tuple[str, tuple[str, str]], ...] = ()
 
     def redacted_view(self) -> dict[str, object]:
         view = self.config.model_dump(mode="json")
@@ -212,6 +213,11 @@ def load_effective_config(
     return EffectiveConfig(
         config=config,
         applied_sources=tuple(applied_sources),
+        environment_overrides=tuple(
+            (name, path)
+            for name, (path, _) in _ENV_OVERRIDES.items()
+            if name in overrides
+        ),
     )
 
 
