@@ -2,8 +2,8 @@
 [mcp_servers.armi_admin]
 command = "armi-admin-mcp"
 env_vars = ["ARMI_ADMIN_CONFIG"]
-enabled_tools = ["apply_correction", "arm_fault", "clear_faults", "correction_status", "environment_initialize", "environment_reset", "environment_reset_preview", "health", "inject_creator_input", "inspect_scope", "preview_correction", "runtime_drain", "runtime_restart", "runtime_start", "runtime_status", "runtime_stop", "schema_status", "settle_correction_work", "subject_snapshot", "tail_diagnostics", "trace_flow"]
+enabled_tools = ["capabilities", "doctor", "invocation_get", "configuration", "maintenance", "other_human", "environment_start", "environment_status", "environment_stop", "environment_restart", "apply_correction", "arm_fault", "clear_faults", "correction_status", "environment_initialize", "environment_reset", "environment_reset_preview", "health", "inject_creator_input", "inspect_scope", "preview_correction", "runtime_drain", "runtime_restart", "runtime_start", "runtime_status", "runtime_stop", "schema_status", "settle_correction_work", "subject_snapshot", "tail_diagnostics", "trace_flow"]
 required = true
 default_tools_approval_mode = "auto"
 startup_timeout_sec = 10
-tool_timeout_sec = 30
+tool_timeout_sec = 660

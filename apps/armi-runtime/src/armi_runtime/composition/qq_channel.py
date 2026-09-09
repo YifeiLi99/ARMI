@@ -20,9 +20,12 @@ from armi_interaction.api import (
 )
 from armi_kernel.application import CredentialPurpose
 from armi_kernel.contracts import TraceId
+from armi_local_control.configuration import ConfigurationViolation
+from armi_local_control.configuration.paths import (
+    has_reparse_point,
+    require_within_roots,
+)
 
-from .configuration import ConfigurationViolation
-from .configuration.paths import has_reparse_point, require_within_roots
 from .environment import PreparedEnvironment
 
 QQ_NAPCAT_ACCESS_TOKEN_LOCATOR = "channel.qq.napcat_access_token"

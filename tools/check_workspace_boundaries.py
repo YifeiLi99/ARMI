@@ -132,6 +132,21 @@ def validate_contract_single_version(root: Path) -> list[Violation]:
 
 DISTRIBUTIONS = (
     Distribution(
+        name="armi-local-control",
+        module="armi_local_control",
+        project_dir=Path("packages/armi-local-control"),
+        layers=(),
+        dependencies=(
+            "armi-kernel==0.0.0",
+            "armi-interaction==0.0.0",
+            "armi-context==0.0.0",
+            "httpx==0.28.1",
+            "psutil==7.2.2",
+            "pydantic==2.13.4",
+            "pyyaml==6.0.3",
+        ),
+    ),
+    Distribution(
         name="armi-kernel",
         module="armi_kernel",
         project_dir=Path("packages/armi-kernel"),
@@ -542,8 +557,11 @@ DISTRIBUTIONS = (
         name="armi-runtime",
         module="armi_runtime",
         project_dir=Path("apps/armi-runtime"),
-        layers=("adapters", "interfaces", "workers", "composition"),
+        layers=("adapters", "interfaces", "workers", "composition", "application"),
         dependencies=(
+            "armi-local-control==0.0.0",
+            "mcp==2.0.0",
+            "jsonschema==4.26.0",
             "alembic==1.18.5",
             "armi-adapter-qq==0.0.0",
             "armi-adapter-esp32-display==0.0.0",
@@ -597,6 +615,7 @@ DISTRIBUTIONS = (
         project_dir=Path("apps/armi-admin"),
         layers=("application", "mcp", "persistence", "process_control"),
         dependencies=(
+            "armi-local-control==0.0.0",
             "armi-artifact-store==0.0.0",
             "armi-cognition==0.0.0",
             "armi-codex==0.0.0",
@@ -828,11 +847,15 @@ def validate_workspace_metadata(root: Path) -> list[Violation]:
                 (
                     {
                         "armi": "armi_runtime.cli:main",
+                        "armi-mcp": "armi_runtime.mcp:main",
                         "armi-codex-runner": "armi_runtime.codex_runner_cli:main",
                     }
                     if distribution.name == "armi-runtime"
                     else (
-                        {"armi-admin-mcp": "armi_admin.mcp.entrypoint:main"}
+                        {
+                            "armi-admin-mcp": "armi_admin.mcp.entrypoint:main",
+                            "armi-admin": "armi_admin.cli:main",
+                        }
                         if distribution.name == "armi-admin"
                         else None
                     )
@@ -1461,6 +1484,23 @@ def _check_import(
         )
 
     public_modules = {
+        "armi-local-control": frozenset(
+            {
+                "armi_local_control",
+                "armi_local_control.binding",
+                "armi_local_control.lifecycle",
+                "armi_local_control.maintenance",
+                "armi_local_control.configuration",
+                "armi_local_control.configuration.models",
+                "armi_local_control.configuration.paths",
+                "armi_local_control.configuration.editing",
+                "armi_local_control.configuration.defaults",
+                "armi_local_control.runtime_errors",
+                "armi_local_control.process_identity",
+                "armi_local_control.runtime_process",
+                "armi_local_control.semantic_recall_process",
+            }
+        ),
         "armi-kernel": PUBLIC_KERNEL_MODULES,
         "armi-channel-napcat": frozenset({"armi_channel_napcat"}),
         "armi-adapter-qq": frozenset({"armi_adapter_qq"}),
@@ -2044,6 +2084,34 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         "armi_data_rights.bootstrap": root
         / "modules/data-rights/src/armi_data_rights/bootstrap.py",
     }
+    local_root = root / "packages/armi-local-control/src/armi_local_control"
+    for suffix in (
+        "",
+        "binding",
+        "maintenance",
+        "lifecycle",
+        "configuration",
+        "configuration.models",
+        "configuration.paths",
+        "configuration.editing",
+        "configuration.defaults",
+        "runtime_errors",
+        "process_identity",
+        "runtime_process",
+        "semantic_recall_process",
+    ):
+        module = "armi_local_control" + ("." + suffix if suffix else "")
+        relative = suffix.replace(".", "/")
+        public_paths[module] = (
+            local_root
+            / (
+                relative + "/__init__.py"
+                if suffix == "configuration"
+                else relative + ".py"
+            )
+            if suffix
+            else local_root / "__init__.py"
+        )
     for module, path in public_paths.items():
         tree, errors = _parse_python(path, root)
         violations.extend(errors)

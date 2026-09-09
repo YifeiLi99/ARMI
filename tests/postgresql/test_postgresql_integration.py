@@ -30,8 +30,8 @@ import pytest
 import rfc8785
 from armi_activity.api import ActivityViolation
 from armi_admin.application import AdminConfig, AdminCredentialPort
-from armi_admin.composition import bootstrap_admin
-from armi_admin.mcp.contracts import (
+from armi_admin.application.catalog import ADMIN_OPERATIONS
+from armi_admin.application.contracts import (
     ApplyCorrectionRequest,
     CorrectionStatusRequest,
     EnvironmentResetPreviewRequest,
@@ -42,8 +42,10 @@ from armi_admin.mcp.contracts import (
     SchemaStatusRequest,
     SettleCorrectionWorkRequest,
 )
-from armi_admin.mcp.service import AdminToolService
+from armi_admin.application.service import AdminToolService
+from armi_admin.composition import bootstrap_admin
 from armi_admin.persistence.role_session import AdminRoleBoundPool
+from armi_admin.persistence.runtime_foundation import RuntimeFoundationAdminAdapter
 from armi_artifact_store.content_store import (
     ContentAddressedArtifactStore,
 )
@@ -128,6 +130,8 @@ from armi_kernel.contracts import (
 )
 from armi_live_vision.bootstrap import bootstrap_live_vision_commit
 from armi_live_voice.bootstrap import bootstrap_live_voice_context_read
+from armi_local_control.configuration import EnvironmentFileCredentialPort
+from armi_local_control.runtime_process import RuntimeProcessManager
 from armi_perception.api import (
     ExternalContentRecognitionResult,
     ExternalContentRecognitionStatus,
@@ -175,13 +179,11 @@ from armi_runtime.application.action_lifecycle import RuntimeEffectRegistrationC
 from armi_runtime.application.creator_timeline import CreatorTimelineProjectionAssembler
 from armi_runtime.application.life_opportunity import RuntimeLifeOpportunityFacts
 from armi_runtime.application.maintenance import RuntimeSleepFacts
-from armi_runtime.cli import main
 from armi_runtime.composition.artifacts import (
     ContentAddressedArtifactCoordinator,
 )
 from armi_runtime.composition.birth import BirthTransaction
 from armi_runtime.composition.birth_manifest import packaged_birth_digests
-from armi_runtime.composition.configuration import EnvironmentFileCredentialPort
 from armi_runtime.composition.data_rights_contracts import (
     DATA_RIGHTS_OWNER_CONTRACTS,
 )
@@ -253,8 +255,8 @@ from armi_runtime.composition.postgresql_test import (
     normalize_full_response,
     parse_candidate,
 )
-from armi_runtime.composition.runtime_process import RuntimeProcessManager
 from armi_runtime.composition.work_wakeup import WorkWakeupBus
+from armi_runtime.runtime_entrypoint import main
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
 from armi_sleep.api import CreatorMaintenanceViolation
 from armi_web_observation.api import (
@@ -1032,7 +1034,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
             def invoke(*arguments: str) -> dict[str, Any]:
                 completed = subprocess.run(
-                    (str(entry_point), *arguments),
+                    (
+                        str(entry_point),
+                        "-m",
+                        "armi_runtime.runtime_entrypoint",
+                        *arguments,
+                    ),
                     cwd=Path.cwd(),
                     env=clean_environment,
                     check=False,
@@ -1057,6 +1064,24 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             born = invoke("bootstrap", "birth", *root_argument)
             self.assertEqual(born["status"], "applied")
+            admin_pool = AdminRoleBoundPool(
+                fixture.admin_role_dsn, expected_role=fixture.admin_role
+            )
+            try:
+                with admin_pool.serializable() as unit:
+                    RuntimeFoundationAdminAdapter(
+                        environment_id=str(fixture.environment_id), incarnation=1
+                    ).register_environment(
+                        unit.transaction,
+                        environment_id=str(fixture.environment_id),
+                        environment_kind="system_test",
+                        incarnation=1,
+                        resettable=True,
+                        test_controls_enabled=True,
+                    )
+                    unit.commit()
+            finally:
+                admin_pool.close()
             identity_query = """
                 SELECT subject.subject_id, generation.life_generation_id
                 FROM armi.subjects AS subject
@@ -1931,16 +1956,17 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 encoding="utf-8",
                 newline="\n",
             )
-            entry_point = str(Path(".venv/Scripts/armi.exe").resolve())
+            entry_point = (sys.executable, "-m", "armi_runtime.runtime_entrypoint")
             clean_environment = {
                 key: value
                 for key, value in os.environ.items()
                 if not key.startswith("ARMI_")
             }
+            clean_environment["PYTHONUTF8"] = "1"
 
             def invoke(*arguments: str) -> dict[str, Any]:
                 completed = subprocess.run(
-                    (entry_point, *arguments),
+                    (*entry_point, *arguments),
                     cwd=Path.cwd(),
                     env=clean_environment,
                     check=False,
@@ -1957,7 +1983,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
             def invoke_rejected(*arguments: str) -> dict[str, Any]:
                 completed = subprocess.run(
-                    (entry_point, *arguments),
+                    (*entry_point, *arguments),
                     cwd=Path.cwd(),
                     env=clean_environment,
                     check=False,
@@ -1979,6 +2005,24 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             self.assertEqual(inspected["status"], "current")
             born = invoke("bootstrap", "birth", *root_argument)
             self.assertEqual(born["status"], "applied")
+            admin_pool = AdminRoleBoundPool(
+                fixture.admin_role_dsn, expected_role=fixture.admin_role
+            )
+            try:
+                with admin_pool.serializable() as unit:
+                    RuntimeFoundationAdminAdapter(
+                        environment_id=str(fixture.environment_id), incarnation=1
+                    ).register_environment(
+                        unit.transaction,
+                        environment_id=str(fixture.environment_id),
+                        environment_kind="system_test",
+                        incarnation=1,
+                        resettable=True,
+                        test_controls_enabled=True,
+                    )
+                    unit.commit()
+            finally:
+                admin_pool.close()
             with psycopg.connect(fixture.runtime_dsn) as connection:
                 initial_identity = connection.execute(
                     """
@@ -3007,6 +3051,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "生成一份经验证的交付说明。",
                     IdempotencyKey("s039-creator-codex-task"),
                     TraceId("6" * 32),
+                    delegate_id=_uuid7(),
                 )
                 first = await gateway.accept(command)
                 repeated = await gateway.accept(command)
@@ -3058,7 +3103,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 await factory.close()
 
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
-            first, repeated, _command = asyncio.run(
+            first, repeated, command = asyncio.run(
                 exercise(Path(temporary).resolve()),
                 loop_factory=lambda: asyncio.SelectorEventLoop(
                     selectors.SelectSelector()
@@ -3084,6 +3129,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 """
             ).fetchone()
         self.assertEqual(counts, (1, 1, 1, 1, 1))
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            provenance = connection.execute(
+                "SELECT delegate_id FROM armi.party_input_interactions WHERE purpose='codex_task_request'"
+            ).fetchone()
+            audit = connection.execute(
+                "SELECT actor_kind,actor_ref FROM armi.audit_events WHERE operation='codex.task_source.admitted'"
+            ).fetchone()
+        self.assertEqual(provenance, (command.delegate_id,))
+        self.assertEqual(audit, ("creator_delegate", command.delegate_id))
 
     def test_admin_mcp_health_and_schema_status_use_only_admin_identity(self) -> None:
         fixture = self.create_database()
@@ -3093,7 +3147,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
         config = AdminConfig.model_validate(
             {
-                "schema_version": "armi.admin-config.v5",
+                "schema_version": "armi.admin-config.v6",
+                "operator_id": "isolated-test-agent",
+                "authorized_operations": tuple(item.name for item in ADMIN_OPERATIONS),
                 "environment_kind": "acceptance",
                 "environment_id": str(fixture.environment_id),
                 "environment_incarnation": 1,
@@ -3173,7 +3229,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "UPDATE armi.deployment_environments SET incarnation = 2"
             )
 
-    def test_admin_reset_is_preview_bound_recoverable_and_re_registers(self) -> None:
+    def test_admin_reset_is_preview_bound_and_re_registers_without_backup(self) -> None:
         fixture = self.create_database()
         self._install_current(
             fixture.migrator_dsn,
@@ -3231,7 +3287,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             config = AdminConfig.model_validate(
                 {
-                    "schema_version": "armi.admin-config.v5",
+                    "schema_version": "armi.admin-config.v6",
+                    "operator_id": "isolated-test-agent",
+                    "authorized_operations": tuple(
+                        item.name for item in ADMIN_OPERATIONS
+                    ),
                     "environment_kind": "acceptance",
                     "environment_id": str(fixture.environment_id),
                     "environment_incarnation": 1,
@@ -3276,7 +3336,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     purpose="admin.environment_reset_preview",
                 ),
             )
-            self.assertEqual(preview.status, "succeeded")
+            self.assertEqual(preview.status, "succeeded", preview.model_dump_json())
             assert preview.result is not None
             self.assertTrue(
                 {"template_digest", "data_root_digest"}.isdisjoint(preview.result)
@@ -3288,6 +3348,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     environment_incarnation=1,
                     idempotency_key="apply-reset-once",
                     purpose="admin.environment_reset",
+                    authorization_ref="isolated-test-reset",
                     preview_token=str(preview.result["preview_token"]),
                 ),
             )
@@ -3301,6 +3362,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     environment_incarnation=1,
                     idempotency_key="apply-reset-once",
                     purpose="admin.environment_reset",
+                    authorization_ref="isolated-test-reset",
                     preview_token=str(preview.result["preview_token"]),
                 ),
             )
@@ -3331,15 +3393,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "*/recovery-manifest.json"
                 )
             )
-            self.assertEqual(len(recovery), 1)
-            recovery_manifest = json.loads(recovery[0].read_text(encoding="utf-8"))
-            self.assertTrue(
-                {"database_dump_digest", "template_digest"}.isdisjoint(
-                    recovery_manifest
-                )
-            )
-            self.assertEqual(recovery_manifest["database_dump"], "database.dump")
-            self.assertEqual(recovery_manifest["archived_data_root"], "data-root")
+            self.assertEqual(recovery, [])
+            self.assertFalse((experiment_root / ".armi-admin-recovery").exists())
 
     def test_t07_component_preview_apply_status_and_role_boundary(self) -> None:
         fixture = self.create_database()
@@ -3496,7 +3551,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 connection.rollback()
             config = AdminConfig.model_validate(
                 {
-                    "schema_version": "armi.admin-config.v5",
+                    "schema_version": "armi.admin-config.v6",
+                    "operator_id": "isolated-test-agent",
+                    "authorized_operations": tuple(
+                        item.name for item in ADMIN_OPERATIONS
+                    ),
                     "environment_kind": "system_test",
                     "environment_id": str(fixture.environment_id),
                     "environment_incarnation": 1,
@@ -3579,6 +3638,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             "environment_incarnation": 1,
                             "idempotency_key": "s037-apply-mind",
                             "purpose": "admin.apply_correction",
+                            "authorization_ref": "isolated-test-mind-correction",
                             "preview_token": token,
                             "spec": {
                                 "correction_kind": "replace_subject_component",
@@ -3659,6 +3719,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         "environment_id": str(fixture.environment_id),
                         "environment_incarnation": 1,
                         "idempotency_key": "s037-apply-repair-mind",
+                        "authorization_ref": "isolated-test-repair-mind",
                         "purpose": "admin.apply_correction",
                         "preview_token": repair_preview.result["preview_token"],
                         "spec": {
@@ -3898,6 +3959,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         "environment_id": str(fixture.environment_id),
                         "environment_incarnation": 1,
                         "idempotency_key": "s037-apply-delete-input",
+                        "authorization_ref": "isolated-test-delete-uncommitted-input",
                         "purpose": "admin.apply_correction",
                         "preview_token": delete_preview.result["preview_token"],
                         "spec": {
@@ -7537,7 +7599,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             process = subprocess.Popen(
                 (
-                    str(Path(".venv/Scripts/armi.exe").resolve()),
+                    sys.executable,
+                    "-m",
+                    "armi_runtime.runtime_entrypoint",
                     "runtime",
                     "start",
                     "--environment-root",
@@ -8020,7 +8084,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 database.rollback()
             restarted = subprocess.Popen(
                 (
-                    str(Path(".venv/Scripts/armi.exe").resolve()),
+                    sys.executable,
+                    "-m",
+                    "armi_runtime.runtime_entrypoint",
                     "runtime",
                     "start",
                     "--environment-root",

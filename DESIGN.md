@@ -23,7 +23,7 @@ ARMI 承载一个自主电子人长期存在。系统的首要对象不是“回
                          Windows local machine
 
  Creator browser ──HTTP/SSE──┐
- armi CLI ──local control────┤
+ armi / armi-mcp ──认证本机──┤
  QQ/NapCat ──OneBot──────────┤
  WASAPI / DirectShow / USB ──┤
                              ▼
@@ -41,11 +41,15 @@ ARMI 承载一个自主电子人长期存在。系统的首要对象不是“回
 
       model / Web / Codex / NapCat / device I/O occurs outside write UoW
 
- armi-admin-mcp ──独立配置/角色/进程──► owner Admin ports（非生产环境）
+ armi-admin / armi-admin-mcp ──独立配置/角色/进程──► owner Admin ports
  Codex runner ──一次性 workspace；无 DB/Admin/宿主 secret
 ```
 
 Runtime 是唯一正常活动写入者。Admin 使用独立进程、配置、credential、pool 和 owner 管理端口；Creator UI 不接触 Admin。ARMI→Codex runner 显式关闭 MCP，不能发现 Codex→ARMI Admin 链。
+
+对外优先服务 Creator 委托的 Agent。交互绑定固定环境、Creator、delegate、凭据 locator 和读写范围；来源由认证入口写入 `party_input_interactions.delegate_id`，并进入当前输入与近期对话的 Context。代理不成为第二关系身份，不能用消息正文声明授权。
+
+`armi-local-control` 共用配置加载、本机过程身份、进程锁及生命周期合同，不是业务 owner。交互客户端不持有 Admin 数据库凭据；Admin 按操作需要建连，因此数据库停止时仍可发现工具、检查本机进程和启动环境。
 
 ## 3. 分层与依赖
 
@@ -122,7 +126,7 @@ frozen Context + expected subject/owner versions
 
 PostgreSQL 保存 subject、life、work、effect 与治理事实。多数可变事实使用 append-only revision/event + current head；写入携带 expected revision/subject version。数据库 statement time 提供权威时序，UUIDv7 提供稳定身份。
 
-当前 108 张表、1363 个字段、owner、关系、约束、索引与 ACL 的实现派生目录见[数据设计](docs/03-数据设计/)。该目录是 baseline 的只读说明，不替代 packaged SQL、owner registry 或测试。
+当前 108 张表、1364 个字段、owner、关系、约束、索引与 ACL 的实现派生目录见[数据设计](docs/03-数据设计/)。该目录是 baseline 的只读说明，不替代 packaged SQL、owner registry 或测试。
 
 ### 7.2 Artifact
 
@@ -199,11 +203,15 @@ Creator HTTP 仅绑定 `127.0.0.1`。浏览器建立 process-local bearer sessio
 
 当前 OpenAPI 52 paths，覆盖 scene/message/operation/effect、Activity、Memory、Material、Relationship、Prompt、Capability、Maintenance、Export/Data Rights、Subject、QQ、Voice、Vision。分页 cursor 绑定环境、Creator、资源、查询和 projection version；SSE 是有限 process-local invalidation broker，不是耐久事实源。
 
-Admin MCP 当前 21 tools、config v5，只允许 `development`、`system_test`、`acceptance`。环境初始化/重置、Runtime control、诊断、故障注入和校正均有 scope；校正通过 owner Admin port 和 work，不暴露任意 SQL。
+Admin CLI/MCP 共用 `application/service.py` 和显式操作目录，配置为 `armi.admin-config.v6`。支持显式绑定的 `active`、`development`、`system_test`、`acceptance`；正式环境禁止 test controls。绑定记录 `operator_id` 和逐项 `authorized_operations`，普通配置编辑不能修改本身的管理权限。
+
+管理写请求用稳定幂等键保存本机调用回执。回执跨进程有效；同键异参拒绝，已开始但未结算的调用返回 unknown，不自动重放副作用。回执不替代 owner 事实或数据库恢复。校正保持预览、版本、停机与 owner 校验；具体授权引用不是预览的自动授权。重置不做数据库 dump 或整环境归档，正式 Creator 导出独立保留。
+
+`environment_start/status/stop/restart` 默认管理整个明确归属的环境，单组件选择保留；共享依赖只报告、不回收。`start_armi.ps1` 是薄入口，正常启动不安装依赖、建库、出生或构建 Web。Runtime 配置编辑使用完整模型、文件版本和进程锁，原子保存环境 YAML；返回保存/重启需求，不隐式重启或声称已生效。模型与 Web research 的环境覆盖从 `<root>/configs/` 加载。
 
 ## 13. 数据库与配置
 
-当前数据库要求 PostgreSQL 18.4、UTF-8/UTC/builtin `C.UTF-8`、vector 0.8.6、pg_trgm 1.6、唯一 `0000`、baseline `armi.schema-baseline.v12` 和精确 role policy。Schema 是 package resource，十份有序 baseline SQL 当前创建 108 tables/1363 columns/1 read-only view/65 explicit indexes。安装只接受无用户 relation 且无现存 `armi` namespace 的目标库：namespace 先在独立短事务建立，随后 `0000` 在一个事务组内写入表、约束、ACL、revision、identity 与 digests；中段失败可以留下空 namespace，但不会留下业务表或前移 revision。Runtime 只验证，不安装/迁移。
+当前数据库要求 PostgreSQL 18.4、UTF-8/UTC/builtin `C.UTF-8`、vector 0.8.6、pg_trgm 1.6、唯一 `0000`、baseline `armi.schema-baseline.v13` 和精确 role policy。Schema 是 package resource，十份有序 baseline SQL 当前创建 108 tables/1364 columns/1 read-only view/65 explicit indexes。安装只接受无用户 relation 且无现存 `armi` namespace 的目标库：namespace 先在独立短事务建立，随后 `0000` 在一个事务组内写入表、约束、ACL、revision、identity 与 digests；中段失败可以留下空 namespace，但不会留下业务表或前移 revision。Runtime 只验证，不安装/迁移。
 
 配置合并顺序：仓库 `configs/runtime.yaml` → 环境根 `environment.yaml` → 登记的 `ARMI_*` 覆盖。当前 schema v3，strict/frozen/extra-forbid。环境根必须有普通 `environment.yaml`、`data/`、`secrets/`；data root 精确相等，禁止 reparse。Secret 只用 `env:ARMI_SECRET_*` 或位于 `secrets/` 的 `file:` locator，最大 64KiB，经 scoped handle 消费后清零。
 

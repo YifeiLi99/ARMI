@@ -7,13 +7,13 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+import armi_local_control.semantic_recall_process as semantic_recall_process
 import psutil
 import pytest
 from armi_context.api import EMBEDDING_QUERY_INSTRUCTION
-from armi_runtime.composition import semantic_recall_process
-from armi_runtime.composition.process_identity import ManagedProcessIdentity
-from armi_runtime.composition.runtime_errors import RuntimeViolation
-from armi_runtime.composition.semantic_recall_process import (
+from armi_local_control.process_identity import ManagedProcessIdentity
+from armi_local_control.runtime_errors import RuntimeViolation
+from armi_local_control.semantic_recall_process import (
     SemanticRecallEndpoint,
     SemanticRecallProcessManager,
 )

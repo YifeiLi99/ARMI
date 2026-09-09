@@ -263,7 +263,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     if imports.returncode != 0:
         print(imports.stderr or imports.stdout, file=sys.stderr)
         return 1
-    for entrypoint in ("armi", "armi-codex-runner", "armi-admin-mcp"):
+    entrypoints = (
+        "armi",
+        "armi-mcp",
+        "armi-admin",
+        "armi-codex-runner",
+        "armi-admin-mcp",
+    )
+    for entrypoint in entrypoints:
         executable = venv / "Scripts" / f"{entrypoint}.exe"
         if not executable.is_file():
             print(f"WHEEL-INSTALL-ENTRYPOINT: missing {entrypoint}", file=sys.stderr)
@@ -278,7 +285,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 1
-    print(f"wheel-install: pass ({len(modules)} imports, 3 entry points)")
+    machine = _run(
+        (str(python), "-B", str(root / "tools/verify_machine_wheel.py")),
+        cwd=venv,
+        environment=environment,
+    )
+    if machine.returncode:
+        print(machine.stderr or machine.stdout, file=sys.stderr)
+        return 1
+    print(machine.stdout.strip())
+    print(
+        f"wheel-install: pass ({len(modules)} imports, {len(entrypoints)} entry points)"
+    )
     return 0
 
 

@@ -181,6 +181,7 @@ class PostgreSQLContextDialogueRead:
             modality,
             turn.speaker_label,
             ref,
+            turn.delegate_id,
         )
 
     async def hydrate(

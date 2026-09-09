@@ -10,10 +10,10 @@ from armi_kernel.application import (
     BirthViolation,
     CredentialPurpose,
 )
+from armi_local_control.configuration import ConfigurationViolation
 
 from .birth import execute_birth_with_conninfo
 from .birth_manifest import load_birth_manifest
-from .configuration import ConfigurationViolation
 from .environment import PreparedEnvironment
 
 

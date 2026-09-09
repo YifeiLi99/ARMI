@@ -559,6 +559,7 @@ CREATE TABLE armi.data_rights_party_fences (
 
 CREATE TABLE armi.party_input_interactions (
     interaction_id uuid NOT NULL,
+    delegate_id uuid,
     subject_id uuid NOT NULL,
     scene_id uuid NOT NULL,
     source_party_id uuid NOT NULL,
@@ -582,6 +583,7 @@ CREATE TABLE armi.party_input_interactions (
     CONSTRAINT party_input_interactions_external_message_key_check CHECK (((external_message_key IS NULL) OR (external_message_key ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'::text))),
     CONSTRAINT party_input_interactions_external_shape_check CHECK ((((external_binding_id IS NULL) AND (external_message_key IS NULL) AND (addressed_to_subject IS NULL)) OR ((purpose = ANY (ARRAY['creator_message'::text, 'other_human_message'::text])) AND (external_binding_id IS NOT NULL) AND (external_message_key IS NOT NULL) AND (addressed_to_subject IS NOT NULL)))),
     CONSTRAINT party_input_interactions_id_check CHECK ((uuid_extract_version(interaction_id) = 7)),
+    CONSTRAINT party_input_interactions_delegate_check CHECK ((delegate_id IS NULL) OR (uuid_extract_version(delegate_id) = 7)),
     CONSTRAINT party_input_interactions_idempotency_check CHECK ((idempotency_key ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'::text)),
     CONSTRAINT party_input_interactions_modality_check CHECK ((modality = ANY (ARRAY['text'::text, 'media_file'::text, 'live_voice'::text]))),
     CONSTRAINT party_input_interactions_purpose_check CHECK ((purpose = ANY (ARRAY['creator_message'::text, 'other_human_message'::text, 'codex_task_request'::text]))),

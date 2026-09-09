@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from uuid import UUID
+
+from armi_runtime.application.creator_commands import CreatorCommands
+
 from .bounded_http import BoundedBodyViolation
 from .creator_http import (
     _PROXY_HEADERS,
     _SECURITY_HEADERS,
+    UTC,
     ActivityReadPort,
     AsyncCallback,
     Awaitable,
@@ -21,12 +27,15 @@ from .creator_http import (
     CreatorLifeMaterialQueryPort,
     CreatorMaintenanceQueryPort,
     CreatorOperationQueryPort,
+    CreatorProjectionInvalidation,
     CreatorPromptPort,
+    CreatorResourceKind,
     CreatorScenePort,
     DataRightsOrderPort,
     EffectLedgerPort,
     FastAPI,
     HTTPBearer,
+    Instant,
     LifeRecordQueryPort,
     LiveVisionControlProvider,
     LiveVisionObservationProvider,
@@ -45,11 +54,10 @@ from .creator_http import (
     RuntimeStatusProvider,
     SceneTimelineQueryPort,
     SecurityEvent,
-    StaticAsset,
     StaticAssetStore,
     SubjectSummaryProvider,
     asynccontextmanager,
-    cast,
+    datetime,
     re,
 )
 from .creator_routes_governance import register_governance_routes
@@ -101,6 +109,9 @@ def create_runtime_app(
     live_vision_observation: LiveVisionObservationQueryProvider | None = None,
     live_vision_preview: LiveVisionPreviewProvider | None = None,
     qq_channel_control: QQChannelControlProvider | None = None,
+    machine_environment_root: Path | None = None,
+    machine_environment_id: UUID | None = None,
+    machine_creator_party_id: UUID | None = None,
 ) -> FastAPI:
     """Create the fixed Runtime app without implementation discovery."""
 
@@ -130,6 +141,34 @@ def create_runtime_app(
         lifespan=lifespan,
     )
     bearer = HTTPBearer(scheme_name="browserSessionBearer", auto_error=False)
+
+    async def input_accepted(acceptance: CreatorInputAcceptance) -> None:
+        emit(
+            "creator.input.accepted"
+            if acceptance.newly_accepted
+            else "creator.input.idempotent"
+        )
+        if creator_events is not None and acceptance.newly_accepted:
+            try:
+                await creator_events.notify(
+                    CreatorProjectionInvalidation(
+                        CreatorResourceKind("operation"),
+                        str(acceptance.opportunity_id),
+                        Instant(datetime.now(UTC)),
+                        "creator-operation.v4",
+                    )
+                )
+            except Exception:
+                emit("creator.operation.notification_failed")
+
+    commands = CreatorCommands(
+        inputs=creator_input,
+        scenes=creator_scenes,
+        codex=codex_task_admission,
+        accepted=input_accepted,
+        operations=creator_operations,
+        effects=effect_ledger,
+    )
 
     @app.exception_handler(BoundedBodyViolation)
     async def bounded_body_error(
@@ -252,6 +291,7 @@ def create_runtime_app(
     )
     register_scene_routes(
         app=app,
+        commands=commands,
         bearer=bearer,
         canonical_origin=canonical_origin,
         emit=emit,
@@ -265,6 +305,7 @@ def create_runtime_app(
     )
     register_operation_routes(
         app=app,
+        commands=commands,
         bearer=bearer,
         canonical_origin=canonical_origin,
         emit=emit,
@@ -281,7 +322,13 @@ def create_runtime_app(
 
     @app.get("/ui/", include_in_schema=False)
     async def creator_index() -> Response:
-        asset = cast(StaticAsset, assets.get("index.html"))
+        asset = assets.get("index.html")
+        if asset is None:
+            return Response(
+                "Creator Web resources are unavailable.",
+                status_code=503,
+                media_type="text/plain",
+            )
         return Response(
             content=asset.content,
             media_type=asset.media_type,
@@ -297,6 +344,23 @@ def create_runtime_app(
             content=asset.content,
             media_type=asset.media_type,
             headers={"Cache-Control": asset.cache_control},
+        )
+
+    if (
+        machine_environment_root is not None
+        and machine_environment_id is not None
+        and machine_creator_party_id is not None
+    ):
+        from .machine_api import register_machine_api
+
+        register_machine_api(
+            app,
+            commands=commands,
+            environment_root=machine_environment_root,
+            environment_id=machine_environment_id,
+            creator_party_id=machine_creator_party_id,
+            authority=expected_authority,
+            maximum_bytes=request_body_max_bytes,
         )
 
     route_handlers = (

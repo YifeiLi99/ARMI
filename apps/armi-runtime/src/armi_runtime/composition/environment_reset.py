@@ -7,14 +7,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from armi_kernel.application import BirthResult
+from armi_local_control.configuration.paths import has_reparse_point
+from armi_local_control.runtime_errors import RuntimeViolation
+from armi_local_control.runtime_process import RuntimeProcessManager
+from armi_local_control.semantic_recall_process import SemanticRecallProcessManager
 
 from .bootstrap import execute_birth
-from .configuration.paths import has_reparse_point
 from .database import install_operator_schema, reset_operator_schema
 from .environment import PreparedEnvironment
-from .runtime_errors import RuntimeViolation
-from .runtime_process import RuntimeProcessManager
-from .semantic_recall_process import SemanticRecallProcessManager
 
 _DATA_DIRECTORIES = ("artifacts", "codex-runner", "exports", "logs")
 
@@ -23,13 +23,13 @@ _DATA_DIRECTORIES = ("artifacts", "codex-runner", "exports", "logs")
 class EnvironmentResetResult:
     status: str
     cleared_targets: tuple[str, ...]
-    birth: BirthResult
+    birth: BirthResult | None
 
     def safe_view(self) -> dict[str, object]:
         return {
             "status": self.status,
             "cleared_targets": list(self.cleared_targets),
-            "birth": self.birth.safe_view(),
+            "birth": self.birth.safe_view() if self.birth is not None else None,
         }
 
 
@@ -80,7 +80,9 @@ def _clear_targets(targets: tuple[Path, ...]) -> tuple[str, ...]:
     return tuple(cleared)
 
 
-def reset_environment(prepared: PreparedEnvironment) -> EnvironmentResetResult:
+def reset_environment(
+    prepared: PreparedEnvironment, *, birth_after_reset: bool = True
+) -> EnvironmentResetResult:
     """Stop local processes, replace all state, and run the fixed birth manifest."""
 
     process = RuntimeProcessManager(
@@ -97,7 +99,7 @@ def reset_environment(prepared: PreparedEnvironment) -> EnvironmentResetResult:
     reset_operator_schema(prepared)
     install_operator_schema(prepared)
     cleared = _clear_targets(targets)
-    birth = execute_birth(prepared)
+    birth = execute_birth(prepared) if birth_after_reset else None
     return EnvironmentResetResult("reset", cleared, birth)
 
 

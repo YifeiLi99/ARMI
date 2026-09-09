@@ -59,6 +59,9 @@ from ._model_contract import (
     load_active_binding as load_active_model_binding,
 )
 from ._model_contract import (
+    load_voice_binding as load_voice_model_binding,
+)
+from ._model_contract import (
     parse_candidate as parse_model_candidate,
 )
 from ._recovery import CognitionRecoveryParticipant
@@ -342,5 +345,6 @@ __all__ = (
     "compose_candidate_validation_context",
     "compose_deterministic_candidate_validator",
     "load_active_model_binding",
+    "load_voice_model_binding",
     "parse_model_candidate",
 )

@@ -169,6 +169,7 @@ def main() -> int:
             b"[console_scripts]\n"
             b"armi = armi_runtime.cli:main\n"
             b"armi-codex-runner = armi_runtime.codex_runner_cli:main\n"
+            b"armi-mcp = armi_runtime.mcp:main\n"
         )
     with ZipFile(contract_wheel) as archive:
         contract_names = set(archive.namelist())

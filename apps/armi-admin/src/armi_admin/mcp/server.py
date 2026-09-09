@@ -1,43 +1,22 @@
-"""Static MCPServer composition root for the local Admin stdio process."""
-
-# pyright: reportUnusedFunction=false
+"""Admin stdio registration from the shared, explicit application catalog."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
+from pydantic import BaseModel
 
-from .contracts import (
-    AdminToolResult,
-    ApplyCorrectionRequest,
-    ArmFaultRequest,
-    ClearFaultsRequest,
-    CorrectionStatusRequest,
-    EnvironmentInitializeRequest,
-    EnvironmentResetPreviewRequest,
-    EnvironmentResetRequest,
-    HealthRequest,
-    HealthResult,
-    InjectCreatorInputRequest,
-    InspectScopeRequest,
-    PreviewCorrectionRequest,
-    RuntimeControlRequest,
-    RuntimeStatusRequest,
-    SchemaStatusRequest,
-    SchemaStatusResult,
-    SettleCorrectionWorkRequest,
-    SubjectSnapshotRequest,
-    TailDiagnosticsRequest,
-    TraceFlowRequest,
-)
-from .service import AdminToolService
+from armi_admin.application.catalog import ADMIN_OPERATIONS, AdminOperation
+from armi_admin.application.contracts import AdminToolResult
+from armi_admin.application.service import AdminToolService
 
 SERVER_NAME = "armi_admin"
 SERVER_VERSION = "0.0.0"
 SERVER_INSTRUCTIONS = (
-    "Observe and control one explicitly bound disposable ARMI environment. "
+    "Observe and control one explicitly authorized ARMI environment. "
     "Never infer another environment, path, command, or credential."
 )
 READ_ONLY_ANNOTATIONS = ToolAnnotations(
@@ -60,13 +39,24 @@ RESET_ANNOTATIONS = ToolAnnotations(
 )
 
 
-def create_admin_server(service: AdminToolService) -> MCPServer:
-    """Register the exact S037 catalog without package or entry-point discovery."""
+def _tool(
+    operation: AdminOperation,
+    service: AdminToolService,
+) -> Callable[[BaseModel], AdminToolResult[Any]]:
+    def invoke(request: BaseModel) -> AdminToolResult[Any]:
+        return operation.invoke(service, request)
 
+    # SDK schema generation and argument validation consume these exact model
+    # classes. There is no secondary parser or dynamically evaluated code.
+    invoke.__annotations__ = {"request": operation.request, "return": operation.result}
+    return invoke
+
+
+def create_admin_server(service: AdminToolService) -> MCPServer:
     server = MCPServer(
         name=SERVER_NAME,
         title="ARMI Admin",
-        description="Local administration for one disposable ARMI environment.",
+        description="Local administration for one bound ARMI environment.",
         instructions=SERVER_INSTRUCTIONS,
         version=SERVER_VERSION,
         tools=[],
@@ -74,224 +64,18 @@ def create_admin_server(service: AdminToolService) -> MCPServer:
         extensions=[],
         log_level="ERROR",
     )
-
-    @server.tool(
-        name="health",
-        description="Verify the bound package, configuration, database, and Admin role.",
-        annotations=READ_ONLY_ANNOTATIONS,
-        structured_output=True,
-    )
-    def health(request: HealthRequest) -> HealthResult:  # pyright: ignore[reportUnusedFunction]
-        return service.health(request)
-
-    @server.tool(
-        name="schema_status",
-        description="Read the authoritative database schema status.",
-        annotations=READ_ONLY_ANNOTATIONS,
-        structured_output=True,
-    )
-    def schema_status(request: SchemaStatusRequest) -> SchemaStatusResult:  # pyright: ignore[reportUnusedFunction]
-        return service.schema_status(request)
-
-    @server.tool(
-        name="runtime_status",
-        description="Observe the current environment registration and Runtime authority.",
-        annotations=READ_ONLY_ANNOTATIONS,
-        structured_output=True,
-    )
-    def runtime_status(
-        request: RuntimeStatusRequest,
-    ) -> AdminToolResult[dict[str, Any]]:  # pyright: ignore[reportUnusedFunction]
-        return service.observe("runtime_status", request)
-
-    @server.tool(
-        name="subject_snapshot",
-        description="Read a bounded current subject snapshot.",
-        annotations=READ_ONLY_ANNOTATIONS,
-        structured_output=True,
-    )
-    def subject_snapshot(
-        request: SubjectSnapshotRequest,
-    ) -> AdminToolResult[dict[str, Any]]:  # pyright: ignore[reportUnusedFunction]
-        return service.observe("subject_snapshot", request)
-
-    @server.tool(
-        name="trace_flow",
-        description="Trace one exact operation, episode, effect, or trace identity.",
-        annotations=READ_ONLY_ANNOTATIONS,
-        structured_output=True,
-    )
-    def trace_flow(request: TraceFlowRequest) -> AdminToolResult[dict[str, Any]]:  # pyright: ignore[reportUnusedFunction]
-        return service.observe("trace_flow", request)
-
-    @server.tool(
-        name="inspect_scope",
-        description="Inspect a bounded allowlisted dependency scope.",
-        annotations=READ_ONLY_ANNOTATIONS,
-        structured_output=True,
-    )
-    def inspect_scope(request: InspectScopeRequest) -> AdminToolResult[dict[str, Any]]:  # pyright: ignore[reportUnusedFunction]
-        return service.observe("inspect_scope", request)
-
-    @server.tool(
-        name="tail_diagnostics",
-        description="Read bounded redacted diagnostics for the bound environment.",
-        annotations=READ_ONLY_ANNOTATIONS,
-        structured_output=True,
-    )
-    def tail_diagnostics(
-        request: TailDiagnosticsRequest,
-    ) -> AdminToolResult[dict[str, Any]]:  # pyright: ignore[reportUnusedFunction]
-        return service.observe("tail_diagnostics", request)
-
-    @server.tool(
-        name="environment_initialize",
-        description="Register the configured disposable environment template.",
-        annotations=CONTROL_ANNOTATIONS,
-        structured_output=True,
-    )
-    def environment_initialize(
-        request: EnvironmentInitializeRequest,
-    ) -> AdminToolResult[dict[str, Any]]:  # pyright: ignore[reportUnusedFunction]
-        return service.mutate("environment_initialize", request)
-
-    @server.tool(
-        name="environment_reset_preview",
-        description="Preview a reset of the configured disposable environment.",
-        annotations=READ_ONLY_ANNOTATIONS,
-        structured_output=True,
-    )
-    def environment_reset_preview(
-        request: EnvironmentResetPreviewRequest,
-    ) -> AdminToolResult[dict[str, Any]]:  # pyright: ignore[reportUnusedFunction]
-        return service.mutate("environment_reset_preview", request)
-
-    @server.tool(
-        name="environment_reset",
-        description="Apply one unexpired environment reset preview.",
-        annotations=RESET_ANNOTATIONS,
-        structured_output=True,
-    )
-    def environment_reset(
-        request: EnvironmentResetRequest,
-    ) -> AdminToolResult[dict[str, Any]]:  # pyright: ignore[reportUnusedFunction]
-        return service.mutate("environment_reset", request)
-
-    @server.tool(
-        name="runtime_start",
-        description="Start the fixed Runtime entry for the bound environment.",
-        annotations=CONTROL_ANNOTATIONS,
-        structured_output=True,
-    )
-    def runtime_start(
-        request: RuntimeControlRequest,
-    ) -> AdminToolResult[dict[str, Any]]:  # pyright: ignore[reportUnusedFunction]
-        return service.mutate("runtime_start", request)
-
-    @server.tool(
-        name="runtime_drain",
-        description="Drain the bound Runtime through its private control endpoint.",
-        annotations=CONTROL_ANNOTATIONS,
-        structured_output=True,
-    )
-    def runtime_drain(
-        request: RuntimeControlRequest,
-    ) -> AdminToolResult[dict[str, Any]]:  # pyright: ignore[reportUnusedFunction]
-        return service.mutate("runtime_drain", request)
-
-    @server.tool(
-        name="runtime_stop",
-        description="Stop an already drained bound Runtime.",
-        annotations=CONTROL_ANNOTATIONS,
-        structured_output=True,
-    )
-    def runtime_stop(request: RuntimeControlRequest) -> AdminToolResult[dict[str, Any]]:  # pyright: ignore[reportUnusedFunction]
-        return service.mutate("runtime_stop", request)
-
-    @server.tool(
-        name="runtime_restart",
-        description="Drain, stop, and restart the fixed bound Runtime.",
-        annotations=CONTROL_ANNOTATIONS,
-        structured_output=True,
-    )
-    def runtime_restart(
-        request: RuntimeControlRequest,
-    ) -> AdminToolResult[dict[str, Any]]:  # pyright: ignore[reportUnusedFunction]
-        return service.mutate("runtime_restart", request)
-
-    @server.tool(
-        name="inject_creator_input",
-        description="Inject input through the formal Creator intake boundary.",
-        annotations=CONTROL_ANNOTATIONS,
-        structured_output=True,
-    )
-    def inject_creator_input(
-        request: InjectCreatorInputRequest,
-    ) -> AdminToolResult[dict[str, Any]]:  # pyright: ignore[reportUnusedFunction]
-        return service.mutate("inject_creator_input", request)
-
-    @server.tool(
-        name="arm_fault",
-        description="Arm one allowlisted one-shot Runtime fault.",
-        annotations=CONTROL_ANNOTATIONS,
-        structured_output=True,
-    )
-    def arm_fault(request: ArmFaultRequest) -> AdminToolResult[dict[str, Any]]:  # pyright: ignore[reportUnusedFunction]
-        return service.mutate("arm_fault", request)
-
-    @server.tool(
-        name="clear_faults",
-        description="Clear all armed faults in the bound Runtime.",
-        annotations=CONTROL_ANNOTATIONS,
-        structured_output=True,
-    )
-    def clear_faults(request: ClearFaultsRequest) -> AdminToolResult[dict[str, Any]]:  # pyright: ignore[reportUnusedFunction]
-        return service.mutate("clear_faults", request)
-
-    @server.tool(
-        name="preview_correction",
-        description="Preview one fixed T-07 correction without changing authority facts.",
-        annotations=READ_ONLY_ANNOTATIONS,
-        structured_output=True,
-    )
-    def preview_correction(
-        request: PreviewCorrectionRequest,
-    ) -> AdminToolResult[dict[str, Any]]:  # pyright: ignore[reportUnusedFunction]
-        return service.mutate("preview_correction", request)
-
-    @server.tool(
-        name="apply_correction",
-        description="Apply exactly one unexpired, unchanged T-07 preview.",
-        annotations=RESET_ANNOTATIONS,
-        structured_output=True,
-    )
-    def apply_correction(
-        request: ApplyCorrectionRequest,
-    ) -> AdminToolResult[dict[str, Any]]:  # pyright: ignore[reportUnusedFunction]
-        return service.mutate("apply_correction", request)
-
-    @server.tool(
-        name="correction_status",
-        description="Resolve an earlier correction commit outcome from authority facts.",
-        annotations=READ_ONLY_ANNOTATIONS,
-        structured_output=True,
-    )
-    def correction_status(
-        request: CorrectionStatusRequest,
-    ) -> AdminToolResult[dict[str, Any]]:  # pyright: ignore[reportUnusedFunction]
-        return service.observe("correction_status", request)
-
-    @server.tool(
-        name="settle_correction_work",
-        description="Settle one registered unreferenced artifact cleanup responsibility.",
-        annotations=RESET_ANNOTATIONS,
-        structured_output=True,
-    )
-    def settle_correction_work(
-        request: SettleCorrectionWorkRequest,
-    ) -> AdminToolResult[dict[str, Any]]:  # pyright: ignore[reportUnusedFunction]
-        return service.mutate("settle_correction_work", request)
-
+    for operation in ADMIN_OPERATIONS:
+        server.add_tool(
+            _tool(operation, service),
+            name=operation.name,
+            description=operation.description,
+            annotations=READ_ONLY_ANNOTATIONS
+            if operation.read_only
+            else RESET_ANNOTATIONS
+            if operation.destructive
+            else CONTROL_ANNOTATIONS,
+            structured_output=True,
+        )
     return server
 
 

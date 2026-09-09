@@ -94,6 +94,11 @@ from .creator_http import (
     secrets,
     uuid7,
 )
+from .interaction_authority import (
+    authenticated_delegate,
+    delegate_id,
+    verify_interaction,
+)
 
 
 def register_subject_life_routes(
@@ -129,7 +134,7 @@ def register_subject_life_routes(
     )
     async def get_subject_summary(request: Request) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or subject_summary is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -143,9 +148,9 @@ def register_subject_life_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
+            verify_interaction(request, browser_sessions, token)
             summary = await subject_summary()
         except BrowserSessionViolation as error:
             return JSONResponse(
@@ -201,7 +206,7 @@ def register_subject_life_routes(
     )
     async def get_creator_prompt(request: Request) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or creator_prompt is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -220,9 +225,9 @@ def register_subject_life_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
+            verify_interaction(request, browser_sessions, token)
             view = await creator_prompt.get(PromptKind.CREATOR_GUIDANCE)
         except BrowserSessionViolation as error:
             return JSONResponse(
@@ -251,7 +256,7 @@ def register_subject_life_routes(
     )
     async def revise_creator_prompt(request: Request) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or creator_prompt is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -270,9 +275,9 @@ def register_subject_life_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
+            verify_interaction(request, browser_sessions, token)
             body = await _creator_prompt_revision_request(
                 request,
                 request_body_max_bytes,
@@ -316,7 +321,7 @@ def register_subject_life_routes(
     )
     async def deactivate_creator_prompt(request: Request) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or creator_prompt is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -335,9 +340,9 @@ def register_subject_life_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
+            verify_interaction(request, browser_sessions, token)
             body = await _creator_prompt_deactivate_request(
                 request,
                 request_body_max_bytes,
@@ -379,7 +384,7 @@ def register_subject_life_routes(
         cursor_parameter: str | None = Query(default=None, alias="cursor"),
     ) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or creator_activity_query is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -398,9 +403,9 @@ def register_subject_life_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
+            verify_interaction(request, browser_sessions, token)
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code,
@@ -483,7 +488,7 @@ def register_subject_life_routes(
         cursor_parameter: str | None = Query(default=None, alias="cursor"),
     ) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or creator_activity_query is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -502,9 +507,9 @@ def register_subject_life_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
+            verify_interaction(request, browser_sessions, token)
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code,
@@ -592,7 +597,7 @@ def register_subject_life_routes(
     )
     async def get_creator_relationship_current(request: Request) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or creator_relationship_query is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -612,9 +617,9 @@ def register_subject_life_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
+            verify_interaction(request, browser_sessions, token)
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code,
@@ -664,7 +669,7 @@ def register_subject_life_routes(
         cursor_parameter: str | None = Query(default=None, alias="cursor"),
     ) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or creator_relationship_query is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -684,9 +689,9 @@ def register_subject_life_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
+            verify_interaction(request, browser_sessions, token)
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code,
@@ -760,7 +765,7 @@ def register_subject_life_routes(
         request: Request,
     ) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or creator_input is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -779,9 +784,9 @@ def register_subject_life_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            metadata = browser_sessions.verify(token)
+            metadata = verify_interaction(request, browser_sessions, token)
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code,
@@ -799,6 +804,7 @@ def register_subject_life_routes(
                 CreatorInputCommand(
                     scene_key=metadata.default_scene_key,
                     message=_boundary_message(model),
+                    delegate_id=delegate_id(request),
                     idempotency_key=IdempotencyKey(idempotency_value),
                     trace_id=TraceId(secrets.token_hex(16)),
                 )
@@ -850,7 +856,7 @@ def register_subject_life_routes(
     )
     async def query_creator_life_records(request: Request) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or life_record_query is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -869,9 +875,9 @@ def register_subject_life_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
+            verify_interaction(request, browser_sessions, token)
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code,
@@ -953,7 +959,7 @@ def register_subject_life_routes(
         request: Request,
     ) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or creator_life_material_query is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -973,9 +979,9 @@ def register_subject_life_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
+            verify_interaction(request, browser_sessions, token)
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code,
@@ -1033,7 +1039,7 @@ def register_subject_life_routes(
     )
     async def list_creator_memories(request: Request) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or creator_memory_query is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -1052,9 +1058,9 @@ def register_subject_life_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
+            verify_interaction(request, browser_sessions, token)
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code,
@@ -1151,7 +1157,7 @@ def register_subject_life_routes(
         request: Request,
     ) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or creator_memory_query is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -1170,9 +1176,9 @@ def register_subject_life_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
+            verify_interaction(request, browser_sessions, token)
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code,
@@ -1292,7 +1298,7 @@ def register_subject_life_routes(
     )
     async def get_creator_maintenance_status(request: Request) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or creator_maintenance_query is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -1312,9 +1318,9 @@ def register_subject_life_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
+            verify_interaction(request, browser_sessions, token)
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code,
@@ -1375,7 +1381,7 @@ def register_subject_life_routes(
         cursor_parameter: str | None = Query(default=None, alias="cursor"),
     ) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or creator_maintenance_query is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -1395,9 +1401,9 @@ def register_subject_life_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
+            verify_interaction(request, browser_sessions, token)
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code,
@@ -1485,7 +1491,7 @@ def register_subject_life_routes(
         request: Request,
     ) -> Response:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or creator_emergency_wake is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -1504,9 +1510,9 @@ def register_subject_life_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
+            verify_interaction(request, browser_sessions, token)
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code,

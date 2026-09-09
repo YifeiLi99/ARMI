@@ -15,10 +15,14 @@ from armi_kernel.application import CredentialPurpose
 from armi_kernel.contracts import Digest
 from pydantic import ValidationError
 
-from .errors import ConfigurationViolation
-from .models import RuntimeConfig
-from .paths import canonical_absolute, has_reparse_point, require_within_roots
-from .secrets import EnvironmentFileCredentialPort
+from armi_local_control.configuration.errors import ConfigurationViolation
+from armi_local_control.configuration.models import RuntimeConfig
+from armi_local_control.configuration.paths import (
+    canonical_absolute,
+    has_reparse_point,
+    require_within_roots,
+)
+from armi_local_control.configuration.secrets import EnvironmentFileCredentialPort
 
 _UNSIGNED_DECIMAL = re.compile(r"^(?:0|[1-9][0-9]*)$", re.ASCII)
 _LOCATOR_NAME = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
@@ -211,6 +215,19 @@ def load_effective_config(
     )
 
 
+def validate_environment_values(
+    *, defaults_path: Path, values: dict[str, Any]
+) -> RuntimeConfig:
+    """Validate an environment edit with the same merge and model as startup."""
+    defaults = _read_yaml(defaults_path)
+    _reject_plaintext_secrets(defaults)
+    _reject_plaintext_secrets(values)
+    try:
+        return RuntimeConfig.model_validate(_merge(defaults, values))
+    except ValidationError as error:
+        raise _translate_validation_error(error) from None
+
+
 def preflight_config(
     effective: EffectiveConfig,
     *,
@@ -319,6 +336,7 @@ def _reject_unknown_armi_environment(environment: Mapping[str, str]) -> None:
         name
         for name in environment
         if name.startswith("ARMI_")
+        and name not in {"ARMI_ADMIN_CONFIG", "ARMI_CLIENT_CONFIG"}
         and not name.startswith("ARMI_SECRET_")
         and name not in _ENV_OVERRIDES
     )

@@ -36,7 +36,7 @@
 
 - PostgreSQL 是唯一权威关系数据库；开发/测试使用项目固定的 Docker PostgreSQL 与扩展。精确版本查配置、[工具链 manifest](tools/toolchain-manifest.json) 和 packaged contract，不在此维护第二份版本快照。
 - [Schema 资源](packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema/) 只保留可重做的唯一 Alembic `0000`。结构变化直接更新 baseline SQL、`0000` 资源列表、identity、owner registry、ACL 和消费者；不增加历史 revision、autogenerate、downgrade 或旧库迁移兼容。目标库显式重装，修改 schema 的授权不包含删除目标库。
-- `armi db install` 只接受无用户 relation 且无 `armi` namespace 的库：namespace 独立短事务建立，`0000` 原子安装其余内容。失败可留下空 namespace，不能留下业务表或前移 revision。普通启动只验证版本、摘要和精确 ACL，不自动安装/迁移或用超级用户掩盖漂移。
+- Admin `maintenance` 的 `database_install` 只接受无用户 relation 且无 `armi` namespace 的库：namespace 独立短事务建立，`0000` 原子安装其余内容。失败可留下空 namespace，不能留下业务表或前移 revision。普通启动只验证版本、摘要和精确 ACL，不自动安装/迁移或用超级用户掩盖漂移。
 - 同一内部合同族只保留一个当前数字版本。升级同步生产者、消费者、DDL、配置、OpenAPI、生成代码、工具和测试，删除旧解析器、字段、双读双写及缺字段补默认值。第三方协议遵守其自身合同。
 - 人工业务/部署配置集中在 `configs/`，环境配置也使用严格 YAML；Codex MCP TOML、OpenAPI、JSON Schema、lock 与 wire 保留要求的格式。Runtime 按仓库默认 → `environment.yaml` → 登记的 `ARMI_*` 合并，拒绝 unknown/extra、错误类型和敏感明文。Secret 只用 scoped locator。
 - 接线由 Python composition root 定义，不维护重复清单或把接线摘要当成主体连续性。JSON 使用 UTF-8、2 空格、末尾换行；只在真实消费者需要时使用摘要或 RFC 8785。
@@ -46,8 +46,8 @@
 本文件不预授权 Docker、持久服务、真实 Provider、账号、设备或付费调用。沿用会话中已明确授权的环境和动作范围；换环境、账号、凭据或生产资源时重新核对授权。
 
 - 未经用户针对本次操作明确授权，不复制、打包或导出数据库、Artifact Store、环境配置或 secret 作为离线恢复制品。项目不提供此恢复功能；重装与删除目标数据需明确授权，不能先擅自备份再操作。
-- 向运行中 ARMI 发话使用 Admin `inject_creator_input` 或 `armi creator send` 正式 intake，复用稳定 idempotency key，不直写数据库或伪造浏览器 session。界面操作与视觉验收才使用浏览器驱动。
-- ARMI→Codex runner 与 Codex→ARMI Admin MCP 隔离，不互相发现或继承 credential。Admin 仅限 `development`、`system_test`、`acceptance`，使用独立 config、role、pool 和 owner Admin ports，不暴露任意 SQL。
+- 对外接口优先服务 Creator 委托的 Agent：交互使用 `armi` / `armi-mcp`，管理检查与调试使用 `armi-admin` / `armi-admin-mcp`。输入使用 `message send` 正式 intake 与稳定 idempotency key；代理来源由认证入口写入，不直写数据库、不伪造浏览器 session。Web 保留，界面操作与视觉验收才使用浏览器驱动。
+- ARMI→Codex runner 与外部 Agent→ARMI MCP 隔离，不互相发现或继承 credential。Admin 支持显式绑定的 `active`、`development`、`system_test`、`acceptance`，采用独立 config、role、按需 pool 和 owner Admin ports；配置不能修改自己的管理授权。不暴露任意 SQL/Shell/Python。正式环境禁止故障注入；危险操作及主体内容校正需要具体授权。
 - ARMI 的 Codex 委托使用官方 SDK/订阅 auth，按当前合同允许逐任务选择模型、reasoning 和内置 Web Search；这不指定开发仓库时的模型。Runner 只操作 manifest 的一次性 workspace，遵守路径边界，不访问 ARMI DB、Admin 或宿主 secret/配置；内容产出为 `result.md`，代码/文件产出经独立 validator 与 custody 副本核验。
 - ARMI Web research 与 Codex 内置 Web Search 是独立只读链，后者不授予 shell 网络权限；结果先成为 Evidence/Opportunity，不直接写 Memory、Relationship 或回复。
 - 项目当前未授予开源许可证，不擅自声明开源或复制不兼容源码/素材，保留研究来源和许可证记录。

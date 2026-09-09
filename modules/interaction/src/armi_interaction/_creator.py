@@ -143,7 +143,9 @@ class EvidenceAcceptanceTransaction(CreatorInputAcceptancePort):
         except ArtifactViolation, OSError:
             raise CreatorInputViolation("ART-INPUT-PUBLISH") from None
         content_digest = staged.content_digest
-        request_digest = self._request_digest(context, content_digest)
+        request_digest = self._request_digest(
+            context, content_digest, command.delegate_id
+        )
         try:
             existing = await self._read_existing(command, context, request_digest)
         except RuntimeTransactionFailure:
@@ -389,6 +391,7 @@ class EvidenceAcceptanceTransaction(CreatorInputAcceptancePort):
                 content_digest=registration.ref.content_digest,
                 artifact_id=registration.ref.artifact_id.value,
                 trace_id=command.trace_id.value,
+                delegate_id=command.delegate_id,
             )
             await self._maintenance_wake.register_creator_input(
                 unit_of_work,
@@ -397,7 +400,12 @@ class EvidenceAcceptanceTransaction(CreatorInputAcceptancePort):
             await unit_of_work.audit.append(
                 AuditDraft(
                     audit_event_id=AuditEventId(uuid7()),
-                    actor=AuditReference("creator", context.creator_party_id),
+                    actor=AuditReference(
+                        "creator_delegate"
+                        if command.delegate_id is not None
+                        else "creator",
+                        command.delegate_id or context.creator_party_id,
+                    ),
                     purpose=Purpose("creator.input"),
                     operation="creator.input.accepted",
                     target=AuditReference(
@@ -451,6 +459,7 @@ class EvidenceAcceptanceTransaction(CreatorInputAcceptancePort):
         self,
         context: CreatorInputContext,
         content_digest: Digest,
+        delegate_id: UUID | None = None,
     ) -> Digest:
         return Digest.from_bytes(
             rfc8785.dumps(
@@ -458,6 +467,7 @@ class EvidenceAcceptanceTransaction(CreatorInputAcceptancePort):
                     "environment_id": str(self._uow_factory.environment_id),
                     "subject_id": str(context.subject_id),
                     "creator_party_id": str(context.creator_party_id),
+                    "delegate_id": None if delegate_id is None else str(delegate_id),
                     "scene_id": str(context.scene_id),
                     "purpose": _PURPOSE,
                     "content_digest": content_digest.value,

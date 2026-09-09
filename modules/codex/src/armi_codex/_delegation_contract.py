@@ -124,8 +124,13 @@ class CreatorCodexTaskCommand:
     model_id: CodexModel = CodexModel.SOL
     reasoning_effort: CodexReasoningEffort = CodexReasoningEffort.MEDIUM
     web_search: bool = False
+    delegate_id: UUID | None = None
 
     def __post_init__(self) -> None:
+        if self.delegate_id is not None and (
+            type(self.delegate_id) is not UUID or self.delegate_id.version != 7
+        ):
+            raise CodexDelegationViolation("CODEX-TASK-REQUEST")
         if (
             type(self.scene_key) is not str
             or _SCENE.fullmatch(self.scene_key) is None

@@ -345,6 +345,10 @@ def _metadata_wire(metadata: SessionMetadata) -> _SessionMetadataWire:
 
 
 def _browser_boundary(request: Request, *, canonical_origin: str) -> bool:
+    from .interaction_authority import authenticated_delegate
+
+    if authenticated_delegate(request) is not None:
+        return True
     return (
         request.headers.get("sec-fetch-site") == "same-origin"
         and request.headers.get("sec-fetch-mode") == "cors"
@@ -1828,6 +1832,7 @@ __all__ = (
     "_relationship_revision_response",
     "_scene_wire",
     "_single_header",
+    "_strict_object_pairs",
     "_unavailable",
     "asynccontextmanager",
     "cast",

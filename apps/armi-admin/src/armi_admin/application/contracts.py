@@ -1,4 +1,4 @@
-"""Strict structured contracts for the S037 Admin MCP surface."""
+"""Strict administrative contracts shared by CLI and MCP."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import re
 from typing import Annotated, Literal, Self
 from uuid import UUID
 
+from armi_local_control.maintenance import MaintenanceAction
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 _TOKEN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$", re.ASCII)
@@ -26,11 +27,11 @@ class _StrictModel(BaseModel):
 
 
 class HealthRequest(_StrictModel):
-    contract_version: Literal["2.0"] = "2.0"
+    contract_version: Literal["3.0"] = "3.0"
 
 
 class EnvironmentRequest(_StrictModel):
-    contract_version: Literal["2.0"] = "2.0"
+    contract_version: Literal["3.0"] = "3.0"
     environment_id: str
 
     _environment_id = field_validator("environment_id")(_uuid7)
@@ -42,6 +43,37 @@ class SchemaStatusRequest(EnvironmentRequest):
 
 class RuntimeStatusRequest(EnvironmentRequest):
     pass
+
+
+class DoctorRequest(EnvironmentRequest):
+    """Read diagnostics only; never collect devices or dispatch external effects."""
+
+
+class InvocationStatusRequest(EnvironmentRequest):
+    operation_name: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
+    idempotency_key: str = Field(pattern=r"^[A-Za-z0-9._:-]{1,128}$")
+
+
+class ConfigurationRequest(EnvironmentRequest):
+    target: Literal["runtime", "model-bindings", "web-search", "qq", "mood-display"] = (
+        "runtime"
+    )
+    action: Literal["read", "validate", "preview", "apply", "status"]
+    patch: dict[str, object] = Field(default_factory=dict)
+    expected_version: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def _edit_version(self) -> Self:
+        if (
+            self.action in {"validate", "preview", "apply"}
+            and self.expected_version is None
+        ):
+            raise ValueError("ADMIN-CONFIG-VERSION-REQUIRED")
+        if self.action in {"read", "status"} and (
+            self.patch or self.expected_version is not None
+        ):
+            raise ValueError("ADMIN-CONFIG-READ-ARGUMENTS")
+        return self
 
 
 class SubjectSnapshotRequest(EnvironmentRequest):
@@ -113,12 +145,76 @@ class EnvironmentInitializeRequest(MutationRequest):
     birth_mode: Literal["unborn", "manifest"] = "unborn"
 
 
+class OtherHumanPartyCommand(_StrictModel):
+    party_key: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]{0,63}$")
+
+
+class OtherHumanRegisterCommand(OtherHumanPartyCommand):
+    action: Literal["party_register"]
+    display_label: str = Field(min_length=1, max_length=256)
+
+
+class OtherHumanSceneCommand(OtherHumanPartyCommand):
+    action: Literal["scene_set"]
+    scene_key: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]{0,63}$")
+    status: Literal["open", "closed"]
+
+
+class OtherHumanMessageCommand(OtherHumanPartyCommand):
+    action: Literal["message_send"]
+    scene_key: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]{0,63}$")
+    message: str = Field(min_length=1, max_length=262144)
+
+
+class OtherHumanRightsCommand(OtherHumanPartyCommand):
+    action: Literal["data_rights_request"]
+    order_kind: Literal["stop_contact", "stop_use", "delete_related"]
+
+
+class OtherHumanRightsListCommand(OtherHumanPartyCommand):
+    action: Literal["data_rights_list"]
+
+
+class OtherHumanRightsGetCommand(OtherHumanPartyCommand):
+    action: Literal["data_rights_get"]
+    order_id: str
+    _order_id = field_validator("order_id")(_uuid7)
+
+
+class OtherHumanRequest(MutationRequest):
+    command: Annotated[
+        OtherHumanRegisterCommand
+        | OtherHumanSceneCommand
+        | OtherHumanMessageCommand
+        | OtherHumanRightsCommand
+        | OtherHumanRightsListCommand
+        | OtherHumanRightsGetCommand,
+        Field(discriminator="action"),
+    ]
+
+
+class MaintenanceRequest(MutationRequest):
+    action: MaintenanceAction
+    apply: bool = False
+    approved_official_direct: bool = False
+    duration_seconds: int = Field(default=30, ge=1, le=300)
+
+    @model_validator(mode="after")
+    def _no_reset_bypass(self) -> Self:
+        if self.action == "reset":
+            raise ValueError("ADMIN-RESET-PREVIEW-REQUIRED")
+        if self.action == "database_maintain" and not self.apply:
+            raise ValueError("ADMIN-MAINTENANCE-APPLY-REQUIRED")
+        return self
+
+
 class EnvironmentResetPreviewRequest(MutationRequest):
     pass
 
 
 class EnvironmentResetRequest(MutationRequest):
     preview_token: str = Field(min_length=32, max_length=4096)
+    authorization_ref: str = Field(min_length=1, max_length=256)
 
 
 class RuntimeControlRequest(MutationRequest):
@@ -128,6 +224,12 @@ class RuntimeControlRequest(MutationRequest):
     @classmethod
     def _instance_id(cls, value: str | None) -> str | None:
         return None if value is None else _uuid7(value)
+
+
+class EnvironmentLifecycleRequest(MutationRequest):
+    component: Literal["environment", "runtime", "postgresql", "semantic-recall"] = (
+        "environment"
+    )
 
 
 class InjectCreatorInputRequest(MutationRequest):
@@ -255,6 +357,21 @@ class PreviewCorrectionRequest(MutationRequest):
 class ApplyCorrectionRequest(MutationRequest):
     preview_token: str = Field(min_length=64, max_length=8192)
     spec: CorrectionSpec
+    authorization_ref: str | None = Field(default=None, min_length=1, max_length=256)
+
+    @model_validator(mode="after")
+    def _specific_authorization(self) -> Self:
+        if (
+            self.spec.correction_kind
+            in {
+                "replace_subject_component",
+                "repair_subject_component_head",
+                "delete_uncommitted_creator_input",
+            }
+            and self.authorization_ref is None
+        ):
+            raise ValueError("ADMIN-SPECIFIC-AUTHORIZATION-REQUIRED")
+        return self
 
 
 class CorrectionStatusRequest(EnvironmentRequest):
@@ -273,7 +390,7 @@ class AdminIdentity(_StrictModel):
 
 class HealthPayload(_StrictModel):
     status: Literal["healthy", "unavailable", "misconfigured"]
-    environment_kind: Literal["development", "system_test", "acceptance"]
+    environment_kind: Literal["development", "system_test", "acceptance", "active"]
     environment_id: str
     identity: AdminIdentity
     database_reachable: bool
@@ -295,7 +412,8 @@ class SchemaStatusPayload(_StrictModel):
 
 
 class AdminToolResult[PayloadT](_StrictModel):
-    contract_version: Literal["2.0"] = "2.0"
+    operator_id: str | None = None
+    contract_version: Literal["3.0"] = "3.0"
     operation_id: str
     status: Literal["succeeded", "rejected", "conflict", "failed", "unknown"]
     result: PayloadT | None = None
@@ -308,7 +426,9 @@ class AdminToolResult[PayloadT](_StrictModel):
 HealthResult = AdminToolResult[HealthPayload]
 SchemaStatusResult = AdminToolResult[SchemaStatusPayload]
 ObservationRequest = (
-    RuntimeStatusRequest
+    InvocationStatusRequest
+    | DoctorRequest
+    | RuntimeStatusRequest
     | SubjectSnapshotRequest
     | TraceFlowRequest
     | InspectScopeRequest
@@ -316,7 +436,9 @@ ObservationRequest = (
     | CorrectionStatusRequest
 )
 AdminMutationRequest = (
-    EnvironmentInitializeRequest
+    OtherHumanRequest
+    | MaintenanceRequest
+    | EnvironmentInitializeRequest
     | EnvironmentResetPreviewRequest
     | EnvironmentResetRequest
     | RuntimeControlRequest

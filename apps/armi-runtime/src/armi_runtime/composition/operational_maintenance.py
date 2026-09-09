@@ -17,6 +17,9 @@ from armi_kernel.application import (
     ExecutionCustodyScope,
     ExecutionCustodyScopeKind,
 )
+from armi_local_control.configuration import ConfigurationViolation
+from armi_local_control.runtime_errors import RuntimeViolation
+from armi_local_control.runtime_process import RuntimeProcessManager
 
 from armi_runtime.adapters.persistence.database_maintenance import (
     DatabaseMaintenanceReport,
@@ -35,15 +38,12 @@ from .artifacts import (
     ArtifactOrphanReport,
     ContentAddressedArtifactCoordinator,
 )
-from .configuration import ConfigurationViolation
 from .database import (
     MIGRATOR_LOCATOR_NAME,
     RUNTIME_LOCATOR_NAME,
     compose_execution_custody,
 )
 from .environment import PreparedEnvironment
-from .runtime_errors import RuntimeViolation
-from .runtime_process import RuntimeProcessManager
 
 
 async def run_artifact_retention(

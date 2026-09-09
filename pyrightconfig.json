@@ -8,6 +8,7 @@
     "apps/armi-creator-web"
   ],
   "extraPaths": [
+    "packages/armi-local-control/src",
     "packages/armi-kernel/src",
     "packages/armi-artifact-store/src",
     "packages/armi-postgresql-contract/src",
@@ -45,6 +46,7 @@
   "pythonPlatform": "Windows",
   "typeCheckingMode": "standard",
   "strict": [
+    "packages/armi-local-control/src",
     "packages/armi-kernel/src",
     "packages/armi-artifact-store/src",
     "packages/armi-postgresql-contract/src",

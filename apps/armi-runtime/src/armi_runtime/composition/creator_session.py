@@ -8,13 +8,13 @@ from typing import Final
 from uuid import UUID
 
 from armi_kernel.application import CredentialPurpose
+from armi_local_control.configuration import ConfigurationViolation
 
 from armi_runtime.interfaces.browser_sessions import (
     BrowserSessionStore,
     BrowserSessionViolation,
 )
 
-from .configuration import ConfigurationViolation
 from .environment import PreparedEnvironment
 
 CREATOR_BEARER_LOCATOR: Final = "creator.bearer"

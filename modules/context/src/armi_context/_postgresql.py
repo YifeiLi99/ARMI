@@ -383,6 +383,12 @@ class PostgreSQLContextRepository:
                     "context_party_display_label": scene.context_party_label,
                     "sender_party_kind": scene.context_party_kind,
                     "addressed_to_subject": scene.addressed_to_subject,
+                    "input_origin": "creator_delegate"
+                    if scene.delegate_id is not None
+                    else "party",
+                    "delegate_id": str(scene.delegate_id)
+                    if scene.delegate_id is not None
+                    else None,
                 }
             )
             dialogue_method = (

@@ -200,11 +200,14 @@ class CodexTaskSourceGateway(
                 cast(
                     Any,
                     {
-                        "schema_version": "armi.creator-codex-task.v2",
+                        "schema_version": "armi.creator-codex-task.v3",
                         "environment_id": str(self._factory.environment_id),
                         "subject_id": str(context.subject_id),
                         "scene_id": str(context.scene_id),
                         "creator_party_id": str(context.creator_party_id),
+                        "delegate_id": str(command.delegate_id)
+                        if command.delegate_id is not None
+                        else None,
                         "objective_digest": objective_digest.value,
                         "model_id": command.model_id.value,
                         "reasoning_effort": command.reasoning_effort.value,
@@ -297,6 +300,7 @@ class CodexTaskSourceGateway(
                         )
                 acceptance = await self._repository.admit_creator_task_source(
                     uow,
+                    delegate_id=command.delegate_id,
                     context=context,
                     idempotency_key=command.idempotency_key.value,
                     request_digest=request_digest,

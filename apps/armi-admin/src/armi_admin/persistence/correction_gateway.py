@@ -333,7 +333,12 @@ class AdminCorrectionGateway:
             raise AdminCorrectionGatewayError("ADMIN-ENVIRONMENT-MISMATCH")
         if row.incarnation != self._incarnation:
             raise AdminCorrectionGatewayError("ADMIN-ENVIRONMENT-INCARNATION")
-        if row.environment_kind not in {"development", "system_test", "acceptance"}:
+        if row.environment_kind not in {
+            "active",
+            "development",
+            "system_test",
+            "acceptance",
+        }:
             raise AdminCorrectionGatewayError("ADMIN-CORRECTION-ENVIRONMENT-KIND")
 
     def _subject(

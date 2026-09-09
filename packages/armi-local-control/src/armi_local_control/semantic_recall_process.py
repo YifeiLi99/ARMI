@@ -29,8 +29,11 @@ from armi_context.api import (
     EMBEDDING_QUERY_INSTRUCTION,
 )
 
-from .process_identity import ManagedProcessIdentity, ManagedProcessState
-from .runtime_errors import RuntimeViolation
+from armi_local_control.process_identity import (
+    ManagedProcessIdentity,
+    ManagedProcessState,
+)
+from armi_local_control.runtime_errors import RuntimeViolation
 
 LLAMA_CPP_VERSION = "b10218"
 LLAMA_ARCHIVE = f"llama-{LLAMA_CPP_VERSION}-bin-win-cuda-12.4-x64.zip"
@@ -1170,6 +1173,10 @@ class SemanticRecallProcessManager:
 
 
 __all__ = (
+    "CUDA_ARCHIVE",
+    "CUDA_ARCHIVE_SHA256",
+    "LLAMA_ARCHIVE",
+    "LLAMA_ARCHIVE_SHA256",
     "LLAMA_CPP_VERSION",
     "SemanticRecallEndpoint",
     "SemanticRecallProcessManager",

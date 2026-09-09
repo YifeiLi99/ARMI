@@ -9,8 +9,8 @@ from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
+from armi_local_control.runtime_errors import RuntimeViolation
 from armi_runtime.composition.napcat_process import NapCatProcessManager
-from armi_runtime.composition.runtime_errors import RuntimeViolation
 
 
 def _manager(

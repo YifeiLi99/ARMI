@@ -1,7 +1,7 @@
 """Strict runtime configuration and credential composition boundary."""
 
-from .errors import ConfigurationViolation
-from .loader import (
+from armi_local_control.configuration.errors import ConfigurationViolation
+from armi_local_control.configuration.loader import (
     DeploymentProfile,
     EffectiveConfig,
     PreflightRequirements,
@@ -10,8 +10,11 @@ from .loader import (
     runtime_config_schema,
     schema_bytes,
 )
-from .models import RUNTIME_CONFIG_SCHEMA_VERSION, RuntimeConfig
-from .secrets import EnvironmentFileCredentialPort
+from armi_local_control.configuration.models import (
+    RUNTIME_CONFIG_SCHEMA_VERSION,
+    RuntimeConfig,
+)
+from armi_local_control.configuration.secrets import EnvironmentFileCredentialPort
 
 __all__ = (
     "RUNTIME_CONFIG_SCHEMA_VERSION",

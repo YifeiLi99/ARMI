@@ -13,6 +13,7 @@ from uuid import UUID
 
 from armi_kernel import load_yaml_mapping
 from armi_kernel.application import CredentialLocator
+from armi_local_control.lifecycle import PostgreSQLControlBinding
 from pydantic import (
     BaseModel,
     BeforeValidator,
@@ -35,6 +36,7 @@ class AdminConfigError(RuntimeError):
 
 
 class AdminEnvironmentKind(StrEnum):
+    ACTIVE = "active"
     DEVELOPMENT = "development"
     SYSTEM_TEST = "system_test"
     ACCEPTANCE = "acceptance"
@@ -91,7 +93,7 @@ class AdminLogSettings(BaseModel):
 
 
 class AdminConfig(BaseModel):
-    """One explicit non-production environment binding."""
+    """One explicit environment binding, including authorized active operation."""
 
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
@@ -100,16 +102,22 @@ class AdminConfig(BaseModel):
         strict=True,
     )
 
-    schema_version: Literal["armi.admin-config.v5"]
+    schema_version: Literal["armi.admin-config.v6"]
+    operator_id: str = Field(
+        min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$"
+    )
+    authorized_operations: tuple[str, ...] = Field(min_length=1)
     environment_kind: AdminEnvironmentKind
     environment_id: str
     environment_incarnation: int
     resettable: bool
     test_controls_enabled: bool
     environment_root: Path
-    experiment_root: Path
-    template_manifest: Path
-    postgresql_client_root: Path
+    experiment_root: Path | None = None
+    template_manifest: Path | None = None
+    postgresql_client_root: Path | None = None
+    runtime_defaults_path: Path | None = None
+    postgresql_control: PostgreSQLControlBinding | None = None
     postgresql_version: Literal["18.4"] = "18.4"
     database_locator: LocatorValue = Field(title="Database Locator")
     migrator_database_locator: LocatorValue = Field(title="Migrator Database Locator")
@@ -118,6 +126,23 @@ class AdminConfig(BaseModel):
     logging: AdminLogSettings = AdminLogSettings()
 
     _environment_id = field_validator("environment_id")(_validate_uuid7)
+
+    @field_validator("authorized_operations", mode="before")
+    @classmethod
+    def _operations(cls, value: object) -> object:
+        from typing import cast
+
+        return tuple(cast(list[object], value)) if isinstance(value, list) else value
+
+    @field_validator("authorized_operations")
+    @classmethod
+    def _operation_names(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(value)) != len(value) or any(
+            re.fullmatch(r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)?", item) is None
+            for item in value
+        ):
+            raise ValueError("ADMIN-CONFIG-AUTHORIZATION")
+        return value
 
     @field_validator("environment_kind", mode="before")
     @classmethod
@@ -154,10 +179,13 @@ class AdminConfig(BaseModel):
         "experiment_root",
         "template_manifest",
         "postgresql_client_root",
+        "runtime_defaults_path",
         mode="before",
     )
     @classmethod
-    def _absolute_path(cls, value: object) -> Path:
+    def _absolute_path(cls, value: object) -> Path | None:
+        if value is None:
+            return None
         if not isinstance(value, (str, Path)):
             raise ValueError("ADMIN-CONFIG-PATH")
         path = Path(value)
@@ -166,13 +194,19 @@ class AdminConfig(BaseModel):
         return path
 
     @model_validator(mode="after")
-    def _not_production(self) -> Self:
+    def _environment_boundaries(self) -> Self:
+        if self.environment_kind == AdminEnvironmentKind.ACTIVE:
+            if self.resettable or self.test_controls_enabled:
+                raise ValueError("ADMIN-CONFIG-ACTIVE-TEST-CONTROLS")
+            return self
         if self.test_controls_enabled and self.environment_kind not in {
             AdminEnvironmentKind.SYSTEM_TEST,
             AdminEnvironmentKind.ACCEPTANCE,
         }:
             raise ValueError("ADMIN-CONFIG-TEST-CONTROLS")
-        if not self.environment_root.is_relative_to(self.experiment_root):
+        if self.experiment_root is None or not self.environment_root.is_relative_to(
+            self.experiment_root
+        ):
             raise ValueError("ADMIN-CONFIG-ENVIRONMENT-ROOT")
         return self
 
@@ -195,6 +229,8 @@ class AdminConfig(BaseModel):
     def safe_digest(self) -> str:
         payload = {
             "schema_version": self.schema_version,
+            "operator_id": self.operator_id,
+            "authorized_operations": self.authorized_operations,
             "environment_kind": str(self.environment_kind),
             "environment_id": self.environment_id,
             "environment_incarnation": self.environment_incarnation,
@@ -212,6 +248,10 @@ class AdminConfig(BaseModel):
             "preview_locator_identity": self.preview_locator.identity(),
             "expected": self.expected.model_dump(mode="json"),
             "logging": self.logging.model_dump(mode="json"),
+            "runtime_defaults_identity": _path_identity(self.runtime_defaults_path),
+            "postgresql_control": self.postgresql_control.model_dump(mode="json")
+            if self.postgresql_control is not None
+            else None,
         }
         encoded = json.dumps(
             payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True
@@ -219,7 +259,9 @@ class AdminConfig(BaseModel):
         return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
 
-def _path_identity(value: Path) -> str:
+def _path_identity(value: Path | None) -> str | None:
+    if value is None:
+        return None
     normalized = value.resolve(strict=False).as_posix().casefold().encode("utf-8")
     return f"sha256:{hashlib.sha256(normalized).hexdigest()}"
 

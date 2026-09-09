@@ -33,7 +33,7 @@ from armi_admin.application import (
     AdminCorrectionCoordinator,
     AdminCredentialPort,
 )
-from armi_admin.mcp.service import AdminToolService
+from armi_admin.application.service import AdminToolService
 from armi_admin.persistence import AdminCorrectionGateway, AdminObservationGateway
 from armi_admin.persistence.role_session import AdminRoleBoundPool
 from armi_admin.persistence.runtime_foundation import RuntimeFoundationAdminAdapter
@@ -51,10 +51,12 @@ class AdminComposition:
 def bootstrap_admin(
     config: AdminConfig, credentials: AdminCredentialPort
 ) -> AdminComposition:
-    with credentials.resolve(
-        config.locator, CredentialPurpose("database.admin")
-    ) as handle:
-        conninfo = handle.consume(lambda value: bytes(value).decode("utf-8"))
+    def conninfo() -> str:
+        with credentials.resolve(
+            config.locator, CredentialPurpose("database.admin")
+        ) as handle:
+            return handle.consume(lambda value: bytes(value).decode("utf-8"))
+
     pool = AdminRoleBoundPool(conninfo, expected_role=config.expected_role)
     pool.open()
     try:

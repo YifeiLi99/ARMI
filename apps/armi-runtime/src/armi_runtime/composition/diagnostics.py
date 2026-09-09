@@ -15,8 +15,7 @@ from pathlib import Path
 from typing import TextIO
 
 from armi_kernel.contracts import Instant
-
-from .runtime_errors import RuntimeViolation
+from armi_local_control.runtime_errors import RuntimeViolation
 
 _EVENT = re.compile(r"^[a-z][a-z0-9_.-]{0,127}$", re.ASCII)
 _RESULT = re.compile(r"^[A-Z][A-Z0-9_-]{2,127}$", re.ASCII)

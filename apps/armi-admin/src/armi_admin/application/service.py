@@ -1,4 +1,4 @@
-"""Application service behind the static S037 Admin MCP tool catalog."""
+"""Administrative application service shared by CLI and MCP."""
 
 from __future__ import annotations
 
@@ -9,6 +9,16 @@ import stat
 from datetime import UTC, datetime
 from typing import Any, Literal, cast
 from uuid import uuid7
+
+from armi_local_control import ConfigurationViolation
+from armi_local_control.configuration.defaults import runtime_defaults_file
+from armi_local_control.configuration.editing import EnvironmentConfiguration
+from armi_local_control.lifecycle import LocalEnvironmentController
+from armi_local_control.maintenance import (
+    ConfigurationInvocation,
+    MaintenanceInvocation,
+)
+from armi_local_control.runtime_errors import RuntimeViolation
 
 from armi_admin.application import (
     AdminConfig,
@@ -32,15 +42,20 @@ from .contracts import (
     AdminToolResult,
     ApplyCorrectionRequest,
     ArmFaultRequest,
+    ConfigurationRequest,
     CorrectionStatusRequest,
     EnvironmentInitializeRequest,
+    EnvironmentLifecycleRequest,
     EnvironmentResetRequest,
     HealthPayload,
     HealthRequest,
     HealthResult,
     InjectCreatorInputRequest,
     InspectScopeRequest,
+    InvocationStatusRequest,
+    MaintenanceRequest,
     ObservationRequest,
+    OtherHumanRequest,
     PreviewCorrectionRequest,
     RuntimeControlRequest,
     SchemaStatusPayload,
@@ -51,10 +66,13 @@ from .contracts import (
     TailDiagnosticsRequest,
     TraceFlowRequest,
 )
+from .invocations import InvocationJournal
 
 _DIAGNOSTIC_TOTAL_BYTES = 2 * 1024 * 1024
 _DIAGNOSTIC_LINE_BYTES = 64 * 1024
 ObservationToolName = Literal[
+    "invocation_get",
+    "doctor",
     "correction_status",
     "inspect_scope",
     "runtime_status",
@@ -63,6 +81,8 @@ ObservationToolName = Literal[
     "trace_flow",
 ]
 MutationToolName = Literal[
+    "other_human",
+    "maintenance",
     "apply_correction",
     "arm_fault",
     "clear_faults",
@@ -90,7 +110,6 @@ class AdminToolService:
         "_corrections",
         "_credentials",
         "_identity",
-        "_mutation_cache",
         "_observation",
         "_pool",
         "_requires_reload",
@@ -112,9 +131,6 @@ class AdminToolService:
         self._corrections = corrections
         self._observation = observation
         self._pool = pool
-        self._mutation_cache: dict[
-            tuple[str, str], tuple[str, AdminToolResult[dict[str, Any]]]
-        ] = {}
         self._requires_reload = False
         self._identity = AdminIdentity()
 
@@ -122,9 +138,179 @@ class AdminToolService:
     def config(self) -> AdminConfig:
         return self._config
 
+    def capabilities(self) -> AdminToolResult[dict[str, Any]]:
+        from .catalog import ADMIN_OPERATIONS
+
+        return self._tool_success(
+            datetime.now(UTC),
+            {
+                "environment_id": self._config.environment_id,
+                "environment_kind": self._config.environment_kind.value,
+                "operator_id": self._config.operator_id,
+                "package_set_digest": self._config.expected.package_set_digest,
+                "authorized_operations": list(self._config.authorized_operations),
+                "operations": [
+                    {
+                        "name": operation.name,
+                        "description": operation.description,
+                        "request_schema": operation.request.model_json_schema(),
+                        "result_schema": operation.result.model_json_schema(),
+                        "read_only": operation.read_only,
+                        "destructive": operation.destructive,
+                        "authorized": operation.name == "capabilities"
+                        or operation.name in self._config.authorized_operations
+                        or any(
+                            scope.startswith(operation.name + ".")
+                            for scope in self._config.authorized_operations
+                        ),
+                        "requires_runtime": operation.name
+                        in {"inject_creator_input", "arm_fault", "clear_faults"},
+                        "unavailable_reason": "test_controls_disabled"
+                        if operation.name
+                        in {"arm_fault", "clear_faults", "inject_creator_input"}
+                        and not self._config.test_controls_enabled
+                        else None,
+                    }
+                    for operation in ADMIN_OPERATIONS
+                ],
+            },
+        )
+
+    def configuration(
+        self, request: ConfigurationRequest
+    ) -> AdminToolResult[dict[str, Any]]:
+        started = datetime.now(UTC)
+        if f"configuration.{request.action}" not in self._config.authorized_operations:
+            return self._tool_failure(started, "rejected", "ADMIN-SCOPE-REQUIRED")
+        if request.environment_id != self._config.environment_id:
+            return self._tool_failure(started, "rejected", "ADMIN-ENVIRONMENT-MISMATCH")
+        try:
+            editor = EnvironmentConfiguration(
+                self._config.environment_root,
+                self._config.runtime_defaults_path or runtime_defaults_file(),
+            )
+            if request.target != "runtime":
+                result = self._control.maintenance(
+                    ConfigurationInvocation.model_validate(
+                        {
+                            "environment_root": self._config.environment_root,
+                            "environment_id": self._config.environment_id,
+                            "target": request.target,
+                            "action": request.action,
+                            "patch": dict(request.patch),
+                            "expected_version": request.expected_version,
+                        }
+                    )
+                )
+            elif request.action in {"read", "status"}:
+                result = editor.read()
+                if request.action == "status":
+                    from armi_local_control.runtime_process import RuntimeProcessManager
+
+                    runtime = RuntimeProcessManager(
+                        self._config.environment_root, self._config.environment_id
+                    ).status()
+                    running = runtime.get("runtime", {})
+                    actual = running.get("runtime_configuration_digest")
+                    effective = (
+                        actual is not None and actual == result["desired_digest"]
+                    )
+                    result.update(
+                        {
+                            "activation": "effective"
+                            if effective
+                            else "not_running"
+                            if runtime.get("status") == "stopped"
+                            else "restart_required"
+                            if actual is not None
+                            else "not_verified",
+                            "restart_required": not effective,
+                            "running_digest": actual,
+                            "running_sources": running.get("configuration_sources", []),
+                        }
+                    )
+            else:
+                if request.expected_version is None:
+                    return self._tool_failure(
+                        started, "rejected", "ADMIN-CONFIG-VERSION-REQUIRED"
+                    )
+                result = (
+                    editor.apply(dict(request.patch), request.expected_version)
+                    if request.action == "apply"
+                    else editor.preview(dict(request.patch), request.expected_version)
+                )
+        except AdminControlError as error:
+            return self._tool_failure(started, "rejected", str(error))
+        except RuntimeViolation as error:
+            return self._tool_failure(started, "failed", error.code)
+        except ConfigurationViolation as error:
+            return self._tool_failure(started, "rejected", error.code)
+        except ValueError as error:
+            code = str(error)
+            return self._tool_failure(
+                started,
+                "rejected",
+                code if code.startswith("ADMIN-CONFIG-") else "ADMIN-CONFIG-INVALID",
+            )
+        except OSError:
+            return self._tool_failure(started, "failed", "ADMIN-CONFIG-UNAVAILABLE")
+        return self._tool_success(started, result)
+
+    def lifecycle(
+        self,
+        action: Literal["start", "stop", "restart", "status"],
+        request: EnvironmentLifecycleRequest,
+    ) -> AdminToolResult[dict[str, Any]]:
+        started = datetime.now(UTC)
+        if f"environment_{action}" not in self._config.authorized_operations:
+            return self._tool_failure(started, "rejected", "ADMIN-SCOPE-REQUIRED")
+        if (
+            request.environment_id != self._config.environment_id
+            or request.environment_incarnation != self._config.environment_incarnation
+        ):
+            return self._tool_failure(started, "rejected", "ADMIN-ENVIRONMENT-MISMATCH")
+        if request.purpose != f"admin.environment_{action}":
+            return self._tool_failure(started, "rejected", "ADMIN-PURPOSE")
+        try:
+            controller = LocalEnvironmentController(
+                environment_root=self._config.environment_root,
+                environment_id=self._config.environment_id,
+                incarnation=self._config.environment_incarnation,
+                defaults_path=self._config.runtime_defaults_path
+                or runtime_defaults_file(),
+                postgresql=self._config.postgresql_control,
+            )
+            result = controller.execute(action, component=request.component)
+        except RuntimeViolation as error:
+            return self._tool_failure(
+                started,
+                "unknown" if error.code.endswith("UNKNOWN") else "failed",
+                error.code,
+            )
+        except OSError, ValueError:
+            return self._tool_failure(started, "failed", "ADMIN-LIFECYCLE-UNAVAILABLE")
+        if result.get("status") == "not_ready":
+            return AdminToolResult[dict[str, Any]](
+                operation_id=str(uuid7()),
+                status="failed",
+                result=result,
+                error_code="ADMIN-RUNTIME-NOT-READY",
+                started_at=started.isoformat(),
+                ended_at=datetime.now(UTC).isoformat(),
+            )
+        return self._tool_success(started, result)
+
     def health(self, request: HealthRequest) -> HealthResult:
         del request
         started = datetime.now(UTC)
+        if "health" not in self._config.authorized_operations:
+            return self._health_result(
+                started,
+                status="rejected",
+                payload_status="misconfigured",
+                role_status="rejected",
+                code="ADMIN-SCOPE-REQUIRED",
+            )
         if self._requires_reload:
             return self._health_result(
                 started,
@@ -173,6 +359,15 @@ class AdminToolService:
 
     def schema_status(self, request: SchemaStatusRequest) -> SchemaStatusResult:
         started = datetime.now(UTC)
+        if "schema_status" not in self._config.authorized_operations:
+            return self._schema_result(
+                started,
+                outer_status="rejected",
+                status="unavailable",
+                table_count=0,
+                missing_tables=(),
+                code="ADMIN-SCOPE-REQUIRED",
+            )
         if self._requires_reload:
             return self._schema_result(
                 started,
@@ -218,6 +413,8 @@ class AdminToolService:
         self, name: ObservationToolName, request: ObservationRequest
     ) -> AdminToolResult[dict[str, Any]]:
         started = datetime.now(UTC)
+        if name not in self._config.authorized_operations:
+            return self._tool_failure(started, "rejected", "ADMIN-SCOPE-REQUIRED")
         if self._requires_reload:
             return self._tool_failure(
                 started, "conflict", "ADMIN-CONFIG-RELOAD-REQUIRED"
@@ -225,7 +422,27 @@ class AdminToolService:
         if request.environment_id != self._config.environment_id:
             return self._tool_failure(started, "rejected", "ADMIN-ENVIRONMENT-MISMATCH")
         try:
-            if name == "correction_status":
+            if name == "invocation_get":
+                typed_invocation = cast(InvocationStatusRequest, request)
+                result = InvocationJournal(
+                    self._config.environment_root.parent
+                    / ".armi-admin"
+                    / self._config.environment_id,
+                    self._config.safe_digest(),
+                ).read(
+                    typed_invocation.operation_name, typed_invocation.idempotency_key
+                )
+                if (
+                    result["state"] != "not_found"
+                    and result.get("audit", {}).get("scope")
+                    not in self._config.authorized_operations
+                ):
+                    return self._tool_failure(
+                        started, "rejected", "ADMIN-SCOPE-REQUIRED"
+                    )
+            elif name == "doctor":
+                result = self._diagnose()
+            elif name == "correction_status":
                 typed = cast(CorrectionStatusRequest, request)
                 result = self._corrections.status(str(typed.preview_token))
             elif name == "tail_diagnostics":
@@ -238,7 +455,7 @@ class AdminToolService:
             else:
                 gateway = self._observation
                 if name == "runtime_status":
-                    result = gateway.runtime_status()
+                    result = self._control.runtime_status()
                 elif name == "subject_snapshot":
                     typed_snapshot = cast(SubjectSnapshotRequest, request)
                     result = gateway.subject_snapshot(
@@ -276,7 +493,142 @@ class AdminToolService:
         except Exception:
             return self._tool_failure(started, "failed", "ADMIN-OBSERVATION-FAILED")
 
+    def _diagnose(self) -> dict[str, Any]:
+        checks: list[dict[str, Any]] = []
+        health = self.health(HealthRequest())
+        checks.append(
+            {
+                "component": "database_identity_and_credentials",
+                "status": health.status,
+                "error_code": health.error_code,
+                "evidence": health.model_dump(mode="json"),
+                "next_operations": ["health", "schema_status"],
+            }
+        )
+        schema = self.schema_status(
+            SchemaStatusRequest(environment_id=self._config.environment_id)
+        )
+        checks.append(
+            {
+                "component": "schema_and_acl",
+                "status": schema.status,
+                "error_code": schema.error_code,
+                "evidence": schema.model_dump(mode="json"),
+                "next_operations": ["schema_status"],
+            }
+        )
+        config = self.configuration(
+            ConfigurationRequest(
+                environment_id=self._config.environment_id, action="read"
+            )
+        )
+        checks.append(
+            {
+                "component": "configuration",
+                "status": config.status,
+                "error_code": config.error_code,
+                "evidence": {
+                    "operation_id": config.operation_id,
+                    "version": (config.result or {}).get("version"),
+                },
+                "next_operations": ["configuration"],
+            }
+        )
+        try:
+            runtime = self._control.runtime_status()
+            checks.append(
+                {
+                    "component": "runtime_work_recovery_and_channels",
+                    "status": "observed",
+                    "evidence": runtime,
+                    "next_operations": [
+                        "runtime_status",
+                        "trace_flow",
+                        "inspect_scope",
+                        "tail_diagnostics",
+                    ],
+                }
+            )
+        except AdminControlError as error:
+            checks.append(
+                {
+                    "component": "runtime_work_recovery_and_channels",
+                    "status": "unavailable",
+                    "error_code": str(error),
+                    "next_operations": [
+                        "environment_status",
+                        "environment_start",
+                        "tail_diagnostics",
+                    ],
+                }
+            )
+        return {
+            "checks": checks,
+            "collection_performed": False,
+            "external_effects_dispatched": False,
+            "artifact_integrity": {
+                "status": "requires_scoped_inspection",
+                "next_operations": ["inspect_scope", "maintenance.artifact_cleanup"],
+            },
+        }
+
     def mutate(
+        self, name: MutationToolName, request: AdminMutationRequest
+    ) -> AdminToolResult[dict[str, Any]]:
+        started = datetime.now(UTC)
+        permission = (
+            f"other_human.{request.command.action}"
+            if isinstance(request, OtherHumanRequest)
+            else f"maintenance.{request.action}"
+            if isinstance(request, MaintenanceRequest)
+            else name
+        )
+        if permission not in self._config.authorized_operations:
+            return self._tool_failure(started, "rejected", "ADMIN-SCOPE-REQUIRED")
+        if (
+            request.environment_id != self._config.environment_id
+            or request.environment_incarnation != self._config.environment_incarnation
+        ):
+            return self._tool_failure(started, "rejected", "ADMIN-ENVIRONMENT-MISMATCH")
+        if request.purpose != f"admin.{name}":
+            return self._tool_failure(started, "rejected", "ADMIN-PURPOSE")
+        digest = _sha256(
+            json.dumps(
+                request.model_dump(mode="json"), ensure_ascii=False, sort_keys=True
+            ).encode("utf-8")
+        )
+        journal = InvocationJournal(
+            self._config.environment_root.parent
+            / ".armi-admin"
+            / self._config.environment_id,
+            self._config.safe_digest(),
+        )
+        try:
+            result = journal.invoke(
+                name=name,
+                key=request.idempotency_key,
+                request_digest=digest,
+                audit={
+                    "operator_id": self._config.operator_id,
+                    "authorization_ref": getattr(request, "authorization_ref", None),
+                    "scope": permission,
+                },
+                execute=lambda: self._mutate_once(name, request).model_dump(
+                    mode="json"
+                ),
+            )
+            return AdminToolResult[dict[str, Any]].model_validate(result)
+        except ValueError as error:
+            code = str(error)
+            return self._tool_failure(
+                started,
+                "unknown" if code == "ADMIN-INVOCATION-UNKNOWN" else "conflict",
+                code if code.startswith("ADMIN-") else "ADMIN-JOURNAL-INVALID",
+            )
+        except OSError, RuntimeViolation:
+            return self._tool_failure(started, "conflict", "ADMIN-INVOCATION-BUSY")
+
+    def _mutate_once(
         self, name: MutationToolName, request: AdminMutationRequest
     ) -> AdminToolResult[dict[str, Any]]:
         started = datetime.now(UTC)
@@ -292,28 +644,39 @@ class AdminToolService:
         expected_purpose = f"admin.{name}"
         if request.purpose != expected_purpose:
             return self._tool_failure(started, "rejected", "ADMIN-PURPOSE")
-        request_digest = _sha256(
-            json.dumps(
-                request.model_dump(mode="json"),
-                ensure_ascii=False,
-                separators=(",", ":"),
-                sort_keys=True,
-            ).encode("utf-8")
-        )
-        cache_key = (name, request.idempotency_key)
-        cached = self._mutation_cache.get(cache_key)
-        if cached is not None:
-            if cached[0] != request_digest:
-                return self._tool_failure(
-                    started, "conflict", "ADMIN-IDEMPOTENCY-CONFLICT"
-                )
-            return cached[1]
         if self._requires_reload:
             return self._tool_failure(
                 started, "conflict", "ADMIN-CONFIG-RELOAD-REQUIRED"
             )
         try:
-            if name == "environment_initialize":
+            if name == "other_human":
+                typed_other = cast(OtherHumanRequest, request)
+                action = typed_other.command.action
+                if action == "message_send":
+                    self._require_test_controls()
+                payload = typed_other.command.model_dump(
+                    mode="json", exclude={"action"}
+                )
+                if action in {"message_send", "data_rights_request"}:
+                    payload["idempotency_key"] = request.idempotency_key
+                result = self._control.send_control(
+                    "other_human", {"action": action, "payload": payload}
+                )
+            elif name == "maintenance":
+                typed_maintenance = cast(MaintenanceRequest, request)
+                result = self._control.maintenance(
+                    MaintenanceInvocation.model_validate(
+                        {
+                            "environment_root": self._config.environment_root,
+                            "environment_id": self._config.environment_id,
+                            "action": typed_maintenance.action,
+                            "apply": typed_maintenance.apply,
+                            "duration_seconds": typed_maintenance.duration_seconds,
+                            "approved_official_direct": typed_maintenance.approved_official_direct,
+                        }
+                    )
+                )
+            elif name == "environment_initialize":
                 typed_initialize = cast(EnvironmentInitializeRequest, request)
                 result = self._initialize_environment(typed_initialize.birth_mode)
             elif name == "environment_reset_preview":
@@ -335,6 +698,7 @@ class AdminToolService:
                 self._control.wait_until_stopped()
                 result = self._control.start_runtime()
             elif name == "inject_creator_input":
+                self._require_test_controls()
                 typed_input = cast(InjectCreatorInputRequest, request)
                 result = self._control.send_control(
                     "input",
@@ -382,12 +746,15 @@ class AdminToolService:
             code = str(exc)
             outcome = self._tool_failure(
                 started,
-                "failed" if code.endswith("-UNAVAILABLE") else "rejected",
+                "unknown"
+                if code.endswith("-UNKNOWN")
+                else "failed"
+                if code.endswith("-UNAVAILABLE")
+                else "rejected",
                 code,
             )
         except Exception:
             outcome = self._tool_failure(started, "failed", "ADMIN-CONTROL-FAILED")
-        self._mutation_cache[cache_key] = (request_digest, outcome)
         return outcome
 
     def _correction_failure(
@@ -598,12 +965,12 @@ class AdminToolService:
         self, started: datetime, result: dict[str, Any]
     ) -> AdminToolResult[dict[str, Any]]:
         return AdminToolResult[dict[str, Any]](
+            operator_id=self._config.operator_id,
             operation_id=str(uuid7()),
             status="succeeded",
             result=result,
             observed_versions={
                 "environment_incarnation": self._config.environment_incarnation,
-                "schema": "current",
             },
             started_at=started.isoformat().replace("+00:00", "Z"),
             ended_at=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
@@ -616,12 +983,12 @@ class AdminToolService:
         code: str,
     ) -> AdminToolResult[dict[str, Any]]:
         return AdminToolResult[dict[str, Any]](
+            operator_id=self._config.operator_id,
             operation_id=str(uuid7()),
             status=status,
             error_code=code,
             observed_versions={
                 "environment_incarnation": self._config.environment_incarnation,
-                "schema": "current",
             },
             started_at=started.isoformat().replace("+00:00", "Z"),
             ended_at=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
@@ -634,7 +1001,7 @@ class AdminToolService:
             or snapshot.encoding != "UTF8"
             or snapshot.timezone != "UTC"
             or snapshot.revision != "0000"
-            or snapshot.baseline_identity != "armi.schema-baseline.v12"
+            or snapshot.baseline_identity != "armi.schema-baseline.v13"
         ):
             raise ValueError("ADMIN-DB-IDENTITY")
 
@@ -731,7 +1098,7 @@ class AdminToolService:
 
     def _environment_kind(
         self,
-    ) -> Literal["development", "system_test", "acceptance"]:
+    ) -> Literal["development", "system_test", "acceptance", "active"]:
         return self._config.environment_kind.value
 
 

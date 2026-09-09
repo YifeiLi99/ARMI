@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from armi_runtime.application.creator_commands import CreatorCommands
+
 from .creator_http import (
-    UTC,
     UUID,
     AcceptedOutcomeResponse,
     Any,
@@ -13,18 +14,12 @@ from .creator_http import (
     CreatorEventBroker,
     CreatorEventBrokerViolation,
     CreatorInputAcceptancePort,
-    CreatorInputCommand,
     CreatorInputViolation,
-    CreatorProjectionInvalidation,
-    CreatorResourceKind,
     CreatorSceneCollectionResponse,
-    CreatorSceneCreateCommand,
     CreatorScenePort,
     CreatorSceneResponse,
-    CreatorSceneStatusCommand,
     FastAPI,
     HTTPBearer,
-    IdempotencyKey,
     Instant,
     JSONResponse,
     Literal,
@@ -50,7 +45,6 @@ from .creator_http import (
     Security,
     SecurityEvent,
     StreamingResponse,
-    TraceId,
     UnavailableOutcomeResponse,
     _accepted_wire,
     _bearer,
@@ -64,16 +58,20 @@ from .creator_http import (
     _single_header,
     _unavailable,
     cast,
-    datetime,
     parse_last_event_id,
-    secrets,
     stream_creator_events,
+)
+from .interaction_authority import (
+    authenticated_delegate,
+    delegate_id,
+    verify_interaction,
 )
 
 
 def register_scene_routes(
     *,
     app: FastAPI,
+    commands: CreatorCommands,
     bearer: HTTPBearer,
     canonical_origin: str,
     emit: SecurityEvent,
@@ -98,7 +96,7 @@ def register_scene_routes(
     )
     async def list_creator_scenes(request: Request) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or creator_scenes is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -117,10 +115,10 @@ def register_scene_routes(
             )
         try:
             token = _bearer(request)
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
-            collection = await creator_scenes.list()
+            verify_interaction(request, browser_sessions, token)
+            collection = await commands.list_scenes()
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code,
@@ -154,7 +152,7 @@ def register_scene_routes(
     )
     async def create_creator_scene(request: Request) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or creator_scenes is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -173,19 +171,14 @@ def register_scene_routes(
             )
         try:
             token = _bearer(request)
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
+            verify_interaction(request, browser_sessions, token)
             model = await _creator_scene_create_request(
                 request,
                 request_body_max_bytes,
             )
-            created = await creator_scenes.create(
-                CreatorSceneCreateCommand(
-                    SceneKey(model.scene_key),
-                    TraceId(secrets.token_hex(16)),
-                )
-            )
+            created = await commands.create_scene(model.scene_key)
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code,
@@ -217,7 +210,7 @@ def register_scene_routes(
         target_status: SceneStatus,
     ) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or creator_scenes is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -236,16 +229,10 @@ def register_scene_routes(
             )
         try:
             token = _bearer(request)
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
-            changed = await creator_scenes.set_status(
-                CreatorSceneStatusCommand(
-                    SceneKey(scene_key),
-                    target_status,
-                    TraceId(secrets.token_hex(16)),
-                )
-            )
+            verify_interaction(request, browser_sessions, token)
+            changed = await commands.transition_scene(scene_key, target_status)
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code,
@@ -321,7 +308,7 @@ def register_scene_routes(
     )
     async def get_scene_timeline(scene_key: str, request: Request) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or scene_timeline_query is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -340,9 +327,9 @@ def register_scene_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
+            verify_interaction(request, browser_sessions, token)
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code,
@@ -460,7 +447,7 @@ def register_scene_routes(
         request: Request,
     ) -> tuple[int, OpaqueCursor | None] | JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or other_human_record_query is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -479,9 +466,9 @@ def register_scene_routes(
             )
         try:
             token = _bearer(request)
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
+            verify_interaction(request, browser_sessions, token)
             limit, _query, _kind, cursor = _life_query_parameters(
                 request, allow_kind=False, allow_text=False
             )
@@ -689,7 +676,7 @@ def register_scene_routes(
         request: Request,
     ) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or creator_input is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -704,9 +691,9 @@ def register_scene_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
+            verify_interaction(request, browser_sessions, token)
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code,
@@ -720,13 +707,12 @@ def register_scene_routes(
             )
         try:
             model = await _creator_input_request(request, request_body_max_bytes)
-            command = CreatorInputCommand(
+            acceptance = await commands.message(
                 scene_key=scene_key,
                 message=model.message,
-                idempotency_key=IdempotencyKey(idempotency_value),
-                trace_id=TraceId(secrets.token_hex(16)),
+                delegate_id=delegate_id(request),
+                idempotency_key=idempotency_value,
             )
-            acceptance = await creator_input.accept(command)
         except (ContractViolation, CreatorInputViolation) as error:
             if isinstance(error, ContractViolation):
                 status, content = 400, _rejected("INPUT_IDEMPOTENCY_KEY")
@@ -734,23 +720,6 @@ def register_scene_routes(
                 status, content = _input_failure(error)
             emit("creator.input.rejected")
             return JSONResponse(status_code=status, content=content)
-        emit(
-            "creator.input.accepted"
-            if acceptance.newly_accepted
-            else "creator.input.idempotent"
-        )
-        if creator_events is not None and acceptance.newly_accepted:
-            try:
-                await creator_events.notify(
-                    CreatorProjectionInvalidation(
-                        CreatorResourceKind("operation"),
-                        str(acceptance.opportunity_id),
-                        Instant(datetime.now(UTC)),
-                        "creator-operation.v4",
-                    )
-                )
-            except Exception:
-                emit("creator.operation.notification_failed")
         return JSONResponse(status_code=202, content=_accepted_wire(acceptance))
 
     del accept_creator_message
@@ -791,7 +760,7 @@ def register_scene_routes(
         request: Request,
     ) -> Response:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or scene_timeline_query is None
             or creator_events is None
         ):
@@ -820,6 +789,8 @@ def register_scene_routes(
         token = _bearer(request)
         try:
             if token is None:
+                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
+            if browser_sessions is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
             browser_sessions.verify(token)
         except BrowserSessionViolation as error:

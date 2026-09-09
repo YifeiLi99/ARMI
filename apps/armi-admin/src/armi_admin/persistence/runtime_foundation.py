@@ -112,7 +112,7 @@ class RuntimeFoundationAdminAdapter:
     ) -> RuntimeAdminSubject | None:
         if detailed:
             row = transaction.execute(
-                "SELECT subject_id,subject_version,state_epoch,current_generation_id,status,current_bundle_activation_id FROM armi.subjects WHERE singleton_key"
+                "SELECT subject_id,subject_version,state_epoch,current_generation_id,status,current_bundle_activation_id FROM armi.subjects WHERE singleton_key=1"
                 + (" FOR UPDATE" if for_update else "")
             ).fetchone()
             return (

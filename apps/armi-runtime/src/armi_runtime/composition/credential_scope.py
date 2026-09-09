@@ -10,8 +10,7 @@ from armi_kernel.application import (
     CredentialPurpose,
     SecretHandle,
 )
-
-from .configuration import ConfigurationViolation
+from armi_local_control.configuration import ConfigurationViolation
 
 
 class ScopedCredentialPort(CredentialPort):

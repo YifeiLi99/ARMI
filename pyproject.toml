@@ -20,6 +20,7 @@ build-constraint-dependencies = ["hatchling==1.31.0", "uv_build==0.11.33"]
 
 [tool.uv.workspace]
 members = [
+    "packages/armi-local-control",
     "packages/armi-kernel",
     "packages/armi-artifact-store",
     "packages/armi-postgresql-contract",

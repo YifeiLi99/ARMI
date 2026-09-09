@@ -3,8 +3,8 @@ from __future__ import annotations
 import unittest
 from typing import Any, cast
 
+from armi_local_control.runtime_errors import RuntimeViolation
 from armi_runtime.composition.runtime_capacity import run_runtime_capacity_baseline
-from armi_runtime.composition.runtime_errors import RuntimeViolation
 
 
 class _Clock:

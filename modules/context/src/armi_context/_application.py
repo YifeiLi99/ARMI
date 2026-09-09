@@ -380,6 +380,12 @@ class ContextPipeline:
                         rfc8785.dumps(
                             {
                                 "speaker": source.speaker,
+                                "input_origin": "creator_delegate"
+                                if source.delegate_id is not None
+                                else "party",
+                                "delegate_id": str(source.delegate_id)
+                                if source.delegate_id is not None
+                                else None,
                                 "text": (
                                     source.text
                                     if source.speaker_label is None

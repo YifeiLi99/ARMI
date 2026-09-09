@@ -10,9 +10,9 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import psutil
-from armi_runtime.composition.process_identity import ManagedProcessIdentity
-from armi_runtime.composition.runtime_errors import RuntimeViolation
-from armi_runtime.composition.runtime_process import RuntimeProcessManager
+from armi_local_control.process_identity import ManagedProcessIdentity
+from armi_local_control.runtime_errors import RuntimeViolation
+from armi_local_control.runtime_process import RuntimeProcessManager
 
 
 class RuntimeProcessManagerTests(unittest.TestCase):
@@ -85,7 +85,7 @@ class RuntimeProcessManagerTests(unittest.TestCase):
                     ),
                 ),
                 patch(
-                    "armi_runtime.composition.runtime_process.subprocess.Popen",
+                    "armi_local_control.runtime_process.subprocess.Popen",
                     side_effect=launch,
                 ) as popen,
             ):
@@ -148,9 +148,7 @@ class RuntimeProcessManagerTests(unittest.TestCase):
                     "_matching_runtime_processes",
                     return_value=[residual],
                 ),
-                patch(
-                    "armi_runtime.composition.runtime_process.subprocess.Popen"
-                ) as popen,
+                patch("armi_local_control.runtime_process.subprocess.Popen") as popen,
                 self.assertRaises(RuntimeViolation) as raised,
             ):
                 manager.start()
@@ -168,7 +166,7 @@ class RuntimeProcessManagerTests(unittest.TestCase):
             matching.cmdline.return_value = [
                 "pythonw.exe",
                 "-m",
-                "armi_runtime.cli",
+                "armi_runtime.runtime_entrypoint",
                 "runtime",
                 "start",
                 "--environment-root",
@@ -178,7 +176,7 @@ class RuntimeProcessManagerTests(unittest.TestCase):
             other_environment.cmdline.return_value = [
                 "pythonw.exe",
                 "-m",
-                "armi_runtime.cli",
+                "armi_runtime.runtime_entrypoint",
                 "runtime",
                 "start",
                 "--environment-root",
@@ -190,7 +188,7 @@ class RuntimeProcessManagerTests(unittest.TestCase):
                 "-c",
                 "print('not a Runtime')",
                 "-m",
-                "armi_runtime.cli",
+                "armi_runtime.runtime_entrypoint",
                 "runtime",
                 "start",
                 "--environment-root",
@@ -278,7 +276,7 @@ class RuntimeProcessManagerTests(unittest.TestCase):
                     return_value=True,
                 ),
                 patch(
-                    "armi_runtime.composition.runtime_process.psutil.wait_procs",
+                    "armi_local_control.runtime_process.psutil.wait_procs",
                     side_effect=(([], [residual]), ([residual], [])),
                 ) as wait,
             ):
@@ -299,7 +297,7 @@ class RuntimeProcessManagerTests(unittest.TestCase):
                     return_value={"status": "stopped", "pid": None},
                 ),
                 patch(
-                    "armi_runtime.composition.runtime_process.subprocess.Popen",
+                    "armi_local_control.runtime_process.subprocess.Popen",
                     side_effect=OSError("private detail"),
                 ),
                 self.assertRaises(RuntimeViolation) as raised,
@@ -325,11 +323,11 @@ class RuntimeProcessManagerTests(unittest.TestCase):
                     return_value={"status": "stopped", "pid": None},
                 ),
                 patch(
-                    "armi_runtime.composition.runtime_process.subprocess.Popen",
+                    "armi_local_control.runtime_process.subprocess.Popen",
                     return_value=process,
                 ),
                 patch(
-                    "armi_runtime.composition.runtime_process._START_TIMEOUT_SECONDS",
+                    "armi_local_control.runtime_process._START_TIMEOUT_SECONDS",
                     0.0,
                 ),
                 self.assertRaises(RuntimeViolation) as raised,
@@ -362,11 +360,11 @@ class RuntimeProcessManagerTests(unittest.TestCase):
                     return_value={"status": "stopped", "pid": None},
                 ),
                 patch(
-                    "armi_runtime.composition.runtime_process.subprocess.Popen",
+                    "armi_local_control.runtime_process.subprocess.Popen",
                     return_value=process,
                 ),
                 patch(
-                    "armi_runtime.composition.runtime_process._START_TIMEOUT_SECONDS",
+                    "armi_local_control.runtime_process._START_TIMEOUT_SECONDS",
                     0.0,
                 ),
                 self.assertRaises(RuntimeViolation) as raised,
@@ -404,11 +402,11 @@ class RuntimeProcessManagerTests(unittest.TestCase):
                         return_value={"status": "stopped", "pid": None},
                     ),
                     patch(
-                        "armi_runtime.composition.runtime_process.subprocess.Popen",
+                        "armi_local_control.runtime_process.subprocess.Popen",
                         side_effect=launch,
                     ),
                     patch(
-                        "armi_runtime.composition.runtime_process._START_TIMEOUT_SECONDS",
+                        "armi_local_control.runtime_process._START_TIMEOUT_SECONDS",
                         0.0,
                     ),
                     self.assertRaises(RuntimeViolation) as raised,
@@ -442,7 +440,7 @@ class RuntimeProcessManagerTests(unittest.TestCase):
                     side_effect=lambda command: calls.append(command) or {"result": {}},
                 ),
                 patch(
-                    "armi_runtime.composition.runtime_process._pid_is_alive",
+                    "armi_local_control.runtime_process._pid_is_alive",
                     return_value=False,
                 ),
             ):

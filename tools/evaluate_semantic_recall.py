@@ -16,12 +16,12 @@ from typing import Any
 import psycopg
 from armi_context.api import load_embedding_binding
 from armi_kernel.application import CredentialPurpose
+from armi_local_control.semantic_recall_process import (
+    SemanticRecallProcessManager,
+)
 from armi_runtime.adapters.model.local_embedding import LocalLlamaCppEmbeddingAdapter
 from armi_runtime.composition.config_assets import runtime_config_path
 from armi_runtime.composition.environment import prepare_environment
-from armi_runtime.composition.semantic_recall_process import (
-    SemanticRecallProcessManager,
-)
 
 _CASES = (
     (

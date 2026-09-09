@@ -189,6 +189,7 @@ class InteractionContextSceneSnapshot:
     context_party_label: str | None
     context_party_kind: str | None
     addressed_to_subject: bool | None
+    delegate_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,6 +202,7 @@ class InteractionContextTurn:
     speaker_label: str | None
     speaker_kind: str | None
     modality: str | None
+    delegate_id: UUID | None = None
 
 
 @runtime_checkable
@@ -512,6 +514,7 @@ class CreatorInputTransactionPort(Protocol):
         request_digest: Digest,
         content_digest: Digest,
         trace_id: TraceId,
+        delegate_id: UUID | None = None,
     ) -> None: ...
 
 

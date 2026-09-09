@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import contextmanager
+from threading import RLock
 from typing import Any, cast
 
 import psycopg
@@ -75,15 +77,29 @@ class _AdminUnitOfWork:
 class AdminRoleBoundPool:
     """Reset and verify an Admin database session before every reuse."""
 
-    __slots__ = ("_expected_role", "_pool")
+    __slots__ = ("_conninfo", "_expected_role", "_lock", "_pool")
 
-    def __init__(self, conninfo: str, *, expected_role: str) -> None:
+    def __init__(
+        self, conninfo: str | Callable[[], str], *, expected_role: str
+    ) -> None:
         if not expected_role.startswith("armi_") or not expected_role.endswith(
             "_admin"
         ):
             raise ValueError("expected_role must be an environment Admin login")
         self._expected_role = expected_role
-        self._pool = ConnectionPool(
+        self._conninfo = conninfo
+        self._pool: ConnectionPool[psycopg.Connection[Any]] | None = None
+        self._lock = RLock()
+
+    def _ensure_pool(self) -> ConnectionPool[psycopg.Connection[Any]]:
+        with self._lock:
+            return self._open_pool()
+
+    def _open_pool(self) -> ConnectionPool[psycopg.Connection[Any]]:
+        if self._pool is not None:
+            return self._pool
+        conninfo = self._conninfo() if callable(self._conninfo) else self._conninfo
+        pool: ConnectionPool[psycopg.Connection[Any]] = ConnectionPool(
             conninfo,
             min_size=0,
             max_size=1,
@@ -92,12 +108,20 @@ class AdminRoleBoundPool:
             reset=self._reset,
             kwargs={"application_name": "armi-admin-role-pool"},
         )
+        try:
+            pool.open(wait=True, timeout=_POOL_OPEN_TIMEOUT_SECONDS)
+        except BaseException:
+            pool.close()
+            raise
+        self._pool = pool
+        return pool
 
     def open(self) -> None:
-        self._pool.open(wait=True, timeout=_POOL_OPEN_TIMEOUT_SECONDS)
+        """Connections are opened only by operations that need the database."""
 
     def close(self) -> None:
-        self._pool.close()
+        if self._pool is not None:
+            self._pool.close()
 
     def catalog_digest(self) -> str:
         with self.connection() as connection:
@@ -106,7 +130,7 @@ class AdminRoleBoundPool:
 
     @contextmanager
     def connection(self):
-        with self._pool.connection() as connection:
+        with self._ensure_pool().connection() as connection:
             self._verify(connection)
             connection.commit()
             yield connection

@@ -279,6 +279,7 @@ class PostgreSQLCodexDelegationRepository:
         idempotency_key: str,
         request_digest: Digest,
         draft: CodexTaskSourceDraft,
+        delegate_id: UUID | None = None,
     ) -> CreatorInputAcceptance:
         existing = await self.existing_creator_task(
             uow,
@@ -301,6 +302,7 @@ class PostgreSQLCodexDelegationRepository:
         interaction_id, evidence_id = uuid7(), uuid7()
         await self._input.record_codex_task_input(
             connection,
+            delegate_id=delegate_id,
             interaction_id=interaction_id,
             subject_id=context.subject_id,
             scene_id=context.scene_id,
@@ -341,7 +343,10 @@ class PostgreSQLCodexDelegationRepository:
         await uow.audit.append(
             AuditDraft(
                 AuditEventId(uuid7()),
-                AuditReference("creator", context.creator_party_id),
+                AuditReference(
+                    "creator_delegate" if delegate_id is not None else "creator",
+                    delegate_id or context.creator_party_id,
+                ),
                 Purpose("delegate_codex_work"),
                 "codex.task_source.admitted",
                 AuditReference("codex_task_source", draft.task_source_id.value),

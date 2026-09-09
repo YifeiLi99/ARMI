@@ -15,8 +15,7 @@ from armi_kernel.application import (
     PersonalityAnchor,
 )
 from armi_kernel.contracts import Digest
-
-from .configuration.paths import has_reparse_point
+from armi_local_control.configuration.paths import has_reparse_point
 
 _RESOURCE_PACKAGE = "armi_runtime.composition.runtime_resources"
 _MAXIMUM_BYTES = 64 * 1024

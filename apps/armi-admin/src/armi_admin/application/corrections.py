@@ -26,6 +26,7 @@ from .credentials import AdminCredentialPort, AdminSecretError
 _TOKEN_FIELDS = {
     "schema_version",
     "management_session_id",
+    "config_digest",
     "environment_id",
     "incarnation",
     "purpose",
@@ -112,8 +113,9 @@ class AdminCorrectionCoordinator:
             raise AdminCorrectionError(exc.code) from None
         now = datetime.now(UTC)
         payload = {
-            "schema_version": "armi.admin-correction-preview.v1",
+            "schema_version": "armi.admin-correction-preview.v2",
             "management_session_id": self._control.management_session_id,
+            "config_digest": self._config.safe_digest(),
             "environment_id": self._config.environment_id,
             "incarnation": self._config.environment_incarnation,
             "purpose": "admin.correction",
@@ -151,7 +153,7 @@ class AdminCorrectionCoordinator:
     ) -> dict[str, Any]:
         spec = self._owned_spec(spec, purpose=purpose)
         payload = self._decode(token)
-        if payload["management_session_id"] != self._control.management_session_id:
+        if payload.get("config_digest") != self._config.safe_digest():
             raise AdminCorrectionError("ADMIN-CORRECTION-PREVIEW-SESSION")
         if datetime.now(UTC) >= self._parse_time(payload["expires_at"]):
             raise AdminCorrectionError("ADMIN-CORRECTION-PREVIEW-EXPIRED")
@@ -173,7 +175,7 @@ class AdminCorrectionCoordinator:
                 {
                     **spec,
                     "operator_purpose": "admin.correction",
-                    "operator_identity": self._control.management_session_id,
+                    "operator_identity": self._config.operator_id,
                 }
             )
         except AdminCorrectionGatewayError as exc:
@@ -247,7 +249,7 @@ class AdminCorrectionCoordinator:
             if set(payload) != _TOKEN_FIELDS:
                 raise ValueError("fields")
             if (
-                payload["schema_version"] != "armi.admin-correction-preview.v1"
+                payload["schema_version"] != "armi.admin-correction-preview.v2"
                 or payload["purpose"] != "admin.correction"
                 or not isinstance(payload["status_spec"], dict)
             ):

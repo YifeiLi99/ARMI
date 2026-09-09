@@ -3,11 +3,11 @@ from __future__ import annotations
 import unittest
 from datetime import UTC, datetime
 
+from armi_local_control.runtime_errors import RuntimeViolation
 from armi_runtime.composition.lifecycle import (
     RUNTIME_BLOCKING_REASONS,
     LifecycleController,
 )
-from armi_runtime.composition.runtime_errors import RuntimeViolation
 from armi_runtime.interfaces.creator_contract import Readiness, RuntimeState
 
 ENVIRONMENT_ID = "01980f7d-7b8f-7e2a-8a11-2ab8e1234567"

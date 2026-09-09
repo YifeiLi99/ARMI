@@ -104,6 +104,7 @@ from armi_live_vision.bootstrap import (
 )
 from armi_live_voice.api import LiveVoiceRuntimePort, LiveVoiceViolation
 from armi_live_voice.bootstrap import bootstrap_live_voice_context_read
+from armi_local_control.runtime_errors import RuntimeViolation
 from armi_memory.api import MemoryViolation
 from armi_perception.bootstrap import bootstrap_visual_recognition_attempts
 from armi_prompt.api import CreatorPromptViolation
@@ -230,7 +231,6 @@ from .live_voice import compose_runtime_live_voice
 from .napcat_process import compose_qq_health, disabled_qq_health
 from .owner_roster import compose_runtime_owner_roster
 from .qq_channel import QQChannelBinding, compose_qq_channel
-from .runtime_errors import RuntimeViolation
 from .runtime_observability import RuntimeObservationDriver
 from .supervisor import RuntimeSupervisor
 from .work_wakeup import WorkWakeupBus
@@ -297,7 +297,7 @@ async def _compose_live_vision_sources(
     dict[VisualSourceKind, Any],
 ]:
     recognition_binding = load_external_recognition_binding(
-        runtime_config_path("model-bindings.yaml")
+        runtime_config_path("model-bindings.yaml", environment_root=prepared.root)
     )
     source_specs: list[tuple[VisualSourceKind, Any, Any, Any]] = []
     camera_config = config.vision.camera
@@ -433,11 +433,17 @@ async def _serve(
         rotation_max_bytes=config.diagnostics.rotation_max_bytes,
         retention_seconds=config.diagnostics.retention_seconds,
     )
-    assets = (
-        StaticAssetStore.load_packaged()
-        if creator_web_resources is None
-        else StaticAssetStore.load_directory(creator_web_resources)
-    )
+    web_assets_error: str | None = None
+    try:
+        assets = (
+            StaticAssetStore.load_packaged()
+            if creator_web_resources is None
+            else StaticAssetStore.load_directory(creator_web_resources)
+        )
+    except AssetViolation as error:
+        web_assets_error = error.code
+        assets = StaticAssetStore({})
+        diagnostic.emit("creator.web.unavailable", result_code=error.code)
     lifecycle.start()
     diagnostic.emit("runtime.lifecycle.starting", result_code="LIFE_STARTING")
     database_reasons = runtime_database_reason(prepared)
@@ -475,6 +481,7 @@ async def _serve(
     prompt_module = None
     creator_events: CreatorEventBroker | None = None
     creator_input = None
+    creator_context = None
     subject_summary_provider: RuntimeSubjectSummaryAssembler | None = None
     creator_operations = None
     other_human_input = None
@@ -1946,8 +1953,10 @@ async def _serve(
                 ),
                 RuntimeComponentHealthResponse(
                     component="creator_web",
-                    state="ready",
-                    reason_codes=[],
+                    state="ready" if web_assets_error is None else "unavailable",
+                    reason_codes=[]
+                    if web_assets_error is None
+                    else [web_assets_error.replace("-", "_")],
                 ),
             ],
             observed_at=snapshot.observed_at,
@@ -2249,11 +2258,17 @@ async def _serve(
         diagnostic.emit(event, result_code="CREATOR_SECURITY_EVENT")
 
     def admin_status() -> dict[str, object]:
+        from armi_local_control.configuration.editing import configuration_digest
+
         snapshot = lifecycle.snapshot()
         result: dict[str, object] = {
             "runtime_state": snapshot.runtime_state.value,
             "readiness": snapshot.readiness.value,
             "reason_codes": list(snapshot.reason_codes),
+            "runtime_configuration_digest": configuration_digest(
+                config.model_dump(mode="json")
+            ),
+            "configuration_sources": list(prepared.effective.applied_sources),
         }
         if observation_driver is not None:
             result["observability"] = observation_driver.snapshot()
@@ -2452,6 +2467,11 @@ async def _serve(
         )
 
     app = create_runtime_app(
+        machine_environment_root=prepared.root,
+        machine_environment_id=config.environment.environment_id,
+        machine_creator_party_id=None
+        if creator_context is None
+        else creator_context.party_id,
         readiness=lambda: runtime_status().readiness,
         runtime_status=runtime_status,
         qq_channel_health=qq_health_status,
@@ -2545,7 +2565,24 @@ async def _serve(
         str(config.environment.environment_id),
     )
     if control_incarnation is not None:
+        test_controls_enabled = False
+        if runtime_unit_of_work_factory is not None:
+            async with runtime_unit_of_work_factory.unit_of_work(
+                read_only=True
+            ) as control_unit:
+                control_environment = await (
+                    await control_unit.transaction.execute(
+                        "SELECT environment_kind,test_controls_enabled FROM armi.deployment_environments WHERE environment_id=%s AND incarnation=%s",
+                        (config.environment.environment_id, control_incarnation),
+                    )
+                ).fetchone()
+                test_controls_enabled = (
+                    control_environment is not None
+                    and control_environment[0] in {"system_test", "acceptance"}
+                    and control_environment[1] is True
+                )
         admin_control = RuntimeAdminControlServer(
+            test_controls_enabled=test_controls_enabled,
             run_root=prepared.root / "run" / "admin-control",
             environment_id=str(config.environment.environment_id),
             incarnation=control_incarnation,

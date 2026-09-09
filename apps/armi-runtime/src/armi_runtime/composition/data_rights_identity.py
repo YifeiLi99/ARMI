@@ -7,10 +7,10 @@ import hmac
 from typing import Final
 
 from armi_kernel.application import CredentialPurpose
+from armi_local_control.configuration import ConfigurationViolation
+from armi_local_control.runtime_errors import RuntimeViolation
 
-from armi_runtime.composition.configuration import ConfigurationViolation
 from armi_runtime.composition.environment import PreparedEnvironment
-from armi_runtime.composition.runtime_errors import RuntimeViolation
 
 IDENTITY_TOKEN_LOCATOR: Final = "data_rights.identity_token_key"
 IDENTITY_TOKEN_PURPOSE: Final = "data_rights.identity_token"

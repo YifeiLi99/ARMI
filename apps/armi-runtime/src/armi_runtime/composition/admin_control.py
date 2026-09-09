@@ -13,6 +13,12 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
+from armi_data_rights.api import DataRightsViolation
+from armi_interaction.api import CreatorInputViolation, OtherHumanInputViolation
+from armi_live_vision.api import LiveVisionViolation
+from armi_live_voice.api import LiveVoiceViolation
+from armi_local_control import RuntimeViolation
+
 _MAX_REQUEST = 64 * 1024
 _MAX_RESPONSE = 1024 * 1024
 _COMMANDS = {
@@ -93,6 +99,7 @@ class RuntimeAdminControlServer:
         "_other_human",
         "_run_root",
         "_server",
+        "_test_controls_enabled",
         "_token",
         "_vision",
         "_voice",
@@ -114,6 +121,7 @@ class RuntimeAdminControlServer:
         ) = None,
         on_voice: Callable[[str], Awaitable[dict[str, Any]]] | None = None,
         on_vision: Callable[[str, str | None], Awaitable[dict[str, Any]]] | None = None,
+        test_controls_enabled: bool = False,
     ) -> None:
         self._run_root = run_root
         self._manifest = run_root / "runtime-control.manifest.json"
@@ -131,6 +139,7 @@ class RuntimeAdminControlServer:
         self._server: asyncio.AbstractServer | None = None
         self._token = ""
         self._armed_faults: dict[str, datetime] = {}
+        self._test_controls_enabled = test_controls_enabled
 
     @classmethod
     def configured(cls, environment_root: Path) -> bool:
@@ -198,6 +207,7 @@ class RuntimeAdminControlServer:
     async def _handle(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
+        request: dict[str, Any] = {}
         try:
             try:
                 size = struct.unpack(">I", await reader.readexactly(4))[0]
@@ -205,8 +215,26 @@ class RuntimeAdminControlServer:
                     raise RuntimeAdminControlError("ADMIN-CONTROL-REQUEST-SIZE")
                 request = _strict_json(await reader.readexactly(size))
                 response = await self._dispatch(request)
+            except RuntimeAdminControlError as error:
+                response = {
+                    "request_id": request.get("request_id"),
+                    "status": "rejected",
+                    "error_code": str(error),
+                }
             except (
-                RuntimeAdminControlError,
+                RuntimeViolation,
+                OtherHumanInputViolation,
+                CreatorInputViolation,
+                DataRightsViolation,
+                LiveVoiceViolation,
+                LiveVisionViolation,
+            ) as error:
+                response = {
+                    "request_id": request.get("request_id"),
+                    "status": "rejected",
+                    "error_code": error.code,
+                }
+            except (
                 asyncio.IncompleteReadError,
                 UnicodeDecodeError,
                 json.JSONDecodeError,
@@ -263,12 +291,19 @@ class RuntimeAdminControlServer:
             self._on_stop()
             result = {"runtime_state": "stopping"}
         elif command == "input":
+            if not self._test_controls_enabled:
+                raise RuntimeAdminControlError("ADMIN-TEST-CONTROLS-DISABLED")
             if self._input is None or set(arguments) != {"message", "idempotency_key"}:
                 raise RuntimeAdminControlError("ADMIN-CONTROL-INPUT")
             result = await self._input(
                 str(arguments["message"]), str(arguments["idempotency_key"])
             )
         elif command == "other_human":
+            if (
+                arguments.get("action") == "message_send"
+                and not self._test_controls_enabled
+            ):
+                raise RuntimeAdminControlError("ADMIN-TEST-CONTROLS-DISABLED")
             if (
                 self._other_human is None
                 or set(arguments) != {"action", "payload"}
@@ -314,6 +349,8 @@ class RuntimeAdminControlServer:
         }
 
     def _fault(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        if not self._test_controls_enabled:
+            raise RuntimeAdminControlError("ADMIN-TEST-CONTROLS-DISABLED")
         action = arguments.get("action")
         if action == "clear":
             self._armed_faults.clear()

@@ -14,9 +14,9 @@ from uuid import UUID
 from armi_adapter_esp32_display import ProbeResult
 from armi_kernel.application import BirthResult
 from armi_kernel.contracts import Digest
-from armi_runtime.cli import main
+from armi_local_control.runtime_errors import RuntimeViolation
 from armi_runtime.composition.environment import prepare_environment
-from armi_runtime.composition.runtime_errors import RuntimeViolation
+from armi_runtime.runtime_entrypoint import main
 
 ENVIRONMENT_ID = "01980f7d-7b8f-7e2a-8a11-2ab8e1234567"
 
@@ -58,7 +58,7 @@ class RuntimeCliTests(unittest.TestCase):
         output = io.StringIO()
         with (
             patch(
-                "armi_runtime.cli.probe_device",
+                "armi_runtime.runtime_entrypoint.probe_device",
                 return_value=ProbeResult(
                     "mood-window-1",
                     "0.2.0",
@@ -82,10 +82,10 @@ class RuntimeCliTests(unittest.TestCase):
             with (
                 patch.dict(os.environ, {}, clear=True),
                 patch(
-                    "armi_runtime.cli.RuntimeProcessManager"
+                    "armi_runtime.runtime_entrypoint.RuntimeProcessManager"
                 ) as runtime_process_manager,
                 patch(
-                    "armi_runtime.cli.SemanticRecallProcessManager"
+                    "armi_runtime.runtime_entrypoint.SemanticRecallProcessManager"
                 ) as semantic_manager,
                 redirect_stdout(output),
             ):
@@ -178,10 +178,12 @@ class RuntimeCliTests(unittest.TestCase):
             with (
                 patch.dict(os.environ, {}, clear=True),
                 patch(
-                    "armi_runtime.cli.prepare_environment",
+                    "armi_runtime.runtime_entrypoint.prepare_environment",
                     wraps=prepare_environment,
                 ) as prepare,
-                patch("armi_runtime.cli.run_runtime", return_value=0) as runner,
+                patch(
+                    "armi_runtime.runtime_entrypoint.run_runtime", return_value=0
+                ) as runner,
                 redirect_stdout(output),
             ):
                 exit_code = main(
@@ -211,7 +213,9 @@ class RuntimeCliTests(unittest.TestCase):
             output = io.StringIO()
             with (
                 patch.dict(os.environ, {}, clear=True),
-                patch("armi_runtime.cli.RuntimeProcessManager") as manager_type,
+                patch(
+                    "armi_runtime.runtime_entrypoint.RuntimeProcessManager"
+                ) as manager_type,
                 redirect_stdout(output),
             ):
                 manager_type.return_value.start.return_value = {
@@ -233,7 +237,9 @@ class RuntimeCliTests(unittest.TestCase):
             make_environment(root)
             with (
                 patch.dict(os.environ, {}, clear=True),
-                patch("armi_runtime.cli.RuntimeProcessManager") as manager_type,
+                patch(
+                    "armi_runtime.runtime_entrypoint.RuntimeProcessManager"
+                ) as manager_type,
                 redirect_stdout(io.StringIO()),
             ):
                 manager_type.return_value.start.return_value = {
@@ -263,8 +269,12 @@ class RuntimeCliTests(unittest.TestCase):
             output = io.StringIO()
             with (
                 patch.dict(os.environ, {}, clear=True),
-                patch("armi_runtime.cli.RuntimeProcessManager") as manager_type,
-                patch("armi_runtime.cli.SemanticRecallProcessManager") as semantic_type,
+                patch(
+                    "armi_runtime.runtime_entrypoint.RuntimeProcessManager"
+                ) as manager_type,
+                patch(
+                    "armi_runtime.runtime_entrypoint.SemanticRecallProcessManager"
+                ) as semantic_type,
                 redirect_stdout(output),
             ):
                 semantic_type.return_value.start.return_value = {
@@ -290,8 +300,12 @@ class RuntimeCliTests(unittest.TestCase):
             output = io.StringIO()
             with (
                 patch.dict(os.environ, {}, clear=True),
-                patch("armi_runtime.cli.RuntimeProcessManager") as manager_type,
-                patch("armi_runtime.cli.SemanticRecallProcessManager") as semantic_type,
+                patch(
+                    "armi_runtime.runtime_entrypoint.RuntimeProcessManager"
+                ) as manager_type,
+                patch(
+                    "armi_runtime.runtime_entrypoint.SemanticRecallProcessManager"
+                ) as semantic_type,
                 redirect_stdout(output),
             ):
                 semantic_type.return_value.start.side_effect = RuntimeViolation(
@@ -325,11 +339,17 @@ class RuntimeCliTests(unittest.TestCase):
             output = io.StringIO()
             with (
                 patch.dict(os.environ, {}, clear=True),
-                patch("armi_runtime.cli.Path.cwd", return_value=root.resolve()),
                 patch(
-                    "armi_runtime.cli.prepare_environment", wraps=prepare_environment
+                    "armi_runtime.runtime_entrypoint.Path.cwd",
+                    return_value=root.resolve(),
+                ),
+                patch(
+                    "armi_runtime.runtime_entrypoint.prepare_environment",
+                    wraps=prepare_environment,
                 ) as prepare,
-                patch("armi_runtime.cli.RuntimeProcessManager") as manager_type,
+                patch(
+                    "armi_runtime.runtime_entrypoint.RuntimeProcessManager"
+                ) as manager_type,
                 redirect_stdout(output),
             ):
                 manager_type.return_value.status.return_value = {
@@ -367,7 +387,9 @@ class RuntimeCliTests(unittest.TestCase):
             }
             with (
                 patch.dict(os.environ, {}, clear=True),
-                patch("armi_runtime.cli.NapCatProcessManager") as manager_type,
+                patch(
+                    "armi_runtime.runtime_entrypoint.NapCatProcessManager"
+                ) as manager_type,
                 redirect_stdout(output),
             ):
                 manager_type.return_value.status.return_value.safe_view.return_value = (
@@ -396,9 +418,12 @@ class RuntimeCliTests(unittest.TestCase):
             with (
                 patch.dict(os.environ, {}, clear=True),
                 patch(
-                    "armi_runtime.cli.prepare_environment", wraps=prepare_environment
+                    "armi_runtime.runtime_entrypoint.prepare_environment",
+                    wraps=prepare_environment,
                 ) as prepare,
-                patch("armi_runtime.cli.NapCatProcessManager") as manager_type,
+                patch(
+                    "armi_runtime.runtime_entrypoint.NapCatProcessManager"
+                ) as manager_type,
                 redirect_stdout(output),
             ):
                 manager_type.return_value.open_webui.return_value.safe_view.return_value = safe
@@ -423,7 +448,9 @@ class RuntimeCliTests(unittest.TestCase):
             }
             with (
                 patch.dict(os.environ, {}, clear=True),
-                patch("armi_runtime.cli.NapCatProcessManager") as manager_type,
+                patch(
+                    "armi_runtime.runtime_entrypoint.NapCatProcessManager"
+                ) as manager_type,
                 redirect_stdout(output),
             ):
                 manager_type.return_value.open_webui.return_value.safe_view.return_value = safe
@@ -454,9 +481,12 @@ class RuntimeCliTests(unittest.TestCase):
                     clear=True,
                 ),
                 patch(
-                    "armi_runtime.cli.prepare_environment", wraps=prepare_environment
+                    "armi_runtime.runtime_entrypoint.prepare_environment",
+                    wraps=prepare_environment,
                 ) as prepare,
-                patch("armi_runtime.cli.RuntimeProcessManager") as manager_type,
+                patch(
+                    "armi_runtime.runtime_entrypoint.RuntimeProcessManager"
+                ) as manager_type,
                 redirect_stdout(output),
             ):
                 manager_type.return_value.status.return_value = {
@@ -480,9 +510,12 @@ class RuntimeCliTests(unittest.TestCase):
             with (
                 patch.dict(os.environ, {}, clear=True),
                 patch(
-                    "armi_runtime.cli.prepare_environment", wraps=prepare_environment
+                    "armi_runtime.runtime_entrypoint.prepare_environment",
+                    wraps=prepare_environment,
                 ) as prepare,
-                patch("armi_runtime.cli.RuntimeProcessManager") as manager_type,
+                patch(
+                    "armi_runtime.runtime_entrypoint.RuntimeProcessManager"
+                ) as manager_type,
                 redirect_stdout(output),
             ):
                 manager_type.return_value.send_creator_input.return_value = {
@@ -517,8 +550,13 @@ class RuntimeCliTests(unittest.TestCase):
             make_environment(root)
             with (
                 patch.dict(os.environ, {}, clear=True),
-                patch("armi_runtime.cli.sys.stdin", io.StringIO("来自标准输入")),
-                patch("armi_runtime.cli.RuntimeProcessManager") as manager_type,
+                patch(
+                    "armi_runtime.runtime_entrypoint.sys.stdin",
+                    io.StringIO("来自标准输入"),
+                ),
+                patch(
+                    "armi_runtime.runtime_entrypoint.RuntimeProcessManager"
+                ) as manager_type,
                 redirect_stdout(io.StringIO()),
             ):
                 manager_type.return_value.send_creator_input.return_value = {
@@ -549,9 +587,12 @@ class RuntimeCliTests(unittest.TestCase):
             with (
                 patch.dict(os.environ, {}, clear=True),
                 patch(
-                    "armi_runtime.cli.prepare_environment", wraps=prepare_environment
+                    "armi_runtime.runtime_entrypoint.prepare_environment",
+                    wraps=prepare_environment,
                 ) as prepare,
-                patch("armi_runtime.cli.RuntimeProcessManager") as manager_type,
+                patch(
+                    "armi_runtime.runtime_entrypoint.RuntimeProcessManager"
+                ) as manager_type,
                 redirect_stdout(output),
             ):
                 manager_type.return_value.other_human.return_value = {
@@ -600,7 +641,7 @@ class RuntimeCliTests(unittest.TestCase):
             with (
                 patch.dict(os.environ, {}, clear=True),
                 patch(
-                    "armi_runtime.cli.execute_birth",
+                    "armi_runtime.runtime_entrypoint.execute_birth",
                     return_value=result,
                 ) as birth,
                 redirect_stdout(output),
@@ -634,11 +675,11 @@ class RuntimeCliTests(unittest.TestCase):
             with (
                 patch.dict(os.environ, {}, clear=True),
                 patch(
-                    "armi_runtime.cli.prepare_environment",
+                    "armi_runtime.runtime_entrypoint.prepare_environment",
                     wraps=prepare_environment,
                 ) as prepare,
                 patch(
-                    "armi_runtime.cli.run_artifact_retention",
+                    "armi_runtime.runtime_entrypoint.run_artifact_retention",
                     return_value=report,
                 ) as cleanup,
                 redirect_stdout(output),
@@ -694,11 +735,11 @@ class RuntimeCliTests(unittest.TestCase):
             with (
                 patch.dict(os.environ, {}, clear=True),
                 patch(
-                    "armi_runtime.cli.prepare_environment",
+                    "armi_runtime.runtime_entrypoint.prepare_environment",
                     wraps=prepare_environment,
                 ) as prepare,
                 patch(
-                    "armi_runtime.cli.run_database_maintenance",
+                    "armi_runtime.runtime_entrypoint.run_database_maintenance",
                     return_value=report,
                 ) as maintain,
                 redirect_stdout(output),
@@ -737,15 +778,15 @@ class RuntimeCliTests(unittest.TestCase):
             with (
                 patch.dict(os.environ, {}, clear=True),
                 patch(
-                    "armi_runtime.cli.prepare_environment",
+                    "armi_runtime.runtime_entrypoint.prepare_environment",
                     wraps=prepare_environment,
                 ) as prepare,
                 patch(
-                    "armi_runtime.cli.RuntimeProcessManager.status",
+                    "armi_runtime.runtime_entrypoint.RuntimeProcessManager.status",
                     return_value={"status": "running"},
                 ),
                 patch(
-                    "armi_runtime.cli.run_runtime_capacity_baseline",
+                    "armi_runtime.runtime_entrypoint.run_runtime_capacity_baseline",
                     return_value=report,
                 ) as baseline,
                 redirect_stdout(output),

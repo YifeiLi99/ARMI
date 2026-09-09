@@ -61,6 +61,10 @@ from .creator_http import (
     datetime,
     secrets,
 )
+from .interaction_authority import (
+    authenticated_delegate,
+    verify_interaction,
+)
 
 
 def register_governance_routes(
@@ -94,7 +98,7 @@ def register_governance_routes(
     )
     async def create_creator_export(request: Request) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or creator_export is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -113,9 +117,9 @@ def register_governance_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
+            verify_interaction(request, browser_sessions, token)
             idempotency_value = request.headers.get("idempotency-key")
             if idempotency_value is None:
                 raise CreatorExportViolation("CREATOR-EXPORT-COMMAND")
@@ -158,7 +162,7 @@ def register_governance_routes(
     )
     async def get_creator_export(request: Request, export_id: str) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or creator_export is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -177,9 +181,9 @@ def register_governance_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
+            verify_interaction(request, browser_sessions, token)
             try:
                 export_uuid = UUID(export_id)
             except ValueError:
@@ -216,7 +220,7 @@ def register_governance_routes(
     )
     async def list_creator_data_rights_orders(request: Request) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or data_rights is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -231,9 +235,9 @@ def register_governance_routes(
             )
         try:
             token = _bearer(request)
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
+            verify_interaction(request, browser_sessions, token)
             details = await data_rights.list_creator()
         except BrowserSessionViolation as error:
             return JSONResponse(
@@ -267,7 +271,7 @@ def register_governance_routes(
     )
     async def create_creator_data_rights_order(request: Request) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or data_rights is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -284,9 +288,9 @@ def register_governance_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
+            verify_interaction(request, browser_sessions, token)
             idempotency_value = request.headers.get("idempotency-key")
             if idempotency_value is None:
                 raise DataRightsViolation("DATA-RIGHTS-COMMAND")
@@ -331,7 +335,7 @@ def register_governance_routes(
         request: Request, order_id: str
     ) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or data_rights is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -348,9 +352,9 @@ def register_governance_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
+            verify_interaction(request, browser_sessions, token)
             try:
                 order_uuid = UUID(order_id)
             except ValueError:
@@ -382,7 +386,7 @@ def register_governance_routes(
         request: Request, order_id: str
     ) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or data_rights is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -392,9 +396,9 @@ def register_governance_routes(
             )
         try:
             token = _bearer(request)
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
+            verify_interaction(request, browser_sessions, token)
             key = request.headers.get("idempotency-key")
             if key is None:
                 raise DataRightsViolation("DATA-RIGHTS-RETRY-COMMAND")
@@ -437,7 +441,7 @@ def register_governance_routes(
     )
     async def list_capability_requests(request: Request) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or capability_policy is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -452,9 +456,9 @@ def register_governance_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            metadata = browser_sessions.verify(token)
+            metadata = verify_interaction(request, browser_sessions, token)
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code,
@@ -590,7 +594,7 @@ def register_governance_routes(
         request: Request,
     ) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or capability_policy is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -605,9 +609,9 @@ def register_governance_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
+            verify_interaction(request, browser_sessions, token)
             body = await _capability_decision_request(
                 request,
                 request_body_max_bytes,

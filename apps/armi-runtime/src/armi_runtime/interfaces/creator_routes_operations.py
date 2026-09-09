@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Literal, cast
+from armi_runtime.application.creator_commands import CreatorCommands
 
+from .creator_effect_wire import effect_wire
 from .creator_http import (
-    UUID,
     AcceptedOutcomeResponse,
     BrowserSessionStore,
     BrowserSessionViolation,
@@ -14,27 +14,22 @@ from .creator_http import (
     CodexReasoningEffort,
     ContractViolation,
     CreatorCodexTaskAdmissionPort,
-    CreatorCodexTaskCommand,
     CreatorInputAcceptance,
     CreatorInputViolation,
     CreatorOperationQueryPort,
     EffectArtifactKind,
-    EffectId,
     EffectLedgerPort,
     EffectResponse,
     EffectViolation,
     FastAPI,
     HTTPBearer,
-    IdempotencyKey,
     JSONResponse,
     OperationOutcomeResponse,
-    OpportunityId,
     RejectedOutcomeResponse,
     Request,
     Response,
     Security,
     SecurityEvent,
-    TraceId,
     UnavailableOutcomeResponse,
     _accepted_wire,
     _bearer,
@@ -46,13 +41,18 @@ from .creator_http import (
     _unavailable,
     creator_visible_codex_artifact,
     operation_wire,
-    secrets,
+)
+from .interaction_authority import (
+    authenticated_delegate,
+    delegate_id,
+    verify_interaction,
 )
 
 
 def register_operation_routes(
     *,
     app: FastAPI,
+    commands: CreatorCommands,
     bearer: HTTPBearer,
     canonical_origin: str,
     emit: SecurityEvent,
@@ -82,7 +82,9 @@ def register_operation_routes(
         scene_key: str,
         request: Request,
     ) -> JSONResponse:
-        if browser_sessions is None or codex_task_admission is None:
+        if (
+            browser_sessions is None and authenticated_delegate(request) is None
+        ) or codex_task_admission is None:
             return JSONResponse(
                 status_code=503,
                 content=_unavailable("DEPENDENCY_CODEX_TASK_UNAVAILABLE"),
@@ -94,9 +96,9 @@ def register_operation_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
+            verify_interaction(request, browser_sessions, token)
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code,
@@ -110,16 +112,14 @@ def register_operation_routes(
             )
         try:
             model = await _creator_codex_task_request(request, request_body_max_bytes)
-            acceptance = await codex_task_admission.accept(
-                CreatorCodexTaskCommand(
-                    scene_key,
-                    model.objective,
-                    IdempotencyKey(idempotency_value),
-                    TraceId(secrets.token_hex(16)),
-                    CodexModel(model.model_id),
-                    CodexReasoningEffort(model.reasoning_effort),
-                    model.web_search,
-                )
+            acceptance = await commands.submit_codex(
+                scene_key=scene_key,
+                objective=model.objective,
+                idempotency_key=idempotency_value,
+                model=CodexModel(model.model_id),
+                reasoning=CodexReasoningEffort(model.reasoning_effort),
+                web_search=model.web_search,
+                delegate_id=delegate_id(request),
             )
         except (ContractViolation, CodexDelegationViolation) as error:
             if isinstance(error, ContractViolation):
@@ -166,7 +166,7 @@ def register_operation_routes(
         request: Request,
     ) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or creator_operations is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -181,11 +181,10 @@ def register_operation_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
-            operation_id = OpportunityId(UUID(result_ref))
-            operation = await creator_operations.get(operation_id)
+            verify_interaction(request, browser_sessions, token)
+            operation = await commands.operation(result_ref)
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code,
@@ -216,7 +215,7 @@ def register_operation_routes(
     )
     async def get_effect(effect_id: str, request: Request) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or effect_ledger is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -231,12 +230,10 @@ def register_operation_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            metadata = browser_sessions.verify(token)
-            view = await effect_ledger.get_effect(
-                EffectId(UUID(effect_id)), creator_party_id=metadata.creator_party_id
-            )
+            metadata = verify_interaction(request, browser_sessions, token)
+            view = await commands.effect(effect_id, metadata.creator_party_id)
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code, content=_rejected(error.code)
@@ -253,69 +250,7 @@ def register_operation_routes(
             return JSONResponse(
                 status_code=404, content=_rejected("SCOPE_EFFECT_NOT_VISIBLE")
             )
-        return JSONResponse(
-            content=EffectResponse(
-                contract_version="1.0",
-                projection_version="creator-effect.v4",
-                effect_id=str(view.effect_id.value),
-                action_intent_ref=str(view.action_intent_ref),
-                action_intent_revision_ref=str(view.action_intent_revision_ref),
-                policy_decision_ref=(
-                    None
-                    if view.policy_decision_ref is None
-                    else str(view.policy_decision_ref)
-                ),
-                capability_request_ref=str(view.capability_request_ref),
-                permission_grant_ref=str(view.permission_grant_ref),
-                capability_kind=view.capability_kind,
-                effect_kind=view.effect_kind,
-                status=view.status.value,
-                verification_status=view.verification_status.value,
-                registered_at=view.registered_at.to_wire(),
-                cancelled_at=(
-                    view.cancelled_at.to_wire()
-                    if view.cancelled_at is not None
-                    else None
-                ),
-                attempt_count=view.attempt_count,
-                current_attempt_ref=(
-                    None
-                    if view.current_attempt_ref is None
-                    else str(view.current_attempt_ref)
-                ),
-                current_attempt_no=view.current_attempt_no,
-                current_dispatch_state=cast(
-                    Literal["prepared", "dispatching", "settled"] | None,
-                    view.current_dispatch_state,
-                ),
-                current_observation_ref=(
-                    None
-                    if view.current_observation_ref is None
-                    else str(view.current_observation_ref)
-                ),
-                observation_conclusion=cast(
-                    Literal["completed", "failed", "unknown", "cancelled"] | None,
-                    view.observation_conclusion,
-                ),
-                observation_reason=view.observation_reason,
-                observation_evidence_kind=view.observation_evidence_kind,
-                last_observation_kind=(
-                    view.last_observation_kind.value
-                    if view.last_observation_kind is not None
-                    else None
-                ),
-                last_observation_reliability=(
-                    view.last_observation_reliability.value
-                    if view.last_observation_reliability is not None
-                    else None
-                ),
-                verification_action=view.verification_action,
-                settled_at=(
-                    view.settled_at.to_wire() if view.settled_at is not None else None
-                ),
-                response_text=view.response_text,
-            ).model_dump(exclude_none=True)
-        )
+        return JSONResponse(content=effect_wire(view))
 
     del get_effect
 
@@ -343,7 +278,7 @@ def register_operation_routes(
         effect_id: str, artifact_kind: str, request: Request
     ) -> Response:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or effect_ledger is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -358,14 +293,12 @@ def register_operation_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            metadata = browser_sessions.verify(token)
+            metadata = verify_interaction(request, browser_sessions, token)
             kind = EffectArtifactKind(artifact_kind)
-            artifact = await effect_ledger.read_artifact(
-                EffectId(UUID(effect_id)),
-                creator_party_id=metadata.creator_party_id,
-                kind=kind,
+            artifact = await commands.artifact(
+                effect_id, metadata.creator_party_id, kind
             )
             content, media_type = creator_visible_codex_artifact(
                 kind,

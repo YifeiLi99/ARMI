@@ -16,10 +16,10 @@ from armi_codex.bootstrap import (
     encode_custodied_runner_result,
     encode_runner_result,
 )
+from armi_local_control.configuration import ConfigurationViolation
+from armi_local_control.runtime_errors import RuntimeViolation
 
-from armi_runtime.composition.configuration import ConfigurationViolation
 from armi_runtime.composition.environment import prepare_environment
-from armi_runtime.composition.runtime_errors import RuntimeViolation
 
 
 def _parser() -> argparse.ArgumentParser:

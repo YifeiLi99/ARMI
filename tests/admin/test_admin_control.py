@@ -8,9 +8,10 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import cast
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from armi_admin.application import AdminConfig, AdminControlPlane, AdminCredentialPort
+from armi_admin.application.catalog import ADMIN_OPERATIONS
 from armi_admin.persistence import AdminObservationGateway
 from armi_runtime.composition.admin_control import (
     RuntimeAdminControlServer,
@@ -37,7 +38,9 @@ def _config(root: Path) -> AdminConfig:
     (environment / "environment.yaml").write_text("fixture: true\n", encoding="utf-8")
     return AdminConfig.model_validate(
         {
-            "schema_version": "armi.admin-config.v5",
+            "schema_version": "armi.admin-config.v6",
+            "operator_id": "isolated-test-agent",
+            "authorized_operations": tuple(item.name for item in ADMIN_OPERATIONS),
             "environment_kind": "system_test",
             "environment_id": ENVIRONMENT_ID,
             "environment_incarnation": 3,
@@ -58,7 +61,33 @@ def _config(root: Path) -> AdminConfig:
 
 
 class AdminResetPreviewTests(unittest.TestCase):
-    def test_preview_is_session_environment_and_state_bound(self) -> None:
+    def test_active_initialization_does_not_require_disposable_template(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = AdminConfig.model_validate(
+                {
+                    **_config(root).model_dump(mode="json"),
+                    "environment_kind": "active",
+                    "resettable": False,
+                    "test_controls_enabled": False,
+                    "template_manifest": None,
+                    "experiment_root": None,
+                }
+            )
+            credentials = AdminCredentialPort(
+                locator=config.locator, config_root=root, environ={}
+            )
+            control = AdminControlPlane(
+                config, credentials, cast(AdminObservationGateway, object())
+            )
+            with patch.object(
+                AdminControlPlane, "maintenance", return_value={"status": "installed"}
+            ) as maintenance:
+                result = control.initialize_environment("unborn")
+            self.assertEqual(result["status"], "initialized")
+            self.assertEqual(maintenance.call_args.args[0].action, "database_install")
+
+    def test_preview_is_environment_and_state_bound_across_processes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             config = _config(root)
@@ -73,16 +102,29 @@ class AdminResetPreviewTests(unittest.TestCase):
                     "ARMI_SECRET_ADMIN_PREVIEW_KEY": "preview-key-for-tests",
                 },
             )
-            control = AdminControlPlane(
-                config, credentials, cast(AdminObservationGateway, object())
-            )
+            observation = Mock(spec=AdminObservationGateway)
+            observation.subject_snapshot.return_value = {
+                "subject": None,
+                "components": [],
+            }
+            control = AdminControlPlane(config, credentials, observation)
             with patch.object(
                 AdminControlPlane,
                 "_database_catalog_digest",
                 return_value=DIGEST,
             ):
                 preview = control.preview_reset()
-                payload = control.validate_reset(str(preview["preview_token"]))
+                other_process = AdminControlPlane(config, credentials, observation)
+                payload = other_process.validate_reset(str(preview["preview_token"]))
+                with patch.object(
+                    AdminControlPlane, "maintenance", return_value={}
+                ) as maintenance:
+                    control.apply_reset(str(preview["preview_token"]))
+                    with self.assertRaisesRegex(
+                        RuntimeError, "ADMIN-RESET-PREVIEW-USED"
+                    ):
+                        other_process.apply_reset(str(preview["preview_token"]))
+                    self.assertEqual(maintenance.call_count, 1)
             self.assertEqual(payload["environment_id"], ENVIRONMENT_ID)
             self.assertEqual(payload["incarnation"], 3)
             (config.environment_root / "changed").write_text(
@@ -267,6 +309,7 @@ class RuntimeControlProtocolTests(unittest.TestCase):
                 on_drain=lambda: None,
                 on_stop=lambda: None,
                 on_input=None,
+                test_controls_enabled=True,
             )
             server._fault(  # pyright: ignore[reportPrivateUsage]
                 {

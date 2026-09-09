@@ -1,0 +1,8 @@
+# Local Creator-delegate interaction. Keep this separate from ARMI's Codex runner.
+[mcp_servers.armi]
+command = "armi-mcp"
+env_vars = ["ARMI_CLIENT_CONFIG"]
+required = true
+default_tools_approval_mode = "auto"
+startup_timeout_sec = 10
+tool_timeout_sec = 30

@@ -7,6 +7,7 @@ import ctypes
 import hashlib
 import json
 import os
+import re
 import socket
 import struct
 import subprocess
@@ -21,8 +22,11 @@ import psutil
 from armi_interaction.api import CreatorInputCommand, CreatorInputViolation
 from armi_kernel.contracts import ContractViolation, IdempotencyKey, TraceId
 
-from .process_identity import ManagedProcessIdentity, ManagedProcessState
-from .runtime_errors import RuntimeViolation
+from armi_local_control.process_identity import (
+    ManagedProcessIdentity,
+    ManagedProcessState,
+)
+from armi_local_control.runtime_errors import RuntimeViolation
 
 _CONTROL_SCHEMA = "armi.runtime-admin-control.v1"
 _PROCESS_SCHEMA = "armi.runtime-process.v2"
@@ -291,7 +295,7 @@ class RuntimeProcessManager:
             command = (
                 _background_python(),
                 "-m",
-                "armi_runtime.cli",
+                "armi_runtime.runtime_entrypoint",
                 "runtime",
                 "start",
                 "--environment-root",
@@ -619,6 +623,13 @@ class RuntimeProcessManager:
                 "runtime control endpoint is unavailable",
             ) from exc
         if (
+            response.get("request_id") == request_id
+            and response.get("status") == "rejected"
+        ):
+            code = response.get("error_code")
+            if isinstance(code, str) and re.fullmatch(r"[A-Z][A-Z0-9-]{1,127}", code):
+                raise RuntimeViolation(code, "runtime control operation was rejected")
+        if (
             response.get("request_id") != request_id
             or response.get("status") != "succeeded"
             or not isinstance(response.get("result"), dict)
@@ -629,10 +640,10 @@ class RuntimeProcessManager:
             )
         return response
 
-    def _exclusive(self) -> _RuntimeProcessLock:
-        return _RuntimeProcessLock(self._lock_path)
+    def _exclusive(self) -> LocalProcessLock:
+        return LocalProcessLock(self._lock_path)
 
-    def exclusive_environment(self) -> _RuntimeProcessLock:
+    def exclusive_environment(self) -> LocalProcessLock:
         """Fence Runtime start/stop while one stopped-only operation is active."""
 
         return self._exclusive()
@@ -723,7 +734,7 @@ class RuntimeProcessManager:
 
     def _matches_runtime_process(self, process: psutil.Process) -> bool:
         command = process.cmdline()
-        marker = ("-m", "armi_runtime.cli", "runtime", "start")
+        marker = ("-m", "armi_runtime.runtime_entrypoint", "runtime", "start")
         if tuple(command[1 : 1 + len(marker)]) != marker:
             return False
         arguments = command[1 + len(marker) :]
@@ -807,7 +818,7 @@ class RuntimeProcessManager:
         path.chmod(mode)
 
 
-class _RuntimeProcessLock:
+class LocalProcessLock:
     __slots__ = ("_handle", "_path")
 
     def __init__(self, path: Path) -> None:
@@ -840,4 +851,4 @@ class _RuntimeProcessLock:
                 handle.close()
 
 
-__all__ = ("RuntimeProcessManager",)
+__all__ = ("LocalProcessLock", "RuntimeProcessManager")

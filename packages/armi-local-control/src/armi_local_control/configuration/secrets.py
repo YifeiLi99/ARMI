@@ -14,8 +14,11 @@ from armi_kernel.application import (
     SecretHandle,
 )
 
-from .errors import ConfigurationViolation
-from .paths import has_reparse_point, require_within_roots
+from armi_local_control.configuration.errors import ConfigurationViolation
+from armi_local_control.configuration.paths import (
+    has_reparse_point,
+    require_within_roots,
+)
 
 _SECRET_ENV_NAME = re.compile(r"^ARMI_SECRET_[A-Z][A-Z0-9_]{0,63}$", re.ASCII)
 _ResultT = TypeVar("_ResultT")

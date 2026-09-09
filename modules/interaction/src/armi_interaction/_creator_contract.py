@@ -68,8 +68,11 @@ class CreatorInputCommand:
     message: str
     idempotency_key: IdempotencyKey
     trace_id: TraceId
+    delegate_id: UUID | None = None
 
     def __post_init__(self) -> None:
+        if self.delegate_id is not None:
+            _require_uuid7(self.delegate_id, "CON-INPUT-DELEGATE")
         if (
             type(self.scene_key) is not str
             or re.fullmatch(

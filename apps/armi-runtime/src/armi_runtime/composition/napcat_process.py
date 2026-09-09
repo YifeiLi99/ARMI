@@ -23,9 +23,13 @@ import httpx
 from armi_adapter_qq import QQNapCatBindingConfig, load_qq_napcat_config
 from armi_channel_napcat import NapCatHealthSnapshot, NapCatHttpClient
 from armi_kernel.application import CredentialPurpose
+from armi_local_control.configuration import ConfigurationViolation
+from armi_local_control.configuration.paths import (
+    has_reparse_point,
+    require_within_roots,
+)
+from armi_local_control.runtime_errors import RuntimeViolation
 
-from .configuration import ConfigurationViolation
-from .configuration.paths import has_reparse_point, require_within_roots
 from .environment import PreparedEnvironment
 from .qq_channel import (
     QQ_NAPCAT_ACCESS_TOKEN_LOCATOR,
@@ -33,7 +37,6 @@ from .qq_channel import (
     QQ_NAPCAT_EVENT_SECRET_LOCATOR,
     QQ_NAPCAT_EVENT_SECRET_PURPOSE,
 )
-from .runtime_errors import RuntimeViolation
 
 type QQChannelState = Literal[
     "disabled",

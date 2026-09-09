@@ -6,7 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
-from armi_runtime.composition.semantic_recall_process import (
+from armi_local_control.semantic_recall_process import (
     CUDA_ARCHIVE,
     CUDA_ARCHIVE_SHA256,
     LLAMA_ARCHIVE,

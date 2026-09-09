@@ -22,7 +22,7 @@ from ._admin import PostgreSQLWebObservationAdmin
 from ._application import WebSearchPipeline
 from ._commit import PostgreSQLWebResearchCommit
 from ._context_postgresql import PostgreSQLWebContextRead
-from ._custody import normalize_full_response
+from ._custody import load_custody_policy, normalize_full_response
 from ._data_rights import PostgreSQLWebObservationDataRightsParticipant
 from ._provider_contract import (
     API_BASE,
@@ -57,6 +57,7 @@ web_search_model = MODEL
 web_search_tool_declaration = TOOL_DECLARATION
 normalize_web_search_provider_response = normalize_provider_response
 web_search_violation = WebSearchViolation
+validate_web_search_configuration = load_custody_policy
 
 
 def bootstrap_web_research_commit() -> WebResearchCommitPort:
@@ -137,6 +138,7 @@ __all__ = (
     "bootstrap_web_research_commit",
     "normalize_web_observation_response",
     "normalize_web_search_provider_response",
+    "validate_web_search_configuration",
     "web_search_api_base",
     "web_search_binding_id",
     "web_search_model",

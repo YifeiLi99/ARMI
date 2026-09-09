@@ -7,7 +7,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any, cast
 
-from .runtime_errors import RuntimeViolation
+from armi_local_control.runtime_errors import RuntimeViolation
 
 
 @dataclass(frozen=True, slots=True)

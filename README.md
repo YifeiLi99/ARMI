@@ -6,6 +6,8 @@
 
 ARMI 不把人格提示词、模型会话或任务 Agent 当成“她”。当前系统只承载一个持续存在的电子人：同一主体跨越对话、活动、渠道、模型、进程与重启继续生活，并在被正式接纳的经历中形成自己的 Self、Mind、记忆、关系、心情和选择。
 
+对外交互优先服务获得 Creator 委托的 Agent，再服务人类直接操作。`armi` / `armi-mcp` 提供交互使用，`armi-admin` / `armi-admin-mcp` 提供管理、检查与调试；Creator Web 保留。代理不是新的社交主体，代理输入沿正式 intake 记录来源，Creator 管理授权不替代 ARMI 的主体意愿。
+
 ## 产品不变量
 
 - 正常运行中只有一个 ARMI、一条权威生命线、一个当前 generation 和一个被承认的活动 Runtime；模型、进程、场合、设备与 Codex 都不是另一个主体。
@@ -26,11 +28,11 @@ ARMI 不把人格提示词、模型会话或任务 Agent 当成“她”。当�
 |---|---|
 | 应用 | 权威 `armi-runtime`、隔离 `armi-admin`、React Creator Web |
 | 业务 | 23 个独立 Python distribution，各自拥有事实、表、恢复和数据权利责任 |
-| 底座/适配器 | Kernel、Runtime Foundation、Artifact Store、PostgreSQL contract、NapCat、QQ、ESP32 display 共 7 个包 |
-| 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；baseline `armi.schema-baseline.v12` |
-| 物理 schema | 当前 baseline 108 张表、1363 个字段、1 个只读 view、65 个显式索引；表和生产 DML 都受 owner registry 检查 |
+| 底座/适配器 | Kernel、Runtime Foundation、Local Control、Artifact Store、PostgreSQL contract、NapCat、QQ、ESP32 display 共 8 个包 |
+| 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；baseline `armi.schema-baseline.v13` |
+| 物理 schema | 当前 baseline 108 张表、1364 个字段、1 个只读 view、65 个显式索引；表和生产 DML 都受 owner registry 检查 |
 | Creator API | 52 个 OpenAPI path；同源 bearer session、签名分页、SSE 投影失效刷新 |
-| 管理面 | 21 个 Admin MCP 工具，仅限 `development` / `system_test` / `acceptance` |
+| 管理面 | CLI/MCP 共用 Admin 应用服务；支持绑定的 `active` / `development` / `system_test` / `acceptance`，具体操作受配置授权约束 |
 | 工具链 | Python 3.14.6、Node 24.18.0、uv 0.11.33；精确版本以 lock/manifest 为准 |
 
 已实现的正式路径包括 Creator 文本/多场合对话、其他人隔离交流、Experience、Memory、Relationship、Activity、Material、Mood、Sleep、Prompt、Capability、Effect/outbox、精确生命查询、数据导出与数据权利；可选边界包括本地混合语义召回、ARMI 网页研究、Creator→Codex、QQ/NapCat、实时语音、常驻视觉和 ESP32 私有心情窗。
@@ -58,11 +60,11 @@ ARMI 不把人格提示词、模型会话或任务 Agent 当成“她”。当�
 
 ```text
 apps/
-  armi-runtime/                 Runtime、CLI、Creator HTTP、适配器与组合根
-  armi-admin/                   独立 Admin MCP
+  armi-runtime/                 Runtime、交互 CLI/MCP、Creator HTTP、适配器与组合根
+  armi-admin/                   独立 Admin CLI/MCP
   armi-creator-web/             React Creator 工作台
 modules/                        23 个业务事实 owner
-packages/                       7 个稳定底座与边界适配器
+packages/                       8 个稳定底座与边界适配器
 devices/esp32-s3-touch-lcd-7c-box/
                                 私有心情窗固件
 configs/                        Runtime、模型、Web 与 Codex MCP 配置
@@ -81,31 +83,43 @@ Schema 实际打包在 `packages/armi-postgresql-contract/src/armi_postgresql_co
 .\tools\bootstrap_toolchain.ps1 -ApprovedOfficialDirect
 ```
 
-从仓库根启动 PostgreSQL、构建 Creator Web、校验环境/数据库并启动 ready Runtime：
+依赖和 Web 资源在安装时准备。正式管理入口使用 wheel 安装并核对绑定中的 package set；可用 `armi-admin identity` 离线取得当前安装摘要。日常启动读取独立 Admin 绑定，按依赖顺序启动明确归属本环境的 PostgreSQL、语义召回与 Runtime，并等待核心 readiness：
 
 ```powershell
-.\start_armi.ps1 -EnvironmentRoot C:\path\to\environment -OpenBrowser
+.\start_armi.ps1 -AdminConfig C:\path\to\admin.yaml -OpenBrowser
 ```
 
-默认环境根是仓库同级 `ARMI-Environment`。启动脚本不会自动安装数据库、迁移 schema 或执行出生。
+环境由 Admin 配置固定，不通过调用参数切换身份。启动不会安装依赖、安装数据库、执行出生或重建 Web。`-OpenBrowser` 是显式选项；共享或外部数据库不会随整体停止回收。
 
 新环境的明确建立顺序：
 
 ```powershell
-$EnvironmentRoot = 'C:\path\to\environment'
-.\tools\manage_postgresql.ps1 Start
-uv run armi config check --environment-root $EnvironmentRoot
-uv run armi db install --environment-root $EnvironmentRoot
-uv run armi bootstrap birth --environment-root $EnvironmentRoot
-.\start_armi.ps1 -EnvironmentRoot $EnvironmentRoot -OpenBrowser
+$env:ARMI_ADMIN_CONFIG = 'C:\path\to\admin.yaml'
+armi-admin capabilities
+armi-admin maintenance --idempotency-key install-001 --json '{"action":"database_install"}'
+armi-admin maintenance --idempotency-key birth-001 --json '{"action":"birth"}'
+armi-admin start
+armi-admin status
+armi-admin stop
 ```
 
 这些命令会连接或修改目标本地环境，执行前应核对绝对路径和 credential locator。完整环境、QQ、音视频、恢复、维护与重置手册见 [安装、启动与维护](docs/05-运行与验证/01-安装、启动与维护.md)。
 
+交互绑定单独使用 `ARMI_CLIENT_CONFIG`，不包含 Admin 数据库凭据。服务器读取绑定环境的 `interaction-access.yaml` 校验代理、Creator、环境和权限；客户端不能在消息参数中改变身份。
+
+```powershell
+$env:ARMI_CLIENT_CONFIG = 'C:\path\to\interaction-client.yaml'
+armi capabilities
+armi message send --scene-key default --message '你好' --idempotency-key message-001 --wait
+armi operation wait --result-ref <返回的引用> --timeout-seconds 20
+```
+
+CLI 默认输出 JSON，MCP 使用相同请求合同与应用逻辑。接纳不是完成；等待超时或断线返回继续查询的引用，不重新发送输入。用 `armi schema` 和 `armi-admin schema` 离线读取当前操作参数。
+
 Creator Web 开发要求先有 ready Runtime：
 
 ```powershell
-.\tools\start_creator_web_dev.ps1 -EnvironmentRoot $EnvironmentRoot -OpenBrowser
+.\tools\start_creator_web_dev.ps1 -EnvironmentRoot 'C:\path\to\environment' -OpenBrowser
 ```
 
 Vite 固定使用 `127.0.0.1:5173` 并代理现有 Runtime，不启动第二个后端。
@@ -116,7 +130,7 @@ Vite 固定使用 `127.0.0.1:5173` 并代理现有 Runtime，不启动第二个�
 # Fast：锁、格式、lint、类型、离线单测、架构、安全、前端
 .\tools\quality.ps1
 
-# Release：Fast + Web/Python 构建 + 32 wheel 隔离安装
+# Release：Fast + Web/Python 构建 + workspace wheel 隔离安装
 .\tools\quality.ps1 -Release
 
 # System：Release + 隔离 PostgreSQL + 固定 Chromium + Creator 系统旅程
@@ -127,7 +141,8 @@ System 不调用真实模型、Web Search、Codex、QQ 或设备。声称目标�
 
 ```powershell
 uv run python tools/verify_live_creator_roundtrip.py `
-  --environment-root C:\path\to\environment
+  --environment-root C:\path\to\environment `
+  --client-config C:\path\to\interaction-client.yaml
 ```
 
 该 gate 会产生真实对话记录和模型调用，并验证 cognition、Subject Commit、reply Effect、outbox 和回复 artifact。详细 gate 边界见 [质量门禁与 Live 验证](docs/05-运行与验证/02-质量门禁与Live验证.md)。
@@ -138,7 +153,7 @@ uv run python tools/verify_live_creator_roundtrip.py `
 - [docs/README.md](docs/README.md)：私有设计资料总索引。
 - [产品定义](docs/01-产品定义/)：ARMI 是谁、生活与关系、真实性/隐私/自主性。
 - [系统设计](docs/02-系统设计/)：权威运行时、认知、权限/效果、恢复、Mood。
-- [数据设计](docs/03-数据设计/)：事实分层、全局关系、字段合同、108 张表/1363 字段、约束、索引与 ACL。
+- [数据设计](docs/03-数据设计/)：事实分层、全局关系、字段合同、108 张表/1364 字段、约束、索引与 ACL。
 - [实现参考](docs/04-实现参考/)：模块、配置、接口、模型/Codex/渠道、设备。
 - [运行与验证](docs/05-运行与验证/)：运行手册、质量门禁和实测性能基线。
 - [外部研究参考](docs/00-外部研究参考/)：带来源的外部证据，不是 ARMI 事实源。

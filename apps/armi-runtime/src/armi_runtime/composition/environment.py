@@ -8,9 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from armi_kernel.application import CredentialLocator, CredentialPort
-
-from .config_assets import runtime_config_path
-from .configuration import (
+from armi_local_control.configuration import (
     DeploymentProfile,
     EffectiveConfig,
     EnvironmentFileCredentialPort,
@@ -18,9 +16,11 @@ from .configuration import (
     load_effective_config,
     preflight_config,
 )
-from .configuration.paths import canonical_absolute, has_reparse_point
+from armi_local_control.configuration.paths import canonical_absolute, has_reparse_point
+from armi_local_control.runtime_errors import RuntimeViolation
+
+from .config_assets import runtime_config_path
 from .credential_scope import ScopedCredentialPort
-from .runtime_errors import RuntimeViolation
 
 
 @dataclass(frozen=True, slots=True)

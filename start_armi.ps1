@@ -1,157 +1,37 @@
 [CmdletBinding()]
 param(
-    [string]$EnvironmentRoot = $env:ARMI_ENVIRONMENT_ROOT,
+    [string]$AdminConfig = $env:ARMI_ADMIN_CONFIG,
+    [string]$AdminExecutable = 'armi-admin',
     [switch]$OpenBrowser
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-
 if ($PSVersionTable.PSEdition -ne 'Core' -or $PSVersionTable.PSVersion.Major -lt 7) {
     throw 'ARMI-START-POWERSHELL: PowerShell 7 or newer is required.'
 }
-if (-not $IsWindows -or [Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne 'X64') {
-    throw 'ARMI-START-PLATFORM: only Windows x86_64 is supported.'
+if ([string]::IsNullOrWhiteSpace($AdminConfig)) {
+    throw 'ARMI-START-BINDING: specify -AdminConfig or ARMI_ADMIN_CONFIG.'
 }
-$workspace = [IO.Path]::GetFullPath($PSScriptRoot)
-if ([string]::IsNullOrWhiteSpace($EnvironmentRoot)) {
-    $EnvironmentRoot = Join-Path (Split-Path -Parent $workspace) 'ARMI-Environment'
+$command = Get-Command $AdminExecutable -CommandType Application -ErrorAction SilentlyContinue
+if ($null -eq $command) {
+    throw 'ARMI-START-INSTALL: specify -AdminExecutable from the installed wheel environment.'
 }
-$resolvedEnvironmentRoot = [IO.Path]::GetFullPath($EnvironmentRoot)
-if (-not (Test-Path -LiteralPath $resolvedEnvironmentRoot -PathType Container)) {
-    throw "ARMI-START-ENVIRONMENT: environment root does not exist: $resolvedEnvironmentRoot"
+$executable = $command.Source
+$binding = [IO.Path]::GetFullPath($AdminConfig)
+$raw = @(& $executable --config $binding start)
+$result = ($raw -join "`n") | ConvertFrom-Json
+if ($LASTEXITCODE -ne 0) {
+    $raw | Write-Output
+    exit $LASTEXITCODE
 }
-$managedUv = Join-Path $workspace '.armi-tools/installs/uv/0.11.33/uv.exe'
-if (-not (Test-Path -LiteralPath $managedUv -PathType Leaf)) {
-    throw 'ARMI-START-TOOLCHAIN: run tools/bootstrap_toolchain.ps1 before starting ARMI.'
-}
-
-function Invoke-ArmiJson {
-    param(
-        [Parameter(Mandatory)]
-        [string[]]$Arguments
-    )
-
-    $raw = @(& $script:armiExecutable @Arguments)
+if ($OpenBrowser) {
+    $configRaw = @(& $executable --config $binding configuration --json '{"action":"read"}')
     if ($LASTEXITCODE -ne 0) {
-        throw "ARMI-START-CLI: armi command failed: $($Arguments -join ' ')"
+        throw 'ARMI-START-CONFIG: unable to resolve the bound Creator Web address.'
     }
-    try {
-        return ($raw -join "`n") | ConvertFrom-Json -ErrorAction Stop
-    }
-    catch {
-        throw 'ARMI-START-CLI: armi command returned invalid JSON.'
-    }
+    $config = ($configRaw -join "`n") | ConvertFrom-Json
+    $creator = $config.result.effective_on_next_start.creator
+    Start-Process -FilePath "http://$($creator.bind_host):$($creator.port)/ui/"
 }
-
-function Remove-StaleLoopbackProxyEnvironment {
-    foreach ($name in @('ALL_PROXY', 'http_proxy', 'https_proxy')) {
-        $raw = [Environment]::GetEnvironmentVariable($name, 'Process')
-        $uri = $null
-        if (
-            [string]::IsNullOrWhiteSpace($raw) -or
-            -not [Uri]::TryCreate($raw, [UriKind]::Absolute, [ref]$uri) -or
-            -not $uri.IsLoopback
-        ) {
-            continue
-        }
-        $client = [Net.Sockets.TcpClient]::new()
-        try {
-            $connected = $client.ConnectAsync($uri.Host, $uri.Port).Wait(500) -and $client.Connected
-        }
-        catch {
-            $connected = $false
-        }
-        finally {
-            $client.Dispose()
-        }
-        if (-not $connected) {
-            Remove-Item -LiteralPath "Env:$name"
-            Write-Warning "Ignoring stale loopback proxy from $name while starting ARMI."
-        }
-    }
-}
-
-Push-Location $workspace
-try {
-    Remove-StaleLoopbackProxyEnvironment
-    Write-Host 'Synchronizing locked Python dependencies...'
-    & $managedUv sync --frozen --all-packages
-    if ($LASTEXITCODE -ne 0) {
-        throw 'ARMI-START-SYNC: uv sync failed.'
-    }
-
-    $script:armiExecutable = Join-Path $workspace '.venv/Scripts/armi.exe'
-    $managedPython = Join-Path $workspace '.venv/Scripts/python.exe'
-    if (-not (Test-Path -LiteralPath $script:armiExecutable -PathType Leaf)) {
-        throw 'ARMI-START-CLI: the armi executable is unavailable after uv sync.'
-    }
-
-    $creatorResources = Join-Path $workspace 'apps/armi-runtime/build/creator-web-resources'
-    Write-Host 'Building Creator Web resources...'
-    & $managedPython -B (Join-Path $workspace 'tools/build_creator_web.py') `
-        --root $workspace `
-        --tool-root (Join-Path $workspace '.armi-tools') `
-        --output-root $creatorResources
-    if ($LASTEXITCODE -ne 0) {
-        throw 'ARMI-START-CREATOR-WEB: Creator Web build failed.'
-    }
-
-    Write-Host 'Checking the ARMI environment...'
-    $config = Invoke-ArmiJson @(
-        'config', 'check',
-        '--environment-root', $resolvedEnvironmentRoot
-    )
-
-    Write-Host 'Starting PostgreSQL...'
-    & (Join-Path $workspace 'tools/manage_postgresql.ps1') Start
-
-    Write-Host 'Checking the ARMI database...'
-    $null = Invoke-ArmiJson @(
-        'db', 'status',
-        '--environment-root', $resolvedEnvironmentRoot
-    )
-
-    Write-Host 'Starting the ARMI Runtime...'
-    $start = Invoke-ArmiJson @(
-        'start',
-        '--environment-root', $resolvedEnvironmentRoot,
-        '--creator-web-resources', $creatorResources
-    )
-    $status = Invoke-ArmiJson @(
-        'status',
-        '--environment-root', $resolvedEnvironmentRoot
-    )
-
-    if ($status.status -ne 'running') {
-        throw "ARMI-START-RUNTIME: expected running, got $($status.status)."
-    }
-    if ($status.runtime.readiness -ne 'ready') {
-        $reasons = @($status.runtime.reason_codes) -join ','
-        throw "ARMI-START-READINESS: Runtime is $($status.runtime.runtime_state); reasons=$reasons"
-    }
-
-    $qqState = [string]$status.channels.qq.state
-    if ($qqState -ne 'ready' -and $qqState -ne 'disabled') {
-        $qqReasons = @($status.channels.qq.reason_codes) -join ','
-        Write-Warning "QQ channel is $qqState; reasons=$qqReasons"
-    }
-
-    $creatorUrl = "http://$($config.config.creator.bind_host):$($config.config.creator.port)/ui/"
-    if ($OpenBrowser) {
-        Start-Process -FilePath $creatorUrl
-    }
-    [pscustomobject]@{
-        status = 'ready'
-        environment_root = $resolvedEnvironmentRoot
-        runtime_state = $status.runtime.runtime_state
-        qq_state = $qqState
-        qq_start_status = $start.channel_start.qq
-        pid = $status.pid
-        creator_url = $creatorUrl
-        reason_codes = @($status.runtime.reason_codes)
-    }
-}
-finally {
-    Pop-Location
-}
+$result | ConvertTo-Json -Depth 20

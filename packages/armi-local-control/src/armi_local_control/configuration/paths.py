@@ -5,7 +5,7 @@ from __future__ import annotations
 import stat
 from pathlib import Path
 
-from .errors import ConfigurationViolation
+from armi_local_control.configuration.errors import ConfigurationViolation
 
 _FILE_ATTRIBUTE_REPARSE_POINT = 0x400
 

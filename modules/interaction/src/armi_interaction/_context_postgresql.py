@@ -30,7 +30,7 @@ class PostgreSQLInteractionContextRead:
                 """SELECT scene.scene_id, scene.scene_key, scene.scene_kind,
                       scene.audience_scope, scene.current_status, scene.scene_version,
                       scene.primary_party_id, party.party_id, party.display_label,
-                      party.party_kind, input.addressed_to_subject
+                      party.party_kind, input.addressed_to_subject, input.delegate_id
                FROM armi.interaction_scenes AS scene
                LEFT JOIN armi.parties AS party ON party.party_id=%s
                LEFT JOIN armi.party_input_interactions AS input
@@ -60,6 +60,7 @@ class PostgreSQLInteractionContextRead:
             None if row[8] is None else str(row[8]),
             None if row[9] is None else str(row[9]),
             row[10],
+            row[11],
         )
 
     async def recent_context_turns(
@@ -85,7 +86,7 @@ class PostgreSQLInteractionContextRead:
             await transaction.execute(
                 """SELECT item.timeline_item_id, item.source_event_no, item.source_kind,
                       item.source_ref, item.occurred_at, party.display_label,
-                      party.party_kind, input.modality
+                      party.party_kind, input.modality, input.delegate_id
                FROM armi.scene_timeline_items AS item
                LEFT JOIN armi.party_input_interactions AS input
                  ON input.interaction_id=item.source_ref
@@ -118,6 +119,7 @@ class PostgreSQLInteractionContextRead:
                 None if r[5] is None else str(r[5]),
                 None if r[6] is None else str(r[6]),
                 None if r[7] is None else str(r[7]),
+                r[8],
             )
             for r in reversed(rows)
         )

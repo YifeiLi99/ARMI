@@ -93,7 +93,7 @@ def main() -> int:
         ]["armi_admin"]["enabled_tools"]
         if detail["enabled_tools"] != expected_tools:
             raise SystemExit("ADMIN-CODEX-ALLOWLIST")
-        if detail["startup_timeout_sec"] != 10.0 or detail["tool_timeout_sec"] != 30.0:
+        if detail["startup_timeout_sec"] != 10.0 or detail["tool_timeout_sec"] != 660.0:
             raise SystemExit("ADMIN-CODEX-TIMEOUT")
     print("admin-codex-config: pass (locked Codex 0.144.4, isolated config)")
     return 0

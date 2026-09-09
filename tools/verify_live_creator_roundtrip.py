@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import hashlib
 import io
 import json
@@ -14,10 +15,12 @@ from pathlib import Path
 from typing import Any, cast
 from uuid import uuid7
 
+import httpx
 import psycopg
 from armi_kernel.application import CredentialPurpose
+from armi_local_control.binding import load_client_binding
 from armi_runtime.composition.environment import prepare_environment
-from armi_runtime.composition.runtime_process import RuntimeProcessManager
+from armi_runtime.interaction_client import InteractionClient
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,18 +136,31 @@ def verify_roundtrip(
     *,
     message: str,
     timeout_seconds: float,
+    client_config: Path | None = None,
+    scene_key: str = "default",
 ) -> dict[str, object]:
     prepared = prepare_environment(environment_root)
-    runtime = RuntimeProcessManager(
-        prepared.root,
-        str(prepared.effective.config.environment.environment_id),
-    )
+    binding = load_client_binding(client_config)
+    if (
+        binding.environment_root.resolve() != prepared.root.resolve()
+        or binding.environment_id
+        != prepared.effective.config.environment.environment_id
+    ):
+        raise RuntimeError("LIVE-CREATOR-BINDING-MISMATCH")
     idempotency_key = f"live-roundtrip-{uuid7()}"
-    accepted = runtime.send_creator_input(
-        message,
-        idempotency_key=idempotency_key,
+    accepted = asyncio.run(
+        InteractionClient(binding).invoke(
+            "message_send",
+            {
+                "scene_key": scene_key,
+                "message": message,
+                "idempotency_key": idempotency_key,
+            },
+        )
     )
-    interaction_id = str(accepted["interaction_id"])
+    if accepted.get("transport_status") != 202:
+        raise RuntimeError("LIVE-CREATOR-INTAKE-REJECTED")
+    interaction_id = str(accepted["result"]["details"]["interaction_id"])
     deadline = time.monotonic() + timeout_seconds
     last_state: _RoundTripState | None = None
     with psycopg.connect(
@@ -193,6 +209,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--environment-root", type=Path, required=True)
     parser.add_argument(
+        "--client-config",
+        type=Path,
+        help="Bound interaction configuration; defaults to ARMI_CLIENT_CONFIG.",
+    )
+    parser.add_argument("--scene-key", default="default")
+    parser.add_argument(
         "--message",
         default="这是一次系统连通性测试。请简短回复, 表示你已经收到。",
     )
@@ -205,8 +227,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.environment_root,
             message=cast(str, args.message),
             timeout_seconds=cast(float, args.timeout_seconds),
+            client_config=args.client_config,
+            scene_key=args.scene_key,
         )
-    except (KeyError, OSError, RuntimeError, psycopg.Error) as error:
+    except (
+        KeyError,
+        OSError,
+        RuntimeError,
+        ValueError,
+        psycopg.Error,
+        httpx.HTTPError,
+    ) as error:
         print(
             json.dumps(
                 {"status": "failed", "reason": str(error)},

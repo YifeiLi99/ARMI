@@ -221,7 +221,7 @@ class SecretResolutionTests(unittest.TestCase):
             )
             with (
                 patch(
-                    "armi_runtime.composition.configuration.secrets.has_reparse_point",
+                    "armi_local_control.configuration.secrets.has_reparse_point",
                     return_value=True,
                 ),
                 self.assertRaises(ConfigurationViolation) as raised,

@@ -17,7 +17,9 @@ from armi_admin.application import (
     AdminCorrectionCoordinator,
     AdminCredentialPort,
 )
-from armi_admin.mcp.contracts import (
+from armi_admin.application.catalog import ADMIN_OPERATIONS
+from armi_admin.application.contracts import (
+    ConfigurationRequest,
     CorrectionStatusRequest,
     EnvironmentInitializeRequest,
     HealthRequest,
@@ -27,14 +29,16 @@ from armi_admin.mcp.contracts import (
     RuntimeControlRequest,
     SchemaStatusRequest,
 )
+from armi_admin.application.service import AdminToolService
 from armi_admin.mcp.server import create_admin_server
-from armi_admin.mcp.service import AdminToolService
 from armi_admin.persistence import (
     AdminCorrectionGateway,
     AdminObservationGateway,
     AdminSchemaSnapshot,
 )
 from armi_admin.persistence.role_session import AdminRoleBoundPool
+from armi_local_control.configuration.editing import EnvironmentConfiguration
+from armi_local_control.runtime_process import RuntimeProcessManager
 from mcp.client import Client
 
 ENVIRONMENT_ID = "018f3f4a-7b8c-7def-8abc-1234567890ab"
@@ -45,7 +49,9 @@ def _config() -> AdminConfig:
     root = Path.cwd().resolve()
     return AdminConfig.model_validate(
         {
-            "schema_version": "armi.admin-config.v5",
+            "schema_version": "armi.admin-config.v6",
+            "operator_id": "isolated-test-agent",
+            "authorized_operations": tuple(item.name for item in ADMIN_OPERATIONS),
             "environment_kind": "system_test",
             "environment_id": ENVIRONMENT_ID,
             "environment_incarnation": 1,
@@ -67,7 +73,14 @@ def _config() -> AdminConfig:
 
 
 def _service() -> AdminToolService:
-    config = _config()
+    temporary = tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp")
+    unittest.addModuleCleanup(temporary.cleanup)
+    root = Path(temporary.name)
+    environment_root = root / "environment"
+    environment_root.mkdir()
+    config = _config().model_copy(
+        update={"environment_root": environment_root, "experiment_root": root}
+    )
     credentials = AdminCredentialPort(
         locator=config.locator,
         config_root=Path.cwd(),
@@ -102,7 +115,7 @@ def _current_snapshot() -> AdminSchemaSnapshot:
             "subjects",
         ),
         revision="0000",
-        baseline_identity="armi.schema-baseline.v12",
+        baseline_identity="armi.schema-baseline.v13",
         resource_digest=DIGEST,
         catalog_digest=DIGEST,
         role_policy_digest=DIGEST,
@@ -132,7 +145,7 @@ class AdminConfigurationTests(unittest.TestCase):
         )
         self.assertEqual(
             schema["properties"]["schema_version"]["const"],
-            "armi.admin-config.v5",
+            "armi.admin-config.v6",
         )
 
     def test_artifacts_have_no_drift(self) -> None:
@@ -161,6 +174,64 @@ class AdminConfigurationTests(unittest.TestCase):
 
 
 class AdminToolServiceTests(unittest.TestCase):
+    def test_configuration_saved_and_running_values_are_distinct(self) -> None:
+        service = _service()
+        config = service.config.model_copy(
+            update={
+                "authorized_operations": ("configuration.status", "configuration.apply")
+            }
+        )
+        (config.environment_root / "environment.yaml").write_text(
+            json.dumps(
+                {
+                    "environment": {
+                        "environment_id": config.environment_id,
+                        "data_root": str(config.environment_root / "data"),
+                    },
+                    "creator": {"port": 43123},
+                }
+            ),
+            encoding="utf-8",
+        )
+        editor = EnvironmentConfiguration(
+            config.environment_root, Path.cwd() / "configs/runtime.yaml"
+        )
+        before = editor.read()
+        status_request = ConfigurationRequest(
+            environment_id=config.environment_id, action="status"
+        )
+        running = {
+            "status": "running",
+            "runtime": {"runtime_configuration_digest": before["desired_digest"]},
+        }
+        with (
+            patch.object(service, "_config", config),
+            patch.object(RuntimeProcessManager, "status", return_value=running),
+        ):
+            effective = service.configuration(status_request)
+            assert effective.result is not None
+            self.assertEqual(effective.result["activation"], "effective")
+            saved = service.configuration(
+                ConfigurationRequest(
+                    environment_id=config.environment_id,
+                    action="apply",
+                    expected_version=before["version"],
+                    patch={"creator": {"port": 43124}},
+                )
+            )
+            assert saved.result is not None
+            self.assertEqual(saved.result["activation"], "saved")
+            stale = service.configuration(status_request)
+            assert stale.result is not None
+            self.assertEqual(stale.result["activation"], "restart_required")
+            running["runtime"]["runtime_configuration_digest"] = editor.read()[
+                "desired_digest"
+            ]
+            restarted = service.configuration(status_request)
+            assert restarted.result is not None
+            self.assertEqual(restarted.result["activation"], "effective")
+            self.assertFalse(restarted.result["restart_required"])
+
     def test_control_idempotency_and_purpose_are_enforced(self) -> None:
         service = _service()
         request = RuntimeControlRequest(
@@ -293,7 +364,9 @@ class AdminProtocolTests(unittest.TestCase):
         modern, legacy, names = asyncio.run(exercise())
         self.assertEqual(modern, "2026-07-28")
         self.assertNotEqual(legacy, "")
-        self.assertEqual(len(names), 21)
+        from armi_admin.application.catalog import ADMIN_OPERATIONS
+
+        self.assertEqual(set(names), {item.name for item in ADMIN_OPERATIONS})
         self.assertIn("environment_reset_preview", names)
         self.assertIn("preview_correction", names)
         self.assertIn("correction_status", names)
@@ -305,7 +378,9 @@ class AdminProtocolTests(unittest.TestCase):
             config_path.write_text(
                 "\n".join(
                     (
-                        "schema_version: armi.admin-config.v5",
+                        "schema_version: armi.admin-config.v6",
+                        "operator_id: isolated-test-agent",
+                        "authorized_operations: [health]",
                         "environment_kind: system_test",
                         f"environment_id: {ENVIRONMENT_ID}",
                         "environment_incarnation: 1",

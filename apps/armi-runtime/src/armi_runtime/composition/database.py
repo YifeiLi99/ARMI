@@ -181,6 +181,9 @@ from armi_kernel.application import (
 from armi_live_vision.bootstrap import bootstrap_live_vision_commit
 from armi_live_voice.api import VoiceCognitionResultPort
 from armi_live_voice.bootstrap import bootstrap_live_voice_context_read
+from armi_local_control.configuration import ConfigurationViolation
+from armi_local_control.runtime_errors import RuntimeViolation
+from armi_local_control.semantic_recall_process import SemanticRecallProcessManager
 from armi_material.api import (
     MaterialCandidateContextPort,
     MaterialCognitionPort,
@@ -315,7 +318,6 @@ from armi_runtime.application.operation_assembler import (
 
 from .birth_manifest import packaged_birth_digests
 from .config_assets import runtime_config_path
-from .configuration import ConfigurationViolation
 from .data_rights import compose_data_rights_participants
 from .environment import PreparedEnvironment
 from .exact_life_query_pipeline import (
@@ -323,8 +325,6 @@ from .exact_life_query_pipeline import (
     build_exact_life_query_pipeline,
 )
 from .owner_roster import RuntimeOwnerRoster
-from .runtime_errors import RuntimeViolation
-from .semantic_recall_process import SemanticRecallProcessManager
 from .subject_commit_pipeline import (
     SubjectCommitPipeline,
     build_subject_commit_pipeline,
@@ -361,8 +361,10 @@ _REASON_BY_CODE: Final = {
 }
 
 
-def _load_embedding_binding() -> EmbeddingBinding:
-    return load_embedding_binding(runtime_config_path("model-bindings.yaml"))
+def _load_embedding_binding(environment_root: Path | None = None) -> EmbeddingBinding:
+    return load_embedding_binding(
+        runtime_config_path("model-bindings.yaml", environment_root=environment_root)
+    )
 
 
 def _compose_embedding(prepared: PreparedEnvironment) -> LocalLlamaCppEmbeddingAdapter:
@@ -371,7 +373,7 @@ def _compose_embedding(prepared: PreparedEnvironment) -> LocalLlamaCppEmbeddingA
     except RuntimeViolation:
         raise ModelViolation("MODEL-EMBEDDING-CONNECTION") from None
     return LocalLlamaCppEmbeddingAdapter(
-        binding=_load_embedding_binding(),
+        binding=_load_embedding_binding(prepared.root),
         base_url=endpoint.base_url,
         api_key=endpoint.api_key,
     )
@@ -1101,7 +1103,7 @@ def compose_perception_module(
         raise ModelViolation("MODEL-CREDENTIAL")
     try:
         recognition_binding = load_external_recognition_binding(
-            runtime_config_path("model-bindings.yaml")
+            runtime_config_path("model-bindings.yaml", environment_root=prepared.root)
         )
         return bootstrap_perception(
             unit_of_work_factory=unit_of_work_factory,
@@ -1435,7 +1437,9 @@ def compose_model_pipeline(
         work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
         custody=custody,
         adapter_factory=adapter_factory,
-        binding_path=runtime_config_path("model-bindings.yaml"),
+        binding_path=runtime_config_path(
+            "model-bindings.yaml", environment_root=prepared.root
+        ),
         web_search_active=config.web.enabled,
         wakeups=wakeups,
         diagnostic=diagnostic,
@@ -1458,7 +1462,9 @@ def compose_web_search_pipeline(
     if model_locator is None:
         raise WebObservationViolation("WEB-CREDENTIAL")
     try:
-        manifest_bytes = runtime_config_path("web-search.yaml").read_bytes()
+        manifest_bytes = runtime_config_path(
+            "web-search.yaml", environment_root=prepared.root
+        ).read_bytes()
     except OSError:
         raise WebObservationViolation("WEB-MANIFEST") from None
     return bootstrap_web_observation(

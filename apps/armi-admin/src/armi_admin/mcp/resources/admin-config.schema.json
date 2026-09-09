@@ -2,6 +2,7 @@
   "$defs": {
     "AdminEnvironmentKind": {
       "enum": [
+        "active",
         "development",
         "system_test",
         "acceptance"
@@ -44,11 +45,59 @@
       },
       "title": "AdminLogSettings",
       "type": "object"
+    },
+    "PostgreSQLControlBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "compose_file": {
+          "format": "windows-absolute-path",
+          "title": "Compose File",
+          "type": "string"
+        },
+        "environment_file": {
+          "format": "windows-absolute-path",
+          "title": "Environment File",
+          "type": "string"
+        },
+        "ownership": {
+          "enum": [
+            "exclusive",
+            "shared"
+          ],
+          "title": "Ownership",
+          "type": "string"
+        },
+        "project_name": {
+          "title": "Project Name",
+          "type": "string"
+        },
+        "service_name": {
+          "title": "Service Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ownership",
+        "compose_file",
+        "environment_file",
+        "project_name",
+        "service_name"
+      ],
+      "title": "PostgreSQLControlBinding",
+      "type": "object"
     }
   },
   "additionalProperties": false,
-  "description": "One explicit non-production environment binding.",
+  "description": "One explicit environment binding, including authorized active operation.",
   "properties": {
+    "authorized_operations": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Authorized Operations",
+      "type": "array"
+    },
     "database_locator": {
       "title": "Database Locator",
       "type": "string"
@@ -73,9 +122,17 @@
       "$ref": "#/$defs/AdminExpectedIdentity"
     },
     "experiment_root": {
-      "format": "path",
-      "title": "Experiment Root",
-      "type": "string"
+      "anyOf": [
+        {
+          "format": "path",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Experiment Root"
     },
     "logging": {
       "$ref": "#/$defs/AdminLogSettings",
@@ -88,10 +145,36 @@
       "title": "Migrator Database Locator",
       "type": "string"
     },
-    "postgresql_client_root": {
-      "format": "path",
-      "title": "Postgresql Client Root",
+    "operator_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9._:-]+$",
+      "title": "Operator Id",
       "type": "string"
+    },
+    "postgresql_client_root": {
+      "anyOf": [
+        {
+          "format": "path",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Postgresql Client Root"
+    },
+    "postgresql_control": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PostgreSQLControlBinding"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "postgresql_version": {
       "const": "18.4",
@@ -107,15 +190,36 @@
       "title": "Resettable",
       "type": "boolean"
     },
+    "runtime_defaults_path": {
+      "anyOf": [
+        {
+          "format": "path",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Runtime Defaults Path"
+    },
     "schema_version": {
-      "const": "armi.admin-config.v5",
+      "const": "armi.admin-config.v6",
       "title": "Schema Version",
       "type": "string"
     },
     "template_manifest": {
-      "format": "path",
-      "title": "Template Manifest",
-      "type": "string"
+      "anyOf": [
+        {
+          "format": "path",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Template Manifest"
     },
     "test_controls_enabled": {
       "title": "Test Controls Enabled",
@@ -124,15 +228,14 @@
   },
   "required": [
     "schema_version",
+    "operator_id",
+    "authorized_operations",
     "environment_kind",
     "environment_id",
     "environment_incarnation",
     "resettable",
     "test_controls_enabled",
     "environment_root",
-    "experiment_root",
-    "template_manifest",
-    "postgresql_client_root",
     "database_locator",
     "migrator_database_locator",
     "preview_key_locator",

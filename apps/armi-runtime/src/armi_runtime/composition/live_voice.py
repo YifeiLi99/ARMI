@@ -56,7 +56,12 @@ def compose_runtime_live_voice(
         )
     try:
         bindings = cast(
-            dict[str, Any], load_yaml_file(runtime_config_path("model-bindings.yaml"))
+            dict[str, Any],
+            load_yaml_file(
+                runtime_config_path(
+                    "model-bindings.yaml", environment_root=prepared.root
+                )
+            ),
         )
         voice_binding = cast(dict[str, Any], bindings["voice_binding"])
         voice_provider = str(voice_binding["provider"])

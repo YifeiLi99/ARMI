@@ -222,6 +222,7 @@ class CreatorInputRepository:
         external_binding_id: UUID | None = None,
         external_message_key: str | None = None,
         addressed_to_subject: bool | None = None,
+        delegate_id: UUID | None = None,
     ) -> CreatorInputAcceptance:
         connection = unit_of_work.transaction
         interaction_id = uuid7()
@@ -239,9 +240,9 @@ class CreatorInputRepository:
                 request_digest,
                 content_digest,
                 trace_id, external_binding_id, external_message_key,
-                addressed_to_subject)
+                addressed_to_subject, delegate_id)
             VALUES (%s, %s, %s, %s, 'creator_message', %s, %s, %s, %s,
-                    %s, %s, %s)
+                    %s, %s, %s, %s)
             """,
             (
                 interaction_id,
@@ -255,6 +256,7 @@ class CreatorInputRepository:
                 external_binding_id,
                 external_message_key,
                 addressed_to_subject,
+                delegate_id,
             ),
         )
         await self._evidence.accept(
@@ -493,6 +495,7 @@ class CreatorInputRepository:
         request_digest: Digest,
         content_digest: Digest,
         trace_id: TraceId,
+        delegate_id: UUID | None = None,
     ) -> None:
         timeline_id = uuid7()
         await transaction.execute(
@@ -500,7 +503,7 @@ class CreatorInputRepository:
             INSERT INTO armi.party_input_interactions (
                 interaction_id, subject_id, scene_id, source_party_id,
                 purpose, idempotency_key, request_digest, content_digest,
-                trace_id) VALUES (%s,%s,%s,%s,'codex_task_request',%s,%s,%s,%s)
+                trace_id, delegate_id) VALUES (%s,%s,%s,%s,'codex_task_request',%s,%s,%s,%s,%s)
             """,
             (
                 interaction_id,
@@ -511,6 +514,7 @@ class CreatorInputRepository:
                 request_digest.value,
                 content_digest.value,
                 trace_id.value,
+                delegate_id,
             ),
         )
         await transaction.execute(

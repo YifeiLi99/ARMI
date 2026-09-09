@@ -1,6 +1,6 @@
 """Sole composition boundary for ordinary runtime implementations."""
 
-from .configuration import (
+from armi_local_control.configuration import (
     RUNTIME_CONFIG_SCHEMA_VERSION,
     ConfigurationViolation,
     DeploymentProfile,

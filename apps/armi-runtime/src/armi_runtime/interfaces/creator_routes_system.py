@@ -45,6 +45,10 @@ from .creator_http import (
     _rejected,
     _unavailable,
 )
+from .interaction_authority import (
+    authenticated_delegate,
+    verify_interaction,
+)
 
 
 def register_system_routes(
@@ -165,9 +169,9 @@ def register_system_routes(
         dependencies=[Security(bearer)],
     )
     async def get_runtime_status(request: Request) -> JSONResponse:
-        if browser_sessions is None or not _browser_boundary(
-            request, canonical_origin=canonical_origin
-        ):
+        if (
+            browser_sessions is None and authenticated_delegate(request) is None
+        ) or not _browser_boundary(request, canonical_origin=canonical_origin):
             return JSONResponse(
                 status_code=403 if browser_sessions is not None else 503,
                 content=(
@@ -178,9 +182,9 @@ def register_system_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
+            verify_interaction(request, browser_sessions, token)
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code,
@@ -200,9 +204,9 @@ def register_system_routes(
         dependencies=[Security(bearer)],
     )
     async def get_qq_channel_health(request: Request) -> JSONResponse:
-        if browser_sessions is None or not _browser_boundary(
-            request, canonical_origin=canonical_origin
-        ):
+        if (
+            browser_sessions is None and authenticated_delegate(request) is None
+        ) or not _browser_boundary(request, canonical_origin=canonical_origin):
             return JSONResponse(
                 status_code=403 if browser_sessions is not None else 503,
                 content=(
@@ -213,9 +217,9 @@ def register_system_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
+            verify_interaction(request, browser_sessions, token)
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code,
@@ -225,7 +229,7 @@ def register_system_routes(
 
     async def _qq_control(request: Request, action: str) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or qq_channel_control is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -235,9 +239,9 @@ def register_system_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
+            verify_interaction(request, browser_sessions, token)
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code,
@@ -267,7 +271,7 @@ def register_system_routes(
 
     async def _voice_control(request: Request, action: str) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or live_voice_control is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -281,9 +285,9 @@ def register_system_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
+            verify_interaction(request, browser_sessions, token)
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code,
@@ -324,7 +328,7 @@ def register_system_routes(
         request: Request, action: str, source_kind: str | None = None
     ) -> JSONResponse:
         if (
-            browser_sessions is None
+            (browser_sessions is None and authenticated_delegate(request) is None)
             or live_vision_control is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -334,9 +338,9 @@ def register_system_routes(
             )
         token = _bearer(request)
         try:
-            if token is None:
+            if token is None and authenticated_delegate(request) is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            browser_sessions.verify(token)
+            verify_interaction(request, browser_sessions, token)
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code, content=_rejected(error.code)

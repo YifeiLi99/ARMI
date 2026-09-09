@@ -601,7 +601,7 @@ def commands(root: Path, tool_root: Path, jobs: int) -> dict[str, Gate]:
                 "--root",
                 str(root),
                 "--creator-system-entry-point",
-                str(wheel_venv / "Scripts/armi.exe"),
+                str(wheel_venv / "Scripts/python.exe"),
                 "--creator-system-resources",
                 str(creator_resources),
                 "--creator-system-chromium",
@@ -611,7 +611,7 @@ def commands(root: Path, tool_root: Path, jobs: int) -> dict[str, Gate]:
             (
                 venv_python,
                 chromium,
-                wheel_venv / "Scripts/armi.exe",
+                wheel_venv / "Scripts/python.exe",
                 creator_resources / "manifest.json",
                 root / "tools/run_postgresql_integration.py",
             ),
