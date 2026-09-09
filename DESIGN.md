@@ -203,6 +203,8 @@ Creator HTTP 仅绑定 `127.0.0.1`。浏览器建立 process-local bearer sessio
 
 当前 OpenAPI 52 paths，覆盖 scene/message/operation/effect、Activity、Memory、Material、Relationship、Prompt、Capability、Maintenance、Export/Data Rights、Subject、QQ、Voice、Vision。分页 cursor 绑定环境、Creator、资源、查询和 projection version；SSE 是有限 process-local invalidation broker，不是耐久事实源。
 
+机器交互目录覆盖 52 个非浏览器业务/健康操作，另有能力发现和有界等待。文本、场合、Codex、操作、效果和制品共 9 项直接调用 `CreatorCommands` 共用应用服务；其余目前通过进程内请求适配复用既有 HTTP handler，不建立浏览器 session。该结构尚未完成全部 HTTP 用例向应用层的提取。文件发送目前支持 UTF-8 文本及标准输入；QQ、实时语音和视觉保留现有媒体链路，尚无通用本地媒体文件上传用例。内部 `runtime_entrypoint.py` 仍含旧混合命令解析及测试消费者，不能把当前状态视为接口改造的全部完成。
+
 Admin CLI/MCP 共用 `application/service.py` 和显式操作目录，配置为 `armi.admin-config.v6`。支持显式绑定的 `active`、`development`、`system_test`、`acceptance`；正式环境禁止 test controls。绑定记录 `operator_id` 和逐项 `authorized_operations`，普通配置编辑不能修改本身的管理权限。
 
 管理写请求用稳定幂等键保存本机调用回执。回执跨进程有效；同键异参拒绝，已开始但未结算的调用返回 unknown，不自动重放副作用。回执不替代 owner 事实或数据库恢复。校正保持预览、版本、停机与 owner 校验；具体授权引用不是预览的自动授权。重置不做数据库 dump 或整环境归档，正式 Creator 导出独立保留。
