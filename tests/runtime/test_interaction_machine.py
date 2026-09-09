@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import io
 import json
 from pathlib import Path
 from typing import Never
@@ -128,8 +130,9 @@ def machine(tmp_path: Path, creator_input=None, *, writable: bool = False):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("source", ["argument", "stdin"])
 async def test_cli_and_mcp_send_same_bound_creator_command(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch, source: str
 ) -> None:
     commands = []
     acceptance = CreatorInputAcceptance(
@@ -151,6 +154,7 @@ async def test_cli_and_mcp_send_same_bound_creator_command(
     config = tmp_path / "client.yaml"
     config.write_text(binding.model_dump_json(), encoding="utf-8")
     monkeypatch.setattr(cli, "InteractionClient", lambda _binding: client)
+    monkeypatch.setattr("sys.stdin", io.StringIO("代表 Creator 输入"))
     args = cli.parser().parse_args(
         [
             "--config",
@@ -159,8 +163,8 @@ async def test_cli_and_mcp_send_same_bound_creator_command(
             "send",
             "--scene-key",
             "default",
-            "--message",
-            "代表 Creator 输入",
+            "--message" if source == "argument" else "--message-file",
+            "代表 Creator 输入" if source == "argument" else "-",
             "--idempotency-key",
             "same-key",
         ]
@@ -189,6 +193,32 @@ async def test_cli_and_mcp_send_same_bound_creator_command(
     assert len(commands) == 2
     assert all(command.delegate_id == binding.delegate_id for command in commands)
     assert commands[0].idempotency_key == commands[1].idempotency_key
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["connection", "invalid_response"])
+async def test_cli_and_mcp_return_identical_transport_failures(
+    tmp_path: Path, monkeypatch, capsys, failure: str
+) -> None:
+    _, binding, _ = machine(tmp_path)
+    config = tmp_path / "client.yaml"
+    config.write_text(binding.model_dump_json(), encoding="utf-8")
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        if failure == "connection":
+            raise httpx.ConnectError("fixture transport unavailable", request=request)
+        return httpx.Response(200, content=b"not a JSON response")
+
+    client = InteractionClient(binding, transport=httpx.MockTransport(respond))
+    monkeypatch.setattr(cli, "InteractionClient", lambda _binding: client)
+    exit_code = await asyncio.to_thread(
+        cli.main, ["--config", str(config), "health", "live"]
+    )
+    result = json.loads(capsys.readouterr().out)
+    called = await InteractionMCPServer(client).call_tool("health_live", {})
+    assert exit_code != 0 and called.is_error
+    assert called.structured_content == result
+    assert result["status"] == "unavailable"
 
 
 @pytest.mark.asyncio

@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import base64
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +15,7 @@ from armi_local_control.binding import load_client_binding
 from jsonschema.exceptions import ValidationError as SchemaValidationError
 from pydantic import ValidationError
 
-from .interaction_client import InteractionClient
+from .interaction_client import InteractionClient, interaction_failure
 from .interfaces.interaction_catalog import interaction_routes
 
 
@@ -52,6 +53,12 @@ def parser() -> argparse.ArgumentParser:
         )
         properties = dict(op.input_schema)["properties"]
         for name, spec in properties.items():
+            if "anyOf" in spec:
+                variants = [
+                    item for item in spec["anyOf"] if item.get("type") != "null"
+                ]
+                if len(variants) == 1:
+                    spec = variants[0]
             kind = spec.get("type")
             conversion = (
                 int
@@ -68,7 +75,11 @@ def parser() -> argparse.ArgumentParser:
                 default=argparse.SUPPRESS,
             )
         if op.name == "message_send":
-            command.add_argument("--message-file", type=Path)
+            command.add_argument(
+                "--message-file",
+                type=Path,
+                help="UTF-8 text file, or - to read bounded text from stdin.",
+            )
             command.add_argument("--wait", action="store_true")
         if op.name in {"artifact_read", "vision_preview"}:
             command.add_argument("--output", type=Path)
@@ -107,9 +118,16 @@ async def _execute(args: argparse.Namespace) -> dict[str, Any]:
         arguments = args.json
     message_file = getattr(args, "message_file", None)
     if message_file is not None:
-        if "message" in arguments or message_file.stat().st_size > 262144:
+        if "message" in arguments:
             raise ValueError("INTERACTION-MESSAGE-FILE")
-        arguments["message"] = message_file.read_text(encoding="utf-8")
+        if str(message_file) == "-":
+            content = sys.stdin.read(262145).encode("utf-8")
+        else:
+            with message_file.open("rb") as stream:
+                content = stream.read(262145)
+        if len(content) > 262144:
+            raise ValueError("INTERACTION-MESSAGE-FILE")
+        arguments["message"] = content.decode("utf-8")
     outcome = await client.invoke(args.operation, arguments)
     if (
         getattr(args, "wait", False)
@@ -140,14 +158,7 @@ def main(argv: list[str] | None = None) -> int:
         SchemaValidationError,
         httpx.HTTPError,
     ) as error:
-        result = {
-            "status": "unavailable"
-            if isinstance(error, httpx.HTTPError)
-            else "rejected",
-            "error_code": "INTERACTION-DEPENDENCY"
-            if isinstance(error, httpx.HTTPError)
-            else "INTERACTION-INPUT",
-        }
+        result = interaction_failure(error)
         print(json.dumps(result, ensure_ascii=False))
         return 2
     print(json.dumps(result, ensure_ascii=False, allow_nan=False))

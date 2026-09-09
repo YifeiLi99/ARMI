@@ -15,7 +15,7 @@ from mcp.server import MCPServer
 from mcp.server.mcpserver import Context
 from mcp.types import CallToolResult, TextContent, Tool, ToolAnnotations
 
-from .interaction_client import InteractionClient
+from .interaction_client import InteractionClient, interaction_failure
 from .interfaces.interaction_catalog import interaction_routes
 
 
@@ -103,26 +103,8 @@ class InteractionMCPServer(MCPServer[Any]):
                 )
             else:
                 result = await self.client.invoke(name, arguments)
-        except ValueError as error:
-            code = str(error)
-            result = {
-                "status": "rejected",
-                "error_code": code
-                if code
-                in {
-                    "INTERACTION-ARGUMENTS",
-                    "INTERACTION-OPERATION-UNKNOWN",
-                    "INTERACTION-WAIT-TIMEOUT",
-                }
-                else "INTERACTION-RESPONSE-CONTRACT",
-                "transport_status": 400,
-            }
-        except OSError, ValidationError, httpx.HTTPError:
-            result = {
-                "status": "unavailable",
-                "error_code": "INTERACTION-CALL-FAILED",
-                "transport_status": 503,
-            }
+        except (ValueError, OSError, ValidationError, httpx.HTTPError) as error:
+            result = interaction_failure(error)
         return CallToolResult(
             content=[
                 TextContent(type="text", text=json.dumps(result, ensure_ascii=False))

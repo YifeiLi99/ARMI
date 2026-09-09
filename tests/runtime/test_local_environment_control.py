@@ -69,10 +69,13 @@ def test_database_timeout_is_unknown_and_does_not_start_runtime(tmp_path: Path) 
         service_name="postgresql",
     )
     control.runtime = Mock()
-    with patch(
-        "armi_local_control.lifecycle.subprocess.run",
-        side_effect=subprocess.TimeoutExpired("docker", 120),
-    ) as run, pytest.raises(RuntimeViolation) as failure:
+    with (
+        patch(
+            "armi_local_control.lifecycle.subprocess.run",
+            side_effect=subprocess.TimeoutExpired("docker", 120),
+        ) as run,
+        pytest.raises(RuntimeViolation) as failure,
+    ):
         control.execute("start")
     assert failure.value.code == "LOCAL-POSTGRESQL-UNKNOWN"
     assert run.call_count == 1

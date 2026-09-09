@@ -5,10 +5,12 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import re
 import time
 from typing import Any, cast
 
 import httpx
+from armi_local_control import ConfigurationViolation
 from armi_local_control.binding import InteractionClientBinding, binding_secret
 from jsonschema import Draft202012Validator
 
@@ -37,6 +39,38 @@ _STOP_STAGES = frozenset(
         "candidate_rejected",
     }
 )
+
+
+def interaction_failure(error: Exception) -> dict[str, Any]:
+    """One redacted error contract for both machine transports."""
+    if isinstance(error, httpx.HTTPError):
+        code, status = "INTERACTION-TRANSPORT-UNAVAILABLE", 503
+    elif isinstance(error, ConfigurationViolation):
+        code, status = "INTERACTION-CREDENTIAL-UNAVAILABLE", 503
+    elif isinstance(error, FileExistsError):
+        code, status = "INTERACTION-OUTPUT-EXISTS", 409
+    elif isinstance(error, OSError):
+        code, status = "INTERACTION-LOCAL-IO", 503
+    elif isinstance(error, json.JSONDecodeError):
+        code, status = "INTERACTION-RESPONSE-CONTRACT", 503
+    else:
+        message = str(error)
+        code = (
+            message
+            if re.fullmatch(r"INTERACTION-[A-Z0-9-]{1,96}", message)
+            else "INTERACTION-INPUT"
+        )
+        status = (
+            503
+            if code.startswith("INTERACTION-RESPONSE-")
+            or code == "INTERACTION-ENVIRONMENT-MISMATCH"
+            else 400
+        )
+    return {
+        "status": "unavailable" if status >= 500 else "rejected",
+        "error_code": code,
+        "transport_status": status,
+    }
 
 
 class InteractionClient:
@@ -138,4 +172,4 @@ class InteractionClient:
             await asyncio.sleep(min(0.25, max(0, deadline - time.monotonic())))
 
 
-__all__ = ("InteractionClient",)
+__all__ = ("InteractionClient", "interaction_failure")
