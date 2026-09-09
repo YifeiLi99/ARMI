@@ -116,6 +116,16 @@ armi operation wait --result-ref <返回的引用> --timeout-seconds 20
 
 CLI 默认输出 JSON，MCP 使用相同请求合同与应用逻辑。接纳不是完成；等待超时或断线返回继续查询的引用，不重新发送输入。用 `armi schema` 和 `armi-admin schema` 离线读取当前操作参数。
 
+`armi artifact read --effect-id <effect-id> --artifact-kind patch --output <文件路径>` 会逐块读取并核验完整摘要，默认不覆盖文件。MCP 的 `artifact_read` 使用 `offset` / `length`，返回下一块位置和同一制品的摘要。
+
+危险操作先取得具体预览及 `authorization_request`，再由独立 Creator 授权绑定签发：
+
+```powershell
+armi-admin --config <Creator授权绑定> authorization approve --request-id <request-id> --expected-request-digest <request-digest> --idempotency-key approval-001
+```
+
+普通代理绑定没有签发权限或私钥 locator。执行重置或主体内容校正时提交对应 `authorization_id`；同一凭据不能供另一调用重用。用 `armi-admin invocation get --operation-name <操作名> --idempotency-key <原调用键>` 查询耐久回执；配置修改与包升级不会使旧回执失联。
+
 Creator Web 开发要求先有 ready Runtime：
 
 ```powershell

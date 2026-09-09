@@ -46,6 +46,30 @@ class PostgreSQLArtifactAdmin:
             )
         )
 
+    def diagnostic_counts(
+        self, transaction: PostgreSQLAdminTransaction
+    ) -> tuple[tuple[str, int], ...]:
+        rows = transaction.execute(
+            "SELECT integrity_status,count(*) FROM armi.artifact_objects GROUP BY integrity_status ORDER BY integrity_status"
+        ).fetchall()
+        return tuple((str(row[0]), int(cast(int, row[1]))) for row in rows)
+
+    def diagnostic_snapshots(
+        self, transaction: PostgreSQLAdminTransaction, *, limit: int
+    ) -> tuple[ArtifactAdminSnapshot, ...]:
+        if not 1 <= limit <= 32:
+            raise ValueError("ADMIN-ARTIFACT-LIMIT")
+        rows = transaction.execute(
+            "SELECT artifact_id FROM armi.artifacts WHERE retention_status='retained' ORDER BY artifact_id LIMIT %s",
+            (limit,),
+        ).fetchall()
+        return tuple(
+            snapshot
+            for row in rows
+            if (snapshot := self.snapshot(transaction, artifact_id=cast(UUID, row[0])))
+            is not None
+        )
+
     def read_verified_bytes(self, snapshot: ArtifactAdminSnapshot) -> bytes:
         return self._storage.read_verified_bytes(
             ArtifactRef(

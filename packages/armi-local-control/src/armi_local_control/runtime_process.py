@@ -442,7 +442,7 @@ class RuntimeProcessManager:
             "runtime": response["result"],
         }
 
-    def stop(self) -> dict[str, Any]:
+    def stop(self, *, expected_instance_id: str | None = None) -> dict[str, Any]:
         with self._exclusive():
             current = self.status()
             if current["status"] == "stopped":
@@ -454,8 +454,12 @@ class RuntimeProcessManager:
                     "runtime is still starting",
                 )
             pid = current.get("pid")
-            self._send_control("drain")
-            self._send_control("stop")
+            if expected_instance_id is None:
+                self._send_control("drain")
+                self._send_control("stop")
+            else:
+                self._send_control("drain", expected_instance_id=expected_instance_id)
+                self._send_control("stop", expected_instance_id=expected_instance_id)
             deadline = time.monotonic() + _STOP_TIMEOUT_SECONDS
             while time.monotonic() < deadline:
                 descriptor_exists = self._descriptor_path().exists()
@@ -539,6 +543,8 @@ class RuntimeProcessManager:
         self,
         command: str,
         arguments: dict[str, Any] | None = None,
+        *,
+        expected_instance_id: str | None = None,
     ) -> dict[str, Any]:
         descriptor = self._read_required(
             self._descriptor_path(), "CLI-RUNTIME-DESCRIPTOR"
@@ -552,6 +558,14 @@ class RuntimeProcessManager:
             "port",
             "token_digest",
         }
+        if (
+            expected_instance_id is not None
+            and descriptor.get("instance_id") != expected_instance_id
+        ):
+            raise RuntimeViolation(
+                "ADMIN-RUNTIME-INSTANCE-CHANGED",
+                "Runtime instance differs from the requested target",
+            )
         if (
             set(descriptor) != expected
             or descriptor.get("schema_version") != _CONTROL_SCHEMA

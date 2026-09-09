@@ -203,13 +203,17 @@ Creator HTTP 仅绑定 `127.0.0.1`。浏览器建立 process-local bearer sessio
 
 当前 OpenAPI 52 paths，覆盖 scene/message/operation/effect、Activity、Memory、Material、Relationship、Prompt、Capability、Maintenance、Export/Data Rights、Subject、QQ、Voice、Vision。分页 cursor 绑定环境、Creator、资源、查询和 projection version；SSE 是有限 process-local invalidation broker，不是耐久事实源。
 
-机器交互目录覆盖 52 个非浏览器业务/健康操作，另有能力发现和有界等待。文本、场合、Codex、操作、效果和制品共 9 项直接调用 `CreatorCommands` 共用应用服务；其余目前通过进程内请求适配复用既有 HTTP handler，不建立浏览器 session。该结构尚未完成全部 HTTP 用例向应用层的提取。文件发送目前支持 UTF-8 文本及标准输入；QQ、实时语音和视觉保留现有媒体链路，尚无通用本地媒体文件上传用例。内部 `runtime_entrypoint.py` 仍含旧混合命令解析及测试消费者，不能把当前状态视为接口改造的全部完成。
+机器交互目录覆盖 52 个非浏览器业务/健康操作，另有能力发现和有界等待。所有操作直接调用 Runtime 应用服务：交流命令、主体生活、治理、渠道感知和记录查询按责任分组；HTTP 只负责浏览器鉴权和传输，机器调用不构造 Request 或调用 HTTP handler。`application/interaction_definitions.py` 的显式目录和应用请求/结果模型生成 CLI、MCP 与 OpenAPI，不读取打包 OpenAPI 反向拼装业务接口。制品支持有界分块、完整内容摘要和 CLI 原子发布到不覆盖的输出路径。文件发送目前支持 UTF-8 文本及标准输入；通用本地媒体上传和旧混合 Runtime CLI 消费者的移除仍待完成。
 
-Admin CLI/MCP 共用 `application/service.py` 和显式操作目录，配置为 `armi.admin-config.v6`。支持显式绑定的 `active`、`development`、`system_test`、`acceptance`；正式环境禁止 test controls。绑定记录 `operator_id` 和逐项 `authorized_operations`，普通配置编辑不能修改本身的管理权限。
+Admin CLI/MCP 共用 `application/service.py` 和显式操作目录，配置为 `armi.admin-config.v7`。支持显式绑定的 `active`、`development`、`system_test`、`acceptance`；正式环境禁止 test controls。绑定记录 `operator_id` 和逐项 `authorized_operations`，普通配置编辑不能修改本身的管理权限。
 
-管理写请求用稳定幂等键保存本机调用回执。回执跨进程有效；同键异参拒绝，已开始但未结算的调用返回 unknown，不自动重放副作用。回执不替代 owner 事实或数据库恢复。校正保持预览、版本、停机与 owner 校验；具体授权引用不是预览的自动授权。重置不做数据库 dump 或整环境归档，正式 Creator 导出独立保留。
+管理 wire 为 `4.0`。生命周期、配置应用及管理写请求用稳定环境、incarnation、操作者和幂等键保存耐久回执；包升级和普通配置修改不改变回执身份。读取与预览获取当前事实，不复用写回执。`invocation get/wait` 返回阶段；运行中、已结算和中断后的 unknown 分开，不自动重放副作用，读取旧回执仍核验当前权限。
 
-`environment_start/status/stop/restart` 默认管理整个明确归属的环境，单组件选择保留；共享依赖只报告、不回收。`start_armi.ps1` 是薄入口，正常启动不安装依赖、建库、出生或构建 Web。Runtime 配置编辑使用完整模型、文件版本和进程锁，原子保存环境 YAML；返回保存/重启需求，不隐式重启或声称已生效。模型与 Web research 的环境覆盖从 `<root>/configs/` 加载。
+重置及主体内容校正使用一次性 Ed25519 授权凭据：独立 Creator 授权绑定持有签发 locator，普通 Agent 绑定只持有验证公钥。凭据绑定具体预览、目标/版本/影响、环境 incarnation、操作者与参数，最长 10 分钟且不晚于预览到期；支持查询、撤销和耐久消费。执行继续经过停机、版本及 owner 检查，文字授权引用只作审计说明。重置不做数据库 dump 或整环境归档，正式 Creator 导出独立保留。
+
+`environment_start/status/stop/restart` 默认管理整个明确归属的环境，单组件复用同一实现；生命周期、初始化、写入维护和重置使用环境互斥，控制文件位于重置目录之外。停止确认 Runtime 排空退出后才停止附属进程，共享依赖只报告、不回收。`start_armi.ps1` 是薄入口，正常启动不安装依赖、建库、出生或构建 Web。
+
+配置使用完整消费者模型、文件版本和进程锁原子保存。无效文件可安全读取版本及错误码，并使用完整候选文档修复；候选不能更换绑定环境和 data root。Runtime 报告实际读取的配置字节版本，区分已生效、环境变量覆盖、未加载和混合版本；不会把磁盘已保存当成已生效。模型与 Web research 的环境覆盖从 `<root>/configs/` 加载。综合诊断读取 owner 的 work、lease、恢复与制品状态；物理制品核验在数据库事务之外，有明确对象/字节预算并报告抽样覆盖，不触发模型或设备采集。
 
 ## 13. 数据库与配置
 

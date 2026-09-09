@@ -63,6 +63,12 @@ class ArtifactDeletionState:
 
 @runtime_checkable
 class ArtifactAdminPort(Protocol):
+    def diagnostic_counts(
+        self, transaction: PostgreSQLAdminTransaction
+    ) -> tuple[tuple[str, int], ...]: ...
+    def diagnostic_snapshots(
+        self, transaction: PostgreSQLAdminTransaction, *, limit: int
+    ) -> tuple[ArtifactAdminSnapshot, ...]: ...
     def snapshot(
         self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
     ) -> ArtifactAdminSnapshot | None: ...

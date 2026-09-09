@@ -11,7 +11,7 @@ from threading import Lock
 from armi_kernel.contracts import Instant
 from armi_local_control.runtime_errors import RuntimeViolation
 
-from armi_runtime.interfaces.creator_contract import Readiness, RuntimeState
+from armi_runtime.application.creator_contract import Readiness, RuntimeState
 
 RUNTIME_BLOCKING_REASONS: tuple[str, ...] = ()
 _REASON = re.compile(r"^[A-Z][A-Z0-9_]{2,127}$", re.ASCII)

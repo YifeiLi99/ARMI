@@ -164,7 +164,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Qq Channel Health */
+    /** Get Qq Channel Health */
     get: operations["getQQChannelHealth"];
     put?: never;
     post?: never;
@@ -198,10 +198,10 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** List Data Rights Orders */
+    /** List Creator Data Rights Orders */
     get: operations["listDataRightsOrders"];
     put?: never;
-    /** Create Data Rights Order */
+    /** Create Creator Data Rights Order */
     post: operations["createDataRightsOrder"];
     delete?: never;
     options?: never;
@@ -216,7 +216,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Get Data Rights Order */
+    /** Get Creator Data Rights Order */
     get: operations["getDataRightsOrder"];
     put?: never;
     post?: never;
@@ -235,7 +235,7 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** Retry Data Rights Order */
+    /** Retry Creator Data Rights Order */
     post: operations["retryDataRightsOrder"];
     delete?: never;
     options?: never;
@@ -591,7 +591,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Runtime Status */
+    /** Get Runtime Status */
     get: operations["getRuntimeStatus"];
     put?: never;
     post?: never;
@@ -711,7 +711,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Scene Timeline */
+    /** Get Scene Timeline */
     get: operations["getSceneTimeline"];
     put?: never;
     post?: never;
@@ -728,7 +728,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Subject Summary */
+    /** Get Subject Summary */
     get: operations["getSubjectSummary"];
     put?: never;
     post?: never;
@@ -830,7 +830,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Live Vision Status */
+    /** Get Live Vision Status */
     get: operations["getLiveVisionStatus"];
     put?: never;
     post?: never;
@@ -864,7 +864,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Live Voice Status */
+    /** Get Live Voice Status */
     get: operations["getLiveVoiceStatus"];
     put?: never;
     post?: never;

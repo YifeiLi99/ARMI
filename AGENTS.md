@@ -47,6 +47,7 @@
 
 - 未经用户针对本次操作明确授权，不复制、打包或导出数据库、Artifact Store、环境配置或 secret 作为离线恢复制品。项目不提供此恢复功能；重装与删除目标数据需明确授权，不能先擅自备份再操作。
 - 对外接口优先服务 Creator 委托的 Agent：交互使用 `armi` / `armi-mcp`，管理检查与调试使用 `armi-admin` / `armi-admin-mcp`。输入使用 `message send` 正式 intake 与稳定 idempotency key；代理来源由认证入口写入，不直写数据库、不伪造浏览器 session。Web 保留，界面操作与视觉验收才使用浏览器驱动。
+- 交互用例和操作合同位于 Runtime `application/`，HTTP、CLI、MCP 只适配传输，不经 HTTP handler 转接机器操作。重置与主体内容校正核验独立 Creator 绑定签发的一次性授权；普通代理不能签发或通过配置修改信任根。配置生效判断使用消费者实际读取版本，不能只比较已保存文件。
 - ARMI→Codex runner 与外部 Agent→ARMI MCP 隔离，不互相发现或继承 credential。Admin 支持显式绑定的 `active`、`development`、`system_test`、`acceptance`，采用独立 config、role、按需 pool 和 owner Admin ports；配置不能修改自己的管理授权。不暴露任意 SQL/Shell/Python。正式环境禁止故障注入；危险操作及主体内容校正需要具体授权。
 - ARMI 的 Codex 委托使用官方 SDK/订阅 auth，按当前合同允许逐任务选择模型、reasoning 和内置 Web Search；这不指定开发仓库时的模型。Runner 只操作 manifest 的一次性 workspace，遵守路径边界，不访问 ARMI DB、Admin 或宿主 secret/配置；内容产出为 `result.md`，代码/文件产出经独立 validator 与 custody 副本核验。
 - ARMI Web research 与 Codex 内置 Web Search 是独立只读链，后者不授予 shell 网络权限；结果先成为 Evidence/Opportunity，不直接写 Memory、Relationship 或回复。

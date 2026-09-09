@@ -9,13 +9,14 @@ from armi_effect.api import EffectArtifactKind, EffectViolation
 from armi_interaction.api import CreatorInputViolation, SceneQueryViolation, SceneStatus
 from armi_kernel.contracts import ContractViolation
 
+from armi_runtime.application.artifact_transfer import ArtifactReadWindow
 from armi_runtime.application.creator_commands import CreatorCommands
+from armi_runtime.application.creator_contract import CreatorCodexTaskRequest
 from armi_runtime.application.interaction import (
     InteractionInvocation,
     InteractionResult,
 )
 
-from .creator_contract import CreatorCodexTaskRequest
 from .creator_effect_wire import effect_wire
 from .creator_http import (
     _accepted_wire,
@@ -23,7 +24,6 @@ from .creator_http import (
     _rejected,
     _scene_wire,
     _unavailable,
-    creator_visible_codex_artifact,
     operation_wire,
 )
 
@@ -58,14 +58,19 @@ async def invoke_command(
                 return InteractionResult("returned", effect_wire(effect))
             case "artifact_read":
                 kind = EffectArtifactKind(args["artifact_kind"])
-                artifact = await commands.artifact(
-                    args["effect_id"], call.caller.creator_party_id, kind
-                )
-                content, media_type = creator_visible_codex_artifact(
-                    kind, artifact.content, artifact.media_type
+                metadata, content, media_type = await commands.artifact_chunk(
+                    args["effect_id"],
+                    call.caller.creator_party_id,
+                    kind,
+                    ArtifactReadWindow(
+                        offset=args.get("offset", 0), length=args.get("length", 65536)
+                    ),
                 )
                 return InteractionResult(
-                    "returned", {}, content=content, media_type=media_type
+                    "returned",
+                    metadata.model_dump(mode="json"),
+                    content=content,
+                    media_type=media_type,
                 )
             case "message_send":
                 accepted = await commands.message(

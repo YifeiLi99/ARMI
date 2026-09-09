@@ -27,11 +27,11 @@ class _StrictModel(BaseModel):
 
 
 class HealthRequest(_StrictModel):
-    contract_version: Literal["3.0"] = "3.0"
+    contract_version: Literal["4.0"] = "4.0"
 
 
 class EnvironmentRequest(_StrictModel):
-    contract_version: Literal["3.0"] = "3.0"
+    contract_version: Literal["4.0"] = "4.0"
     environment_id: str
 
     _environment_id = field_validator("environment_id")(_uuid7)
@@ -54,23 +54,49 @@ class InvocationStatusRequest(EnvironmentRequest):
     idempotency_key: str = Field(pattern=r"^[A-Za-z0-9._:-]{1,128}$")
 
 
+class InvocationWaitRequest(InvocationStatusRequest):
+    timeout_seconds: int = Field(default=25, ge=0, le=25)
+
+
+class AuthorizationGetRequest(EnvironmentRequest):
+    request_id: str
+    _request_id = field_validator("request_id")(_uuid7)
+
+
+class AuthorizationApproveRequest(AuthorizationGetRequest):
+    expected_request_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    idempotency_key: str = Field(pattern=r"^[A-Za-z0-9._:-]{1,128}$")
+
+
+class AuthorizationRevokeRequest(AuthorizationGetRequest):
+    idempotency_key: str = Field(pattern=r"^[A-Za-z0-9._:-]{1,128}$")
+
+
 class ConfigurationRequest(EnvironmentRequest):
     target: Literal["runtime", "model-bindings", "web-search", "qq", "mood-display"] = (
         "runtime"
     )
     action: Literal["read", "validate", "preview", "apply", "status"]
     patch: dict[str, object] = Field(default_factory=dict)
+    document: dict[str, object] | None = None
     expected_version: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+    idempotency_key: str | None = Field(
+        default=None, pattern=r"^[A-Za-z0-9._:-]{1,128}$"
+    )
 
     @model_validator(mode="after")
     def _edit_version(self) -> Self:
+        if self.document is not None and self.patch:
+            raise ValueError("ADMIN-CONFIG-EDIT-CONFLICT")
+        if self.action == "apply" and self.idempotency_key is None:
+            raise ValueError("ADMIN-IDEMPOTENCY-REQUIRED")
         if (
             self.action in {"validate", "preview", "apply"}
             and self.expected_version is None
         ):
             raise ValueError("ADMIN-CONFIG-VERSION-REQUIRED")
         if self.action in {"read", "status"} and (
-            self.patch or self.expected_version is not None
+            self.patch or self.document is not None or self.expected_version is not None
         ):
             raise ValueError("ADMIN-CONFIG-READ-ARGUMENTS")
         return self
@@ -128,17 +154,17 @@ class TailDiagnosticsRequest(EnvironmentRequest):
     _runtime_instance_id = field_validator("runtime_instance_id")(_uuid7)
 
 
-class MutationRequest(EnvironmentRequest):
+class ScopedOperationRequest(EnvironmentRequest):
     environment_incarnation: int = Field(ge=1)
-    idempotency_key: str
-    purpose: str
+    purpose: str = Field(pattern=_TOKEN.pattern)
 
-    @field_validator("idempotency_key", "purpose")
-    @classmethod
-    def _token(cls, value: str) -> str:
-        if _TOKEN.fullmatch(value) is None:
-            raise ValueError("ADMIN-INPUT-TOKEN")
-        return value
+
+class OperationRequest(ScopedOperationRequest):
+    idempotency_key: str | None = Field(default=None, pattern=_TOKEN.pattern)
+
+
+class MutationRequest(ScopedOperationRequest):
+    idempotency_key: str = Field(pattern=_TOKEN.pattern)
 
 
 class EnvironmentInitializeRequest(MutationRequest):
@@ -181,7 +207,7 @@ class OtherHumanRightsGetCommand(OtherHumanPartyCommand):
     _order_id = field_validator("order_id")(_uuid7)
 
 
-class OtherHumanRequest(MutationRequest):
+class OtherHumanRequest(OperationRequest):
     command: Annotated[
         OtherHumanRegisterCommand
         | OtherHumanSceneCommand
@@ -192,10 +218,22 @@ class OtherHumanRequest(MutationRequest):
         Field(discriminator="action"),
     ]
 
+    @property
+    def read_only(self) -> bool:
+        return self.command.action in {"data_rights_list", "data_rights_get"}
 
-class MaintenanceRequest(MutationRequest, MaintenanceParameters):
+    @model_validator(mode="after")
+    def _write_key(self) -> Self:
+        if not self.read_only and self.idempotency_key is None:
+            raise ValueError("ADMIN-IDEMPOTENCY-REQUIRED")
+        return self
+
+
+class MaintenanceRequest(OperationRequest, MaintenanceParameters):
     @model_validator(mode="after")
     def _no_reset_bypass(self) -> Self:
+        if not self.read_only and self.idempotency_key is None:
+            raise ValueError("ADMIN-IDEMPOTENCY-REQUIRED")
         if self.action == "reset":
             raise ValueError("ADMIN-RESET-PREVIEW-REQUIRED")
         if self.action == "database_maintain" and not self.apply:
@@ -203,13 +241,15 @@ class MaintenanceRequest(MutationRequest, MaintenanceParameters):
         return self
 
 
-class EnvironmentResetPreviewRequest(MutationRequest):
+class EnvironmentResetPreviewRequest(OperationRequest):
     pass
 
 
 class EnvironmentResetRequest(MutationRequest):
     preview_token: str = Field(min_length=32, max_length=4096)
-    authorization_ref: str = Field(min_length=1, max_length=256)
+    authorization_id: str
+    authorization_ref: str | None = Field(default=None, min_length=1, max_length=256)
+    _authorization_id = field_validator("authorization_id")(_uuid7)
 
 
 class RuntimeControlRequest(MutationRequest):
@@ -221,10 +261,16 @@ class RuntimeControlRequest(MutationRequest):
         return None if value is None else _uuid7(value)
 
 
-class EnvironmentLifecycleRequest(MutationRequest):
+class EnvironmentLifecycleRequest(OperationRequest):
     component: Literal["environment", "runtime", "postgresql", "semantic-recall"] = (
         "environment"
     )
+
+    @model_validator(mode="after")
+    def _write_key(self) -> Self:
+        if self.purpose != "admin.environment_status" and self.idempotency_key is None:
+            raise ValueError("ADMIN-IDEMPOTENCY-REQUIRED")
+        return self
 
 
 class InjectCreatorInputRequest(MutationRequest):
@@ -345,7 +391,7 @@ CorrectionSpec = Annotated[
 ]
 
 
-class PreviewCorrectionRequest(MutationRequest):
+class PreviewCorrectionRequest(OperationRequest):
     spec: CorrectionSpec
 
 
@@ -353,6 +399,12 @@ class ApplyCorrectionRequest(MutationRequest):
     preview_token: str = Field(min_length=64, max_length=8192)
     spec: CorrectionSpec
     authorization_ref: str | None = Field(default=None, min_length=1, max_length=256)
+    authorization_id: str | None = None
+
+    @field_validator("authorization_id")
+    @classmethod
+    def _authorization_id(cls, value: str | None) -> str | None:
+        return None if value is None else _uuid7(value)
 
     @model_validator(mode="after")
     def _specific_authorization(self) -> Self:
@@ -363,7 +415,7 @@ class ApplyCorrectionRequest(MutationRequest):
                 "repair_subject_component_head",
                 "delete_uncommitted_creator_input",
             }
-            and self.authorization_ref is None
+            and self.authorization_id is None
         ):
             raise ValueError("ADMIN-SPECIFIC-AUTHORIZATION-REQUIRED")
         return self
@@ -408,7 +460,7 @@ class SchemaStatusPayload(_StrictModel):
 
 class AdminToolResult[PayloadT](_StrictModel):
     operator_id: str | None = None
-    contract_version: Literal["3.0"] = "3.0"
+    contract_version: Literal["4.0"] = "4.0"
     operation_id: str
     status: Literal["succeeded", "rejected", "conflict", "failed", "unknown"]
     result: PayloadT | None = None

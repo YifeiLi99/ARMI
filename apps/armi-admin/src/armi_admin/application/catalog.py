@@ -11,6 +11,9 @@ from .contracts import (
     AdminToolResult,
     ApplyCorrectionRequest,
     ArmFaultRequest,
+    AuthorizationApproveRequest,
+    AuthorizationGetRequest,
+    AuthorizationRevokeRequest,
     ClearFaultsRequest,
     ConfigurationRequest,
     CorrectionStatusRequest,
@@ -24,6 +27,7 @@ from .contracts import (
     InjectCreatorInputRequest,
     InspectScopeRequest,
     InvocationStatusRequest,
+    InvocationWaitRequest,
     MaintenanceRequest,
     OtherHumanRequest,
     PreviewCorrectionRequest,
@@ -53,6 +57,7 @@ class AdminOperation:
         "lifecycle",
         "configuration",
         "capabilities",
+        "authorization",
     ]
 
     @property
@@ -66,6 +71,7 @@ class AdminOperation:
             "environment_status",
             "environment_reset_preview",
             "preview_correction",
+            "authorization_get",
         }
 
     @property
@@ -102,6 +108,10 @@ class AdminOperation:
                 return service.schema_status(cast(SchemaStatusRequest, request))
             case "capabilities":
                 return service.capabilities()
+            case "authorization":
+                return service.authorization(
+                    self.name, cast(AuthorizationGetRequest, request)
+                )
             case "configuration":
                 return service.configuration(cast(ConfigurationRequest, request))
             case "observe":
@@ -116,9 +126,13 @@ class AdminOperation:
 
 
 OPERATION_DESCRIPTIONS = {
+    "authorization_get": "Read the exact preview, recipient, expiry and single-use authorization state.",
+    "authorization_approve": "Creator issuer only: sign an exact preview digest for one delegated operation; requires a separate signing credential.",
+    "authorization_revoke": "Revoke an unconsumed authorization; this does not undo an executed operation.",
     "capabilities": "Discover bound identity, authorization and operation contracts without opening the database.",
     "doctor": "Inspect scoped configuration, schema/ACL, work and channel diagnostics; no device capture or external effects.",
     "invocation_get": "Read a durable receipt by operation and stable idempotency key; unknown outcomes are never replayed.",
+    "invocation_wait": "Wait up to 25 seconds for a durable invocation; return current progress and a continuation without replaying it.",
     "configuration": "Read, validate, preview, apply or inspect bound configuration using file versions; saving never implicitly restarts Runtime.",
     "maintenance": "Use fixed database, birth, artifact, capacity, semantic recall and device maintenance actions; downloads require explicit approval.",
     "other_human": "Manage registration, scenes and governed data-rights orders; synthetic message intake is test-only.",
@@ -151,9 +165,15 @@ OPERATION_DESCRIPTIONS = {
 
 
 ADMIN_OPERATIONS = (
+    AdminOperation("authorization_get", AuthorizationGetRequest, "authorization"),
+    AdminOperation(
+        "authorization_approve", AuthorizationApproveRequest, "authorization"
+    ),
+    AdminOperation("authorization_revoke", AuthorizationRevokeRequest, "authorization"),
     AdminOperation("capabilities", HealthRequest, "capabilities"),
     AdminOperation("doctor", DoctorRequest, "observe"),
     AdminOperation("invocation_get", InvocationStatusRequest, "observe"),
+    AdminOperation("invocation_wait", InvocationWaitRequest, "observe"),
     AdminOperation("maintenance", MaintenanceRequest, "mutate"),
     AdminOperation("other_human", OtherHumanRequest, "mutate"),
     AdminOperation("configuration", ConfigurationRequest, "configuration"),

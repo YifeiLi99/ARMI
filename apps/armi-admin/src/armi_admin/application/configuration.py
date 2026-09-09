@@ -102,7 +102,7 @@ class AdminConfig(BaseModel):
         strict=True,
     )
 
-    schema_version: Literal["armi.admin-config.v6"]
+    schema_version: Literal["armi.admin-config.v7"]
     operator_id: str = Field(
         min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$"
     )
@@ -122,6 +122,10 @@ class AdminConfig(BaseModel):
     database_locator: LocatorValue = Field(title="Database Locator")
     migrator_database_locator: LocatorValue = Field(title="Migrator Database Locator")
     preview_key_locator: LocatorValue = Field(title="Preview Key Locator")
+    authorization_public_key: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
+    authorization_signing_key_locator: LocatorValue | None = None
     expected: AdminExpectedIdentity
     logging: AdminLogSettings = AdminLogSettings()
 
@@ -195,6 +199,18 @@ class AdminConfig(BaseModel):
 
     @model_validator(mode="after")
     def _environment_boundaries(self) -> Self:
+        signing = self.authorization_signing_key_locator
+        if signing is not None:
+            if (
+                self.authorization_public_key is None
+                or "authorization_approve" not in self.authorized_operations
+            ):
+                raise ValueError("ADMIN-CONFIG-AUTHORIZATION-ISSUER")
+            if signing.scheme not in {"env", "file"} or (
+                signing.scheme == "env"
+                and signing.target != "ARMI_SECRET_CREATOR_AUTHORIZATION_KEY"
+            ):
+                raise ValueError("ADMIN-CONFIG-AUTHORIZATION-LOCATOR")
         if self.environment_kind == AdminEnvironmentKind.ACTIVE:
             if self.resettable or self.test_controls_enabled:
                 raise ValueError("ADMIN-CONFIG-ACTIVE-TEST-CONTROLS")
@@ -226,6 +242,14 @@ class AdminConfig(BaseModel):
     def preview_locator(self) -> CredentialLocator:
         return self.preview_key_locator
 
+    def invocation_identity(self) -> str:
+        """Stable receipt namespace, independent of installed code and grants."""
+        payload = json.dumps(
+            [self.environment_id, self.environment_incarnation, self.operator_id],
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return "sha256:" + hashlib.sha256(payload).hexdigest()
+
     def safe_digest(self) -> str:
         payload = {
             "schema_version": self.schema_version,
@@ -246,6 +270,10 @@ class AdminConfig(BaseModel):
             "database_locator_identity": self.locator.identity(),
             "migrator_locator_identity": self.migrator_locator.identity(),
             "preview_locator_identity": self.preview_locator.identity(),
+            "authorization_public_key": self.authorization_public_key,
+            "authorization_signing_locator_identity": None
+            if self.authorization_signing_key_locator is None
+            else self.authorization_signing_key_locator.identity(),
             "expected": self.expected.model_dump(mode="json"),
             "logging": self.logging.model_dump(mode="json"),
             "runtime_defaults_identity": _path_identity(self.runtime_defaults_path),

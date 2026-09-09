@@ -123,15 +123,15 @@ from armi_relationship.api import (
 from armi_relationship.api import (
     RelationshipViolation as CreatorRelationshipViolation,
 )
-from armi_runtime.composition.lifecycle import LifecycleController
-from armi_runtime.interfaces.browser_sessions import BrowserSessionStore
-from armi_runtime.interfaces.creator_app import create_runtime_app
-from armi_runtime.interfaces.creator_contract import (
+from armi_runtime.application.creator_contract import (
     QQChannelHealthResponse,
     Readiness,
     RuntimeComponentHealthResponse,
     RuntimeStatusResponse,
 )
+from armi_runtime.composition.lifecycle import LifecycleController
+from armi_runtime.interfaces.browser_sessions import BrowserSessionStore
+from armi_runtime.interfaces.creator_app import create_runtime_app
 from armi_runtime.interfaces.creator_events import CreatorEventBroker
 from armi_runtime.interfaces.creator_http import (
     creator_visible_codex_artifact,

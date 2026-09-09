@@ -16,6 +16,7 @@ from armi_cognition.api import CognitionAdminPort
 from armi_effect.api import EffectAdminPort
 from armi_expression.api import ExpressionAdminPort
 from armi_interaction.api import InteractionAdminPort
+from armi_kernel.application import ArtifactViolation
 from armi_material.api import MaterialAdminItem, MaterialAdminReadPort
 from armi_mood.api import MoodAdminReadPort
 from armi_runtime_foundation import PostgreSQLAdminUnitOfWorkFactory
@@ -424,6 +425,40 @@ class AdminObservationGateway:
             "cursor": _encode_cursor(query, next_offset)
             if next_offset < len(ordered)
             else None,
+        }
+
+    def diagnostics(self) -> dict[str, object]:
+        with self._factory.repeatable_read() as uow:
+            runtime = self._runtime.diagnostics(uow.transaction)
+            counts = self._artifacts.diagnostic_counts(uow.transaction)
+            snapshots = self._artifacts.diagnostic_snapshots(uow.transaction, limit=16)
+        # Hash physical objects after closing the database transaction.
+        remaining = 32 * 1024 * 1024
+        checked: list[dict[str, object]] = []
+        for snapshot in snapshots:
+            item: dict[str, object] = {
+                "artifact_id": str(snapshot.artifact_id),
+                "recorded_status": snapshot.integrity_status.value,
+            }
+            if snapshot.byte_size > remaining:
+                item.update(status="not_checked", reason="diagnostic_byte_limit")
+            else:
+                remaining -= snapshot.byte_size
+                try:
+                    self._artifacts.read_verified_bytes(snapshot)
+                    item["status"] = "verified"
+                except ArtifactViolation as error:
+                    item.update(status="failed", error_code=error.code)
+            checked.append(item)
+        return {
+            "runtime": _safe(runtime),
+            "artifact_integrity": {
+                "recorded_counts": dict(counts),
+                "physical_checks": checked,
+                "coverage": "bounded_sample",
+                "max_objects": 16,
+                "max_bytes": 32 * 1024 * 1024,
+            },
         }
 
     def inspect_scope(

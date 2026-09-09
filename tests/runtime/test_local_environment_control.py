@@ -8,6 +8,7 @@ from armi_local_control import ConfigurationViolation, RuntimeViolation
 from armi_local_control.lifecycle import (
     LocalEnvironmentController,
     PostgreSQLControlBinding,
+    environment_control_lock,
 )
 
 
@@ -96,6 +97,33 @@ def test_failed_runtime_drain_preserves_dependencies(tmp_path: Path) -> None:
         control.execute("stop")
     database.assert_not_called()
     semantic.assert_not_called()
+
+
+def test_unconfirmed_runtime_stop_preserves_dependencies(tmp_path: Path) -> None:
+    control = controller(tmp_path)
+    control.runtime = Mock()
+    control.runtime.stop.return_value = {"status": "draining"}
+    with (
+        patch.object(control, "database") as database,
+        patch("armi_local_control.lifecycle.SemanticRecallProcessManager") as semantic,
+        pytest.raises(RuntimeViolation, match="LOCAL-RUNTIME-STOP-UNKNOWN"),
+    ):
+        control.execute("stop")
+    database.assert_not_called()
+    semantic.assert_not_called()
+
+
+def test_lifecycle_cannot_overlap_maintenance_lock(tmp_path: Path) -> None:
+    control = controller(tmp_path)
+    control.runtime = Mock()
+    with (
+        environment_control_lock(tmp_path, control.environment_id),
+        patch.object(control, "database") as database,
+        pytest.raises(RuntimeViolation, match="CLI-RUNTIME-CONTROL-BUSY"),
+    ):
+        control.execute("start")
+    database.assert_not_called()
+    control.runtime.start.assert_not_called()
 
 
 def test_status_preserves_evidence_when_configuration_is_invalid(

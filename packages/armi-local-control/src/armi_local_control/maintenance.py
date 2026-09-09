@@ -42,6 +42,18 @@ class MaintenanceParameters(BaseModel):
     max_open_backlog_age_seconds: int = Field(default=120, ge=0)
     max_log_growth_bytes: int = Field(default=16777216, ge=0)
 
+    @property
+    def read_only(self) -> bool:
+        return self.action in {
+            "database_check",
+            "capacity_check",
+            "semantic_status",
+            "voice_devices",
+            "vision_sources",
+            "device_bindings",
+            "napcat_status",
+        } or (self.action == "artifact_cleanup" and not self.apply)
+
     @model_validator(mode="after")
     def action_parameters(self) -> Self:
         if self.auto_login and self.action != "napcat_open":
@@ -70,14 +82,15 @@ class MaintenanceInvocation(MaintenanceParameters):
 
 class ConfigurationInvocation(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-    schema_version: Literal["armi.local-configuration.v1"] = (
-        "armi.local-configuration.v1"
+    schema_version: Literal["armi.local-configuration.v2"] = (
+        "armi.local-configuration.v2"
     )
     environment_root: AbsolutePath
     environment_id: Uuid7
     target: Literal["model-bindings", "web-search", "qq", "mood-display"]
     action: Literal["read", "validate", "preview", "apply", "status"]
     patch: dict[str, object] = Field(default_factory=dict)
+    document: dict[str, object] | None = None
     expected_version: str | None = None
 
 

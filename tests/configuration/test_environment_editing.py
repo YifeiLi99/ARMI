@@ -74,6 +74,108 @@ def test_environment_identity_cannot_be_patched(tmp_path: Path) -> None:
         )
 
 
+def test_invalid_runtime_configuration_can_be_diagnosed_and_repaired(
+    tmp_path: Path,
+) -> None:
+    config = editor(tmp_path)
+    values = load_yaml_file(config.path)
+    values["creator"] = {"port": "invalid-private-value"}
+    config.path.write_text(json.dumps(values), encoding="utf-8")
+    broken = config.read()
+    assert broken["configuration_state"] == "invalid"
+    assert broken["values"] is None
+    assert "invalid-private-value" not in json.dumps(broken)
+    config.apply({"creator": {"port": 54321}}, broken["version"])
+    assert config.read()["effective_on_next_start"]["creator"]["port"] == 54321
+
+
+def test_invalid_yaml_read_preserves_version_without_disclosing_content(
+    tmp_path: Path,
+) -> None:
+    config = editor(tmp_path)
+    config.path.write_text("private_key: [private-content", encoding="utf-8")
+    broken = config.read()
+    assert broken["configuration_state"] == "invalid"
+    assert broken["version"].startswith("sha256:")
+    assert "private-content" not in json.dumps(broken)
+
+
+def test_complete_candidate_repairs_invalid_yaml_without_changing_bound_identity(
+    tmp_path: Path,
+) -> None:
+    config = editor(tmp_path)
+    document = config.read()["values"]
+    config = EnvironmentConfiguration(
+        tmp_path, DEFAULTS, environment_id=document["environment"]["environment_id"]
+    )
+    config.path.write_text("invalid: [", encoding="utf-8")
+    version = config.read()["version"]
+    foreign = {
+        **document,
+        "environment": {**document["environment"], "environment_id": str(uuid7())},
+    }
+    with pytest.raises(ConfigurationViolation, match="IDENTITY"):
+        config.apply({}, version, document=foreign)
+    moved = {
+        **document,
+        "environment": {
+            **document["environment"],
+            "data_root": str(tmp_path / "other"),
+        },
+    }
+    with pytest.raises(ConfigurationViolation, match="IDENTITY"):
+        config.apply({}, version, document=moved)
+    preview = config.preview({}, version, document=document)
+    assert preview["activation"] == "not_saved"
+    config.apply({}, version, document=document)
+    assert config.read()["configuration_state"] == "configured"
+
+
+def test_invalid_model_configuration_can_be_repaired(tmp_path: Path) -> None:
+    config = ConfigurationAsset(
+        ConfigurationInvocation(
+            environment_root=tmp_path,
+            environment_id=uuid7(),
+            target="model-bindings",
+            action="read",
+        )
+    )
+    values = config.read()["values"]
+    values["voice_binding"]["timeout_seconds"] = "invalid-private-value"
+    config.path.parent.mkdir(parents=True)
+    config.path.write_text(json.dumps(values), encoding="utf-8")
+    broken = config.read()
+    assert broken["configuration_state"] == "invalid"
+    assert "invalid-private-value" not in json.dumps(broken)
+    config.apply({"voice_binding": {"timeout_seconds": 20}}, broken["version"])
+    assert config.read()["values"]["voice_binding"]["timeout_seconds"] == 20
+
+
+@pytest.mark.parametrize(
+    "patch",
+    [
+        {"voice_binding": {"unexpected": "secret-value"}},
+        {"bindings": [{"provider": "incomplete"}]},
+        {"external_content_recognition": {"output_token_limit": True}},
+    ],
+)
+def test_complete_model_manifest_rejects_invalid_sections(
+    tmp_path: Path, patch: dict
+) -> None:
+    config = ConfigurationAsset(
+        ConfigurationInvocation(
+            environment_root=tmp_path,
+            environment_id=uuid7(),
+            target="model-bindings",
+            action="read",
+        )
+    )
+    before = config.read()
+    with pytest.raises((ValueError, RuntimeError)):
+        config.apply(patch, before["version"])
+    assert not config.path.exists()
+
+
 def test_model_override_is_consumed_and_conflict_does_not_overwrite(
     tmp_path: Path,
 ) -> None:

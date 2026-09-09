@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import secrets
 from collections.abc import Awaitable, Callable
 from uuid import UUID
@@ -38,6 +39,9 @@ from armi_interaction.api import (
     SceneStatus,
 )
 from armi_kernel.contracts import IdempotencyKey, TraceId
+
+from .artifact_transfer import ArtifactChunk, ArtifactReadWindow
+from .creator_projection import creator_visible_codex_artifact
 
 
 class CreatorCommands:
@@ -77,6 +81,33 @@ class CreatorCommands:
             raise EffectViolation("EFFECT-DEPENDENCY")
         return await self.effects.read_artifact(
             EffectId(UUID(effect_id)), creator_party_id=creator_party_id, kind=kind
+        )
+
+    async def artifact_chunk(
+        self,
+        effect_id: str,
+        creator_party_id: UUID,
+        kind: EffectArtifactKind,
+        window: ArtifactReadWindow,
+    ) -> tuple[ArtifactChunk, bytes, str]:
+        artifact = await self.artifact(effect_id, creator_party_id, kind)
+        content, media_type = creator_visible_codex_artifact(
+            kind, artifact.content, artifact.media_type
+        )
+        if window.offset > len(content):
+            raise ValueError("INTERACTION-ARTIFACT-RANGE")
+        chunk = content[window.offset : window.offset + window.length]
+        end = window.offset + len(chunk)
+        return (
+            ArtifactChunk(
+                offset=window.offset,
+                byte_count=len(chunk),
+                total_bytes=len(content),
+                digest="sha256:" + hashlib.sha256(content).hexdigest(),
+                next_offset=None if end == len(content) else end,
+            ),
+            chunk,
+            media_type,
         )
 
     async def message(

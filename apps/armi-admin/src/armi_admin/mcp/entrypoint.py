@@ -34,6 +34,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             locator=config.locator,
             migrator_locator=config.migrator_locator,
             preview_locator=config.preview_locator,
+            authorization_locator=config.authorization_signing_key_locator,
             config_root=config_path.parent,
         )
         composition = bootstrap_admin(config, credentials)

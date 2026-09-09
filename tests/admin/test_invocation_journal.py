@@ -1,7 +1,28 @@
 from pathlib import Path
 
 import pytest
-from armi_admin.application.invocations import InvocationJournal
+from armi_admin.application.invocations import InvocationJournal, invocation_progress
+
+
+def test_active_call_reports_progress_then_preserves_interrupted_phase(
+    tmp_path: Path,
+) -> None:
+    journal = InvocationJournal(tmp_path, "binding")
+
+    def execute():
+        invocation_progress("runtime.readiness")
+        progress = InvocationJournal(tmp_path, "binding").read("start", "stable")
+        assert progress["state"] == "running"
+        assert progress["phase"] == "runtime.readiness"
+        raise RuntimeError("interrupted")
+
+    with pytest.raises(RuntimeError, match="interrupted"):
+        journal.invoke(
+            name="start", key="stable", request_digest="request", execute=execute
+        )
+    receipt = journal.read("start", "stable")
+    assert receipt["state"] == "unknown"
+    assert receipt["phase"] == "runtime.readiness"
 
 
 def test_receipt_survives_new_process_instance_and_conflicts(tmp_path: Path) -> None:

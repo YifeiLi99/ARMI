@@ -11,11 +11,16 @@ from armi_admin.persistence.runtime_foundation import (
     RuntimeAdminSubject,
     RuntimeFoundationAdminAdapter,
 )
-from armi_artifact_store.api import ArtifactAdminPort
+from armi_artifact_store.api import ArtifactAdminPort, ArtifactAdminSnapshot
 from armi_cognition.api import CognitionAdminPort
 from armi_effect.api import EffectAdminPort
 from armi_expression.api import ExpressionAdminPort
 from armi_interaction.api import InteractionAdminPort
+from armi_kernel.application import (
+    ArtifactIntegrityStatus,
+    ArtifactPrivacyScope,
+    ArtifactViolation,
+)
 from armi_material.api import (
     LifeMaterialKind,
     LifeMaterialPrivacyStatus,
@@ -87,6 +92,69 @@ class _Factory:
     @contextmanager
     def serializable(self):
         yield cast(PostgreSQLAdminUnitOfWork, _Uow())
+
+
+def test_diagnostics_verify_artifacts_outside_database_transaction():
+    active = False
+
+    class Factory:
+        @contextmanager
+        def repeatable_read(self):
+            nonlocal active
+            active = True
+            try:
+                yield _Uow()
+            finally:
+                active = False
+
+    class Runtime:
+        def diagnostics(self, transaction):
+            assert active
+            return {"work": [], "recovery": None, "active_leases": []}
+
+    class Artifacts:
+        def diagnostic_counts(self, transaction):
+            assert active
+            return (("verified", 1),)
+
+        def diagnostic_snapshots(self, transaction, *, limit):
+            assert active
+            return (
+                ArtifactAdminSnapshot(
+                    uuid7(),
+                    "sha256:" + "a" * 64,
+                    12,
+                    "text/plain",
+                    "creator.input",
+                    ArtifactPrivacyScope.PRIVATE,
+                    ArtifactIntegrityStatus.VERIFIED,
+                ),
+            )
+
+        def read_verified_bytes(self, snapshot):
+            assert not active
+            raise ArtifactViolation("ART-INTEGRITY")
+
+    gateway = AdminObservationGateway(
+        factory=cast(PostgreSQLAdminUnitOfWorkFactory, Factory()),
+        runtime=cast(RuntimeFoundationAdminAdapter, Runtime()),
+        artifacts=cast(ArtifactAdminPort, Artifacts()),
+        cognition=cast(CognitionAdminPort, object()),
+        effects=cast(EffectAdminPort, object()),
+        expression=cast(ExpressionAdminPort, object()),
+        interaction=cast(InteractionAdminPort, object()),
+        materials=cast(MaterialAdminReadPort, object()),
+        mood=_Mood(),
+        subject_state=_SubjectState(),
+    )
+    result = gateway.diagnostics()
+    assert (
+        cast(dict[str, Any], result["artifact_integrity"])["physical_checks"][0][
+            "status"
+        ]
+        == "failed"
+    )
+    assert "fixture corruption" not in str(result)
 
 
 class _Runtime:

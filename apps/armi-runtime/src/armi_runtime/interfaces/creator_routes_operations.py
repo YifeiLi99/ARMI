@@ -43,8 +43,6 @@ from .creator_http import (
     operation_wire,
 )
 from .interaction_authority import (
-    authenticated_delegate,
-    delegate_id,
     verify_interaction,
 )
 
@@ -82,9 +80,7 @@ def register_operation_routes(
         scene_key: str,
         request: Request,
     ) -> JSONResponse:
-        if (
-            browser_sessions is None and authenticated_delegate(request) is None
-        ) or codex_task_admission is None:
+        if (browser_sessions is None) or codex_task_admission is None:
             return JSONResponse(
                 status_code=503,
                 content=_unavailable("DEPENDENCY_CODEX_TASK_UNAVAILABLE"),
@@ -96,7 +92,7 @@ def register_operation_routes(
             )
         token = _bearer(request)
         try:
-            if token is None and authenticated_delegate(request) is None:
+            if token is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
             verify_interaction(request, browser_sessions, token)
         except BrowserSessionViolation as error:
@@ -119,7 +115,7 @@ def register_operation_routes(
                 model=CodexModel(model.model_id),
                 reasoning=CodexReasoningEffort(model.reasoning_effort),
                 web_search=model.web_search,
-                delegate_id=delegate_id(request),
+                delegate_id=None,
             )
         except (ContractViolation, CodexDelegationViolation) as error:
             if isinstance(error, ContractViolation):
@@ -166,7 +162,7 @@ def register_operation_routes(
         request: Request,
     ) -> JSONResponse:
         if (
-            (browser_sessions is None and authenticated_delegate(request) is None)
+            (browser_sessions is None)
             or creator_operations is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -181,7 +177,7 @@ def register_operation_routes(
             )
         token = _bearer(request)
         try:
-            if token is None and authenticated_delegate(request) is None:
+            if token is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
             verify_interaction(request, browser_sessions, token)
             operation = await commands.operation(result_ref)
@@ -215,7 +211,7 @@ def register_operation_routes(
     )
     async def get_effect(effect_id: str, request: Request) -> JSONResponse:
         if (
-            (browser_sessions is None and authenticated_delegate(request) is None)
+            (browser_sessions is None)
             or effect_ledger is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -230,7 +226,7 @@ def register_operation_routes(
             )
         token = _bearer(request)
         try:
-            if token is None and authenticated_delegate(request) is None:
+            if token is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
             metadata = verify_interaction(request, browser_sessions, token)
             view = await commands.effect(effect_id, metadata.creator_party_id)
@@ -278,7 +274,7 @@ def register_operation_routes(
         effect_id: str, artifact_kind: str, request: Request
     ) -> Response:
         if (
-            (browser_sessions is None and authenticated_delegate(request) is None)
+            (browser_sessions is None)
             or effect_ledger is None
             or not _browser_boundary(request, canonical_origin=canonical_origin)
         ):
@@ -293,7 +289,7 @@ def register_operation_routes(
             )
         token = _bearer(request)
         try:
-            if token is None and authenticated_delegate(request) is None:
+            if token is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
             metadata = verify_interaction(request, browser_sessions, token)
             kind = EffectArtifactKind(artifact_kind)

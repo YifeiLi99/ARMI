@@ -41,7 +41,7 @@ class PackageImportSmokeTests(unittest.TestCase):
             [KERNEL_SOURCE],
             "import armi_kernel; "
             "assert armi_kernel.__all__ == "
-            "('load_yaml_file', 'load_yaml_mapping'); "
+            "('load_yaml_file', 'load_yaml_mapping', 'observe_configuration_reads', 'read_configuration_bytes'); "
             "assert not any(name == 'armi_runtime' or name.startswith('armi_runtime.') "
             "or name == 'armi_admin' or name.startswith('armi_admin.') "
             "for name in sys.modules)",

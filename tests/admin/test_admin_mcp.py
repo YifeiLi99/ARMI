@@ -22,8 +22,11 @@ from armi_admin.application.contracts import (
     ConfigurationRequest,
     CorrectionStatusRequest,
     EnvironmentInitializeRequest,
+    EnvironmentLifecycleRequest,
     HealthRequest,
     InjectCreatorInputRequest,
+    InvocationStatusRequest,
+    MaintenanceRequest,
     PreviewCorrectionRequest,
     ReplaceSubjectComponentSpec,
     RuntimeControlRequest,
@@ -49,7 +52,7 @@ def _config() -> AdminConfig:
     root = Path.cwd().resolve()
     return AdminConfig.model_validate(
         {
-            "schema_version": "armi.admin-config.v6",
+            "schema_version": "armi.admin-config.v7",
             "operator_id": "isolated-test-agent",
             "authorized_operations": tuple(item.name for item in ADMIN_OPERATIONS),
             "environment_kind": "system_test",
@@ -145,7 +148,7 @@ class AdminConfigurationTests(unittest.TestCase):
         )
         self.assertEqual(
             schema["properties"]["schema_version"]["const"],
-            "armi.admin-config.v6",
+            "armi.admin-config.v7",
         )
 
     def test_artifacts_have_no_drift(self) -> None:
@@ -174,6 +177,86 @@ class AdminConfigurationTests(unittest.TestCase):
 
 
 class AdminToolServiceTests(unittest.TestCase):
+    def test_read_only_maintenance_is_fresh_without_a_write_key(self) -> None:
+        service = _service()
+        config = service.config.model_copy(
+            update={
+                "authorized_operations": ("maintenance.semantic_status",),
+            }
+        )
+        request = MaintenanceRequest(
+            environment_id=ENVIRONMENT_ID,
+            environment_incarnation=1,
+            purpose="admin.maintenance",
+            action="semantic_status",
+        )
+        with (
+            patch.object(service, "_config", config),
+            patch.object(
+                AdminControlPlane,
+                "maintenance",
+                side_effect=[
+                    {"status": "stopped"},
+                    {"status": "running"},
+                ],
+            ) as inspect,
+        ):
+            self.assertEqual(
+                service.mutate("maintenance", request).result, {"status": "stopped"}
+            )
+            self.assertEqual(
+                service.mutate("maintenance", request).result, {"status": "running"}
+            )
+        self.assertEqual(inspect.call_count, 2)
+        self.assertFalse((config.environment_root.parent / ".armi-admin").exists())
+
+    def test_lifecycle_receipt_survives_configuration_change_and_keeps_scope(
+        self,
+    ) -> None:
+        service = _service()
+        request = EnvironmentLifecycleRequest(
+            environment_id=ENVIRONMENT_ID,
+            environment_incarnation=1,
+            purpose="admin.environment_start",
+            idempotency_key="durable-start",
+        )
+        with patch(
+            "armi_admin.application.service.LocalEnvironmentController.execute",
+            return_value={"status": "ready"},
+        ) as start:
+            first = service.lifecycle("start", request)
+            changed = service.config.model_copy(update={"resettable": False})
+            self.assertNotEqual(service.config.safe_digest(), changed.safe_digest())
+            with patch.object(service, "_config", changed):
+                self.assertEqual(service.lifecycle("start", request), first)
+                receipt = service.observe(
+                    "invocation_get",
+                    InvocationStatusRequest(
+                        environment_id=ENVIRONMENT_ID,
+                        operation_name="environment_start",
+                        idempotency_key="durable-start",
+                    ),
+                )
+                assert receipt.result is not None
+                self.assertEqual(receipt.result["state"], "finished")
+            start.assert_called_once()
+        revoked = changed.model_copy(
+            update={"authorized_operations": ("invocation_get",)}
+        )
+        with patch.object(service, "_config", revoked):
+            self.assertEqual(
+                service.lifecycle("start", request).error_code, "ADMIN-SCOPE-REQUIRED"
+            )
+            denied = service.observe(
+                "invocation_get",
+                InvocationStatusRequest(
+                    environment_id=ENVIRONMENT_ID,
+                    operation_name="environment_start",
+                    idempotency_key="durable-start",
+                ),
+            )
+            self.assertEqual(denied.error_code, "ADMIN-SCOPE-REQUIRED")
+
     def test_configuration_saved_and_running_values_are_distinct(self) -> None:
         service = _service()
         config = service.config.model_copy(
@@ -215,6 +298,7 @@ class AdminToolServiceTests(unittest.TestCase):
                 ConfigurationRequest(
                     environment_id=config.environment_id,
                     action="apply",
+                    idempotency_key="save-creator-port",
                     expected_version=before["version"],
                     patch={"creator": {"port": 43124}},
                 )
@@ -378,7 +462,7 @@ class AdminProtocolTests(unittest.TestCase):
             config_path.write_text(
                 "\n".join(
                     (
-                        "schema_version: armi.admin-config.v6",
+                        "schema_version: armi.admin-config.v7",
                         "operator_id: isolated-test-agent",
                         "authorized_operations: [health]",
                         "environment_kind: system_test",

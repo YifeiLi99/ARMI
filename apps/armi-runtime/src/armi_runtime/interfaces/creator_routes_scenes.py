@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+from armi_runtime.application.creator_calls import CreatorUseCase
 from armi_runtime.application.creator_commands import CreatorCommands
+from armi_runtime.application.creator_records import create_record_use_cases
 
 from .creator_http import (
-    UUID,
     AcceptedOutcomeResponse,
-    Any,
     BrowserSessionStore,
     BrowserSessionViolation,
     ContractViolation,
@@ -20,25 +20,17 @@ from .creator_http import (
     CreatorSceneResponse,
     FastAPI,
     HTTPBearer,
-    Instant,
     JSONResponse,
-    Literal,
-    OpaqueCursor,
     OtherHumanPartyRecordPageResponse,
-    OtherHumanPartyRecordResponse,
     OtherHumanRecordQueryPort,
-    OtherHumanRecordViolation,
     OtherHumanSceneRecordPageResponse,
-    OtherHumanSceneRecordResponse,
     OtherHumanTimelineRecordPageResponse,
-    OtherHumanTimelineRecordResponse,
     RejectedOutcomeResponse,
     Request,
     Response,
     SceneKey,
     SceneQueryViolation,
     SceneStatus,
-    SceneTimelineItemResponse,
     SceneTimelinePageResponse,
     SceneTimelineQuery,
     SceneTimelineQueryPort,
@@ -52,18 +44,15 @@ from .creator_http import (
     _creator_input_request,
     _creator_scene_create_request,
     _input_failure,
-    _life_query_parameters,
     _rejected,
     _scene_wire,
     _single_header,
     _unavailable,
-    cast,
     parse_last_event_id,
     stream_creator_events,
 )
+from .creator_use_cases import invoke_creator_http
 from .interaction_authority import (
-    authenticated_delegate,
-    delegate_id,
     verify_interaction,
 )
 
@@ -82,7 +71,12 @@ def register_scene_routes(
     other_human_record_query: OtherHumanRecordQueryPort | None,
     request_body_max_bytes: int,
     scene_timeline_query: SceneTimelineQueryPort | None,
-) -> None:
+) -> dict[str, CreatorUseCase]:
+    use_cases = create_record_use_cases(
+        scene_timeline_query=scene_timeline_query,
+        other_human_record_query=other_human_record_query,
+    )
+
     @app.get(
         "/v1/scenes",
         operation_id="listCreatorScenes",
@@ -96,9 +90,9 @@ def register_scene_routes(
     )
     async def list_creator_scenes(request: Request) -> JSONResponse:
         if (
-            (browser_sessions is None and authenticated_delegate(request) is None)
+            (browser_sessions is None)
             or creator_scenes is None
-            or not _browser_boundary(request, canonical_origin=canonical_origin)
+            or (not _browser_boundary(request, canonical_origin=canonical_origin))
         ):
             status = (
                 403
@@ -107,22 +101,19 @@ def register_scene_routes(
             )
             return JSONResponse(
                 status_code=status,
-                content=(
-                    _rejected("AUTH_BROWSER_BOUNDARY")
-                    if status == 403
-                    else _unavailable("DEPENDENCY_SCENE_QUERY_UNAVAILABLE")
-                ),
+                content=_rejected("AUTH_BROWSER_BOUNDARY")
+                if status == 403
+                else _unavailable("DEPENDENCY_SCENE_QUERY_UNAVAILABLE"),
             )
         try:
             token = _bearer(request)
-            if token is None and authenticated_delegate(request) is None:
+            if token is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
             verify_interaction(request, browser_sessions, token)
             collection = await commands.list_scenes()
         except BrowserSessionViolation as error:
             return JSONResponse(
-                status_code=error.status_code,
-                content=_rejected(error.code),
+                status_code=error.status_code, content=_rejected(error.code)
             )
         except SceneQueryViolation:
             return JSONResponse(
@@ -152,9 +143,9 @@ def register_scene_routes(
     )
     async def create_creator_scene(request: Request) -> JSONResponse:
         if (
-            (browser_sessions is None and authenticated_delegate(request) is None)
+            (browser_sessions is None)
             or creator_scenes is None
-            or not _browser_boundary(request, canonical_origin=canonical_origin)
+            or (not _browser_boundary(request, canonical_origin=canonical_origin))
         ):
             status = (
                 403
@@ -163,37 +154,29 @@ def register_scene_routes(
             )
             return JSONResponse(
                 status_code=status,
-                content=(
-                    _rejected("AUTH_BROWSER_BOUNDARY")
-                    if status == 403
-                    else _unavailable("DEPENDENCY_SCENE_COMMAND_UNAVAILABLE")
-                ),
+                content=_rejected("AUTH_BROWSER_BOUNDARY")
+                if status == 403
+                else _unavailable("DEPENDENCY_SCENE_COMMAND_UNAVAILABLE"),
             )
         try:
             token = _bearer(request)
-            if token is None and authenticated_delegate(request) is None:
+            if token is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
             verify_interaction(request, browser_sessions, token)
-            model = await _creator_scene_create_request(
-                request,
-                request_body_max_bytes,
-            )
+            model = await _creator_scene_create_request(request, request_body_max_bytes)
             created = await commands.create_scene(model.scene_key)
         except BrowserSessionViolation as error:
             return JSONResponse(
-                status_code=error.status_code,
-                content=_rejected(error.code),
+                status_code=error.status_code, content=_rejected(error.code)
             )
         except SceneQueryViolation as error:
             if error.code == "SCENE-KEY-CONFLICT":
                 return JSONResponse(
-                    status_code=409,
-                    content=_rejected("CONFLICT_SCENE_KEY"),
+                    status_code=409, content=_rejected("CONFLICT_SCENE_KEY")
                 )
             if error.code.startswith("CON-SCENE"):
                 return JSONResponse(
-                    status_code=400,
-                    content=_rejected("INPUT_SCENE_KEY"),
+                    status_code=400, content=_rejected("INPUT_SCENE_KEY")
                 )
             return JSONResponse(
                 status_code=503,
@@ -205,14 +188,12 @@ def register_scene_routes(
         )
 
     async def transition_creator_scene(
-        scene_key: str,
-        request: Request,
-        target_status: SceneStatus,
+        scene_key: str, request: Request, target_status: SceneStatus
     ) -> JSONResponse:
         if (
-            (browser_sessions is None and authenticated_delegate(request) is None)
+            (browser_sessions is None)
             or creator_scenes is None
-            or not _browser_boundary(request, canonical_origin=canonical_origin)
+            or (not _browser_boundary(request, canonical_origin=canonical_origin))
         ):
             status = (
                 403
@@ -221,33 +202,28 @@ def register_scene_routes(
             )
             return JSONResponse(
                 status_code=status,
-                content=(
-                    _rejected("AUTH_BROWSER_BOUNDARY")
-                    if status == 403
-                    else _unavailable("DEPENDENCY_SCENE_COMMAND_UNAVAILABLE")
-                ),
+                content=_rejected("AUTH_BROWSER_BOUNDARY")
+                if status == 403
+                else _unavailable("DEPENDENCY_SCENE_COMMAND_UNAVAILABLE"),
             )
         try:
             token = _bearer(request)
-            if token is None and authenticated_delegate(request) is None:
+            if token is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
             verify_interaction(request, browser_sessions, token)
             changed = await commands.transition_scene(scene_key, target_status)
         except BrowserSessionViolation as error:
             return JSONResponse(
-                status_code=error.status_code,
-                content=_rejected(error.code),
+                status_code=error.status_code, content=_rejected(error.code)
             )
         except SceneQueryViolation as error:
             if error.code == "SCENE-NOT-VISIBLE":
                 return JSONResponse(
-                    status_code=404,
-                    content=_rejected("SCOPE_SCENE_NOT_VISIBLE"),
+                    status_code=404, content=_rejected("SCOPE_SCENE_NOT_VISIBLE")
                 )
             if error.code.startswith("CON-SCENE"):
                 return JSONResponse(
-                    status_code=400,
-                    content=_rejected("INPUT_SCENE_KEY"),
+                    status_code=400, content=_rejected("INPUT_SCENE_KEY")
                 )
             return JSONResponse(
                 status_code=503,
@@ -306,179 +282,17 @@ def register_scene_routes(
         },
         dependencies=[Security(bearer)],
     )
-    async def get_scene_timeline(scene_key: str, request: Request) -> JSONResponse:
-        if (
-            (browser_sessions is None and authenticated_delegate(request) is None)
-            or scene_timeline_query is None
-            or not _browser_boundary(request, canonical_origin=canonical_origin)
-        ):
-            status = (
-                403
-                if browser_sessions is not None and scene_timeline_query is not None
-                else 503
-            )
-            return JSONResponse(
-                status_code=status,
-                content=(
-                    _rejected("AUTH_BROWSER_BOUNDARY")
-                    if status == 403
-                    else _unavailable("DEPENDENCY_SCENE_QUERY_UNAVAILABLE")
-                ),
-            )
-        token = _bearer(request)
-        try:
-            if token is None and authenticated_delegate(request) is None:
-                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            verify_interaction(request, browser_sessions, token)
-        except BrowserSessionViolation as error:
-            return JSONResponse(
-                status_code=error.status_code,
-                content=_rejected(error.code),
-            )
-        pairs = list(request.query_params.multi_items())
-        names = [name for name, _value in pairs]
-        if (
-            set(names) - {"limit", "cursor"}
-            or names.count("limit") != 1
-            or names.count("cursor") > 1
-        ):
-            return JSONResponse(
-                status_code=400,
-                content=_rejected("INPUT_PAGE_LIMIT"),
-            )
-        values = dict(pairs)
-        limit_text = values["limit"]
-        if not limit_text.isascii() or not limit_text.isdecimal():
-            return JSONResponse(
-                status_code=400,
-                content=_rejected("INPUT_PAGE_LIMIT"),
-            )
-        try:
-            parsed_scene_key = SceneKey(scene_key)
-        except SceneQueryViolation:
-            return JSONResponse(
-                status_code=404,
-                content=_rejected("SCOPE_SCENE_NOT_VISIBLE"),
-            )
-        try:
-            query = SceneTimelineQuery(
-                scene_key=parsed_scene_key,
-                limit=int(limit_text),
-                cursor=(
-                    OpaqueCursor.from_wire(values["cursor"])
-                    if "cursor" in values
-                    else None
-                ),
-            )
-        except ContractViolation, SceneQueryViolation:
-            code = "INPUT_CURSOR_INVALID" if "cursor" in values else "INPUT_PAGE_LIMIT"
-            return JSONResponse(status_code=400, content=_rejected(code))
-        try:
-            page = await scene_timeline_query.query(query)
-        except SceneQueryViolation as error:
-            if error.code == "SCENE-NOT-VISIBLE":
-                return JSONResponse(
-                    status_code=404,
-                    content=_rejected("SCOPE_SCENE_NOT_VISIBLE"),
-                )
-            if error.code == "SCENE-CURSOR-STALE":
-                return JSONResponse(
-                    status_code=409,
-                    content=_rejected("CONFLICT_CURSOR_STALE"),
-                )
-            if error.code == "SCENE-CURSOR-INVALID":
-                return JSONResponse(
-                    status_code=400,
-                    content=_rejected("INPUT_CURSOR_INVALID"),
-                )
-            return JSONResponse(
-                status_code=503,
-                content=_unavailable("DEPENDENCY_SCENE_QUERY_UNAVAILABLE"),
-            )
-        response = SceneTimelinePageResponse(
-            contract_version="1.0",
-            projection_version="scene-timeline.v6",
-            scene_key=page.scene_key.value,
-            items=[
-                SceneTimelineItemResponse(
-                    timeline_item_id=str(item.timeline_item_id),
-                    source_kind=item.source_kind,
-                    source_ref=str(item.source_ref),
-                    status=item.status.value,
-                    occurred_at=item.occurred_at.to_wire(),
-                    operation_ref=(
-                        str(item.operation_ref)
-                        if item.operation_ref is not None
-                        else None
-                    ),
-                    effect_ref=(
-                        str(item.effect_ref) if item.effect_ref is not None else None
-                    ),
-                    message=item.message,
-                    modality=cast(
-                        Literal["text", "media_file", "live_voice"], item.modality
-                    ),
-                )
-                for item in page.items
-            ],
-            next_cursor=(
-                page.next_cursor.to_wire() if page.next_cursor is not None else None
-            ),
+    async def get_scene_timeline(scene_key: str, request: Request) -> Response:
+        return await invoke_creator_http(
+            request,
+            "scene_timeline",
+            use_cases["scene_timeline"],
+            browser_sessions=browser_sessions,
+            canonical_origin=canonical_origin,
+            maximum_bytes=request_body_max_bytes,
         )
-        return JSONResponse(content=response.model_dump(mode="json", exclude_none=True))
 
     del get_scene_timeline
-
-    def _other_human_party_wire(item: Any) -> OtherHumanPartyRecordResponse:
-        return OtherHumanPartyRecordResponse(
-            party_id=str(item.party_id),
-            party_key=item.party_key,
-            display_label=item.display_label,
-            scene_count=item.scene_count,
-            record_count=item.record_count,
-            last_record_at=(
-                None
-                if item.last_record_at is None
-                else Instant(item.last_record_at).to_wire()
-            ),
-        )
-
-    async def _other_human_record_scope(
-        request: Request,
-    ) -> tuple[int, OpaqueCursor | None] | JSONResponse:
-        if (
-            (browser_sessions is None and authenticated_delegate(request) is None)
-            or other_human_record_query is None
-            or not _browser_boundary(request, canonical_origin=canonical_origin)
-        ):
-            status = (
-                403
-                if browser_sessions is not None and other_human_record_query is not None
-                else 503
-            )
-            return JSONResponse(
-                status_code=status,
-                content=(
-                    _rejected("AUTH_BROWSER_BOUNDARY")
-                    if status == 403
-                    else _unavailable("DEPENDENCY_OTHER_HUMAN_RECORD_UNAVAILABLE")
-                ),
-            )
-        try:
-            token = _bearer(request)
-            if token is None and authenticated_delegate(request) is None:
-                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            verify_interaction(request, browser_sessions, token)
-            limit, _query, _kind, cursor = _life_query_parameters(
-                request, allow_kind=False, allow_text=False
-            )
-            return limit, cursor
-        except BrowserSessionViolation as error:
-            return JSONResponse(
-                status_code=error.status_code, content=_rejected(error.code)
-            )
-        except ContractViolation:
-            return JSONResponse(status_code=400, content=_rejected("INPUT_PAGE"))
 
     @app.get(
         "/v1/other-human-records",
@@ -492,30 +306,15 @@ def register_scene_routes(
         },
         dependencies=[Security(bearer)],
     )
-    async def list_other_human_record_parties(request: Request) -> JSONResponse:
-        scope = await _other_human_record_scope(request)
-        if isinstance(scope, JSONResponse):
-            return scope
-        try:
-            query = cast(OtherHumanRecordQueryPort, other_human_record_query)
-            page = await query.list_parties(limit=scope[0], cursor=scope[1])
-        except OtherHumanRecordViolation as error:
-            status = 400 if error.code.endswith(("CURSOR", "LIMIT")) else 503
-            return JSONResponse(
-                status_code=status,
-                content=(
-                    _rejected("INPUT_PAGE")
-                    if status == 400
-                    else _unavailable("DEPENDENCY_OTHER_HUMAN_RECORD_UNAVAILABLE")
-                ),
-            )
-        response = OtherHumanPartyRecordPageResponse(
-            contract_version="1.0",
-            projection_version="other-human-record.v1",
-            items=[_other_human_party_wire(item) for item in page.items],
-            next_cursor=None if page.next_cursor is None else page.next_cursor.value,
+    async def list_other_human_record_parties(request: Request) -> Response:
+        return await invoke_creator_http(
+            request,
+            "other_human_list",
+            use_cases["other_human_list"],
+            browser_sessions=browser_sessions,
+            canonical_origin=canonical_origin,
+            maximum_bytes=request_body_max_bytes,
         )
-        return JSONResponse(content=response.model_dump(mode="json", exclude_none=True))
 
     @app.get(
         "/v1/other-human-records/{party_id}/scenes",
@@ -532,55 +331,15 @@ def register_scene_routes(
     )
     async def list_other_human_record_scenes(
         party_id: str, request: Request
-    ) -> JSONResponse:
-        scope = await _other_human_record_scope(request)
-        if isinstance(scope, JSONResponse):
-            return scope
-        try:
-            query = cast(OtherHumanRecordQueryPort, other_human_record_query)
-            page = await query.list_scenes(
-                UUID(party_id), limit=scope[0], cursor=scope[1]
-            )
-        except ValueError:
-            return JSONResponse(
-                status_code=400, content=_rejected("INPUT_OTHER_HUMAN_PARTY")
-            )
-        except OtherHumanRecordViolation as error:
-            if error.code.endswith("NOT-VISIBLE"):
-                return JSONResponse(
-                    status_code=404,
-                    content=_rejected("SCOPE_OTHER_HUMAN_RECORD_NOT_VISIBLE"),
-                )
-            status = 400 if error.code.endswith(("CURSOR", "LIMIT", "SCOPE")) else 503
-            return JSONResponse(
-                status_code=status,
-                content=(
-                    _rejected("INPUT_PAGE")
-                    if status == 400
-                    else _unavailable("DEPENDENCY_OTHER_HUMAN_RECORD_UNAVAILABLE")
-                ),
-            )
-        response = OtherHumanSceneRecordPageResponse(
-            contract_version="1.0",
-            projection_version="other-human-record.v1",
-            party=_other_human_party_wire(page.party),
-            items=[
-                OtherHumanSceneRecordResponse(
-                    scene_id=str(item.scene_id),
-                    scene_key=item.scene_key,
-                    status=cast(Literal["open", "closed"], item.status),
-                    record_count=item.record_count,
-                    last_record_at=(
-                        None
-                        if item.last_record_at is None
-                        else Instant(item.last_record_at).to_wire()
-                    ),
-                )
-                for item in page.items
-            ],
-            next_cursor=None if page.next_cursor is None else page.next_cursor.value,
+    ) -> Response:
+        return await invoke_creator_http(
+            request,
+            "other_human_scenes",
+            use_cases["other_human_scenes"],
+            browser_sessions=browser_sessions,
+            canonical_origin=canonical_origin,
+            maximum_bytes=request_body_max_bytes,
         )
-        return JSONResponse(content=response.model_dump(mode="json", exclude_none=True))
 
     @app.get(
         "/v1/other-human-records/{party_id}/scenes/{scene_id}/timeline",
@@ -597,60 +356,15 @@ def register_scene_routes(
     )
     async def get_other_human_record_timeline(
         party_id: str, scene_id: str, request: Request
-    ) -> JSONResponse:
-        scope = await _other_human_record_scope(request)
-        if isinstance(scope, JSONResponse):
-            return scope
-        try:
-            query = cast(OtherHumanRecordQueryPort, other_human_record_query)
-            page = await query.timeline(
-                UUID(party_id),
-                UUID(scene_id),
-                limit=scope[0],
-                cursor=scope[1],
-            )
-        except ValueError:
-            return JSONResponse(
-                status_code=400,
-                content=_rejected("INPUT_OTHER_HUMAN_RECORD_SCOPE"),
-            )
-        except OtherHumanRecordViolation as error:
-            if error.code.endswith("NOT-VISIBLE"):
-                return JSONResponse(
-                    status_code=404,
-                    content=_rejected("SCOPE_OTHER_HUMAN_RECORD_NOT_VISIBLE"),
-                )
-            status = 400 if error.code.endswith(("CURSOR", "LIMIT", "SCOPE")) else 503
-            return JSONResponse(
-                status_code=status,
-                content=(
-                    _rejected("INPUT_PAGE")
-                    if status == 400
-                    else _unavailable("DEPENDENCY_OTHER_HUMAN_RECORD_UNAVAILABLE")
-                ),
-            )
-        response = OtherHumanTimelineRecordPageResponse(
-            contract_version="1.0",
-            projection_version="other-human-record.v1",
-            party_id=str(page.party_id),
-            scene_id=str(page.scene_id),
-            items=[
-                OtherHumanTimelineRecordResponse(
-                    timeline_item_id=str(item.timeline_item_id),
-                    source_ref=str(item.source_ref),
-                    direction=item.direction.value,
-                    status=cast(
-                        Literal["accepted", "completed", "failed", "unknown"],
-                        item.result_status,
-                    ),
-                    text=item.text,
-                    occurred_at=Instant(item.occurred_at).to_wire(),
-                )
-                for item in page.items
-            ],
-            next_cursor=None if page.next_cursor is None else page.next_cursor.value,
+    ) -> Response:
+        return await invoke_creator_http(
+            request,
+            "other_human_timeline",
+            use_cases["other_human_timeline"],
+            browser_sessions=browser_sessions,
+            canonical_origin=canonical_origin,
+            maximum_bytes=request_body_max_bytes,
         )
-        return JSONResponse(content=response.model_dump(mode="json", exclude_none=True))
 
     del list_other_human_record_parties, list_other_human_record_scenes
     del get_other_human_record_timeline
@@ -671,51 +385,44 @@ def register_scene_routes(
         },
         dependencies=[Security(bearer)],
     )
-    async def accept_creator_message(
-        scene_key: str,
-        request: Request,
-    ) -> JSONResponse:
+    async def accept_creator_message(scene_key: str, request: Request) -> JSONResponse:
         if (
-            (browser_sessions is None and authenticated_delegate(request) is None)
+            (browser_sessions is None)
             or creator_input is None
-            or not _browser_boundary(request, canonical_origin=canonical_origin)
+            or (not _browser_boundary(request, canonical_origin=canonical_origin))
         ):
             status = 403 if browser_sessions is not None else 503
             return JSONResponse(
                 status_code=status,
-                content=(
-                    _rejected("AUTH_BROWSER_BOUNDARY")
-                    if status == 403
-                    else _unavailable("DEPENDENCY_INPUT_ACCEPTANCE_UNAVAILABLE")
-                ),
+                content=_rejected("AUTH_BROWSER_BOUNDARY")
+                if status == 403
+                else _unavailable("DEPENDENCY_INPUT_ACCEPTANCE_UNAVAILABLE"),
             )
         token = _bearer(request)
         try:
-            if token is None and authenticated_delegate(request) is None:
+            if token is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
             verify_interaction(request, browser_sessions, token)
         except BrowserSessionViolation as error:
             return JSONResponse(
-                status_code=error.status_code,
-                content=_rejected(error.code),
+                status_code=error.status_code, content=_rejected(error.code)
             )
         idempotency_value = _single_header(request, b"idempotency-key")
         if idempotency_value is None:
             return JSONResponse(
-                status_code=400,
-                content=_rejected("INPUT_IDEMPOTENCY_KEY"),
+                status_code=400, content=_rejected("INPUT_IDEMPOTENCY_KEY")
             )
         try:
             model = await _creator_input_request(request, request_body_max_bytes)
             acceptance = await commands.message(
                 scene_key=scene_key,
                 message=model.message,
-                delegate_id=delegate_id(request),
+                delegate_id=None,
                 idempotency_key=idempotency_value,
             )
         except (ContractViolation, CreatorInputViolation) as error:
             if isinstance(error, ContractViolation):
-                status, content = 400, _rejected("INPUT_IDEMPOTENCY_KEY")
+                status, content = (400, _rejected("INPUT_IDEMPOTENCY_KEY"))
             else:
                 status, content = _input_failure(error)
             emit("creator.input.rejected")
@@ -736,10 +443,7 @@ def register_scene_routes(
                         "schema": {
                             "type": "string",
                             "x-event-data-schema": {
-                                "$ref": (
-                                    "#/components/schemas/"
-                                    "CreatorProjectionEventResponse"
-                                )
+                                "$ref": "#/components/schemas/CreatorProjectionEventResponse"
                             },
                         }
                     }
@@ -755,12 +459,9 @@ def register_scene_routes(
         },
         dependencies=[Security(bearer)],
     )
-    async def get_scene_events(
-        scene_key: str,
-        request: Request,
-    ) -> Response:
+    async def get_scene_events(scene_key: str, request: Request) -> Response:
         if (
-            (browser_sessions is None and authenticated_delegate(request) is None)
+            (browser_sessions is None)
             or scene_timeline_query is None
             or creator_events is None
         ):
@@ -770,40 +471,33 @@ def register_scene_routes(
             )
         if not _browser_boundary(request, canonical_origin=canonical_origin):
             return JSONResponse(
-                status_code=403,
-                content=_rejected("AUTH_BROWSER_BOUNDARY"),
+                status_code=403, content=_rejected("AUTH_BROWSER_BOUNDARY")
             )
         if request.headers.get("accept") != "text/event-stream":
             return JSONResponse(
-                status_code=400,
-                content=_rejected("INPUT_EVENT_STREAM_ACCEPT"),
+                status_code=400, content=_rejected("INPUT_EVENT_STREAM_ACCEPT")
             )
         try:
             last_event_id = parse_last_event_id(request.scope["headers"])
         except CreatorEventBrokerViolation as error:
             emit("creator.event_stream.parser_failure")
             return JSONResponse(
-                status_code=error.status_code,
-                content=_rejected(error.code),
+                status_code=error.status_code, content=_rejected(error.code)
             )
         token = _bearer(request)
         try:
             if token is None:
                 raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            if browser_sessions is None:
-                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
             browser_sessions.verify(token)
         except BrowserSessionViolation as error:
             return JSONResponse(
-                status_code=error.status_code,
-                content=_rejected(error.code),
+                status_code=error.status_code, content=_rejected(error.code)
             )
         try:
             parsed_scene_key = SceneKey(scene_key)
         except SceneQueryViolation:
             return JSONResponse(
-                status_code=404,
-                content=_rejected("SCOPE_SCENE_NOT_VISIBLE"),
+                status_code=404, content=_rejected("SCOPE_SCENE_NOT_VISIBLE")
             )
         try:
             await scene_timeline_query.query(
@@ -812,8 +506,7 @@ def register_scene_routes(
         except SceneQueryViolation as error:
             if error.code == "SCENE-NOT-VISIBLE":
                 return JSONResponse(
-                    status_code=404,
-                    content=_rejected("SCOPE_SCENE_NOT_VISIBLE"),
+                    status_code=404, content=_rejected("SCOPE_SCENE_NOT_VISIBLE")
                 )
             return JSONResponse(
                 status_code=503,
@@ -828,24 +521,18 @@ def register_scene_routes(
                 else "creator.event_stream.parser_failure"
             )
             return JSONResponse(
-                status_code=error.status_code,
-                content=_rejected(error.code),
+                status_code=error.status_code, content=_rejected(error.code)
             )
         return StreamingResponse(
             stream_creator_events(
-                subscription,
-                sessions=browser_sessions,
-                token=token,
-                diagnostic=emit,
+                subscription, sessions=browser_sessions, token=token, diagnostic=emit
             ),
             media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-store",
-                "X-Accel-Buffering": "no",
-            },
+            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
         )
 
     del get_scene_events
+    return use_cases
 
 
 __all__ = ("register_scene_routes",)

@@ -30,6 +30,7 @@ import pytest
 import rfc8785
 from armi_activity.api import ActivityViolation
 from armi_admin.application import AdminConfig, AdminCredentialPort
+from armi_admin.application.authorization import AuthorizationStore
 from armi_admin.application.catalog import ADMIN_OPERATIONS
 from armi_admin.application.contracts import (
     ApplyCorrectionRequest,
@@ -265,6 +266,8 @@ from armi_web_observation.api import (
     WebObservationRequestId,
     WebObservationResultStatus,
 )
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from playwright.sync_api import sync_playwright
 from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
@@ -368,6 +371,37 @@ def _publishing_artifact_store(
 
 _SUMMARY_ENVIRONMENT_ID = UUID("01980f7d-7b8f-7e2a-8a11-2ab8e1234567")
 _ADMIN_PACKAGE_DIGEST = "sha256:" + "1" * 64
+_ADMIN_AUTHORIZATION_KEY = Ed25519PrivateKey.generate()
+
+
+def _approve_admin_preview(service: AdminToolService, preview: dict[str, Any]) -> str:
+    request = preview["authorization_request"]
+    config = AdminConfig.model_validate(
+        {
+            **service.config.model_dump(),
+            "operator_id": "isolated-creator-issuer",
+            "authorized_operations": ("authorization_approve",),
+            "authorization_signing_key_locator": "env:ARMI_SECRET_CREATOR_AUTHORIZATION_KEY",
+        }
+    )
+    credentials = AdminCredentialPort(
+        locator=config.locator,
+        config_root=config.environment_root.parent,
+        authorization_locator=config.authorization_signing_key_locator,
+        environ={
+            "ARMI_SECRET_CREATOR_AUTHORIZATION_KEY": _ADMIN_AUTHORIZATION_KEY.private_bytes(
+                serialization.Encoding.PEM,
+                serialization.PrivateFormat.PKCS8,
+                serialization.NoEncryption(),
+            ).decode()
+        },
+    )
+    AuthorizationStore(config, credentials).approve(
+        request["request_id"], request["request_digest"]
+    )
+    return str(request["request_id"])
+
+
 _REMOVED_REDUNDANT_DIGEST_COLUMNS = {
     ("deployment_environments", "bundle_digest"),
     ("deployment_environments", "config_digest"),
@@ -3147,7 +3181,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
         config = AdminConfig.model_validate(
             {
-                "schema_version": "armi.admin-config.v6",
+                "schema_version": "armi.admin-config.v7",
+                "authorization_public_key": _ADMIN_AUTHORIZATION_KEY.public_key()
+                .public_bytes_raw()
+                .hex(),
                 "operator_id": "isolated-test-agent",
                 "authorized_operations": tuple(item.name for item in ADMIN_OPERATIONS),
                 "environment_kind": "acceptance",
@@ -3205,6 +3242,20 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             self.assertEqual(denied.error_code, "ADMIN-DB-ROLE")
 
         observation = service._observation  # pyright: ignore[reportPrivateUsage]
+        diagnostics = observation.diagnostics()
+        self.assertEqual(cast(dict[str, object], diagnostics["runtime"])["work"], [])
+        self.assertEqual(
+            cast(dict[str, object], diagnostics["artifact_integrity"])[
+                "recorded_counts"
+            ],
+            {},
+        )
+        self.assertEqual(
+            cast(dict[str, object], diagnostics["artifact_integrity"])[
+                "physical_checks"
+            ],
+            [],
+        )
         observation.register_environment(
             {
                 "environment_id": str(fixture.environment_id),
@@ -3287,7 +3338,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             config = AdminConfig.model_validate(
                 {
-                    "schema_version": "armi.admin-config.v6",
+                    "schema_version": "armi.admin-config.v7",
+                    "authorization_public_key": _ADMIN_AUTHORIZATION_KEY.public_key()
+                    .public_bytes_raw()
+                    .hex(),
                     "operator_id": "isolated-test-agent",
                     "authorized_operations": tuple(
                         item.name for item in ADMIN_OPERATIONS
@@ -3341,6 +3395,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             self.assertTrue(
                 {"template_digest", "data_root_digest"}.isdisjoint(preview.result)
             )
+            authorization_id = _approve_admin_preview(service, preview.result)
             reset = service.mutate(
                 "environment_reset",
                 EnvironmentResetRequest(
@@ -3349,6 +3404,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     idempotency_key="apply-reset-once",
                     purpose="admin.environment_reset",
                     authorization_ref="isolated-test-reset",
+                    authorization_id=authorization_id,
                     preview_token=str(preview.result["preview_token"]),
                 ),
             )
@@ -3363,6 +3419,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     idempotency_key="apply-reset-once",
                     purpose="admin.environment_reset",
                     authorization_ref="isolated-test-reset",
+                    authorization_id=authorization_id,
                     preview_token=str(preview.result["preview_token"]),
                 ),
             )
@@ -3551,7 +3608,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 connection.rollback()
             config = AdminConfig.model_validate(
                 {
-                    "schema_version": "armi.admin-config.v6",
+                    "schema_version": "armi.admin-config.v7",
+                    "authorization_public_key": _ADMIN_AUTHORIZATION_KEY.public_key()
+                    .public_bytes_raw()
+                    .hex(),
                     "operator_id": "isolated-test-agent",
                     "authorized_operations": tuple(
                         item.name for item in ADMIN_OPERATIONS
@@ -3639,6 +3699,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             "idempotency_key": "s037-apply-mind",
                             "purpose": "admin.apply_correction",
                             "authorization_ref": "isolated-test-mind-correction",
+                            "authorization_id": _approve_admin_preview(
+                                service, preview.result
+                            ),
                             "preview_token": token,
                             "spec": {
                                 "correction_kind": "replace_subject_component",
@@ -3720,6 +3783,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         "environment_incarnation": 1,
                         "idempotency_key": "s037-apply-repair-mind",
                         "authorization_ref": "isolated-test-repair-mind",
+                        "authorization_id": _approve_admin_preview(
+                            service, repair_preview.result
+                        ),
                         "purpose": "admin.apply_correction",
                         "preview_token": repair_preview.result["preview_token"],
                         "spec": {
@@ -3960,6 +4026,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         "environment_incarnation": 1,
                         "idempotency_key": "s037-apply-delete-input",
                         "authorization_ref": "isolated-test-delete-uncommitted-input",
+                        "authorization_id": _approve_admin_preview(
+                            service, delete_preview.result
+                        ),
                         "purpose": "admin.apply_correction",
                         "preview_token": delete_preview.result["preview_token"],
                         "spec": {

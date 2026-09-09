@@ -1,4 +1,4 @@
-"""Strict Creator wire models and deterministic schema-only OpenAPI export."""
+"""Strict Creator application request and result models shared by all transports."""
 
 from __future__ import annotations
 

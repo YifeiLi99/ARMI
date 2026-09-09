@@ -69,6 +69,7 @@ from armi_interaction.api import (
     SceneQueryViolation,
     SceneStatus,
 )
+from armi_kernel import observe_configuration_reads
 from armi_kernel.application import (
     CandidateViolation,
     ExecutionCustodyMode,
@@ -136,6 +137,16 @@ from armi_runtime.adapters.vision.windows_screen import WindowsScreenSource
 from armi_runtime.adapters.voice.wasapi import WasapiRawAudio
 from armi_runtime.application.action_lifecycle import RuntimeCodexGrantActivation
 from armi_runtime.application.cognition_cycle import RuntimeCognitionState
+from armi_runtime.application.creator_contract import (
+    LiveVisionObservationResponse,
+    LiveVisionSourceStatusResponse,
+    LiveVisionStatusResponse,
+    LiveVoiceStatusResponse,
+    QQChannelHealthResponse,
+    Readiness,
+    RuntimeComponentHealthResponse,
+    RuntimeStatusResponse,
+)
 from armi_runtime.application.creator_timeline import CreatorTimelineProjectionAssembler
 from armi_runtime.application.life_opportunity import RuntimeLifeOpportunityFacts
 from armi_runtime.application.live_voice import (
@@ -149,16 +160,6 @@ from armi_runtime.interfaces.browser_sessions import (
     BrowserSessionViolation,
 )
 from armi_runtime.interfaces.creator_app import create_runtime_app
-from armi_runtime.interfaces.creator_contract import (
-    LiveVisionObservationResponse,
-    LiveVisionSourceStatusResponse,
-    LiveVisionStatusResponse,
-    LiveVoiceStatusResponse,
-    QQChannelHealthResponse,
-    Readiness,
-    RuntimeComponentHealthResponse,
-    RuntimeStatusResponse,
-)
 from armi_runtime.interfaces.creator_events import CreatorEventBroker
 from armi_runtime.interfaces.static_assets import AssetViolation, StaticAssetStore
 
@@ -171,6 +172,7 @@ from .authority import (
     RuntimeAuthorityController,
 )
 from .config_assets import runtime_config_path
+from .configuration_consumption import ConfigurationConsumption
 from .creator_session import compose_browser_sessions, derive_timeline_cursor_key
 from .data_rights_identity import derive_data_rights_identity_token_key
 from .database import (
@@ -412,6 +414,7 @@ async def _serve(
     prepared: PreparedEnvironment,
     *,
     creator_web_resources: Path | None,
+    configuration_consumption: ConfigurationConsumption,
 ) -> int:
     config = prepared.effective.config
     try:
@@ -2269,6 +2272,7 @@ async def _serve(
                 config.model_dump(mode="json")
             ),
             "configuration_sources": list(prepared.effective.applied_sources),
+            "configuration_assets": configuration_consumption.snapshot(),
         }
         if observation_driver is not None:
             result["observability"] = observation_driver.snapshot()
@@ -2679,10 +2683,18 @@ def run_runtime(
     """Run exactly one process-local Runtime; no reload or worker discovery."""
 
     try:
-        return asyncio.run(
-            _serve(prepared, creator_web_resources=creator_web_resources),
-            loop_factory=lambda: asyncio.SelectorEventLoop(selectors.SelectSelector()),
-        )
+        consumption = ConfigurationConsumption(prepared.root)
+        with observe_configuration_reads(consumption.record):
+            return asyncio.run(
+                _serve(
+                    prepared,
+                    creator_web_resources=creator_web_resources,
+                    configuration_consumption=consumption,
+                ),
+                loop_factory=lambda: asyncio.SelectorEventLoop(
+                    selectors.SelectSelector()
+                ),
+            )
     except KeyboardInterrupt:
         return EXIT_GRACEFUL
     except RuntimeViolation:

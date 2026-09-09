@@ -7,9 +7,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from armi_runtime.application.creator_contract import RuntimeState
 from armi_runtime.composition.diagnostics import StructuredDiagnosticLog
 from armi_runtime.composition.lifecycle import LifecycleController
-from armi_runtime.interfaces.creator_contract import RuntimeState
 
 _ENVIRONMENT = "01980f7d-7b8f-7e2a-8a11-2ab8e1234567"
 _REASON = "RUNTIME_DIAGNOSTIC_FILE_LOG_UNAVAILABLE"

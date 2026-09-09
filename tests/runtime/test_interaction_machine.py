@@ -22,10 +22,10 @@ from armi_interaction.api import (
 from armi_kernel.contracts import Digest
 from armi_local_control.binding import InteractionClientBinding
 from armi_runtime import cli
+from armi_runtime.application.creator_contract import Readiness
+from armi_runtime.application.interaction_catalog import interaction_routes
 from armi_runtime.interaction_client import InteractionClient
 from armi_runtime.interfaces.creator_app import create_runtime_app
-from armi_runtime.interfaces.creator_contract import Readiness
-from armi_runtime.interfaces.interaction_catalog import interaction_routes
 from armi_runtime.interfaces.static_assets import StaticAssetStore
 from armi_runtime.mcp import InteractionMCPServer
 
@@ -78,7 +78,9 @@ def unused_provider() -> Never:
     raise AssertionError("This test must not invoke a runtime or channel provider")
 
 
-def machine(tmp_path: Path, creator_input=None, *, writable: bool = False):
+def machine(
+    tmp_path: Path, creator_input=None, *, writable: bool = False, effect_ledger=None
+):
     environment_id, creator_id, delegate_id = uuid7(), uuid7(), uuid7()
     secrets = tmp_path / "secrets"
     secrets.mkdir()
@@ -125,8 +127,93 @@ def machine(tmp_path: Path, creator_input=None, *, writable: bool = False):
         machine_environment_id=environment_id,
         machine_creator_party_id=creator_id,
         creator_input=creator_input,
+        effect_ledger=effect_ledger,
     )
     return app, binding, secret
+
+
+@pytest.mark.asyncio
+async def test_artifact_chunks_and_cli_output_preserve_governed_content(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from armi_effect.api import EffectArtifactContent, EffectArtifactKind
+
+    content = ("受治理的制品\n" * 20000).encode("utf-8")
+    callers = []
+
+    class Ledger:
+        async def read_artifact(self, effect_id, *, creator_party_id, kind):
+            callers.append(creator_party_id)
+            return EffectArtifactContent(
+                EffectArtifactKind.PATCH, "text/plain", content
+            )
+
+    app, binding, _ = machine(tmp_path, effect_ledger=Ledger())
+    client = InteractionClient(binding, transport=httpx.ASGITransport(app=app))
+    arguments = {"effect_id": str(uuid7()), "artifact_kind": "patch"}
+    first = await InteractionMCPServer(client).call_tool("artifact_read", arguments)
+    assert first.structured_content is not None
+    assert first.structured_content["result"]["byte_count"] == 65536
+    assert first.structured_content["result"]["next_offset"] == 65536
+    assert (
+        base64.b64decode(first.structured_content["artifact"]["content"])
+        == content[:65536]
+    )
+    config = tmp_path / "client.yaml"
+    config.write_text(binding.model_dump_json(), encoding="utf-8")
+    monkeypatch.setattr(cli, "InteractionClient", lambda _binding: client)
+    output = tmp_path / "artifact.patch"
+    args = cli.parser().parse_args(
+        [
+            "--config",
+            str(config),
+            "artifact",
+            "read",
+            "--effect-id",
+            arguments["effect_id"],
+            "--artifact-kind",
+            "patch",
+            "--output",
+            str(output),
+        ]
+    )
+    result = await cli._execute(args)
+    assert result["artifact"]["size_bytes"] == len(content)
+    assert output.read_bytes() == content
+    assert set(callers) == {binding.creator_party_id}
+    with pytest.raises(FileExistsError):
+        await cli._execute(args)
+    assert output.read_bytes() == content
+    assert not tuple(tmp_path.glob("*.part"))
+
+
+@pytest.mark.asyncio
+async def test_artifact_download_rejects_changed_content_without_publishing(
+    tmp_path: Path,
+) -> None:
+    from armi_effect.api import EffectArtifactContent, EffectArtifactKind
+
+    calls = 0
+
+    class Ledger:
+        async def read_artifact(self, effect_id, *, creator_party_id, kind):
+            nonlocal calls
+            calls += 1
+            return EffectArtifactContent(
+                EffectArtifactKind.PATCH,
+                "text/plain",
+                (b"a" if calls == 1 else b"b") * 100000,
+            )
+
+    app, binding, _ = machine(tmp_path, effect_ledger=Ledger())
+    client = InteractionClient(binding, transport=httpx.ASGITransport(app=app))
+    output = tmp_path / "artifact.patch"
+    with pytest.raises(ValueError, match="ARTIFACT-CHANGED"):
+        await client.download_artifact(
+            {"effect_id": str(uuid7()), "artifact_kind": "patch"}, output
+        )
+    assert not output.exists()
+    assert not tuple(tmp_path.glob("*.part"))
 
 
 @pytest.mark.asyncio

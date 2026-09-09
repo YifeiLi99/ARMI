@@ -15,6 +15,7 @@ import struct
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -23,11 +24,11 @@ from uuid import uuid7
 from armi_kernel.application import CredentialPurpose
 from armi_local_control import RuntimeProcessManager
 from armi_local_control.configuration.paths import has_reparse_point
+from armi_local_control.lifecycle import environment_control_lock
 from armi_local_control.maintenance import (
     ConfigurationInvocation,
     MaintenanceInvocation,
 )
-from armi_local_control.runtime_process import LocalProcessLock
 
 from armi_admin.persistence import AdminObservationGateway
 
@@ -182,7 +183,9 @@ class AdminControlPlane:
             raise AdminControlError("ADMIN-RUNTIME-NOT-STOPPED")
         return payload
 
-    def apply_reset(self, token: str) -> dict[str, Any]:
+    def apply_reset(
+        self, token: str, *, authorize: Callable[[], None]
+    ) -> dict[str, Any]:
         control_root = (
             self._config.environment_root.parent
             / ".armi-admin"
@@ -191,12 +194,15 @@ class AdminControlPlane:
         if has_reparse_point(control_root, root=self._config.environment_root.parent):
             raise AdminControlError("ADMIN-RESET-PATH")
         control_root.mkdir(parents=True, exist_ok=True)
-        with LocalProcessLock(control_root / "reset.lock"):
+        with environment_control_lock(
+            self._config.environment_root, self._config.environment_id
+        ):
             payload = self.validate_reset(token)
             identity = hashlib.sha256(str(payload["nonce"]).encode("utf-8")).hexdigest()
             receipt = control_root / ("reset-preview-" + identity + ".json")
             if receipt.exists():
                 raise AdminControlError("ADMIN-RESET-PREVIEW-USED")
+            authorize()
             # Reserve durably before dispatch. An interrupted reset is unknown;
             # another key/process must not silently replay the destructive work.
             with receipt.open("xb") as stream:
@@ -345,9 +351,6 @@ class AdminControlPlane:
 
     def ensure_runtime_stopped(self) -> None:
         self._process().stop()
-
-    def start_runtime(self) -> dict[str, Any]:
-        return self._process().start()
 
     def runtime_status(self) -> dict[str, Any]:
         return self._process().status()

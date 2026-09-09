@@ -6,7 +6,7 @@ import json
 import unittest
 from typing import Any, cast
 
-from armi_runtime.interfaces.creator_contract import (
+from armi_runtime.application.creator_contract import (
     BrowserSessionCurrentResponse,
     BrowserSessionResponse,
     CapabilityRequestItemResponse,

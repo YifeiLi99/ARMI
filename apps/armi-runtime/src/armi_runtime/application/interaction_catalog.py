@@ -2,70 +2,16 @@
 
 from __future__ import annotations
 
-import json
 from copy import deepcopy
 from dataclasses import dataclass
-from importlib.resources import files
+from functools import cache
 from typing import Any, cast
 
-from armi_runtime.application.interaction import InteractionOperation
+from .interaction import InteractionOperation
+from .interaction_definitions import OPERATION_NAMES, interaction_contract_document
 
 # The catalog assigns names, not business implementations. Request and result
 # schemas remain derived from the same Pydantic/OpenAPI contract as Creator Web.
-OPERATION_NAMES = {
-    "getHealthLive": ("health", "live"),
-    "getHealthReady": ("health", "ready"),
-    "listCreatorActivities": ("activity", "list"),
-    "getCreatorActivityTimeline": ("activity", "timeline"),
-    "listCapabilityRequests": ("capability", "list"),
-    "decideCapabilityRequest": ("capability", "decide"),
-    "startQQChannel": ("channel", "start"),
-    "getQQChannelHealth": ("channel", "status"),
-    "stopQQChannel": ("channel", "stop"),
-    "listDataRightsOrders": ("data-rights", "list"),
-    "createDataRightsOrder": ("data-rights", "request"),
-    "getDataRightsOrder": ("data-rights", "get"),
-    "retryDataRightsOrder": ("data-rights", "retry"),
-    "getEffect": ("effect", "get"),
-    "getEffectArtifact": ("artifact", "read"),
-    "createCreatorExport": ("export", "create"),
-    "getCreatorExport": ("export", "get"),
-    "queryCreatorLifeRecords": ("life-record", "query"),
-    "getCreatorMaintenanceStatus": ("maintenance", "status"),
-    "getCreatorMaintenanceTimeline": ("maintenance", "timeline"),
-    "requestCreatorEmergencyWake": ("maintenance", "wake"),
-    "getCreatorLifeMaterial": ("material", "get"),
-    "listCreatorMemories": ("memory", "list"),
-    "getCreatorMemoryTimeline": ("memory", "timeline"),
-    "getCreatorOperation": ("operation", "get"),
-    "listOtherHumanRecordParties": ("other-human", "list"),
-    "listOtherHumanRecordScenes": ("other-human", "scenes"),
-    "getOtherHumanRecordTimeline": ("other-human", "timeline"),
-    "getCreatorPrompt": ("prompt", "get"),
-    "reviseCreatorPrompt": ("prompt", "revise"),
-    "deactivateCreatorPrompt": ("prompt", "deactivate"),
-    "getCreatorRelationshipCurrent": ("relationship", "get"),
-    "expressCreatorRelationshipBoundary": ("relationship", "boundary"),
-    "getCreatorRelationshipTimeline": ("relationship", "timeline"),
-    "getRuntimeStatus": ("runtime", "status"),
-    "listCreatorScenes": ("scene", "list"),
-    "createCreatorScene": ("scene", "create"),
-    "closeCreatorScene": ("scene", "close"),
-    "acceptCreatorCodexTask": ("codex", "submit"),
-    "acceptCreatorMessage": ("message", "send"),
-    "reopenCreatorScene": ("scene", "reopen"),
-    "getSceneTimeline": ("scene", "timeline"),
-    "getSubjectSummary": ("subject", "summary"),
-    "getLiveVisionObservation": ("vision", "observation"),
-    "observeLiveVision": ("vision", "observe"),
-    "getLiveVisionSourcePreview": ("vision", "preview"),
-    "startLiveVisionSource": ("vision", "start"),
-    "stopLiveVisionSource": ("vision", "stop"),
-    "getLiveVisionStatus": ("vision", "status"),
-    "startLiveVoice": ("voice", "start"),
-    "getLiveVoiceStatus": ("voice", "status"),
-    "stopLiveVoice": ("voice", "stop"),
-}
 TRANSPORT_OPERATIONS = frozenset(
     {"createBrowserSession", "getCurrentBrowserSession", "streamSceneEvents"}
 )
@@ -120,16 +66,9 @@ def _with_reachable_definitions(
     return {**schema, "$defs": reachable} if reachable else schema
 
 
-def interaction_routes(
-    document: dict[str, Any] | None = None,
-) -> tuple[InteractionRoute, ...]:
-    if document is None:
-        resource = files("armi_runtime.interfaces.creator_web_resources").joinpath(
-            "openapi.json"
-        )
-        document = cast(
-            dict[str, Any], json.loads(resource.read_text(encoding="utf-8"))
-        )
+@cache
+def interaction_routes() -> tuple[InteractionRoute, ...]:
+    document = interaction_contract_document()
     definitions = _local_refs(document["components"]["schemas"])
     found: set[str] = set()
     routes: list[InteractionRoute] = []
@@ -187,6 +126,10 @@ def interaction_routes(
                     for name in body.get("required", [])
                     if name != "contract_version"
                 )
+            machine_arguments = spec.get("machineArguments")
+            if machine_arguments is not None:
+                properties.update(machine_arguments["properties"])
+                required.extend(machine_arguments.get("required", []))
             schema = {
                 "type": "object",
                 "properties": properties,
@@ -198,6 +141,8 @@ def interaction_routes(
                 for response in spec.get("responses", {}).values()
                 if "application/json" in response.get("content", {})
             ]
+            if spec.get("machineResult") is not None:
+                responses.append(_local_refs(spec["machineResult"]))
             output = _with_reachable_definitions(
                 {
                     "type": "object",

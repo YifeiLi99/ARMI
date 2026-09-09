@@ -4,7 +4,7 @@ from typing import Any, Literal, cast
 
 from armi_effect.api import EffectView
 
-from .creator_contract import EffectResponse
+from armi_runtime.application.creator_contract import EffectResponse
 
 
 def effect_wire(view: EffectView) -> dict[str, Any]:

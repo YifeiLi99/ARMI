@@ -6,6 +6,9 @@ import base64
 import hashlib
 import json
 import stat
+import time
+from collections.abc import Callable
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from typing import Any, Literal, cast
 from uuid import uuid7
@@ -13,13 +16,18 @@ from uuid import uuid7
 from armi_local_control import ConfigurationViolation
 from armi_local_control.configuration.defaults import runtime_defaults_file
 from armi_local_control.configuration.editing import EnvironmentConfiguration
-from armi_local_control.lifecycle import LocalEnvironmentController
+from armi_local_control.lifecycle import (
+    LocalEnvironmentController,
+    environment_control_lock,
+)
 from armi_local_control.maintenance import (
     ConfigurationInvocation,
     MaintenanceInvocation,
     MaintenanceParameters,
 )
 from armi_local_control.runtime_errors import RuntimeViolation
+from psycopg import Error as PostgreSQLError
+from pydantic import BaseModel, JsonValue
 
 from armi_admin.application import (
     AdminConfig,
@@ -37,12 +45,15 @@ from armi_admin.persistence import (
 )
 from armi_admin.persistence.role_session import AdminRoleBoundPool
 
+from .authorization import AuthorizationError, AuthorizationStore
 from .contracts import (
     AdminIdentity,
     AdminMutationRequest,
     AdminToolResult,
     ApplyCorrectionRequest,
     ArmFaultRequest,
+    AuthorizationApproveRequest,
+    AuthorizationGetRequest,
     ConfigurationRequest,
     CorrectionStatusRequest,
     EnvironmentInitializeRequest,
@@ -54,6 +65,7 @@ from .contracts import (
     InjectCreatorInputRequest,
     InspectScopeRequest,
     InvocationStatusRequest,
+    InvocationWaitRequest,
     MaintenanceRequest,
     ObservationRequest,
     OtherHumanRequest,
@@ -67,12 +79,14 @@ from .contracts import (
     TailDiagnosticsRequest,
     TraceFlowRequest,
 )
-from .invocations import InvocationJournal
+from .credentials import AdminSecretError
+from .invocations import InvocationJournal, invocation_progress
 
 _DIAGNOSTIC_TOTAL_BYTES = 2 * 1024 * 1024
 _DIAGNOSTIC_LINE_BYTES = 64 * 1024
 ObservationToolName = Literal[
     "invocation_get",
+    "invocation_wait",
     "doctor",
     "correction_status",
     "inspect_scope",
@@ -177,6 +191,45 @@ class AdminToolService:
             },
         )
 
+    def authorization(
+        self, name: str, request: AuthorizationGetRequest
+    ) -> AdminToolResult[dict[str, Any]]:
+        started = datetime.now(UTC)
+        if name not in self._config.authorized_operations:
+            return self._tool_failure(started, "rejected", "ADMIN-SCOPE-REQUIRED")
+        if request.environment_id != self._config.environment_id:
+            return self._tool_failure(started, "rejected", "ADMIN-ENVIRONMENT-MISMATCH")
+
+        def execute() -> AdminToolResult[dict[str, Any]]:
+            store = AuthorizationStore(self._config, self._credentials)
+            try:
+                if name == "authorization_get":
+                    result = store.get(request.request_id)
+                elif name == "authorization_approve":
+                    result = store.approve(
+                        request.request_id,
+                        cast(
+                            AuthorizationApproveRequest, request
+                        ).expected_request_digest,
+                    )
+                elif name == "authorization_revoke":
+                    result = store.revoke(request.request_id)
+                else:
+                    raise AuthorizationError("ADMIN-AUTHORIZATION-OPERATION")
+                return self._tool_success(started, result)
+            except AuthorizationError as error:
+                return self._tool_failure(started, "rejected", str(error))
+            except OSError, ValueError, AdminSecretError:
+                return self._tool_failure(
+                    started, "failed", "ADMIN-AUTHORIZATION-UNAVAILABLE"
+                )
+
+        return (
+            execute()
+            if name == "authorization_get"
+            else self._write(name, request, name, execute)
+        )
+
     def configuration(
         self, request: ConfigurationRequest
     ) -> AdminToolResult[dict[str, Any]]:
@@ -185,10 +238,28 @@ class AdminToolService:
             return self._tool_failure(started, "rejected", "ADMIN-SCOPE-REQUIRED")
         if request.environment_id != self._config.environment_id:
             return self._tool_failure(started, "rejected", "ADMIN-ENVIRONMENT-MISMATCH")
+        if self._requires_reload:
+            return self._tool_failure(
+                started, "conflict", "ADMIN-CONFIG-RELOAD-REQUIRED"
+            )
+        if request.action == "apply":
+            return self._write(
+                "configuration",
+                request,
+                "configuration.apply",
+                lambda: self._configuration_once(request),
+            )
+        return self._configuration_once(request)
+
+    def _configuration_once(
+        self, request: ConfigurationRequest
+    ) -> AdminToolResult[dict[str, Any]]:
+        started = datetime.now(UTC)
         try:
             editor = EnvironmentConfiguration(
                 self._config.environment_root,
                 self._config.runtime_defaults_path or runtime_defaults_file(),
+                environment_id=self._config.environment_id,
             )
             if request.target != "runtime":
                 result = self._control.maintenance(
@@ -199,13 +270,49 @@ class AdminToolService:
                             "target": request.target,
                             "action": request.action,
                             "patch": dict(request.patch),
+                            "document": request.document,
                             "expected_version": request.expected_version,
                         }
                     )
                 )
+                if (
+                    request.action == "status"
+                    and result.get("configuration_state") != "invalid"
+                ):
+                    runtime = self._control.runtime_status()
+                    loaded = (
+                        runtime.get("runtime", {})
+                        .get("configuration_assets", {})
+                        .get(request.target, {})
+                    )
+                    effective = loaded.get("state") == "loaded" and loaded.get(
+                        "versions"
+                    ) == [result.get("desired_source_version")]
+                    activation = (
+                        "effective"
+                        if effective
+                        else "not_running"
+                        if runtime.get("status") == "stopped"
+                        else "not_loaded"
+                        if loaded.get("state") == "not_loaded"
+                        else "mixed_versions"
+                        if loaded.get("state") == "mixed_versions"
+                        else "restart_required"
+                        if loaded.get("versions")
+                        else "not_verified"
+                    )
+                    result.update(
+                        activation=activation,
+                        restart_required=activation
+                        in {"restart_required", "mixed_versions"},
+                        loaded=loaded,
+                    )
             elif request.action in {"read", "status"}:
                 result = editor.read()
-                if request.action == "status":
+                if (
+                    request.action == "status"
+                    and result["configuration_state"] != "invalid"
+                ):
                     from armi_local_control.runtime_process import RuntimeProcessManager
 
                     runtime = RuntimeProcessManager(
@@ -213,6 +320,9 @@ class AdminToolService:
                     ).status()
                     running = runtime.get("runtime", {})
                     actual = running.get("runtime_configuration_digest")
+                    environment_overrides = "explicit-environment" in running.get(
+                        "configuration_sources", []
+                    )
                     effective = (
                         actual is not None and actual == result["desired_digest"]
                     )
@@ -222,10 +332,13 @@ class AdminToolService:
                             if effective
                             else "not_running"
                             if runtime.get("status") == "stopped"
+                            else "environment_override"
+                            if environment_overrides
                             else "restart_required"
                             if actual is not None
                             else "not_verified",
-                            "restart_required": not effective,
+                            "restart_required": not effective
+                            and not environment_overrides,
                             "running_digest": actual,
                             "running_sources": running.get("configuration_sources", []),
                         }
@@ -236,9 +349,17 @@ class AdminToolService:
                         started, "rejected", "ADMIN-CONFIG-VERSION-REQUIRED"
                     )
                 result = (
-                    editor.apply(dict(request.patch), request.expected_version)
+                    editor.apply(
+                        dict(request.patch),
+                        request.expected_version,
+                        document=request.document,
+                    )
                     if request.action == "apply"
-                    else editor.preview(dict(request.patch), request.expected_version)
+                    else editor.preview(
+                        dict(request.patch),
+                        request.expected_version,
+                        document=request.document,
+                    )
                 )
         except AdminControlError as error:
             return self._tool_failure(started, "rejected", str(error))
@@ -272,15 +393,27 @@ class AdminToolService:
             return self._tool_failure(started, "rejected", "ADMIN-ENVIRONMENT-MISMATCH")
         if request.purpose != f"admin.environment_{action}":
             return self._tool_failure(started, "rejected", "ADMIN-PURPOSE")
-        try:
-            controller = LocalEnvironmentController(
-                environment_root=self._config.environment_root,
-                environment_id=self._config.environment_id,
-                incarnation=self._config.environment_incarnation,
-                defaults_path=self._config.runtime_defaults_path
-                or runtime_defaults_file(),
-                postgresql=self._config.postgresql_control,
+        if self._requires_reload:
+            return self._tool_failure(
+                started, "conflict", "ADMIN-CONFIG-RELOAD-REQUIRED"
             )
+        if action != "status":
+            return self._write(
+                f"environment_{action}",
+                request,
+                f"environment_{action}",
+                lambda: self._lifecycle_once(action, request),
+            )
+        return self._lifecycle_once(action, request)
+
+    def _lifecycle_once(
+        self,
+        action: Literal["start", "stop", "restart", "status"],
+        request: EnvironmentLifecycleRequest,
+    ) -> AdminToolResult[dict[str, Any]]:
+        started = datetime.now(UTC)
+        try:
+            controller = self._environment_controller()
             result = controller.execute(action, component=request.component)
         except RuntimeViolation as error:
             return self._tool_failure(
@@ -300,6 +433,19 @@ class AdminToolService:
                 ended_at=datetime.now(UTC).isoformat(),
             )
         return self._tool_success(started, result)
+
+    def _environment_controller(
+        self, expected_instance_id: str | None = None
+    ) -> LocalEnvironmentController:
+        return LocalEnvironmentController(
+            environment_root=self._config.environment_root,
+            environment_id=self._config.environment_id,
+            incarnation=self._config.environment_incarnation,
+            defaults_path=self._config.runtime_defaults_path or runtime_defaults_file(),
+            postgresql=self._config.postgresql_control,
+            progress=invocation_progress,
+            expected_instance_id=expected_instance_id,
+        )
 
     def health(self, request: HealthRequest) -> HealthResult:
         del request
@@ -423,14 +569,15 @@ class AdminToolService:
         if request.environment_id != self._config.environment_id:
             return self._tool_failure(started, "rejected", "ADMIN-ENVIRONMENT-MISMATCH")
         try:
-            if name == "invocation_get":
+            if name in {"invocation_get", "invocation_wait"}:
                 typed_invocation = cast(InvocationStatusRequest, request)
-                result = InvocationJournal(
+                journal = InvocationJournal(
                     self._config.environment_root.parent
                     / ".armi-admin"
                     / self._config.environment_id,
-                    self._config.safe_digest(),
-                ).read(
+                    self._config.invocation_identity(),
+                )
+                result = journal.read(
                     typed_invocation.operation_name, typed_invocation.idempotency_key
                 )
                 if (
@@ -441,6 +588,25 @@ class AdminToolService:
                     return self._tool_failure(
                         started, "rejected", "ADMIN-SCOPE-REQUIRED"
                     )
+                if name == "invocation_wait":
+                    deadline = (
+                        time.monotonic()
+                        + cast(InvocationWaitRequest, request).timeout_seconds
+                    )
+                    while result["state"] == "running" and time.monotonic() < deadline:
+                        time.sleep(min(0.25, max(0, deadline - time.monotonic())))
+                        result = journal.read(
+                            typed_invocation.operation_name,
+                            typed_invocation.idempotency_key,
+                        )
+                    result = {
+                        **result,
+                        "wait_timed_out": result["state"] == "running",
+                        "continuation": {
+                            "operation_name": typed_invocation.operation_name,
+                            "idempotency_key": typed_invocation.idempotency_key,
+                        },
+                    }
             elif name == "doctor":
                 result = self._diagnose()
             elif name == "correction_status":
@@ -488,6 +654,8 @@ class AdminToolService:
                         limit=int(typed_scope.limit),
                         cursor=typed_scope.cursor,
                     )
+                else:
+                    raise ValueError("ADMIN-OBSERVATION-OPERATION")
             return self._tool_success(started, result)
         except AdminCorrectionError as exc:
             return self._correction_failure(started, exc.code)
@@ -509,6 +677,46 @@ class AdminToolService:
         schema = self.schema_status(
             SchemaStatusRequest(environment_id=self._config.environment_id)
         )
+        owner_diagnostics: dict[str, object] = {}
+        if schema.status == "succeeded":
+            try:
+                owner_diagnostics = self._observation.diagnostics()
+                checks.append(
+                    {
+                        "component": "owner_work_leases_recovery_and_artifacts",
+                        "status": "observed",
+                        "evidence": owner_diagnostics,
+                        "next_operations": [
+                            "inspect_scope",
+                            "trace_flow",
+                            "preview_correction",
+                        ],
+                    }
+                )
+            except (
+                PostgreSQLError,
+                AdminRoleSessionError,
+                AdminSecretError,
+                OSError,
+                ValueError,
+            ):
+                checks.append(
+                    {
+                        "component": "owner_work_leases_recovery_and_artifacts",
+                        "status": "unavailable",
+                        "error_code": "ADMIN-DIAGNOSTIC-OWNER-UNAVAILABLE",
+                        "next_operations": ["schema_status", "health"],
+                    }
+                )
+        else:
+            checks.append(
+                {
+                    "component": "owner_work_leases_recovery_and_artifacts",
+                    "status": "unavailable",
+                    "error_code": "ADMIN-DIAGNOSTIC-SCHEMA-REQUIRED",
+                    "next_operations": ["schema_status"],
+                }
+            )
         checks.append(
             {
                 "component": "schema_and_acl",
@@ -526,7 +734,9 @@ class AdminToolService:
         checks.append(
             {
                 "component": "configuration",
-                "status": config.status,
+                "status": (config.result or {}).get(
+                    "configuration_state", config.status
+                ),
                 "error_code": config.error_code,
                 "evidence": {
                     "operation_id": config.operation_id,
@@ -535,6 +745,50 @@ class AdminToolService:
                 "next_operations": ["configuration"],
             }
         )
+        for target in ("model-bindings", "web-search", "qq", "mood-display"):
+            asset = self.configuration(
+                ConfigurationRequest(
+                    environment_id=self._config.environment_id,
+                    action="read",
+                    target=target,
+                )
+            )
+            checks.append(
+                {
+                    "component": "configuration." + target,
+                    "status": (asset.result or {}).get(
+                        "configuration_state", asset.status
+                    ),
+                    "error_code": asset.error_code
+                    or (asset.result or {}).get("error_code"),
+                    "evidence": {
+                        "operation_id": asset.operation_id,
+                        "version": (asset.result or {}).get("version"),
+                    },
+                    "next_operations": ["configuration"],
+                }
+            )
+        for action in ("semantic_status", "device_bindings"):
+            maintenance = self.mutate(
+                "maintenance",
+                MaintenanceRequest.model_validate(
+                    {
+                        "environment_id": self._config.environment_id,
+                        "environment_incarnation": self._config.environment_incarnation,
+                        "purpose": "admin.maintenance",
+                        "action": action,
+                    }
+                ),
+            )
+            checks.append(
+                {
+                    "component": action,
+                    "status": maintenance.status,
+                    "error_code": maintenance.error_code,
+                    "evidence": maintenance.result,
+                    "next_operations": ["maintenance"],
+                }
+            )
         try:
             runtime = self._control.runtime_status()
             checks.append(
@@ -567,10 +821,13 @@ class AdminToolService:
             "checks": checks,
             "collection_performed": False,
             "external_effects_dispatched": False,
-            "artifact_integrity": {
-                "status": "requires_scoped_inspection",
-                "next_operations": ["inspect_scope", "maintenance.artifact_cleanup"],
-            },
+            "artifact_integrity": owner_diagnostics.get(
+                "artifact_integrity",
+                {
+                    "status": "unavailable",
+                    "next_operations": ["schema_status", "doctor"],
+                },
+            ),
         }
 
     def mutate(
@@ -593,6 +850,26 @@ class AdminToolService:
             return self._tool_failure(started, "rejected", "ADMIN-ENVIRONMENT-MISMATCH")
         if request.purpose != f"admin.{name}":
             return self._tool_failure(started, "rejected", "ADMIN-PURPOSE")
+        if name in {"environment_reset_preview", "preview_correction"} or (
+            isinstance(request, (MaintenanceRequest, OtherHumanRequest))
+            and request.read_only
+        ):
+            return self._mutate_once(name, request)
+        return self._write(
+            name, request, permission, lambda: self._mutate_once(name, request)
+        )
+
+    def _write(
+        self,
+        name: str,
+        request: BaseModel,
+        permission: str,
+        execute: Callable[[], AdminToolResult[dict[str, Any]]],
+    ) -> AdminToolResult[dict[str, Any]]:
+        started = datetime.now(UTC)
+        key = getattr(request, "idempotency_key", None)
+        if key is None:
+            return self._tool_failure(started, "rejected", "ADMIN-IDEMPOTENCY-REQUIRED")
         digest = _sha256(
             json.dumps(
                 request.model_dump(mode="json"), ensure_ascii=False, sort_keys=True
@@ -602,21 +879,19 @@ class AdminToolService:
             self._config.environment_root.parent
             / ".armi-admin"
             / self._config.environment_id,
-            self._config.safe_digest(),
+            self._config.invocation_identity(),
         )
         try:
             result = journal.invoke(
                 name=name,
-                key=request.idempotency_key,
+                key=key,
                 request_digest=digest,
                 audit={
                     "operator_id": self._config.operator_id,
                     "authorization_ref": getattr(request, "authorization_ref", None),
                     "scope": permission,
                 },
-                execute=lambda: self._mutate_once(name, request).model_dump(
-                    mode="json"
-                ),
+                execute=lambda: execute().model_dump(mode="json"),
             )
             return AdminToolResult[dict[str, Any]].model_validate(result)
         except ValueError as error:
@@ -665,38 +940,61 @@ class AdminToolService:
                 )
             elif name == "maintenance":
                 typed_maintenance = cast(MaintenanceRequest, request)
-                result = self._control.maintenance(
-                    MaintenanceInvocation.model_validate(
-                        {
-                            "environment_root": self._config.environment_root,
-                            "environment_id": self._config.environment_id,
-                            **typed_maintenance.model_dump(
-                                include=set(MaintenanceParameters.model_fields)
-                            ),
-                        }
-                    )
+                invocation = MaintenanceInvocation.model_validate(
+                    {
+                        "environment_root": self._config.environment_root,
+                        "environment_id": self._config.environment_id,
+                        **typed_maintenance.model_dump(
+                            include=set(MaintenanceParameters.model_fields)
+                        ),
+                    }
                 )
+                with (
+                    nullcontext()
+                    if invocation.read_only
+                    else environment_control_lock(
+                        self._config.environment_root, self._config.environment_id
+                    )
+                ):
+                    invocation_progress("maintenance." + invocation.action)
+                    result = self._control.maintenance(invocation)
             elif name == "environment_initialize":
                 typed_initialize = cast(EnvironmentInitializeRequest, request)
-                result = self._initialize_environment(typed_initialize.birth_mode)
+                with environment_control_lock(
+                    self._config.environment_root, self._config.environment_id
+                ):
+                    result = self._initialize_environment(typed_initialize.birth_mode)
             elif name == "environment_reset_preview":
                 result = self._control.preview_reset()
             elif name == "environment_reset":
                 typed_reset = cast(EnvironmentResetRequest, request)
-                result = self._control.apply_reset(str(typed_reset.preview_token))
+                result = self._control.apply_reset(
+                    typed_reset.preview_token,
+                    authorize=lambda: AuthorizationStore(
+                        self._config, self._credentials
+                    ).consume(
+                        typed_reset.authorization_id,
+                        operation=name,
+                        arguments={"preview_token": typed_reset.preview_token},
+                        invocation_key=typed_reset.idempotency_key,
+                    ),
+                )
                 self._register_environment(int(result["incarnation"]))
                 self._requires_reload = True
             elif name == "runtime_start":
-                result = self._control.start_runtime()
+                result = self._environment_controller().execute(
+                    "start", component="runtime"
+                )
             elif name == "runtime_drain":
                 result = self._runtime_control(request, "drain")
             elif name == "runtime_stop":
-                result = self._runtime_control(request, "stop")
+                result = self._environment_controller(
+                    cast(RuntimeControlRequest, request).expected_instance_id
+                ).execute("stop", component="runtime")
             elif name == "runtime_restart":
-                self._runtime_control(request, "drain")
-                self._runtime_control(request, "stop")
-                self._control.wait_until_stopped()
-                result = self._control.start_runtime()
+                result = self._environment_controller(
+                    cast(RuntimeControlRequest, request).expected_instance_id
+                ).execute("restart", component="runtime")
             elif name == "inject_creator_input":
                 self._require_test_controls()
                 typed_input = cast(InjectCreatorInputRequest, request)
@@ -729,17 +1027,77 @@ class AdminToolService:
                 )
             elif name == "apply_correction":
                 typed_apply = cast(ApplyCorrectionRequest, request)
-                result = self._corrections.apply(
-                    typed_apply.spec.model_dump(mode="json"),
-                    str(typed_apply.preview_token),
-                    purpose=str(typed_apply.purpose),
-                )
+                with environment_control_lock(
+                    self._config.environment_root, self._config.environment_id
+                ):
+                    if typed_apply.authorization_id is not None:
+                        AuthorizationStore(self._config, self._credentials).consume(
+                            typed_apply.authorization_id,
+                            operation=name,
+                            arguments={
+                                "preview_token": typed_apply.preview_token,
+                                "spec": typed_apply.spec.model_dump(mode="json"),
+                            },
+                            invocation_key=typed_apply.idempotency_key,
+                        )
+                    result = self._corrections.apply(
+                        typed_apply.spec.model_dump(mode="json"),
+                        str(typed_apply.preview_token),
+                        purpose=str(typed_apply.purpose),
+                    )
             elif name == "settle_correction_work":
                 typed_settle = cast(SettleCorrectionWorkRequest, request)
                 result = self._corrections.settle_side_work(
                     str(typed_settle.side_work_id)
                 )
-            outcome = self._tool_success(started, result)
+            if name == "environment_reset_preview" or (
+                isinstance(request, PreviewCorrectionRequest)
+                and request.spec.correction_kind
+                in {
+                    "replace_subject_component",
+                    "repair_subject_component_head",
+                    "delete_uncommitted_creator_input",
+                }
+            ):
+                arguments: dict[str, JsonValue] = {
+                    "preview_token": result["preview_token"]
+                }
+                if isinstance(request, PreviewCorrectionRequest):
+                    arguments["spec"] = request.spec.model_dump(mode="json")
+                required_operation = (
+                    "environment_reset"
+                    if name == "environment_reset_preview"
+                    else "apply_correction"
+                )
+                authorization = (
+                    None
+                    if self._config.authorization_public_key is None
+                    else AuthorizationStore(self._config, self._credentials).prepare(
+                        required_operation, arguments, result
+                    )
+                )
+                result = {
+                    **result,
+                    "authorization_required": True,
+                    "authorization_request": authorization,
+                    "authorization_unavailable_reason": "signing_authority_not_configured"
+                    if authorization is None
+                    else None,
+                }
+            outcome = (
+                AdminToolResult[dict[str, Any]](
+                    operation_id=str(uuid7()),
+                    status="failed",
+                    result=result,
+                    error_code="ADMIN-RUNTIME-NOT-READY",
+                    started_at=started.isoformat(),
+                    ended_at=datetime.now(UTC).isoformat(),
+                )
+                if result.get("status") == "not_ready"
+                else self._tool_success(started, result)
+            )
+        except AuthorizationError as exc:
+            outcome = self._tool_failure(started, "rejected", str(exc))
         except AdminCorrectionError as exc:
             outcome = self._correction_failure(started, exc.code)
         except AdminControlError as exc:

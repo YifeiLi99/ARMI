@@ -8,19 +8,22 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Literal, cast
 
-from armi_adapter_esp32_display import load_mood_display_config
+from armi_adapter_esp32_display import MoodDisplayViolation, load_mood_display_config
 from armi_adapter_qq import load_qq_napcat_config
 from armi_cognition.bootstrap import load_active_model_binding, load_voice_model_binding
 from armi_context.api import load_embedding_binding
 from armi_kernel import load_yaml_mapping
+from armi_kernel.application import ModelViolation
 from armi_local_control.configuration.editing import EnvironmentConfiguration
 from armi_local_control.configuration.paths import has_reparse_point
 from armi_local_control.maintenance import ConfigurationInvocation
+from armi_web_observation.api import WebObservationViolation
 from armi_web_observation.bootstrap import validate_web_search_configuration
 
 from armi_runtime.adapters.model.external_content import (
     load_external_recognition_binding,
 )
+from armi_runtime.application.model_manifest import ModelManifest
 
 from .config_assets import runtime_config_path
 
@@ -52,25 +55,58 @@ class ConfigurationAsset(EnvironmentConfiguration):
         if len(raw) > 1024 * 1024:
             raise ValueError("ADMIN-CONFIG-SIZE")
         source = self.path if exists else self.default
-        values: dict[str, Any] = (
-            {} if source is None else dict(load_yaml_mapping(source.read_bytes()))
-        )
-        if source is not None:
-            self._validate(values)
+        source_raw = raw if exists else b"" if source is None else source.read_bytes()
+        try:
+            values: dict[str, Any] = (
+                {} if source is None else dict(load_yaml_mapping(source_raw))
+            )
+            if source is not None:
+                self._validate(values)
+        except (
+            ValueError,
+            ModelViolation,
+            WebObservationViolation,
+            MoodDisplayViolation,
+        ):
+            result = self._invalid(raw, "ADMIN-CONFIG-INVALID")
+            result["sources"] = [] if source is None else [str(source)]
+            return result
         return {
             "version": "sha256:" + hashlib.sha256(raw).hexdigest(),
             "values": values,
             "source": None if source is None else str(source),
+            "desired_source_version": None
+            if source is None
+            else "sha256:" + hashlib.sha256(source_raw).hexdigest(),
             "activation": "not_verified",
             "configuration_state": "configured" if source is not None else "missing",
             "restart_required": True,
         }
 
-    def preview(self, patch: dict[str, Any], expected_version: str) -> dict[str, Any]:
+    def preview(
+        self,
+        patch: dict[str, Any],
+        expected_version: str,
+        *,
+        document: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         current = self.read()
         if current["version"] != expected_version:
             raise ValueError("ADMIN-CONFIG-VERSION-CONFLICT")
-        values = self._merge(current["values"], patch)
+        if document is not None:
+            if patch:
+                raise ValueError("ADMIN-CONFIG-EDIT-CONFLICT")
+            base = {}
+        elif current["configuration_state"] == "invalid":
+            # Parse the source again privately so a patch can repair a valid YAML
+            # document whose values fail the consumer contract.
+            source = self.path if self.path.exists() else self.default
+            base = (
+                {} if source is None else dict(load_yaml_mapping(source.read_bytes()))
+            )
+        else:
+            base = current["values"]
+        values = document if document is not None else self._merge(base, patch)
         self._validate(values)
         return {
             "expected_version": expected_version,
@@ -82,8 +118,6 @@ class ConfigurationAsset(EnvironmentConfiguration):
     def _validate(self, values: dict[str, Any]) -> None:
         # Parsing consumes no credentials, network or devices. The same owner
         # validators are used by Runtime composition after a restart.
-        if self.default is not None:
-            self._shape(values, dict(load_yaml_mapping(self.default.read_bytes())))
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
             path = root / "configuration.yaml"
@@ -91,6 +125,7 @@ class ConfigurationAsset(EnvironmentConfiguration):
             path.write_bytes(raw)
             match self.target:
                 case "model-bindings":
+                    ModelManifest.model_validate(values)
                     load_active_model_binding(path)
                     load_voice_model_binding(path)
                     load_embedding_binding(path)
@@ -105,20 +140,6 @@ class ConfigurationAsset(EnvironmentConfiguration):
                     path.replace(devices / "mood-display.yaml")
                     load_mood_display_config(root)
 
-    @classmethod
-    def _shape(cls, value: Any, example: Any) -> None:
-        if type(value) is not type(example):
-            raise ValueError("ADMIN-CONFIG-TYPE")
-        if isinstance(example, dict):
-            template = cast(dict[str, Any], example)
-            if set(value) != set(template):
-                raise ValueError("ADMIN-CONFIG-FIELDS")
-            for key in template:
-                cls._shape(value[key], template[key])
-        elif isinstance(example, list) and example:
-            for item in value:
-                cls._shape(item, cast(list[Any], example)[0])
-
 
 def execute_configuration(request: ConfigurationInvocation) -> dict[str, Any]:
     environment = load_yaml_mapping(
@@ -131,15 +152,21 @@ def execute_configuration(request: ConfigurationInvocation) -> dict[str, Any]:
         raise ValueError("ADMIN-ENVIRONMENT-MISMATCH")
     config = ConfigurationAsset(request)
     if request.action in {"read", "status"}:
-        if request.patch or request.expected_version is not None:
+        if (
+            request.patch
+            or request.document is not None
+            or request.expected_version is not None
+        ):
             raise ValueError("ADMIN-CONFIG-READ-ARGUMENTS")
         return config.read()
     if request.expected_version is None:
         raise ValueError("ADMIN-CONFIG-VERSION-REQUIRED")
     return (
-        config.apply(request.patch, request.expected_version)
+        config.apply(request.patch, request.expected_version, document=request.document)
         if request.action == "apply"
-        else config.preview(request.patch, request.expected_version)
+        else config.preview(
+            request.patch, request.expected_version, document=request.document
+        )
     )
 
 

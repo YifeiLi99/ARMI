@@ -6323,6 +6323,7 @@
     "/health/live": {
       "get": {
         "operationId": "getHealthLive",
+        "parameters": [],
         "responses": {
           "200": {
             "content": {
@@ -6341,6 +6342,7 @@
     "/health/ready": {
       "get": {
         "operationId": "getHealthReady",
+        "parameters": [],
         "responses": {
           "200": {
             "content": {
@@ -6872,6 +6874,7 @@
     "/v1/channels/qq/start": {
       "post": {
         "operationId": "startQQChannel",
+        "parameters": [],
         "responses": {
           "200": {
             "content": {
@@ -6895,6 +6898,7 @@
     "/v1/channels/qq/status": {
       "get": {
         "operationId": "getQQChannelHealth",
+        "parameters": [],
         "responses": {
           "200": {
             "content": {
@@ -6942,12 +6946,13 @@
             "browserSessionBearer": []
           }
         ],
-        "summary": "Qq Channel Health"
+        "summary": "Get Qq Channel Health"
       }
     },
     "/v1/channels/qq/stop": {
       "post": {
         "operationId": "stopQQChannel",
+        "parameters": [],
         "responses": {
           "200": {
             "content": {
@@ -6971,6 +6976,7 @@
     "/v1/data-rights/orders": {
       "get": {
         "operationId": "listDataRightsOrders",
+        "parameters": [],
         "responses": {
           "200": {
             "content": {
@@ -7018,7 +7024,7 @@
             "browserSessionBearer": []
           }
         ],
-        "summary": "List Data Rights Orders"
+        "summary": "List Creator Data Rights Orders"
       },
       "post": {
         "operationId": "createDataRightsOrder",
@@ -7130,7 +7136,7 @@
             "browserSessionBearer": []
           }
         ],
-        "summary": "Create Data Rights Order"
+        "summary": "Create Creator Data Rights Order"
       }
     },
     "/v1/data-rights/orders/{order_id}": {
@@ -7214,7 +7220,7 @@
             "browserSessionBearer": []
           }
         ],
-        "summary": "Get Data Rights Order"
+        "summary": "Get Creator Data Rights Order"
       }
     },
     "/v1/data-rights/orders/{order_id}/retry": {
@@ -7258,7 +7264,7 @@
             "browserSessionBearer": []
           }
         ],
-        "summary": "Retry Data Rights Order"
+        "summary": "Retry Creator Data Rights Order"
       }
     },
     "/v1/effects/{effect_id}": {
@@ -7790,6 +7796,7 @@
     "/v1/maintenance/status": {
       "get": {
         "operationId": "getCreatorMaintenanceStatus",
+        "parameters": [],
         "responses": {
           "200": {
             "content": {
@@ -8789,6 +8796,7 @@
     "/v1/prompts/creator-guidance": {
       "get": {
         "operationId": "getCreatorPrompt",
+        "parameters": [],
         "responses": {
           "200": {
             "content": {
@@ -8840,6 +8848,7 @@
       },
       "put": {
         "operationId": "reviseCreatorPrompt",
+        "parameters": [],
         "requestBody": {
           "content": {
             "application/json": {
@@ -8933,6 +8942,7 @@
     "/v1/prompts/creator-guidance/deactivation": {
       "post": {
         "operationId": "deactivateCreatorPrompt",
+        "parameters": [],
         "requestBody": {
           "content": {
             "application/json": {
@@ -9026,6 +9036,7 @@
     "/v1/relationships/current": {
       "get": {
         "operationId": "getCreatorRelationshipCurrent",
+        "parameters": [],
         "responses": {
           "200": {
             "content": {
@@ -9300,6 +9311,7 @@
     "/v1/runtime/status": {
       "get": {
         "operationId": "getRuntimeStatus",
+        "parameters": [],
         "responses": {
           "200": {
             "content": {
@@ -9347,12 +9359,13 @@
             "browserSessionBearer": []
           }
         ],
-        "summary": "Runtime Status"
+        "summary": "Get Runtime Status"
       }
     },
     "/v1/scenes": {
       "get": {
         "operationId": "listCreatorScenes",
+        "parameters": [],
         "responses": {
           "200": {
             "content": {
@@ -9404,6 +9417,7 @@
       },
       "post": {
         "operationId": "createCreatorScene",
+        "parameters": [],
         "requestBody": {
           "content": {
             "application/json": {
@@ -10135,12 +10149,13 @@
             "browserSessionBearer": []
           }
         ],
-        "summary": "Scene Timeline"
+        "summary": "Get Scene Timeline"
       }
     },
     "/v1/subject/summary": {
       "get": {
         "operationId": "getSubjectSummary",
+        "parameters": [],
         "responses": {
           "200": {
             "content": {
@@ -10188,7 +10203,7 @@
             "browserSessionBearer": []
           }
         ],
-        "summary": "Subject Summary"
+        "summary": "Get Subject Summary"
       }
     },
     "/v1/vision/observations/{observation_id}": {
@@ -10231,6 +10246,7 @@
     "/v1/vision/observe": {
       "post": {
         "operationId": "observeLiveVision",
+        "parameters": [],
         "responses": {
           "200": {
             "content": {
@@ -10368,6 +10384,7 @@
     "/v1/vision/status": {
       "get": {
         "operationId": "getLiveVisionStatus",
+        "parameters": [],
         "responses": {
           "200": {
             "content": {
@@ -10385,12 +10402,13 @@
             "browserSessionBearer": []
           }
         ],
-        "summary": "Live Vision Status"
+        "summary": "Get Live Vision Status"
       }
     },
     "/v1/voice/start": {
       "post": {
         "operationId": "startLiveVoice",
+        "parameters": [],
         "responses": {
           "200": {
             "content": {
@@ -10414,6 +10432,7 @@
     "/v1/voice/status": {
       "get": {
         "operationId": "getLiveVoiceStatus",
+        "parameters": [],
         "responses": {
           "200": {
             "content": {
@@ -10431,12 +10450,13 @@
             "browserSessionBearer": []
           }
         ],
-        "summary": "Live Voice Status"
+        "summary": "Get Live Voice Status"
       }
     },
     "/v1/voice/stop": {
       "post": {
         "operationId": "stopLiveVoice",
+        "parameters": [],
         "responses": {
           "200": {
             "content": {

@@ -15,8 +15,8 @@ from armi_local_control.binding import load_client_binding
 from jsonschema.exceptions import ValidationError as SchemaValidationError
 from pydantic import ValidationError
 
+from .application.interaction_catalog import interaction_routes
 from .interaction_client import InteractionClient, interaction_failure
-from .interfaces.interaction_catalog import interaction_routes
 
 
 def parser() -> argparse.ArgumentParser:
@@ -128,6 +128,8 @@ async def _execute(args: argparse.Namespace) -> dict[str, Any]:
         if len(content) > 262144:
             raise ValueError("INTERACTION-MESSAGE-FILE")
         arguments["message"] = content.decode("utf-8")
+    if args.operation == "artifact_read" and getattr(args, "output", None) is not None:
+        return await client.download_artifact(arguments, args.output)
     outcome = await client.invoke(args.operation, arguments)
     if (
         getattr(args, "wait", False)

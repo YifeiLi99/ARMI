@@ -15,7 +15,6 @@ from armi_interaction.api import (
     ExternalMessageViolation,
     ExternalVisualRole,
 )
-from armi_kernel import load_yaml_file
 from armi_kernel.application import (
     CredentialLocator,
     CredentialPort,
@@ -32,6 +31,8 @@ from armi_perception.api import (
     VisualRecognitionResult,
 )
 from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI
+
+from armi_runtime.application.model_manifest import load_model_manifest
 
 from .doubao_speech import DoubaoSpeechRecognitionBinding
 
@@ -275,10 +276,7 @@ class VolcengineArkExternalContentRecognizer(
 
 def load_external_recognition_binding(path: Path) -> ExternalRecognitionBindings:
     try:
-        value = cast(
-            dict[str, Any],
-            load_yaml_file(path)["external_content_recognition"],
-        )
+        value = load_model_manifest(path).external_content_recognition.model_dump()
         ark = ArkExternalRecognitionBinding(
             api_base=value["api_base"],
             image_model_id=value["image_model_id"],

@@ -143,6 +143,20 @@ class AdminCorrectionCoordinator:
             "state_epoch": snapshot["state_epoch"],
             "preview_token": self._encode(payload),
             "expires_at": payload["expires_at"],
+            "target": spec,
+            "impact": {
+                "scope_digest": snapshot["scope_digest"],
+                "impact_digest": snapshot["impact_digest"],
+                "before_digest": snapshot["before_digest"],
+                "after_digest": snapshot["after_digest"],
+                "description": {
+                    "replace_subject_component": "Replace the specified current subject component content through its owner.",
+                    "repair_subject_component_head": "Point the specified component head at the reviewed historical version.",
+                    "delete_uncommitted_creator_input": "Delete the specified uncommitted Creator input and settle dependent work.",
+                    "requeue_stuck_work": "Requeue only the reviewed recoverable owner work.",
+                    "reconcile_unknown_creator_effect": "Settle the unknown effect from the reviewed evidence without resending it.",
+                }[spec["correction_kind"]],
+            },
         }
         if snapshot.get("effect_reconciliation") is not None:
             result["effect_reconciliation"] = snapshot["effect_reconciliation"]

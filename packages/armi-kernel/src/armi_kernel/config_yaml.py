@@ -2,10 +2,28 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Generator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from typing import cast
 
 import yaml
+
+_READ_OBSERVER: ContextVar[Callable[[Path, bytes], None] | None] = ContextVar(
+    "configuration_read_observer", default=None
+)
+
+
+@contextmanager
+def observe_configuration_reads(
+    observer: Callable[[Path, bytes], None],
+) -> Generator[None]:
+    token = _READ_OBSERVER.set(observer)
+    try:
+        yield
+    finally:
+        _READ_OBSERVER.reset(token)
 
 
 def load_yaml_mapping(raw: bytes) -> dict[str, object]:
@@ -24,10 +42,27 @@ def load_yaml_mapping(raw: bytes) -> dict[str, object]:
     return cast(dict[str, object], mapping)
 
 
-def load_yaml_file(path: Path, *, maximum_bytes: int = 1_048_576) -> dict[str, object]:
+def read_configuration_bytes(path: Path, *, maximum_bytes: int = 1_048_576) -> bytes:
     if not path.is_file() or path.is_symlink() or path.stat().st_size > maximum_bytes:
         raise ValueError("YAML configuration file is unavailable")
-    return load_yaml_mapping(path.read_bytes())
+    raw = path.read_bytes()
+    if len(raw) > maximum_bytes:
+        raise ValueError("YAML configuration file is unavailable")
+    observer = _READ_OBSERVER.get()
+    if observer is not None:
+        observer(path, raw)
+    return raw
 
 
-__all__ = ("load_yaml_file", "load_yaml_mapping")
+def load_yaml_file(path: Path, *, maximum_bytes: int = 1_048_576) -> dict[str, object]:
+    return load_yaml_mapping(
+        read_configuration_bytes(path, maximum_bytes=maximum_bytes)
+    )
+
+
+__all__ = (
+    "load_yaml_file",
+    "load_yaml_mapping",
+    "observe_configuration_reads",
+    "read_configuration_bytes",
+)

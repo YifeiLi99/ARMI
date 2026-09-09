@@ -38,7 +38,7 @@ def _config(root: Path) -> AdminConfig:
     (environment / "environment.yaml").write_text("fixture: true\n", encoding="utf-8")
     return AdminConfig.model_validate(
         {
-            "schema_version": "armi.admin-config.v6",
+            "schema_version": "armi.admin-config.v7",
             "operator_id": "isolated-test-agent",
             "authorized_operations": tuple(item.name for item in ADMIN_OPERATIONS),
             "environment_kind": "system_test",
@@ -119,11 +119,15 @@ class AdminResetPreviewTests(unittest.TestCase):
                 with patch.object(
                     AdminControlPlane, "maintenance", return_value={}
                 ) as maintenance:
-                    control.apply_reset(str(preview["preview_token"]))
+                    control.apply_reset(
+                        str(preview["preview_token"]), authorize=lambda: None
+                    )
                     with self.assertRaisesRegex(
                         RuntimeError, "ADMIN-RESET-PREVIEW-USED"
                     ):
-                        other_process.apply_reset(str(preview["preview_token"]))
+                        other_process.apply_reset(
+                            str(preview["preview_token"]), authorize=lambda: None
+                        )
                     self.assertEqual(maintenance.call_count, 1)
             self.assertEqual(payload["environment_id"], ENVIRONMENT_ID)
             self.assertEqual(payload["incarnation"], 3)

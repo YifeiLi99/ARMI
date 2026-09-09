@@ -59,6 +59,7 @@ class AdminCredentialPort(CredentialPort):
         locator: CredentialLocator,
         migrator_locator: CredentialLocator | None = None,
         preview_locator: CredentialLocator | None = None,
+        authorization_locator: CredentialLocator | None = None,
         config_root: Path,
         environ: dict[str, str] | None = None,
     ) -> None:
@@ -69,6 +70,8 @@ class AdminCredentialPort(CredentialPort):
             "admin.correction.preview": preview_locator or locator,
         }
         self._config_root = config_root.resolve(strict=True)
+        if authorization_locator is not None:
+            self._locators["admin.authorization.sign"] = authorization_locator
         self._environ = os.environ if environ is None else environ
 
     def resolve(

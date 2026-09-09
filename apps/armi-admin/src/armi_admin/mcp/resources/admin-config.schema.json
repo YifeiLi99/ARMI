@@ -90,6 +90,30 @@
   "additionalProperties": false,
   "description": "One explicit environment binding, including authorized active operation.",
   "properties": {
+    "authorization_public_key": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Authorization Public Key"
+    },
+    "authorization_signing_key_locator": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "authorized_operations": {
       "items": {
         "type": "string"
@@ -204,7 +228,7 @@
       "title": "Runtime Defaults Path"
     },
     "schema_version": {
-      "const": "armi.admin-config.v6",
+      "const": "armi.admin-config.v7",
       "title": "Schema Version",
       "type": "string"
     },

@@ -6,6 +6,7 @@ from pathlib import Path
 from uuid import UUID
 
 from armi_runtime.application.creator_commands import CreatorCommands
+from armi_runtime.application.creator_system import CreatorSystem
 
 from .bounded_http import BoundedBodyViolation
 from .creator_http import (
@@ -169,6 +170,17 @@ def create_runtime_app(
         operations=creator_operations,
         effects=effect_ledger,
     )
+    system = CreatorSystem(
+        readiness=readiness,
+        runtime_status=runtime_status,
+        qq_health=qq_channel_health,
+        qq_control=qq_channel_control,
+        voice_control=live_voice_control,
+        vision_control=live_vision_control,
+        vision_observe=live_vision_observe,
+        vision_observation=live_vision_observation,
+        vision_preview=live_vision_preview,
+    )
 
     @app.exception_handler(BoundedBodyViolation)
     async def bounded_body_error(
@@ -248,17 +260,9 @@ def create_runtime_app(
         emit=emit,
         browser_sessions=browser_sessions,
         creator_events=creator_events,
-        live_vision_control=live_vision_control,
-        live_vision_observe=live_vision_observe,
-        live_vision_observation=live_vision_observation,
-        live_vision_preview=live_vision_preview,
-        live_voice_control=live_voice_control,
-        qq_channel_control=qq_channel_control,
-        qq_channel_health=qq_channel_health,
-        readiness=readiness,
-        runtime_status=runtime_status,
+        system=system,
     )
-    register_subject_life_routes(
+    life_use_cases = register_subject_life_routes(
         app=app,
         bearer=bearer,
         canonical_origin=canonical_origin,
@@ -277,7 +281,7 @@ def create_runtime_app(
         request_body_max_bytes=request_body_max_bytes,
         subject_summary=subject_summary,
     )
-    register_governance_routes(
+    governance_use_cases = register_governance_routes(
         app=app,
         bearer=bearer,
         canonical_origin=canonical_origin,
@@ -289,7 +293,7 @@ def create_runtime_app(
         data_rights=data_rights,
         request_body_max_bytes=request_body_max_bytes,
     )
-    register_scene_routes(
+    record_use_cases = register_scene_routes(
         app=app,
         commands=commands,
         bearer=bearer,
@@ -356,10 +360,11 @@ def create_runtime_app(
         register_machine_api(
             app,
             commands=commands,
+            system=system,
+            use_cases={**life_use_cases, **governance_use_cases, **record_use_cases},
             environment_root=machine_environment_root,
             environment_id=machine_environment_id,
             creator_party_id=machine_creator_party_id,
-            authority=expected_authority,
             maximum_bytes=request_body_max_bytes,
         )
 

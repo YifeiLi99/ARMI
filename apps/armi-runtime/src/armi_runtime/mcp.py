@@ -15,8 +15,8 @@ from mcp.server import MCPServer
 from mcp.server.mcpserver import Context
 from mcp.types import CallToolResult, TextContent, Tool, ToolAnnotations
 
+from .application.interaction_catalog import interaction_routes
 from .interaction_client import InteractionClient, interaction_failure
-from .interfaces.interaction_catalog import interaction_routes
 
 
 class InteractionMCPServer(MCPServer[Any]):

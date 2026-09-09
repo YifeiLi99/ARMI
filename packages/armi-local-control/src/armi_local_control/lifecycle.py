@@ -14,9 +14,20 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 from .configuration import ConfigurationViolation, load_effective_config
 from .configuration.models import AbsolutePath
+from .configuration.paths import has_reparse_point
 from .runtime_errors import RuntimeViolation
 from .runtime_process import LocalProcessLock, RuntimeProcessManager
 from .semantic_recall_process import SemanticRecallProcessManager
+
+
+def environment_control_lock(root: Path, environment_id: str) -> LocalProcessLock:
+    """Serialize maintenance with lifecycle outside the resettable data tree."""
+    path = root.parent / ".armi-admin" / environment_id / "environment-control.lock"
+    if has_reparse_point(path, root=root.parent):
+        raise RuntimeViolation(
+            "LOCAL-CONTROL-PATH", "environment control path is invalid"
+        )
+    return LocalProcessLock(path)
 
 
 class PostgreSQLControlBinding(BaseModel):
@@ -46,10 +57,16 @@ class LocalEnvironmentController:
         incarnation: int,
         defaults_path: Path,
         postgresql: PostgreSQLControlBinding | None = None,
+        progress: Callable[[str], None] | None = None,
+        expected_instance_id: str | None = None,
     ) -> None:
         self.root = environment_root
         self.defaults_path = defaults_path
         self.postgresql = postgresql
+        self.environment_id = environment_id
+        self.progress = progress
+        self.phase = "accepted"
+        self.expected_instance_id = expected_instance_id
         self.runtime = RuntimeProcessManager(
             environment_root, environment_id, incarnation=incarnation
         )
@@ -66,7 +83,7 @@ class LocalEnvironmentController:
 
     def database(self, action: Literal["start", "stop", "status"]) -> dict[str, Any]:
         binding = self.postgresql
-        if binding is None or binding.ownership == "shared":
+        if binding is None or (binding.ownership == "shared" and action != "status"):
             return {
                 "ownership": "external" if binding is None else "shared",
                 "action": "not_managed",
@@ -123,7 +140,7 @@ class LocalEnvironmentController:
                     "LOCAL-POSTGRESQL-RESPONSE", "invalid managed PostgreSQL status"
                 )
             return {
-                "ownership": "exclusive",
+                "ownership": binding.ownership,
                 "containers": [
                     {"state": item.get("State"), "health": item.get("Health")}
                     for item in records
@@ -144,7 +161,7 @@ class LocalEnvironmentController:
     ) -> dict[str, Any]:
         if action == "status":
             return self._execute(action, component=component)
-        with LocalProcessLock(self.root / "run" / "environment-control.lock"):
+        with environment_control_lock(self.root, self.environment_id):
             return self._execute(action, component=component)
 
     def _execute(
@@ -157,18 +174,43 @@ class LocalEnvironmentController:
     ) -> dict[str, Any]:
         if component == "postgresql":
             if action == "restart":
-                self.database("stop")
-                return self.database("start")
-            return self.database(action)
+                self._step("postgresql.stop", lambda: self.database("stop"))
+                return self._step("postgresql.start", lambda: self.database("start"))
+            return self._step("postgresql." + action, lambda: self.database(action))
         if component == "runtime":
-            result = getattr(self.runtime, action)()
-            return self._ready(result) if action in {"start", "restart"} else result
+            if action == "restart":
+                self._execute("stop", component="runtime")
+                return self._execute("start", component="runtime")
+            result = self._step(
+                "runtime." + action,
+                (
+                    lambda: self.runtime.stop(
+                        expected_instance_id=self.expected_instance_id
+                    )
+                )
+                if action == "stop" and self.expected_instance_id is not None
+                else getattr(self.runtime, action),
+            )
+            if action == "stop" and result.get("status") != "stopped":
+                raise RuntimeViolation(
+                    "LOCAL-RUNTIME-STOP-UNKNOWN", "Runtime stop is unconfirmed"
+                )
+            return (
+                self._step("runtime.readiness", lambda: self._ready(result))
+                if action == "start"
+                else result
+            )
         if component == "semantic-recall":
             semantic = self._semantic()
             if action == "restart":
-                semantic.stop()
-                return semantic.start()
-            return getattr(semantic, action)()
+                self._execute("stop", component="semantic-recall")
+                return self._execute("start", component="semantic-recall")
+            result = self._step("semantic." + action, getattr(semantic, action))
+            if action == "stop" and result.get("status") != "stopped":
+                raise RuntimeViolation(
+                    "LOCAL-SEMANTIC-STOP-UNKNOWN", "semantic stop is unconfirmed"
+                )
+            return result
         if action == "status":
             return {
                 "runtime": self._observe(self.runtime.status),
@@ -179,18 +221,24 @@ class LocalEnvironmentController:
             self._execute("stop")
             return self._execute("start")
         if action == "stop":
-            runtime = self.runtime.stop()
-            semantic = SemanticRecallProcessManager(self.root).stop()
-            database = self.database("stop")
+            runtime = self._execute("stop", component="runtime")
+            semantic = self._step(
+                "semantic.stop", SemanticRecallProcessManager(self.root).stop
+            )
+            if semantic.get("status") != "stopped":
+                raise RuntimeViolation(
+                    "LOCAL-SEMANTIC-STOP-UNKNOWN", "semantic stop is unconfirmed"
+                )
+            database = self._step("postgresql.stop", lambda: self.database("stop"))
             return {
                 "runtime": runtime,
                 "semantic_recall": semantic,
                 "postgresql": database,
             }
-        database = self.database("start")
-        semantic = self._semantic().start()
-        runtime = self.runtime.start()
-        status = self._ready(runtime)
+        database = self._step("postgresql.start", lambda: self.database("start"))
+        semantic = self._step("semantic.start", lambda: self._semantic().start())
+        runtime = self._step("runtime.start", self.runtime.start)
+        status = self._step("runtime.readiness", lambda: self._ready(runtime))
         if status.get("status") == "not_ready":
             return {
                 "status": "not_ready",
@@ -204,6 +252,14 @@ class LocalEnvironmentController:
             "semantic_recall": semantic,
             "postgresql": database,
         }
+
+    def _step(
+        self, phase: str, operation: Callable[[], dict[str, Any]]
+    ) -> dict[str, Any]:
+        self.phase = phase
+        if self.progress is not None:
+            self.progress(phase)
+        return operation()
 
     def _ready(self, started: dict[str, Any]) -> dict[str, Any]:
         deadline = time.monotonic() + 120
@@ -228,4 +284,8 @@ class LocalEnvironmentController:
             return {"status": "unavailable", "error_code": "LOCAL-CONTROL-UNAVAILABLE"}
 
 
-__all__ = ("LocalEnvironmentController", "PostgreSQLControlBinding")
+__all__ = (
+    "LocalEnvironmentController",
+    "PostgreSQLControlBinding",
+    "environment_control_lock",
+)

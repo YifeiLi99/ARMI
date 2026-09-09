@@ -5,10 +5,9 @@ from __future__ import annotations
 import base64
 import hmac
 import json
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
-from typing import Any, Literal, cast
-from urllib.parse import urlencode
+from typing import Any
 from uuid import UUID
 
 from armi_local_control import ConfigurationViolation
@@ -19,24 +18,30 @@ from armi_local_control.binding import (
     read_binding,
 )
 from fastapi import FastAPI
-from fastapi.routing import APIRoute
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError as SchemaValidationError
 from pydantic import BaseModel, ConfigDict, ValidationError
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import JSONResponse
 
+from armi_runtime.application.creator_calls import CreatorActor, CreatorUseCase
 from armi_runtime.application.creator_commands import CreatorCommands
+from armi_runtime.application.creator_system import CreatorSystem
 from armi_runtime.application.interaction import (
     InteractionApplication,
     InteractionInvocation,
     InteractionResult,
 )
+from armi_runtime.application.interaction_catalog import (
+    InteractionRoute,
+    interaction_routes,
+)
 
 from .bounded_http import read_bounded_body
 from .creator_http import _strict_object_pairs
-from .interaction_catalog import InteractionRoute, interaction_routes
+from .creator_use_cases import invoke_creator_use_case
 from .machine_commands import COMMAND_NAMES, invoke_command
+from .system_commands import SYSTEM_COMMANDS, invoke_system
 
 
 class MachineRequest(BaseModel):
@@ -47,9 +52,9 @@ class MachineRequest(BaseModel):
 
 def _handler(
     route: InteractionRoute,
-    endpoint: Callable[..., Awaitable[Response]],
-    authority: str,
     commands: CreatorCommands,
+    system: CreatorSystem,
+    use_cases: Mapping[str, CreatorUseCase],
 ) -> Callable[[InteractionInvocation], Awaitable[InteractionResult]]:
     validator = Draft202012Validator(dict(route.operation.input_schema))
 
@@ -64,73 +69,20 @@ def _handler(
             )
         if call.operation in COMMAND_NAMES:
             return await invoke_command(commands, call)
-        path_values = {name: arguments[name] for name in route.path_names}
-        body = {name: arguments[name] for name in route.body_names if name in arguments}
-        if route.body_version is not None:
-            body["contract_version"] = route.body_version
-        encoded = json.dumps(body, ensure_ascii=False, allow_nan=False).encode("utf-8")
-        headers = [
-            (b"content-type", b"application/json"),
-            (b"host", authority.encode("ascii")),
-        ]
-        for name, header in route.header_names:
-            if name in arguments:
-                headers.append(
-                    (header.encode("ascii"), str(arguments[name]).encode("ascii"))
-                )
-        pairs: list[tuple[str, str]] = []
-        for name in route.query_names:
-            if name in arguments and arguments[name] is not None:
-                value = arguments[name]
-                items = cast(list[Any], value) if isinstance(value, list) else [value]
-                pairs.extend(
-                    (name, str(item).lower() if isinstance(item, bool) else str(item))
-                    for item in items
-                )
-        sent = False
-
-        async def receive() -> dict[str, Any]:
-            nonlocal sent
-            if sent:
-                return {"type": "http.disconnect"}
-            sent = True
-            return {"type": "http.request", "body": encoded, "more_body": False}
-
-        # This is an in-process request adapter, not a browser session. No
-        # browser token, Origin or Fetch Metadata is generated or accepted.
-        request = Request(
-            {
-                "type": "http",
-                "http_version": "1.1",
-                "method": route.method,
-                "scheme": "http",
-                "path": route.path.format(**path_values),
-                "query_string": urlencode(pairs).encode("ascii"),
-                "headers": headers,
-                "server": ("127.0.0.1", int(authority.rsplit(":", 1)[1])),
-                "armi.authenticated_delegate": call.caller,
-            },
-            receive=receive,
-        )
-        response = (
-            await endpoint()
-            if route.operation_id in {"getHealthLive", "getHealthReady"}
-            else await endpoint(**path_values, request=request)
-        )
-        if isinstance(response, BaseModel):
-            return InteractionResult("returned", response.model_dump(mode="json"))
-        content = bytes(response.body)
-        media_type = response.media_type or "application/octet-stream"
-        status: Literal["returned", "rejected", "unavailable"] = (
-            "returned"
-            if response.status_code < 400
-            else "rejected"
-            if response.status_code < 500
-            else "unavailable"
-        )
-        if media_type == "application/json":
-            return InteractionResult(status, json.loads(content), response.status_code)
-        return InteractionResult(status, {}, response.status_code, content, media_type)
+        if call.operation in SYSTEM_COMMANDS:
+            return await invoke_system(system, call.operation, call.arguments)
+        if call.operation in use_cases:
+            return await invoke_creator_use_case(
+                route,
+                use_cases[call.operation],
+                call.arguments,
+                CreatorActor(
+                    call.caller.creator_party_id,
+                    call.caller.default_scene_key,
+                    call.caller.delegate_id,
+                ),
+            )
+        raise ValueError("INTERACTION-APPLICATION-COVERAGE")
 
     return invoke
 
@@ -139,22 +91,27 @@ def register_machine_api(
     app: FastAPI,
     *,
     commands: CreatorCommands,
+    system: CreatorSystem,
+    use_cases: Mapping[str, CreatorUseCase],
     environment_root: Path,
     environment_id: UUID,
     creator_party_id: UUID,
-    authority: str,
     maximum_bytes: int,
 ) -> None:
     application = InteractionApplication()
-    endpoints = {
-        route.operation_id: route.endpoint
-        for route in app.routes
-        if isinstance(route, APIRoute)
-    }
-    for route in interaction_routes():
+    routes = interaction_routes()
+    implemented = COMMAND_NAMES | SYSTEM_COMMANDS | use_cases.keys()
+    if frozenset(route.operation.name for route in routes) != implemented:
+        raise ValueError("INTERACTION-APPLICATION-COVERAGE")
+    for route in routes:
         application.register(
             route.operation,
-            _handler(route, endpoints[route.operation_id], authority, commands),
+            _handler(
+                route,
+                commands,
+                system,
+                use_cases,
+            ),
         )
 
     def authenticate(request: Request) -> AuthenticatedDelegate:

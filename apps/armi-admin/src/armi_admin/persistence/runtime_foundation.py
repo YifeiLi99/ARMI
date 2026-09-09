@@ -56,6 +56,46 @@ class RuntimeFoundationAdminAdapter:
             ("armi.runtime-authority:" + self._environment_id,),
         )
 
+    def diagnostics(self, transaction: PostgreSQLAdminTransaction) -> dict[str, object]:
+        work = transaction.execute(
+            "SELECT status,count(*),count(*) FILTER (WHERE lease_expires_at < clock_timestamp()),count(*) FILTER (WHERE deadline_at < clock_timestamp()) FROM armi.durable_work GROUP BY status ORDER BY status"
+        ).fetchall()
+        recovery = transaction.execute(
+            "SELECT recovery_run_id,status,blocker_count,started_at,completed_at FROM armi.runtime_recovery_runs ORDER BY started_at DESC,recovery_run_id DESC LIMIT 1"
+        ).fetchone()
+        leases = transaction.execute(
+            "SELECT runtime_instance_id,status,lease_expires_at,last_heartbeat_at FROM armi.runtime_instances WHERE status='active' ORDER BY runtime_instance_id LIMIT 2"
+        ).fetchall()
+        return {
+            "work": [
+                {
+                    "status": str(row[0]),
+                    "count": row[1],
+                    "expired_leases": row[2],
+                    "past_deadline": row[3],
+                }
+                for row in work
+            ],
+            "recovery": None
+            if recovery is None
+            else {
+                "recovery_run_id": recovery[0],
+                "status": recovery[1],
+                "blocker_count": recovery[2],
+                "started_at": recovery[3],
+                "completed_at": recovery[4],
+            },
+            "active_leases": [
+                {
+                    "runtime_instance_id": row[0],
+                    "status": row[1],
+                    "lease_expires_at": row[2],
+                    "last_heartbeat_at": row[3],
+                }
+                for row in leases
+            ],
+        }
+
     def environment(
         self, transaction: PostgreSQLAdminTransaction
     ) -> RuntimeAdminEnvironment | None:

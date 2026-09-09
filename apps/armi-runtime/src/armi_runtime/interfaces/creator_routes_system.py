@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import re
-from uuid import UUID
-
-from armi_live_vision.api import LiveVisionViolation
+from armi_runtime.application.creator_system import CreatorSystem
+from armi_runtime.application.interaction import InteractionResult
 
 from .creator_http import (
     BrowserSessionCurrentResponse,
@@ -17,24 +15,15 @@ from .creator_http import (
     HTTPBearer,
     JSONResponse,
     LiveResponse,
-    LiveVisionControlProvider,
-    LiveVisionObservationProvider,
-    LiveVisionObservationQueryProvider,
     LiveVisionObservationRequest,
     LiveVisionObservationResponse,
-    LiveVisionPreviewProvider,
     LiveVisionStatusResponse,
-    LiveVoiceControlProvider,
     LiveVoiceStatusResponse,
-    QQChannelControlProvider,
-    QQChannelHealthProvider,
     QQChannelHealthResponse,
-    ReadinessProvider,
     ReadyResponse,
     RejectedOutcomeResponse,
     Request,
     Response,
-    RuntimeStatusProvider,
     RuntimeStatusResponse,
     Security,
     SecurityEvent,
@@ -45,10 +34,38 @@ from .creator_http import (
     _rejected,
     _unavailable,
 )
-from .interaction_authority import (
-    authenticated_delegate,
-    verify_interaction,
-)
+from .interaction_authority import verify_interaction
+from .system_commands import invoke_system
+
+
+def _system_authorize(
+    request: Request, sessions: BrowserSessionStore | None, origin: str
+) -> JSONResponse | None:
+    if sessions is None:
+        return JSONResponse(
+            status_code=503,
+            content=_unavailable("DEPENDENCY_CREATOR_SESSION_UNAVAILABLE"),
+        )
+    if not _browser_boundary(request, canonical_origin=origin):
+        return JSONResponse(status_code=403, content=_rejected("AUTH_BROWSER_BOUNDARY"))
+    try:
+        verify_interaction(request, sessions, _bearer(request))
+    except BrowserSessionViolation as error:
+        return JSONResponse(
+            status_code=error.status_code, content=_rejected(error.code)
+        )
+    return None
+
+
+def _system_response(result: InteractionResult) -> Response:
+    if result.content is not None:
+        return Response(
+            content=result.content,
+            status_code=result.status_code,
+            media_type=result.media_type,
+            headers={"Cache-Control": "no-store"},
+        )
+    return JSONResponse(content=dict(result.payload), status_code=result.status_code)
 
 
 def register_system_routes(
@@ -59,23 +76,12 @@ def register_system_routes(
     emit: SecurityEvent,
     browser_sessions: BrowserSessionStore | None,
     creator_events: CreatorEventBroker | None,
-    live_vision_control: LiveVisionControlProvider | None,
-    live_vision_observe: LiveVisionObservationProvider | None,
-    live_vision_observation: LiveVisionObservationQueryProvider | None,
-    live_vision_preview: LiveVisionPreviewProvider | None,
-    live_voice_control: LiveVoiceControlProvider | None,
-    qq_channel_control: QQChannelControlProvider | None,
-    qq_channel_health: QQChannelHealthProvider,
-    readiness: ReadinessProvider,
-    runtime_status: RuntimeStatusProvider,
+    system: CreatorSystem,
 ) -> None:
-    @app.get(
-        "/health/live",
-        operation_id="getHealthLive",
-        response_model=LiveResponse,
-    )
-    async def health_live() -> LiveResponse:
-        return LiveResponse(status="alive")
+
+    @app.get("/health/live", operation_id="getHealthLive", response_model=LiveResponse)
+    async def health_live() -> Response:
+        return _system_response(await invoke_system(system, "health_live", {}))
 
     @app.get(
         "/health/ready",
@@ -83,12 +89,8 @@ def register_system_routes(
         response_model=ReadyResponse,
         responses={503: {"model": ReadyResponse}},
     )
-    async def health_ready() -> JSONResponse:
-        current = readiness()
-        return JSONResponse(
-            status_code=200 if current.value == "ready" else 503,
-            content={"status": current.value},
-        )
+    async def health_ready() -> Response:
+        return _system_response(await invoke_system(system, "health_ready", {}))
 
     @app.post(
         "/v1/browser-sessions",
@@ -108,8 +110,7 @@ def register_system_routes(
         if not _browser_boundary(request, canonical_origin=canonical_origin):
             emit("creator.session.boundary_rejected")
             return JSONResponse(
-                status_code=403,
-                content=_rejected("AUTH_BROWSER_BOUNDARY"),
+                status_code=403, content=_rejected("AUTH_BROWSER_BOUNDARY")
             )
         established = browser_sessions.establish()
         if creator_events is not None:
@@ -137,11 +138,9 @@ def register_system_routes(
         ):
             return JSONResponse(
                 status_code=403 if browser_sessions is not None else 503,
-                content=(
-                    _rejected("AUTH_BROWSER_BOUNDARY")
-                    if browser_sessions is not None
-                    else _unavailable("DEPENDENCY_CREATOR_SESSION_UNAVAILABLE")
-                ),
+                content=_rejected("AUTH_BROWSER_BOUNDARY")
+                if browser_sessions is not None
+                else _unavailable("DEPENDENCY_CREATOR_SESSION_UNAVAILABLE"),
             )
         token = _bearer(request)
         try:
@@ -151,8 +150,7 @@ def register_system_routes(
         except BrowserSessionViolation as error:
             emit("creator.session.rejected")
             return JSONResponse(
-                status_code=error.status_code,
-                content=_rejected(error.code),
+                status_code=error.status_code, content=_rejected(error.code)
             )
         response = BrowserSessionCurrentResponse(**_metadata_wire(metadata))
         return JSONResponse(content=response.model_dump(mode="json"))
@@ -168,29 +166,11 @@ def register_system_routes(
         },
         dependencies=[Security(bearer)],
     )
-    async def get_runtime_status(request: Request) -> JSONResponse:
-        if (
-            browser_sessions is None and authenticated_delegate(request) is None
-        ) or not _browser_boundary(request, canonical_origin=canonical_origin):
-            return JSONResponse(
-                status_code=403 if browser_sessions is not None else 503,
-                content=(
-                    _rejected("AUTH_BROWSER_BOUNDARY")
-                    if browser_sessions is not None
-                    else _unavailable("DEPENDENCY_CREATOR_SESSION_UNAVAILABLE")
-                ),
-            )
-        token = _bearer(request)
-        try:
-            if token is None and authenticated_delegate(request) is None:
-                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            verify_interaction(request, browser_sessions, token)
-        except BrowserSessionViolation as error:
-            return JSONResponse(
-                status_code=error.status_code,
-                content=_rejected(error.code),
-            )
-        return JSONResponse(content=runtime_status().model_dump(mode="json"))
+    async def get_runtime_status(request: Request) -> Response:
+        denied = _system_authorize(request, browser_sessions, canonical_origin)
+        if denied is not None:
+            return denied
+        return _system_response(await invoke_system(system, "runtime_status", {}))
 
     @app.get(
         "/v1/channels/qq/status",
@@ -203,53 +183,11 @@ def register_system_routes(
         },
         dependencies=[Security(bearer)],
     )
-    async def get_qq_channel_health(request: Request) -> JSONResponse:
-        if (
-            browser_sessions is None and authenticated_delegate(request) is None
-        ) or not _browser_boundary(request, canonical_origin=canonical_origin):
-            return JSONResponse(
-                status_code=403 if browser_sessions is not None else 503,
-                content=(
-                    _rejected("AUTH_BROWSER_BOUNDARY")
-                    if browser_sessions is not None
-                    else _unavailable("DEPENDENCY_CREATOR_SESSION_UNAVAILABLE")
-                ),
-            )
-        token = _bearer(request)
-        try:
-            if token is None and authenticated_delegate(request) is None:
-                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            verify_interaction(request, browser_sessions, token)
-        except BrowserSessionViolation as error:
-            return JSONResponse(
-                status_code=error.status_code,
-                content=_rejected(error.code),
-            )
-        return JSONResponse(content=(await qq_channel_health()).model_dump(mode="json"))
-
-    async def _qq_control(request: Request, action: str) -> JSONResponse:
-        if (
-            (browser_sessions is None and authenticated_delegate(request) is None)
-            or qq_channel_control is None
-            or not _browser_boundary(request, canonical_origin=canonical_origin)
-        ):
-            return JSONResponse(
-                status_code=503,
-                content=_unavailable("DEPENDENCY_QQ_CHANNEL_CONTROL_UNAVAILABLE"),
-            )
-        token = _bearer(request)
-        try:
-            if token is None and authenticated_delegate(request) is None:
-                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            verify_interaction(request, browser_sessions, token)
-        except BrowserSessionViolation as error:
-            return JSONResponse(
-                status_code=error.status_code,
-                content=_rejected(error.code),
-            )
-        return JSONResponse(
-            content=(await qq_channel_control(action)).model_dump(mode="json")
-        )
+    async def get_qq_channel_health(request: Request) -> Response:
+        denied = _system_authorize(request, browser_sessions, canonical_origin)
+        if denied is not None:
+            return denied
+        return _system_response(await invoke_system(system, "channel_status", {}))
 
     @app.post(
         "/v1/channels/qq/start",
@@ -257,8 +195,11 @@ def register_system_routes(
         response_model=QQChannelHealthResponse,
         dependencies=[Security(bearer)],
     )
-    async def start_qq_channel(request: Request) -> JSONResponse:
-        return await _qq_control(request, "start")
+    async def start_qq_channel(request: Request) -> Response:
+        denied = _system_authorize(request, browser_sessions, canonical_origin)
+        if denied is not None:
+            return denied
+        return _system_response(await invoke_system(system, "channel_start", {}))
 
     @app.post(
         "/v1/channels/qq/stop",
@@ -266,36 +207,11 @@ def register_system_routes(
         response_model=QQChannelHealthResponse,
         dependencies=[Security(bearer)],
     )
-    async def stop_qq_channel(request: Request) -> JSONResponse:
-        return await _qq_control(request, "stop")
-
-    async def _voice_control(request: Request, action: str) -> JSONResponse:
-        if (
-            (browser_sessions is None and authenticated_delegate(request) is None)
-            or live_voice_control is None
-            or not _browser_boundary(request, canonical_origin=canonical_origin)
-        ):
-            return JSONResponse(
-                status_code=403 if browser_sessions is not None else 503,
-                content=(
-                    _rejected("AUTH_BROWSER_BOUNDARY")
-                    if browser_sessions is not None and live_voice_control is not None
-                    else _unavailable("DEPENDENCY_LIVE_VOICE_UNAVAILABLE")
-                ),
-            )
-        token = _bearer(request)
-        try:
-            if token is None and authenticated_delegate(request) is None:
-                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            verify_interaction(request, browser_sessions, token)
-        except BrowserSessionViolation as error:
-            return JSONResponse(
-                status_code=error.status_code,
-                content=_rejected(error.code),
-            )
-        return JSONResponse(
-            content=(await live_voice_control(action)).model_dump(mode="json")
-        )
+    async def stop_qq_channel(request: Request) -> Response:
+        denied = _system_authorize(request, browser_sessions, canonical_origin)
+        if denied is not None:
+            return denied
+        return _system_response(await invoke_system(system, "channel_stop", {}))
 
     @app.get(
         "/v1/voice/status",
@@ -303,8 +219,11 @@ def register_system_routes(
         response_model=LiveVoiceStatusResponse,
         dependencies=[Security(bearer)],
     )
-    async def get_live_voice_status(request: Request) -> JSONResponse:
-        return await _voice_control(request, "status")
+    async def get_live_voice_status(request: Request) -> Response:
+        denied = _system_authorize(request, browser_sessions, canonical_origin)
+        if denied is not None:
+            return denied
+        return _system_response(await invoke_system(system, "voice_status", {}))
 
     @app.post(
         "/v1/voice/start",
@@ -312,8 +231,11 @@ def register_system_routes(
         response_model=LiveVoiceStatusResponse,
         dependencies=[Security(bearer)],
     )
-    async def start_live_voice(request: Request) -> JSONResponse:
-        return await _voice_control(request, "start")
+    async def start_live_voice(request: Request) -> Response:
+        denied = _system_authorize(request, browser_sessions, canonical_origin)
+        if denied is not None:
+            return denied
+        return _system_response(await invoke_system(system, "voice_start", {}))
 
     @app.post(
         "/v1/voice/stop",
@@ -321,38 +243,11 @@ def register_system_routes(
         response_model=LiveVoiceStatusResponse,
         dependencies=[Security(bearer)],
     )
-    async def stop_live_voice(request: Request) -> JSONResponse:
-        return await _voice_control(request, "stop")
-
-    async def _vision_control(
-        request: Request, action: str, source_kind: str | None = None
-    ) -> JSONResponse:
-        if (
-            (browser_sessions is None and authenticated_delegate(request) is None)
-            or live_vision_control is None
-            or not _browser_boundary(request, canonical_origin=canonical_origin)
-        ):
-            return JSONResponse(
-                status_code=503,
-                content=_unavailable("DEPENDENCY_LIVE_VISION_UNAVAILABLE"),
-            )
-        token = _bearer(request)
-        try:
-            if token is None and authenticated_delegate(request) is None:
-                raise BrowserSessionViolation("AUTH_SESSION_REQUIRED")
-            verify_interaction(request, browser_sessions, token)
-        except BrowserSessionViolation as error:
-            return JSONResponse(
-                status_code=error.status_code, content=_rejected(error.code)
-            )
-        try:
-            result = await live_vision_control(action, source_kind)
-        except LiveVisionViolation as error:
-            return JSONResponse(
-                status_code=400 if error.code == "VISION-SOURCE-KIND" else 503,
-                content=_rejected(error.code.replace("-", "_")),
-            )
-        return JSONResponse(content=result.model_dump(mode="json"))
+    async def stop_live_voice(request: Request) -> Response:
+        denied = _system_authorize(request, browser_sessions, canonical_origin)
+        if denied is not None:
+            return denied
+        return _system_response(await invoke_system(system, "voice_stop", {}))
 
     @app.get(
         "/v1/vision/status",
@@ -360,10 +255,11 @@ def register_system_routes(
         response_model=LiveVisionStatusResponse,
         dependencies=[Security(bearer)],
     )
-    async def get_live_vision_status(  # pyright: ignore[reportUnusedFunction]
-        request: Request,
-    ) -> JSONResponse:
-        return await _vision_control(request, "status", None)
+    async def get_live_vision_status(request: Request) -> Response:
+        denied = _system_authorize(request, browser_sessions, canonical_origin)
+        if denied is not None:
+            return denied
+        return _system_response(await invoke_system(system, "vision_status", {}))
 
     @app.post(
         "/v1/vision/sources/{source_kind}/start",
@@ -371,11 +267,13 @@ def register_system_routes(
         response_model=LiveVisionStatusResponse,
         dependencies=[Security(bearer)],
     )
-    async def start_live_vision(  # pyright: ignore[reportUnusedFunction]
-        request: Request,
-        source_kind: str,
-    ) -> JSONResponse:
-        return await _vision_control(request, "start", source_kind)
+    async def start_live_vision(request: Request, source_kind: str) -> Response:
+        denied = _system_authorize(request, browser_sessions, canonical_origin)
+        if denied is not None:
+            return denied
+        return _system_response(
+            await invoke_system(system, "vision_start", {"source_kind": source_kind})
+        )
 
     @app.post(
         "/v1/vision/sources/{source_kind}/stop",
@@ -383,11 +281,13 @@ def register_system_routes(
         response_model=LiveVisionStatusResponse,
         dependencies=[Security(bearer)],
     )
-    async def stop_live_vision(  # pyright: ignore[reportUnusedFunction]
-        request: Request,
-        source_kind: str,
-    ) -> JSONResponse:
-        return await _vision_control(request, "stop", source_kind)
+    async def stop_live_vision(request: Request, source_kind: str) -> Response:
+        denied = _system_authorize(request, browser_sessions, canonical_origin)
+        if denied is not None:
+            return denied
+        return _system_response(
+            await invoke_system(system, "vision_stop", {"source_kind": source_kind})
+        )
 
     @app.post(
         "/v1/vision/observe",
@@ -396,50 +296,25 @@ def register_system_routes(
         dependencies=[Security(bearer)],
         responses={202: {"model": LiveVisionObservationResponse}, 409: {}},
     )
-    async def observe_live_vision(  # pyright: ignore[reportUnusedFunction]
-        request: Request,
-    ) -> JSONResponse:
+    async def observe_live_vision(request: Request) -> Response:
+        denied = _system_authorize(request, browser_sessions, canonical_origin)
+        if denied is not None:
+            return denied
         try:
             body = LiveVisionObservationRequest.model_validate(await request.json())
         except ValueError:
             return JSONResponse(
                 status_code=400, content=_rejected("CON_VISION_REQUEST")
             )
-        authorized = await _vision_control(
-            request, "authorize_observe", body.source_kind
-        )
-        if authorized.status_code != 200:
-            return authorized
-        if live_vision_observe is None:
-            return JSONResponse(
-                status_code=503,
-                content=_unavailable("DEPENDENCY_LIVE_VISION_UNAVAILABLE"),
+        return _system_response(
+            await invoke_system(
+                system,
+                "vision_observe",
+                {
+                    "source_kind": body.source_kind,
+                    "idempotency_key": request.headers.get("idempotency-key", ""),
+                },
             )
-        key = request.headers.get("idempotency-key")
-        if (
-            key is None
-            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", key) is None
-        ):
-            return JSONResponse(
-                status_code=400, content=_rejected("CON_IDEMPOTENCY_KEY")
-            )
-        try:
-            result = await live_vision_observe(body.source_kind, key)
-        except LiveVisionViolation as error:
-            return JSONResponse(
-                status_code=409 if error.code == "VISION-IDEMPOTENCY-CONFLICT" else 503,
-                content=_rejected(error.code.replace("-", "_")),
-            )
-        except ValueError:
-            return JSONResponse(
-                status_code=400, content=_rejected("CON_VISION_REQUEST")
-            )
-        return JSONResponse(
-            status_code=202
-            if result.status
-            in {"capture_pending", "capturing", "registered", "recognizing"}
-            else 200,
-            content=result.model_dump(mode="json"),
         )
 
     @app.get(
@@ -449,26 +324,17 @@ def register_system_routes(
         dependencies=[Security(bearer)],
         responses={404: {}},
     )
-    async def get_live_vision_observation(  # pyright: ignore[reportUnusedFunction]
+    async def get_live_vision_observation(
         request: Request, observation_id: str
-    ) -> JSONResponse:
-        authorized = await _vision_control(request, "authorize_observation")
-        if authorized.status_code != 200:
-            return authorized
-        try:
-            parsed = UUID(observation_id)
-            if parsed.version != 7 or str(parsed) != observation_id:
-                raise ValueError
-        except ValueError:
-            return JSONResponse(status_code=404, content=_rejected("VISION_NOT_FOUND"))
-        result = (
-            None
-            if live_vision_observation is None
-            else await live_vision_observation(parsed)
+    ) -> Response:
+        denied = _system_authorize(request, browser_sessions, canonical_origin)
+        if denied is not None:
+            return denied
+        return _system_response(
+            await invoke_system(
+                system, "vision_observation", {"observation_id": observation_id}
+            )
         )
-        if result is None:
-            return JSONResponse(status_code=404, content=_rejected("VISION_NOT_FOUND"))
-        return JSONResponse(content=result.model_dump(mode="json"))
 
     @app.get(
         "/v1/vision/sources/{source_kind}/preview",
@@ -477,20 +343,12 @@ def register_system_routes(
         responses={200: {"content": {"image/jpeg": {}}}, 404: {}},
         dependencies=[Security(bearer)],
     )
-    async def get_live_vision_preview(  # pyright: ignore[reportUnusedFunction]
-        request: Request,
-        source_kind: str,
-    ) -> Response:
-        denied = await _vision_control(request, "authorize_preview", source_kind)
-        if denied.status_code != 200:
+    async def get_live_vision_preview(request: Request, source_kind: str) -> Response:
+        denied = _system_authorize(request, browser_sessions, canonical_origin)
+        if denied is not None:
             return denied
-        jpeg = None if live_vision_preview is None else live_vision_preview(source_kind)
-        if jpeg is None:
-            return Response(status_code=404, headers={"Cache-Control": "no-store"})
-        return Response(
-            content=jpeg,
-            media_type="image/jpeg",
-            headers={"Cache-Control": "no-store"},
+        return _system_response(
+            await invoke_system(system, "vision_preview", {"source_kind": source_kind})
         )
 
     route_handlers = (
@@ -505,6 +363,12 @@ def register_system_routes(
         get_live_voice_status,
         start_live_voice,
         stop_live_voice,
+        get_live_vision_status,
+        start_live_vision,
+        stop_live_vision,
+        observe_live_vision,
+        get_live_vision_observation,
+        get_live_vision_preview,
     )
     del route_handlers
 

@@ -168,6 +168,7 @@ from armi_interaction.bootstrap import (
     bootstrap_interaction_birth,
     bootstrap_interaction_identity,
 )
+from armi_kernel import read_configuration_bytes
 from armi_kernel.application import (
     CreatorProjectionNotifier,
     CredentialPort,
@@ -1462,9 +1463,9 @@ def compose_web_search_pipeline(
     if model_locator is None:
         raise WebObservationViolation("WEB-CREDENTIAL")
     try:
-        manifest_bytes = runtime_config_path(
-            "web-search.yaml", environment_root=prepared.root
-        ).read_bytes()
+        manifest_bytes = read_configuration_bytes(
+            runtime_config_path("web-search.yaml", environment_root=prepared.root)
+        )
     except OSError:
         raise WebObservationViolation("WEB-MANIFEST") from None
     return bootstrap_web_observation(

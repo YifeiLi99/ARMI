@@ -4,17 +4,22 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import json
+import os
 import re
 import time
+from pathlib import Path
 from typing import Any, cast
+from uuid import uuid7
 
 import httpx
 from armi_local_control import ConfigurationViolation
 from armi_local_control.binding import InteractionClientBinding, binding_secret
 from jsonschema import Draft202012Validator
 
-from .interfaces.interaction_catalog import interaction_routes
+from .application.artifact_transfer import ArtifactChunk
+from .application.interaction_catalog import interaction_routes
 
 _STOP_STAGES = frozenset(
     {
@@ -131,6 +136,68 @@ class InteractionClient:
             raise ValueError("INTERACTION-ENVIRONMENT-MISMATCH")
         result["transport_status"] = response.status_code
         return result
+
+    async def download_artifact(
+        self, arguments: dict[str, Any], output: Path
+    ) -> dict[str, Any]:
+        if arguments.get("offset", 0) != 0:
+            raise ValueError("INTERACTION-ARTIFACT-OUTPUT-RANGE")
+        if output.exists():
+            raise FileExistsError(output)
+        temporary = output.with_name("." + output.name + "." + str(uuid7()) + ".part")
+        offset = 0
+        expected: tuple[int, str, str] | None = None
+        digest = hashlib.sha256()
+        try:
+            with temporary.open("xb") as stream:
+                while True:
+                    result = await self.invoke(
+                        "artifact_read", {**arguments, "offset": offset}
+                    )
+                    if result["transport_status"] >= 400:
+                        return result
+                    metadata = ArtifactChunk.model_validate(result["result"])
+                    artifact = result["artifact"]
+                    content = base64.b64decode(artifact["content"], validate=True)
+                    identity = (
+                        metadata.total_bytes,
+                        metadata.digest,
+                        artifact["media_type"],
+                    )
+                    if (
+                        metadata.offset != offset
+                        or metadata.byte_count != len(content)
+                        or (expected is not None and expected != identity)
+                        or (
+                            metadata.next_offset is not None
+                            and metadata.next_offset != offset + len(content)
+                        )
+                        or (metadata.next_offset is not None and not content)
+                    ):
+                        raise ValueError("INTERACTION-ARTIFACT-CHANGED")
+                    expected = identity
+                    stream.write(content)
+                    digest.update(content)
+                    offset += len(content)
+                    if metadata.next_offset is None:
+                        if (
+                            offset != metadata.total_bytes
+                            or "sha256:" + digest.hexdigest() != metadata.digest
+                        ):
+                            raise ValueError("INTERACTION-ARTIFACT-INTEGRITY")
+                        break
+                stream.flush()
+                os.fsync(stream.fileno())
+            # Linking publishes the completed file atomically and cannot overwrite.
+            os.link(temporary, output)
+            result["artifact"] = {
+                "path": str(output.resolve()),
+                "size_bytes": offset,
+                "media_type": expected[2],
+            }
+            return result
+        finally:
+            temporary.unlink(missing_ok=True)
 
     async def wait(
         self, result_ref: str, *, timeout_seconds: float = 20
