@@ -11,6 +11,21 @@ from .api import OpportunityAdminSnapshot
 class PostgreSQLOpportunityAdmin:
     __slots__ = ()
 
+    def snapshot(
+        self, transaction: PostgreSQLAdminTransaction, *, opportunity_id: UUID
+    ) -> OpportunityAdminSnapshot | None:
+        row = transaction.execute(
+            "SELECT opportunity_id,evidence_id,current_disposition FROM armi.opportunities WHERE opportunity_id=%s",
+            (opportunity_id,),
+        ).fetchone()
+        return (
+            None
+            if row is None
+            else OpportunityAdminSnapshot(
+                cast(UUID, row[0]), cast(UUID, row[1]), str(row[2])
+            )
+        )
+
     def snapshot_for_evidence(
         self, transaction: PostgreSQLAdminTransaction, *, evidence_id: UUID
     ) -> OpportunityAdminSnapshot | None:

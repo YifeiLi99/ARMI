@@ -81,6 +81,7 @@ class CreatorSceneService(CreatorScenePort):
                         creator_party_id=self._creator_party_id,
                         subject_id=self._subject_id,
                         trace_id=command.trace_id,
+                        delegate_id=command.delegate_id,
                     )
                 )
                 return created
@@ -117,6 +118,7 @@ class CreatorSceneService(CreatorScenePort):
                             creator_party_id=self._creator_party_id,
                             subject_id=subject_id,
                             trace_id=command.trace_id,
+                            delegate_id=command.delegate_id,
                         )
                     )
                 return changed
@@ -133,10 +135,14 @@ def _audit(
     creator_party_id: UUID,
     subject_id: UUID,
     trace_id: TraceId,
+    delegate_id: UUID | None,
 ) -> AuditDraft:
     return AuditDraft(
         audit_event_id=AuditEventId(uuid7()),
-        actor=AuditReference("creator", creator_party_id),
+        actor=AuditReference(
+            "creator_delegate" if delegate_id is not None else "creator",
+            delegate_id or creator_party_id,
+        ),
         purpose=Purpose("creator.scene"),
         operation=operation,
         target=AuditReference("scene", view.scene_id),

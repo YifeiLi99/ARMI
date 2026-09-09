@@ -53,7 +53,8 @@ def _run(argv: list[str] | None = None) -> int:
         command.set_defaults(operation_name=operation.name)
         command.add_argument("--json", type=json.loads, default={})
         command.add_argument("--idempotency-key")
-        fields = operation.request.model_json_schema().get("properties", {})
+        request_schema = operation.request.model_json_schema()
+        fields = request_schema.get("properties", {})
         editable: list[str] = []
         for field, schema in fields.items():
             if field in {
@@ -63,12 +64,19 @@ def _run(argv: list[str] | None = None) -> int:
                 "idempotency_key",
             } or (field == "component" and operation.mode == "lifecycle"):
                 continue
+            if "$ref" in schema:
+                schema = request_schema["$defs"][schema["$ref"].rsplit("/", 1)[1]]
             kind = schema.get("type")
             variants = schema.get("anyOf", [])
             if variants:
                 non_null = [item for item in variants if item.get("type") != "null"]
                 if len(non_null) == 1:
-                    kind = non_null[0].get("type")
+                    schema = non_null[0]
+                    if "$ref" in schema:
+                        schema = request_schema["$defs"][
+                            schema["$ref"].rsplit("/", 1)[1]
+                        ]
+                    kind = schema.get("type")
             conversion = (
                 int
                 if kind == "integer"

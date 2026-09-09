@@ -17,13 +17,13 @@ import sys
 import tempfile
 import time
 import unittest
-from collections.abc import AsyncIterator
-from contextlib import redirect_stderr, redirect_stdout
+from collections.abc import AsyncIterator, Callable
+from contextlib import redirect_stdout
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, LiteralString, cast
-from uuid import UUID
+from uuid import UUID, uuid7
 
 import psycopg
 import pytest
@@ -44,6 +44,7 @@ from armi_admin.application.contracts import (
     SettleCorrectionWorkRequest,
 )
 from armi_admin.application.service import AdminToolService
+from armi_admin.cli import main
 from armi_admin.composition import bootstrap_admin
 from armi_admin.persistence.role_session import AdminRoleBoundPool
 from armi_admin.persistence.runtime_foundation import RuntimeFoundationAdminAdapter
@@ -257,7 +258,6 @@ from armi_runtime.composition.postgresql_test import (
     parse_candidate,
 )
 from armi_runtime.composition.work_wakeup import WorkWakeupBus
-from armi_runtime.runtime_entrypoint import main
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
 from armi_sleep.api import CreatorMaintenanceViolation
 from armi_web_observation.api import (
@@ -400,6 +400,362 @@ def _approve_admin_preview(service: AdminToolService, preview: dict[str, Any]) -
         request["request_id"], request["request_digest"]
     )
     return str(request["request_id"])
+
+
+def _admin_cli_binding(
+    root: Path, fixture: DatabaseFixture, resources: Path | None = None
+) -> Path:
+    identity = subprocess.run(
+        [
+            os.environ.get("ARMI_CREATOR_SYSTEM_ENTRY_POINT", sys.executable),
+            "-m",
+            "armi_admin.cli",
+            "identity",
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=True,
+        timeout=60,
+    )
+    secrets = root / "secrets"
+    for name, value in (
+        ("admin", fixture.admin_role_dsn),
+        ("admin-preview", "isolated-preview-key-for-system-tests"),
+    ):
+        (secrets / name).write_text(value, encoding="utf-8")
+    binding = root / "admin.yaml"
+    binding.write_text(
+        json.dumps(
+            {
+                "schema_version": "armi.admin-config.v7",
+                "operator_id": "isolated-system-agent",
+                "authorized_operations": [
+                    "configuration.read",
+                    "maintenance.database_install",
+                    "maintenance.database_check",
+                    "maintenance.birth",
+                    "maintenance.capacity_check",
+                    "environment_start",
+                    "environment_stop",
+                    "environment_status",
+                    "environment_restart",
+                    "trace_flow",
+                    "health",
+                    "data_deletion_preview",
+                    "data_deletion_apply",
+                    "other_human.party_register",
+                    "other_human.scene_set",
+                    "other_human.message_send",
+                    "other_human.data_rights_request",
+                    "other_human.data_rights_get",
+                ],
+                "environment_kind": "system_test",
+                "environment_id": str(fixture.environment_id),
+                "environment_incarnation": 1,
+                "resettable": True,
+                "test_controls_enabled": True,
+                "environment_root": str(root.resolve()),
+                "experiment_root": str(root.parent.resolve()),
+                "creator_web_resources": None
+                if resources is None
+                else str(resources.resolve()),
+                "database_locator": "file:" + (secrets / "admin").as_posix(),
+                "migrator_database_locator": "file:"
+                + (secrets / "migrator").as_posix(),
+                "preview_key_locator": "file:" + (secrets / "admin-preview").as_posix(),
+                "authorization_public_key": _ADMIN_AUTHORIZATION_KEY.public_key()
+                .public_bytes(
+                    serialization.Encoding.Raw, serialization.PublicFormat.Raw
+                )
+                .hex(),
+                "expected": json.loads(identity.stdout),
+            }
+        ),
+        encoding="utf-8",
+    )
+    signing_file = secrets / "creator-authorization"
+    signing_file.write_bytes(
+        _ADMIN_AUTHORIZATION_KEY.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+    )
+    issuer = {
+        **json.loads(binding.read_text(encoding="utf-8")),
+        "operator_id": "isolated-creator-issuer",
+        "authorized_operations": ["authorization_approve"],
+        "authorization_signing_key_locator": "file:" + signing_file.as_posix(),
+    }
+    (root / "issuer.yaml").write_text(json.dumps(issuer), encoding="utf-8")
+    return binding
+
+
+def _verify_local_media_machine(
+    root: Path,
+    environment_id: UUID,
+    creator_id: str,
+    port: int,
+    environment: dict[str, str],
+    restart: Callable[[], object],
+    trace: Callable[[str], dict[str, Any]],
+) -> None:
+    """Exercise actual CLI processes and MCP stdio against the isolated Runtime."""
+    from mcp.client import Client
+    from mcp.client.stdio import StdioServerParameters, stdio_client
+
+    delegate_id = str(_uuid7())
+    secret = root / "secrets" / "machine-test"
+    secret.write_text(secrets.token_urlsafe(32), encoding="utf-8", newline="\n")
+    delegate = {
+        "delegate_id": delegate_id,
+        "creator_party_id": creator_id,
+        "credential_locator": "file:" + str(secret),
+        "scopes": ["interaction.read", "interaction.write"],
+    }
+    (root / "interaction-access.yaml").write_text(
+        json.dumps(
+            {
+                "schema_version": "armi.interaction-access.v1",
+                "environment_id": str(environment_id),
+                "delegates": [delegate],
+            }
+        ),
+        encoding="utf-8",
+        newline="\n",
+    )
+    binding = root / "interaction-client.yaml"
+    binding.write_text(
+        json.dumps(
+            {
+                **delegate,
+                "schema_version": "armi.interaction-client.v1",
+                "environment_id": str(environment_id),
+                "environment_root": str(root),
+                "endpoint": f"http://127.0.0.1:{port}",
+            }
+        ),
+        encoding="utf-8",
+        newline="\n",
+    )
+    source = root / "local-notes.txt"
+    source.write_bytes("这是附件资料。它不代表发送者原话。\n".encode() * 2500)
+    unsupported = root / "unsupported.bin"
+    unsupported.write_bytes(b"unsupported local attachment")
+
+    def cli(*arguments: str) -> dict[str, Any]:
+        completed = subprocess.run(
+            (
+                sys.executable,
+                "-m",
+                "armi_runtime.cli",
+                "--config",
+                str(binding),
+                *arguments,
+            ),
+            cwd=Path.cwd(),
+            env=environment,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+            timeout=40,
+        )
+        assert completed.returncode == 0, completed.stdout + completed.stderr
+        return cast(dict[str, Any], json.loads(completed.stdout))
+
+    uploaded = cli(
+        "upload",
+        "import",
+        "--file",
+        str(source),
+        "--idempotency-key",
+        "local-media-upload",
+    )
+    assert uploaded["result"]["state"] == "completed"
+    assert uploaded["result"]["declaration"]["byte_size"] == source.stat().st_size
+    bad_upload = cli(
+        "upload",
+        "import",
+        "--file",
+        str(unsupported),
+        "--media-type",
+        "application/octet-stream",
+        "--idempotency-key",
+        "unsupported-upload",
+    )
+    sent = cli(
+        "message",
+        "send",
+        "--scene-key",
+        "default",
+        "--message",
+        "请阅读附件",
+        "--attachments",
+        json.dumps([uploaded["result"]["upload_id"]]),
+        "--idempotency-key",
+        "local-media-message",
+    )
+    reference = sent["result"]["result_ref"]
+
+    async def exercise() -> None:
+        async with Client(
+            stdio_client(
+                StdioServerParameters(
+                    command=sys.executable,
+                    args=["-m", "armi_runtime.mcp", "--config", str(binding)],
+                    cwd=Path.cwd(),
+                    env=environment,
+                )
+            ),
+            read_timeout_seconds=30,
+        ) as client:
+            deletion_denied = await client.call_tool(
+                "data_rights_request",
+                {
+                    "order_kind": "delete_related",
+                    "idempotency_key": "unapproved-creator-delete",
+                },
+            )
+            assert (
+                deletion_denied.is_error
+                and deletion_denied.structured_content is not None
+            )
+            assert (
+                deletion_denied.structured_content["result"]["error"]["code"]
+                == "AUTH_DELETION_APPROVAL_REQUIRED"
+            )
+            # Real CLI and stdio calls must return the same owner projection, not
+            # merely advertise the same tool names. Keep the business assertions
+            # explicit so a transport-shaped empty object cannot pass this matrix.
+            read_cases = (
+                ("activity", "list", "activity_list", "items", list),
+                ("capability", "list", "capability_list", "items", list),
+                ("memory", "list", "memory_list", "items", list),
+                ("life-record", "query", "life_record_query", "items", list),
+                ("other-human", "list", "other_human_list", "items", list),
+                ("data-rights", "list", "data_rights_list", "orders", list),
+                ("relationship", "get", "relationship_get", "relationship", type(None)),
+                ("scene", "list", "scene_list", "scenes", list),
+                ("subject", "summary", "subject_summary", "subject_version", int),
+                ("runtime", "status", "runtime_status", "environment_id", str),
+                (
+                    "maintenance",
+                    "status",
+                    "maintenance_status",
+                    "waiting_input_count",
+                    int,
+                ),
+            )
+            for group, action, tool_name, field, field_type in read_cases:
+                cli_result = await asyncio.to_thread(cli, group, action)
+                mcp_result = await client.call_tool(tool_name, {})
+                assert not mcp_result.is_error, (tool_name, mcp_result)
+                assert mcp_result.structured_content is not None
+                actual = mcp_result.structured_content["result"]
+                assert isinstance(actual[field], field_type), (tool_name, actual)
+                assert actual[field] == cli_result["result"][field], tool_name
+            cli_scene_key = "machine-cli-" + uuid7().hex
+            mcp_scene_key = "machine-mcp-" + uuid7().hex
+            created_scene = await asyncio.to_thread(
+                cli, "scene", "create", "--scene-key", cli_scene_key
+            )
+            assert created_scene["result"]["scene_key"] == cli_scene_key
+            mcp_scene = await client.call_tool(
+                "scene_create", {"scene_key": mcp_scene_key}
+            )
+            assert not mcp_scene.is_error and mcp_scene.structured_content is not None
+            assert mcp_scene.structured_content["result"]["scene_key"] == mcp_scene_key
+            for action, status in (("close", "closed"), ("reopen", "open")):
+                changed = await asyncio.to_thread(
+                    cli, "scene", action, "--scene-key", cli_scene_key
+                )
+                repeated_change = await client.call_tool(
+                    "scene_" + action, {"scene_key": cli_scene_key}
+                )
+                assert (
+                    not repeated_change.is_error
+                    and repeated_change.structured_content is not None
+                )
+                assert changed["result"]["status"] == status
+                assert repeated_change.structured_content["result"] == changed["result"]
+            repeated = await client.call_tool(
+                "upload_import",
+                {
+                    "file": str(source),
+                    "media_type": "text/plain",
+                    "idempotency_key": "local-media-upload",
+                },
+            )
+            assert not repeated.is_error and repeated.structured_content is not None
+            assert repeated.structured_content["result"] == uploaded["result"]
+            accepted = await client.call_tool(
+                "message_send",
+                {
+                    "scene_key": "default",
+                    "message": "请阅读附件",
+                    "attachments": [uploaded["result"]["upload_id"]],
+                    "idempotency_key": "local-media-message",
+                },
+            )
+            assert not accepted.is_error and accepted.structured_content is not None
+            assert accepted.structured_content["result"]["result_ref"] == reference
+            deadline = time.monotonic() + 25
+            while True:
+                observed = await client.call_tool(
+                    "operation_get", {"result_ref": reference}
+                )
+                assert not observed.is_error and observed.structured_content is not None
+                result = observed.structured_content["result"]
+                if result["recognition_status"] != "pending":
+                    assert result["recognition_status"] == "succeeded", result
+                    assert result["attachments"][0]["status"] == "succeeded", result
+                    assert result["cognition"] is not None
+                    break
+                assert time.monotonic() < deadline, result
+                await asyncio.sleep(0.1)
+            mixed = await client.call_tool(
+                "message_send",
+                {
+                    "scene_key": "default",
+                    "attachments": [
+                        uploaded["result"]["upload_id"],
+                        bad_upload["result"]["upload_id"],
+                    ],
+                    "idempotency_key": "attachment-only-mixed",
+                },
+            )
+            assert not mixed.is_error and mixed.structured_content is not None
+            mixed_reference = mixed.structured_content["result"]["result_ref"]
+            deadline = time.monotonic() + 25
+            while True:
+                observed = await client.call_tool(
+                    "operation_get", {"result_ref": mixed_reference}
+                )
+                assert not observed.is_error and observed.structured_content is not None
+                result = observed.structured_content["result"]
+                if result["recognition_status"] != "pending":
+                    assert [item["status"] for item in result["attachments"]] == [
+                        "succeeded",
+                        "failed",
+                    ], result
+                    assert result["attachments"][1]["error_code"]
+                    break
+                assert time.monotonic() < deadline, result
+                await asyncio.sleep(0.1)
+
+    asyncio.run(exercise())
+    restart()
+    asyncio.run(exercise())
+    graph = trace(reference)
+    assert {node["kind"] for node in graph["nodes"]} >= {
+        "input",
+        "evidence",
+        "opportunity",
+        "episode",
+    }, graph
+    assert graph["missing"] == []
 
 
 _REMOVED_REDUNDANT_DIGEST_COLUMNS = {
@@ -1066,12 +1422,18 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 if not key.startswith("ARMI_")
             }
 
+            admin_binding = _admin_cli_binding(
+                environment_root, fixture, creator_resources
+            )
+
             def invoke(*arguments: str) -> dict[str, Any]:
                 completed = subprocess.run(
                     (
                         str(entry_point),
                         "-m",
-                        "armi_runtime.runtime_entrypoint",
+                        "armi_admin.cli",
+                        "--config",
+                        str(admin_binding),
                         *arguments,
                     ),
                     cwd=Path.cwd(),
@@ -1087,16 +1449,25 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 self.assertNotIn(fixture.runtime_dsn, completed.stdout)
                 self.assertNotIn(fixture.migrator_dsn, completed.stdout)
                 self.assertNotIn(creator_bearer, completed.stdout)
-                return cast(dict[str, Any], json.loads(completed.stdout))
+                return cast(dict[str, Any], json.loads(completed.stdout)["result"])
 
-            root_argument = ("--environment-root", str(environment_root))
             self.assertEqual(
-                invoke("config", "check", *root_argument)["status"], "pass"
+                invoke("configuration", "--action", "read")["configuration_state"],
+                "configured",
             )
             self.assertEqual(
-                invoke("db", "install", *root_argument)["status"], "current"
+                invoke(
+                    "maintenance",
+                    "--action",
+                    "database_install",
+                    "--idempotency-key",
+                    "install",
+                )["status"],
+                "current",
             )
-            born = invoke("bootstrap", "birth", *root_argument)
+            born = invoke(
+                "maintenance", "--action", "birth", "--idempotency-key", "birth"
+            )
             self.assertEqual(born["status"], "applied")
             admin_pool = AdminRoleBoundPool(
                 fixture.admin_role_dsn, expected_role=fixture.admin_role
@@ -1135,12 +1506,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             try:
                 self.assertEqual(
-                    invoke(
-                        "start",
-                        *root_argument,
-                        "--creator-web-resources",
-                        str(creator_resources),
-                    )["status"],
+                    invoke("start", "--component", "runtime")["status"],
                     "started",
                 )
                 origin = f"http://127.0.0.1:{runtime_port}"
@@ -1207,15 +1573,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         page.close()
                         browser.close()
                         self.assertEqual(
-                            invoke("stop", *root_argument)["status"], "stopped"
+                            invoke("stop", "--component", "runtime")["status"],
+                            "stopped",
                         )
                         self.assertEqual(
-                            invoke(
-                                "start",
-                                *root_argument,
-                                "--creator-web-resources",
-                                str(creator_resources),
-                            )["status"],
+                            invoke("start", "--component", "runtime")["status"],
                             "started",
                         )
                         browser = playwright.chromium.launch(
@@ -1226,7 +1588,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         page.locator(".authenticated-view").wait_for()
                     finally:
                         browser.close()
-                self.assertEqual(invoke("stop", *root_argument)["status"], "stopped")
+                self.assertEqual(
+                    invoke("stop", "--component", "runtime")["status"], "stopped"
+                )
             finally:
                 manager.stop()
 
@@ -1990,7 +2354,16 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 encoding="utf-8",
                 newline="\n",
             )
-            entry_point = (sys.executable, "-m", "armi_runtime.runtime_entrypoint")
+            admin_binding = _admin_cli_binding(
+                environment_root, fixture, creator_resources
+            )
+            entry_point = (
+                sys.executable,
+                "-m",
+                "armi_admin.cli",
+                "--config",
+                str(admin_binding),
+            )
             clean_environment = {
                 key: value
                 for key, value in os.environ.items()
@@ -2013,7 +2386,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 self.assertNotIn(fixture.runtime_dsn, completed.stdout)
                 self.assertNotIn(fixture.migrator_dsn, completed.stdout)
                 self.assertNotIn(creator_bearer, completed.stdout)
-                return cast(dict[str, Any], json.loads(completed.stdout))
+                return cast(dict[str, Any], json.loads(completed.stdout)["result"])
 
             def invoke_rejected(*arguments: str) -> dict[str, Any]:
                 completed = subprocess.run(
@@ -2027,17 +2400,23 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     timeout=60,
                 )
                 self.assertEqual(completed.returncode, 3, completed.stdout)
-                self.assertEqual(completed.stdout, "")
-                return cast(dict[str, Any], json.loads(completed.stderr))
+                return cast(dict[str, Any], json.loads(completed.stdout))
 
-            root_argument = ("--environment-root", str(environment_root))
-            checked = invoke("config", "check", *root_argument)
-            self.assertEqual(checked["status"], "pass")
-            installed = invoke("db", "install", *root_argument)
+            checked = invoke("configuration", "--action", "read")
+            self.assertEqual(checked["configuration_state"], "configured")
+            installed = invoke(
+                "maintenance",
+                "--action",
+                "database_install",
+                "--idempotency-key",
+                "install",
+            )
             self.assertEqual(installed["status"], "current")
-            inspected = invoke("db", "status", *root_argument)
+            inspected = invoke("maintenance", "--action", "database_check")
             self.assertEqual(inspected["status"], "current")
-            born = invoke("bootstrap", "birth", *root_argument)
+            born = invoke(
+                "maintenance", "--action", "birth", "--idempotency-key", "birth"
+            )
             self.assertEqual(born["status"], "applied")
             admin_pool = AdminRoleBoundPool(
                 fixture.admin_role_dsn, expected_role=fixture.admin_role
@@ -2081,14 +2460,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             pending_responsibility_before: tuple[UUID, UUID] | None = None
             try:
-                started = invoke(
-                    "start",
-                    *root_argument,
-                    "--creator-web-resources",
-                    str(creator_resources),
-                )
+                started = invoke("start", "--component", "runtime")
                 self.assertEqual(started["status"], "started")
-                first_status = invoke("status", *root_argument)
+                first_status = invoke("status", "--component", "runtime")
                 self.assertEqual(first_status["status"], "running", first_status)
                 self.assertEqual(
                     (
@@ -2200,26 +2574,32 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     self.assertEqual(prompt["revision_kind"], "created")
                     other_party = invoke(
                         "other-human",
-                        "party",
-                        "register",
-                        *root_argument,
-                        "--party-key",
-                        "p1-clean-friend",
-                        "--display-label",
-                        "隔离环境朋友",
+                        "--command",
+                        json.dumps(
+                            {
+                                "action": "party_register",
+                                "party_key": "p1-clean-friend",
+                                "display_label": "隔离环境朋友",
+                            }
+                        ),
+                        "--idempotency-key",
+                        "other-party_register",
                     )
-                    self.assertEqual(other_party["status"], "succeeded")
+                    self.assertEqual(other_party["party_key"], "p1-clean-friend")
+                    self.assertEqual(UUID(other_party["party_id"]).version, 7)
                     other_scene = invoke(
                         "other-human",
-                        "scene",
-                        "set",
-                        *root_argument,
-                        "--party-key",
-                        "p1-clean-friend",
-                        "--scene-key",
-                        "default",
-                        "--status",
-                        "open",
+                        "--command",
+                        json.dumps(
+                            {
+                                "action": "scene_set",
+                                "party_key": "p1-clean-friend",
+                                "scene_key": "default",
+                                "status": "open",
+                            }
+                        ),
+                        "--idempotency-key",
+                        "other-scene_set",
                     )
                     self.assertEqual(other_scene["status"], "open")
                     self.assertEqual(other_scene["scene_key"], "default")
@@ -2323,9 +2703,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
                 self.assertGreaterEqual(len(open_work_before), 1)
                 report = invoke(
-                    "capacity",
-                    "baseline",
-                    *root_argument,
+                    "maintenance",
+                    "--action",
+                    "capacity_check",
                     "--duration-seconds",
                     str(duration),
                     "--sample-interval-seconds",
@@ -2344,45 +2724,118 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     report["samples"][-1]["authority"]["active_runtime_count"],
                     1,
                 )
-                stopped = invoke("stop", *root_argument)
+                stopped = invoke("stop", "--component", "runtime")
                 self.assertEqual(stopped["status"], "stopped")
-                restarted = invoke(
-                    "start",
-                    *root_argument,
-                    "--creator-web-resources",
-                    str(creator_resources),
-                )
+                restarted = invoke("start", "--component", "runtime")
                 self.assertEqual(restarted["status"], "started")
-                restart_status = invoke("status", *root_argument)
+                restart_status = invoke("status", "--component", "runtime")
                 self.assertEqual(restart_status["status"], "running")
                 other_message = invoke(
                     "other-human",
-                    "send",
-                    *root_argument,
-                    "--party-key",
-                    "p1-clean-friend",
-                    "--scene-key",
-                    "default",
-                    "--message",
-                    "隔离环境中的其他人消息。",
+                    "--command",
+                    json.dumps(
+                        {
+                            "action": "message_send",
+                            "party_key": "p1-clean-friend",
+                            "scene_key": "default",
+                            "message": "隔离环境中的其他人消息。",
+                        }
+                    ),
                     "--idempotency-key",
                     "p1-clean-friend-message-1",
                 )
                 self.assertTrue(other_message["newly_accepted"])
-                deleted = invoke(
-                    "other-human",
-                    "data-rights",
-                    "request",
-                    *root_argument,
+                preview = invoke(
+                    "data-deletion-preview", "--party-key", "p1-clean-friend"
+                )
+                authorization = preview["authorization_request"]
+                pending = invoke_rejected(
+                    "data-deletion-apply",
                     "--party-key",
                     "p1-clean-friend",
-                    "--order-kind",
-                    "delete_related",
+                    "--scope-digest",
+                    preview["scope_digest"],
+                    "--authorization-id",
+                    authorization["request_id"],
+                    "--idempotency-key",
+                    "pending-deletion-denied",
+                )
+                self.assertEqual(
+                    pending["error_code"], "ADMIN-AUTHORIZATION-NOT-APPROVED"
+                )
+                self_approval = invoke_rejected(
+                    "authorization",
+                    "approve",
+                    "--request-id",
+                    authorization["request_id"],
+                    "--expected-request-digest",
+                    authorization["request_digest"],
+                    "--idempotency-key",
+                    "self-approval-denied",
+                )
+                self.assertEqual(self_approval["error_code"], "ADMIN-SCOPE-REQUIRED")
+                approved = subprocess.run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "armi_admin.cli",
+                        "--config",
+                        str(environment_root / "issuer.yaml"),
+                        "authorization",
+                        "approve",
+                        "--request-id",
+                        authorization["request_id"],
+                        "--expected-request-digest",
+                        authorization["request_digest"],
+                        "--idempotency-key",
+                        "approve-friend-deletion",
+                    ],
+                    env=clean_environment,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    timeout=60,
+                    check=False,
+                )
+                self.assertEqual(
+                    approved.returncode, 0, approved.stdout + approved.stderr
+                )
+                deletion_arguments = (
+                    "data-deletion-apply",
+                    "--party-key",
+                    "p1-clean-friend",
+                    "--scope-digest",
+                    preview["scope_digest"],
+                    "--authorization-id",
+                    authorization["request_id"],
                     "--idempotency-key",
                     "p1-clean-friend-delete-1",
                 )
-                self.assertIn(deleted["execution_status"], {"completed", "partial"})
-                runtime_after_delete = invoke("status", *root_argument)
+                deleted = invoke(*deletion_arguments)
+                self.assertEqual(invoke(*deletion_arguments), deleted)
+                replay = invoke_rejected(
+                    *deletion_arguments[:-1], "replayed-deletion-denied"
+                )
+                self.assertEqual(
+                    replay["error_code"], "ADMIN-AUTHORIZATION-NOT-APPROVED"
+                )
+                settled = deleted
+                deadline = time.monotonic() + 25
+                while settled["execution_status"] in {"pending", "executing"}:
+                    self.assertLess(time.monotonic(), deadline, settled)
+                    settled = invoke(
+                        "other-human",
+                        "--command",
+                        json.dumps(
+                            {
+                                "action": "data_rights_get",
+                                "party_key": "p1-clean-friend",
+                                "order_id": deleted["order_id"],
+                            }
+                        ),
+                    )["order"]
+                self.assertIn(settled["execution_status"], {"completed", "partial"})
+                runtime_after_delete = invoke("status", "--component", "runtime")
                 diagnostics_after_delete = tuple(
                     path.read_text(encoding="utf-8")
                     for path in sorted((data_root / "logs").glob("*.jsonl"))
@@ -2394,19 +2847,35 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
                 blocked = invoke_rejected(
                     "other-human",
-                    "send",
-                    *root_argument,
-                    "--party-key",
-                    "p1-clean-friend",
-                    "--scene-key",
-                    "default",
-                    "--message",
-                    "隔离环境中的其他人消息。",
+                    "--command",
+                    json.dumps(
+                        {
+                            "action": "message_send",
+                            "party_key": "p1-clean-friend",
+                            "scene_key": "default",
+                            "message": "隔离环境中的其他人消息。",
+                        }
+                    ),
                     "--idempotency-key",
                     "p1-clean-friend-message-blocked",
                 )
                 self.assertEqual(blocked["status"], "rejected")
-                stopped_again = invoke("stop", *root_argument)
+                _verify_local_media_machine(
+                    environment_root,
+                    fixture.environment_id,
+                    json.loads(
+                        (bootstrap_root / "birth-manifest.json").read_text(
+                            encoding="utf-8"
+                        )
+                    )["creator_party_id"],
+                    runtime_port,
+                    clean_environment,
+                    lambda: invoke("restart", "--component", "runtime"),
+                    lambda reference: invoke(
+                        "trace-flow", "--interaction-id", reference
+                    ),
+                )
+                stopped_again = invoke("stop", "--component", "runtime")
                 self.assertEqual(stopped_again["status"], "stopped")
                 with psycopg.connect(fixture.runtime_dsn) as connection:
                     final_identity = connection.execute(
@@ -8735,20 +9204,37 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 encoding="utf-8",
                 newline="\n",
             )
+            admin_binding = _admin_cli_binding(root, fixture)
             install_output = io.StringIO()
             with redirect_stdout(install_output):
                 install_exit = main(
-                    ("db", "install", "--environment-root", str(root.resolve()))
+                    [
+                        "--config",
+                        str(admin_binding),
+                        "maintenance",
+                        "--action",
+                        "database_install",
+                        "--idempotency-key",
+                        "install",
+                    ]
                 )
             status_output = io.StringIO()
             with redirect_stdout(status_output):
                 status_exit = main(
-                    ("db", "status", "--environment-root", str(root.resolve()))
+                    [
+                        "--config",
+                        str(admin_binding),
+                        "maintenance",
+                        "--action",
+                        "database_check",
+                    ]
                 )
             self.assertEqual(install_exit, 0)
             self.assertEqual(status_exit, 0)
-            self.assertEqual(json.loads(install_output.getvalue())["status"], "current")
-            output = json.loads(status_output.getvalue())
+            self.assertEqual(
+                json.loads(install_output.getvalue())["result"]["status"], "current"
+            )
+            output = json.loads(status_output.getvalue())["result"]
             self.assertEqual(output["status"], "current")
             self.assertGreater(output["table_count"], 0)
             combined = install_output.getvalue() + status_output.getvalue()
@@ -8760,9 +9246,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             runtime_file.write_text(
                 fixture.migrator_dsn, encoding="utf-8", newline="\n"
             )
-            with redirect_stderr(error_output):
+            with redirect_stdout(error_output):
                 exit_code = main(
-                    ("db", "status", "--environment-root", str(root.resolve()))
+                    [
+                        "--config",
+                        str(admin_binding),
+                        "maintenance",
+                        "--action",
+                        "database_check",
+                    ]
                 )
             self.assertNotEqual(exit_code, 0)
             self.assertIn("DB-ROLE-IDENTITY", error_output.getvalue())

@@ -60,6 +60,17 @@ def test_shared_postgresql_is_never_stopped(tmp_path: Path) -> None:
     run.assert_not_called()
 
 
+def test_external_database_status_uses_bound_probe_without_process_control(tmp_path):
+    control = controller(tmp_path)
+    probe = Mock(return_value={"reachability": "reachable", "role_status": "verified"})
+    control.database_probe = probe
+    with patch("armi_local_control.lifecycle.subprocess.run") as run:
+        assert control.database("status")["reachability"] == "reachable"
+        assert control.database("stop")["action"] == "not_managed"
+    probe.assert_called_once()
+    run.assert_not_called()
+
+
 def test_database_timeout_is_unknown_and_does_not_start_runtime(tmp_path: Path) -> None:
     control = controller(tmp_path)
     control.postgresql = PostgreSQLControlBinding(

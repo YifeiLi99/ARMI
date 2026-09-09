@@ -78,6 +78,26 @@ class InteractionMCPServer(MCPServer[Any]):
                 },
             )
         )
+        tools.append(
+            Tool(
+                name="upload_import",
+                description="Import a local file with bounded resumable chunks. Does not send a message or trigger cognition.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "file": {"type": "string", "minLength": 1},
+                        "media_type": {"type": "string"},
+                        "idempotency_key": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128,
+                        },
+                    },
+                    "required": ["file", "idempotency_key"],
+                    "additionalProperties": False,
+                },
+            )
+        )
         return tools
 
     async def call_tool(
@@ -89,7 +109,20 @@ class InteractionMCPServer(MCPServer[Any]):
         del context
         result: dict[str, Any]
         try:
-            if name == "operation_wait":
+            if name == "upload_import":
+                from jsonschema import Draft202012Validator
+
+                tool = next(
+                    tool for tool in await self.list_tools() if tool.name == name
+                )
+                if not Draft202012Validator(tool.input_schema).is_valid(arguments):  # pyright: ignore[reportUnknownMemberType] -- upstream deprecated overload
+                    raise ValueError("UPLOAD-ARGUMENTS")
+                result = await self.client.import_media(
+                    Path(arguments["file"]),
+                    idempotency_key=arguments["idempotency_key"],
+                    media_type=arguments.get("media_type"),
+                )
+            elif name == "operation_wait":
                 from jsonschema import Draft202012Validator
 
                 tool = next(

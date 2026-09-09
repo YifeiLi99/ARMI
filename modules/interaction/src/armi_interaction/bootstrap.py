@@ -40,6 +40,7 @@ from .api import (
     CreatorInputTransactionPort,
     CreatorInputWakePort,
     CreatorInteractionPort,
+    CreatorMediaPort,
     CreatorScenePort,
     ExternalMessageInputPort,
     InteractionAdminPort,
@@ -91,6 +92,7 @@ def bootstrap_interaction_subject_commit() -> InteractionSubjectCommitPort:
 @dataclass(frozen=True, slots=True)
 class InteractionModule:
     creator_input: CreatorInteractionPort
+    creator_media: CreatorMediaPort
     creator_transaction: CreatorInputTransactionPort
     creator_scenes: CreatorScenePort
     scene_timeline: SceneTimelineQueryPort
@@ -227,6 +229,7 @@ def bootstrap_interaction(
     cognition = PostgreSQLInteractionContextRead()
     return InteractionModule(
         creator_input=creator_input,
+        creator_media=creator_input,
         creator_transaction=creator_repository,
         creator_scenes=creator_scenes,
         scene_timeline=timeline,

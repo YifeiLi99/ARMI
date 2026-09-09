@@ -345,6 +345,7 @@ class CreatorExportService(CreatorExportPort):
                         export_id=export_id,
                         trace_id=command.trace_id,
                         operation="creator.export.requested",
+                        delegate_id=command.delegate_id,
                         status=AuditResultStatus.ACCEPTED,
                     )
                 )
@@ -1064,10 +1065,14 @@ class CreatorExportService(CreatorExportPort):
         operation: str,
         status: AuditResultStatus,
         error_category: ErrorCategory | None = None,
+        delegate_id: UUID | None = None,
     ) -> AuditDraft:
         return AuditDraft(
             audit_event_id=AuditEventId(uuid7()),
-            actor=AuditReference("creator", self._creator_party_id),
+            actor=AuditReference(
+                "creator_delegate" if delegate_id is not None else "creator",
+                delegate_id or self._creator_party_id,
+            ),
             purpose=Purpose("creator.data.export"),
             operation=operation,
             target=AuditReference("creator_export", export_id),

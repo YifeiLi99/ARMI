@@ -59,6 +59,13 @@ from ._external_contract import (
     ExternalVisualRole,
     ObservedExternalMessage,
 )
+from ._media_contract import (
+    CreatorAttachmentStatus,
+    CreatorMediaAttachment,
+    CreatorMediaCommand,
+    CreatorMediaPort,
+    CreatorMediaStatus,
+)
 from ._other_human_contract import (
     OtherHumanInputAcceptance,
     OtherHumanInputCommand,
@@ -128,6 +135,10 @@ class InteractionAdminPort(Protocol):
 
 @runtime_checkable
 class InteractionArtifactCatalogPort(Protocol):
+    async def get(
+        self, unit_of_work: PostgreSQLRuntimeUnitOfWork, artifact_id: ArtifactId
+    ) -> ArtifactRef: ...
+
     async def register(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
@@ -531,6 +542,7 @@ class ExternalContentPartSnapshot:
     source_kind: str | None
     source_summary: str | None
     status: str
+    raw_artifact_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -540,8 +552,8 @@ class ExternalRecognitionSnapshot:
     scene_id: UUID
     source_party_id: UUID
     purpose: str
-    channel: str
-    account_key: str
+    channel: str | None
+    account_key: str | None
     trace_id: TraceId
     parts: tuple[ExternalContentPartSnapshot, ...]
 
@@ -728,6 +740,7 @@ __all__ = (
     "PROJECTION_VERSION",
     "SCENE_COLLECTION_PROJECTION_VERSION",
     "ConfigureExternalCreatorCommand",
+    "CreatorAttachmentStatus",
     "CreatorCodexExecutionSummary",
     "CreatorIdentityContext",
     "CreatorInputAcceptance",
@@ -739,6 +752,10 @@ __all__ = (
     "CreatorInputWakePort",
     "CreatorInteractionId",
     "CreatorInteractionPort",
+    "CreatorMediaAttachment",
+    "CreatorMediaCommand",
+    "CreatorMediaPort",
+    "CreatorMediaStatus",
     "CreatorOperation",
     "CreatorOperationPhase",
     "CreatorOperationQueryPort",

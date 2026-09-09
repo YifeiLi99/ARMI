@@ -41,6 +41,7 @@ from armi_interaction.api import (
 from armi_kernel.contracts import IdempotencyKey, TraceId
 
 from .artifact_transfer import ArtifactChunk, ArtifactReadWindow
+from .creator_media import CreatorMedia
 from .creator_projection import creator_visible_codex_artifact
 
 
@@ -54,6 +55,7 @@ class CreatorCommands:
         accepted: Callable[[CreatorInputAcceptance], Awaitable[None]],
         operations: CreatorOperationQueryPort | None = None,
         effects: EffectLedgerPort | None = None,
+        media: CreatorMedia | None = None,
     ) -> None:
         self.inputs = inputs
         self.scenes = scenes
@@ -61,6 +63,7 @@ class CreatorCommands:
         self._accepted = accepted
         self.operations = operations
         self.effects = effects
+        self.media = media
 
     async def operation(self, result_ref: str) -> CreatorOperation:
         if self.operations is None:
@@ -137,18 +140,21 @@ class CreatorCommands:
             raise SceneQueryViolation("SCENE-DEPENDENCY")
         return await self.scenes.list()
 
-    async def create_scene(self, scene_key: str) -> CreatorSceneView:
+    async def create_scene(
+        self, scene_key: str, *, delegate_id: UUID | None = None
+    ) -> CreatorSceneView:
         if self.scenes is None:
             raise SceneQueryViolation("SCENE-DEPENDENCY")
         return await self.scenes.create(
             CreatorSceneCreateCommand(
                 SceneKey(scene_key),
                 TraceId(secrets.token_hex(16)),
+                delegate_id,
             )
         )
 
     async def transition_scene(
-        self, scene_key: str, status: SceneStatus
+        self, scene_key: str, status: SceneStatus, *, delegate_id: UUID | None = None
     ) -> CreatorSceneView:
         if self.scenes is None:
             raise SceneQueryViolation("SCENE-DEPENDENCY")
@@ -157,6 +163,7 @@ class CreatorCommands:
                 SceneKey(scene_key),
                 status,
                 TraceId(secrets.token_hex(16)),
+                delegate_id,
             )
         )
 

@@ -114,8 +114,11 @@ class CreatorSceneCollection:
 class CreatorSceneCreateCommand:
     scene_key: SceneKey
     trace_id: TraceId
+    delegate_id: UUID | None = None
 
     def __post_init__(self) -> None:
+        if self.delegate_id is not None:
+            _require_uuid7(self.delegate_id, "CON-SCENE-COMMAND")
         if (
             type(self.scene_key) is not SceneKey
             or self.scene_key.value == "default"
@@ -129,8 +132,11 @@ class CreatorSceneStatusCommand:
     scene_key: SceneKey
     target_status: SceneStatus
     trace_id: TraceId
+    delegate_id: UUID | None = None
 
     def __post_init__(self) -> None:
+        if self.delegate_id is not None:
+            _require_uuid7(self.delegate_id, "CON-SCENE-COMMAND")
         if (
             type(self.scene_key) is not SceneKey
             or self.scene_key.value == "default"

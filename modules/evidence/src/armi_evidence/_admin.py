@@ -11,6 +11,21 @@ from .api import EvidenceAdminSnapshot
 class PostgreSQLEvidenceAdmin:
     __slots__ = ()
 
+    def snapshot(
+        self, transaction: PostgreSQLAdminTransaction, *, evidence_id: UUID
+    ) -> EvidenceAdminSnapshot | None:
+        row = transaction.execute(
+            "SELECT evidence_id,interaction_id,artifact_id FROM armi.external_evidence WHERE evidence_id=%s",
+            (evidence_id,),
+        ).fetchone()
+        return (
+            None
+            if row is None
+            else EvidenceAdminSnapshot(
+                cast(UUID, row[0]), cast(UUID, row[1]), cast(UUID, row[2])
+            )
+        )
+
     def snapshot_for_interaction(
         self, transaction: PostgreSQLAdminTransaction, *, interaction_id: UUID
     ) -> EvidenceAdminSnapshot | None:

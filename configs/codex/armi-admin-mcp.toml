@@ -2,7 +2,7 @@
 [mcp_servers.armi_admin]
 command = "armi-admin-mcp"
 env_vars = ["ARMI_ADMIN_CONFIG"]
-enabled_tools = ["capabilities", "doctor", "invocation_get", "invocation_wait", "authorization_get", "authorization_approve", "authorization_revoke", "configuration", "maintenance", "other_human", "environment_start", "environment_status", "environment_stop", "environment_restart", "apply_correction", "arm_fault", "clear_faults", "correction_status", "environment_initialize", "environment_reset", "environment_reset_preview", "health", "inject_creator_input", "inspect_scope", "preview_correction", "runtime_drain", "runtime_restart", "runtime_start", "runtime_status", "runtime_stop", "schema_status", "settle_correction_work", "subject_snapshot", "tail_diagnostics", "trace_flow"]
+enabled_tools = ["data_deletion_preview", "data_deletion_apply", "authorization_get", "authorization_approve", "authorization_revoke", "capabilities", "doctor", "invocation_get", "invocation_wait", "maintenance", "other_human", "configuration", "health", "schema_status", "runtime_status", "subject_snapshot", "trace_flow", "inspect_scope", "tail_diagnostics", "environment_initialize", "environment_reset_preview", "environment_reset", "runtime_start", "runtime_drain", "runtime_stop", "runtime_restart", "inject_creator_input", "arm_fault", "clear_faults", "preview_correction", "apply_correction", "correction_status", "settle_correction_work", "environment_start", "environment_stop", "environment_restart", "environment_status"]
 required = true
 default_tools_approval_mode = "auto"
 startup_timeout_sec = 10

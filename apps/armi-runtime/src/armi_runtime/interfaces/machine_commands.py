@@ -16,6 +16,7 @@ from armi_runtime.application.interaction import (
     InteractionInvocation,
     InteractionResult,
 )
+from armi_runtime.application.media_uploads import UploadViolation
 
 from .creator_effect_wire import effect_wire
 from .creator_http import (
@@ -49,6 +50,12 @@ async def invoke_command(
     try:
         match call.operation:
             case "operation_get":
+                if commands.media is not None:
+                    media = await commands.media.operation(
+                        args["result_ref"], commands.operation
+                    )
+                    if media is not None:
+                        return InteractionResult("returned", media)
                 operation = await commands.operation(args["result_ref"])
                 return InteractionResult("returned", operation_wire(operation))
             case "effect_get":
@@ -73,9 +80,20 @@ async def invoke_command(
                     media_type=media_type,
                 )
             case "message_send":
+                if args.get("attachments"):
+                    if commands.media is None:
+                        raise CreatorInputViolation("INPUT-DEPENDENCY")
+                    reference = await commands.media.send(
+                        args, call.caller.creator_party_id, call.caller.delegate_id
+                    )
+                    media = await commands.media.operation(
+                        str(reference), commands.operation
+                    )
+                    assert media is not None
+                    return InteractionResult("returned", media, 202)
                 accepted = await commands.message(
                     scene_key=args["scene_key"],
-                    message=args["message"],
+                    message=args.get("message", ""),
                     idempotency_key=args["idempotency_key"],
                     delegate_id=call.caller.delegate_id,
                 )
@@ -96,7 +114,9 @@ async def invoke_command(
                     },
                 )
             case "scene_create":
-                scene = await commands.create_scene(args["scene_key"])
+                scene = await commands.create_scene(
+                    args["scene_key"], delegate_id=call.caller.delegate_id
+                )
                 return InteractionResult(
                     "returned",
                     _scene_wire(scene).model_dump(mode="json", exclude_none=True),
@@ -108,6 +128,7 @@ async def invoke_command(
                     SceneStatus.CLOSED
                     if call.operation == "scene_close"
                     else SceneStatus.OPEN,
+                    delegate_id=call.caller.delegate_id,
                 )
                 return InteractionResult(
                     "returned",
@@ -143,6 +164,8 @@ async def invoke_command(
             status, content = 503, _unavailable("DEPENDENCY_EFFECT_QUERY_UNAVAILABLE")
     except UnicodeDecodeError:
         status, content = 503, _unavailable("DEPENDENCY_EFFECT_QUERY_UNAVAILABLE")
+    except UploadViolation as error:
+        status, content = 409, _rejected(str(error))
     except CreatorInputViolation as error:
         status, content = _input_failure(error)
     except ContractViolation:

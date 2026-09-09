@@ -230,6 +230,7 @@ class CreatorPromptService(CreatorPromptPort):
                     current=current,
                     changed=changed,
                     trace_id=command.trace_id,
+                    delegate_id=command.delegate_id,
                     request_digest=self._command_digest(
                         revision_kind,
                         command.expected_revision_id,
@@ -269,6 +270,7 @@ class CreatorPromptService(CreatorPromptPort):
                     current=current,
                     changed=changed,
                     trace_id=command.trace_id,
+                    delegate_id=command.delegate_id,
                     request_digest=self._command_digest(
                         PromptRevisionKind.DEACTIVATED,
                         command.expected_revision_id,
@@ -392,10 +394,14 @@ class CreatorPromptService(CreatorPromptPort):
         changed: CreatorPromptSnapshot,
         trace_id: TraceId,
         request_digest: Digest,
+        delegate_id: UUID | None,
     ) -> AuditDraft:
         return AuditDraft(
             audit_event_id=AuditEventId(uuid7()),
-            actor=AuditReference("creator", self._creator_party_id),
+            actor=AuditReference(
+                "creator_delegate" if delegate_id is not None else "creator",
+                delegate_id or self._creator_party_id,
+            ),
             purpose=Purpose("creator.prompt.manage"),
             operation=(
                 f"creator.prompt.{cast(PromptRevisionKind, changed.revision_kind).value}"

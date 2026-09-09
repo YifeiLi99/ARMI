@@ -17,6 +17,8 @@ from .contracts import (
     ClearFaultsRequest,
     ConfigurationRequest,
     CorrectionStatusRequest,
+    DataDeletionApplyRequest,
+    DataDeletionPreviewRequest,
     DoctorRequest,
     EnvironmentInitializeRequest,
     EnvironmentLifecycleRequest,
@@ -70,6 +72,7 @@ class AdminOperation:
         } or self.name in {
             "environment_status",
             "environment_reset_preview",
+            "data_deletion_preview",
             "preview_correction",
             "authorization_get",
         }
@@ -78,6 +81,7 @@ class AdminOperation:
     def destructive(self) -> bool:
         return self.name in {
             "environment_reset",
+            "data_deletion_apply",
             "apply_correction",
             "settle_correction_work",
         }
@@ -126,6 +130,8 @@ class AdminOperation:
 
 
 OPERATION_DESCRIPTIONS = {
+    "data_deletion_preview": "Read owner-discovered deletion targets for Creator (no party key) or one other person; prepare a concrete authorization request without deleting data.",
+    "data_deletion_apply": "Apply one Creator-authorized deletion scope; revalidate current owner targets and return the governed order and execution status.",
     "authorization_get": "Read the exact preview, recipient, expiry and single-use authorization state.",
     "authorization_approve": "Creator issuer only: sign an exact preview digest for one delegated operation; requires a separate signing credential.",
     "authorization_revoke": "Revoke an unconsumed authorization; this does not undo an executed operation.",
@@ -165,6 +171,8 @@ OPERATION_DESCRIPTIONS = {
 
 
 ADMIN_OPERATIONS = (
+    AdminOperation("data_deletion_preview", DataDeletionPreviewRequest, "mutate"),
+    AdminOperation("data_deletion_apply", DataDeletionApplyRequest, "mutate"),
     AdminOperation("authorization_get", AuthorizationGetRequest, "authorization"),
     AdminOperation(
         "authorization_approve", AuthorizationApproveRequest, "authorization"

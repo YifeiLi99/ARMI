@@ -19,6 +19,7 @@ from armi_evidence.api import (
     EvidenceSourceKind,
     EvidenceWritePort,
 )
+from armi_kernel.application import WorkOwner, WorkStatus, WorkType
 from armi_kernel.contracts import Digest, TraceId
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
 
@@ -29,6 +30,11 @@ from ._creator_contract import (
     CreatorInteractionId,
     CreatorVoiceInputAcceptance,
     OpportunityId,
+)
+from ._media_contract import (
+    CreatorAttachmentStatus,
+    CreatorMediaCommand,
+    CreatorMediaStatus,
 )
 
 
@@ -46,6 +52,193 @@ class CreatorInputRepository:
         self._evidence = evidence
         self._evidence_read = evidence_read
         self._opportunity = opportunity
+
+    async def existing_media(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        context: CreatorInputContext,
+        command: CreatorMediaCommand,
+        digest: Digest,
+    ) -> UUID | None:
+        existing = await (
+            await unit_of_work.transaction.execute(
+                """SELECT interaction_id,request_digest,data_rights_hidden_at
+               FROM armi.party_input_interactions WHERE source_party_id=%s AND scene_id=%s
+                 AND purpose='creator_message' AND idempotency_key=%s""",
+                (
+                    context.creator_party_id,
+                    context.scene_id,
+                    command.idempotency_key.value,
+                ),
+            )
+        ).fetchone()
+        if existing is None:
+            return None
+        if existing[2] is not None:
+            raise CreatorInputViolation("SCOPE-DATA-RIGHTS-BLOCKED")
+        if str(existing[1]) != digest.value:
+            raise CreatorInputViolation("IDEMPOTENCY-MISMATCH")
+        return existing[0]
+
+    async def create_media(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        context: CreatorInputContext,
+        command: CreatorMediaCommand,
+        digest: Digest,
+    ) -> UUID:
+        from datetime import UTC, datetime, timedelta
+
+        from armi_kernel.application import (
+            WorkDraft,
+            WorkId,
+            WorkOwner,
+            WorkPayloadRef,
+            WorkType,
+        )
+        from armi_kernel.contracts import Instant, SubjectId
+
+        tx = unit_of_work.transaction
+        interaction_id = uuid7()
+        await tx.execute(
+            """INSERT INTO armi.party_input_interactions
+               (interaction_id,subject_id,scene_id,source_party_id,purpose,idempotency_key,
+                request_digest,content_digest,trace_id,delegate_id,modality,recognition_status)
+               VALUES (%s,%s,%s,%s,'creator_message',%s,%s,%s,%s,%s,'media_file','pending')""",
+            (
+                interaction_id,
+                context.subject_id,
+                context.scene_id,
+                context.creator_party_id,
+                command.idempotency_key.value,
+                digest.value,
+                digest.value,
+                command.trace_id.value,
+                command.delegate_id,
+            ),
+        )
+        if command.message:
+            await tx.execute(
+                """INSERT INTO armi.external_message_parts
+                   (external_message_part_id,interaction_id,ordinal,part_kind,text_value,processing_status)
+                   VALUES (%s,%s,1,'text',%s,'not_required')""",
+                (uuid7(), interaction_id, command.message),
+            )
+        for ordinal, part in enumerate(
+            command.attachments, start=2 if command.message else 1
+        ):
+            await tx.execute(
+                """INSERT INTO armi.external_message_parts
+                   (external_message_part_id,interaction_id,ordinal,part_kind,external_locator,
+                    declared_file_name,declared_media_type,declared_byte_size,raw_artifact_id,
+                    processing_status,visual_role,source_kind)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s,%s)""",
+                (
+                    uuid7(),
+                    interaction_id,
+                    ordinal,
+                    part.kind,
+                    "local-upload:" + str(part.artifact_id),
+                    part.file_name,
+                    part.media_type,
+                    part.byte_size,
+                    part.artifact_id,
+                    "ordinary" if part.kind == "image" else None,
+                    "creator.local_upload" if part.kind == "image" else None,
+                ),
+            )
+        now = Instant(datetime.now(UTC))
+        await unit_of_work.work.enqueue(
+            WorkDraft(
+                WorkId(uuid7()),
+                WorkType.EXTERNAL_CONTENT_RECOGNIZE,
+                WorkOwner("external_message", interaction_id),
+                command.idempotency_key,
+                digest,
+                80,
+                now,
+                Instant(now.value + timedelta(hours=1)),
+                1,
+                command.trace_id,
+                subject_id=SubjectId(context.subject_id),
+                payload=WorkPayloadRef("external_message", interaction_id),
+            )
+        )
+        return interaction_id
+
+    async def media_status(
+        self,
+        unit: PostgreSQLRuntimeUnitOfWork,
+        *,
+        creator_party_id: UUID,
+        interaction_id: UUID,
+    ) -> CreatorMediaStatus | None:
+        tx = unit.transaction
+        row = await (
+            await tx.execute(
+                """SELECT recognition_status FROM armi.party_input_interactions
+               WHERE interaction_id=%s AND source_party_id=%s AND modality='media_file'
+                 AND purpose='creator_message' AND external_binding_id IS NULL
+                 AND data_rights_hidden_at IS NULL""",
+                (interaction_id, creator_party_id),
+            )
+        ).fetchone()
+        if row is None:
+            return None
+        parts = await (
+            await tx.execute(
+                """SELECT ordinal,declared_file_name,processing_status,failure_code
+               FROM armi.external_message_parts WHERE interaction_id=%s
+                 AND part_kind IN ('image','audio','video','file') ORDER BY ordinal""",
+                (interaction_id,),
+            )
+        ).fetchall()
+        evidence = await self._evidence_read.find_by_interaction(
+            tx, interaction_id=interaction_id
+        )
+        opportunity = (
+            None
+            if evidence is None
+            else await self._opportunity.find_external_evidence(
+                tx,
+                evidence_id=evidence.value,
+                purpose=OpportunityPurpose.CONSIDER_CREATOR_INPUT,
+            )
+        )
+        processing_failure = None
+        if opportunity is None:
+            for kind in (
+                WorkType.EXTERNAL_CONTENT_FINALIZE,
+                WorkType.EXTERNAL_CONTENT_RECOGNIZE,
+            ):
+                work = await unit.work.latest(
+                    owner=WorkOwner("external_message", interaction_id), work_kind=kind
+                )
+                if work is not None and (
+                    work.reconciliation_required
+                    or work.status in {WorkStatus.FAILED, WorkStatus.CANCELLED}
+                ):
+                    processing_failure = (
+                        "unknown" if work.reconciliation_required else "failed"
+                    )
+                    break
+        return CreatorMediaStatus(
+            interaction_id,
+            str(row[0]),
+            None if opportunity is None else opportunity.value,
+            tuple(
+                CreatorAttachmentStatus(
+                    int(part[0]),
+                    str(part[1]),
+                    str(part[2]),
+                    None if part[3] is None else str(part[3]),
+                )
+                for part in parts
+            ),
+            processing_failure,
+        )
 
     async def timeline_input_purpose(
         self, transaction: PostgreSQLTransaction, *, interaction_id: UUID

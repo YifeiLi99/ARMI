@@ -6,7 +6,9 @@ from pathlib import Path
 from uuid import UUID
 
 from armi_runtime.application.creator_commands import CreatorCommands
+from armi_runtime.application.creator_media import CreatorMedia
 from armi_runtime.application.creator_system import CreatorSystem
+from armi_runtime.application.media_uploads import MediaUploads
 
 from .bounded_http import BoundedBodyViolation
 from .creator_http import (
@@ -113,6 +115,8 @@ def create_runtime_app(
     machine_environment_root: Path | None = None,
     machine_environment_id: UUID | None = None,
     machine_creator_party_id: UUID | None = None,
+    media_uploads: MediaUploads | None = None,
+    creator_media: CreatorMedia | None = None,
 ) -> FastAPI:
     """Create the fixed Runtime app without implementation discovery."""
 
@@ -163,6 +167,7 @@ def create_runtime_app(
                 emit("creator.operation.notification_failed")
 
     commands = CreatorCommands(
+        media=creator_media,
         inputs=creator_input,
         scenes=creator_scenes,
         codex=codex_task_admission,
@@ -366,6 +371,7 @@ def create_runtime_app(
             environment_id=machine_environment_id,
             creator_party_id=machine_creator_party_id,
             maximum_bytes=request_body_max_bytes,
+            uploads=media_uploads,
         )
 
     route_handlers = (

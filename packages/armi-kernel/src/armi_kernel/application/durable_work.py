@@ -336,6 +336,12 @@ class WorkViolation(RuntimeError):
 
 @runtime_checkable
 class DurableWorkWriter(Protocol):
+    async def latest(
+        self, *, owner: WorkOwner, work_kind: WorkType
+    ) -> WorkRecord | None:
+        """Read the latest responsibility generation in the caller's transaction."""
+        ...
+
     async def enqueue(self, draft: WorkDraft) -> WorkRecord:
         """Create or idempotently return one work item in the active transaction."""
         ...

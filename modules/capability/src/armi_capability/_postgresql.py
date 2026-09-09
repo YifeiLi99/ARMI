@@ -862,7 +862,12 @@ class PostgreSQLCreatorGrantPolicy:
                 await unit_of_work.audit.append(
                     AuditDraft(
                         AuditEventId(uuid7()),
-                        AuditReference("creator", request[3]),
+                        AuditReference(
+                            "creator_delegate"
+                            if command.delegate_id is not None
+                            else "creator",
+                            command.delegate_id or request[3],
+                        ),
                         Purpose("capability.manage"),
                         f"capability.request.{result_status.value}",
                         AuditReference("capability_request", request[0]),
@@ -883,7 +888,12 @@ class PostgreSQLCreatorGrantPolicy:
                     await unit_of_work.audit.append(
                         AuditDraft(
                             AuditEventId(uuid7()),
-                            AuditReference("creator", request[3]),
+                            AuditReference(
+                                "creator_delegate"
+                                if command.delegate_id is not None
+                                else "creator",
+                                command.delegate_id or request[3],
+                            ),
                             Purpose("respond_to_creator"),
                             "effect.cancelled",
                             AuditReference("effect", effect_id),

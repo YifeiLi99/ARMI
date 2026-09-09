@@ -37,8 +37,13 @@ class CreatorExportCommand:
     directory_name: str
     idempotency_key: IdempotencyKey
     trace_id: TraceId
+    delegate_id: UUID | None = None
 
     def __post_init__(self) -> None:
+        if self.delegate_id is not None and (
+            type(self.delegate_id) is not UUID or self.delegate_id.version != 7
+        ):
+            raise CreatorExportViolation("CREATOR-EXPORT-COMMAND")
         if (
             type(self.directory_name) is not str
             or _DIRECTORY.fullmatch(self.directory_name) is None

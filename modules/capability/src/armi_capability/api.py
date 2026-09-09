@@ -299,8 +299,13 @@ class CreatorGrantCommand:
     max_uses: int | None = None
     max_payload_bytes: int | None = None
     reason_code: str | None = None
+    delegate_id: UUID | None = None
 
     def __post_init__(self) -> None:
+        if self.delegate_id is not None and (
+            type(self.delegate_id) is not UUID or self.delegate_id.version != 7
+        ):
+            raise CapabilityViolation("CON-CAPABILITY-DECISION")
         if (
             type(self.decision_id) is not CapabilityDecisionId
             or type(self.request_id) is not CapabilityRequestId

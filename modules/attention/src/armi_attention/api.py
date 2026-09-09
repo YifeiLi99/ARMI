@@ -448,6 +448,10 @@ class OpportunityAdminSnapshot:
 
 @runtime_checkable
 class OpportunityAdminPort(Protocol):
+    def snapshot(
+        self, transaction: PostgreSQLAdminTransaction, *, opportunity_id: UUID
+    ) -> OpportunityAdminSnapshot | None: ...
+
     def snapshot_for_evidence(
         self, transaction: PostgreSQLAdminTransaction, *, evidence_id: UUID
     ) -> OpportunityAdminSnapshot | None: ...

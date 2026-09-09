@@ -86,6 +86,12 @@ def parser() -> argparse.ArgumentParser:
     wait = groups["operation"].add_parser("wait")
     wait.add_argument("--result-ref", required=True)
     wait.add_argument("--timeout-seconds", type=float, default=20)
+    media = groups["upload"].add_parser("import")
+    media.add_argument("--file", type=Path, required=True)
+    media.add_argument(
+        "--media-type", help="Override the media type inferred from the file name."
+    )
+    media.add_argument("--idempotency-key", required=True)
     return result
 
 
@@ -106,6 +112,10 @@ async def _execute(args: argparse.Namespace) -> dict[str, Any]:
         return await client.invoke("capabilities", {})
     if args.group == "operation" and args.action == "wait":
         return await client.wait(args.result_ref, timeout_seconds=args.timeout_seconds)
+    if args.group == "upload" and args.action == "import":
+        return await client.import_media(
+            args.file, idempotency_key=args.idempotency_key, media_type=args.media_type
+        )
     route = next(route for route in routes if route.operation.name == args.operation)
     arguments = {
         name: getattr(args, name)

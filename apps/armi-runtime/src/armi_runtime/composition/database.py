@@ -1100,8 +1100,8 @@ def compose_perception_module(
 ) -> PerceptionModule:
     model_locator = prepared.effective.config.secret_locators.get(MODEL_LOCATOR_NAME)
     speech_locator = prepared.effective.config.secret_locators.get(SPEECH_LOCATOR_NAME)
-    if model_locator is None or speech_locator is None:
-        raise ModelViolation("MODEL-CREDENTIAL")
+    from .perception_availability import UnavailableMediaRecognizer
+
     try:
         recognition_binding = load_external_recognition_binding(
             runtime_config_path("model-bindings.yaml", environment_root=prepared.root)
@@ -1117,12 +1117,16 @@ def compose_perception_module(
             data_rights=data_rights,
             opportunity=opportunity,
             fetch=fetch,
-            ark_recognizer=VolcengineArkExternalContentRecognizer(
+            ark_recognizer=UnavailableMediaRecognizer(recognition_binding.target_for)
+            if model_locator is None
+            else VolcengineArkExternalContentRecognizer(
                 credential_port=prepared.credential_port,
                 locator=model_locator,
                 binding=recognition_binding.ark,
             ),
-            speech_recognizer=DoubaoSpeechRecognizer(
+            speech_recognizer=UnavailableMediaRecognizer(recognition_binding.target_for)
+            if speech_locator is None
+            else DoubaoSpeechRecognizer(
                 credential_port=prepared.credential_port,
                 locator=speech_locator,
                 binding=recognition_binding.speech,

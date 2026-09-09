@@ -109,7 +109,7 @@ class PostgreSQLInteractionPerception:
                           input.source_party_id,input.purpose,binding.channel_kind,
                           binding.account_key,input.trace_id
                    FROM armi.party_input_interactions AS input
-                   JOIN armi.external_channel_bindings AS binding
+                   LEFT JOIN armi.external_channel_bindings AS binding
                      ON binding.external_binding_id=input.external_binding_id
                    WHERE input.interaction_id=%s AND input.recognition_status='pending'
                      AND input.data_rights_hidden_at IS NULL""",
@@ -123,7 +123,7 @@ class PostgreSQLInteractionPerception:
                 """SELECT external_message_part_id,ordinal,part_kind,
                           external_locator,declared_file_name,declared_media_type,
                           declared_byte_size,visual_role,source_kind,source_summary,
-                          processing_status
+                          processing_status,raw_artifact_id
                    FROM armi.external_message_parts
                    WHERE interaction_id=%s
                      AND part_kind IN ('image','audio','video','file')
@@ -137,8 +137,8 @@ class PostgreSQLInteractionPerception:
             interaction[2],
             interaction[3],
             str(interaction[4]),
-            str(interaction[5]),
-            str(interaction[6]),
+            None if interaction[5] is None else str(interaction[5]),
+            None if interaction[6] is None else str(interaction[6]),
             TraceId(str(interaction[7])),
             tuple(
                 ExternalContentPartSnapshot(
@@ -153,6 +153,7 @@ class PostgreSQLInteractionPerception:
                     None if row[8] is None else str(row[8]),
                     None if row[9] is None else str(row[9]),
                     str(row[10]),
+                    row[11],
                 )
                 for row in rows
             ),

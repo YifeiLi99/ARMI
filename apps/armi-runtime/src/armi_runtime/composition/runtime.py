@@ -86,7 +86,7 @@ from armi_kernel.application import (
     RuntimeInstanceId,
     SubjectCommitViolation,
 )
-from armi_kernel.contracts import IdempotencyKey, TraceId
+from armi_kernel.contracts import Digest, IdempotencyKey, TraceId
 from armi_live_vision.api import (
     CameraSourceIdentity,
     LiveVisionRuntimePort,
@@ -147,6 +147,7 @@ from armi_runtime.application.creator_contract import (
     RuntimeComponentHealthResponse,
     RuntimeStatusResponse,
 )
+from armi_runtime.application.creator_media import CreatorMedia
 from armi_runtime.application.creator_timeline import CreatorTimelineProjectionAssembler
 from armi_runtime.application.life_opportunity import RuntimeLifeOpportunityFacts
 from armi_runtime.application.live_voice import (
@@ -155,6 +156,7 @@ from armi_runtime.application.live_voice import (
 )
 from armi_runtime.application.maintenance import RuntimeSleepFacts
 from armi_runtime.application.subject_summary import RuntimeSubjectSummaryAssembler
+from armi_runtime.composition.perception_availability import UnavailableMediaFetch
 from armi_runtime.interfaces.browser_sessions import (
     BrowserSessionStore,
     BrowserSessionViolation,
@@ -484,6 +486,7 @@ async def _serve(
     prompt_module = None
     creator_events: CreatorEventBroker | None = None
     creator_input = None
+    media_uploads = None
     creator_context = None
     subject_summary_provider: RuntimeSubjectSummaryAssembler | None = None
     creator_operations = None
@@ -568,6 +571,15 @@ async def _serve(
                     mood_display_config, read_mood_display_snapshot
                 )
             artifact_catalog = bootstrap_artifact_catalog()
+            from .media_uploads import compose_media_uploads
+
+            media_uploads = compose_media_uploads(
+                prepared.data_root,
+                config.environment.environment_id,
+                authority.require_writable().life_generation_id,
+                runtime_unit_of_work_factory,
+                artifact_catalog,
+            )
             artifact_storage = ContentAddressedArtifactStore(
                 prepared.data_root / "artifacts",
                 max_object_bytes=config.artifacts.max_object_bytes,
@@ -934,29 +946,30 @@ async def _serve(
                 prepared,
                 input_port=external_message_input,
             )
-            if qq_channel is not None:
-                try:
-                    perception_module = compose_perception_module(
-                        prepared,
-                        unit_of_work_factory=runtime_unit_of_work_factory,
-                        fetch=qq_channel.media_fetch,
-                        evidence=evidence_module.write,
-                        evidence_read=evidence_module.read,
-                        interaction=interaction_module.perception,
-                        data_rights=data_rights_core.fence,
-                        opportunity=opportunity_admission,
-                        catalog=artifact_catalog,
-                        wakeups=work_wakeups,
-                        diagnostic=lambda event: diagnostic.emit(
-                            event,
-                            result_code="EXTERNAL_CONTENT",
-                        ),
-                    )
-                    await perception_module.open()
-                except ModelViolation:
-                    raise ExternalMessageViolation(
-                        "EXTERNAL-MESSAGE-RECOGNITION-UNAVAILABLE"
-                    ) from None
+            try:
+                perception_module = compose_perception_module(
+                    prepared,
+                    unit_of_work_factory=runtime_unit_of_work_factory,
+                    fetch=qq_channel.media_fetch
+                    if qq_channel is not None
+                    else UnavailableMediaFetch(),
+                    evidence=evidence_module.write,
+                    evidence_read=evidence_module.read,
+                    interaction=interaction_module.perception,
+                    data_rights=data_rights_core.fence,
+                    opportunity=opportunity_admission,
+                    catalog=artifact_catalog,
+                    wakeups=work_wakeups,
+                    diagnostic=lambda event: diagnostic.emit(
+                        event,
+                        result_code="EXTERNAL_CONTENT",
+                    ),
+                )
+                await perception_module.open()
+            except ModelViolation:
+                raise ExternalMessageViolation(
+                    "EXTERNAL-MESSAGE-RECOGNITION-UNAVAILABLE"
+                ) from None
             model_locator = config.secret_locators.get("model.ark_api_key")
             if model_locator is not None:
                 live_vision_services, vision_sinks = await _compose_live_vision_sources(
@@ -2470,7 +2483,65 @@ async def _serve(
             "other-human control input is invalid",
         )
 
+    async def admin_data_deletion(arguments: dict[str, Any]) -> dict[str, Any]:
+        orders = None if data_rights_module is None else data_rights_module.orders
+        if orders is None:
+            raise RuntimeViolation(
+                "ADMIN-CONTROL-DATA-RIGHTS-UNAVAILABLE",
+                "data-rights orders are unavailable",
+            )
+        action = arguments.get("action")
+        expected = (
+            {"action", "party_key"}
+            if action == "preview"
+            else {"action", "party_key", "scope_digest", "idempotency_key"}
+        )
+        if action not in {"preview", "apply"} or set(arguments) != expected:
+            raise RuntimeViolation(
+                "ADMIN-CONTROL-DATA-RIGHTS-INPUT", "invalid deletion request"
+            )
+        key = (
+            None
+            if arguments["party_key"] is None
+            else OtherHumanPartyKey(arguments["party_key"])
+        )
+        if action == "preview":
+            preview = await orders.preview_deletion(key)
+            return {
+                "party_id": str(preview.party_id),
+                "scope_digest": preview.scope_digest.value,
+                "expires_at": (datetime.now(UTC) + timedelta(minutes=10)).isoformat(),
+                "scope": "party_local_data",
+                "target_count": len(preview.targets),
+                "targets": [
+                    {
+                        "kind": item.kind,
+                        "id": str(item.ref),
+                        "action": item.required_action,
+                        "retention_reason": item.retention_reason,
+                        "owner": item.responsible_owner,
+                    }
+                    for item in preview.targets
+                ],
+            }
+        command = DataRightsOrderCommand(
+            DataRightsOrderKind.DELETE_RELATED,
+            IdempotencyKey(arguments["idempotency_key"]),
+            TraceId(uuid7().hex),
+            Digest(arguments["scope_digest"]),
+        )
+        result = (
+            await orders.request_creator(command)
+            if key is None
+            else await orders.request_other_human(key, command)
+        )
+        return data_rights_result_wire(result)
+
     app = create_runtime_app(
+        creator_media=None
+        if media_uploads is None or interaction_module is None
+        else CreatorMedia(media_uploads, interaction_module.creator_media),
+        media_uploads=media_uploads,
         machine_environment_root=prepared.root,
         machine_environment_id=config.environment.environment_id,
         machine_creator_party_id=None
@@ -2599,6 +2670,7 @@ async def _serve(
                 admin_other_human if other_human_input is not None else None
             ),
             on_voice=admin_voice,
+            on_data_deletion=admin_data_deletion,
             on_vision=admin_vision,
         )
     try:

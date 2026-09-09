@@ -675,10 +675,16 @@ class CognitionAdminEpisodeSnapshot:
     status: str
     trace_id: str
     prepared_at: datetime | None
+    context_manifest_artifact_id: UUID | None = None
+    compiled_context_artifact_id: UUID | None = None
 
 
 @runtime_checkable
 class CognitionAdminPort(Protocol):
+    def episode_for_opportunity(
+        self, transaction: PostgreSQLAdminTransaction, *, opportunity_id: UUID
+    ) -> CognitionAdminEpisodeSnapshot | None: ...
+
     def opportunity_consumed(
         self, transaction: PostgreSQLAdminTransaction, *, opportunity_id: UUID
     ) -> bool: ...

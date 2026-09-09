@@ -119,8 +119,13 @@ class CreatorPromptRevisionCommand:
     expected_revision_id: UUID | None
     content: str
     trace_id: TraceId
+    delegate_id: UUID | None = None
 
     def __post_init__(self) -> None:
+        if self.delegate_id is not None and (
+            type(self.delegate_id) is not UUID or self.delegate_id.version != 7
+        ):
+            raise CreatorPromptViolation("CON-PROMPT-COMMAND")
         if type(self.content) is not str:
             raise CreatorPromptViolation("CON-PROMPT-CONTENT")
         try:
@@ -153,8 +158,13 @@ class CreatorPromptDeactivateCommand:
     prompt_kind: PromptKind
     expected_revision_id: UUID
     trace_id: TraceId
+    delegate_id: UUID | None = None
 
     def __post_init__(self) -> None:
+        if self.delegate_id is not None and (
+            type(self.delegate_id) is not UUID or self.delegate_id.version != 7
+        ):
+            raise CreatorPromptViolation("CON-PROMPT-COMMAND")
         if (
             type(self.prompt_kind) is not PromptKind
             or type(self.expected_revision_id) is not UUID

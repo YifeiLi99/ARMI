@@ -12,14 +12,19 @@ from typing import cast
 from uuid import UUID
 
 from armi_artifact_store.api import ArtifactAdminPort
+from armi_attention.api import OpportunityAdminPort
 from armi_cognition.api import CognitionAdminPort
 from armi_effect.api import EffectAdminPort
+from armi_evidence.api import EvidenceAdminPort
 from armi_expression.api import ExpressionAdminPort
 from armi_interaction.api import InteractionAdminPort
 from armi_kernel.application import ArtifactViolation
 from armi_material.api import MaterialAdminItem, MaterialAdminReadPort
 from armi_mood.api import MoodAdminReadPort
-from armi_runtime_foundation import PostgreSQLAdminUnitOfWorkFactory
+from armi_runtime_foundation import (
+    PostgreSQLAdminTransaction,
+    PostgreSQLAdminUnitOfWorkFactory,
+)
 from armi_subject_state.api import SubjectStateAdminReadPort
 
 from .role_session import AdminRoleBoundPool
@@ -31,7 +36,12 @@ _OWNER_BY_KIND = {
     "effect": "effect",
     "episode": "cognition",
     "operation": "expression",
-    "opportunity": "cognition",
+    "opportunity": "attention",
+    "input": "interaction",
+    "evidence": "evidence",
+    "subject_commit": "runtime-foundation",
+    "outbox": "effect",
+    "delivery": "effect",
     "scene": "interaction",
     "subject": "runtime-foundation",
     "work": "runtime-foundation",
@@ -130,11 +140,13 @@ class AdminObservationGateway:
         "_artifacts",
         "_cognition",
         "_effects",
+        "_evidence",
         "_expression",
         "_factory",
         "_interaction",
         "_materials",
         "_mood",
+        "_opportunity",
         "_runtime",
         "_subject_state",
     )
@@ -147,6 +159,8 @@ class AdminObservationGateway:
         artifacts: ArtifactAdminPort,
         cognition: CognitionAdminPort,
         effects: EffectAdminPort,
+        evidence: EvidenceAdminPort,
+        opportunity: OpportunityAdminPort,
         expression: ExpressionAdminPort,
         interaction: InteractionAdminPort,
         materials: MaterialAdminReadPort,
@@ -158,6 +172,8 @@ class AdminObservationGateway:
         self._artifacts = artifacts
         self._cognition = cognition
         self._effects = effects
+        self._evidence = evidence
+        self._opportunity = opportunity
         self._expression = expression
         self._interaction = interaction
         self._materials = materials
@@ -329,6 +345,14 @@ class AdminObservationGateway:
                             occurred_at=row[4],
                         )
                     )
+            elif kind == "interaction_id":
+                item = self._interaction.input_snapshot(
+                    tx, interaction_id=cast(UUID, key)
+                )
+                if item is None:
+                    missing.append({"kind": "input", "id": value})
+                else:
+                    nodes.append(_node("input", key))
             elif kind == "episode_id":
                 item = self._cognition.episode(tx, episode_id=cast(UUID, key))
                 if item is None:
@@ -407,6 +431,7 @@ class AdminObservationGateway:
                             "expression",
                         )
                     )
+            self._expand_flow(tx, nodes, edges)
         query = _query_digest({"selector_kind": kind, "selector": value})
         ordered = sorted(
             nodes,
@@ -418,6 +443,8 @@ class AdminObservationGateway:
         return {
             "schema_version": "armi.admin-flow-graph.v1",
             "selector": {"kind": kind, "id": value},
+            "expansion_limit": 200,
+            "expansion_truncated": len(nodes) >= 200,
             "nodes": page,
             "edges": sorted(edges, key=lambda item: json.dumps(item, sort_keys=True)),
             "missing": missing,
@@ -426,6 +453,254 @@ class AdminObservationGateway:
             if next_offset < len(ordered)
             else None,
         }
+
+    def _expand_flow(
+        self,
+        tx: PostgreSQLAdminTransaction,
+        nodes: list[dict[str, object]],
+        edges: list[dict[str, object]],
+    ) -> None:
+        """Follow bounded owner references without reading private artifact content."""
+        known = {(str(node["kind"]), str(node["id"])) for node in nodes}
+        processed: set[tuple[str, str]] = set()
+        cursor = 0
+
+        # Audit references are owner-authored identities, not arbitrary JSON paths.
+        audit_kinds = {
+            **{kind: kind for kind in _OWNER_BY_KIND if kind != "audit_event"},
+            "creator_input": "input",
+            "party_input_interaction": "input",
+            "cognitive_episode": "episode",
+            "action_intent": "operation",
+            "durable_work": "work",
+            "interaction_scene": "scene",
+        }
+
+        def link(
+            source_kind: str,
+            source_id: UUID,
+            relation: str,
+            target_kind: str,
+            target_id: UUID | None,
+            owner: str,
+            **attributes: object,
+        ) -> None:
+            if target_id is None:
+                return
+            key = (target_kind, str(target_id))
+            if key not in known:
+                if len(nodes) >= 200:
+                    return
+                nodes.append(_node(target_kind, target_id, **attributes))
+                known.add(key)
+            edge = _edge(
+                relation, source_kind, source_id, target_kind, target_id, owner
+            )
+            if edge not in edges:
+                edges.append(edge)
+
+        while cursor < len(nodes):
+            node = nodes[cursor]
+            cursor += 1
+            kind, value = str(node["kind"]), str(node["id"])
+            if (kind, value) in processed:
+                continue
+            processed.add((kind, value))
+            if kind == "audit_event":
+                attributes = cast(dict[str, object], node["attributes"])
+                target_kind = audit_kinds.get(str(attributes.get("target_kind")))
+                if target_kind is not None:
+                    target = UUID(str(attributes["target_ref"]))
+                    target_key = (target_kind, str(target))
+                    if target_key not in known and len(nodes) < 200:
+                        nodes.append(_node(target_kind, target))
+                        known.add(target_key)
+                    if target_key in known:
+                        edges.append(
+                            _edge(
+                                "records",
+                                kind,
+                                value,
+                                target_kind,
+                                target,
+                                "runtime-foundation",
+                            )
+                        )
+                continue
+            identity = UUID(value)
+            if kind == "operation":
+                operation = self._expression.operation(
+                    tx, operation_ref=identity
+                ) or self._expression.intent(tx, action_intent_id=identity)
+                if operation is not None:
+                    link(
+                        kind,
+                        identity,
+                        "originates_from",
+                        "opportunity",
+                        operation.root_opportunity_id,
+                        "expression",
+                    )
+                    for effect in self._effects.for_intent(
+                        tx, action_intent_id=operation.action_intent_id
+                    ):
+                        link(
+                            kind,
+                            identity,
+                            "registers",
+                            "effect",
+                            effect.effect_id,
+                            "effect",
+                            status=effect.status,
+                        )
+            elif kind == "effect":
+                effect = self._effects.snapshot(tx, effect_id=identity)
+                if effect is not None:
+                    intent = self._expression.intent(
+                        tx, action_intent_id=effect.action_intent_id
+                    )
+                    link(
+                        kind,
+                        identity,
+                        "realizes",
+                        "operation",
+                        None if intent is None else intent.operation_ref,
+                        "effect",
+                    )
+                    link(
+                        kind,
+                        identity,
+                        "dispatches",
+                        "outbox",
+                        effect.outbox_id,
+                        "effect",
+                    )
+                    link(
+                        kind,
+                        identity,
+                        "delivered_as",
+                        "delivery",
+                        effect.delivery_id,
+                        "effect",
+                        receipt_digest=effect.receipt_digest,
+                    )
+            elif kind == "opportunity":
+                opportunity = self._opportunity.snapshot(tx, opportunity_id=identity)
+                if opportunity is not None:
+                    link(
+                        kind,
+                        identity,
+                        "considers",
+                        "evidence",
+                        opportunity.evidence_id,
+                        "attention",
+                    )
+                episode = self._cognition.episode_for_opportunity(
+                    tx, opportunity_id=identity
+                )
+                if episode is not None:
+                    link(
+                        kind,
+                        identity,
+                        "processed_by",
+                        "episode",
+                        episode.episode_id,
+                        "cognition",
+                        status=episode.status,
+                    )
+                intent = self._expression.operation(tx, operation_ref=identity)
+                if intent is not None:
+                    link(
+                        kind,
+                        identity,
+                        "produces",
+                        "operation",
+                        intent.operation_ref,
+                        "expression",
+                    )
+            elif kind == "episode":
+                episode = self._cognition.episode(tx, episode_id=identity)
+                if episode is not None:
+                    link(
+                        kind,
+                        identity,
+                        "consumes",
+                        "opportunity",
+                        episode.opportunity_id,
+                        "cognition",
+                    )
+                    link(
+                        kind,
+                        identity,
+                        "freezes_context",
+                        "artifact",
+                        episode.context_manifest_artifact_id,
+                        "cognition",
+                    )
+                    link(
+                        kind,
+                        identity,
+                        "uses_context",
+                        "artifact",
+                        episode.compiled_context_artifact_id,
+                        "cognition",
+                    )
+                    for commit_id, version in self._runtime.commits_for_episode(
+                        tx, episode_id=identity
+                    ):
+                        link(
+                            kind,
+                            identity,
+                            "commits",
+                            "subject_commit",
+                            commit_id,
+                            "runtime-foundation",
+                            subject_version=version,
+                        )
+            elif kind == "evidence":
+                evidence = self._evidence.snapshot(tx, evidence_id=identity)
+                if evidence is not None:
+                    link(
+                        kind,
+                        identity,
+                        "interprets",
+                        "input",
+                        evidence.interaction_id,
+                        "evidence",
+                    )
+                    link(
+                        kind,
+                        identity,
+                        "materialized_as",
+                        "artifact",
+                        evidence.artifact_id,
+                        "evidence",
+                    )
+            elif kind == "input":
+                evidence = self._evidence.snapshot_for_interaction(
+                    tx, interaction_id=identity
+                )
+                if evidence is not None:
+                    link(
+                        kind,
+                        identity,
+                        "interpreted_as",
+                        "evidence",
+                        evidence.evidence_id,
+                        "evidence",
+                    )
+                    opportunity = self._opportunity.snapshot_for_evidence(
+                        tx, evidence_id=evidence.evidence_id
+                    )
+                    if opportunity is not None:
+                        link(
+                            "evidence",
+                            evidence.evidence_id,
+                            "admitted_as",
+                            "opportunity",
+                            opportunity.opportunity_id,
+                            "attention",
+                        )
 
     def diagnostics(self) -> dict[str, object]:
         with self._factory.repeatable_read() as uow:
@@ -487,8 +762,39 @@ class AdminObservationGateway:
                 found = self._artifacts.inspect_ids(tx, object_ids=ids)
             else:
                 found = self._interaction.inspect_ids(tx, object_ids=ids)
+            nodes = [_node(kind, identity) for identity in sorted(set(found), key=str)]
+            edges: list[dict[str, object]] = []
+            if "direct_dependencies" in relations or "direct_dependents" in relations:
+                self._expand_flow(tx, nodes, edges)
+                roots = {(kind, str(identity)) for identity in found}
+
+                def endpoint(edge: dict[str, object], end: str) -> tuple[str, str]:
+                    value = cast(dict[str, str], edge[end])
+                    return value["kind"], value["id"]
+
+                edges = [
+                    edge
+                    for edge in edges
+                    if (
+                        "direct_dependencies" in relations
+                        and endpoint(edge, "source") in roots
+                    )
+                    or (
+                        "direct_dependents" in relations
+                        and endpoint(edge, "target") in roots
+                    )
+                ]
+                adjacent = roots | {
+                    endpoint(edge, end)
+                    for edge in edges
+                    for end in ("source", "target")
+                }
+                nodes = [
+                    node
+                    for node in nodes
+                    if (str(node["kind"]), str(node["id"])) in adjacent
+                ]
         found_set = set(found)
-        nodes = [_node(kind, identity) for identity in sorted(found_set, key=str)]
         missing = [
             {"kind": kind, "id": str(identity)}
             for identity in ids
@@ -507,7 +813,7 @@ class AdminObservationGateway:
         return {
             "schema_version": "armi.admin-scope-graph.v1",
             "nodes": page,
-            "edges": [],
+            "edges": edges,
             "missing": missing,
             "relations": list(relations),
             "truncated": next_offset < len(nodes),

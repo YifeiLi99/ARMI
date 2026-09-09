@@ -27,6 +27,7 @@ _COMMANDS = {
     "stop",
     "input",
     "other_human",
+    "data_deletion",
     "voice",
     "vision",
     "fault",
@@ -87,6 +88,7 @@ class RuntimeAdminControlServer:
 
     __slots__ = (
         "_armed_faults",
+        "_data_deletion",
         "_descriptor",
         "_environment_id",
         "_incarnation",
@@ -122,6 +124,8 @@ class RuntimeAdminControlServer:
         on_voice: Callable[[str], Awaitable[dict[str, Any]]] | None = None,
         on_vision: Callable[[str, str | None], Awaitable[dict[str, Any]]] | None = None,
         test_controls_enabled: bool = False,
+        on_data_deletion: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
+        | None = None,
     ) -> None:
         self._run_root = run_root
         self._manifest = run_root / "runtime-control.manifest.json"
@@ -134,6 +138,7 @@ class RuntimeAdminControlServer:
         self._on_stop = on_stop
         self._input = on_input
         self._other_human = on_other_human
+        self._data_deletion = on_data_deletion
         self._voice = on_voice
         self._vision = on_vision
         self._server: asyncio.AbstractServer | None = None
@@ -298,6 +303,10 @@ class RuntimeAdminControlServer:
             result = await self._input(
                 str(arguments["message"]), str(arguments["idempotency_key"])
             )
+        elif command == "data_deletion":
+            if self._data_deletion is None:
+                raise RuntimeAdminControlError("ADMIN-CONTROL-DATA-RIGHTS-UNAVAILABLE")
+            result = await self._data_deletion(arguments)
         elif command == "other_human":
             if (
                 arguments.get("action") == "message_send"

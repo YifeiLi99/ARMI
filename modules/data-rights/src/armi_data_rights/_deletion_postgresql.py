@@ -48,6 +48,87 @@ class LocalDataDeletionRepository:
         self._lifecycle = lifecycle
         self._participants = participants
 
+    async def discover_targets(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        order_id: UUID,
+        party_id: UUID,
+        order_kind: str,
+    ) -> tuple[
+        tuple[DataRightsRelatedRef, ...],
+        dict[tuple[str, UUID], DataRightsTargetRef],
+        dict[UUID, tuple[int, int]],
+    ]:
+        related: set[DataRightsRelatedRef] = set()
+        converged = False
+        for _round in range(25):
+            before = len(related)
+            request = DataRightsDiscoveryRequest(
+                order_id,
+                party_id,
+                tuple(sorted(related, key=lambda item: (item.kind, str(item.ref)))),
+                order_kind,
+            )
+            for participant in self._participants:
+                contribution = await participant.discover(transaction, request)
+                if contribution.owner_identity != participant.owner_identity:
+                    raise DataRightsParticipantViolation(
+                        "DATA-RIGHTS-PARTICIPANT-OWNER-MISMATCH"
+                    )
+                related.update(contribution.related_refs)
+            if len(related) == before:
+                converged = True
+                break
+        if not converged:
+            raise DataRightsParticipantViolation(
+                "DATA-RIGHTS-PARTICIPANT-LINEAGE-LIMIT"
+            )
+
+        ordered_related = tuple(
+            sorted(related, key=lambda item: (item.kind, str(item.ref)))
+        )
+        targets: dict[tuple[str, UUID], DataRightsTargetRef] = {}
+        usages: dict[UUID, tuple[int, int]] = {}
+        for participant in self._participants:
+            contribution = await participant.discover(
+                transaction,
+                DataRightsDiscoveryRequest(
+                    order_id, party_id, ordered_related, order_kind
+                ),
+            )
+            if contribution.owner_identity != participant.owner_identity:
+                raise DataRightsParticipantViolation(
+                    "DATA-RIGHTS-PARTICIPANT-OWNER-MISMATCH"
+                )
+            if any(item not in related for item in contribution.related_refs):
+                raise DataRightsParticipantViolation(
+                    "DATA-RIGHTS-PARTICIPANT-LINEAGE-UNSTABLE"
+                )
+            for target in contribution.targets:
+                key = (target.kind, target.ref)
+                owned_target = DataRightsTargetRef(
+                    target.kind,
+                    target.ref,
+                    target.required_action,
+                    target.retention_reason,
+                    participant.owner_identity.value,
+                )
+                existing = targets.get(key)
+                if existing is not None and existing != owned_target:
+                    raise DataRightsParticipantViolation(
+                        "DATA-RIGHTS-PARTICIPANT-TARGET-OWNER"
+                    )
+                targets[key] = owned_target
+            for usage in contribution.artifact_usages:
+                current = usages.get(usage.artifact_id.value, (0, 0))
+                usages[usage.artifact_id.value] = (
+                    current[0] + usage.total_reference_count,
+                    current[1] + usage.target_party_reference_count,
+                )
+
+        return ordered_related, targets, usages
+
     async def pending_order_ids(
         self, unit_of_work: PostgreSQLRuntimeUnitOfWork
     ) -> tuple[UUID, ...]:
@@ -121,72 +202,9 @@ class LocalDataDeletionRepository:
             (order_id,),
         )
 
-        related: set[DataRightsRelatedRef] = set()
-        converged = False
-        for _round in range(25):
-            before = len(related)
-            request = DataRightsDiscoveryRequest(
-                order_id,
-                party_id,
-                tuple(sorted(related, key=lambda item: (item.kind, str(item.ref)))),
-                order_kind,
-            )
-            for participant in self._participants:
-                contribution = await participant.discover(transaction, request)
-                if contribution.owner_identity != participant.owner_identity:
-                    raise DataRightsParticipantViolation(
-                        "DATA-RIGHTS-PARTICIPANT-OWNER-MISMATCH"
-                    )
-                related.update(contribution.related_refs)
-            if len(related) == before:
-                converged = True
-                break
-        if not converged:
-            raise DataRightsParticipantViolation(
-                "DATA-RIGHTS-PARTICIPANT-LINEAGE-LIMIT"
-            )
-
-        ordered_related = tuple(
-            sorted(related, key=lambda item: (item.kind, str(item.ref)))
+        ordered_related, targets, usages = await self.discover_targets(
+            transaction, order_id=order_id, party_id=party_id, order_kind=order_kind
         )
-        targets: dict[tuple[str, UUID], DataRightsTargetRef] = {}
-        usages: dict[UUID, tuple[int, int]] = {}
-        for participant in self._participants:
-            contribution = await participant.discover(
-                transaction,
-                DataRightsDiscoveryRequest(
-                    order_id, party_id, ordered_related, order_kind
-                ),
-            )
-            if contribution.owner_identity != participant.owner_identity:
-                raise DataRightsParticipantViolation(
-                    "DATA-RIGHTS-PARTICIPANT-OWNER-MISMATCH"
-                )
-            if any(item not in related for item in contribution.related_refs):
-                raise DataRightsParticipantViolation(
-                    "DATA-RIGHTS-PARTICIPANT-LINEAGE-UNSTABLE"
-                )
-            for target in contribution.targets:
-                key = (target.kind, target.ref)
-                owned_target = DataRightsTargetRef(
-                    target.kind,
-                    target.ref,
-                    target.required_action,
-                    target.retention_reason,
-                    participant.owner_identity.value,
-                )
-                existing = targets.get(key)
-                if existing is not None and existing != owned_target:
-                    raise DataRightsParticipantViolation(
-                        "DATA-RIGHTS-PARTICIPANT-TARGET-OWNER"
-                    )
-                targets[key] = owned_target
-            for usage in contribution.artifact_usages:
-                current = usages.get(usage.artifact_id.value, (0, 0))
-                usages[usage.artifact_id.value] = (
-                    current[0] + usage.total_reference_count,
-                    current[1] + usage.target_party_reference_count,
-                )
 
         if order_kind == "stop_contact":
             targets = {

@@ -18,6 +18,7 @@ from armi_interaction.api import (
 from armi_kernel.application import (
     ArtifactId,
     ArtifactPublication,
+    ArtifactRef,
     ArtifactRegistration,
     WorkLease,
     WorkRecord,
@@ -324,6 +325,10 @@ class VisualRecognitionAttemptPort(Protocol):
 
 @runtime_checkable
 class PerceptionArtifactCatalogPort(Protocol):
+    async def get(
+        self, unit_of_work: PostgreSQLRuntimeUnitOfWork, artifact_id: ArtifactId
+    ) -> ArtifactRef: ...
+
     async def register(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,

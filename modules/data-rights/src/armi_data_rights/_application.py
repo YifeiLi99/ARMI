@@ -36,6 +36,7 @@ from ._deletion import LocalDataDeletionExecutor
 from ._postgresql import DataRightsOrderRepository, DataRightsOrderSnapshot
 from .api import (
     DataRightsArtifactLifecyclePort,
+    DataRightsDeletionPreview,
     DataRightsExecutionStatus,
     DataRightsItemStatus,
     DataRightsOrderCommand,
@@ -187,7 +188,13 @@ class DataRightsOrderService(DataRightsOrderPort):
         """Continuously reconcile orders whose physical deletion finishes later."""
 
         while not self._stop.is_set():
-            await self._deletion.resume_pending()
+            try:
+                await self._deletion.resume_pending()
+            except DataRightsViolation as error:
+                if error.code != "DATA-RIGHTS-TRANSACTION-CONFLICT":
+                    raise
+                # Only fully rolled-back transaction conflicts are retried on the
+                # next reconciliation tick. Unknown effects are never resubmitted.
             with suppress(TimeoutError):
                 await asyncio.wait_for(self._stop.wait(), timeout=1)
 
@@ -202,6 +209,24 @@ class DataRightsOrderService(DataRightsOrderPort):
             party_key=None,
             command=command,
         )
+
+    async def preview_deletion(
+        self, party_key: DataRightsPartyKey | None
+    ) -> DataRightsDeletionPreview:
+        try:
+            async with self._uow_factory.unit_of_work(
+                read_only=True, isolation=TransactionIsolation.REPEATABLE_READ
+            ) as unit:
+                party_id = await self._requester_party(
+                    unit,
+                    DataRightsRequesterKind.CREATOR
+                    if party_key is None
+                    else DataRightsRequesterKind.OTHER_HUMAN,
+                    party_key,
+                )
+                return await self._deletion.preview_in(unit, party_id)
+        except RuntimeTransactionFailure:
+            raise DataRightsViolation("DATA-RIGHTS-UNAVAILABLE") from None
 
     async def request_other_human(
         self,
@@ -694,6 +719,12 @@ class DataRightsOrderService(DataRightsOrderPort):
                     if existing.order_kind is command.order_kind:
                         return self._result(existing, newly_created=False)
                     raise DataRightsViolation("DATA-RIGHTS-IDEMPOTENCY-CONFLICT")
+                if command.expected_scope_digest is not None:
+                    preview = await self._deletion.preview_in(
+                        unit_of_work, requester_party_id
+                    )
+                    if preview.scope_digest != command.expected_scope_digest:
+                        raise DataRightsViolation("DATA-RIGHTS-PREVIEW-STALE")
                 scope_kind = (
                     DataRightsScopeKind.PARTY_CONTACT
                     if command.order_kind is DataRightsOrderKind.STOP_CONTACT
@@ -721,7 +752,12 @@ class DataRightsOrderService(DataRightsOrderPort):
                 await unit_of_work.audit.append(
                     AuditDraft(
                         AuditEventId(uuid7()),
-                        AuditReference(requester_kind.value, requester_party_id),
+                        AuditReference(
+                            "creator_delegate"
+                            if command.delegate_id is not None
+                            else requester_kind.value,
+                            command.delegate_id or requester_party_id,
+                        ),
                         Purpose("data.rights.request"),
                         f"data.rights.{command.order_kind.value}",
                         AuditReference("deletion_order", snapshot.order_id),

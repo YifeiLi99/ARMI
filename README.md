@@ -39,6 +39,8 @@ ARMI 不把人格提示词、模型会话或任务 Agent 当成“她”。当�
 
 “仓库存在实现”不等于目标环境已经启用、供应商可用、账号已登录、设备已连接或 live 已验收。
 
+本机文件可以先用 `armi upload import --file <路径> --idempotency-key <稳定键>` 导入，再用 `armi message send --scene-key default --attachments '["<upload_id>"]' --idempotency-key <输入键> --wait` 发送，正文可通过 `--message` 同时提供。MCP 对应 `upload_import`、`message_send`、`operation_get/wait`。上传支持分块续传和重复校验，完成上传不会自动触发认知；发送后沿用同一操作引用查询逐附件识别、交流和效果结果。图片、MP3、MP4、PDF、Office 和文本沿用现有 Perception 格式与体积限制，缺少模型凭据时明确返回不可用原因。
+
 ## 认知与现实闭环
 
 标准 Creator 文本、实时语音和精确生命查询结果采用一次主认知调用：
@@ -118,7 +120,7 @@ CLI 默认输出 JSON，MCP 使用相同请求合同与应用逻辑。接纳不�
 
 `armi artifact read --effect-id <effect-id> --artifact-kind patch --output <文件路径>` 会逐块读取并核验完整摘要，默认不覆盖文件。MCP 的 `artifact_read` 使用 `offset` / `length`，返回下一块位置和同一制品的摘要。
 
-危险操作先取得具体预览及 `authorization_request`，再由独立 Creator 授权绑定签发：
+重置、主体内容校正和相关数据删除先取得具体预览及 `authorization_request`，再由独立 Creator 授权绑定签发。相关数据删除使用 `armi-admin data-deletion-preview` 和 `data-deletion-apply`，普通交互请求不能绕过批准：
 
 ```powershell
 armi-admin --config <Creator授权绑定> authorization approve --request-id <request-id> --expected-request-digest <request-digest> --idempotency-key approval-001

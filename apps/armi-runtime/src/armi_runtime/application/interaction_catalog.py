@@ -129,6 +129,11 @@ def interaction_routes() -> tuple[InteractionRoute, ...]:
             machine_arguments = spec.get("machineArguments")
             if machine_arguments is not None:
                 properties.update(machine_arguments["properties"])
+                required = [
+                    name
+                    for name in required
+                    if name not in machine_arguments["properties"]
+                ]
                 required.extend(machine_arguments.get("required", []))
             schema = {
                 "type": "object",
@@ -203,6 +208,12 @@ def interaction_routes() -> tuple[InteractionRoute, ...]:
             )
     if found != set(OPERATION_NAMES):
         raise ValueError("INTERACTION-CONTRACT-COVERAGE")
+    from .media_uploads import upload_operations
+
+    routes.extend(
+        InteractionRoute(operation, operation.name, "LOCAL", "", (), (), (), (), None)
+        for operation in upload_operations()
+    )
     return tuple(routes)
 
 

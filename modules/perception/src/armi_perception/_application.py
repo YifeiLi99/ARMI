@@ -27,6 +27,7 @@ from armi_kernel.application import (
     ArtifactPolicy,
     ArtifactPrivacyScope,
     ArtifactPublication,
+    ArtifactRegistration,
     ArtifactViolation,
     WorkLease,
     WorkResultRef,
@@ -51,6 +52,7 @@ from .api import (
     ExternalContentRecognitionRequest,
     ExternalContentRecognitionResult,
     ExternalContentRecognitionStatus,
+    ExternalMediaContent,
     ExternalMediaFetchPort,
     PerceptionArtifactCatalogPort,
     PerceptionDurableWorkPort,
@@ -207,16 +209,44 @@ class ExternalContentPipeline:
                 and part.declared_byte_size > _MAX_BYTES[part.kind]
             ):
                 raise ExternalMessageViolation("EXTERNAL-MESSAGE-MEDIA-TOO-LARGE")
-            downloaded, lease = await self._await_with_lease(
-                lease,
-                self._fetch.fetch(
-                    channel=ExternalChannel(snapshot.channel),
-                    account_key=ExternalAccountKey(snapshot.account_key),
-                    kind=part.kind,
-                    locator=part.locator,
-                    max_bytes=_download_limit(part),
-                ),
-            )
+            local_ref = None
+            if snapshot.channel is None:
+                if (
+                    part.raw_artifact_id is None
+                    or part.locator != "local-upload:" + str(part.raw_artifact_id)
+                ):
+                    raise ExternalMessageViolation("EXTERNAL-MESSAGE-LOCAL-SOURCE")
+                async with self._factory.unit_of_work(read_only=True) as unit:
+                    local_ref = await self._catalog.get(
+                        unit, ArtifactId(part.raw_artifact_id)
+                    )
+                if (
+                    local_ref.logical_kind != "creator.input.media"
+                    or local_ref.privacy_scope
+                    is not ArtifactPrivacyScope.CREATOR_VISIBLE
+                    or local_ref.byte_size > _download_limit(part)
+                ):
+                    raise ExternalMessageViolation("EXTERNAL-MESSAGE-LOCAL-SOURCE")
+                content, lease = await self._await_with_lease(
+                    lease,
+                    asyncio.to_thread(self._storage.read_verified_bytes, local_ref),
+                )
+                downloaded = ExternalMediaContent(
+                    content, part.file_name or "upload", local_ref.media_type
+                )
+            else:
+                if snapshot.account_key is None:
+                    raise ExternalMessageViolation("EXTERNAL-MESSAGE-LOCAL-SOURCE")
+                downloaded, lease = await self._await_with_lease(
+                    lease,
+                    self._fetch.fetch(
+                        channel=ExternalChannel(snapshot.channel),
+                        account_key=ExternalAccountKey(snapshot.account_key),
+                        kind=part.kind,
+                        locator=part.locator,
+                        max_bytes=_download_limit(part),
+                    ),
+                )
             extracted = extract_external_content(
                 kind=part.kind,
                 content=downloaded.content,
@@ -230,18 +260,26 @@ class ExternalContentPipeline:
                 and len(downloaded.content) > _MAX_LOCAL_FILE_BYTES
             ):
                 raise ExternalMessageViolation("EXTERNAL-MESSAGE-MEDIA-TOO-LARGE")
-            raw = await self._publish(
-                downloaded.content,
-                media_type=extracted.media_type,
-                logical_kind=f"external.message.{part.kind.value}.raw",
-                trace_id=snapshot.trace_id,
-                creator_visible=snapshot.purpose == "creator_message",
+            raw = (
+                None
+                if local_ref is not None
+                else await self._publish(
+                    downloaded.content,
+                    media_type=extracted.media_type,
+                    logical_kind=f"external.message.{part.kind.value}.raw",
+                    trace_id=snapshot.trace_id,
+                    creator_visible=snapshot.purpose == "creator_message",
+                )
             )
             async with self._factory.unit_of_work() as unit:
                 await unit.work.validate_lease(lease)
-                raw_registration = await self._catalog.register(
-                    unit, ArtifactId(uuid7()), raw
-                )
+                if local_ref is not None:
+                    raw_registration = ArtifactRegistration(local_ref, False)
+                else:
+                    assert raw is not None
+                    raw_registration = await self._catalog.register(
+                        unit, ArtifactId(uuid7()), raw
+                    )
                 await self._repository.attach_raw(
                     unit,
                     part_id=part.part_id,

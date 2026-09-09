@@ -55,6 +55,11 @@ from .creator_contract import (
     SubjectSummaryResponse,
     UnavailableOutcomeResponse,
 )
+from .creator_media import (
+    MediaMessageRequest,
+    MediaMessageResult,
+    MediaOrOperationResult,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -888,6 +893,7 @@ OPERATION_CONTRACTS = (
             "503": UnavailableOutcomeResponse,
         },
         binary_responses={},
+        machine_result=MediaOrOperationResult,
     ),
     OperationContract(
         "listOtherHumanRecordParties",
@@ -1379,6 +1385,8 @@ OPERATION_CONTRACTS = (
             "503": UnavailableOutcomeResponse,
         },
         binary_responses={},
+        machine_arguments=MediaMessageRequest,
+        machine_result=MediaMessageResult,
     ),
     OperationContract(
         "reopenCreatorScene",

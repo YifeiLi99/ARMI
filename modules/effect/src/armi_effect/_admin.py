@@ -10,6 +10,20 @@ from .api import EffectAdminSnapshot
 class PostgreSQLEffectAdmin:
     __slots__ = ()
 
+    def for_intent(
+        self, transaction: PostgreSQLAdminTransaction, *, action_intent_id: UUID
+    ) -> tuple[EffectAdminSnapshot, ...]:
+        rows = transaction.execute(
+            "SELECT effect_id FROM armi.effects WHERE action_intent_id=%s ORDER BY effect_id LIMIT 32",
+            (action_intent_id,),
+        ).fetchall()
+        return tuple(
+            item
+            for row in rows
+            if (item := self.snapshot(transaction, effect_id=cast(UUID, row[0])))
+            is not None
+        )
+
     def snapshot(
         self,
         transaction: PostgreSQLAdminTransaction,

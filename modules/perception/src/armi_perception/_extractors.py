@@ -167,11 +167,7 @@ def extract_external_content(
             _bounded(text or ""),
             False,
         )
-    return ExtractedExternalContent(
-        "application/octet-stream",
-        _bounded(f"[文件: {file_name},该文件类型暂不支持读取内容]"),
-        False,
-    )
+    raise ExternalMessageViolation("EXTERNAL-MESSAGE-FILE-UNSUPPORTED")
 
 
 def _office_kind(content: bytes) -> str | None:

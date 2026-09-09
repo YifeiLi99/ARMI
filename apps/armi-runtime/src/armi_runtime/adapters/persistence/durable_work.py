@@ -88,6 +88,19 @@ class PostgreSQLDurableWorkWriter:
         self._audit = audit
         self._actor_ref = actor_ref
 
+    async def latest(
+        self, *, owner: WorkOwner, work_kind: WorkType
+    ) -> WorkRecord | None:
+        row = await (
+            await self._connection.execute(
+                f"SELECT {_WORK_COLUMNS} FROM armi.durable_work "
+                "WHERE owner_kind=%s AND owner_ref=%s AND work_kind=%s "
+                "ORDER BY generation DESC LIMIT 1",
+                (owner.kind, owner.reference, work_kind),
+            )
+        ).fetchone()
+        return None if row is None else _row_to_record(row)
+
     async def enqueue(self, draft: WorkDraft) -> WorkRecord:
         try:
             if draft.predecessor_work_id is not None:

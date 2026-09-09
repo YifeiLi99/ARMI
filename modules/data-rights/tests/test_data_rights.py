@@ -2,14 +2,20 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import cast
+from types import SimpleNamespace
+from typing import Any, cast
+from unittest.mock import AsyncMock, Mock
 from uuid import uuid7
 
 import pytest
+from armi_data_rights._application import DataRightsOrderService
+from armi_data_rights._deletion import LocalDataDeletionExecutor
 from armi_data_rights._deletion_postgresql import LocalDataDeletionRepository
 from armi_data_rights._postgresql import DataRightsOrderRepository
 from armi_data_rights.api import (
+    DataRightsDeletionPreview,
     DataRightsExecutionStatus,
     DataRightsOrderCommand,
     DataRightsOrderKind,
@@ -20,7 +26,10 @@ from armi_data_rights.api import (
 )
 from armi_data_rights.bootstrap import bootstrap_data_rights_core
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, TraceId
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWork,
+    RuntimeTransactionFailure,
+)
 
 
 class _Cursor:
@@ -56,6 +65,42 @@ class _UnitOfWork:
         return self.connection
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "code", ["DB-TX-SERIALIZATION", "DB-TX-DEADLOCK", "DB-TX-COMMIT-UNKNOWN"]
+)
+async def test_deletion_retries_only_rolled_back_settlement_without_repeating_physical_effect(
+    code: str,
+):
+    @asynccontextmanager
+    async def unit_of_work(**kwargs):
+        yield SimpleNamespace()
+
+    error = RuntimeTransactionFailure()
+    error.code = code
+    repository = SimpleNamespace(
+        prepare=AsyncMock(return_value=(uuid7(),)),
+        reconcile_artifacts=AsyncMock(),
+        finalize=AsyncMock(side_effect=[error, None]),
+    )
+    lifecycle = SimpleNamespace(run_once=AsyncMock())
+    executor = LocalDataDeletionExecutor(
+        repository=cast(Any, repository),
+        lifecycle=cast(Any, lifecycle),
+        unit_of_work_factory=cast(Any, SimpleNamespace(unit_of_work=unit_of_work)),
+    )
+    if code == "DB-TX-COMMIT-UNKNOWN":
+        with pytest.raises(DataRightsViolation) as failure:
+            await executor.execute(uuid7())
+        assert failure.value.code == "DATA-RIGHTS-UNAVAILABLE"
+        assert repository.finalize.await_count == 1
+    else:
+        await executor.execute(uuid7())
+        assert repository.finalize.await_count == 2
+    assert repository.prepare.await_count == 1
+    assert lifecycle.run_once.await_count == 1
+
+
 def test_data_rights_core_seals_exactly_once() -> None:
     core = bootstrap_data_rights_core()
     gate = core.gate
@@ -75,6 +120,51 @@ def test_three_order_kinds_are_explicit_and_bounded() -> None:
         assert command.order_kind is kind
     with pytest.raises(ValueError):
         DataRightsOrderKind("delete_all_life")
+
+
+@pytest.mark.asyncio
+async def test_stale_deletion_preview_is_rejected_before_owner_writes():
+    party = uuid7()
+    unit = SimpleNamespace(transaction=AsyncMock())
+    context = AsyncMock()
+    context.__aenter__.return_value = unit
+    context.__aexit__.return_value = False
+    factory = SimpleNamespace(
+        environment_id=uuid7(), unit_of_work=Mock(return_value=context)
+    )
+    repository = Mock(spec=DataRightsOrderRepository)
+    repository.find_existing.return_value = None
+    deletion = Mock(spec=LocalDataDeletionExecutor)
+    deletion.preview_in.return_value = DataRightsDeletionPreview(
+        party, Digest.from_bytes(b"changed"), ()
+    )
+    service = object.__new__(DataRightsOrderService)
+    service._uow_factory = cast(Any, factory)
+    service._repository = repository
+    service._deletion = deletion
+    service._creator_party_id = party
+    service._parties = cast(
+        Any, SimpleNamespace(creator_party=AsyncMock(return_value=party))
+    )
+    with pytest.raises(DataRightsViolation) as error:
+        await service._record_request(
+            requester_kind=DataRightsRequesterKind.CREATOR,
+            party_key=None,
+            command=DataRightsOrderCommand(
+                DataRightsOrderKind.DELETE_RELATED,
+                IdempotencyKey("stale-delete"),
+                TraceId(uuid7().hex),
+                Digest.from_bytes(b"approved"),
+            ),
+            requester_party_id=party,
+        )
+    assert error.value.code == "DATA-RIGHTS-PREVIEW-STALE"
+    repository.advance_fence.assert_not_called()
+    repository.insert.assert_not_called()
+    deletion.prepare_in.assert_not_called()
+    preview = await service.preview_deletion(None)
+    assert preview.party_id == party
+    assert factory.unit_of_work.call_args.kwargs["read_only"] is True
 
 
 def test_delete_related_tracks_pending_and_terminal_s015_execution() -> None:

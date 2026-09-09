@@ -117,6 +117,7 @@ class AdminConfig(BaseModel):
     template_manifest: Path | None = None
     postgresql_client_root: Path | None = None
     runtime_defaults_path: Path | None = None
+    creator_web_resources: Path | None = None
     postgresql_control: PostgreSQLControlBinding | None = None
     postgresql_version: Literal["18.4"] = "18.4"
     database_locator: LocatorValue = Field(title="Database Locator")
@@ -184,6 +185,7 @@ class AdminConfig(BaseModel):
         "template_manifest",
         "postgresql_client_root",
         "runtime_defaults_path",
+        "creator_web_resources",
         mode="before",
     )
     @classmethod
@@ -277,6 +279,9 @@ class AdminConfig(BaseModel):
             "expected": self.expected.model_dump(mode="json"),
             "logging": self.logging.model_dump(mode="json"),
             "runtime_defaults_identity": _path_identity(self.runtime_defaults_path),
+            "creator_web_resources_identity": _path_identity(
+                self.creator_web_resources
+            ),
             "postgresql_control": self.postgresql_control.model_dump(mode="json")
             if self.postgresql_control is not None
             else None,

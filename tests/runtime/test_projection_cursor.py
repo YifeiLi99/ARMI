@@ -66,8 +66,10 @@ def _resign(
 def test_cursor_rejects_signature_and_authenticated_field_shape_changes() -> None:
     codec = ProjectionCursorCodec(_KEY, uuid7(), uuid7())
     cursor = _encode(codec)
+    prefix, signature = cursor.value.rsplit(".", 1)
+    changed = ("A" if signature[0] != "A" else "B") + signature[1:]
     with pytest.raises(ProjectionCursorInvalid):
-        _decode(codec, OpaqueCursor(cursor.value[:-1] + "A"))
+        _decode(codec, OpaqueCursor(prefix + "." + changed))
     with pytest.raises(ProjectionCursorInvalid):
         _decode(codec, _resign(cursor, lambda value: value.pop("boundary")))
     with pytest.raises(ProjectionCursorInvalid):

@@ -830,6 +830,11 @@ class _CreatorExport:
 
 
 class _DataRightsOrders:
+    async def preview_deletion(self, party_key: Any) -> Any:
+        raise AssertionError(
+            "browser use cases do not use administrative deletion previews"
+        )
+
     def __init__(self, other_party_id: UUID) -> None:
         self.other_party_id = other_party_id
         self.results: dict[UUID, DataRightsOrderResult] = {}
@@ -1512,6 +1517,36 @@ class CreatorRuntimeAppTests(unittest.TestCase):
         self.assertEqual(invalid.status_code, 400)
         self.assertEqual(wrong_origin.status_code, 403)
         self.assertEqual(len(self.creator_export.commands), 1)
+
+    def test_delegate_deletion_requires_specific_authorization_before_owner_call(self):
+        import asyncio
+
+        from armi_runtime.application.creator_calls import CreatorActor, CreatorCall
+        from armi_runtime.application.creator_governance import (
+            create_governance_use_cases,
+        )
+
+        use_cases = create_governance_use_cases(
+            emit=lambda _: None,
+            capability_policy=None,
+            creator_events=None,
+            creator_export=None,
+            data_rights=self.data_rights,
+        )
+        result = asyncio.run(
+            use_cases["data_rights_request"](
+                CreatorCall(
+                    actor=CreatorActor(UUID(CREATOR_ID), "default", uuid7()),
+                    input={"contract_version": "1.0", "order_kind": "delete_related"},
+                    idempotency_key="unapproved-delete",
+                )
+            )
+        )
+        self.assertEqual(result.status_code, 403)
+        self.assertEqual(
+            cast(dict[str, object], result.payload["error"])["code"],
+            "AUTH_DELETION_APPROVAL_REQUIRED",
+        )
 
     def test_creator_data_rights_is_session_bound_and_local_other_http_is_absent(
         self,

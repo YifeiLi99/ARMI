@@ -122,6 +122,19 @@
       "title": "Authorized Operations",
       "type": "array"
     },
+    "creator_web_resources": {
+      "anyOf": [
+        {
+          "format": "path",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Creator Web Resources"
+    },
     "database_locator": {
       "title": "Database Locator",
       "type": "string"

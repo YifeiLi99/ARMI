@@ -24,6 +24,15 @@ from pptx import Presentation
 
 
 class ExternalContentExtractorTests(unittest.TestCase):
+    def test_unsupported_file_is_not_a_successful_placeholder(self) -> None:
+        with self.assertRaises(ExternalMessageViolation) as error:
+            extract_external_content(
+                kind=ExternalMessagePartKind.FILE,
+                content=b"unsupported local attachment",
+                file_name="unsupported.bin",
+            )
+        self.assertEqual(error.exception.code, "EXTERNAL-MESSAGE-FILE-UNSUPPORTED")
+
     def test_detects_supported_static_formats_and_ignores_claimed_extension(
         self,
     ) -> None:

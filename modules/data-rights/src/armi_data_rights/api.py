@@ -52,6 +52,7 @@ from ._participant_contract import (
     EmptyDataRightsParticipant,
 )
 from ._rights_contract import (
+    DataRightsDeletionPreview,
     DataRightsExecutionStatus,
     DataRightsItemStatus,
     DataRightsOrderCommand,
@@ -212,6 +213,7 @@ __all__ = (
     "DataRightsCognitionGate",
     "DataRightsContentField",
     "DataRightsContributionVersion",
+    "DataRightsDeletionPreview",
     "DataRightsDiscoveryContribution",
     "DataRightsDiscoveryRequest",
     "DataRightsEffectGate",

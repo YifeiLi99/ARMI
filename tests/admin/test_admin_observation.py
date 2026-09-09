@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any, cast
+from unittest.mock import Mock
 from uuid import UUID, uuid7
 
 import pytest
@@ -12,8 +14,10 @@ from armi_admin.persistence.runtime_foundation import (
     RuntimeFoundationAdminAdapter,
 )
 from armi_artifact_store.api import ArtifactAdminPort, ArtifactAdminSnapshot
+from armi_attention.api import OpportunityAdminPort
 from armi_cognition.api import CognitionAdminPort
 from armi_effect.api import EffectAdminPort
+from armi_evidence.api import EvidenceAdminPort
 from armi_expression.api import ExpressionAdminPort
 from armi_interaction.api import InteractionAdminPort
 from armi_kernel.application import (
@@ -48,6 +52,139 @@ class _Materials:
     ) -> MaterialAdminSnapshot:
         del transaction, subject_id
         return self._snapshot
+
+
+def test_trace_connects_input_context_commit_effect_and_delivery_without_private_bytes():
+    ids = {
+        name: uuid7()
+        for name in (
+            "input",
+            "evidence",
+            "opportunity",
+            "episode",
+            "operation",
+            "intent",
+            "effect",
+            "outbox",
+            "delivery",
+            "commit",
+            "manifest",
+            "compiled",
+            "material",
+        )
+    }
+    ports = {
+        name: Mock()
+        for name in (
+            "runtime",
+            "artifacts",
+            "cognition",
+            "effects",
+            "expression",
+            "interaction",
+            "materials",
+            "mood",
+            "subject_state",
+            "evidence",
+            "opportunity",
+        )
+    }
+    ports["interaction"].input_snapshot.return_value = SimpleNamespace(
+        interaction_id=ids["input"]
+    )
+    evidence = SimpleNamespace(
+        evidence_id=ids["evidence"],
+        interaction_id=ids["input"],
+        artifact_id=ids["material"],
+    )
+    ports["evidence"].snapshot.return_value = evidence
+    ports["evidence"].snapshot_for_interaction.return_value = evidence
+    opportunity = SimpleNamespace(
+        opportunity_id=ids["opportunity"], evidence_id=ids["evidence"]
+    )
+    ports["opportunity"].snapshot.return_value = opportunity
+    ports["opportunity"].snapshot_for_evidence.return_value = opportunity
+    episode = SimpleNamespace(
+        episode_id=ids["episode"],
+        opportunity_id=ids["opportunity"],
+        status="completed",
+        context_manifest_artifact_id=ids["manifest"],
+        compiled_context_artifact_id=ids["compiled"],
+    )
+    ports["cognition"].episode.return_value = episode
+    ports["cognition"].episode_for_opportunity.return_value = episode
+    ports["cognition"].inspect_ids.return_value = (ids["episode"],)
+    intent = SimpleNamespace(
+        operation_ref=ids["operation"],
+        root_opportunity_id=ids["opportunity"],
+        action_intent_id=ids["intent"],
+    )
+    ports["expression"].operation.return_value = intent
+    ports["expression"].intent.return_value = intent
+    effect = SimpleNamespace(
+        effect_id=ids["effect"],
+        status="completed",
+        action_intent_id=ids["intent"],
+        outbox_id=ids["outbox"],
+        delivery_id=ids["delivery"],
+        receipt_digest="sha256:" + "1" * 64,
+    )
+    ports["effects"].snapshot.return_value = effect
+    ports["effects"].for_intent.return_value = (effect,)
+    ports["runtime"].commits_for_episode.return_value = ((ids["commit"], 2),)
+    gateway = AdminObservationGateway(
+        factory=cast(PostgreSQLAdminUnitOfWorkFactory, _Factory()), **ports
+    )
+    graph = gateway.trace_flow(
+        ("interaction_id", str(ids["input"])), limit=100, cursor=None
+    )
+    nodes = cast(list[dict[str, Any]], graph["nodes"])
+    assert {node["kind"] for node in nodes} >= {
+        "input",
+        "evidence",
+        "opportunity",
+        "episode",
+        "artifact",
+        "subject_commit",
+        "operation",
+        "effect",
+        "outbox",
+        "delivery",
+    }
+    assert len(nodes) == len({(node["kind"], node["id"]) for node in nodes})
+    ports["runtime"].audit_trace.return_value = (
+        (
+            "opportunity",
+            ids["opportunity"],
+            "creator.input.accepted",
+            "accepted",
+            datetime.now(UTC),
+        ),
+    )
+    from_audit = gateway.trace_flow(("trace_id", "1" * 32), limit=100, cursor=None)
+    assert {
+        node["kind"] for node in cast(list[dict[str, Any]], from_audit["nodes"])
+    } >= {
+        "audit_event",
+        "input",
+        "episode",
+        "effect",
+        "subject_commit",
+        "delivery",
+    }
+    ports["artifacts"].read_verified_bytes.assert_not_called()
+    scope = gateway.inspect_scope(
+        "episode",
+        (str(ids["episode"]),),
+        relations=("direct_dependencies",),
+        limit=100,
+        cursor=None,
+    )
+    assert scope["edges"]
+    assert all(
+        edge["source"]["id"] == str(ids["episode"])
+        for edge in cast(list[dict[str, Any]], scope["edges"])
+    )
 
 
 class _BrokenMaterials:
@@ -141,6 +278,8 @@ def test_diagnostics_verify_artifacts_outside_database_transaction():
         artifacts=cast(ArtifactAdminPort, Artifacts()),
         cognition=cast(CognitionAdminPort, object()),
         effects=cast(EffectAdminPort, object()),
+        evidence=cast(EvidenceAdminPort, object()),
+        opportunity=cast(OpportunityAdminPort, object()),
         expression=cast(ExpressionAdminPort, object()),
         interaction=cast(InteractionAdminPort, object()),
         materials=cast(MaterialAdminReadPort, object()),
@@ -192,6 +331,8 @@ class _Observation(AdminObservationGateway):
             artifacts=cast(ArtifactAdminPort, object()),
             cognition=cast(CognitionAdminPort, object()),
             effects=cast(EffectAdminPort, object()),
+            evidence=cast(EvidenceAdminPort, object()),
+            opportunity=cast(OpportunityAdminPort, object()),
             expression=cast(ExpressionAdminPort, object()),
             interaction=cast(InteractionAdminPort, object()),
             materials=cast(MaterialAdminReadPort, materials),

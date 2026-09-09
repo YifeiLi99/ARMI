@@ -107,6 +107,7 @@ class SubjectSnapshotRequest(EnvironmentRequest):
 
 
 class TraceFlowRequest(EnvironmentRequest):
+    interaction_id: str | None = None
     operation_id: str | None = None
     episode_id: str | None = None
     effect_id: str | None = None
@@ -116,10 +117,16 @@ class TraceFlowRequest(EnvironmentRequest):
 
     @model_validator(mode="after")
     def _exact_selector(self) -> Self:
-        values = (self.operation_id, self.episode_id, self.effect_id, self.trace_id)
+        values = (
+            self.interaction_id,
+            self.operation_id,
+            self.episode_id,
+            self.effect_id,
+            self.trace_id,
+        )
         if sum(value is not None for value in values) != 1:
             raise ValueError("ADMIN-INPUT-TRACE-SELECTOR")
-        for value in values[:3]:
+        for value in values[:-1]:
             if value is not None:
                 _uuid7(value)
         return self
@@ -226,6 +233,11 @@ class OtherHumanRequest(OperationRequest):
     def _write_key(self) -> Self:
         if not self.read_only and self.idempotency_key is None:
             raise ValueError("ADMIN-IDEMPOTENCY-REQUIRED")
+        if (
+            self.command.action == "data_rights_request"
+            and self.command.order_kind == "delete_related"
+        ):
+            raise ValueError("ADMIN-SPECIFIC-AUTHORIZATION-REQUIRED")
         return self
 
 
@@ -243,6 +255,17 @@ class MaintenanceRequest(OperationRequest, MaintenanceParameters):
 
 class EnvironmentResetPreviewRequest(OperationRequest):
     pass
+
+
+class DataDeletionPreviewRequest(OperationRequest):
+    party_key: str | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9._-]{0,63}$")
+
+
+class DataDeletionApplyRequest(MutationRequest):
+    party_key: str | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9._-]{0,63}$")
+    scope_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    authorization_id: str
+    _authorization_id = field_validator("authorization_id")(_uuid7)
 
 
 class EnvironmentResetRequest(MutationRequest):
@@ -483,7 +506,9 @@ ObservationRequest = (
     | CorrectionStatusRequest
 )
 AdminMutationRequest = (
-    OtherHumanRequest
+    DataDeletionPreviewRequest
+    | DataDeletionApplyRequest
+    | OtherHumanRequest
     | MaintenanceRequest
     | EnvironmentInitializeRequest
     | EnvironmentResetPreviewRequest
@@ -507,6 +532,8 @@ __all__ = (
     "ClearFaultsRequest",
     "CorrectionSpec",
     "CorrectionStatusRequest",
+    "DataDeletionApplyRequest",
+    "DataDeletionPreviewRequest",
     "DeleteUncommittedCreatorInputSpec",
     "EnvironmentInitializeRequest",
     "EnvironmentRequest",

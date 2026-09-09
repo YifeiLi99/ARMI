@@ -177,6 +177,7 @@ _GATE_DEPENDENCIES = {
     "WHEEL-INSTALL": ("BUILD-PY",),
     "BROWSER-CONTRACT": ("BUILD-WEB",),
     "CREATOR-SYSTEM": ("WHEEL-INSTALL",),
+    "PG-INTEGRATION": ("WHEEL-INSTALL",),
 }
 
 
@@ -566,7 +567,8 @@ def commands(root: Path, tool_root: Path, jobs: int) -> dict[str, Gate]:
         ),
         "PG-INTEGRATION": Gate(
             "PG-INTEGRATION",
-            py(
+            (
+                str(wheel_venv / "Scripts/python.exe"),
                 "-B",
                 "tools/run_postgresql_integration.py",
                 "--root",
@@ -575,7 +577,10 @@ def commands(root: Path, tool_root: Path, jobs: int) -> dict[str, Gate]:
                 str(min(4, jobs)),
             ),
             root,
-            (venv_python, root / "tools/run_postgresql_integration.py"),
+            (
+                wheel_venv / "Scripts/python.exe",
+                root / "tools/run_postgresql_integration.py",
+            ),
             blocked_exit_codes=(2,),
             workers=min(4, jobs),
         ),

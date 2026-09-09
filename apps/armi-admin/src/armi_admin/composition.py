@@ -83,6 +83,8 @@ def bootstrap_admin(
             artifacts=artifacts,
             cognition=cognition,
             effects=effects,
+            evidence=evidence,
+            opportunity=opportunity,
             expression=expression,
             interaction=interaction,
             materials=materials,

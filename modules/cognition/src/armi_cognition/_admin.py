@@ -25,7 +25,7 @@ class PostgreSQLCognitionAdmin:
         self, transaction: PostgreSQLAdminTransaction, *, episode_id: UUID
     ) -> CognitionAdminEpisodeSnapshot | None:
         row = transaction.execute(
-            "SELECT cognitive_episode_id,opportunity_id,status,trace_id,prepared_at FROM armi.cognitive_episodes WHERE cognitive_episode_id=%s",
+            "SELECT cognitive_episode_id,opportunity_id,status,trace_id,prepared_at,context_manifest_artifact_id,compiled_context_artifact_id FROM armi.cognitive_episodes WHERE cognitive_episode_id=%s",
             (episode_id,),
         ).fetchone()
         return (
@@ -37,7 +37,22 @@ class PostgreSQLCognitionAdmin:
                 str(row[2]),
                 str(row[3]),
                 cast(datetime | None, row[4]),
+                cast(UUID | None, row[5]),
+                cast(UUID | None, row[6]),
             )
+        )
+
+    def episode_for_opportunity(
+        self, transaction: PostgreSQLAdminTransaction, *, opportunity_id: UUID
+    ) -> CognitionAdminEpisodeSnapshot | None:
+        row = transaction.execute(
+            "SELECT cognitive_episode_id FROM armi.cognitive_episodes WHERE opportunity_id=%s",
+            (opportunity_id,),
+        ).fetchone()
+        return (
+            None
+            if row is None
+            else self.episode(transaction, episode_id=cast(UUID, row[0]))
         )
 
     def inspect_ids(

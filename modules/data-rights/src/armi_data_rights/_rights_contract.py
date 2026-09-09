@@ -13,6 +13,7 @@ from ._participant_contract import (
     DATA_RIGHTS_ACTIONS,
     DATA_RIGHTS_RETENTION_REASONS,
     DATA_RIGHTS_TARGET_KINDS,
+    DataRightsTargetRef,
 )
 
 
@@ -68,12 +69,25 @@ class DataRightsOrderCommand:
     order_kind: DataRightsOrderKind
     idempotency_key: IdempotencyKey
     trace_id: TraceId
+    expected_scope_digest: Digest | None = None
+    delegate_id: UUID | None = None
 
     def __post_init__(self) -> None:
+        if self.delegate_id is not None and (
+            type(self.delegate_id) is not UUID or self.delegate_id.version != 7
+        ):
+            raise DataRightsViolation("DATA-RIGHTS-COMMAND")
         if (
             type(self.order_kind) is not DataRightsOrderKind
             or type(self.idempotency_key) is not IdempotencyKey
             or type(self.trace_id) is not TraceId
+            or (
+                self.expected_scope_digest is not None
+                and (
+                    type(self.expected_scope_digest) is not Digest
+                    or self.order_kind is not DataRightsOrderKind.DELETE_RELATED
+                )
+            )
         ):
             raise DataRightsViolation("DATA-RIGHTS-COMMAND")
 
@@ -195,8 +209,19 @@ class DataRightsOrderDetail:
             raise DataRightsViolation("DATA-RIGHTS-DETAIL")
 
 
+@dataclass(frozen=True, slots=True)
+class DataRightsDeletionPreview:
+    party_id: UUID
+    scope_digest: Digest
+    targets: tuple[DataRightsTargetRef, ...]
+
+
 @runtime_checkable
 class DataRightsOrderPort(Protocol):
+    async def preview_deletion(
+        self, party_key: DataRightsPartyKey | None
+    ) -> DataRightsDeletionPreview: ...
+
     async def request_creator(
         self, command: DataRightsOrderCommand
     ) -> DataRightsOrderResult: ...
@@ -240,6 +265,7 @@ class DataRightsOrderPort(Protocol):
 
 
 __all__ = (
+    "DataRightsDeletionPreview",
     "DataRightsExecutionStatus",
     "DataRightsItemStatus",
     "DataRightsOrderCommand",

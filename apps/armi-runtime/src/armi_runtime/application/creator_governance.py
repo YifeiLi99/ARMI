@@ -78,6 +78,7 @@ def create_governance_use_cases(
                     directory_name=body.directory_name,
                     idempotency_key=idempotency_key,
                     trace_id=TraceId(secrets.token_hex(16)),
+                    delegate_id=call.actor.delegate_id,
                 )
             )
         except CreatorExportViolation as error:
@@ -144,11 +145,20 @@ def create_governance_use_cases(
             except ContractViolation:
                 raise DataRightsViolation("DATA-RIGHTS-COMMAND") from None
             body = await _data_rights_request(call)
+            if (
+                body.order_kind == "delete_related"
+                and call.actor.delegate_id is not None
+            ):
+                return creator_result(
+                    status_code=403,
+                    content=_rejected("AUTH_DELETION_APPROVAL_REQUIRED"),
+                )
             result = await data_rights.request_creator(
                 DataRightsOrderCommand(
                     DataRightsOrderKind(body.order_kind),
                     idempotency_key,
                     TraceId(secrets.token_hex(16)),
+                    delegate_id=call.actor.delegate_id,
                 )
             )
         except DataRightsViolation as error:
@@ -343,6 +353,7 @@ def create_governance_use_cases(
                 body.max_uses,
                 body.max_payload_bytes,
                 body.reason_code,
+                delegate_id=call.actor.delegate_id,
             )
             result = await capability_policy.decide(command)
         except (CapabilityViolation, ValueError) as error:

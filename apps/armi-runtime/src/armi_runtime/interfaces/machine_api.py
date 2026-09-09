@@ -36,6 +36,11 @@ from armi_runtime.application.interaction_catalog import (
     InteractionRoute,
     interaction_routes,
 )
+from armi_runtime.application.media_uploads import (
+    UPLOAD_REQUESTS,
+    MediaUploads,
+    invoke_upload,
+)
 
 from .bounded_http import read_bounded_body
 from .creator_http import _strict_object_pairs
@@ -55,6 +60,7 @@ def _handler(
     commands: CreatorCommands,
     system: CreatorSystem,
     use_cases: Mapping[str, CreatorUseCase],
+    uploads: MediaUploads | None,
 ) -> Callable[[InteractionInvocation], Awaitable[InteractionResult]]:
     validator = Draft202012Validator(dict(route.operation.input_schema))
 
@@ -67,6 +73,8 @@ def _handler(
             return InteractionResult(
                 "rejected", {"error_code": "INTERACTION-ARGUMENTS"}, 400
             )
+        if call.operation in UPLOAD_REQUESTS:
+            return await invoke_upload(uploads, call)
         if call.operation in COMMAND_NAMES:
             return await invoke_command(commands, call)
         if call.operation in SYSTEM_COMMANDS:
@@ -97,10 +105,13 @@ def register_machine_api(
     environment_id: UUID,
     creator_party_id: UUID,
     maximum_bytes: int,
+    uploads: MediaUploads | None = None,
 ) -> None:
     application = InteractionApplication()
     routes = interaction_routes()
-    implemented = COMMAND_NAMES | SYSTEM_COMMANDS | use_cases.keys()
+    implemented = (
+        COMMAND_NAMES | SYSTEM_COMMANDS | use_cases.keys() | UPLOAD_REQUESTS.keys()
+    )
     if frozenset(route.operation.name for route in routes) != implemented:
         raise ValueError("INTERACTION-APPLICATION-COVERAGE")
     for route in routes:
@@ -111,6 +122,7 @@ def register_machine_api(
                 commands,
                 system,
                 use_cases,
+                uploads,
             ),
         )
 

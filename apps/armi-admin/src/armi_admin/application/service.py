@@ -56,6 +56,8 @@ from .contracts import (
     AuthorizationGetRequest,
     ConfigurationRequest,
     CorrectionStatusRequest,
+    DataDeletionApplyRequest,
+    DataDeletionPreviewRequest,
     EnvironmentInitializeRequest,
     EnvironmentLifecycleRequest,
     EnvironmentResetRequest,
@@ -96,6 +98,8 @@ ObservationToolName = Literal[
     "trace_flow",
 ]
 MutationToolName = Literal[
+    "data_deletion_preview",
+    "data_deletion_apply",
     "other_human",
     "maintenance",
     "apply_correction",
@@ -156,6 +160,47 @@ class AdminToolService:
     def capabilities(self) -> AdminToolResult[dict[str, Any]]:
         from .catalog import ADMIN_OPERATIONS
 
+        try:
+            runtime_status = self._control.runtime_status().get("status", "unknown")
+        except AdminControlError, RuntimeViolation, OSError, ValueError:
+            runtime_status = "unknown"
+        runtime_required = {
+            "inject_creator_input",
+            "arm_fault",
+            "clear_faults",
+            "other_human",
+            "data_deletion_preview",
+            "data_deletion_apply",
+            "runtime_drain",
+        }
+
+        def authorized(name: str) -> bool:
+            return (
+                name == "capabilities"
+                or name in self._config.authorized_operations
+                or any(
+                    scope.startswith(name + ".")
+                    for scope in self._config.authorized_operations
+                )
+            )
+
+        def unavailable(name: str) -> str | None:
+            if not authorized(name):
+                return "scope_not_granted"
+            if (
+                name in {"arm_fault", "clear_faults", "inject_creator_input"}
+                and not self._config.test_controls_enabled
+            ):
+                return "test_controls_disabled"
+            if name in runtime_required and runtime_status != "running":
+                return "runtime_" + str(runtime_status)
+            if (
+                name == "data_deletion_apply"
+                and self._config.authorization_public_key is None
+            ):
+                return "authorization_not_configured"
+            return None
+
         return self._tool_success(
             datetime.now(UTC),
             {
@@ -164,6 +209,8 @@ class AdminToolService:
                 "operator_id": self._config.operator_id,
                 "package_set_digest": self._config.expected.package_set_digest,
                 "authorized_operations": list(self._config.authorized_operations),
+                "runtime_status": runtime_status,
+                "database_status": "not_checked",
                 "operations": [
                     {
                         "name": operation.name,
@@ -172,19 +219,14 @@ class AdminToolService:
                         "result_schema": operation.result.model_json_schema(),
                         "read_only": operation.read_only,
                         "destructive": operation.destructive,
-                        "authorized": operation.name == "capabilities"
-                        or operation.name in self._config.authorized_operations
-                        or any(
-                            scope.startswith(operation.name + ".")
-                            for scope in self._config.authorized_operations
-                        ),
-                        "requires_runtime": operation.name
-                        in {"inject_creator_input", "arm_fault", "clear_faults"},
-                        "unavailable_reason": "test_controls_disabled"
-                        if operation.name
-                        in {"arm_fault", "clear_faults", "inject_creator_input"}
-                        and not self._config.test_controls_enabled
-                        else None,
+                        "conditional_scopes": {
+                            "detail=private": "subject_snapshot.private"
+                        }
+                        if operation.name == "subject_snapshot"
+                        else {},
+                        "authorized": authorized(operation.name),
+                        "requires_runtime": operation.name in runtime_required,
+                        "unavailable_reason": unavailable(operation.name),
                     }
                     for operation in ADMIN_OPERATIONS
                 ],
@@ -443,9 +485,24 @@ class AdminToolService:
             incarnation=self._config.environment_incarnation,
             defaults_path=self._config.runtime_defaults_path or runtime_defaults_file(),
             postgresql=self._config.postgresql_control,
+            creator_web_resources=self._config.creator_web_resources,
+            database_probe=self._database_probe,
             progress=invocation_progress,
             expected_instance_id=expected_instance_id,
         )
+
+    def _database_probe(self) -> dict[str, Any]:
+        health = self.health(HealthRequest())
+        payload = health.result
+        return {
+            "reachability": "reachable"
+            if payload is not None and payload.database_reachable
+            else "unavailable"
+            if health.error_code != "ADMIN-SCOPE-REQUIRED"
+            else "not_authorized",
+            "error_code": health.error_code,
+            "role_status": None if payload is None else payload.role_status,
+        }
 
     def health(self, request: HealthRequest) -> HealthResult:
         del request
@@ -562,6 +619,14 @@ class AdminToolService:
         started = datetime.now(UTC)
         if name not in self._config.authorized_operations:
             return self._tool_failure(started, "rejected", "ADMIN-SCOPE-REQUIRED")
+        if (
+            name == "subject_snapshot"
+            and cast(SubjectSnapshotRequest, request).detail == "private"
+            and "subject_snapshot.private" not in self._config.authorized_operations
+        ):
+            return self._tool_failure(
+                started, "rejected", "ADMIN-PRIVATE-SCOPE-REQUIRED"
+            )
         if self._requires_reload:
             return self._tool_failure(
                 started, "conflict", "ADMIN-CONFIG-RELOAD-REQUIRED"
@@ -633,6 +698,7 @@ class AdminToolService:
                     selector = next(
                         (key, value)
                         for key in (
+                            "interaction_id",
                             "operation_id",
                             "episode_id",
                             "effect_id",
@@ -850,7 +916,11 @@ class AdminToolService:
             return self._tool_failure(started, "rejected", "ADMIN-ENVIRONMENT-MISMATCH")
         if request.purpose != f"admin.{name}":
             return self._tool_failure(started, "rejected", "ADMIN-PURPOSE")
-        if name in {"environment_reset_preview", "preview_correction"} or (
+        if name in {
+            "environment_reset_preview",
+            "preview_correction",
+            "data_deletion_preview",
+        } or (
             isinstance(request, (MaintenanceRequest, OtherHumanRequest))
             and request.read_only
         ):
@@ -925,7 +995,46 @@ class AdminToolService:
                 started, "conflict", "ADMIN-CONFIG-RELOAD-REQUIRED"
             )
         try:
-            if name == "other_human":
+            if name in {"data_deletion_preview", "data_deletion_apply"}:
+                deletion = cast(
+                    DataDeletionPreviewRequest | DataDeletionApplyRequest, request
+                )
+                arguments: dict[str, JsonValue] = {"party_key": deletion.party_key}
+                if isinstance(deletion, DataDeletionApplyRequest):
+                    arguments["scope_digest"] = deletion.scope_digest
+                    AuthorizationStore(self._config, self._credentials).consume(
+                        deletion.authorization_id,
+                        operation=name,
+                        arguments=arguments,
+                        invocation_key=deletion.idempotency_key,
+                    )
+                    arguments["idempotency_key"] = deletion.idempotency_key
+                result = self._control.send_control(
+                    "data_deletion",
+                    {
+                        "action": "apply"
+                        if isinstance(deletion, DataDeletionApplyRequest)
+                        else "preview",
+                        **arguments,
+                    },
+                )["result"]
+                if isinstance(deletion, DataDeletionPreviewRequest):
+                    result["authorization_request"] = (
+                        None
+                        if self._config.authorization_public_key is None
+                        else AuthorizationStore(
+                            self._config, self._credentials
+                        ).prepare(
+                            "data_deletion_apply",
+                            {
+                                "party_key": deletion.party_key,
+                                "scope_digest": result["scope_digest"],
+                            },
+                            result,
+                        )
+                    )
+                    result["authorization_required"] = True
+            elif name == "other_human":
                 typed_other = cast(OtherHumanRequest, request)
                 action = typed_other.command.action
                 if action == "message_send":
@@ -937,7 +1046,7 @@ class AdminToolService:
                     payload["idempotency_key"] = request.idempotency_key
                 result = self._control.send_control(
                     "other_human", {"action": action, "payload": payload}
-                )
+                )["result"]
             elif name == "maintenance":
                 typed_maintenance = cast(MaintenanceRequest, request)
                 invocation = MaintenanceInvocation.model_validate(
@@ -1050,6 +1159,8 @@ class AdminToolService:
                 result = self._corrections.settle_side_work(
                     str(typed_settle.side_work_id)
                 )
+            else:
+                raise ValueError("ADMIN-OPERATION-UNKNOWN")
             if name == "environment_reset_preview" or (
                 isinstance(request, PreviewCorrectionRequest)
                 and request.spec.correction_kind

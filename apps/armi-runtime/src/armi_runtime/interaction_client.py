@@ -79,6 +79,58 @@ def interaction_failure(error: Exception) -> dict[str, Any]:
 
 
 class InteractionClient:
+    async def import_media(
+        self, path: Path, *, idempotency_key: str, media_type: str | None = None
+    ) -> dict[str, Any]:
+        import mimetypes
+
+        from .application.media_uploads import UploadDeclaration
+
+        with path.open("rb") as stream:
+            size = os.fstat(stream.fileno()).st_size
+            if not 1 <= size <= 45 * 1024 * 1024:
+                raise ValueError("UPLOAD-SIZE")
+            digest = "sha256:" + hashlib.file_digest(stream, "sha256").hexdigest()
+            declaration = UploadDeclaration(
+                file_name=path.name,
+                byte_size=size,
+                content_digest=digest,
+                media_type=media_type
+                or mimetypes.guess_file_type(path)[0]
+                or "application/octet-stream",
+            )
+            outcome = await self.invoke(
+                "upload_begin",
+                {
+                    **declaration.model_dump(),
+                    "idempotency_key": idempotency_key,
+                },
+            )
+            if outcome.get("transport_status", 200) >= 400:
+                return outcome
+            record = outcome["result"]
+            if record["state"] == "cancelled":
+                return outcome
+            while record["state"] == "receiving" and record["received_bytes"] < size:
+                stream.seek(record["received_bytes"])
+                content = stream.read(min(128 * 1024, size - record["received_bytes"]))
+                if not content:
+                    raise ValueError("UPLOAD-FILE-CHANGED")
+                outcome = await self.invoke(
+                    "upload_append",
+                    {
+                        "upload_id": record["upload_id"],
+                        "offset": record["received_bytes"],
+                        "content": base64.b64encode(content).decode("ascii"),
+                    },
+                )
+                if outcome.get("transport_status", 200) >= 400:
+                    return outcome
+                record = outcome["result"]
+            return await self.invoke(
+                "upload_complete", {"upload_id": record["upload_id"]}
+            )
+
     def __init__(
         self,
         binding: InteractionClientBinding,
@@ -231,7 +283,14 @@ class InteractionClient:
             if (
                 result["transport_status"] >= 400
                 or outcome.get("status")
-                in {"completed", "failed", "unknown", "rejected", "unavailable"}
+                in {
+                    "completed",
+                    "partial",
+                    "failed",
+                    "unknown",
+                    "rejected",
+                    "unavailable",
+                }
                 or stage in _STOP_STAGES
             ):
                 result["wait_status"] = "returned"

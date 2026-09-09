@@ -53,6 +53,7 @@ from ._creator_postgresql import (
     CreatorInputRepository,
 )
 from ._dependencies import NullInteractionWakeup
+from ._media_contract import CreatorMediaCommand, CreatorMediaStatus
 from ._scene_contract import SceneKey
 from .api import (
     CreatorInputWakePort,
@@ -126,6 +127,106 @@ class EvidenceAcceptanceTransaction(CreatorInputAcceptancePort):
         self._wakeups = wakeups or NullInteractionWakeup()
         self._diagnostic = diagnostic or _ignore_diagnostic
         self._fault_injector = fault_injector or _ignore_diagnostic
+
+    async def accept_media(self, command: CreatorMediaCommand) -> UUID:
+        try:
+            return await self._accept_media(command)
+        except RuntimeTransactionFailure as error:
+            code = (
+                "DB-INPUT-COMMIT-UNKNOWN"
+                if error.code == "DB-TX-COMMIT-UNKNOWN"
+                else "DB-INPUT-UNAVAILABLE"
+            )
+            raise CreatorInputViolation(code) from None
+        except AuditViolation:
+            raise CreatorInputViolation("DB-INPUT-AUDIT") from None
+        except ArtifactViolation:
+            raise CreatorInputViolation("ART-INPUT-CATALOG") from None
+
+    async def _accept_media(self, command: CreatorMediaCommand) -> UUID:
+        context = await self._read_context(command.scene_key)
+        digest = Digest.from_bytes(
+            rfc8785.dumps(
+                {
+                    "environment_id": str(self._uow_factory.environment_id),
+                    "scene_id": str(context.scene_id),
+                    "creator_party_id": str(self._creator_party_id),
+                    "delegate_id": str(command.delegate_id),
+                    "message": command.message,
+                    "attachments": [
+                        {
+                            "artifact_id": str(part.artifact_id),
+                            "file_name": part.file_name,
+                            "media_type": part.media_type,
+                            "byte_size": part.byte_size,
+                            "content_digest": part.content_digest.value,
+                            "kind": part.kind,
+                        }
+                        for part in command.attachments
+                    ],
+                }
+            )
+        )
+        async with (
+            self._outreach_custody(context.scene_id),
+            self._uow_factory.unit_of_work() as unit,
+        ):
+            await self._repository.lock_scene(unit, scene_id=context.scene_id)
+            current = await self._repository.context(
+                unit,
+                scene_key=command.scene_key,
+                creator_party_id=self._creator_party_id,
+            )
+            if current != context:
+                raise CreatorInputViolation("SCOPE-SCENE-NOT-VISIBLE")
+            if await self._data_rights.blocks_new_interaction(
+                unit, self._creator_party_id
+            ):
+                raise CreatorInputViolation("SCOPE-DATA-RIGHTS-BLOCKED")
+            existing = await self._repository.existing_media(
+                unit, context=context, command=command, digest=digest
+            )
+            if existing is not None:
+                return existing
+            for part in command.attachments:
+                ref = await self._catalog.get(unit, ArtifactId(part.artifact_id))
+                if (
+                    ref.content_digest != part.content_digest
+                    or ref.byte_size != part.byte_size
+                    or ref.media_type != part.media_type
+                    or ref.logical_kind != "creator.input.media"
+                    or ref.privacy_scope is not ArtifactPrivacyScope.CREATOR_VISIBLE
+                ):
+                    raise CreatorInputViolation("ART-INPUT-ATTACHMENT")
+            interaction_id = await self._repository.create_media(
+                unit, context=context, command=command, digest=digest
+            )
+            await self._maintenance_wake.register_creator_input(
+                unit, source_ref=interaction_id
+            )
+            await unit.audit.append(
+                AuditDraft(
+                    AuditEventId(uuid7()),
+                    AuditReference("creator_delegate", command.delegate_id),
+                    Purpose("creator.input"),
+                    "creator.media.accepted",
+                    AuditReference("creator_input", interaction_id),
+                    AuditResultStatus.ACCEPTED,
+                    command.trace_id,
+                    sensitivity=AuditSensitivity.PRIVATE,
+                    subject_id=SubjectId(context.subject_id),
+                )
+            )
+        self._wakeups.notify("external.content")
+        return interaction_id
+
+    async def media_status(self, interaction_id: UUID) -> CreatorMediaStatus | None:
+        async with self._uow_factory.unit_of_work(read_only=True) as unit:
+            return await self._repository.media_status(
+                unit,
+                creator_party_id=self._creator_party_id,
+                interaction_id=interaction_id,
+            )
 
     async def accept(self, command: CreatorInputCommand) -> CreatorInputAcceptance:
         context = await self._read_context(command.scene_key)

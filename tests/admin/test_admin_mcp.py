@@ -31,6 +31,7 @@ from armi_admin.application.contracts import (
     ReplaceSubjectComponentSpec,
     RuntimeControlRequest,
     SchemaStatusRequest,
+    SubjectSnapshotRequest,
 )
 from armi_admin.application.service import AdminToolService
 from armi_admin.mcp.server import create_admin_server
@@ -102,6 +103,16 @@ def _service() -> AdminToolService:
         observation=observation,
         pool=cast(AdminRoleBoundPool, object()),
     )
+
+
+def test_private_snapshot_requires_separate_scope_before_owner_read() -> None:
+    service = _service()
+    result = service.observe(
+        "subject_snapshot",
+        SubjectSnapshotRequest(environment_id=ENVIRONMENT_ID, detail="private"),
+    )
+    assert result.status == "rejected"
+    assert result.error_code == "ADMIN-PRIVATE-SCOPE-REQUIRED"
 
 
 def _current_snapshot() -> AdminSchemaSnapshot:

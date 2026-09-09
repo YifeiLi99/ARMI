@@ -7,14 +7,8 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
-from uuid import UUID
 
-from armi_adapter_esp32_display import ProbeResult
-from armi_kernel.application import BirthResult
-from armi_kernel.contracts import Digest
-from armi_local_control.runtime_errors import RuntimeViolation
 from armi_runtime.composition.environment import prepare_environment
 from armi_runtime.runtime_entrypoint import main
 
@@ -54,59 +48,54 @@ def make_environment(
 
 
 class RuntimeCliTests(unittest.TestCase):
-    def test_mood_display_probe_uses_device_without_environment(self) -> None:
-        output = io.StringIO()
-        with (
-            patch(
-                "armi_runtime.runtime_entrypoint.probe_device",
-                return_value=ProbeResult(
-                    "mood-window-1",
-                    "0.2.0",
-                    "armi.mood-display.v2",
-                    "boot-1",
-                ),
-            ) as probe,
-            redirect_stdout(output),
+    def test_worker_rejects_public_business_commands(self) -> None:
+        for command in (
+            "config",
+            "db",
+            "bootstrap",
+            "creator",
+            "other-human",
+            "reset",
+            "stop",
         ):
-            exit_code = main(("device", "mood-display", "probe", "--port", "COM7"))
+            with (
+                self.subTest(command=command),
+                redirect_stderr(io.StringIO()),
+                self.assertRaises(SystemExit) as error,
+            ):
+                main((command, "--environment-root", str(Path.cwd())))
+            self.assertEqual(error.exception.code, 2)
 
-        self.assertEqual(exit_code, 0)
-        self.assertEqual(json.loads(output.getvalue())["device_id"], "mood-window-1")
-        probe.assert_called_once_with("COM7")
-
-    def test_semantic_recall_calibrate_requires_stopped_runtime(self) -> None:
+    def test_worker_requires_explicit_root_and_forwards_web_resources(self) -> None:
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+            main(("runtime", "start"))
+        self.assertEqual(error.exception.code, 2)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             make_environment(root)
-            output = io.StringIO()
+            resources = root / "web"
             with (
                 patch.dict(os.environ, {}, clear=True),
                 patch(
-                    "armi_runtime.runtime_entrypoint.RuntimeProcessManager"
-                ) as runtime_process_manager,
-                patch(
-                    "armi_runtime.runtime_entrypoint.SemanticRecallProcessManager"
-                ) as semantic_manager,
-                redirect_stdout(output),
+                    "armi_runtime.runtime_entrypoint.run_runtime", return_value=0
+                ) as runner,
             ):
-                runtime_process_manager.return_value.status.return_value = {
-                    "status": "stopped"
-                }
-                semantic_manager.return_value.calibrate.return_value = {
-                    "gpu_layers": 28
-                }
-                exit_code = main(
-                    (
-                        "semantic-recall",
-                        "calibrate",
-                        "--environment-root",
-                        str(root.resolve()),
-                    )
+                self.assertEqual(
+                    main(
+                        (
+                            "runtime",
+                            "start",
+                            "--environment-root",
+                            str(root),
+                            "--creator-web-resources",
+                            str(resources),
+                        )
+                    ),
+                    0,
                 )
-
-        self.assertEqual(exit_code, 0)
-        self.assertEqual(json.loads(output.getvalue()), {"gpu_layers": 28})
-        semantic_manager.return_value.calibrate.assert_called_once_with()
+            self.assertEqual(
+                runner.call_args.kwargs["creator_web_resources"], resources
+            )
 
     def test_unknown_armi_environment_returns_safe_configuration_error(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -122,36 +111,13 @@ class RuntimeCliTests(unittest.TestCase):
                 redirect_stderr(error),
             ):
                 exit_code = main(
-                    ("config", "check", "--environment-root", str(root.resolve()))
+                    ("runtime", "start", "--environment-root", str(root.resolve()))
                 )
 
         self.assertEqual(exit_code, 2)
         failure = json.loads(error.getvalue())
         self.assertEqual(failure["code"], "CFG-UNKNOWN-ENV")
         self.assertNotIn("private-value", error.getvalue())
-
-    def test_environment_root_preflight_and_redacted_config_check(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            make_environment(root)
-            output = io.StringIO()
-            with (
-                patch.dict(os.environ, {}, clear=True),
-                redirect_stdout(output),
-            ):
-                exit_code = main(
-                    ("config", "check", "--environment-root", str(root.resolve()))
-                )
-
-        result = json.loads(output.getvalue())
-        self.assertEqual(exit_code, 0)
-        self.assertEqual(result["status"], "pass")
-        self.assertNotIn("effective_config_digest", result)
-        self.assertEqual(
-            result["config"]["environment"]["data_root"],
-            {"configured": True},
-        )
-        self.assertNotIn(str(root), output.getvalue())
 
     def test_missing_layout_is_rejected_without_echoing_path(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -162,7 +128,7 @@ class RuntimeCliTests(unittest.TestCase):
                 redirect_stderr(output),
             ):
                 exit_code = main(
-                    ("config", "check", "--environment-root", str(root.resolve()))
+                    ("runtime", "start", "--environment-root", str(root.resolve()))
                 )
 
         failure = json.loads(output.getvalue())
@@ -205,610 +171,6 @@ class RuntimeCliTests(unittest.TestCase):
             "channel.qq.napcat.api": "channel.qq.napcat_access_token",
             "channel.qq.napcat.events": "channel.qq.napcat_event_secret",
         }
-
-    def test_background_start_uses_process_manager_and_safe_json(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            make_environment(root)
-            output = io.StringIO()
-            with (
-                patch.dict(os.environ, {}, clear=True),
-                patch(
-                    "armi_runtime.runtime_entrypoint.RuntimeProcessManager"
-                ) as manager_type,
-                redirect_stdout(output),
-            ):
-                manager_type.return_value.start.return_value = {
-                    "status": "started",
-                    "pid": 1234,
-                    "runtime": {"runtime_state": "ready"},
-                }
-                exit_code = main(("start", "--environment-root", str(root.resolve())))
-
-        self.assertEqual(exit_code, 0)
-        self.assertEqual(json.loads(output.getvalue())["status"], "started")
-        manager_type.return_value.start.assert_called_once_with()
-
-    def test_background_start_forwards_creator_resource_root(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            resources = root / "creator-web-resources"
-            resources.mkdir()
-            make_environment(root)
-            with (
-                patch.dict(os.environ, {}, clear=True),
-                patch(
-                    "armi_runtime.runtime_entrypoint.RuntimeProcessManager"
-                ) as manager_type,
-                redirect_stdout(io.StringIO()),
-            ):
-                manager_type.return_value.start.return_value = {
-                    "status": "started",
-                    "pid": 1234,
-                    "runtime": {"runtime_state": "ready"},
-                }
-                exit_code = main(
-                    (
-                        "start",
-                        "--environment-root",
-                        str(root.resolve()),
-                        "--creator-web-resources",
-                        str(resources.resolve()),
-                    )
-                )
-
-        self.assertEqual(exit_code, 0)
-        manager_type.return_value.start.assert_called_once_with(
-            creator_web_resources=resources.resolve()
-        )
-
-    def test_background_restart_uses_strict_process_manager_restart(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            make_environment(root)
-            output = io.StringIO()
-            with (
-                patch.dict(os.environ, {}, clear=True),
-                patch(
-                    "armi_runtime.runtime_entrypoint.RuntimeProcessManager"
-                ) as manager_type,
-                patch(
-                    "armi_runtime.runtime_entrypoint.SemanticRecallProcessManager"
-                ) as semantic_type,
-                redirect_stdout(output),
-            ):
-                semantic_type.return_value.start.return_value = {
-                    "status": "already_running"
-                }
-                manager_type.return_value.restart.return_value = {
-                    "status": "started",
-                    "pid": 2345,
-                    "runtime": {"runtime_state": "ready"},
-                }
-                exit_code = main(("restart", "--environment-root", str(root.resolve())))
-
-        self.assertEqual(exit_code, 0)
-        self.assertEqual(json.loads(output.getvalue())["status"], "started")
-        manager_type.return_value.restart.assert_called_once_with()
-
-    def test_background_start_continues_when_semantic_recall_is_unavailable(
-        self,
-    ) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            make_environment(root)
-            output = io.StringIO()
-            with (
-                patch.dict(os.environ, {}, clear=True),
-                patch(
-                    "armi_runtime.runtime_entrypoint.RuntimeProcessManager"
-                ) as manager_type,
-                patch(
-                    "armi_runtime.runtime_entrypoint.SemanticRecallProcessManager"
-                ) as semantic_type,
-                redirect_stdout(output),
-            ):
-                semantic_type.return_value.start.side_effect = RuntimeViolation(
-                    "SEMANTIC-RECALL-START",
-                    "private GPU failure",
-                )
-                manager_type.return_value.start.return_value = {
-                    "status": "started",
-                    "pid": 1234,
-                    "runtime": {"runtime_state": "ready"},
-                }
-                exit_code = main(("start", "--environment-root", str(root.resolve())))
-
-        self.assertEqual(exit_code, 0)
-        result = json.loads(output.getvalue())
-        self.assertEqual(result["status"], "started")
-        self.assertEqual(
-            result["semantic_recall"],
-            {
-                "status": "unavailable",
-                "reason_code": "SEMANTIC-RECALL-START",
-            },
-        )
-        self.assertNotIn("private GPU failure", output.getvalue())
-        manager_type.return_value.start.assert_called_once_with()
-
-    def test_background_status_defaults_to_current_environment_root(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            make_environment(root)
-            output = io.StringIO()
-            with (
-                patch.dict(os.environ, {}, clear=True),
-                patch(
-                    "armi_runtime.runtime_entrypoint.Path.cwd",
-                    return_value=root.resolve(),
-                ),
-                patch(
-                    "armi_runtime.runtime_entrypoint.prepare_environment",
-                    wraps=prepare_environment,
-                ) as prepare,
-                patch(
-                    "armi_runtime.runtime_entrypoint.RuntimeProcessManager"
-                ) as manager_type,
-                redirect_stdout(output),
-            ):
-                manager_type.return_value.status.return_value = {
-                    "status": "stopped",
-                    "pid": None,
-                }
-                exit_code = main(("status",))
-
-        self.assertEqual(exit_code, 0)
-        self.assertEqual(json.loads(output.getvalue())["status"], "stopped")
-        self.assertEqual(
-            prepare.call_args.kwargs["credential_scope"],
-            {
-                "channel.qq.napcat.api": "channel.qq.napcat_access_token",
-            },
-        )
-
-    def test_channel_qq_status_uses_the_dedicated_manager(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            make_environment(root)
-            output = io.StringIO()
-            safe = {
-                "projection_version": "creator-channel-health.v2",
-                "channel": "qq",
-                "driver": "napcat",
-                "state": "disabled",
-                "ingress_ready": False,
-                "api_reachable": False,
-                "account_online": None,
-                "account_matches": None,
-                "webui_url": None,
-                "observed_at": "2026-08-14T08:00:00.000000Z",
-                "reason_codes": [],
-            }
-            with (
-                patch.dict(os.environ, {}, clear=True),
-                patch(
-                    "armi_runtime.runtime_entrypoint.NapCatProcessManager"
-                ) as manager_type,
-                redirect_stdout(output),
-            ):
-                manager_type.return_value.status.return_value.safe_view.return_value = (
-                    safe
-                )
-                exit_code = main(
-                    ("channel", "qq", "status", "--environment-root", str(root))
-                )
-
-        self.assertEqual(exit_code, 0)
-        self.assertEqual(json.loads(output.getvalue())["state"], "disabled")
-        manager_type.return_value.status.assert_called_once_with()
-
-    def test_channel_qq_open_uses_clipboard_delivery_without_qq_credentials(
-        self,
-    ) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            make_environment(root)
-            output = io.StringIO()
-            safe = {
-                "status": "opened",
-                "webui_url": "http://127.0.0.1:6099/webui/",
-                "token_delivery": "clipboard",
-            }
-            with (
-                patch.dict(os.environ, {}, clear=True),
-                patch(
-                    "armi_runtime.runtime_entrypoint.prepare_environment",
-                    wraps=prepare_environment,
-                ) as prepare,
-                patch(
-                    "armi_runtime.runtime_entrypoint.NapCatProcessManager"
-                ) as manager_type,
-                redirect_stdout(output),
-            ):
-                manager_type.return_value.open_webui.return_value.safe_view.return_value = safe
-                exit_code = main(
-                    ("channel", "qq", "open", "--environment-root", str(root))
-                )
-
-        self.assertEqual(exit_code, 0)
-        self.assertEqual(json.loads(output.getvalue()), safe)
-        self.assertEqual(prepare.call_args.kwargs["credential_scope"], {})
-        manager_type.return_value.open_webui.assert_called_once_with(auto_login=False)
-
-    def test_channel_qq_open_can_explicitly_accept_url_query_auto_login(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            make_environment(root)
-            output = io.StringIO()
-            safe = {
-                "status": "opened",
-                "webui_url": "http://127.0.0.1:6099/webui/",
-                "token_delivery": "url_query",
-            }
-            with (
-                patch.dict(os.environ, {}, clear=True),
-                patch(
-                    "armi_runtime.runtime_entrypoint.NapCatProcessManager"
-                ) as manager_type,
-                redirect_stdout(output),
-            ):
-                manager_type.return_value.open_webui.return_value.safe_view.return_value = safe
-                exit_code = main(
-                    (
-                        "channel",
-                        "qq",
-                        "open",
-                        "--auto-login",
-                        "--environment-root",
-                        str(root),
-                    )
-                )
-
-        self.assertEqual(exit_code, 0)
-        self.assertEqual(json.loads(output.getvalue()), safe)
-        manager_type.return_value.open_webui.assert_called_once_with(auto_login=True)
-
-    def test_background_status_accepts_dedicated_environment_root_locator(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            make_environment(root)
-            output = io.StringIO()
-            with (
-                patch.dict(
-                    os.environ,
-                    {"ARMI_ENVIRONMENT_ROOT": str(root.resolve())},
-                    clear=True,
-                ),
-                patch(
-                    "armi_runtime.runtime_entrypoint.prepare_environment",
-                    wraps=prepare_environment,
-                ) as prepare,
-                patch(
-                    "armi_runtime.runtime_entrypoint.RuntimeProcessManager"
-                ) as manager_type,
-                redirect_stdout(output),
-            ):
-                manager_type.return_value.status.return_value = {
-                    "status": "stopped",
-                    "pid": None,
-                }
-                exit_code = main(("status",))
-
-        self.assertEqual(exit_code, 0)
-        self.assertEqual(json.loads(output.getvalue())["status"], "stopped")
-        self.assertNotIn(
-            "ARMI_ENVIRONMENT_ROOT",
-            prepare.call_args.kwargs["environment"],
-        )
-
-    def test_creator_send_uses_runtime_control_without_credentials(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            make_environment(root)
-            output = io.StringIO()
-            with (
-                patch.dict(os.environ, {}, clear=True),
-                patch(
-                    "armi_runtime.runtime_entrypoint.prepare_environment",
-                    wraps=prepare_environment,
-                ) as prepare,
-                patch(
-                    "armi_runtime.runtime_entrypoint.RuntimeProcessManager"
-                ) as manager_type,
-                redirect_stdout(output),
-            ):
-                manager_type.return_value.send_creator_input.return_value = {
-                    "status": "succeeded",
-                    "interaction_id": "interaction-1",
-                    "newly_accepted": True,
-                }
-                exit_code = main(
-                    (
-                        "creator",
-                        "send",
-                        "--environment-root",
-                        str(root.resolve()),
-                        "--message",
-                        "你好, ARMI",
-                        "--idempotency-key",
-                        "automation-message-1",
-                    )
-                )
-
-        self.assertEqual(exit_code, 0)
-        self.assertEqual(json.loads(output.getvalue())["status"], "succeeded")
-        self.assertEqual(prepare.call_args.kwargs["credential_scope"], {})
-        manager_type.return_value.send_creator_input.assert_called_once_with(
-            "你好, ARMI",
-            idempotency_key="automation-message-1",
-        )
-
-    def test_creator_send_can_read_utf8_message_from_stdin(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            make_environment(root)
-            with (
-                patch.dict(os.environ, {}, clear=True),
-                patch(
-                    "armi_runtime.runtime_entrypoint.sys.stdin",
-                    io.StringIO("来自标准输入"),
-                ),
-                patch(
-                    "armi_runtime.runtime_entrypoint.RuntimeProcessManager"
-                ) as manager_type,
-                redirect_stdout(io.StringIO()),
-            ):
-                manager_type.return_value.send_creator_input.return_value = {
-                    "status": "succeeded"
-                }
-                exit_code = main(
-                    (
-                        "creator",
-                        "send",
-                        "--environment-root",
-                        str(root.resolve()),
-                        "--message-file",
-                        "-",
-                    )
-                )
-
-        self.assertEqual(exit_code, 0)
-        manager_type.return_value.send_creator_input.assert_called_once_with(
-            "来自标准输入",
-            idempotency_key=None,
-        )
-
-    def test_other_human_send_uses_private_runtime_control(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            make_environment(root)
-            output = io.StringIO()
-            with (
-                patch.dict(os.environ, {}, clear=True),
-                patch(
-                    "armi_runtime.runtime_entrypoint.prepare_environment",
-                    wraps=prepare_environment,
-                ) as prepare,
-                patch(
-                    "armi_runtime.runtime_entrypoint.RuntimeProcessManager"
-                ) as manager_type,
-                redirect_stdout(output),
-            ):
-                manager_type.return_value.other_human.return_value = {
-                    "status": "succeeded",
-                    "newly_accepted": True,
-                }
-                exit_code = main(
-                    (
-                        "other-human",
-                        "send",
-                        "--environment-root",
-                        str(root.resolve()),
-                        "--party-key",
-                        "friend-1",
-                        "--message",
-                        "你好",
-                        "--idempotency-key",
-                        "friend-message-1",
-                    )
-                )
-
-        self.assertEqual(exit_code, 0)
-        self.assertEqual(prepare.call_args.kwargs["credential_scope"], {})
-        manager_type.return_value.other_human.assert_called_once_with(
-            "message_send",
-            {
-                "party_key": "friend-1",
-                "scene_key": "default",
-                "message": "你好",
-                "idempotency_key": "friend-message-1",
-            },
-        )
-
-    def test_birth_command_is_explicit_and_returns_only_stable_identity(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            make_environment(root)
-            output = io.StringIO()
-            result = BirthResult(
-                UUID("01980f7d-7b8f-7e2a-8a11-2ab8e1234568"),
-                UUID("01980f7d-7b8f-7e2a-8a11-2ab8e1234569"),
-                UUID("01980f7d-7b8f-7e2a-8a11-2ab8e1234570"),
-                Digest.from_bytes(b"request"),
-                True,
-            )
-            with (
-                patch.dict(os.environ, {}, clear=True),
-                patch(
-                    "armi_runtime.runtime_entrypoint.execute_birth",
-                    return_value=result,
-                ) as birth,
-                redirect_stdout(output),
-            ):
-                exit_code = main(
-                    (
-                        "bootstrap",
-                        "birth",
-                        "--environment-root",
-                        str(root.resolve()),
-                    )
-                )
-
-        self.assertEqual(exit_code, 0)
-        self.assertEqual(json.loads(output.getvalue())["status"], "applied")
-        birth.assert_called_once()
-
-    def test_artifact_cleanup_defaults_to_read_only_report(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            make_environment(root)
-            output = io.StringIO()
-            report = SimpleNamespace(
-                safe_view=lambda: {
-                    "schema_version": "armi.artifact-report.v1",
-                    "status": "dry_run",
-                    "counts": {},
-                    "findings": [],
-                }
-            )
-            with (
-                patch.dict(os.environ, {}, clear=True),
-                patch(
-                    "armi_runtime.runtime_entrypoint.prepare_environment",
-                    wraps=prepare_environment,
-                ) as prepare,
-                patch(
-                    "armi_runtime.runtime_entrypoint.run_artifact_retention",
-                    return_value=report,
-                ) as cleanup,
-                redirect_stdout(output),
-            ):
-                exit_code = main(
-                    (
-                        "artifacts",
-                        "cleanup",
-                        "--environment-root",
-                        str(root.resolve()),
-                    )
-                )
-
-        self.assertEqual(exit_code, 0)
-        self.assertEqual(json.loads(output.getvalue())["status"], "dry_run")
-        self.assertEqual(
-            prepare.call_args.kwargs["credential_scope"],
-            {"database.artifact-maintenance": "database.runtime"},
-        )
-        cleanup.assert_awaited_once()
-        await_args = cleanup.await_args
-        if await_args is None:
-            self.fail("artifact cleanup was not awaited")
-        self.assertFalse(await_args.kwargs["apply"])
-
-    def test_database_maintenance_requires_explicit_apply_and_scoped_migrator(
-        self,
-    ) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            make_environment(root)
-            with (
-                redirect_stderr(io.StringIO()),
-                self.assertRaises(SystemExit) as missing_apply,
-            ):
-                main(
-                    (
-                        "db",
-                        "maintain",
-                        "--environment-root",
-                        str(root.resolve()),
-                    )
-                )
-            self.assertEqual(missing_apply.exception.code, 2)
-            output = io.StringIO()
-            report = SimpleNamespace(
-                safe_view=lambda: {
-                    "schema_version": "armi.database-maintenance.v1",
-                    "status": "applied",
-                    "table_count": 42,
-                }
-            )
-            with (
-                patch.dict(os.environ, {}, clear=True),
-                patch(
-                    "armi_runtime.runtime_entrypoint.prepare_environment",
-                    wraps=prepare_environment,
-                ) as prepare,
-                patch(
-                    "armi_runtime.runtime_entrypoint.run_database_maintenance",
-                    return_value=report,
-                ) as maintain,
-                redirect_stdout(output),
-            ):
-                exit_code = main(
-                    (
-                        "db",
-                        "maintain",
-                        "--environment-root",
-                        str(root.resolve()),
-                        "--apply",
-                    )
-                )
-
-        self.assertEqual(exit_code, 0)
-        self.assertEqual(json.loads(output.getvalue())["status"], "applied")
-        self.assertEqual(
-            prepare.call_args.kwargs["credential_scope"],
-            {"database.maintenance": "database.migrator"},
-        )
-        maintain.assert_called_once()
-
-    def test_capacity_baseline_is_read_only_and_returns_attention_exit(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            make_environment(root)
-            output = io.StringIO()
-            report = SimpleNamespace(
-                status="attention",
-                safe_view=lambda: {
-                    "schema_version": "armi.runtime-capacity-baseline.v2",
-                    "status": "attention",
-                    "issue_codes": ["CAPACITY-RSS-GROWTH"],
-                },
-            )
-            with (
-                patch.dict(os.environ, {}, clear=True),
-                patch(
-                    "armi_runtime.runtime_entrypoint.prepare_environment",
-                    wraps=prepare_environment,
-                ) as prepare,
-                patch(
-                    "armi_runtime.runtime_entrypoint.RuntimeProcessManager.status",
-                    return_value={"status": "running"},
-                ),
-                patch(
-                    "armi_runtime.runtime_entrypoint.run_runtime_capacity_baseline",
-                    return_value=report,
-                ) as baseline,
-                redirect_stdout(output),
-            ):
-                exit_code = main(
-                    (
-                        "capacity",
-                        "baseline",
-                        "--environment-root",
-                        str(root.resolve()),
-                        "--duration-seconds",
-                        "30",
-                        "--sample-interval-seconds",
-                        "3",
-                    )
-                )
-
-        self.assertEqual(exit_code, 4)
-        self.assertEqual(json.loads(output.getvalue())["status"], "attention")
-        self.assertEqual(prepare.call_args.kwargs["credential_scope"], {})
-        self.assertEqual(baseline.call_args.kwargs["duration_seconds"], 30)
-        self.assertEqual(baseline.call_args.kwargs["sample_interval_seconds"], 3)
 
 
 if __name__ == "__main__":

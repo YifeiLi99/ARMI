@@ -143,6 +143,15 @@ class RuntimeFoundationAdminAdapter:
             "SELECT runtime_instance_id,life_generation_id,fence_token,status,last_heartbeat_at,lease_expires_at FROM armi.runtime_instances ORDER BY started_at DESC,runtime_instance_id DESC LIMIT 1"
         ).fetchone()
 
+    def commits_for_episode(
+        self, transaction: PostgreSQLAdminTransaction, *, episode_id: UUID
+    ) -> tuple[tuple[UUID, int], ...]:
+        rows = transaction.execute(
+            "SELECT subject_commit_id,new_subject_version FROM armi.subject_commits WHERE cognitive_episode_id=%s ORDER BY subject_commit_id LIMIT 32",
+            (episode_id,),
+        ).fetchall()
+        return tuple((cast(UUID, row[0]), int(cast(int, row[1]))) for row in rows)
+
     def subject(
         self,
         transaction: PostgreSQLAdminTransaction,

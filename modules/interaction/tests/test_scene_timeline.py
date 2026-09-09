@@ -23,6 +23,7 @@ from armi_interaction.api import (
     TimelineItemId,
 )
 from armi_kernel.application import (
+    AuditReference,
     AuditResultStatus,
 )
 from armi_kernel.contracts import Instant, TraceId
@@ -100,6 +101,23 @@ class SceneTimelineContractTests(unittest.TestCase):
         trace = TraceId("a" * 32)
         CreatorSceneCreateCommand(SceneKey("night-talk"), trace)
         CreatorSceneStatusCommand(SceneKey("night-talk"), SceneStatus.OPEN, trace)
+        from armi_interaction._scenes import _audit
+
+        creator, delegate, subject = uuid7(), uuid7(), uuid7()
+        delegated = CreatorSceneStatusCommand(
+            SceneKey("night-talk"), SceneStatus.OPEN, trace, delegate
+        )
+        audit = _audit(
+            operation="creator.scene.open",
+            view=named,
+            creator_party_id=creator,
+            subject_id=subject,
+            trace_id=trace,
+            delegate_id=delegated.delegate_id,
+        )
+        self.assertEqual(audit.actor, AuditReference("creator_delegate", delegate))
+        assert audit.subject_id is not None
+        self.assertEqual(audit.subject_id.value, subject)
         with self.assertRaises(SceneQueryViolation):
             CreatorSceneStatusCommand(SceneKey("default"), SceneStatus.CLOSED, trace)
 

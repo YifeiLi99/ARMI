@@ -166,6 +166,7 @@ def create_subject_life_use_cases(
                     else UUID(body.expected_revision_id),
                     content=body.content,
                     trace_id=TraceId(secrets.token_hex(16)),
+                    delegate_id=call.actor.delegate_id,
                 )
             )
         except CreatorPromptViolation as error:
@@ -187,6 +188,7 @@ def create_subject_life_use_cases(
                     prompt_kind=PromptKind.CREATOR_GUIDANCE,
                     expected_revision_id=UUID(body.expected_revision_id),
                     trace_id=TraceId(secrets.token_hex(16)),
+                    delegate_id=call.actor.delegate_id,
                 )
             )
         except CreatorPromptViolation as error:
