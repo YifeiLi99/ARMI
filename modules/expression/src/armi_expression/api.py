@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
-from armi_kernel.application import ArtifactRef, WorkRecord
+from armi_kernel.application import ArtifactRef
 from armi_kernel.contracts import Digest, TraceId
 from armi_runtime_foundation import (
     PostgreSQLAdminTransaction,
@@ -59,15 +58,6 @@ class FormalNoActionReason(StrEnum):
     SUBJECTIVE_SILENCE = "subjective_silence"
 
 
-class ResponseAdmissionStatus(StrEnum):
-    PENDING = "pending"
-    ACCEPTED = "accepted"
-    NO_ACTION = "no_action"
-    UNAUTHORIZED = "unauthorized"
-    UNAVAILABLE = "unavailable"
-    FAILED = "failed"
-
-
 class ResponseViolation(RuntimeError):
     """Expose a stable response failure without response content."""
 
@@ -77,10 +67,10 @@ class ResponseViolation(RuntimeError):
         if type(code) is not str or _CODE.fullmatch(code) is None:
             raise ValueError("response violation code is invalid")
         self.code = code
-        super().__init__("Creator response admission failed")
+        super().__init__("Creator response failed")
 
     def __str__(self) -> str:
-        return f"{self.code}: Creator response admission failed"
+        return f"{self.code}: Creator response failed"
 
 
 @dataclass(frozen=True, slots=True)
@@ -268,6 +258,13 @@ type ResponseChoiceDraft = (
 )
 
 
+@runtime_checkable
+class ExpressionVoiceRoutePort(Protocol):
+    async def turn_for_opportunity(
+        self, transaction: PostgreSQLTransaction, *, opportunity_id: UUID
+    ) -> UUID | None: ...
+
+
 @dataclass(frozen=True, slots=True)
 class DeclaredResponseEffectDraft:
     """Effect-registration facts frozen by the expression owner."""
@@ -290,6 +287,7 @@ class DeclaredResponseEffectDraft:
     destination_binding_id: UUID | None
     trace_id: TraceId
     max_attempts: int
+    live_voice_turn_id: UUID | None = None
 
     def __post_init__(self) -> None:
         for value in (
@@ -315,58 +313,30 @@ class DeclaredResponseEffectDraft:
                 "external_group_delivery",
                 "external_private_delivery",
                 "local_inbox_delivery",
+                "creator_response",
             }
             or type(self.capability_kind) is not str
             or not self.capability_kind
-            or self.audience_scope not in {"social_group", "other_human"}
+            or self.audience_scope not in {"social_group", "other_human", "creator"}
             or self.authorization_basis
             not in {"runtime_configuration", "runtime_builtin"}
             or self.destination_kind
-            not in {"external_group", "external_private", "other_human_inbox"}
+            not in {
+                "external_group",
+                "external_private",
+                "other_human_inbox",
+                "creator_inbox",
+                "live_voice_audio",
+            }
             or self.max_attempts not in {1, 2}
         ):
             raise ResponseViolation("CON-RESPONSE-EFFECT")
-
-
-@dataclass(frozen=True, slots=True)
-class ResponseAdmissionResult:
-    operation_ref: CreatorResponseOperationId
-    status: ResponseAdmissionStatus
-    action_intent_id: ActionIntentId | None = None
-    no_action_id: FormalNoActionId | None = None
-    grant_ref: UUID | None = None
-    reason_code: str | None = None
-
-    def __post_init__(self) -> None:
-        if (
-            type(self.operation_ref) is not CreatorResponseOperationId
-            or type(self.status) is not ResponseAdmissionStatus
-            or (
-                self.grant_ref is not None
-                and (type(self.grant_ref) is not UUID or self.grant_ref.version != 7)
-            )
-            or (
-                self.reason_code is not None
-                and _CODE.fullmatch(self.reason_code) is None
-            )
+        if self.live_voice_turn_id is not None:
+            _uuid7(self.live_voice_turn_id, "CON-RESPONSE-EFFECT")
+        if (self.destination_kind == "live_voice_audio") != (
+            self.live_voice_turn_id is not None
         ):
-            raise ResponseViolation("CON-RESPONSE-RESULT")
-        if (self.status is ResponseAdmissionStatus.NO_ACTION) != (
-            self.no_action_id is not None
-        ):
-            raise ResponseViolation("CON-RESPONSE-RESULT")
-        if (
-            self.status is ResponseAdmissionStatus.ACCEPTED
-            and self.action_intent_id is None
-        ):
-            raise ResponseViolation("CON-RESPONSE-RESULT")
-
-
-@runtime_checkable
-class ResponseAdmissionPort(Protocol):
-    async def admit_once(self) -> bool:
-        """Claim and settle at most one durable response admission."""
-        ...
+            raise ResponseViolation("CON-RESPONSE-EFFECT")
 
 
 @dataclass(frozen=True, slots=True)
@@ -405,13 +375,6 @@ class ExpressionOperationSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
-class ResponseAdmissionSnapshot:
-    response_admission_id: UUID
-    status: str
-    reason_code: str | None
-
-
-@dataclass(frozen=True, slots=True)
 class DelegatedActionIntentDraft:
     operation_ref: UUID
     subject_id: UUID
@@ -427,42 +390,7 @@ class DelegatedActionIntentDraft:
 
 
 @runtime_checkable
-class ExpressionResponseAdmissionPort(Protocol):
-    async def response_admission_snapshot(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        work: WorkRecord,
-    ) -> ExpressionIntentSnapshot: ...
-
-    async def settle_response_admission(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        work_id: UUID,
-        action_intent_id: UUID | None,
-        status: str,
-        permission_grant_id: UUID | None,
-        reason_code: str,
-    ) -> UUID | None: ...
-
-    async def response_admission_by_intent(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        action_intent_id: UUID,
-    ) -> ResponseAdmissionSnapshot | None: ...
-
-
-@runtime_checkable
 class ExpressionIntentReadPort(Protocol):
-    async def response_admission_by_intent(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        action_intent_id: UUID,
-    ) -> ResponseAdmissionSnapshot | None: ...
-
     async def outreach_intents(
         self,
         transaction: PostgreSQLTransaction,
@@ -533,7 +461,6 @@ class ExpressionCommitPort(Protocol):
         commit_id: UUID,
         choices: tuple[ResponseChoiceDraft, ...],
         response_artifact: ArtifactRef | None,
-        capability_request_ids: Mapping[str, UUID],
     ) -> None:
         """Commit an accepted expression inside the caller-owned transaction."""
         ...
@@ -594,17 +521,13 @@ __all__ = (
     "ExpressionIntentReadPort",
     "ExpressionIntentSnapshot",
     "ExpressionOperationSnapshot",
-    "ExpressionResponseAdmissionPort",
+    "ExpressionVoiceRoutePort",
     "FormalNoActionDraft",
     "FormalNoActionId",
     "FormalNoActionKind",
     "FormalNoActionReason",
     "OtherHumanEndConversationDraft",
     "OtherHumanReplyDraft",
-    "ResponseAdmissionPort",
-    "ResponseAdmissionResult",
-    "ResponseAdmissionSnapshot",
-    "ResponseAdmissionStatus",
     "ResponseChoiceDraft",
     "ResponseViolation",
 )

@@ -160,7 +160,7 @@ ESP32 心情窗只接收 Mood 映射后的不透明 face、color、energy 和 ve
 
 ## 9. Durable Work 与恢复
 
-数据库是工作 custody；进程 wakeup 只优化延迟。当前 `WorkType` 是 15 项闭集，覆盖 Context、模型、候选、Subject Commit、回复/Effect、Web、外部内容、生命查询、embedding、artifact 删除、视觉采集和视觉识别。每个 `(owner kind, work type)` 映射唯一 reconciliation owner。
+数据库是工作 custody；进程 wakeup 只优化延迟。当前 `WorkType` 是 14 项闭集，覆盖 Context、模型、候选、Subject Commit、Codex Effect 登记、Web、外部内容、生命查询、embedding、artifact 删除、视觉采集和视觉识别。每个 `(owner kind, work type)` 映射唯一 reconciliation owner。
 
 Work 以 ready/leased/completed/failed/cancelled 管理执行资格；业务 owner 决定 attempt/result 和是否可恢复。慢 I/O 前短事务登记，事务外调用，结算事务重新检查 lease/fence/generation/current state。重启后由固定 recovery roster 检查 owner head、过期 work、artifact、effect unknown 和投影 coverage；框架不猜业务修复。
 
@@ -168,18 +168,20 @@ Creator export 使用 `armi.creator-export.v5`，由 Data Rights 管理导出路
 
 ## 10. 意愿、授权与 Effect
 
-以下为当前实现链路。普通回复仍生成请求并自动授予许可，尚未落实第 1 节的流程简化；本段不把该机制规定为日常动作的必要环节。
+普通 Creator 文本、实时语音、QQ 私聊及共用回复链的主动表达，由代码、harness 与渠道配置直接执行，不建立申请、批准、grant、policy、有效期或使用次数。
 
 ```text
 Cognition decision
-  → Expression: action intent / dialogue decision
-  → Capability: grant/policy check
-  → Effect + outbox registration
+  → Subject Commit: 主体变化 + Expression intent/decision + Effect/outbox（同一事务）
   → adapter attempt outside transaction
   → receipt / observation / verification
 ```
 
 Effect 保持 registered、dispatching、completed 等当前机器状态，并保留失败、拒绝、不可用、取消和 unknown 的不同语义。平台模糊超时、部分语音播放等可能已经产生副作用，不能安全重试。所有重试共享一个语义操作预算和稳定 effect identity。
+
+回复正文在事务外保存，提交只登记引用；发送时核验实际读取的正文及当前接收目标、渠道配置、隐私和数据权利。普通回复 outbox 的发送截止时间为空；网络超时、worker 租约与并发 fence 只负责执行控制。普通回复不生成回复准入 work 或 `effect.register` work；后者保留给 Codex 委托。
+
+普通对话中断即结束。停机和启动入口调用现有 owner 的收尾逻辑，终结这一轮未完成的机会、认知和派生 work；已提交的主体变化与完成的发送保留，尚未发送的回复取消，已开始发送但结果不确定的回复保留 unknown/部分完成，不重发，也不要求人为恢复这一轮。新输入和新的主动表达可以继续，旧动作不得重放。Codex 及管理端授权、真实完整性故障的检查保持各自语义；现有数据库不会自动迁移、重装或清空。
 
 Creator operation 投影聚合 cognition、Codex 与 effect 阶段，但不把 operation 完成等同于外部送达核验。SSE 只提示投影失效，UI 必须重新 GET 权威投影。
 
@@ -231,7 +233,7 @@ Admin 的业务结果模型由操作目录统一生成 CLI/MCP 合同并校验�
 
 ## 13. 数据库与配置
 
-当前数据库要求 PostgreSQL 18.4、UTF-8/UTC/builtin `C.UTF-8`、vector 0.8.6、pg_trgm 1.6、唯一 `0000`、baseline `armi.schema-baseline.v13` 和精确 role policy。Schema 是 package resource，十份有序 baseline SQL 当前创建 108 tables/1364 columns/1 read-only view/65 explicit indexes。安装只接受无用户 relation 且无现存 `armi` namespace 的目标库：namespace 先在独立短事务建立，随后 `0000` 在一个事务组内写入表、约束、ACL、revision、identity 与 digests；中段失败可以留下空 namespace，但不会留下业务表或前移 revision。Runtime 只验证，不安装/迁移。
+当前数据库要求 PostgreSQL 18.4、UTF-8/UTC/builtin `C.UTF-8`、vector 0.8.6、pg_trgm 1.6、唯一 `0000`、baseline `armi.schema-baseline.v14` 和精确 role policy。Schema 是 package resource，十份有序 baseline SQL 当前创建 108 tables/1364 columns/1 read-only view/65 explicit indexes。安装只接受无用户 relation 且无现存 `armi` namespace 的目标库：namespace 先在独立短事务建立，随后 `0000` 在一个事务组内写入表、约束、ACL、revision、identity 与 digests；中段失败可以留下空 namespace，但不会留下业务表或前移 revision。Runtime 只验证，不安装/迁移。
 
 配置合并顺序：仓库 `configs/runtime.yaml` → 环境根 `environment.yaml` → 登记的 `ARMI_*` 覆盖。当前 schema v3，strict/frozen/extra-forbid。环境根必须有普通 `environment.yaml`、`data/`、`secrets/`；data root 精确相等，禁止 reparse。Secret 只用 `env:ARMI_SECRET_*` 或位于 `secrets/` 的 `file:` locator，最大 64KiB，经 scoped handle 消费后清零。
 

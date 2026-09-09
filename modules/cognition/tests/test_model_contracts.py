@@ -264,7 +264,7 @@ def test_maintenance_work_contract_is_phase_bounded_and_context_referenced() -> 
 
 def _candidate() -> dict[str, object]:
     return {
-        "schema_version": "armi.cognition-candidate.v10",
+        "schema_version": "armi.cognition-candidate.v11",
         "base": {
             "subject_version": 0,
             "state_epoch": 0,
@@ -427,7 +427,7 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
 
 def test_active_codex_capability_schema_matches_domain_fact_classes() -> None:
     schema = candidate_schema()
-    payload = schema["$defs"]["RuntimeBoundCodexDelegatedWorkRequestPayload"]
+    payload = schema["$defs"]["CapabilityRequestPayload"]
     assert payload["properties"]["fact_class"]["enum"] == [
         "subjective_understanding",
         "inference",

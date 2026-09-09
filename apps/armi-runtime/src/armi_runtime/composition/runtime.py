@@ -213,7 +213,6 @@ from .database import (
     compose_perception_module,
     compose_prompt_module,
     compose_relationship_module,
-    compose_response_admission_pipeline,
     compose_runtime_authority,
     compose_runtime_observation,
     compose_runtime_recovery,
@@ -505,7 +504,6 @@ async def _serve(
     candidate_pipeline = None
     subject_commit_pipeline = None
     capability_policy = None
-    response_pipeline = None
     effect_pipeline = None
     web_search_pipeline: WebObservationRuntimePort | None = None
     web_research_pipeline: WebResearchRuntimePort | None = None
@@ -1000,7 +998,6 @@ async def _serve(
                 unit_of_work_factory=runtime_unit_of_work_factory,
                 facts=RuntimeLifeOpportunityFacts(
                     activities=activity_module.read,
-                    capabilities=capability_policy.operations,
                     cognition=cognition_operation,
                     effects=effect_owner,
                     expression=expression_module.intents,
@@ -1148,20 +1145,6 @@ async def _serve(
                 fault_injector=inject_admin_fault,
             )
             await subject_commit_pipeline.open()
-            response_pipeline = compose_response_admission_pipeline(
-                prepared,
-                unit_of_work_factory=runtime_unit_of_work_factory,
-                expression=expression_module.admission,
-                capability=capability_policy.admission,
-                data_rights=data_rights_module.effect_gate,
-                catalog=artifact_catalog,
-                wakeups=work_wakeups,
-                diagnostic=lambda event: diagnostic.emit(
-                    event,
-                    result_code="RESPONSE_ADMISSION",
-                ),
-            )
-            await response_pipeline.open()
             effect_pipeline = compose_effect_registration_pipeline(
                 prepared,
                 unit_of_work_factory=runtime_unit_of_work_factory,
@@ -1444,8 +1427,6 @@ async def _serve(
                 await candidate_pipeline.close()
             if subject_commit_pipeline is not None:
                 await subject_commit_pipeline.close()
-            if response_pipeline is not None:
-                await response_pipeline.close()
             if effect_pipeline is not None:
                 await effect_pipeline.close()
             if codex_pipeline is not None:
@@ -1629,11 +1610,6 @@ async def _serve(
                 subject_commit_pipeline.run_worker(),
                 name="subject-commit-worker",
             )
-        if response_pipeline is not None:
-            supervisor.start(
-                response_pipeline.run_worker(),
-                name="response-admission-worker",
-            )
         if effect_pipeline is not None:
             supervisor.start(
                 effect_pipeline.run(),
@@ -1757,7 +1733,6 @@ async def _serve(
                 if subject_commit_pipeline is None
                 else subject_commit_pipeline.stop,
             ),
-            ("response", None if response_pipeline is None else response_pipeline.stop),
             ("effect", None if effect_pipeline is None else effect_pipeline.stop),
             ("codex", None if codex_pipeline is None else codex_pipeline.stop),
             (
@@ -1784,6 +1759,8 @@ async def _serve(
         for name, operation in stop_operations:
             if operation is not None:
                 await shutdown_step(f"{name}_stop", operation)
+        if recovery_port is not None:
+            await shutdown_step("conversation_end", recovery_port.end_conversations)
         released = False
         try:
             released = await supervisor.drain(
@@ -1867,10 +1844,6 @@ async def _serve(
                 None
                 if subject_commit_pipeline is None
                 else subject_commit_pipeline.close,
-            ),
-            (
-                "response",
-                None if response_pipeline is None else response_pipeline.close,
             ),
             ("effect", None if effect_pipeline is None else effect_pipeline.close),
             ("qq_channel", None if qq_channel is None else qq_channel.close),
@@ -2329,7 +2302,6 @@ async def _serve(
             web_research_pipeline,
             candidate_pipeline,
             subject_commit_pipeline,
-            response_pipeline,
             effect_pipeline,
             codex_pipeline,
             capability_policy,

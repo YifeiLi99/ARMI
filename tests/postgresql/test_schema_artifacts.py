@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import re
 import shutil
 from pathlib import Path
 
 import pytest
 from alembic.config import Config
 from alembic.script import ScriptDirectory
+from armi_kernel.application import WorkType
 from armi_runtime.adapters.database_errors import DatabaseViolation
 from armi_runtime.adapters.persistence.schema_gateway import (
     PostgreSQLSchemaGateway,
@@ -55,6 +57,14 @@ def test_baseline_contains_authoritative_schema() -> None:
         for name in BASELINE_DOCUMENTS
     )
     assert "CREATE TABLE armi.subjects" in sql
+    work_constraint = next(
+        line
+        for line in sql.splitlines()
+        if "CONSTRAINT durable_work_work_kind_check" in line
+    )
+    assert set(re.findall(r"'([^']+)'::text", work_constraint)) == {
+        kind.value for kind in WorkType
+    }
     assert "CREATE TABLE armi.activities" in sql
     assert "CREATE TABLE armi.maintenance_sessions" in sql
     assert "CREATE TABLE armi.subjective_memories" in sql
@@ -102,7 +112,7 @@ def test_gateway_exposes_install_and_status_only() -> None:
     assert callable(PostgreSQLSchemaGateway.install)
     assert callable(PostgreSQLSchemaGateway.status)
     assert not hasattr(PostgreSQLSchemaGateway, "migrate")
-    assert "armi.schema-baseline.v13" in (
+    assert "armi.schema-baseline.v14" in (
         RESOURCE / "baseline" / "10_runtime_and_subject.sql"
     ).read_text(encoding="utf-8")
 

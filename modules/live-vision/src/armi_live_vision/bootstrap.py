@@ -1,6 +1,7 @@
 """Live-vision owner composition entry points."""
 
 from armi_data_rights.api import DataRightsParticipant
+from armi_perception.api import VisualRecognitionAttemptPort
 from armi_runtime_foundation import RecoveryParticipant
 
 from ._admin import PostgreSQLLiveVisionAdmin
@@ -32,8 +33,10 @@ def bootstrap_live_vision_data_rights() -> DataRightsParticipant:
     return PostgreSQLLiveVisionDataRightsParticipant()
 
 
-def bootstrap_live_vision_recovery() -> RecoveryParticipant:
-    return LiveVisionRecoveryParticipant()
+def bootstrap_live_vision_recovery(
+    attempts: VisualRecognitionAttemptPort,
+) -> RecoveryParticipant:
+    return LiveVisionRecoveryParticipant(attempts)
 
 
 __all__ = (

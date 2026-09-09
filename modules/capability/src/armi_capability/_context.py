@@ -53,6 +53,7 @@ async def load_context_state_payloads(
             ) AS request ON true
             LEFT JOIN armi.permission_grants AS permission
               ON permission.capability_request_id = request.capability_request_id
+            WHERE capability.capability_kind='codex.delegated-work'
             ORDER BY capability.capability_kind
             """,
             (subject_id,),
@@ -66,27 +67,15 @@ def _state_payload(row: tuple[object, ...]) -> CapabilityContextStatePayload:
     request_status = None if row[7] is None else str(row[7])
     current_request = None
     if request_id is not None:
-        requested_scope = (
-            {
-                "scope_kind": "creator_scene_reply",
-                "audience_scope": str(row[9]),
-                "data_scope": str(row[10]),
-                "purpose": str(row[11]),
-                "valid_for_seconds": int(cast(int, row[15])),
-                "max_uses": int(cast(int, row[16])),
-                "max_payload_bytes": int(cast(int, row[17])),
-            }
-            if str(row[1]) == "creator.scene.reply"
-            else {
-                "scope_kind": "codex_delegated_work",
-                "workspace_scope": str(row[12]),
-                "artifact_scope": str(row[13]),
-                "network_access": bool(row[14]),
-                "purpose": str(row[11]),
-                "valid_for_seconds": int(cast(int, row[15])),
-                "max_uses": int(cast(int, row[16])),
-            }
-        )
+        requested_scope = {
+            "scope_kind": "codex_delegated_work",
+            "workspace_scope": str(row[12]),
+            "artifact_scope": str(row[13]),
+            "network_access": bool(row[14]),
+            "purpose": str(row[11]),
+            "valid_for_seconds": int(cast(int, row[15])),
+            "max_uses": int(cast(int, row[16])),
+        }
         current_request = {
             "request_ref": str(request_id),
             "request_version": int(cast(int, row[6])),

@@ -30,6 +30,32 @@ from .api import (
 
 
 class PostgreSQLOpportunityOwner:
+    async def interrupt_conversations(
+        self, transaction: PostgreSQLTransaction, *, subject_id: UUID
+    ) -> tuple[UUID, ...]:
+        rows = await (
+            await transaction.execute(
+                """SELECT item.opportunity_id
+                   FROM armi.opportunities AS item
+                   JOIN armi.opportunities AS root
+                     ON root.opportunity_id=item.root_opportunity_id
+                   WHERE root.subject_id=%s AND root.purpose IN (
+                     'consider_creator_input','consider_creator_voice_input',
+                     'consider_creator_outreach')""",
+                (subject_id,),
+            )
+        ).fetchall()
+        opportunity_ids = tuple(row[0] for row in rows)
+        await transaction.execute(
+            """UPDATE armi.opportunities
+               SET current_disposition='cancelled',resolved_at=statement_timestamp(),
+                   resolution_reason_code='REC-CONVERSATION-INTERRUPTED'
+               WHERE opportunity_id=ANY(%s::uuid[])
+                 AND current_disposition IN ('open','selected')""",
+            (list(opportunity_ids),),
+        )
+        return opportunity_ids
+
     async def maintenance_work_state(
         self,
         transaction: PostgreSQLTransaction,

@@ -32,6 +32,7 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import Purpose, SubjectId, TraceId
 from armi_runtime_foundation import (
+    ConversationEndParticipant,
     PostgreSQLTransaction,
     RecoveryAuditContribution,
     RecoveryContribution,
@@ -114,6 +115,33 @@ class PostgreSQLRuntimeRecovery:
             raise
         except (RuntimeTransactionFailure, ValueError) as error:
             raise RecoveryViolation("REC-DATABASE") from error
+
+    async def end_conversations(self) -> None:
+        fence = self._require_fence()
+        scope = RecoveryScope(
+            self._environment_id,
+            fence.subject_id,
+            fence.life_generation_id,
+            fence.bundle_activation_id,
+            fence.runtime_instance_id.value,
+            fence.fence_token,
+        )
+        async with self._factory.unit_of_work(
+            isolation=TransactionIsolation.SERIALIZABLE
+        ) as unit:
+            await self._verify_fence(unit.transaction, fence)
+            work = await self._work_snapshots(unit.transaction)
+            for participant in self._participants:
+                if isinstance(participant, ConversationEndParticipant):
+                    selected = tuple(
+                        item
+                        for item in work
+                        if (item.owner_kind, item.work_kind) in participant.work_scopes
+                    )
+                    await participant.end_conversations(
+                        unit.transaction, scope, selected
+                    )
+            await self._verify_fence(unit.transaction, fence)
 
     def _validate_roster(self) -> None:
         actual = tuple(participant.owner_identity for participant in self._participants)

@@ -9,7 +9,6 @@ from armi_runtime.composition.work_wakeup import (
     EFFECT_REGISTER,
     MODEL_INVOKE,
     OPPORTUNITY_AVAILABLE,
-    RESPONSE_ADMIT,
     SUBJECT_COMMIT,
     WorkWakeupBus,
 )
@@ -59,7 +58,6 @@ async def test_payload_free_pulses_wake_the_interactive_chain_immediately() -> N
         MODEL_INVOKE,
         CANDIDATE_VALIDATE,
         SUBJECT_COMMIT,
-        RESPONSE_ADMIT,
         EFFECT_REGISTER,
     )
     completed: list[str] = []
@@ -91,10 +89,10 @@ async def test_payload_free_pulses_wake_the_interactive_chain_immediately() -> N
 async def test_stop_releases_waiters_without_a_business_notification() -> None:
     wakeups = WorkWakeupBus()
     stop = asyncio.Event()
-    observed = wakeups.version(RESPONSE_ADMIT)
+    observed = wakeups.version(SUBJECT_COMMIT)
     waiter = asyncio.create_task(
         wakeups.wait(
-            RESPONSE_ADMIT,
+            SUBJECT_COMMIT,
             observed,
             stop=stop,
             timeout_seconds=10,

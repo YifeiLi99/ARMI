@@ -61,20 +61,18 @@ class PostgreSQLDeclaredResponseEffectRegistration:
         work_id: UUID,
         capability_request_id: UUID,
         permission_grant_id: UUID,
-        response_admission_id: UUID | None = None,
     ) -> UUID:
         registration_id = uuid7()
         await transaction.execute(
             """INSERT INTO armi.effect_registrations (
                    effect_registration_id,action_intent_id,work_id,
-                   response_admission_id,capability_request_id,
+                   capability_request_id,
                    permission_grant_id)
-               VALUES (%s,%s,%s,%s,%s,%s)""",
+               VALUES (%s,%s,%s,%s,%s)""",
             (
                 registration_id,
                 action_intent_id,
                 work_id,
-                response_admission_id,
                 capability_request_id,
                 permission_grant_id,
             ),
@@ -131,12 +129,12 @@ class PostgreSQLDeclaredResponseEffectRegistration:
                 effect_kind, capability_kind, operation_class, audience_scope,
                 data_scope, purpose, authorization_basis, destination_kind,
                 destination_party_id, destination_binding_id,
-                status, verification_status,
+                live_voice_turn_id, status, verification_status,
                 registration_digest, trace_id) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, 'send', %s, 'declared_party_response',
-                'respond_to_other_human', %s, %s, %s, %s,
-                'registered', 'not_started', %s, %s)
+                %s, %s, 'send', %s, %s,
+                %s, %s, %s, %s, %s,
+                %s, 'registered', 'not_started', %s, %s)
             """,
             (
                 effect_id,
@@ -151,10 +149,17 @@ class PostgreSQLDeclaredResponseEffectRegistration:
                 draft.effect_kind,
                 draft.capability_kind,
                 draft.audience_scope,
+                "creator_visible_response"
+                if draft.effect_kind == "creator_response"
+                else "declared_party_response",
+                "respond_to_creator"
+                if draft.effect_kind == "creator_response"
+                else "respond_to_other_human",
                 draft.authorization_basis,
                 draft.destination_kind,
                 draft.destination_party_id,
                 draft.destination_binding_id,
+                draft.live_voice_turn_id,
                 registration_digest.value,
                 draft.trace_id.value,
             ),
@@ -165,9 +170,14 @@ class PostgreSQLDeclaredResponseEffectRegistration:
                 effect_outbox_item_id, effect_id, message_kind,
                 status, dispatch_deadline, max_attempts) VALUES (
                 %s, %s, 'effect.dispatch', 'ready',
-                statement_timestamp() + interval '1 hour', %s)
+                CASE WHEN %s THEN NULL ELSE statement_timestamp() + interval '1 hour' END, %s)
             """,
-            (uuid7(), effect_id, draft.max_attempts),
+            (
+                uuid7(),
+                effect_id,
+                draft.effect_kind == "creator_response",
+                draft.max_attempts,
+            ),
         )
         return effect_id
 
@@ -226,9 +236,10 @@ class PostgreSQLEffectLedgerRepository:
                        observation.observation_kind, observation.reliability,
                        attempt.effect_attempt_id,attempt.attempt_no,
                        attempt.dispatch_state,observation.effect_observation_id,
-                       observation.conclusion,observation.reason_code,
+                       observation.conclusion,CASE WHEN outbox.last_error_code='EFFECT-RUNTIME-INTERRUPTED' THEN outbox.last_error_code ELSE COALESCE(observation.reason_code,outbox.last_error_code) END,
                        observation.evidence_kind
                 FROM armi.effects AS effect
+                JOIN armi.effect_outbox_items AS outbox ON outbox.effect_id=effect.effect_id
                 LEFT JOIN armi.effect_observations AS observation
                   ON observation.effect_observation_id=effect.current_observation_id
                 LEFT JOIN armi.effect_attempts AS attempt
@@ -454,12 +465,8 @@ class PostgreSQLEffectLedgerRepository:
                         snapshot.effect_kind,
                         snapshot.capability_kind,
                         snapshot.operation_class,
-                        "creator"
-                        if snapshot.effect_kind == "creator_response"
-                        else None,
-                        "creator_visible_response"
-                        if snapshot.effect_kind == "creator_response"
-                        else None,
+                        None,
+                        None,
                         snapshot.purpose,
                         snapshot.destination_kind,
                         snapshot.destination_party_id,
@@ -471,12 +478,6 @@ class PostgreSQLEffectLedgerRepository:
                 )
             ).fetchone()
             row = cast(tuple[Any, ...], row)
-            if snapshot.effect_kind == "creator_response":
-                await self._effect_links.link_effect(
-                    connection,
-                    action_intent_id=snapshot.action_intent_id,
-                    effect_id=effect_id,
-                )
             await connection.execute(
                 """
                 INSERT INTO armi.effect_outbox_items (
@@ -573,9 +574,10 @@ class PostgreSQLEffectLedgerRepository:
                    effect.settled_at,effect.destination_kind,
                    attempt.effect_attempt_id,attempt.attempt_no,
                    attempt.dispatch_state,observation.effect_observation_id,
-                   observation.conclusion,observation.reason_code,
+                   observation.conclusion,CASE WHEN outbox.last_error_code='EFFECT-RUNTIME-INTERRUPTED' THEN outbox.last_error_code ELSE COALESCE(observation.reason_code,outbox.last_error_code) END,
                    observation.evidence_kind
             FROM armi.effects AS effect
+            JOIN armi.effect_outbox_items AS outbox ON outbox.effect_id=effect.effect_id
             LEFT JOIN armi.effect_observations AS observation
               ON observation.effect_observation_id = effect.current_observation_id
             LEFT JOIN armi.effect_attempts AS attempt
@@ -632,7 +634,7 @@ class PostgreSQLEffectLedgerRepository:
                     if str(row[16]) in {"external_private", "external_group"}
                     else "verify_local_inbox"
                 )
-                if str(row[8]) == "unknown"
+                if str(row[8]) == "unknown" and row[22] != "EFFECT-RUNTIME-INTERRUPTED"
                 else None
             ),
             settled_at=Instant(row[15]) if row[15] is not None else None,

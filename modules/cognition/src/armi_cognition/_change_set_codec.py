@@ -16,7 +16,6 @@ from armi_capability.api import (
     CapabilityOperation,
     CapabilityRequestDraft,
     CodexDelegatedWorkScope,
-    CreatorSceneReplyScope,
 )
 from armi_codex.api import CodexDelegationDraft, CodexTaskSourceId
 from armi_expression.api import (
@@ -110,7 +109,7 @@ def parse_subject_change_set(
         if type(raw) is not dict:
             raise ValueError
         document = cast(dict[str, Any], raw)
-        if document.get("schema_version") != "armi.subject-change-set.v31":
+        if document.get("schema_version") != "armi.subject-change-set.v32":
             raise ValueError
         if set(document) != _TOP_KEYS:
             raise ValueError
@@ -527,52 +526,25 @@ def _capability(value: object) -> CapabilityRequestDraft:
     )
     capability = CapabilityKind(_text(item["capability_kind"]))
     operation = CapabilityOperation(_text(item["operation"]))
-    if capability is CapabilityKind.CREATOR_SCENE_REPLY:
-        scope = _object(
-            item["scope"],
-            {
-                "subject_id",
-                "scene_id",
-                "creator_party_id",
-                "audience_scope",
-                "data_scope",
-                "purpose",
-                "valid_for_seconds",
-                "max_uses",
-                "max_payload_bytes",
-            },
-        )
-        parsed_scope = CreatorSceneReplyScope(
-            _uuid7(scope["subject_id"]),
-            _uuid7(scope["scene_id"]),
-            _uuid7(scope["creator_party_id"]),
-            _positive(scope["valid_for_seconds"]),
-            _positive(scope["max_uses"]),
-            _positive(scope["max_payload_bytes"]),
-            _text(scope["audience_scope"]),
-            _text(scope["data_scope"]),
-            _text(scope["purpose"]),
-        )
-    else:
-        scope = _object(
-            item["scope"],
-            {
-                "workspace_scope",
-                "artifact_scope",
-                "network_access",
-                "max_uses",
-                "valid_for_seconds",
-            },
-        )
-        if type(scope["network_access"]) is not bool:
-            raise ValueError
-        parsed_scope = CodexDelegatedWorkScope(
-            _positive(scope["valid_for_seconds"]),
-            _text(scope["workspace_scope"]),
-            _text(scope["artifact_scope"]),
-            scope["network_access"],
-            _positive(scope["max_uses"]),
-        )
+    scope = _object(
+        item["scope"],
+        {
+            "workspace_scope",
+            "artifact_scope",
+            "network_access",
+            "max_uses",
+            "valid_for_seconds",
+        },
+    )
+    if type(scope["network_access"]) is not bool:
+        raise ValueError
+    parsed_scope = CodexDelegatedWorkScope(
+        _positive(scope["valid_for_seconds"]),
+        _text(scope["workspace_scope"]),
+        _text(scope["artifact_scope"]),
+        scope["network_access"],
+        _positive(scope["max_uses"]),
+    )
     return CapabilityRequestDraft(
         _text(item["proposal_ref"]),
         _text(item["atomic_group_ref"]),

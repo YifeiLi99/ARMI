@@ -10,7 +10,7 @@ from uuid import UUID, uuid7
 import rfc8785
 from armi_capability.api import CapabilityDispatchAuthorizationPort
 from armi_data_rights.api import DataRightsFence
-from armi_interaction.api import InteractionEffectRoutePort
+from armi_interaction.api import InteractionEffectRoutePort, OtherHumanInputViolation
 from armi_kernel.application import (
     AuditDraft,
     AuditEventId,
@@ -51,7 +51,7 @@ class EffectDispatchSnapshot:
     attempt_no: int
     artifact_id: UUID
     scene_key: str
-    dispatch_deadline: Instant
+    dispatch_deadline: Instant | None
     request: FrozenEffectRequest
 
 
@@ -86,7 +86,7 @@ class PostgreSQLEffectDispatchRepository:
                 JOIN armi.effects AS effect ON effect.effect_id = outbox.effect_id
                 WHERE outbox.status = 'ready'
                   AND outbox.available_at <= statement_timestamp()
-                  AND statement_timestamp() < outbox.dispatch_deadline
+                  AND (outbox.dispatch_deadline IS NULL OR statement_timestamp() < outbox.dispatch_deadline)
                   AND outbox.attempt_count < outbox.max_attempts
                   AND effect.status = 'registered'
                   AND effect.destination_kind IN (
@@ -105,16 +105,31 @@ class PostgreSQLEffectDispatchRepository:
         attempt_no = int(row[9]) + 1
         claim_token = int(row[10]) + 1
         destination_kind = str(row[11])
-        route = await self._routes.effect_route(
-            connection,
-            scene_id=row[3],
-            context_party_id=row[4],
-            intended_destination_kind=(
-                "creator_inbox"
-                if destination_kind == "live_voice_audio"
-                else destination_kind
-            ),
-        )
+        try:
+            route = await self._routes.effect_route(
+                connection,
+                scene_id=row[3],
+                context_party_id=row[4],
+                intended_destination_kind=(
+                    "creator_inbox"
+                    if destination_kind == "live_voice_audio"
+                    else destination_kind
+                ),
+            )
+        except OtherHumanInputViolation:
+            await connection.execute(
+                """UPDATE armi.effects SET status='cancelled',verification_status='verified',
+                   cancelled_at=statement_timestamp(),settled_at=statement_timestamp()
+                   WHERE effect_id=%s AND status='registered'""",
+                (row[1],),
+            )
+            await connection.execute(
+                """UPDATE armi.effect_outbox_items SET status='cancelled',
+                   cancelled_at=statement_timestamp(),last_error_code='EFFECT-DESTINATION-UNAVAILABLE'
+                   WHERE effect_outbox_item_id=%s AND status='ready'""",
+                (row[0],),
+            )
+            return None
         adapter_binding = _adapter_binding(destination_kind)
         updated = await (
             await connection.execute(
@@ -185,7 +200,7 @@ class PostgreSQLEffectDispatchRepository:
             attempt_no,
             row[5],
             route.scene_key,
-            Instant(row[12]),
+            None if row[12] is None else Instant(row[12]),
             request,
         )
 
@@ -444,7 +459,7 @@ class PostgreSQLEffectDispatchRepository:
             int(row[3]),
             row[4],
             route.scene_key,
-            Instant(row[19]),
+            None if row[19] is None else Instant(row[19]),
             FrozenEffectRequest(
                 EffectId(row[6]),
                 EffectAttemptId(row[7]),
@@ -492,6 +507,8 @@ class PostgreSQLEffectDispatchRepository:
                 JOIN armi.effect_attempts AS attempt
                   ON attempt.effect_attempt_id = effect.current_attempt_id
                 WHERE outbox.status = 'unknown'
+                  AND NOT (effect.effect_kind='creator_response'
+                           AND outbox.last_error_code='EFFECT-RUNTIME-INTERRUPTED')
                   AND effect.status = 'unknown'
                   AND effect.destination_kind IN (
                       'creator_inbox', 'other_human_inbox', 'external_group',
@@ -522,7 +539,7 @@ class PostgreSQLEffectDispatchRepository:
             int(row[3]),
             row[4],
             route.scene_key,
-            Instant(row[18]),
+            None if row[18] is None else Instant(row[18]),
             FrozenEffectRequest(
                 EffectId(row[6]),
                 EffectAttemptId(row[1]),
@@ -594,18 +611,48 @@ class PostgreSQLEffectDispatchRepository:
                 raise EffectViolation("EFFECT-CLAIM-STALE")
             if not boundary.allowed:
                 return False
-        elif basis == "runtime_builtin" and destination_kind == "other_human_inbox":
-            pass
-        elif basis == "runtime_configuration" and destination_kind in {
-            "external_group",
-            "external_private",
-        }:
-            await self._routes.effect_route(
-                connection,
-                scene_id=authorization[2],
-                context_party_id=authorization[3],
-                intended_destination_kind=destination_kind,
-            )
+        elif basis in {"runtime_builtin", "runtime_configuration"}:
+            try:
+                route = await self._routes.effect_route(
+                    connection,
+                    scene_id=authorization[2],
+                    context_party_id=authorization[3],
+                    intended_destination_kind="creator_inbox"
+                    if destination_kind == "live_voice_audio"
+                    else destination_kind,
+                )
+                current_route = (
+                    route.external_channel,
+                    route.external_account_key,
+                    route.external_conversation_key,
+                )
+                frozen_route = (
+                    snapshot.request.external_channel,
+                    snapshot.request.external_account_key,
+                    snapshot.request.external_conversation_key,
+                )
+                route_matches = current_route == frozen_route
+            except OtherHumanInputViolation:
+                route_matches = False
+            if not route_matches:
+                await self._settle(
+                    uow,
+                    snapshot,
+                    observation_kind="query",
+                    reliability="reliable",
+                    observation_digest=_observation_digest(
+                        snapshot, "query", "destination_unavailable"
+                    ),
+                    receiver_ref=None,
+                    receiver_external_ref=None,
+                    status="cancelled",
+                    verification="verified",
+                    outbox_status="cancelled",
+                    operation_status="effect_cancelled",
+                    attempt_result="cancelled",
+                    error_code="EFFECT-DESTINATION-UNAVAILABLE",
+                )
+                return False
         else:
             raise EffectViolation("EFFECT-AUTHORIZATION-INVALID")
         row = await (
@@ -698,7 +745,11 @@ class PostgreSQLEffectDispatchRepository:
         )
 
     async def settle_rejection(
-        self, uow: PostgreSQLRuntimeUnitOfWork, snapshot: EffectDispatchSnapshot
+        self,
+        uow: PostgreSQLRuntimeUnitOfWork,
+        snapshot: EffectDispatchSnapshot,
+        *,
+        error_code: str = "EFFECT-RECEIVER-NOT-DELIVERED",
     ) -> None:
         await self._settle(
             uow,
@@ -715,7 +766,7 @@ class PostgreSQLEffectDispatchRepository:
             outbox_status="dead",
             operation_status="effect_failed",
             attempt_result="failed",
-            error_code="EFFECT-RECEIVER-NOT-DELIVERED",
+            error_code=error_code,
         )
 
     async def settle_absent(
@@ -776,7 +827,7 @@ class PostgreSQLEffectDispatchRepository:
             await connection.execute(
                 """
                 SELECT outbox.attempt_count, outbox.max_attempts,
-                       statement_timestamp() < outbox.dispatch_deadline,
+                       (outbox.dispatch_deadline IS NULL OR statement_timestamp() < outbox.dispatch_deadline),
                        attempt.dispatch_state, effect.authorization_basis,
                        effect.policy_decision_id,
                        effect.action_intent_revision_id
@@ -807,14 +858,9 @@ class PostgreSQLEffectDispatchRepository:
             raise EffectViolation("EFFECT-SETTLEMENT-STALE")
         if str(current[4]) != "creator_grant":
             return (
-                _classify_absent_effect(
-                    attempt_count=int(current[0]),
-                    max_attempts=int(current[1]),
-                    before_dispatch_deadline=bool(current[2]),
-                    policy_current=True,
-                    grant_status="active",
-                    grant_time_valid=True,
-                ),
+                _AbsentDisposition.RETRY
+                if int(current[0]) < int(current[1]) and bool(current[2])
+                else _AbsentDisposition.FAILED,
                 None,
                 str(current[3]),
             )
@@ -1135,7 +1181,11 @@ class PostgreSQLEffectDispatchRepository:
                 WHERE effect_attempt_id=%s AND dispatch_state IN ('prepared','dispatching')
                 RETURNING settled_at
                 """,
-                (attempt_result, error_code, snapshot.request.attempt_id.value),
+                (
+                    attempt_result,
+                    error_code if attempt_result in {"failed", "unknown"} else None,
+                    snapshot.request.attempt_id.value,
+                ),
             )
         ).fetchone()
         if attempt is None:

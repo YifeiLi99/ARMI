@@ -177,8 +177,6 @@ class CreatorOperationPhase(StrEnum):
     CANDIDATE_VALIDATED = "candidate_validated"
     CANDIDATE_REJECTED = "candidate_rejected"
     SUBJECT_COMMITTING = "subject_committing"
-    RESPONSE_ADMISSION = "response_admission"
-    RESPONSE_ACCEPTED = "response_accepted"
     EFFECT_REGISTRATION = "effect_registration"
     EFFECT_REGISTRATION_UNAUTHORIZED = "effect_registration_unauthorized"
     EFFECT_REGISTRATION_UNAVAILABLE = "effect_registration_unavailable"
@@ -201,9 +199,6 @@ class CreatorOperationPhase(StrEnum):
     CODEX_CANCELLED = "codex_cancelled"
     FORMAL_DECLINED = "formal_declined"
     FORMAL_NO_ACTION = "formal_no_action"
-    RESPONSE_UNAUTHORIZED = "response_unauthorized"
-    RESPONSE_UNAVAILABLE = "response_unavailable"
-    RESPONSE_FAILED = "response_failed"
     APPLIED = "applied"
     COMPLETED = "completed"
     DEFERRED = "deferred"
@@ -255,7 +250,6 @@ class CreatorOperation:
     failure_code: str | None = None
     subject_version: int | None = None
     effect_ref: UUID | None = None
-    response_admission_ref: UUID | None = None
     effect_registration_ref: UUID | None = None
     intent_ref: UUID | None = None
     dialogue_decision_ref: UUID | None = None
@@ -317,7 +311,6 @@ class CreatorOperation:
             self.effect_attempt_ref,
             self.effect_observation_ref,
             self.work_ref,
-            self.response_admission_ref,
             self.effect_registration_ref,
         ):
             if owner_ref is not None and (
@@ -342,7 +335,7 @@ class CreatorOperation:
             if (
                 type(self.failure_code) is not str
                 or re.fullmatch(
-                    r"(?:CTX|MODEL|CANDIDATE|SUBJECT|RESPONSE|POLICY|ACTION)-[A-Z0-9-]+",
+                    r"(?:CTX|COGNITION|MODEL|CANDIDATE|SUBJECT|RESPONSE|POLICY|ACTION)-[A-Z0-9-]+",
                     self.failure_code,
                 )
                 is None
@@ -361,9 +354,6 @@ class CreatorOperation:
             if self.failure_code != "CONFLICT_SUBJECT_STATE_STALE":
                 raise CreatorInputViolation("CON-INPUT-OPERATION")
         elif self.phase in {
-            CreatorOperationPhase.RESPONSE_UNAUTHORIZED,
-            CreatorOperationPhase.RESPONSE_UNAVAILABLE,
-            CreatorOperationPhase.RESPONSE_FAILED,
             CreatorOperationPhase.EFFECT_REGISTRATION_UNAUTHORIZED,
             CreatorOperationPhase.EFFECT_REGISTRATION_UNAVAILABLE,
             CreatorOperationPhase.EFFECT_REGISTRATION_FAILED,
@@ -374,6 +364,13 @@ class CreatorOperation:
             CreatorOperationPhase.CODEX_UNKNOWN,
         }:
             if self.failure_code is None:
+                raise CreatorInputViolation("CON-INPUT-OPERATION")
+        elif self.phase is CreatorOperationPhase.EFFECT_CANCELLED:
+            if self.failure_code not in {
+                None,
+                "ACTION-RUNTIME-INTERRUPTED",
+                "ACTION-EFFECT-DESTINATION-UNAVAILABLE",
+            }:
                 raise CreatorInputViolation("CON-INPUT-OPERATION")
         elif self.failure_code is not None:
             raise CreatorInputViolation("CON-INPUT-OPERATION")

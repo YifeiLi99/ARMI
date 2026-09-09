@@ -10,7 +10,6 @@ from typing import Literal, Protocol, cast, runtime_checkable
 from uuid import UUID
 
 from armi_data_rights.api import DataRightsFence
-from armi_expression.api import ResponseAdmissionPort
 from armi_kernel.application import ArtifactPort, RuntimeFence, WorkRecord
 from armi_kernel.contracts import Digest, Instant, TraceId
 from armi_runtime_foundation import (
@@ -329,7 +328,6 @@ class EffectResponsibilityPort(Protocol):
         work_id: UUID,
         capability_request_id: UUID,
         permission_grant_id: UUID,
-        response_admission_id: UUID | None = None,
     ) -> UUID: ...
 
     async def registration_by_intent(
@@ -346,8 +344,8 @@ class EffectView:
     action_intent_ref: UUID
     action_intent_revision_ref: UUID
     policy_decision_ref: UUID | None
-    capability_request_ref: UUID
-    permission_grant_ref: UUID
+    capability_request_ref: UUID | None
+    permission_grant_ref: UUID | None
     effect_kind: Literal["creator_response", "codex_delegation"]
     status: EffectStatus
     verification_status: EffectVerificationStatus
@@ -374,8 +372,19 @@ class EffectView:
     def __post_init__(self) -> None:
         _uuid7(self.action_intent_ref)
         _uuid7(self.action_intent_revision_ref)
-        _uuid7(self.capability_request_ref)
-        _uuid7(self.permission_grant_ref)
+        grant_refs = (
+            self.policy_decision_ref,
+            self.capability_request_ref,
+            self.permission_grant_ref,
+        )
+        if self.effect_kind == "creator_response":
+            if any(ref is not None for ref in grant_refs):
+                raise EffectViolation("CON-EFFECT-CAPABILITY")
+        else:
+            for ref in grant_refs:
+                if ref is None:
+                    raise EffectViolation("CON-EFFECT-CAPABILITY")
+                _uuid7(ref)
         if self.policy_decision_ref is not None:
             _uuid7(self.policy_decision_ref)
         if self.current_attempt_ref is not None:
@@ -425,9 +434,10 @@ class EffectView:
         )
         if len({value is None for value in observation_values}) != 1:
             raise EffectViolation("CON-EFFECT-OBSERVATION")
-        if (self.status is EffectStatus.UNKNOWN) != (
-            self.verification_action is not None
-        ):
+        if (
+            self.status is EffectStatus.UNKNOWN
+            and self.observation_reason != "EFFECT-RUNTIME-INTERRUPTED"
+        ) != (self.verification_action is not None):
             raise EffectViolation("CON-EFFECT-VERIFICATION")
         if self.status is not EffectStatus.COMPLETED and self.response_text is not None:
             raise EffectViolation("CON-EFFECT-VISIBILITY")
@@ -437,31 +447,6 @@ class EffectView:
             raise EffectViolation("CON-EFFECT-PAYLOAD")
         if self.effect_kind == "codex_delegation" and self.response_text is not None:
             raise EffectViolation("CON-EFFECT-VISIBILITY")
-
-
-@dataclass(frozen=True, slots=True)
-class EffectRegistrationDraft:
-    action_intent_revision_id: UUID
-    action_intent_id: UUID
-    policy_decision_id: UUID | None
-    subject_id: UUID
-    scene_id: UUID
-    context_party_id: UUID
-    payload_artifact_id: UUID
-    payload_digest: Digest
-    payload_bytes: int
-    effect_kind: str
-    capability_kind: str
-    operation_class: str
-    purpose: str
-    authorization_basis: str
-    destination_kind: str
-    destination_party_id: UUID
-    destination_binding_id: UUID | None
-    trace_id: TraceId
-    dispatch_deadline: Instant
-    max_attempts: int
-    live_voice_turn_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -713,14 +698,6 @@ class EffectWakeupPort(Protocol):
 
 
 @runtime_checkable
-class ResponseAdmissionRuntimePort(ResponseAdmissionPort, Protocol):
-    async def open(self) -> None: ...
-    async def close(self) -> None: ...
-    def stop(self) -> None: ...
-    async def run_worker(self) -> None: ...
-
-
-@runtime_checkable
 class ActionAdapterPort(Protocol):
     def validate(self, request: FrozenEffectRequest) -> None: ...
 
@@ -778,7 +755,6 @@ __all__ = (
     "EffectReadPort",
     "EffectRegistrationContext",
     "EffectRegistrationContextPort",
-    "EffectRegistrationDraft",
     "EffectRegistrationResult",
     "EffectResponsibilityPort",
     "EffectResponsibilitySnapshot",
@@ -791,5 +767,4 @@ __all__ = (
     "EffectWakeupPort",
     "FrozenEffectRequest",
     "PolicyDecisionId",
-    "ResponseAdmissionRuntimePort",
 )

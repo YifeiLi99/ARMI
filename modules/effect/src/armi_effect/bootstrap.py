@@ -4,10 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from armi_artifact_store.api import ArtifactCatalogPort
 from armi_capability.api import (
     CapabilityActionAuthorizationPort,
-    CapabilityAdmissionPort,
     CapabilityDispatchAuthorizationPort,
 )
 from armi_data_rights.api import (
@@ -19,7 +17,6 @@ from armi_expression.api import (
     ExpressionEffectLinkPort,
     ExpressionEffectRegistrationPort,
     ExpressionIntentReadPort,
-    ExpressionResponseAdmissionPort,
 )
 from armi_interaction.api import InteractionEffectRoutePort
 from armi_kernel.application import (
@@ -34,7 +31,6 @@ from armi_runtime_foundation import (
 )
 
 from ._admin import PostgreSQLEffectAdmin
-from ._admission import PostgreSQLResponseAdmissionRepository
 from ._application import EffectRegistrationPipeline
 from ._codex_postgresql import PostgreSQLEffectCodexLifecycle
 from ._data_rights import PostgreSQLEffectDataRightsParticipant
@@ -49,7 +45,6 @@ from ._ledger import (
 )
 from ._read_postgresql import PostgreSQLEffectOperationRead
 from ._recovery import EffectRecoveryParticipant
-from ._response import ResponseAdmissionPipeline
 from .api import (
     ActionAdapterPort,
     EffectAdminPort,
@@ -63,7 +58,6 @@ from .api import (
     EffectRuntimePort,
     EffectTimelinePort,
     EffectWakeupPort,
-    ResponseAdmissionRuntimePort,
 )
 
 
@@ -76,7 +70,6 @@ FaultInjector = Callable[[str], None]
 
 # Fixed constructors used by the Runtime PostgreSQL integration composition.
 # They remain composition-only entry points; consumers never import owner internals.
-compose_response_admission_repository = PostgreSQLResponseAdmissionRepository
 compose_effect_dispatch_repository = PostgreSQLEffectDispatchRepository
 compose_local_inbox = PostgreSQLLocalInbox
 compose_effect_ledger_repository = PostgreSQLEffectLedgerRepository
@@ -149,32 +142,6 @@ def bootstrap_effect_runtime(
     )
 
 
-def bootstrap_response_admission(
-    *,
-    factory: PostgreSQLRuntimeUnitOfWorkFactory,
-    storage: EffectArtifactStorePort,
-    work: DurableWorkPort,
-    artifacts: ArtifactCatalogPort,
-    capability: CapabilityAdmissionPort,
-    data_rights: DataRightsEffectGate,
-    expression: ExpressionResponseAdmissionPort,
-    wakeups: EffectWakeupPort,
-    diagnostic: Diagnostic | None = None,
-) -> ResponseAdmissionRuntimePort:
-    return ResponseAdmissionPipeline(
-        factory=factory,
-        storage=storage,
-        work=work,
-        artifacts=artifacts,
-        capability=capability,
-        data_rights=data_rights,
-        expression=expression,
-        registrations=bootstrap_effect_responsibility(),
-        wakeups=wakeups,
-        diagnostic=diagnostic,
-    )
-
-
 def bootstrap_effect_data_rights() -> DataRightsParticipant:
     return PostgreSQLEffectDataRightsParticipant()
 
@@ -197,9 +164,7 @@ __all__ = (
     "bootstrap_effect_responsibility",
     "bootstrap_effect_runtime",
     "bootstrap_expression_effect_registration",
-    "bootstrap_response_admission",
     "compose_effect_dispatch_repository",
     "compose_effect_ledger_repository",
     "compose_local_inbox",
-    "compose_response_admission_repository",
 )

@@ -80,7 +80,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                 request.get("contract_version") != "1.0"
                 or request.get("decision") != "limit"
                 or request.get("expected_request_version") != 1
-                or request.get("max_uses") != 2
+                or request.get("valid_for_seconds") != 300
                 or re.fullmatch(
                     r"[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-"
                     r"[89ab][0-9a-f]{3}-[0-9a-f]{12}",
@@ -170,7 +170,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             "message": "Creator response verified.",
             "result_ref": cls.effect_id,
             "details": {
-                "projection_version": "creator-operation.v4",
+                "projection_version": "creator-operation.v5",
                 "operation_ref": cls.opportunity_id,
                 "operation_kind": "creator_response",
                 "stage": "completed",
@@ -183,16 +183,16 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
     def _capability_items(cls) -> list[dict[str, object]]:
         reply: dict[str, object] = {
             "capability_request_id": cls.capability_request_id,
-            "capability_kind": "creator.scene.reply",
-            "operation": "send",
+            "capability_kind": "codex.delegated-work",
+            "operation": "execute",
             "subject_id": cls.environment_id,
             "scene_id": cls.creator_party_id,
-            "audience_scope": "creator",
-            "data_scope": "creator_visible_response",
-            "purpose": "respond_to_creator",
+            "workspace_scope": "isolated_ephemeral",
+            "artifact_scope": "explicit_only",
+            "network_access": False,
+            "purpose": "delegate_codex_work",
             "valid_for_seconds": 600,
-            "max_uses": 4,
-            "max_payload_bytes": 4096,
+            "max_uses": 1,
             "status": cls.capability_status,
             "capability_availability": "available",
             "resolution_reason_code": None,
@@ -202,15 +202,17 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         }
         if cls.capability_status == "limited":
             reply["effective_grant"] = {
-                "scope_kind": "creator_scene_reply",
+                "scope_kind": "codex_delegated_work",
+                "workspace_scope": "isolated_ephemeral",
+                "artifact_scope": "explicit_only",
+                "network_access": False,
                 "grant_ref": cls.grant_id,
                 "status": "active",
                 "valid_from": "2026-07-30T10:01:00.000000Z",
                 "valid_until": "2026-07-30T10:06:00.000000Z",
-                "max_uses": 2,
+                "max_uses": 1,
                 "consumed_uses": 0,
-                "remaining_uses": 2,
-                "max_payload_bytes": 4096,
+                "remaining_uses": 1,
             }
         return [
             reply,
@@ -297,7 +299,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                 200,
                 {
                     "contract_version": "1.0",
-                    "projection_version": "capability-request.v5",
+                    "projection_version": "capability-request.v6",
                     "items": self._capability_items(),
                 },
             )
@@ -345,7 +347,7 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
                 200,
                 {
                     "contract_version": "1.0",
-                    "projection_version": "creator-effect.v4",
+                    "projection_version": "creator-effect.v5",
                     "effect_id": self.effect_id,
                     "action_intent_ref": self.opportunity_id,
                     "action_intent_revision_ref": "018f47a6-7b2d-7c35-8b18-684e38ab6efe",
@@ -582,20 +584,21 @@ def main() -> int:
                                 "WEB-BROWSER-NAVIGATION: click failed at "
                                 f"{viewport}; layout={navigation_layout}"
                             ) from error
-                        capability_item = page.locator("li.capability-item").filter(
-                            has_text="creator.scene.reply"
+                        capability_item = (
+                            page.locator("li.capability-item")
+                            .filter(has_text="codex.delegated-work")
+                            .first
                         )
                         capability_item.get_by_role(
                             "button", name="设置更严格限制", exact=True
                         ).click()
-                        maximum_uses = capability_item.get_by_label("最大次数")
-                        maximum_uses.press("Control+A")
-                        maximum_uses.press("2")
+                        maximum_uses = capability_item.get_by_label("有效秒数")
+                        maximum_uses.fill("300")
                         maximum_uses.press("Enter")
                         capability_item.get_by_text("limited", exact=True).wait_for()
-                        capability_item.get_by_text("2/2 次").wait_for()
+                        capability_item.get_by_text("1/1 次").wait_for()
                         codex_item = page.locator("li.capability-item").filter(
-                            has_text="codex.delegated-work"
+                            has_text="CODEX-UNAVAILABLE"
                         )
                         if codex_item.get_by_role(
                             "button", name="允许申请范围", exact=True

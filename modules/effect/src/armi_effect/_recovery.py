@@ -26,7 +26,11 @@ class EffectRecoveryParticipant:
         transaction: PostgreSQLTransaction,
         scope: RecoveryScope,
         work: tuple[RecoveryWorkSnapshot, ...],
+        *,
+        conversation_only: bool = False,
     ) -> RecoveryContribution:
+        if conversation_only:
+            work = ()
         reconciliation = OwnerReconciliationContext(
             transaction, self.owner_identity, work
         )
@@ -69,11 +73,45 @@ class EffectRecoveryParticipant:
                     item.work_id,
                     reason_code="REC-EFFECT-WORK-EXHAUSTED",
                 )
+        # A normal reply belongs to the running conversation. Startup closes
+        # unsent replies; it never turns them into another delivery attempt.
+        await transaction.execute(
+            """UPDATE armi.effect_attempts AS attempt
+               SET dispatch_state='settled',result_status='cancelled',
+                   settled_at=statement_timestamp()
+               FROM armi.effects AS effect
+               WHERE effect.subject_id=%s AND effect.effect_kind='creator_response'
+                 AND effect.current_attempt_id=attempt.effect_attempt_id
+                 AND attempt.dispatch_state='prepared'""",
+            (scope.subject_id,),
+        )
+        cancelled = await (
+            await transaction.execute(
+                """UPDATE armi.effects AS effect
+                   SET status='cancelled',verification_status='verified',
+                       cancelled_at=statement_timestamp(),settled_at=statement_timestamp()
+                   WHERE subject_id=%s AND effect_kind='creator_response'
+                     AND (status='registered' OR (status='dispatching' AND EXISTS (
+                       SELECT 1 FROM armi.effect_attempts AS attempt
+                       WHERE attempt.effect_attempt_id=effect.current_attempt_id
+                         AND attempt.dispatched_at IS NULL)))
+                   RETURNING effect_id""",
+                (scope.subject_id,),
+            )
+        ).fetchall()
+        await transaction.execute(
+            """UPDATE armi.effect_outbox_items
+               SET status='cancelled',cancelled_at=statement_timestamp(),
+                   claim_owner=NULL,claim_expires_at=NULL,
+                   last_error_code='EFFECT-RUNTIME-INTERRUPTED'
+               WHERE effect_id=ANY(%s::uuid[])""",
+            ([row[0] for row in cancelled],),
+        )
         dispatched = await (
             await transaction.execute(
                 """
                 SELECT effect.effect_id, attempt.effect_attempt_id,
-                       outbox.effect_outbox_item_id, outbox.claim_token
+                       outbox.effect_outbox_item_id, outbox.claim_token, effect.effect_kind
                 FROM armi.effects AS effect
                 JOIN armi.effect_attempts AS attempt
                   ON attempt.effect_attempt_id = effect.current_attempt_id
@@ -82,16 +120,22 @@ class EffectRecoveryParticipant:
                   ON outbox.effect_id = effect.effect_id
                 WHERE effect.subject_id = %s
                   AND effect.status = 'dispatching'
+                  AND (NOT %s OR effect.effect_kind='creator_response')
                   AND attempt.dispatch_state = 'dispatching'
                   AND outbox.status = 'claimed'
                 ORDER BY effect.effect_id
                 FOR UPDATE OF effect, attempt, outbox
                 """,
-                (scope.subject_id,),
+                (scope.subject_id, conversation_only),
             )
         ).fetchall()
         audits: list[RecoveryAuditContribution] = []
-        for effect_id, attempt_id, outbox_id, claim_token in dispatched:
+        for effect_id, attempt_id, outbox_id, claim_token, effect_kind in dispatched:
+            reason = (
+                "EFFECT-RUNTIME-INTERRUPTED"
+                if effect_kind == "creator_response"
+                else "EFFECT-RESULT-UNKNOWN"
+            )
             observation_id = uuid7()
             digest = Digest.from_bytes(
                 f"recovery:{effect_id}:{attempt_id}:unknown".encode()
@@ -104,10 +148,17 @@ class EffectRecoveryParticipant:
                     conclusion, reason_code, evidence_kind, evidence_digest,
                     source_identity)
                 VALUES (%s, %s, %s, 'ambiguous', 'inconclusive', %s,
-                        'unknown','EFFECT-RESULT-UNKNOWN','adapter_ambiguous',%s,
+                        'unknown',%s,'adapter_ambiguous',%s,
                         'effect-recovery')
                 """,
-                (observation_id, effect_id, attempt_id, digest.value, digest.value),
+                (
+                    observation_id,
+                    effect_id,
+                    attempt_id,
+                    digest.value,
+                    reason,
+                    digest.value,
+                ),
             )
             await transaction.execute(
                 """
@@ -135,11 +186,11 @@ class EffectRecoveryParticipant:
                 UPDATE armi.effect_outbox_items
                 SET status = 'unknown', claim_owner = NULL,
                     claim_expires_at = NULL,
-                    last_error_code = 'EFFECT-RESULT-UNKNOWN'
+                    last_error_code = %s
                 WHERE effect_outbox_item_id = %s AND claim_token = %s
                   AND status = 'claimed'
                 """,
-                (outbox_id, claim_token),
+                (reason, outbox_id, claim_token),
             )
             audits.append(
                 RecoveryAuditContribution(
@@ -149,12 +200,21 @@ class EffectRecoveryParticipant:
                     "REC-EFFECT-OUTCOME-UNKNOWN",
                 )
             )
+        await transaction.execute(
+            """UPDATE armi.effect_outbox_items AS outbox
+               SET last_error_code='EFFECT-RUNTIME-INTERRUPTED'
+               FROM armi.effects AS effect
+               WHERE outbox.effect_id=effect.effect_id AND effect.subject_id=%s
+                 AND effect.effect_kind='creator_response' AND effect.status='unknown'""",
+            (scope.subject_id,),
+        )
         row = await (
             await transaction.execute(
                 """
             SELECT
                 count(*) FILTER (
                     WHERE effect.status IN ('registered', 'dispatching', 'unknown')
+                      AND effect.effect_kind <> 'creator_response'
                 ),
                 count(*) FILTER (
                     WHERE (effect.status = 'registered' AND outbox.status <> 'ready')
@@ -183,16 +243,19 @@ class EffectRecoveryParticipant:
             )
         ).fetchone()
         resumable, invalid = (0, 0) if row is None else (int(row[0]), int(row[1]))
+        uncertain_external_work = [
+            row for row in dispatched if row[4] != "creator_response"
+        ]
         return RecoveryContribution(
             self.owner_identity,
             findings=()
-            if invalid == 0 and not dispatched
+            if invalid == 0 and not uncertain_external_work
             else (
                 RecoveryFindingContribution(
                     "effect",
                     RecoveryFindingDecision.BLOCKED,
                     ("REC-EFFECT-INVALID" if invalid else "REC-EFFECT-OUTCOME-UNKNOWN"),
-                    None if invalid else dispatched[0][0],
+                    None if invalid else uncertain_external_work[0][0],
                 ),
             ),
             metrics=(
@@ -203,3 +266,11 @@ class EffectRecoveryParticipant:
             ),
             audits=tuple(audits),
         )
+
+    async def end_conversations(
+        self,
+        transaction: PostgreSQLTransaction,
+        scope: RecoveryScope,
+        work: tuple[RecoveryWorkSnapshot, ...],
+    ) -> None:
+        await self.recover(transaction, scope, work, conversation_only=True)

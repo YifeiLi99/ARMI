@@ -230,7 +230,9 @@ class OwnerReconciliationContext:
         result_ref: UUID | None,
     ) -> None:
         snapshot = self._by_id.get(work_id)
-        if snapshot is None or not snapshot.reconciliation_required:
+        if snapshot is None or (
+            not snapshot.reconciliation_required and status != "cancelled"
+        ):
             raise ValueError("reconciliation work is outside owner custody")
         result = await self._transaction.execute(
             """UPDATE armi.durable_work
@@ -240,7 +242,7 @@ class OwnerReconciliationContext:
                    last_error_code=%s,updated_at=clock_timestamp()
                WHERE work_id=%s AND owner_kind=%s AND work_kind=%s
                  AND status IN ('ready','leased')
-                 AND reconciliation_required=true""",
+                 AND (reconciliation_required=true OR %s='cancelled')""",
             (
                 status,
                 result_kind,
@@ -249,6 +251,7 @@ class OwnerReconciliationContext:
                 snapshot.work_id,
                 snapshot.owner_kind,
                 snapshot.work_kind,
+                status,
             ),
         )
         if result.rowcount != 1:
@@ -338,6 +341,18 @@ class RecoveryParticipant(Protocol):
 
 
 @runtime_checkable
+class ConversationEndParticipant(Protocol):
+    """Existing owner lifecycle hook for ending ephemeral conversation work."""
+
+    async def end_conversations(
+        self,
+        transaction: PostgreSQLTransaction,
+        scope: RecoveryScope,
+        work: tuple[RecoveryWorkSnapshot, ...],
+    ) -> None: ...
+
+
+@runtime_checkable
 class RecoveryDependentParticipant(RecoveryParticipant, Protocol):
     """Owner participant that consumes earlier owner-authored contributions."""
 
@@ -377,6 +392,7 @@ class EmptyRecoveryParticipant:
 
 
 __all__ = (
+    "ConversationEndParticipant",
     "EmptyRecoveryParticipant",
     "OwnerReconciliationContext",
     "RecoveryAuditContribution",

@@ -682,15 +682,6 @@ ALTER TABLE ONLY armi.durable_work
 ALTER TABLE ONLY armi.durable_work
     ADD CONSTRAINT durable_work_pkey PRIMARY KEY (work_id);
 
-ALTER TABLE ONLY armi.response_admissions
-    ADD CONSTRAINT response_admissions_pkey PRIMARY KEY (response_admission_id);
-
-ALTER TABLE ONLY armi.response_admissions
-    ADD CONSTRAINT response_admissions_action_key UNIQUE (action_intent_id);
-
-ALTER TABLE ONLY armi.response_admissions
-    ADD CONSTRAINT response_admissions_work_key UNIQUE (work_id);
-
 ALTER TABLE ONLY armi.effect_registrations
     ADD CONSTRAINT effect_registrations_pkey PRIMARY KEY (effect_registration_id);
 
@@ -3000,29 +2991,11 @@ ALTER TABLE ONLY armi.dialogue_decisions
 ALTER TABLE ONLY armi.durable_work
     ADD CONSTRAINT durable_work_subject_fk FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id) ON DELETE RESTRICT;
 
-ALTER TABLE ONLY armi.response_admissions
-    ADD CONSTRAINT response_admissions_action_fk FOREIGN KEY (action_intent_id) REFERENCES armi.action_intents(action_intent_id) ON DELETE RESTRICT;
-
-ALTER TABLE ONLY armi.response_admissions
-    ADD CONSTRAINT response_admissions_work_fk FOREIGN KEY (work_id) REFERENCES armi.durable_work(work_id) ON DELETE RESTRICT;
-
-ALTER TABLE ONLY armi.response_admissions
-    ADD CONSTRAINT response_admissions_grant_fk FOREIGN KEY (permission_grant_id) REFERENCES armi.permission_grants(grant_id) ON DELETE RESTRICT;
-
-ALTER TABLE ONLY armi.response_admissions
-    ADD CONSTRAINT response_admissions_request_fk FOREIGN KEY (capability_request_id) REFERENCES armi.capability_requests(capability_request_id) ON DELETE RESTRICT;
-
-ALTER TABLE ONLY armi.response_admissions
-    ADD CONSTRAINT response_admissions_grant_owner_fk FOREIGN KEY (permission_grant_id, capability_request_id) REFERENCES armi.permission_grants(grant_id, capability_request_id) ON DELETE RESTRICT;
-
 ALTER TABLE ONLY armi.effect_registrations
     ADD CONSTRAINT effect_registrations_action_fk FOREIGN KEY (action_intent_id) REFERENCES armi.action_intents(action_intent_id) ON DELETE RESTRICT;
 
 ALTER TABLE ONLY armi.effect_registrations
     ADD CONSTRAINT effect_registrations_work_fk FOREIGN KEY (work_id) REFERENCES armi.durable_work(work_id) ON DELETE RESTRICT;
-
-ALTER TABLE ONLY armi.effect_registrations
-    ADD CONSTRAINT effect_registrations_response_fk FOREIGN KEY (response_admission_id) REFERENCES armi.response_admissions(response_admission_id) ON DELETE RESTRICT;
 
 ALTER TABLE ONLY armi.effect_registrations
     ADD CONSTRAINT effect_registrations_effect_fk FOREIGN KEY (effect_id) REFERENCES armi.effects(effect_id) ON DELETE RESTRICT;

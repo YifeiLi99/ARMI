@@ -21,6 +21,18 @@ from .api import (
 
 
 class PostgreSQLInteractionPerception:
+    async def creator_input_ids(
+        self, transaction: PostgreSQLTransaction, interaction_ids: tuple[UUID, ...]
+    ) -> tuple[UUID, ...]:
+        rows = await (
+            await transaction.execute(
+                """SELECT interaction_id FROM armi.party_input_interactions
+                   WHERE interaction_id=ANY(%s::uuid[]) AND purpose='creator_message'""",
+                (list(interaction_ids),),
+            )
+        ).fetchall()
+        return tuple(row[0] for row in rows)
+
     async def recognition_source(
         self, transaction: PostgreSQLTransaction, *, part_id: UUID
     ) -> tuple[UUID, UUID]:

@@ -8,7 +8,7 @@ ARMI 不把人格提示词、模型会话或任务 Agent 当成“她”。当�
 
 对外交互优先服务获得 Creator 委托的 Agent，再服务人类直接操作。`armi` / `armi-mcp` 提供交互使用，`armi-admin` / `armi-admin-mcp` 提供管理、检查与调试；Creator Web 保留。代理不是新的社交主体，代理输入沿正式 intake 记录来源，Creator 管理授权不替代 ARMI 的主体意愿。
 
-产品以完整、直接、高效的 Agent/LLM 自动化链路为第一优先级，人类界面为第二优先级。已开启的能力在配置范围内持续可用，不额外设置申请、审核、批准流程；普通回复是基础能力。简化应减少无独立职责的步骤、状态和重复记录，同时保留隐私、数据保护与执行正确性。当前代码仍有申请/许可机制，下方实现快照描述现状，不表示这些手续是永久产品要求。
+产品以完整、直接、高效的 Agent/LLM 自动化链路为第一优先级，人类界面为第二优先级。已开启的能力在配置范围内持续可用，不额外设置申请、审核、批准流程；普通回复是基础能力。简化应减少无独立职责的步骤、状态和重复记录，同时保留隐私、数据保护与执行正确性。普通 Creator 文本、语音、QQ 私聊及共用回复链的主动表达已采用直接执行、中断即结束；Codex 委托和管理端继续保留各自现有授权合同。
 
 ## 产品不变量
 
@@ -31,7 +31,7 @@ ARMI 不把人格提示词、模型会话或任务 Agent 当成“她”。当�
 | 应用 | 权威 `armi-runtime`、隔离 `armi-admin`、React Creator Web |
 | 业务 | 23 个独立 Python distribution，各自拥有事实、表、恢复和数据权利责任 |
 | 底座/适配器 | Kernel、Runtime Foundation、Local Control、Artifact Store、PostgreSQL contract、NapCat、QQ、ESP32 display 共 8 个包 |
-| 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；baseline `armi.schema-baseline.v13` |
+| 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；baseline `armi.schema-baseline.v14` |
 | 物理 schema | 当前 baseline 108 张表、1364 个字段、1 个只读 view、65 个显式索引；表和生产 DML 都受 owner registry 检查 |
 | Creator API | 52 个 OpenAPI path；同源 bearer session、签名分页、SSE 投影失效刷新 |
 | 管理面 | CLI/MCP 共用 Admin 应用服务；支持绑定的 `active` / `development` / `system_test` / `acceptance`，具体操作受配置授权约束 |

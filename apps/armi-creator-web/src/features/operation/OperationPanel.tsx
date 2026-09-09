@@ -20,8 +20,7 @@ const waitingLabels = {
   subject_commit: "候选已校验，等待主体提交",
   future_opportunity: "已暂缓，等待未来机会",
   new_evidence: "需要新的证据",
-  response_admission: "正在核验回应准入",
-  effect_registration: "回应已接纳，正在登记效果账本",
+  effect_registration: "Codex 委托已接纳，正在登记效果账本",
   effect_dispatch: "效果已登记，正在等待接收与核验",
   capability_decision: "Codex 委托正在等待创造者授权",
   codex_dispatch: "Codex 效果已登记，正在等待受限执行",
@@ -212,6 +211,13 @@ export function OperationPanel({
               </>
             ) : null}
           </dl>
+          {data.status === "failed" &&
+          data.error.code === "DEPENDENCY_RUNTIME_INTERRUPTED" ? (
+            <p className="authority-note" role="status">
+              本轮对话因 Runtime
+              中断已结束。已提交的变化保留，未完成的回复不会补发；可以开始新的对话。
+            </p>
+          ) : null}
           {data.details.effect_ref === undefined ||
           data.details.effect_ref === null ? null : (
             <button
@@ -224,7 +230,9 @@ export function OperationPanel({
           )}
           {data.details.stage === "dispatching" ? (
             <p className="critical-note" role="status">
-              效果已进入派发边界；撤回 grant 不会把在途事实改写为未发生。
+              {data.details.operation_kind === "codex_delegation"
+                ? "效果已进入派发边界；撤回 grant 不会把在途事实改写为未发生。"
+                : "回复正在发送，最终结果以实际回执为准。"}
             </p>
           ) : null}
           {data.details.stage === "cancelled" ? (

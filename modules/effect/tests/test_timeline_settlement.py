@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any, cast
@@ -20,6 +21,7 @@ from armi_kernel.contracts import Digest, Instant, TraceId
 
 class _UnitOfWork:
     transaction = object()
+    runtime_fence = object()
 
     async def __aenter__(self):
         return self
@@ -75,6 +77,65 @@ def _receipt() -> EffectAdapterReceipt:
         Digest.from_bytes(b"receipt"),
         Instant(datetime.now(UTC)),
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "destination", ("creator_inbox", "live_voice_audio", "external_private")
+)
+@pytest.mark.parametrize(
+    "boundary", ("send", "corrupt", "rights", "closed", "unconfigured")
+)
+async def test_direct_reply_checks_send_boundary_without_permissions(
+    monkeypatch: pytest.MonkeyPatch,
+    destination: str,
+    boundary: str,
+) -> None:
+    snapshot = _snapshot()
+    external = destination == "external_private"
+    snapshot = replace(
+        snapshot,
+        dispatch_deadline=None,
+        request=replace(
+            snapshot.request,
+            destination_kind=destination,
+            external_channel="qq" if external else None,
+            external_account_key="account" if external else None,
+            external_conversation_key="friend" if external else None,
+            live_voice_turn_id=uuid7() if destination == "live_voice_audio" else None,
+        ),
+    )
+    pipeline = _pipeline(receipt=_receipt())
+    pipeline._adapter.validate = Mock()
+    if boundary in {"closed", "unconfigured"}:
+        pipeline._adapter.validate.side_effect = EffectViolation(
+            "EFFECT-QQ-POLICY-NOT-ALLOWED"
+            if boundary == "closed"
+            else "EFFECT-ADAPTER-UNAVAILABLE"
+        )
+    pipeline._data_rights = AsyncMock()
+    pipeline._data_rights.blocks_effect.return_value = boundary == "rights"
+    pipeline._data_rights_fence = AsyncMock()
+    pipeline._fault_injector = Mock()
+    read = AsyncMock(return_value=None if boundary == "corrupt" else b"reply")
+    send = AsyncMock(return_value=_receipt())
+    monkeypatch.setattr(EffectRegistrationPipeline, "_read_payload", read)
+    monkeypatch.setattr(EffectRegistrationPipeline, "_dispatch_with_heartbeat", send)
+    monkeypatch.setattr(EffectRegistrationPipeline, "_notify_dispatch", AsyncMock())
+    await pipeline._dispatch_claimed(snapshot, _UnitOfWork.runtime_fence)
+    read.assert_awaited_once()
+    if boundary == "send":
+        send.assert_awaited_once_with(snapshot, b"reply")
+        pipeline._dispatcher.settle_receipt.assert_awaited_once()
+    else:
+        send.assert_not_awaited()
+        method = {
+            "corrupt": "settle_integrity_failure",
+            "rights": "cancel_data_rights",
+            "closed": "cancel_policy",
+            "unconfigured": "settle_rejection",
+        }[boundary]
+        getattr(pipeline._dispatcher, method).assert_awaited_once()
 
 
 @pytest.mark.asyncio

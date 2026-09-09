@@ -130,7 +130,7 @@ def _current_snapshot() -> AdminSchemaSnapshot:
             "subjects",
         ),
         revision="0000",
-        baseline_identity="armi.schema-baseline.v13",
+        baseline_identity="armi.schema-baseline.v14",
         resource_digest=DIGEST,
         catalog_digest=DIGEST,
         role_policy_digest=DIGEST,
@@ -662,21 +662,49 @@ def test_mcp_scope_arrays_retain_strict_elements_and_reach_the_owner() -> None:
         service = _service()
         gateway = Mock(spec=AdminObservationGateway)
         gateway.inspect_scope.return_value = {
-            "schema_version": "armi.admin-scope-graph.v2", "nodes": [{"kind": "subject", "id": ENVIRONMENT_ID,
-            "owner": "runtime-foundation", "attributes": {}}], "edges": [], "missing": [],
-            "relations": ["current_owner"], "truncated": False, "cursor": None,
-            "expansion_limit": 200, "expansion_truncated": False,
+            "schema_version": "armi.admin-scope-graph.v2",
+            "nodes": [
+                {
+                    "kind": "subject",
+                    "id": ENVIRONMENT_ID,
+                    "owner": "runtime-foundation",
+                    "attributes": {},
+                }
+            ],
+            "edges": [],
+            "missing": [],
+            "relations": ["current_owner"],
+            "truncated": False,
+            "cursor": None,
+            "expansion_limit": 200,
+            "expansion_truncated": False,
         }
         service._observation = gateway
         async with Client(create_admin_server(service)) as client:
-            request = {"environment_id": ENVIRONMENT_ID, "kind": "subject", "object_ids": [ENVIRONMENT_ID], "relations": ["current_owner"]}
+            request = {
+                "environment_id": ENVIRONMENT_ID,
+                "kind": "subject",
+                "object_ids": [ENVIRONMENT_ID],
+                "relations": ["current_owner"],
+            }
             result = await client.call_tool("inspect_scope", {"request": request})
             assert not result.is_error and result.structured_content is not None
-            assert result.structured_content["result"]["nodes"][0]["id"] == ENVIRONMENT_ID
-            gateway.inspect_scope.assert_called_once_with("subject", (ENVIRONMENT_ID,), relations=("current_owner",), limit=100, cursor=None)
-            invalid = await client.call_tool("inspect_scope", {"request": {**request, "object_ids": [123]}})
+            assert (
+                result.structured_content["result"]["nodes"][0]["id"] == ENVIRONMENT_ID
+            )
+            gateway.inspect_scope.assert_called_once_with(
+                "subject",
+                (ENVIRONMENT_ID,),
+                relations=("current_owner",),
+                limit=100,
+                cursor=None,
+            )
+            invalid = await client.call_tool(
+                "inspect_scope", {"request": {**request, "object_ids": [123]}}
+            )
             assert invalid.is_error
             assert gateway.inspect_scope.call_count == 1
+
     asyncio.run(exercise())
 
 

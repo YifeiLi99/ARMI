@@ -12,7 +12,6 @@ from armi_attention.api import (
     LifeGenerationFacts,
     LifeOpportunityFactsPort,
 )
-from armi_capability.api import CapabilityOperationReadPort
 from armi_cognition.api import CognitionOperationReadPort
 from armi_effect.api import EffectOperationReadPort
 from armi_expression.api import ExpressionIntentReadPort
@@ -23,7 +22,6 @@ from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTrans
 class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
     __slots__ = (
         "_activities",
-        "_capabilities",
         "_cognition",
         "_effects",
         "_expression",
@@ -34,14 +32,12 @@ class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
         self,
         *,
         activities: ActivityReadPort,
-        capabilities: CapabilityOperationReadPort,
         cognition: CognitionOperationReadPort,
         effects: EffectOperationReadPort,
         expression: ExpressionIntentReadPort,
         interaction: InteractionIdentityPort,
     ) -> None:
         self._activities = activities
-        self._capabilities = capabilities
         self._cognition = cognition
         self._effects = effects
         self._expression = expression
@@ -118,15 +114,6 @@ class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
         if not scenes:
             return None
         selected = scenes[0]
-        for scene in scenes:
-            if await self._capabilities.has_scene_reply_grant(
-                transaction,
-                subject_id=fence.subject_id,
-                scene_id=scene.scene_id,
-                creator_party_id=scene.creator_party_id,
-            ):
-                selected = scene
-                break
         awaiting = False
         intents = await self._expression.outreach_intents(
             transaction,
@@ -135,46 +122,27 @@ class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
             context_party_id=selected.creator_party_id,
         )
         for intent in intents:
-            policy = await self._capabilities.policy_for_revision(
-                transaction,
-                action_intent_revision_id=intent.action_intent_revision_id,
+            effect = await self._effects.by_action_intent(
+                transaction, action_intent_id=intent.action_intent_id
             )
-            if policy is None:
+            if effect is None:
+                raise RuntimeError("LIFE-RESPONSE-EFFECT-MISSING")
+            if effect.observation_reason == "EFFECT-RUNTIME-INTERRUPTED":
+                continue
+            if effect.status.value in {"registered", "dispatching", "unknown"}:
                 awaiting = True
                 break
-            if policy.outcome.value == "allowed":
-                registration = await self._effects.registration_by_intent(
+            if effect.status.value == "completed" and (
+                effect.settled_at is None
+                or not await self._interaction.input_after(
                     transaction,
-                    action_intent_id=intent.action_intent_id,
+                    scene_id=selected.scene_id,
+                    party_id=selected.creator_party_id,
+                    after=effect.settled_at.value,
                 )
-                if registration is not None and registration.status in {
-                    "unauthorized",
-                    "unavailable",
-                    "failed",
-                    "cancelled",
-                }:
-                    continue
-                effect = await self._effects.by_action_intent(
-                    transaction, action_intent_id=intent.action_intent_id
-                )
-                if effect is None or effect.status.value in {
-                    "registered",
-                    "dispatching",
-                    "unknown",
-                }:
-                    awaiting = True
-                    break
-                if effect.status.value == "completed" and (
-                    effect.settled_at is None
-                    or not await self._interaction.input_after(
-                        transaction,
-                        scene_id=selected.scene_id,
-                        party_id=selected.creator_party_id,
-                        after=effect.settled_at.value,
-                    )
-                ):
-                    awaiting = True
-                    break
+            ):
+                awaiting = True
+                break
         return CreatorOutreachFacts(
             selected.scene_id,
             selected.creator_party_id,

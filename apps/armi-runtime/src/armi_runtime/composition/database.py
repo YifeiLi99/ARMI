@@ -34,7 +34,6 @@ from armi_attention.bootstrap import (
 )
 from armi_capability.api import (
     CapabilityActionAuthorizationPort,
-    CapabilityAdmissionPort,
     CapabilityCommitPort,
     CapabilityDispatchAuthorizationPort,
     CapabilityOperationReadPort,
@@ -117,7 +116,6 @@ from armi_effect.api import (
     EffectReadPort,
     EffectRegistrationContextPort,
     EffectRuntimePort,
-    ResponseAdmissionRuntimePort,
 )
 from armi_effect.bootstrap import (
     bootstrap_effect_codex_lifecycle,
@@ -125,7 +123,6 @@ from armi_effect.bootstrap import (
     bootstrap_effect_responsibility,
     bootstrap_effect_runtime,
     bootstrap_expression_effect_registration,
-    bootstrap_response_admission,
 )
 from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
 from armi_evidence.bootstrap import (
@@ -137,7 +134,6 @@ from armi_expression.api import (
     ExpressionCommitPort,
     ExpressionEffectLinkPort,
     ExpressionIntentReadPort,
-    ExpressionResponseAdmissionPort,
 )
 from armi_expression.bootstrap import (
     ExpressionModule,
@@ -1700,6 +1696,7 @@ def compose_expression_module(
         bootstrap_expression_effect_registration(),
         interaction_routes,
         interaction_scenes,
+        bootstrap_live_voice_context_read(),
     )
 
 
@@ -1721,32 +1718,6 @@ def compose_capability_policy(
         effect_cancellation=effect_cancellation,
         codex_activation=codex_activation,
         notifier=notifier,
-    )
-
-
-def compose_response_admission_pipeline(
-    prepared: PreparedEnvironment,
-    *,
-    unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
-    expression: ExpressionResponseAdmissionPort,
-    capability: CapabilityAdmissionPort,
-    data_rights: DataRightsEffectGate,
-    catalog: ArtifactCatalogPort,
-    wakeups: WorkWakeupBus,
-    diagnostic: Callable[[str], None] | None = None,
-) -> ResponseAdmissionRuntimePort:
-    """Resolve the Runtime credential for the S028 admission worker."""
-
-    return bootstrap_response_admission(
-        factory=unit_of_work_factory,
-        storage=_artifact_storage(prepared, unit_of_work_factory, catalog),
-        work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
-        artifacts=catalog,
-        capability=capability,
-        data_rights=data_rights,
-        expression=expression,
-        wakeups=wakeups,
-        diagnostic=diagnostic,
     )
 
 
@@ -1840,8 +1811,6 @@ def compose_effect_owner_context(
             artifacts=catalog,
             codex=codex.task_sources,
             expression=expression,
-            interaction=interaction,
-            live_voice=bootstrap_live_voice_context_read(),
             registrations=bootstrap_effect_responsibility(),
         ),
         RuntimeCodexArtifactReference(
@@ -1942,7 +1911,6 @@ __all__ = (
     "compose_perception_module",
     "compose_prompt_module",
     "compose_relationship_module",
-    "compose_response_admission_pipeline",
     "compose_runtime_authority",
     "compose_runtime_observation",
     "compose_runtime_recovery",

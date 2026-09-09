@@ -21,12 +21,10 @@ type CapabilityContextStatePayload = tuple[UUID, int, bytes, str]
 
 
 class CapabilityKind(StrEnum):
-    CREATOR_SCENE_REPLY = "creator.scene.reply"
     CODEX_DELEGATED_WORK = "codex.delegated-work"
 
 
 class CapabilityOperation(StrEnum):
-    SEND = "send"
     EXECUTE = "execute"
 
 
@@ -163,10 +161,11 @@ class CapabilityConsumptionRequest:
         if (
             type(self.capability_kind) is not str
             or not self.capability_kind
-            or self.operation_class not in {"send", "execute"}
+            or self.operation_class != "execute"
             or type(self.purpose) is not str
             or not self.purpose
-            or self.effect_kind not in {"creator_response", "codex_delegation"}
+            or self.effect_kind != "codex_delegation"
+            or self.capability_kind != "codex.delegated-work"
             or type(self.payload_bytes) is not int
             or self.payload_bytes < 0
         ):
@@ -197,35 +196,6 @@ class CapabilityConsumptionResult:
 
 
 @dataclass(frozen=True, slots=True)
-class CreatorSceneReplyScope:
-    subject_id: UUID
-    scene_id: UUID
-    creator_party_id: UUID
-    valid_for_seconds: int
-    max_uses: int
-    max_payload_bytes: int
-    audience_scope: str = "creator"
-    data_scope: str = "creator_visible_response"
-    purpose: str = "respond_to_creator"
-
-    def __post_init__(self) -> None:
-        for value in (self.subject_id, self.scene_id, self.creator_party_id):
-            _uuid7(value, "CON-CAPABILITY-REPLY-SCOPE")
-        if (
-            type(self.valid_for_seconds) is not int
-            or not 60 <= self.valid_for_seconds <= 604800
-            or type(self.max_uses) is not int
-            or not 1 <= self.max_uses <= 16
-            or type(self.max_payload_bytes) is not int
-            or not 1 <= self.max_payload_bytes <= 65536
-            or self.audience_scope != "creator"
-            or self.data_scope != "creator_visible_response"
-            or self.purpose != "respond_to_creator"
-        ):
-            raise CapabilityViolation("CON-CAPABILITY-REPLY-SCOPE")
-
-
-@dataclass(frozen=True, slots=True)
 class CodexDelegatedWorkScope:
     valid_for_seconds: int
     workspace_scope: str = "isolated_ephemeral"
@@ -245,7 +215,7 @@ class CodexDelegatedWorkScope:
             raise CapabilityViolation("CON-CAPABILITY-CODEX-SCOPE")
 
 
-type CapabilityScope = CreatorSceneReplyScope | CodexDelegatedWorkScope
+type CapabilityScope = CodexDelegatedWorkScope
 
 
 @dataclass(frozen=True, slots=True)
@@ -270,21 +240,11 @@ class CapabilityRequestDraft:
             )
             or type(self.capability) is not CapabilityKind
             or type(self.operation) is not CapabilityOperation
-            or type(self.scope) not in {CreatorSceneReplyScope, CodexDelegatedWorkScope}
+            or type(self.scope) is not CodexDelegatedWorkScope
         ):
             raise CapabilityViolation("CON-CAPABILITY-REQUEST")
-        if (
-            self.capability is CapabilityKind.CREATOR_SCENE_REPLY
-            and (
-                self.operation is not CapabilityOperation.SEND
-                or not isinstance(self.scope, CreatorSceneReplyScope)
-            )
-        ) or (
-            self.capability is CapabilityKind.CODEX_DELEGATED_WORK
-            and (
-                self.operation is not CapabilityOperation.EXECUTE
-                or not isinstance(self.scope, CodexDelegatedWorkScope)
-            )
+        if self.capability is CapabilityKind.CODEX_DELEGATED_WORK and (
+            self.operation is not CapabilityOperation.EXECUTE
         ):
             raise CapabilityViolation("CON-CAPABILITY-REQUEST")
 
@@ -374,23 +334,10 @@ class PermissionGrant:
             or type(self.status) is not GrantStatus
         ):
             raise CapabilityViolation("CON-CAPABILITY-GRANT")
-        if (
-            self.capability is CapabilityKind.CREATOR_SCENE_REPLY
-            and (
-                self.operation is not CapabilityOperation.SEND
-                or type(self.scope) is not CreatorSceneReplyScope
-                or self.scope.subject_id != self.subject_id
-                or self.scope.scene_id != self.scene_id
-                or self.scope.creator_party_id != self.creator_party_id
-                or self.valid_until - self.valid_from > timedelta(days=7)
-            )
-        ) or (
-            self.capability is CapabilityKind.CODEX_DELEGATED_WORK
-            and (
-                self.operation is not CapabilityOperation.EXECUTE
-                or type(self.scope) is not CodexDelegatedWorkScope
-                or self.valid_until - self.valid_from > timedelta(hours=1)
-            )
+        if self.capability is CapabilityKind.CODEX_DELEGATED_WORK and (
+            self.operation is not CapabilityOperation.EXECUTE
+            or type(self.scope) is not CodexDelegatedWorkScope
+            or self.valid_until - self.valid_from > timedelta(hours=1)
         ):
             raise CapabilityViolation("CON-CAPABILITY-GRANT")
 
@@ -527,26 +474,6 @@ class CapabilityGrantConsumptionPort(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
-class CapabilityAdmissionRequest:
-    capability_request_id: UUID
-    capability_kind: str
-    operation_class: str
-    subject_id: UUID
-    scene_id: UUID
-    creator_party_id: UUID
-    purpose: str
-    payload_bytes: int
-    effect_kind: str
-
-
-@dataclass(frozen=True, slots=True)
-class CapabilityAdmissionResult:
-    outcome: CapabilityAuthorizationOutcome
-    grant_id: UUID | None
-    reason_code: str
-
-
-@dataclass(frozen=True, slots=True)
 class CapabilityPolicyDecisionSnapshot:
     policy_decision_id: UUID
     action_intent_revision_id: UUID
@@ -562,15 +489,6 @@ class CapabilityDispatchAuthorization:
     allowed: bool
     grant_id: UUID | None
     reason_code: str | None
-
-
-@runtime_checkable
-class CapabilityAdmissionPort(Protocol):
-    async def preflight(
-        self,
-        transaction: PostgreSQLTransaction,
-        request: CapabilityAdmissionRequest,
-    ) -> CapabilityAdmissionResult: ...
 
 
 @runtime_checkable
@@ -595,15 +513,6 @@ class CapabilityEffectAuthorizationPort(Protocol):
 
 @runtime_checkable
 class CapabilityOperationReadPort(Protocol):
-    async def has_scene_reply_grant(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        subject_id: UUID,
-        scene_id: UUID,
-        creator_party_id: UUID,
-    ) -> bool: ...
-
     async def policy_for_revision(
         self,
         transaction: PostgreSQLTransaction,
@@ -664,9 +573,6 @@ def _uuid7(value: UUID, code: str) -> None:
 __all__ = (
     "CapabilityAcceptedBasis",
     "CapabilityActionAuthorizationPort",
-    "CapabilityAdmissionPort",
-    "CapabilityAdmissionRequest",
-    "CapabilityAdmissionResult",
     "CapabilityAuthorizationOutcome",
     "CapabilityCodexActivationPort",
     "CapabilityCommitContext",
@@ -699,7 +605,6 @@ __all__ = (
     "CreatorGrantDecision",
     "CreatorGrantPolicyPort",
     "CreatorGrantResult",
-    "CreatorSceneReplyScope",
     "GrantStatus",
     "PermissionGrant",
     "PermissionGrantId",

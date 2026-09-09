@@ -70,7 +70,7 @@ async def _verify(environment_root: Path) -> dict[str, object]:
                             {
                                 "item_kind": "output_constraint",
                                 "source": {
-                                    "kind": "response_admission_policy",
+                                    "kind": "output_constraint",
                                     "reference": "formal-no-action-conformance-v1",
                                     "version": 1,
                                 },

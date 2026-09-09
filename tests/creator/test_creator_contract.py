@@ -739,23 +739,23 @@ class CreatorContractTests(unittest.TestCase):
         request = CapabilityRequestItemResponse.model_validate(
             {
                 "capability_request_id": request_id,
-                "capability_kind": "creator.scene.reply",
-                "operation": "send",
+                "capability_kind": "codex.delegated-work",
+                "operation": "execute",
                 "subject_id": ENVIRONMENT_ID,
                 "scene_id": "01890f47-7ac2-7cc4-98c2-9f4e3f13b9ad",
-                "purpose": "respond_to_creator",
-                "audience_scope": "creator",
-                "data_scope": "creator_visible_response",
+                "purpose": "delegate_codex_work",
+                "workspace_scope": "isolated_ephemeral",
+                "artifact_scope": "explicit_only",
+                "network_access": False,
                 "valid_for_seconds": 600,
-                "max_uses": 2,
-                "max_payload_bytes": 4096,
+                "max_uses": 1,
                 "status": "limited",
                 "capability_availability": "available",
                 "request_version": 2,
                 "created_at": INSTANT,
                 "status_changed_at": INSTANT,
                 "effective_grant": {
-                    "scope_kind": "creator_scene_reply",
+                    "scope_kind": "codex_delegated_work",
                     "grant_ref": grant_id,
                     "status": "active",
                     "valid_from": INSTANT,
@@ -763,7 +763,9 @@ class CreatorContractTests(unittest.TestCase):
                     "max_uses": 1,
                     "consumed_uses": 0,
                     "remaining_uses": 1,
-                    "max_payload_bytes": 2048,
+                    "workspace_scope": "isolated_ephemeral",
+                    "artifact_scope": "explicit_only",
+                    "network_access": False,
                 },
             }
         )
@@ -772,13 +774,10 @@ class CreatorContractTests(unittest.TestCase):
         effect = EffectResponse.model_validate(
             {
                 "contract_version": "1.0",
-                "projection_version": "creator-effect.v4",
+                "projection_version": "creator-effect.v5",
                 "effect_id": "01890f47-7ac2-7cc4-98c2-9f4e3f13b9ae",
                 "action_intent_ref": "01890f47-7ac2-7cc4-98c2-9f4e3f13b9af",
                 "action_intent_revision_ref": request_id,
-                "policy_decision_ref": grant_id,
-                "capability_request_ref": request_id,
-                "permission_grant_ref": grant_id,
                 "capability_kind": "creator.scene.reply",
                 "effect_kind": "creator_response",
                 "status": "registered",
@@ -788,6 +787,9 @@ class CreatorContractTests(unittest.TestCase):
             }
         )
         self.assertEqual(effect.action_intent_revision_ref, request_id)
+        self.assertIsNone(effect.policy_decision_ref)
+        self.assertIsNone(effect.capability_request_ref)
+        self.assertIsNone(effect.permission_grant_ref)
 
     def test_timeline_v5_exposes_creator_text_and_public_refs(self) -> None:
         operation_ref = "01890f47-7ac2-7cc4-98c2-9f4e3f13b9ad"

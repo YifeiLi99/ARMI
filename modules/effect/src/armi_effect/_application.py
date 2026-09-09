@@ -367,9 +367,14 @@ class EffectRegistrationPipeline:
                     try:
                         self._adapter.validate(snapshot.request)
                     except EffectViolation as error:
-                        if error.code != "EFFECT-QQ-POLICY-NOT-ALLOWED":
+                        if error.code == "EFFECT-QQ-POLICY-NOT-ALLOWED":
+                            await self._dispatcher.cancel_policy(uow, snapshot)
+                        elif error.code == "EFFECT-ADAPTER-UNAVAILABLE":
+                            await self._dispatcher.settle_rejection(
+                                uow, snapshot, error_code=error.code
+                            )
+                        else:
                             raise
-                        await self._dispatcher.cancel_policy(uow, snapshot)
                         dispatching = False
                     else:
                         dispatching = await self._dispatcher.mark_dispatching(
@@ -519,7 +524,7 @@ class EffectRegistrationPipeline:
             (
                 CreatorResourceKind("operation"),
                 str(snapshot.operation_ref),
-                "creator-operation.v4",
+                "creator-operation.v5",
             )
         ]
         if result is not None:
@@ -527,7 +532,7 @@ class EffectRegistrationPipeline:
                 (
                     CreatorResourceKind("effect"),
                     str(result.effect_id.value),
-                    "creator-effect.v4",
+                    "creator-effect.v5",
                 )
             )
         await self._notify(invalidations)
@@ -555,12 +560,12 @@ class EffectRegistrationPipeline:
             (
                 CreatorResourceKind("effect"),
                 str(snapshot.request.effect_id.value),
-                "creator-effect.v4",
+                "creator-effect.v5",
             ),
             (
                 CreatorResourceKind("operation"),
                 str(intent.operation_ref),
-                "creator-operation.v4",
+                "creator-operation.v5",
             ),
         ]
         if include_scene:

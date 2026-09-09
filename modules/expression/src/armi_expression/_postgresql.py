@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from datetime import timedelta
 from typing import Any
 from uuid import UUID, uuid7
 
@@ -18,13 +16,8 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
-    WorkDraft,
-    WorkId,
-    WorkOwner,
-    WorkPayloadRef,
-    WorkType,
 )
-from armi_kernel.contracts import IdempotencyKey, Instant, Purpose, SubjectId
+from armi_kernel.contracts import Purpose, SubjectId
 from armi_relationship.api import RelationshipPolicyPort, RelationshipReadPort
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
@@ -34,14 +27,13 @@ from .api import (
     DelegatedActionIntentDraft,
     ExpressionCommitContext,
     ExpressionEffectRegistrationPort,
+    ExpressionVoiceRoutePort,
     FormalNoActionDraft,
     OtherHumanEndConversationDraft,
     OtherHumanReplyDraft,
     ResponseChoiceDraft,
     ResponseViolation,
 )
-
-_RESPONSE_WORK_KIND = WorkType.COGNITION_RESPONSE_ADMIT
 
 
 class PostgreSQLExpressionOwner:
@@ -53,6 +45,7 @@ class PostgreSQLExpressionOwner:
         "_interaction_scenes",
         "_relationship_policy",
         "_relationships",
+        "_voice",
     )
 
     def __init__(
@@ -62,12 +55,14 @@ class PostgreSQLExpressionOwner:
         effect_registration: ExpressionEffectRegistrationPort,
         interaction_routes: InteractionEffectRoutePort,
         interaction_scenes: InteractionSceneTransitionPort,
+        voice: ExpressionVoiceRoutePort,
     ) -> None:
         self._relationships = relationships
         self._relationship_policy = relationship_policy
         self._effect_registration = effect_registration
         self._interaction_routes = interaction_routes
         self._interaction_scenes = interaction_scenes
+        self._voice = voice
 
     async def commit(
         self,
@@ -77,7 +72,6 @@ class PostgreSQLExpressionOwner:
         commit_id: UUID,
         choices: tuple[ResponseChoiceDraft, ...],
         response_artifact: ArtifactRef | None,
-        capability_request_ids: Mapping[str, UUID],
     ) -> None:
         if type(commit_id) is not UUID or commit_id.version != 7:
             raise ResponseViolation("SUBJECT-RESPONSE-SCOPE")
@@ -115,9 +109,6 @@ class PostgreSQLExpressionOwner:
         if len(replies) != 1 or response_artifact is None:
             raise ResponseViolation("SUBJECT-RESPONSE-COUNT")
         reply = replies[0]
-        capability_request_id = capability_request_ids.get(reply.proposal_ref)
-        if capability_request_id is None:
-            raise ResponseViolation("SUBJECT-CAPABILITY-REQUEST")
         if (
             reply.subject_id != context.subject_id
             or reply.scene_id != context.scene_id
@@ -153,7 +144,6 @@ class PostgreSQLExpressionOwner:
             response_artifact=response_artifact,
             action_id=action_id,
             revision_id=revision_id,
-            capability_request_id=capability_request_id,
         )
 
     async def commit_delegation(
@@ -576,7 +566,6 @@ class PostgreSQLExpressionOwner:
         response_artifact: ArtifactRef,
         action_id: UUID,
         revision_id: UUID,
-        capability_request_id: UUID,
     ) -> None:
         connection = unit_of_work.transaction
         decision_id = uuid7()
@@ -587,10 +576,10 @@ class PostgreSQLExpressionOwner:
                 response_artifact_id, response_digest, response_bytes,
                 media_type, capability_kind, operation_class, audience_scope,
                 data_scope, purpose, candidate_validation_id, proposal_ref,
-                subject_commit_id, capability_request_id) VALUES (
+                subject_commit_id) VALUES (
                 %s, %s, 1, %s, %s, %s, 'text/plain',
                 'creator.scene.reply', 'send', 'creator',
-                'creator_visible_response', 'respond_to_creator', %s, %s, %s, %s)
+                'creator_visible_response', 'respond_to_creator', %s, %s, %s)
             """,
             (
                 revision_id,
@@ -601,7 +590,6 @@ class PostgreSQLExpressionOwner:
                 context.validation_id,
                 reply.proposal_ref,
                 commit_id,
-                capability_request_id,
             ),
         )
         await connection.execute(
@@ -632,40 +620,50 @@ class PostgreSQLExpressionOwner:
                 context.root_opportunity_id,
             ),
         )
-        now_row = await (
-            await connection.execute("SELECT statement_timestamp()")
-        ).fetchone()
-        if now_row is None:
-            raise ResponseViolation("SUBJECT-DATABASE")
-        work_id = WorkId(uuid7())
-        await unit_of_work.work.enqueue(
-            WorkDraft(
-                work_id,
-                _RESPONSE_WORK_KIND,
-                WorkOwner("action_intent", action_id),
-                IdempotencyKey(f"response-admit:{action_id}"),
-                response_artifact.content_digest,
-                50,
-                Instant(now_row[0]),
-                Instant(now_row[0] + timedelta(seconds=3600)),
-                2,
-                context.trace_id,
-                SubjectId(context.subject_id),
-                WorkPayloadRef("action_intent", action_id),
-            )
+        turn_id = await self._voice.turn_for_opportunity(
+            connection, opportunity_id=context.root_opportunity_id
+        )
+        route = await self._interaction_routes.effect_route(
+            connection,
+            scene_id=reply.scene_id,
+            context_party_id=reply.creator_party_id,
+            intended_destination_kind="creator_inbox" if turn_id is not None else None,
+        )
+        if route.destination_kind not in {"creator_inbox", "external_private"}:
+            raise ResponseViolation("SUBJECT-RESPONSE-SCOPE")
+        effect_id = await self._effect_registration.register_declared_response(
+            connection,
+            DeclaredResponseEffectDraft(
+                action_intent_revision_id=revision_id,
+                action_intent_id=action_id,
+                operation_ref=context.root_opportunity_id,
+                subject_id=context.subject_id,
+                scene_id=reply.scene_id,
+                context_party_id=reply.creator_party_id,
+                payload_artifact_id=response_artifact.artifact_id.value,
+                payload_digest=response_artifact.content_digest,
+                payload_bytes=len(reply.content_bytes),
+                effect_kind="creator_response",
+                capability_kind="creator.scene.reply",
+                audience_scope="creator",
+                authorization_basis="runtime_configuration"
+                if route.destination_binding_id is not None or turn_id is not None
+                else "runtime_builtin",
+                destination_kind="live_voice_audio"
+                if turn_id is not None
+                else route.destination_kind,
+                destination_party_id=route.destination_party_id,
+                destination_binding_id=route.destination_binding_id,
+                trace_id=context.trace_id,
+                max_attempts=1
+                if turn_id is not None or route.destination_binding_id is not None
+                else 2,
+                live_voice_turn_id=turn_id,
+            ),
         )
         await connection.execute(
-            """INSERT INTO armi.response_admissions (
-                   response_admission_id,action_intent_id,work_id,operation_ref,
-                   capability_request_id)
-               VALUES (%s,%s,%s,%s,%s)""",
-            (
-                uuid7(),
-                action_id,
-                work_id.value,
-                context.root_opportunity_id,
-                capability_request_id,
-            ),
+            "UPDATE armi.dialogue_decisions SET effect_id=%s WHERE dialogue_decision_id=%s",
+            (effect_id, decision_id),
         )
         await unit_of_work.audit.append(
             _audit(

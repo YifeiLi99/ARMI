@@ -695,19 +695,19 @@ class _CapabilityPolicy:
         del cursor
         item = CapabilityRequestSnapshot(
             self.request_id,
-            "creator.scene.reply",
-            "send",
+            "codex.delegated-work",
+            "execute",
             UUID(ENVIRONMENT_ID),
             UUID(ENVIRONMENT_ID),
-            "creator",
-            "creator_visible_response",
-            "respond_to_creator",
             None,
             None,
-            None,
+            "delegate_codex_work",
+            "isolated_ephemeral",
+            "explicit_only",
+            False,
             60,
             1,
-            1024,
+            None,
             "pending",
             1,
             datetime.now(UTC),
@@ -1033,8 +1033,6 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             CreatorOperationPhase.CANDIDATE_VALIDATED: "waiting",
             CreatorOperationPhase.CANDIDATE_REJECTED: "rejected",
             CreatorOperationPhase.SUBJECT_COMMITTING: "waiting",
-            CreatorOperationPhase.RESPONSE_ADMISSION: "waiting",
-            CreatorOperationPhase.RESPONSE_ACCEPTED: "accepted",
             CreatorOperationPhase.EFFECT_REGISTRATION: "waiting",
             CreatorOperationPhase.EFFECT_REGISTRATION_UNAUTHORIZED: "rejected",
             CreatorOperationPhase.EFFECT_REGISTRATION_UNAVAILABLE: "unavailable",
@@ -1057,9 +1055,6 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             CreatorOperationPhase.CODEX_CANCELLED: "rejected",
             CreatorOperationPhase.FORMAL_DECLINED: "completed",
             CreatorOperationPhase.FORMAL_NO_ACTION: "completed",
-            CreatorOperationPhase.RESPONSE_UNAUTHORIZED: "rejected",
-            CreatorOperationPhase.RESPONSE_UNAVAILABLE: "unavailable",
-            CreatorOperationPhase.RESPONSE_FAILED: "failed",
             CreatorOperationPhase.APPLIED: "applied",
             CreatorOperationPhase.COMPLETED: "completed",
             CreatorOperationPhase.DEFERRED: "waiting",
@@ -1077,8 +1072,6 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             CreatorOperationPhase.CANDIDATE_VALIDATED: "cognition",
             CreatorOperationPhase.CANDIDATE_REJECTED: "cognition",
             CreatorOperationPhase.SUBJECT_COMMITTING: "cognition",
-            CreatorOperationPhase.RESPONSE_ADMISSION: "response_effect",
-            CreatorOperationPhase.RESPONSE_ACCEPTED: "response_effect",
             CreatorOperationPhase.EFFECT_REGISTRATION: "response_effect",
             CreatorOperationPhase.EFFECT_REGISTRATION_UNAUTHORIZED: "response_effect",
             CreatorOperationPhase.EFFECT_REGISTRATION_UNAVAILABLE: "response_effect",
@@ -1101,9 +1094,6 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             CreatorOperationPhase.CODEX_CANCELLED: "codex_effect",
             CreatorOperationPhase.FORMAL_DECLINED: "formal_decline",
             CreatorOperationPhase.FORMAL_NO_ACTION: "formal_no_action",
-            CreatorOperationPhase.RESPONSE_UNAUTHORIZED: "response_effect",
-            CreatorOperationPhase.RESPONSE_UNAVAILABLE: "response_effect",
-            CreatorOperationPhase.RESPONSE_FAILED: "response_effect",
             CreatorOperationPhase.APPLIED: "subject_change",
             CreatorOperationPhase.COMPLETED: "no_change",
             CreatorOperationPhase.DEFERRED: "cognition",
@@ -1128,9 +1118,6 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             CreatorOperationPhase.CODEX_CANCELLED,
         }
         failure_phases = {
-            CreatorOperationPhase.RESPONSE_UNAUTHORIZED,
-            CreatorOperationPhase.RESPONSE_UNAVAILABLE,
-            CreatorOperationPhase.RESPONSE_FAILED,
             CreatorOperationPhase.EFFECT_REGISTRATION_UNAUTHORIZED,
             CreatorOperationPhase.EFFECT_REGISTRATION_UNAVAILABLE,
             CreatorOperationPhase.EFFECT_REGISTRATION_FAILED,
@@ -1168,7 +1155,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                 details = cast(dict[str, object], wire["details"])
                 self.assertIsInstance(details, dict)
                 self.assertEqual(wire["status"], expected_status[phase])
-                self.assertEqual(details["projection_version"], "creator-operation.v4")
+                self.assertEqual(details["projection_version"], "creator-operation.v5")
                 self.assertEqual(
                     details["operation_ref"], str(acceptance.opportunity_id)
                 )

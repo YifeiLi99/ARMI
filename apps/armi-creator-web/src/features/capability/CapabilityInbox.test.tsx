@@ -16,69 +16,61 @@ afterEach(() => {
 
 function item(
   suffix: string,
-  capability: "creator.scene.reply" | "codex.delegated-work",
+  capability: "codex.delegated-work",
   status: "pending" | "limited" | "revoked",
 ) {
   return {
     capability_request_id: `018f47a6-7b2d-7c35-8b18-684e38ab6e${suffix}`,
     capability_kind: capability,
-    operation: capability === "creator.scene.reply" ? "send" : "execute",
+    operation: "execute",
     subject_id: SUBJECT_ID,
     scene_id: SCENE_ID,
-    purpose:
-      capability === "creator.scene.reply"
-        ? "respond_to_creator"
-        : "delegate_codex_work",
-    audience_scope: capability === "creator.scene.reply" ? "creator" : null,
-    data_scope:
-      capability === "creator.scene.reply" ? "creator_visible_response" : null,
+    purpose: "delegate_codex_work",
     valid_for_seconds: 600,
-    workspace_scope:
-      capability === "codex.delegated-work" ? "isolated_ephemeral" : null,
-    artifact_scope:
-      capability === "codex.delegated-work" ? "explicit_only" : null,
-    network_access: capability === "codex.delegated-work" ? false : null,
-    max_uses: capability === "codex.delegated-work" ? 1 : 4,
-    max_payload_bytes: capability === "creator.scene.reply" ? 4096 : null,
+    workspace_scope: "isolated_ephemeral",
+    artifact_scope: "explicit_only",
+    network_access: false,
+    max_uses: 1,
     status,
     capability_availability: "available",
-    resolution_reason_code: null,
-    request_version: status === "pending" ? 1 : status === "limited" ? 2 : 3,
+    request_version: status === "pending" ? 1 : 2,
     created_at: "2026-07-30T10:00:00.000000Z",
-    status_changed_at: "2026-07-30T10:00:01.000000Z",
-    ...(status !== "pending"
-      ? {
+    status_changed_at: "2026-07-30T10:01:00.000000Z",
+    ...(status === "pending"
+      ? {}
+      : {
           effective_grant: {
-            scope_kind: "creator_scene_reply",
-            grant_ref: "018f47a6-7b2d-7c35-8b18-684e38ab6efc",
+            scope_kind: "codex_delegated_work",
+            grant_ref: SCENE_ID,
             status: status === "limited" ? "active" : "revoked",
             valid_from: "2026-07-30T10:00:00.000000Z",
             valid_until: "2026-07-30T10:05:00.000000Z",
             ended_at:
               status === "limited" ? null : "2026-07-30T10:04:00.000000Z",
-            max_uses: 2,
-            consumed_uses: 1,
+            max_uses: 1,
+            consumed_uses: 0,
             remaining_uses: 1,
-            max_payload_bytes: 2048,
+            workspace_scope: "isolated_ephemeral",
+            artifact_scope: "explicit_only",
+            network_access: false,
           },
-        }
-      : {}),
+        }),
   };
 }
 
 describe("Creator capability inbox", () => {
-  it("shows both grantable scopes without offering a Codex execute action", async () => {
+  it("shows only Codex grants without offering a direct execute action", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn<typeof fetch>().mockResolvedValue(
         new Response(
           JSON.stringify({
             contract_version: "1.0",
-            projection_version: "capability-request.v5",
+            projection_version: "capability-request.v6",
             items: [
-              item("f9", "creator.scene.reply", "pending"),
+              item("f9", "codex.delegated-work", "pending"),
               item("fa", "codex.delegated-work", "pending"),
-              item("fb", "creator.scene.reply", "limited"),
+              item("fb", "codex.delegated-work", "limited"),
             ],
           }),
           { headers: { "Content-Type": "application/json" } },
@@ -99,7 +91,7 @@ describe("Creator capability inbox", () => {
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByText("codex.delegated-work")).toBeInTheDocument();
+    expect(await screen.findAllByText("codex.delegated-work")).toHaveLength(3);
     expect(
       screen.getAllByRole("button", { name: "允许申请范围" }),
     ).toHaveLength(2);
@@ -111,7 +103,7 @@ describe("Creator capability inbox", () => {
       screen.getByRole("button", { name: "撤回当前 grant" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("1/2 次 · 至 2026-07-30T10:05:00.000000Z"),
+      screen.getByText("1/1 次 · 至 2026-07-30T10:05:00.000000Z"),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /执行/ }),
@@ -120,9 +112,7 @@ describe("Creator capability inbox", () => {
     expect(screen.getAllByText(new RegExp(SUBJECT_ID)).length).toBeGreaterThan(
       0,
     );
-    expect(
-      screen.getAllByText("creator_visible_response").length,
-    ).toBeGreaterThan(0);
+    expect(screen.queryByText("creator.scene.reply")).not.toBeInTheDocument();
   });
 
   it("states the non-retroactive boundary of an authoritative revocation", async () => {
@@ -132,8 +122,8 @@ describe("Creator capability inbox", () => {
         new Response(
           JSON.stringify({
             contract_version: "1.0",
-            projection_version: "capability-request.v5",
-            items: [item("fb", "creator.scene.reply", "revoked")],
+            projection_version: "capability-request.v6",
+            items: [item("fb", "codex.delegated-work", "revoked")],
           }),
           { headers: { "Content-Type": "application/json" } },
         ),
@@ -180,8 +170,8 @@ describe("Creator capability inbox", () => {
       return new Response(
         JSON.stringify({
           contract_version: "1.0",
-          projection_version: "capability-request.v5",
-          items: [item("f9", "creator.scene.reply", "pending")],
+          projection_version: "capability-request.v6",
+          items: [item("f9", "codex.delegated-work", "pending")],
         }),
         { headers: { "Content-Type": "application/json" } },
       );
@@ -205,9 +195,9 @@ describe("Creator capability inbox", () => {
     await user.click(
       await screen.findByRole("button", { name: "设置更严格限制" }),
     );
-    const uses = screen.getByLabelText("最大次数");
+    const uses = screen.getByLabelText("有效秒数");
     await user.clear(uses);
-    await user.type(uses, "2");
+    await user.type(uses, "300");
     await user.click(screen.getByRole("button", { name: "应用更严格限制" }));
 
     await waitFor(() => {
@@ -222,9 +212,7 @@ describe("Creator capability inbox", () => {
     expect(body).toMatchObject({
       decision: "limit",
       expected_request_version: 1,
-      valid_for_seconds: 600,
-      max_uses: 2,
-      max_payload_bytes: 4096,
+      valid_for_seconds: 300,
     });
     expect(body).not.toHaveProperty("workspace_scope");
   });

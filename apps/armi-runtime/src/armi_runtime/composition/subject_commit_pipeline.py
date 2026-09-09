@@ -117,7 +117,6 @@ from .work_wakeup import (
     EFFECT_REGISTER,
     EXACT_LIFE_QUERY,
     OPPORTUNITY_AVAILABLE,
-    RESPONSE_ADMIT,
     SUBJECT_COMMIT,
     WorkWakeupBus,
 )
@@ -483,7 +482,6 @@ class SubjectCommitPipeline:
             )
 
     def _wake_downstream(self) -> None:
-        self._wakeups.notify(RESPONSE_ADMIT)
         self._wakeups.notify(OPPORTUNITY_AVAILABLE)
         self._wakeups.notify(EXACT_LIFE_QUERY)
         self._wakeups.notify(EFFECT_REGISTER)
@@ -747,7 +745,7 @@ class SubjectCommitPipeline:
                 CreatorResourceKind("operation"),
                 str(snapshot.root_opportunity_id),
                 now,
-                "creator-operation.v4",
+                "creator-operation.v5",
             )
         ]
         if result.subject_commit_id is not None:
@@ -778,7 +776,7 @@ class SubjectCommitPipeline:
                         CreatorResourceKind("capability_request"),
                         str(request_id),
                         now,
-                        "capability-request.v5",
+                        "capability-request.v6",
                     )
                     for request_id in request_ids
                 )

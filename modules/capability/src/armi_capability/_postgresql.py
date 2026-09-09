@@ -39,8 +39,6 @@ from armi_runtime_foundation import (
 
 from ._context import load_context_state_payloads
 from .api import (
-    CapabilityAdmissionRequest,
-    CapabilityAdmissionResult,
     CapabilityAuthorizationOutcome,
     CapabilityCodexActivationPort,
     CapabilityCommitContext,
@@ -62,7 +60,6 @@ from .api import (
     CreatorGrantCommand,
     CreatorGrantDecision,
     CreatorGrantResult,
-    CreatorSceneReplyScope,
     GrantStatus,
     PermissionGrant,
     PermissionGrantId,
@@ -151,15 +148,9 @@ class PostgreSQLCreatorGrantPolicy:
                   AND status = 'active' AND valid_from <= statement_timestamp()
                   AND statement_timestamp() < valid_until
                   AND consumed_uses < max_uses
-                  AND (
-                    (%s = 'creator_response' AND audience_scope = 'creator'
-                      AND data_scope = 'creator_visible_response'
-                      AND %s <= max_payload_bytes)
-                    OR (%s = 'codex_delegation'
-                      AND workspace_scope = 'isolated_ephemeral'
-                      AND artifact_scope = 'explicit_only'
-                      AND network_access = false AND max_uses = 1)
-                  )
+                  AND workspace_scope = 'isolated_ephemeral'
+                  AND artifact_scope = 'explicit_only'
+                  AND network_access = false AND max_uses = 1
                 FOR UPDATE
                 """,
                 (
@@ -171,9 +162,6 @@ class PostgreSQLCreatorGrantPolicy:
                     request.creator_party_id,
                     request.operation_class,
                     request.purpose,
-                    request.effect_kind,
-                    request.payload_bytes,
-                    request.effect_kind,
                 ),
             )
         ).fetchone()
@@ -218,56 +206,6 @@ class PostgreSQLCreatorGrantPolicy:
             "POLICY-GRANT-ALLOWED",
             grant_id=grant[0],
             valid_until=grant[1],
-        )
-
-    async def preflight(
-        self,
-        transaction: PostgreSQLTransaction,
-        request: CapabilityAdmissionRequest,
-    ) -> CapabilityAdmissionResult:
-        row = await (
-            await transaction.execute(
-                """
-                SELECT permission.grant_id
-                FROM armi.capabilities AS capability
-                JOIN armi.permission_grants AS permission
-                  ON permission.capability_id=capability.capability_id
-                 AND permission.capability_request_id=%s
-                WHERE capability.capability_kind=%s
-                  AND capability.operation_class=%s
-                  AND capability.availability_status='available'
-                  AND permission.subject_id=%s AND permission.interaction_scene_id=%s
-                  AND permission.creator_party_id=%s AND permission.purpose=%s
-                  AND permission.status='active'
-                  AND permission.valid_from<=statement_timestamp()
-                  AND statement_timestamp()<permission.valid_until
-                  AND permission.consumed_uses<permission.max_uses
-                  AND (%s<>'creator_response' OR %s<=permission.max_payload_bytes)
-                ORDER BY permission.valid_until, permission.grant_id LIMIT 1
-                """,
-                (
-                    request.capability_request_id,
-                    request.capability_kind,
-                    request.operation_class,
-                    request.subject_id,
-                    request.scene_id,
-                    request.creator_party_id,
-                    request.purpose,
-                    request.effect_kind,
-                    request.payload_bytes,
-                ),
-            )
-        ).fetchone()
-        if row is None:
-            return CapabilityAdmissionResult(
-                CapabilityAuthorizationOutcome.DENIED,
-                None,
-                "POLICY-GRANT-NOT-CURRENT",
-            )
-        return CapabilityAdmissionResult(
-            CapabilityAuthorizationOutcome.ALLOWED,
-            UUID(str(row[0])),
-            "POLICY-GRANT-CURRENT",
         )
 
     async def authorize_effect(
@@ -549,11 +487,7 @@ class PostgreSQLCreatorGrantPolicy:
                 ),
                 effective_grant=(
                     CapabilityEffectiveGrantSnapshot(
-                        scope_kind=(
-                            "creator_scene_reply"
-                            if str(row[1]) == "creator.scene.reply"
-                            else "codex_delegated_work"
-                        ),
+                        scope_kind=("codex_delegated_work"),
                         grant_ref=row[18],
                         status=str(row[21]),
                         ended_at=row[22],
@@ -562,11 +496,7 @@ class PostgreSQLCreatorGrantPolicy:
                         max_uses=int(row[25]),
                         consumed_uses=int(row[26]),
                         remaining_uses=int(row[25]) - int(row[26]),
-                        max_payload_bytes=(
-                            int(row[27])
-                            if str(row[1]) == "creator.scene.reply"
-                            else None
-                        ),
+                        max_payload_bytes=(None),
                         workspace_scope=row[28],
                         artifact_scope=row[29],
                         network_access=row[30],
@@ -671,46 +601,24 @@ class PostgreSQLCreatorGrantPolicy:
                         int(request[12]) if request[12] is not None else None
                     )
                     if command.decision is CreatorGrantDecision.LIMIT:
-                        if capability is CapabilityKind.CREATOR_SCENE_REPLY:
-                            payload_bytes = cast(int, payload_bytes)
-                            original = (duration, uses, payload_bytes)
-                            duration = _narrow(command.valid_for_seconds, duration)
-                            uses = _narrow(command.max_uses, uses)
-                            payload_bytes = _narrow(
-                                command.max_payload_bytes, payload_bytes
-                            )
-                            if (duration, uses, payload_bytes) == original:
-                                raise CapabilityViolation("POLICY-SCOPE-EXPANSION")
-                        else:
-                            if (
-                                command.max_uses is not None
-                                or command.max_payload_bytes is not None
-                            ):
-                                raise CapabilityViolation("POLICY-SCOPE-EXPANSION")
-                            narrowed = _narrow(command.valid_for_seconds, duration)
-                            if narrowed == duration:
-                                raise CapabilityViolation("POLICY-SCOPE-EXPANSION")
-                            duration = narrowed
+                        if (
+                            command.max_uses is not None
+                            or command.max_payload_bytes is not None
+                        ):
+                            raise CapabilityViolation("POLICY-SCOPE-EXPANSION")
+                        narrowed = _narrow(command.valid_for_seconds, duration)
+                        if narrowed == duration:
+                            raise CapabilityViolation("POLICY-SCOPE-EXPANSION")
+                        duration = narrowed
                         result_status = CapabilityRequestStatus.LIMITED
                     else:
                         result_status = CapabilityRequestStatus.GRANTED
-                    scope = (
-                        CreatorSceneReplyScope(
-                            request[1],
-                            request[2],
-                            request[3],
-                            duration,
-                            uses,
-                            cast(int, payload_bytes),
-                        )
-                        if capability is CapabilityKind.CREATOR_SCENE_REPLY
-                        else CodexDelegatedWorkScope(
-                            duration,
-                            str(request[13]),
-                            str(request[14]),
-                            bool(request[15]),
-                            uses,
-                        )
+                    scope = CodexDelegatedWorkScope(
+                        duration,
+                        str(request[13]),
+                        str(request[14]),
+                        bool(request[15]),
+                        uses,
                     )
                     grant_id = PermissionGrantId(uuid7())
                     valid_until = now + timedelta(seconds=duration)
@@ -733,27 +641,13 @@ class PostgreSQLCreatorGrantPolicy:
                             request[4],
                             request[1],
                             request[2],
-                            CapabilityOperation.SEND.value
-                            if capability is CapabilityKind.CREATOR_SCENE_REPLY
-                            else CapabilityOperation.EXECUTE.value,
-                            "creator"
-                            if capability is CapabilityKind.CREATOR_SCENE_REPLY
-                            else None,
-                            "creator_visible_response"
-                            if capability is CapabilityKind.CREATOR_SCENE_REPLY
-                            else None,
-                            "respond_to_creator"
-                            if capability is CapabilityKind.CREATOR_SCENE_REPLY
-                            else "delegate_codex_work",
-                            None
-                            if capability is CapabilityKind.CREATOR_SCENE_REPLY
-                            else "isolated_ephemeral",
-                            None
-                            if capability is CapabilityKind.CREATOR_SCENE_REPLY
-                            else "explicit_only",
-                            None
-                            if capability is CapabilityKind.CREATOR_SCENE_REPLY
-                            else False,
+                            CapabilityOperation.EXECUTE.value,
+                            None,
+                            None,
+                            "delegate_codex_work",
+                            "isolated_ephemeral",
+                            "explicit_only",
+                            False,
                             now,
                             valid_until,
                             uses,
@@ -764,9 +658,7 @@ class PostgreSQLCreatorGrantPolicy:
                         grant_id,
                         command.request_id,
                         capability,
-                        CapabilityOperation.SEND
-                        if capability is CapabilityKind.CREATOR_SCENE_REPLY
-                        else CapabilityOperation.EXECUTE,
+                        CapabilityOperation.EXECUTE,
                         UUID(str(request[1])),
                         UUID(str(request[2])),
                         UUID(str(request[3])),
@@ -972,36 +864,17 @@ class PostgreSQLCreatorGrantPolicy:
                 raise CapabilityViolation("CAPABILITY-CATALOG")
             request_id = uuid7()
             scope = draft.scope
-            if isinstance(scope, CreatorSceneReplyScope):
-                if (
-                    scope.subject_id != context.subject_id
-                    or scope.scene_id != context.scene_id
-                    or scope.creator_party_id != context.creator_party_id
-                ):
-                    raise CapabilityViolation("CAPABILITY-SCOPE")
-                columns = (
-                    scope.audience_scope,
-                    scope.data_scope,
-                    scope.purpose,
-                    None,
-                    None,
-                    None,
-                    scope.valid_for_seconds,
-                    scope.max_uses,
-                    scope.max_payload_bytes,
-                )
-            else:
-                columns = (
-                    None,
-                    None,
-                    "delegate_codex_work",
-                    scope.workspace_scope,
-                    scope.artifact_scope,
-                    scope.network_access,
-                    scope.valid_for_seconds,
-                    scope.max_uses,
-                    None,
-                )
+            columns = (
+                None,
+                None,
+                "delegate_codex_work",
+                scope.workspace_scope,
+                scope.artifact_scope,
+                scope.network_access,
+                scope.valid_for_seconds,
+                scope.max_uses,
+                None,
+            )
             inserted = await (
                 await connection.execute(
                     """
@@ -1060,113 +933,7 @@ class PostgreSQLCreatorGrantPolicy:
                     request_id,
                 )
             )
-            if isinstance(scope, CreatorSceneReplyScope):
-                await self._grant_local_creator_reply(
-                    unit_of_work,
-                    context=context,
-                    request_id=request_id,
-                    capability_id=UUID(str(catalog[0])),
-                    scope=scope,
-                )
         return committed
-
-    async def _grant_local_creator_reply(
-        self,
-        unit_of_work: PostgreSQLRuntimeUnitOfWork,
-        *,
-        context: CapabilityCommitContext,
-        request_id: UUID,
-        capability_id: UUID,
-        scope: CreatorSceneReplyScope,
-    ) -> None:
-        """Authorize the subject's same-scene reply without an approval loop."""
-
-        if context.creator_party_id is None or context.scene_id is None:
-            raise CapabilityViolation("CAPABILITY-SCOPE")
-        connection = unit_of_work.transaction
-        now_row = await (
-            await connection.execute("SELECT statement_timestamp()")
-        ).fetchone()
-        if now_row is None:
-            raise CapabilityViolation("CAPABILITY-DATABASE")
-        now = now_row[0]
-        grant_id = uuid7()
-        decision_id = uuid7()
-        command_digest = Digest.from_bytes(
-            rfc8785.dumps(
-                cast(
-                    Any,
-                    {
-                        "schema_version": "armi.local-creator-reply-grant.v1",
-                        "request_id": str(request_id),
-                        "decision": "grant",
-                        "reason": "same_scene_creator_conversation",
-                    },
-                )
-            )
-        )
-        await connection.execute(
-            """
-            INSERT INTO armi.permission_grants (
-                grant_id, capability_request_id, creator_party_id,
-                capability_id, subject_id, interaction_scene_id,
-                operation_class, audience_scope, data_scope, purpose,
-                workspace_scope, artifact_scope, network_access,
-                valid_from, valid_until, max_uses, max_payload_bytes) VALUES (
-                %s, %s, %s, %s, %s, %s, 'send', 'creator',
-                'creator_visible_response', 'respond_to_creator',
-                NULL, NULL, NULL, %s, %s, %s, %s)
-            """,
-            (
-                grant_id,
-                request_id,
-                context.creator_party_id,
-                capability_id,
-                context.subject_id,
-                context.scene_id,
-                now,
-                now + timedelta(seconds=scope.valid_for_seconds),
-                scope.max_uses,
-                scope.max_payload_bytes,
-            ),
-        )
-        await connection.execute(
-            """
-            UPDATE armi.capability_requests
-            SET current_status = 'granted', request_version = 2,
-                resolved_by_party_id = creator_party_id,
-                resolution_reason_class = 'same_scene_creator_conversation',
-                resolved_at = statement_timestamp()
-            WHERE capability_request_id = %s
-              AND current_status = 'pending' AND request_version = 1
-            """,
-            (request_id,),
-        )
-        await connection.execute(
-            """
-            INSERT INTO armi.capability_request_decisions (
-                capability_decision_id, capability_request_id,
-                creator_party_id, expected_request_version,
-                resulting_request_version, decision_kind, command_digest,
-                reason_code) VALUES (
-                %s, %s, %s, 1, 2, 'grant', %s,
-                'same_scene_creator_conversation')
-            """,
-            (
-                decision_id,
-                request_id,
-                context.creator_party_id,
-                command_digest.value,
-            ),
-        )
-        await unit_of_work.audit.append(
-            _commit_audit(
-                unit_of_work,
-                context,
-                "capability.request.granted",
-                request_id,
-            )
-        )
 
     async def expire_once(self, *, limit: int = 100) -> int:
         expired_request_ids: list[UUID] = []
@@ -1320,7 +1087,7 @@ class PostgreSQLCreatorGrantPolicy:
                 CreatorResourceKind("capability_request"),
                 str(request_id),
                 now,
-                "capability-request.v5",
+                "capability-request.v6",
             )
             for request_id in request_ids
         ]
@@ -1331,13 +1098,13 @@ class PostgreSQLCreatorGrantPolicy:
                         CreatorResourceKind("effect"),
                         str(effect_id),
                         now,
-                        "creator-effect.v4",
+                        "creator-effect.v5",
                     ),
                     CreatorProjectionInvalidation(
                         CreatorResourceKind("operation"),
                         str(root_operation_id),
                         now,
-                        "creator-operation.v4",
+                        "creator-operation.v5",
                     ),
                 )
             )
@@ -1346,34 +1113,6 @@ class PostgreSQLCreatorGrantPolicy:
                 await self._notifier.notify(invalidation)
             except CreatorEventViolation:
                 continue
-
-    async def has_scene_reply_grant(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        subject_id: UUID,
-        scene_id: UUID,
-        creator_party_id: UUID,
-    ) -> bool:
-        row = await (
-            await transaction.execute(
-                """SELECT 1 FROM armi.permission_grants AS permission
-                   JOIN armi.capabilities AS capability
-                     ON capability.capability_id=permission.capability_id
-                   WHERE permission.subject_id=%s
-                     AND permission.interaction_scene_id=%s
-                     AND permission.creator_party_id=%s
-                     AND permission.status='active'
-                     AND permission.valid_from<=statement_timestamp()
-                     AND statement_timestamp()<permission.valid_until
-                     AND permission.consumed_uses<permission.max_uses
-                     AND capability.capability_kind='creator.scene.reply'
-                     AND capability.operation_class='send'
-                     AND capability.availability_status='available' LIMIT 1""",
-                (subject_id, scene_id, creator_party_id),
-            )
-        ).fetchone()
-        return row is not None
 
 
 def _commit_audit(
@@ -1534,23 +1273,12 @@ async def _load_result(
         if row[7] is None:
             raise CapabilityViolation("POLICY-RESULT-MISSING")
         capability = CapabilityKind(str(row[2]))
-        scope = (
-            CreatorSceneReplyScope(
-                row[4],
-                row[5],
-                row[6],
-                int((row[9] - row[8]).total_seconds()),
-                int(row[10]),
-                int(row[12]),
-            )
-            if capability is CapabilityKind.CREATOR_SCENE_REPLY
-            else CodexDelegatedWorkScope(
-                int((row[9] - row[8]).total_seconds()),
-                str(row[13]),
-                str(row[14]),
-                bool(row[15]),
-                int(row[10]),
-            )
+        scope = CodexDelegatedWorkScope(
+            int((row[9] - row[8]).total_seconds()),
+            str(row[13]),
+            str(row[14]),
+            bool(row[15]),
+            int(row[10]),
         )
         grant = PermissionGrant(
             PermissionGrantId(row[7]),
@@ -1588,7 +1316,7 @@ def _encode_cursor(
             Any,
             {
                 "schema_version": "armi.capability-request-cursor.v5",
-                "projection_version": "capability-request.v5",
+                "projection_version": "capability-request.v6",
                 "environment_id": str(environment_id),
                 "creator_party_id": str(creator_party_id),
                 "limit": limit,
@@ -1640,7 +1368,7 @@ def _decode_cursor(
                 "capability_request_id",
                 "projection_version",
             }
-            or document["projection_version"] != "capability-request.v5"
+            or document["projection_version"] != "capability-request.v6"
             or document["environment_id"] != str(environment_id)
             or document["creator_party_id"] != str(creator_party_id)
             or document["limit"] != limit

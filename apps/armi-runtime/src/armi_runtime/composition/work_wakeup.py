@@ -12,7 +12,6 @@ CONTEXT_PREPARE = "cognition.context.prepare"
 MODEL_INVOKE = "cognition.model.invoke"
 CANDIDATE_VALIDATE = "cognition.candidate.validate"
 SUBJECT_COMMIT = "cognition.subject.commit"
-RESPONSE_ADMIT = "cognition.response.admit"
 EFFECT_REGISTER = "effect.register"
 EXACT_LIFE_QUERY = "life.query.execute"
 EXTERNAL_CONTENT = "external.content"
@@ -89,7 +88,6 @@ __all__ = (
     "EXTERNAL_CONTENT",
     "MODEL_INVOKE",
     "OPPORTUNITY_AVAILABLE",
-    "RESPONSE_ADMIT",
     "SUBJECT_COMMIT",
     "WorkWakeupBus",
 )

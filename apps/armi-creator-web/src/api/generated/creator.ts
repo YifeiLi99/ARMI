@@ -1046,9 +1046,9 @@ export interface components {
       capability_availability: "available" | "unavailable";
       /**
        * Capability Kind
-       * @enum {string}
+       * @constant
        */
-      capability_kind: "creator.scene.reply" | "codex.delegated-work";
+      capability_kind: "codex.delegated-work";
       /** Capability Request Id */
       capability_request_id: string;
       /** Created At */
@@ -1064,14 +1064,14 @@ export interface components {
       network_access?: false | null;
       /**
        * Operation
-       * @enum {string}
+       * @constant
        */
-      operation: "send" | "execute";
+      operation: "execute";
       /**
        * Purpose
-       * @enum {string}
+       * @constant
        */
-      purpose: "respond_to_creator" | "delegate_codex_work";
+      purpose: "delegate_codex_work";
       /** Request Version */
       request_version: number;
       /** Resolution Reason Code */
@@ -1114,52 +1114,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "capability-request.v5";
-    };
-    /** CodexEffectiveGrantResponse */
-    CodexEffectiveGrantResponse: {
-      /**
-       * Artifact Scope
-       * @constant
-       */
-      artifact_scope: "explicit_only";
-      /** Consumed Uses */
-      consumed_uses: number;
-      /** Ended At */
-      ended_at?: string | null;
-      /** Grant Ref */
-      grant_ref: string;
-      /**
-       * Max Uses
-       * @constant
-       */
-      max_uses: 1;
-      /**
-       * Network Access
-       * @constant
-       */
-      network_access: false;
-      /** Remaining Uses */
-      remaining_uses: number;
-      /**
-       * Scope Kind
-       * @constant
-       */
-      scope_kind: "codex_delegated_work";
-      /**
-       * Status
-       * @enum {string}
-       */
-      status: "active" | "revoked" | "expired" | "consumed";
-      /** Valid From */
-      valid_from: string;
-      /** Valid Until */
-      valid_until: string;
-      /**
-       * Workspace Scope
-       * @constant
-       */
-      workspace_scope: "isolated_ephemeral";
+      projection_version: "capability-request.v6";
     };
     /** CreatorActivityItemResponse */
     CreatorActivityItemResponse: {
@@ -1647,11 +1602,9 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "creator-operation.v4";
+      projection_version: "creator-operation.v5";
       /** Reason Code */
       reason_code?: string | null;
-      /** Response Admission Ref */
-      response_admission_ref?: string | null;
       /**
        * Stage
        * @enum {string}
@@ -1724,10 +1677,10 @@ export interface components {
         | "life-record-query.v2"
         | "creator-relationship.v3"
         | "scene-timeline.v6"
-        | "capability-request.v5"
-        | "creator-operation.v4"
+        | "capability-request.v6"
+        | "creator-operation.v5"
         | "other-human-record.v1"
-        | "creator-effect.v4"
+        | "creator-effect.v5"
         | "subject-summary.v1"
         | "data-rights-order-collection.v3";
       /**
@@ -1971,35 +1924,6 @@ export interface components {
       projection_version: "creator-relationship.v3";
       /** Relationship Id */
       relationship_id: string;
-    };
-    /** CreatorReplyEffectiveGrantResponse */
-    CreatorReplyEffectiveGrantResponse: {
-      /** Consumed Uses */
-      consumed_uses: number;
-      /** Ended At */
-      ended_at?: string | null;
-      /** Grant Ref */
-      grant_ref: string;
-      /** Max Payload Bytes */
-      max_payload_bytes: number;
-      /** Max Uses */
-      max_uses: number;
-      /** Remaining Uses */
-      remaining_uses: number;
-      /**
-       * Scope Kind
-       * @constant
-       */
-      scope_kind: "creator_scene_reply";
-      /**
-       * Status
-       * @enum {string}
-       */
-      status: "active" | "revoked" | "expired" | "consumed";
-      /** Valid From */
-      valid_from: string;
-      /** Valid Until */
-      valid_until: string;
     };
     /** CreatorSceneCollectionResponse */
     CreatorSceneCollectionResponse: {
@@ -2315,7 +2239,7 @@ export interface components {
        */
       capability_kind: "creator.scene.reply" | "codex.delegated-work";
       /** Capability Request Ref */
-      capability_request_ref: string;
+      capability_request_ref?: string | null;
       /**
        * Contract Version
        * @constant
@@ -2360,14 +2284,14 @@ export interface components {
       /** Observation Reason */
       observation_reason?: string | null;
       /** Permission Grant Ref */
-      permission_grant_ref: string;
+      permission_grant_ref?: string | null;
       /** Policy Decision Ref */
       policy_decision_ref?: string | null;
       /**
        * Projection Version
        * @constant
        */
-      projection_version: "creator-effect.v4";
+      projection_version: "creator-effect.v5";
       /** Registered At */
       registered_at: string;
       /** Response Text */
@@ -2404,9 +2328,51 @@ export interface components {
         | "operator_attested"
         | "inconclusive";
     };
-    EffectiveGrantResponse:
-      | components["schemas"]["CreatorReplyEffectiveGrantResponse"]
-      | components["schemas"]["CodexEffectiveGrantResponse"];
+    /** CodexEffectiveGrantResponse */
+    EffectiveGrantResponse: {
+      /**
+       * Artifact Scope
+       * @constant
+       */
+      artifact_scope: "explicit_only";
+      /** Consumed Uses */
+      consumed_uses: number;
+      /** Ended At */
+      ended_at?: string | null;
+      /** Grant Ref */
+      grant_ref: string;
+      /**
+       * Max Uses
+       * @constant
+       */
+      max_uses: 1;
+      /**
+       * Network Access
+       * @constant
+       */
+      network_access: false;
+      /** Remaining Uses */
+      remaining_uses: number;
+      /**
+       * Scope Kind
+       * @constant
+       */
+      scope_kind: "codex_delegated_work";
+      /**
+       * Status
+       * @enum {string}
+       */
+      status: "active" | "revoked" | "expired" | "consumed";
+      /** Valid From */
+      valid_from: string;
+      /** Valid Until */
+      valid_until: string;
+      /**
+       * Workspace Scope
+       * @constant
+       */
+      workspace_scope: "isolated_ephemeral";
+    };
     /** @enum {string} */
     ErrorCategoryValue:
       | "input"
@@ -2945,7 +2911,6 @@ export interface components {
         | "subject_commit_available"
         | "opportunity_available"
         | "creator_evidence_accepted"
-        | "response_admitted"
         | "effect_registered"
         | "effect_settled"
         | "codex_grant_resolved"
@@ -2969,7 +2934,6 @@ export interface components {
         | "model_response"
         | "candidate_validation"
         | "subject_commit"
-        | "response_admission"
         | "effect_registration"
         | "effect_dispatch"
         | "capability_decision"

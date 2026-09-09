@@ -17,7 +17,6 @@ from ._postgresql import PostgreSQLCreatorGrantPolicy
 from ._recovery import CapabilityRecoveryParticipant
 from .api import (
     CapabilityActionAuthorizationPort,
-    CapabilityAdmissionPort,
     CapabilityCodexActivationPort,
     CapabilityCommitPort,
     CapabilityDispatchAuthorizationPort,
@@ -38,7 +37,6 @@ class CapabilityModule:
     read: CapabilityReadPort
     commit: CapabilityCommitPort
     consumption: CapabilityGrantConsumptionPort
-    admission: CapabilityAdmissionPort
     authorization: CapabilityActionAuthorizationPort
     dispatch_authorization: CapabilityDispatchAuthorizationPort
     operations: CapabilityOperationReadPort
@@ -93,9 +91,7 @@ def bootstrap_capability(
         codex_activation=codex_activation,
         notifier=notifier,
     )
-    return CapabilityModule(
-        owner, owner, owner, owner, owner, owner, owner, owner, owner
-    )
+    return CapabilityModule(owner, owner, owner, owner, owner, owner, owner, owner)
 
 
 def bootstrap_capability_data_rights() -> DataRightsParticipant:

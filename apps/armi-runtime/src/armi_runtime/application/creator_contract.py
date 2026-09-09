@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from enum import StrEnum
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 from uuid import UUID
 
 from pydantic import (
@@ -627,10 +627,10 @@ class CreatorProjectionEventResponse(_StrictWireModel):
         "life-record-query.v2",
         "creator-relationship.v3",
         "scene-timeline.v6",
-        "capability-request.v5",
-        "creator-operation.v4",
+        "capability-request.v6",
+        "creator-operation.v5",
         "other-human-record.v1",
-        "creator-effect.v4",
+        "creator-effect.v5",
         "subject-summary.v1",
         "data-rights-order-collection.v3",
     ]
@@ -850,7 +850,6 @@ class WaitingOutcomeResponse(_CommonOutcomeResponse):
         "model_response",
         "candidate_validation",
         "subject_commit",
-        "response_admission",
         "effect_registration",
         "effect_dispatch",
         "capability_decision",
@@ -869,7 +868,6 @@ class WaitingOutcomeResponse(_CommonOutcomeResponse):
         "subject_commit_available",
         "opportunity_available",
         "creator_evidence_accepted",
-        "response_admitted",
         "effect_registered",
         "effect_settled",
         "codex_grant_resolved",
@@ -929,7 +927,7 @@ class CreatorCodexExecutionDetails(_StrictWireModel):
 
 
 class CreatorOperationDetails(_StrictWireModel):
-    projection_version: Literal["creator-operation.v4"]
+    projection_version: Literal["creator-operation.v5"]
     operation_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     operation_kind: Literal[
         "cognition",
@@ -945,7 +943,6 @@ class CreatorOperationDetails(_StrictWireModel):
     capability_request_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
     permission_grant_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
     effect_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
-    response_admission_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
     effect_registration_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = (
         None
     )
@@ -1078,13 +1075,13 @@ class SubjectSummaryResponse(_StrictWireModel):
 
 class EffectResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["creator-effect.v4"]
+    projection_version: Literal["creator-effect.v5"]
     effect_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     action_intent_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     action_intent_revision_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     policy_decision_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
-    capability_request_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
-    permission_grant_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
+    capability_request_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
+    permission_grant_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)] | None = None
     capability_kind: Literal["creator.scene.reply", "codex.delegated-work"]
     effect_kind: Literal["creator_response", "codex_delegation"]
     status: Literal[
@@ -1134,6 +1131,28 @@ class EffectResponse(_StrictWireModel):
     settled_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None = None
     response_text: Annotated[str, Field(min_length=1, max_length=65536)] | None = None
 
+    @model_validator(mode="after")
+    def validate_effect_family(self) -> Self:
+        refs = (
+            self.policy_decision_ref,
+            self.capability_request_ref,
+            self.permission_grant_ref,
+        )
+        if self.effect_kind == "creator_response":
+            if self.capability_kind != "creator.scene.reply" or any(
+                ref is not None for ref in refs
+            ):
+                raise ValueError(
+                    "ordinary replies do not carry grants or policy decisions"
+                )
+        elif self.capability_kind != "codex.delegated-work" or any(
+            ref is None for ref in refs
+        ):
+            raise ValueError(
+                "Codex effects require their capability authority references"
+            )
+        return self
+
 
 class _EffectiveGrantResponseBase(_StrictWireModel):
     grant_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
@@ -1141,14 +1160,6 @@ class _EffectiveGrantResponseBase(_StrictWireModel):
     valid_from: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
     valid_until: Annotated[str, Field(pattern=_INSTANT_PATTERN)]
     ended_at: Annotated[str, Field(pattern=_INSTANT_PATTERN)] | None = None
-
-
-class CreatorReplyEffectiveGrantResponse(_EffectiveGrantResponseBase):
-    scope_kind: Literal["creator_scene_reply"]
-    max_uses: Annotated[int, Field(ge=1, le=16)]
-    consumed_uses: Annotated[int, Field(ge=0, le=16)]
-    remaining_uses: Annotated[int, Field(ge=0, le=16)]
-    max_payload_bytes: Annotated[int, Field(ge=1, le=65536)]
 
 
 class CodexEffectiveGrantResponse(_EffectiveGrantResponseBase):
@@ -1161,18 +1172,16 @@ class CodexEffectiveGrantResponse(_EffectiveGrantResponseBase):
     network_access: Literal[False]
 
 
-type EffectiveGrantResponse = (
-    CreatorReplyEffectiveGrantResponse | CodexEffectiveGrantResponse
-)
+type EffectiveGrantResponse = CodexEffectiveGrantResponse
 
 
 class CapabilityRequestItemResponse(_StrictWireModel):
     capability_request_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
-    capability_kind: Literal["creator.scene.reply", "codex.delegated-work"]
-    operation: Literal["send", "execute"]
+    capability_kind: Literal["codex.delegated-work"]
+    operation: Literal["execute"]
     subject_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     scene_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
-    purpose: Literal["respond_to_creator", "delegate_codex_work"]
+    purpose: Literal["delegate_codex_work"]
     audience_scope: Literal["creator"] | None = None
     data_scope: Literal["creator_visible_response"] | None = None
     workspace_scope: Literal["isolated_ephemeral"] | None = None
@@ -1196,7 +1205,7 @@ class CapabilityRequestItemResponse(_StrictWireModel):
 
 class CapabilityRequestPageResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["capability-request.v5"]
+    projection_version: Literal["capability-request.v6"]
     items: Annotated[list[CapabilityRequestItemResponse], Field(max_length=100)]
     next_cursor: (
         Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None

@@ -586,6 +586,25 @@ def _relationship_revision_response(
 
 
 def _operation_outcome_wire(operation: CreatorOperation) -> dict[str, object]:
+    if operation.failure_code in {
+        "ACTION-RUNTIME-INTERRUPTED",
+        "COGNITION-RUNTIME-INTERRUPTED",
+    }:
+        return FailedOutcome(
+            **_outcome_common(),
+            message="This conversation ended when the Runtime stopped. Any completed changes remain; unfinished replies will not be resent.",
+            error=ErrorDescriptor(
+                ErrorCategory.DEPENDENCY, "DEPENDENCY_RUNTIME_INTERRUPTED"
+            ),
+        ).to_wire()
+    if operation.failure_code == "ACTION-EFFECT-DESTINATION-UNAVAILABLE":
+        return FailedOutcome(
+            **_outcome_common(),
+            message="The reply destination is no longer available.",
+            error=ErrorDescriptor(
+                ErrorCategory.DEPENDENCY, "DEPENDENCY_REPLY_DESTINATION_UNAVAILABLE"
+            ),
+        ).to_wire()
     if operation.phase is CreatorOperationPhase.ACCEPTED:
         return _accepted_wire(operation.acceptance)
     result_ref = ResultRef(operation.acceptance.opportunity_id.value)
@@ -644,21 +663,6 @@ def _operation_outcome_wire(operation: CreatorOperation) -> dict[str, object]:
             result_ref=result_ref,
             waiting_for="subject_commit",
             resume_condition="subject_commit_available",
-        ).to_wire()
-    if operation.phase is CreatorOperationPhase.RESPONSE_ADMISSION:
-        return WaitingOutcome(
-            **_outcome_common(),
-            message="The response intent is waiting for admission.",
-            result_ref=result_ref,
-            waiting_for="response_admission",
-            resume_condition="response_admitted",
-        ).to_wire()
-    if operation.phase is CreatorOperationPhase.RESPONSE_ACCEPTED:
-        return AcceptedOutcome(
-            **_outcome_common(),
-            message="The response is durably accepted but has not been sent.",
-            result_ref=result_ref,
-            custodian="runtime",
         ).to_wire()
     if operation.phase is CreatorOperationPhase.EFFECT_REGISTRATION:
         return WaitingOutcome(
@@ -825,28 +829,6 @@ def _operation_outcome_wire(operation: CreatorOperation) -> dict[str, object]:
             message="Cognition formally chose not to act.",
             result_ref=result_ref,
         ).to_wire()
-    if operation.phase is CreatorOperationPhase.RESPONSE_UNAUTHORIZED:
-        return RejectedOutcome(
-            **_outcome_common(),
-            message="The response is not covered by a current exact grant.",
-            error=ErrorDescriptor(ErrorCategory.SCOPE, "SCOPE_RESPONSE_NOT_AUTHORIZED"),
-        ).to_wire()
-    if operation.phase is CreatorOperationPhase.RESPONSE_UNAVAILABLE:
-        return UnavailableOutcome(
-            **_outcome_common(),
-            message="The response capability is unavailable.",
-            error=ErrorDescriptor(
-                ErrorCategory.DEPENDENCY, "DEPENDENCY_RESPONSE_CAPABILITY_UNAVAILABLE"
-            ),
-        ).to_wire()
-    if operation.phase is CreatorOperationPhase.RESPONSE_FAILED:
-        return FailedOutcome(
-            **_outcome_common(),
-            message="The response admission failed.",
-            error=ErrorDescriptor(
-                ErrorCategory.INTEGRITY, "INTEGRITY_RESPONSE_ADMISSION_FAILED"
-            ),
-        ).to_wire()
     if operation.phase is CreatorOperationPhase.APPLIED:
         return AppliedOutcome(
             **_outcome_common(),
@@ -909,7 +891,7 @@ def operation_wire(operation: CreatorOperation) -> dict[str, object]:
     stage = _operation_stage(phase)
     outcome = _operation_outcome(phase)
     wire["details"] = {
-        "projection_version": "creator-operation.v4",
+        "projection_version": "creator-operation.v5",
         "operation_ref": str(operation.acceptance.opportunity_id),
         "operation_kind": operation.operation_kind,
         "stage": stage,
@@ -938,11 +920,6 @@ def operation_wire(operation: CreatorOperation) -> dict[str, object]:
         **(
             {"effect_ref": str(operation.effect_ref)}
             if operation.effect_ref is not None
-            else {}
-        ),
-        **(
-            {"response_admission_ref": str(operation.response_admission_ref)}
-            if operation.response_admission_ref is not None
             else {}
         ),
         **(
@@ -1026,8 +1003,6 @@ def _operation_stage(phase: CreatorOperationPhase) -> str:
         CreatorOperationPhase.CANDIDATE_VALIDATED: "candidate_validating",
         CreatorOperationPhase.CANDIDATE_REJECTED: "candidate_rejected",
         CreatorOperationPhase.SUBJECT_COMMITTING: "subject_committing",
-        CreatorOperationPhase.RESPONSE_ADMISSION: "awaiting_authorization",
-        CreatorOperationPhase.RESPONSE_ACCEPTED: "awaiting_authorization",
         CreatorOperationPhase.EFFECT_REGISTRATION: "registering_effect",
         CreatorOperationPhase.EFFECT_REGISTRATION_UNAUTHORIZED: "authorization_denied",
         CreatorOperationPhase.EFFECT_REGISTRATION_UNAVAILABLE: "unavailable",
@@ -1050,9 +1025,6 @@ def _operation_stage(phase: CreatorOperationPhase) -> str:
         CreatorOperationPhase.CODEX_CANCELLED: "cancelled",
         CreatorOperationPhase.FORMAL_DECLINED: "declined",
         CreatorOperationPhase.FORMAL_NO_ACTION: "no_action",
-        CreatorOperationPhase.RESPONSE_UNAUTHORIZED: "authorization_denied",
-        CreatorOperationPhase.RESPONSE_UNAVAILABLE: "unavailable",
-        CreatorOperationPhase.RESPONSE_FAILED: "failed",
         CreatorOperationPhase.APPLIED: "applied",
         CreatorOperationPhase.COMPLETED: "no_change",
         CreatorOperationPhase.DEFERRED: "deferred",
@@ -1078,14 +1050,12 @@ def _operation_outcome(phase: CreatorOperationPhase) -> str:
     if phase is CreatorOperationPhase.STALE_CONFLICT:
         return "stale"
     if phase in {
-        CreatorOperationPhase.RESPONSE_UNAVAILABLE,
         CreatorOperationPhase.EFFECT_REGISTRATION_UNAVAILABLE,
     }:
         return "unavailable"
     if phase in {
         CreatorOperationPhase.EFFECT_FAILED,
         CreatorOperationPhase.CODEX_FAILED,
-        CreatorOperationPhase.RESPONSE_FAILED,
         CreatorOperationPhase.EFFECT_REGISTRATION_FAILED,
         CreatorOperationPhase.FAILED,
     }:
@@ -1105,7 +1075,6 @@ def _operation_outcome(phase: CreatorOperationPhase) -> str:
         CreatorOperationPhase.CANDIDATE_REJECTED,
         CreatorOperationPhase.CODEX_RESULT_REJECTED,
         CreatorOperationPhase.FORMAL_DECLINED,
-        CreatorOperationPhase.RESPONSE_UNAUTHORIZED,
         CreatorOperationPhase.EFFECT_REGISTRATION_UNAUTHORIZED,
     }:
         return "rejected"

@@ -98,8 +98,10 @@ def bootstrap_perception_data_rights() -> DataRightsParticipant:
     return PostgreSQLPerceptionDataRightsParticipant()
 
 
-def bootstrap_perception_recovery() -> RecoveryParticipant:
-    return PerceptionRecoveryParticipant()
+def bootstrap_perception_recovery(
+    interaction: InteractionPerceptionPort,
+) -> RecoveryParticipant:
+    return PerceptionRecoveryParticipant(interaction)
 
 
 def bootstrap_visual_recognition_attempts() -> PostgreSQLVisualRecognitionAttempts:

@@ -21,7 +21,7 @@ from .api import (
     ExpressionEffectLinkPort,
     ExpressionEffectRegistrationPort,
     ExpressionIntentReadPort,
-    ExpressionResponseAdmissionPort,
+    ExpressionVoiceRoutePort,
 )
 
 
@@ -32,21 +32,19 @@ def bootstrap_expression_admin() -> ExpressionAdminPort:
 @dataclass(frozen=True, slots=True)
 class ExpressionModule:
     commit: ExpressionCommitPort
-    admission: ExpressionResponseAdmissionPort
     intents: ExpressionIntentReadPort
     effect_links: ExpressionEffectLinkPort
 
 
 @dataclass(frozen=True, slots=True)
 class ExpressionActionPorts:
-    admission: ExpressionResponseAdmissionPort
     intents: ExpressionIntentReadPort
     effect_links: ExpressionEffectLinkPort
 
 
 def bootstrap_expression_action_ports() -> ExpressionActionPorts:
     owner = PostgreSQLExpressionActionOwner()
-    return ExpressionActionPorts(owner, owner, owner)
+    return ExpressionActionPorts(owner, owner)
 
 
 def bootstrap_expression(
@@ -55,6 +53,7 @@ def bootstrap_expression(
     effect_registration: ExpressionEffectRegistrationPort,
     interaction_routes: InteractionEffectRoutePort,
     interaction_scenes: InteractionSceneTransitionPort,
+    voice: ExpressionVoiceRoutePort,
 ) -> ExpressionModule:
     actions = bootstrap_expression_action_ports()
     return ExpressionModule(
@@ -64,8 +63,8 @@ def bootstrap_expression(
             effect_registration,
             interaction_routes,
             interaction_scenes,
+            voice,
         ),
-        admission=actions.admission,
         intents=actions.intents,
         effect_links=actions.effect_links,
     )

@@ -44,7 +44,6 @@ from armi_effect.bootstrap import (
     compose_effect_dispatch_repository,
     compose_effect_ledger_repository,
     compose_local_inbox,
-    compose_response_admission_repository,
 )
 from armi_evidence.bootstrap import bootstrap_evidence
 from armi_experience.bootstrap import bootstrap_experience_owner
@@ -86,7 +85,6 @@ from armi_web_observation.bootstrap import (
 
 ArtifactCatalogRepository = bootstrap_artifact_catalog
 CodexTaskSourceGateway = compose_codex_task_source_gateway
-PostgreSQLResponseAdmissionRepository = compose_response_admission_repository
 PostgreSQLEffectDispatchRepository = compose_effect_dispatch_repository
 PostgreSQLLocalInbox = compose_local_inbox
 PostgreSQLEffectLedgerRepository = compose_effect_ledger_repository
@@ -120,7 +118,6 @@ __all__ = (
     "PostgreSQLEffectLedgerRepository",
     "PostgreSQLInteractionPerception",
     "PostgreSQLLocalInbox",
-    "PostgreSQLResponseAdmissionRepository",
     "PostgreSQLSceneTimelineQuery",
     "bootstrap_activity",
     "bootstrap_activity_cognition",

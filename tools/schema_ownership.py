@@ -154,7 +154,6 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "effect_registrations": TableOwnership("effect"),
     "effects": TableOwnership("effect"),
     "local_inbox_deliveries": TableOwnership("effect"),
-    "response_admissions": TableOwnership("expression"),
     # Web, Codex, and Data Rights.
     "observation_attempts": TableOwnership("web-observation"),
     "observation_tool_calls": TableOwnership("web-observation"),

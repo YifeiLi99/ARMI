@@ -25,8 +25,6 @@ from armi_capability.api import (
     CapabilityKind,
     CapabilityReadPort,
     CapabilityViolation,
-    CodexDelegatedWorkScope,
-    CreatorSceneReplyScope,
 )
 from armi_codex.api import (
     CodexCommitContext,
@@ -61,7 +59,6 @@ from armi_experience.api import (
     ExperienceSourcePerspective,
 )
 from armi_expression.api import (
-    CreatorReplyDraft,
     ExpressionCommitContext,
     ExpressionCommitPort,
     ResponseViolation,
@@ -149,26 +146,12 @@ def _bound_action_request_ids(
     request_ids: Mapping[str, UUID],
 ) -> dict[str, UUID]:
     result: dict[str, UUID] = {}
-    for action in change_set.action_choices:
-        if not isinstance(action, CreatorReplyDraft):
-            continue
-        matches = tuple(
-            request
-            for request in change_set.capability_requests
-            if request.atomic_group_ref == action.atomic_group_ref
-            and request.capability is CapabilityKind.CREATOR_SCENE_REPLY
-            and isinstance(request.scope, CreatorSceneReplyScope)
-        )
-        if len(matches) != 1 or matches[0].proposal_ref not in request_ids:
-            raise SubjectCommitViolation("SUBJECT-CAPABILITY-REQUEST")
-        result[action.proposal_ref] = request_ids[matches[0].proposal_ref]
     for delegation in change_set.codex_delegations:
         matches = tuple(
             request
             for request in change_set.capability_requests
             if request.atomic_group_ref == delegation.atomic_group_ref
             and request.capability is CapabilityKind.CODEX_DELEGATED_WORK
-            and isinstance(request.scope, CodexDelegatedWorkScope)
         )
         if len(matches) != 1 or matches[0].proposal_ref not in request_ids:
             raise SubjectCommitViolation("SUBJECT-CAPABILITY-REQUEST")
@@ -1107,7 +1090,6 @@ class PostgreSQLSubjectCommitRepository:
                 commit_id=commit_id.value,
                 choices=change_set.action_choices,
                 response_artifact=response_artifact,
-                capability_request_ids=bound_request_ids,
             )
         except ResponseViolation as error:
             raise SubjectCommitViolation(error.code) from None

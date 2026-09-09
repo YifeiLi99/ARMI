@@ -33,7 +33,7 @@ class PostgreSQLInteractionActionOwner:
                        person_binding.channel_kind, person_binding.account_key,
                        person_binding.external_key
                 FROM armi.interaction_scenes AS scene
-                JOIN armi.parties AS party ON party.party_id=%s
+                JOIN armi.parties AS party ON party.party_id=%s AND party.status='active'
                 LEFT JOIN armi.external_channel_bindings AS group_binding
                   ON group_binding.scene_id=scene.scene_id
                  AND group_binding.party_id=scene.primary_party_id
@@ -52,6 +52,10 @@ class PostgreSQLInteractionActionOwner:
         if row is None:
             raise OtherHumanInputViolation("OTHER-HUMAN-SCENE")
         scene_kind = str(row[2])
+        if intended_destination_kind == "creator_inbox" and (
+            str(row[4]) != "creator" or row[3] != context_party_id
+        ):
+            raise OtherHumanInputViolation("OTHER-HUMAN-SCENE")
         if intended_destination_kind == "creator_inbox":
             destination_kind = "creator_inbox"
             destination_party = context_party_id

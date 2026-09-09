@@ -373,10 +373,7 @@
             "type": "string"
           },
           "capability_kind": {
-            "enum": [
-              "creator.scene.reply",
-              "codex.delegated-work"
-            ],
+            "const": "codex.delegated-work",
             "title": "Capability Kind",
             "type": "string"
           },
@@ -444,18 +441,12 @@
             "title": "Network Access"
           },
           "operation": {
-            "enum": [
-              "send",
-              "execute"
-            ],
+            "const": "execute",
             "title": "Operation",
             "type": "string"
           },
           "purpose": {
-            "enum": [
-              "respond_to_creator",
-              "delegate_codex_work"
-            ],
+            "const": "delegate_codex_work",
             "title": "Purpose",
             "type": "string"
           },
@@ -571,7 +562,7 @@
             "title": "Next Cursor"
           },
           "projection_version": {
-            "const": "capability-request.v5",
+            "const": "capability-request.v6",
             "title": "Projection Version",
             "type": "string"
           }
@@ -582,100 +573,6 @@
           "items"
         ],
         "title": "CapabilityRequestPageResponse",
-        "type": "object"
-      },
-      "CodexEffectiveGrantResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "artifact_scope": {
-            "const": "explicit_only",
-            "title": "Artifact Scope",
-            "type": "string"
-          },
-          "consumed_uses": {
-            "maximum": 1.0,
-            "minimum": 0.0,
-            "title": "Consumed Uses",
-            "type": "integer"
-          },
-          "ended_at": {
-            "anyOf": [
-              {
-                "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ended At"
-          },
-          "grant_ref": {
-            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
-            "title": "Grant Ref",
-            "type": "string"
-          },
-          "max_uses": {
-            "const": 1,
-            "title": "Max Uses",
-            "type": "integer"
-          },
-          "network_access": {
-            "const": false,
-            "title": "Network Access",
-            "type": "boolean"
-          },
-          "remaining_uses": {
-            "maximum": 1.0,
-            "minimum": 0.0,
-            "title": "Remaining Uses",
-            "type": "integer"
-          },
-          "scope_kind": {
-            "const": "codex_delegated_work",
-            "title": "Scope Kind",
-            "type": "string"
-          },
-          "status": {
-            "enum": [
-              "active",
-              "revoked",
-              "expired",
-              "consumed"
-            ],
-            "title": "Status",
-            "type": "string"
-          },
-          "valid_from": {
-            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
-            "title": "Valid From",
-            "type": "string"
-          },
-          "valid_until": {
-            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
-            "title": "Valid Until",
-            "type": "string"
-          },
-          "workspace_scope": {
-            "const": "isolated_ephemeral",
-            "title": "Workspace Scope",
-            "type": "string"
-          }
-        },
-        "required": [
-          "grant_ref",
-          "status",
-          "valid_from",
-          "valid_until",
-          "scope_kind",
-          "max_uses",
-          "consumed_uses",
-          "remaining_uses",
-          "workspace_scope",
-          "artifact_scope",
-          "network_access"
-        ],
-        "title": "CodexEffectiveGrantResponse",
         "type": "object"
       },
       "CreatorActivityItemResponse": {
@@ -2147,7 +2044,7 @@
             "title": "Policy Decision Ref"
           },
           "projection_version": {
-            "const": "creator-operation.v4",
+            "const": "creator-operation.v5",
             "title": "Projection Version",
             "type": "string"
           },
@@ -2163,18 +2060,6 @@
               }
             ],
             "title": "Reason Code"
-          },
-          "response_admission_ref": {
-            "anyOf": [
-              {
-                "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Response Admission Ref"
           },
           "stage": {
             "enum": [
@@ -2275,10 +2160,10 @@
               "life-record-query.v2",
               "creator-relationship.v3",
               "scene-timeline.v6",
-              "capability-request.v5",
-              "creator-operation.v4",
+              "capability-request.v6",
+              "creator-operation.v5",
               "other-human-record.v1",
-              "creator-effect.v4",
+              "creator-effect.v5",
               "subject-summary.v1",
               "data-rights-order-collection.v3"
             ],
@@ -2975,90 +2860,6 @@
         "title": "CreatorRelationshipTimelineResponse",
         "type": "object"
       },
-      "CreatorReplyEffectiveGrantResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "consumed_uses": {
-            "maximum": 16.0,
-            "minimum": 0.0,
-            "title": "Consumed Uses",
-            "type": "integer"
-          },
-          "ended_at": {
-            "anyOf": [
-              {
-                "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ended At"
-          },
-          "grant_ref": {
-            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
-            "title": "Grant Ref",
-            "type": "string"
-          },
-          "max_payload_bytes": {
-            "maximum": 65536.0,
-            "minimum": 1.0,
-            "title": "Max Payload Bytes",
-            "type": "integer"
-          },
-          "max_uses": {
-            "maximum": 16.0,
-            "minimum": 1.0,
-            "title": "Max Uses",
-            "type": "integer"
-          },
-          "remaining_uses": {
-            "maximum": 16.0,
-            "minimum": 0.0,
-            "title": "Remaining Uses",
-            "type": "integer"
-          },
-          "scope_kind": {
-            "const": "creator_scene_reply",
-            "title": "Scope Kind",
-            "type": "string"
-          },
-          "status": {
-            "enum": [
-              "active",
-              "revoked",
-              "expired",
-              "consumed"
-            ],
-            "title": "Status",
-            "type": "string"
-          },
-          "valid_from": {
-            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
-            "title": "Valid From",
-            "type": "string"
-          },
-          "valid_until": {
-            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
-            "title": "Valid Until",
-            "type": "string"
-          }
-        },
-        "required": [
-          "grant_ref",
-          "status",
-          "valid_from",
-          "valid_until",
-          "scope_kind",
-          "max_uses",
-          "consumed_uses",
-          "remaining_uses",
-          "max_payload_bytes"
-        ],
-        "title": "CreatorReplyEffectiveGrantResponse",
-        "type": "object"
-      },
       "CreatorSceneCollectionResponse": {
         "additionalProperties": false,
         "properties": {
@@ -3746,9 +3547,16 @@
             "type": "string"
           },
           "capability_request_ref": {
-            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
-            "title": "Capability Request Ref",
-            "type": "string"
+            "anyOf": [
+              {
+                "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capability Request Ref"
           },
           "contract_version": {
             "const": "1.0",
@@ -3902,9 +3710,16 @@
             "title": "Observation Reason"
           },
           "permission_grant_ref": {
-            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
-            "title": "Permission Grant Ref",
-            "type": "string"
+            "anyOf": [
+              {
+                "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Permission Grant Ref"
           },
           "policy_decision_ref": {
             "anyOf": [
@@ -3919,7 +3734,7 @@
             "title": "Policy Decision Ref"
           },
           "projection_version": {
-            "const": "creator-effect.v4",
+            "const": "creator-effect.v5",
             "title": "Projection Version",
             "type": "string"
           },
@@ -3999,8 +3814,6 @@
           "effect_id",
           "action_intent_ref",
           "action_intent_revision_ref",
-          "capability_request_ref",
-          "permission_grant_ref",
           "capability_kind",
           "effect_kind",
           "status",
@@ -4012,14 +3825,98 @@
         "type": "object"
       },
       "EffectiveGrantResponse": {
-        "anyOf": [
-          {
-            "$ref": "#/components/schemas/CreatorReplyEffectiveGrantResponse"
+        "additionalProperties": false,
+        "properties": {
+          "artifact_scope": {
+            "const": "explicit_only",
+            "title": "Artifact Scope",
+            "type": "string"
           },
-          {
-            "$ref": "#/components/schemas/CodexEffectiveGrantResponse"
+          "consumed_uses": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Consumed Uses",
+            "type": "integer"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "grant_ref": {
+            "pattern": "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "title": "Grant Ref",
+            "type": "string"
+          },
+          "max_uses": {
+            "const": 1,
+            "title": "Max Uses",
+            "type": "integer"
+          },
+          "network_access": {
+            "const": false,
+            "title": "Network Access",
+            "type": "boolean"
+          },
+          "remaining_uses": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Remaining Uses",
+            "type": "integer"
+          },
+          "scope_kind": {
+            "const": "codex_delegated_work",
+            "title": "Scope Kind",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "revoked",
+              "expired",
+              "consumed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "valid_from": {
+            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
+            "title": "Valid From",
+            "type": "string"
+          },
+          "valid_until": {
+            "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:[0-5]\\d\\.\\d{6}Z",
+            "title": "Valid Until",
+            "type": "string"
+          },
+          "workspace_scope": {
+            "const": "isolated_ephemeral",
+            "title": "Workspace Scope",
+            "type": "string"
           }
-        ]
+        },
+        "required": [
+          "grant_ref",
+          "status",
+          "valid_from",
+          "valid_until",
+          "scope_kind",
+          "max_uses",
+          "consumed_uses",
+          "remaining_uses",
+          "workspace_scope",
+          "artifact_scope",
+          "network_access"
+        ],
+        "title": "CodexEffectiveGrantResponse",
+        "type": "object"
       },
       "ErrorCategoryValue": {
         "enum": [
@@ -5261,7 +5158,6 @@
               "subject_commit_available",
               "opportunity_available",
               "creator_evidence_accepted",
-              "response_admitted",
               "effect_registered",
               "effect_settled",
               "codex_grant_resolved",
@@ -5289,7 +5185,6 @@
               "model_response",
               "candidate_validation",
               "subject_commit",
-              "response_admission",
               "effect_registration",
               "effect_dispatch",
               "capability_decision",

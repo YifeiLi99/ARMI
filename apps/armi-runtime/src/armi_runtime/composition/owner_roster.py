@@ -47,6 +47,7 @@ from armi_expression.bootstrap import (
 from armi_interaction.bootstrap import (
     bootstrap_interaction_data_rights,
     bootstrap_interaction_recovery,
+    compose_interaction_perception,
 )
 from armi_live_vision.bootstrap import (
     bootstrap_live_vision_data_rights,
@@ -69,6 +70,7 @@ from armi_mood.bootstrap import bootstrap_mood_data_rights, bootstrap_mood_recov
 from armi_perception.bootstrap import (
     bootstrap_perception_data_rights,
     bootstrap_perception_recovery,
+    bootstrap_visual_recognition_attempts,
 )
 from armi_prompt.api import PromptReadPort
 from armi_prompt.bootstrap import (
@@ -154,9 +156,9 @@ _RECOVERY_ORDER = (
     "sleep",
     "context",
     "interaction",
+    "live-vision",
     "perception",
     "live-voice",
-    "live-vision",
     "evidence",
     "cognition",
     "experience",
@@ -179,9 +181,11 @@ def compose_runtime_owner_roster(
 ) -> RuntimeOwnerRoster:
     recovery = {
         "interaction": bootstrap_interaction_recovery(),
-        "perception": bootstrap_perception_recovery(),
+        "perception": bootstrap_perception_recovery(compose_interaction_perception()),
         "live-voice": bootstrap_live_voice_recovery(),
-        "live-vision": bootstrap_live_vision_recovery(),
+        "live-vision": bootstrap_live_vision_recovery(
+            bootstrap_visual_recognition_attempts()
+        ),
         "evidence": bootstrap_evidence_recovery(),
         "opportunity": bootstrap_opportunity_recovery(),
         "experience": bootstrap_experience_recovery(),

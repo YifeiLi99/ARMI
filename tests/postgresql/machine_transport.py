@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -20,7 +21,9 @@ async def admin_stdio(
     async with Client(
         stdio_client(
             StdioServerParameters(
-                command=sys.executable,
+                command=os.environ.get(
+                    "ARMI_CREATOR_SYSTEM_ENTRY_POINT", sys.executable
+                ),
                 args=["-m", "armi_admin.mcp.entrypoint"],
                 cwd=Path.cwd(),
                 env={**environment, "ARMI_ADMIN_CONFIG": str(binding)},

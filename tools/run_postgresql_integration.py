@@ -36,8 +36,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=Path(".armi-tools/installs/postgresql/18.4/pgsql"),
     )
     parser.add_argument("--s026-live-environment-root", type=Path)
-    parser.add_argument("--s027-live-environment-root", type=Path)
-    parser.add_argument("--s028-live-environment-root", type=Path)
     parser.add_argument("--s033-live-environment-root", type=Path)
     parser.add_argument("--test-expression")
     parser.add_argument("--creator-system-entry-point", type=Path)
@@ -72,14 +70,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 environment["S026_LIVE_ENVIRONMENT_ROOT"] = str(
                     args.s026_live_environment_root.resolve()
                 )
-            if args.s027_live_environment_root is not None:
-                environment["S027_LIVE_ENVIRONMENT_ROOT"] = str(
-                    args.s027_live_environment_root.resolve()
-                )
-            if args.s028_live_environment_root is not None:
-                environment["S028_LIVE_ENVIRONMENT_ROOT"] = str(
-                    args.s028_live_environment_root.resolve()
-                )
             if args.s033_live_environment_root is not None:
                 environment["S033_LIVE_ENVIRONMENT_ROOT"] = str(
                     args.s033_live_environment_root.resolve()
@@ -112,10 +102,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             pytest_command = [sys.executable, "-m", "pytest", "tests/postgresql", "-q"]
             test_expression = args.test_expression
             if args.s026_live_environment_root is not None and test_expression is None:
-                test_expression = "t03_subject_commit"
-            if args.s027_live_environment_root is not None and test_expression is None:
-                test_expression = "t03_subject_commit"
-            if args.s028_live_environment_root is not None and test_expression is None:
                 test_expression = "t03_subject_commit"
             if args.s033_live_environment_root is not None and test_expression is None:
                 test_expression = "web_observation_admission"

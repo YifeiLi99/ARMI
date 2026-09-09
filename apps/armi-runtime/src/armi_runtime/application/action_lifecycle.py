@@ -15,7 +15,6 @@ from armi_effect.api import (
     EffectViolation,
 )
 from armi_expression.api import ExpressionIntentReadPort
-from armi_interaction.api import InteractionEffectRoutePort
 from armi_kernel.application import (
     ArtifactId,
     WorkDraft,
@@ -27,7 +26,6 @@ from armi_kernel.application import (
     WorkType,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId, TraceId
-from armi_live_voice.api import VoiceContextReadPort
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
 
@@ -120,8 +118,6 @@ class RuntimeEffectRegistrationContext:
         "_artifacts",
         "_codex",
         "_expression",
-        "_interaction",
-        "_live_voice",
         "_registrations",
     )
 
@@ -131,15 +127,11 @@ class RuntimeEffectRegistrationContext:
         artifacts: ArtifactCatalogPort,
         codex: CodexTaskSourceReadPort,
         expression: ExpressionIntentReadPort,
-        interaction: InteractionEffectRoutePort,
-        live_voice: VoiceContextReadPort,
         registrations: EffectResponsibilityPort,
     ) -> None:
         self._artifacts = artifacts
         self._codex = codex
         self._expression = expression
-        self._interaction = interaction
-        self._live_voice = live_voice
         self._registrations = registrations
 
     async def resolve(
@@ -170,11 +162,7 @@ class RuntimeEffectRegistrationContext:
             or registration.capability_request_id != intent.capability_request_id
         ):
             raise EffectViolation("EFFECT-CAPABILITY-IDENTITY")
-        if intent.response_artifact_id is not None:
-            artifact_id = intent.response_artifact_id
-            digest = intent.response_digest
-            effect_kind = "creator_response"
-        elif intent.codex_task_source_id is not None:
+        if intent.codex_task_source_id is not None:
             source = await self._codex.task_source(
                 transaction,
                 task_source_id=intent.codex_task_source_id,
@@ -184,36 +172,16 @@ class RuntimeEffectRegistrationContext:
             effect_kind = "codex_delegation"
         else:
             raise EffectViolation("EFFECT-PAYLOAD-UNAVAILABLE")
-        if digest is None:
-            raise EffectViolation("EFFECT-PAYLOAD-UNAVAILABLE")
         artifact = await self._artifacts.retained_ref_in(
             transaction,
             ArtifactId(artifact_id),
         )
         if artifact is None or artifact.content_digest != digest:
             raise EffectViolation("EFFECT-PAYLOAD-UNAVAILABLE")
-        if effect_kind == "creator_response":
-            live_voice_turn_id = await self._live_voice.turn_for_opportunity(
-                transaction, opportunity_id=intent.root_opportunity_id
-            )
-            if live_voice_turn_id is not None:
-                destination_party_id = intent.context_party_id
-                destination_kind = "live_voice_audio"
-                destination_binding_id = None
-            else:
-                route = await self._interaction.effect_route(
-                    transaction,
-                    scene_id=intent.scene_id,
-                    context_party_id=intent.context_party_id,
-                )
-                destination_party_id = route.destination_party_id
-                destination_kind = route.destination_kind
-                destination_binding_id = route.destination_binding_id
-        else:
-            live_voice_turn_id = None
-            destination_party_id = intent.context_party_id
-            destination_kind = "codex_workspace"
-            destination_binding_id = None
+        live_voice_turn_id = None
+        destination_party_id = intent.context_party_id
+        destination_kind = "codex_workspace"
+        destination_binding_id = None
         return EffectRegistrationContext(
             intent.operation_ref,
             intent.root_opportunity_id,

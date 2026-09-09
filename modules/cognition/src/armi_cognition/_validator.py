@@ -23,7 +23,6 @@ from armi_capability.api import (
     CapabilityOperation,
     CapabilityRequestDraft,
     CodexDelegatedWorkScope,
-    CreatorSceneReplyScope,
 )
 from armi_codex.api import CodexDelegationDraft, CodexTaskSourceId
 from armi_expression.api import (
@@ -201,7 +200,6 @@ from ._model_contract import (
     MoodSemanticAppraisalCommand,
     MoodState,
     RuntimeBoundCreatorReplyPayload,
-    RuntimeBoundCreatorSceneReplyRequestPayload,
     SelfState,
     VisualObservationRequestProposal,
     WebResearchRequestProposal,
@@ -238,7 +236,7 @@ from .api import (
 
 CANDIDATE_POLICY_VERSION = "armi.cognition-candidate-policy.v4"
 CANDIDATE_VALIDATOR_IDENTITY = "armi.candidate-validator.deterministic-v1"
-ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v31"
+ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v32"
 _CODEX_CAPABILITY_ID = UUID("01985d00-0000-7000-8000-000000000038")
 
 
@@ -915,18 +913,7 @@ class DeterministicCandidateValidator:
                 )
                 if failure is None:
                     payload = capability.payload
-                    scope = (
-                        CreatorSceneReplyScope(
-                            self._context.subject_id,
-                            self._context.scene_id,
-                            self._context.creator_party_id,
-                            payload.valid_for_seconds,
-                            payload.max_uses,
-                            payload.max_payload_bytes,
-                        )
-                        if payload.capability_kind == "creator.scene.reply"
-                        else CodexDelegatedWorkScope(payload.valid_for_seconds)
-                    )
+                    scope = CodexDelegatedWorkScope(payload.valid_for_seconds)
                     accepted[proposal.proposal_ref] = CapabilityRequestDraft(
                         proposal.proposal_ref,
                         proposal.atomic_group_ref,
@@ -1096,12 +1083,9 @@ class DeterministicCandidateValidator:
                 accepted.pop(proposal_ref)
 
         for proposal_ref, draft in tuple(accepted.items()):
-            expected_scope: type[CreatorSceneReplyScope] | type[CodexDelegatedWorkScope]
+            expected_scope: type[CodexDelegatedWorkScope]
             error_code: str
-            if isinstance(draft, CreatorReplyDraft):
-                expected_scope = CreatorSceneReplyScope
-                error_code = "CANDIDATE-CAPABILITY-REQUEST"
-            elif isinstance(draft, CodexDelegationDraft):
+            if isinstance(draft, CodexDelegationDraft):
                 expected_scope = CodexDelegatedWorkScope
                 error_code = "CANDIDATE-CODEX-CAPABILITY-REQUEST"
             else:
@@ -3047,9 +3031,6 @@ def _expand_dialogue_candidate(
         )
         if scene_ref is None:
             return None, None, "CANDIDATE-ACTION-SCENE-BASIS"
-        if catalog is None:
-            return None, None, "CANDIDATE-ACTION-CAPABILITY-BASIS"
-        catalog_ref = f"ctx:{catalog.ordinal}"
         proposal_no = 1
         if decision.experience is not None:
             experience_ref = f"proposal:{proposal_no}"
@@ -3192,29 +3173,12 @@ def _expand_dialogue_candidate(
                 return None, None, prompt_error or "CANDIDATE-SUBJECT-PROMPT-CONTEXT"
             prompt = replace(prompt, atomic_group_ref="group:2")
             proposal_no += 1
-        shared_bases = (evidence_ref, scene_ref, catalog_ref)
-        capability_requests.append(
-            {
-                "proposal_ref": f"proposal:{proposal_no}",
-                "atomic_group_ref": "group:1",
-                "basis_refs": shared_bases,
-                "payload": {
-                    "proposal_kind": "capability_requests",
-                    "fact_class": "inference",
-                    "capability_kind": "creator.scene.reply",
-                    "operation": "send",
-                    "audience_scope": "creator",
-                    "data_scope": "creator_visible_response",
-                    "purpose": "respond_to_creator",
-                    "valid_for_seconds": 3600,
-                    "max_uses": 1,
-                    "max_payload_bytes": len(decision.content.encode("utf-8")),
-                },
-            }
-        )
-        proposal_no += 1
+        shared_bases = (evidence_ref, scene_ref)
         capability_request = getattr(decision, "capability_request", None)
         if capability_request is not None:
+            if catalog is None:
+                return None, None, "CANDIDATE-CAPABILITY-BASIS"
+            catalog_ref = f"ctx:{catalog.ordinal}"
             capability_state = next(
                 (
                     item
@@ -3235,7 +3199,11 @@ def _expand_dialogue_candidate(
                 {
                     "proposal_ref": f"proposal:{proposal_no}",
                     "atomic_group_ref": "group:3",
-                    "basis_refs": (*shared_bases, capability_request.capability_ref),
+                    "basis_refs": (
+                        *shared_bases,
+                        catalog_ref,
+                        capability_request.capability_ref,
+                    ),
                     "payload": {
                         "proposal_kind": "capability_requests",
                         "fact_class": "inference",
@@ -3316,7 +3284,7 @@ def _expand_dialogue_candidate(
             return (
                 CognitionCandidate.model_validate(
                     {
-                        "schema_version": "armi.cognition-candidate.v10",
+                        "schema_version": "armi.cognition-candidate.v11",
                         "base": {
                             "subject_version": context.base_subject_version,
                             "state_epoch": context.base_state_epoch,
@@ -3377,7 +3345,7 @@ def _expand_dialogue_candidate(
             return (
                 CognitionCandidate.model_validate(
                     {
-                        "schema_version": "armi.cognition-candidate.v10",
+                        "schema_version": "armi.cognition-candidate.v11",
                         "base": {
                             "subject_version": context.base_subject_version,
                             "state_epoch": context.base_state_epoch,
@@ -3437,7 +3405,7 @@ def _expand_dialogue_candidate(
             return (
                 CognitionCandidate.model_validate(
                     {
-                        "schema_version": "armi.cognition-candidate.v10",
+                        "schema_version": "armi.cognition-candidate.v11",
                         "base": {
                             "subject_version": context.base_subject_version,
                             "state_epoch": context.base_state_epoch,
@@ -3484,7 +3452,7 @@ def _expand_dialogue_candidate(
         return (
             CognitionCandidate.model_validate(
                 {
-                    "schema_version": "armi.cognition-candidate.v10",
+                    "schema_version": "armi.cognition-candidate.v11",
                     "base": {
                         "subject_version": context.base_subject_version,
                         "state_epoch": context.base_state_epoch,
@@ -4700,10 +4668,6 @@ def _capability_failure(
         for basis in bases
     ):
         return "CANDIDATE-CAPABILITY-EVIDENCE-BASIS"
-    if payload.capability_kind == "creator.scene.reply":
-        if not isinstance(payload, RuntimeBoundCreatorSceneReplyRequestPayload):
-            return "CANDIDATE-CAPABILITY-SCOPE"
-        return None
     if payload.capability_kind == "codex.delegated-work":
         capability_states = tuple(
             basis for basis in bases if basis.item_kind.startswith("capability_state_")
@@ -4767,13 +4731,6 @@ def _action_failure(
             )
         ):
             return "CANDIDATE-RELATIONSHIP-BOUNDARY"
-        if not any(
-            basis.section == "capability"
-            and basis.item_kind == "capability_catalog"
-            and basis.trust_class == "policy"
-            for basis in bases
-        ):
-            return "CANDIDATE-ACTION-CAPABILITY-BASIS"
         return None
     expected_reason = {
         "decline": "subjective_refusal",
@@ -5096,26 +5053,13 @@ def _codex_delegation_wire(value: CodexDelegationDraft) -> dict[str, object]:
 
 def _capability_wire(value: CapabilityRequestDraft) -> dict[str, object]:
     scope = value.scope
-    if isinstance(scope, CreatorSceneReplyScope):
-        scope_value: dict[str, object] = {
-            "subject_id": str(scope.subject_id),
-            "scene_id": str(scope.scene_id),
-            "creator_party_id": str(scope.creator_party_id),
-            "audience_scope": scope.audience_scope,
-            "data_scope": scope.data_scope,
-            "purpose": scope.purpose,
-            "valid_for_seconds": scope.valid_for_seconds,
-            "max_uses": scope.max_uses,
-            "max_payload_bytes": scope.max_payload_bytes,
-        }
-    else:
-        scope_value = {
-            "workspace_scope": scope.workspace_scope,
-            "artifact_scope": scope.artifact_scope,
-            "network_access": scope.network_access,
-            "max_uses": scope.max_uses,
-            "valid_for_seconds": scope.valid_for_seconds,
-        }
+    scope_value = {
+        "workspace_scope": scope.workspace_scope,
+        "artifact_scope": scope.artifact_scope,
+        "network_access": scope.network_access,
+        "max_uses": scope.max_uses,
+        "valid_for_seconds": scope.valid_for_seconds,
+    }
     return {
         "proposal_ref": value.proposal_ref,
         "atomic_group_ref": value.atomic_group_ref,

@@ -35,43 +35,23 @@ function CapabilityItem({
   const [validForSeconds, setValidForSeconds] = useState(
     item.valid_for_seconds,
   );
-  const [maxUses, setMaxUses] = useState(item.max_uses);
-  const [maxPayloadBytes, setMaxPayloadBytes] = useState(
-    item.max_payload_bytes ?? 1,
-  );
   const [limitError, setLimitError] = useState<string | null>(null);
   const pending = item.status === "pending";
   const active = item.status === "granted" || item.status === "limited";
   const unavailable = item.capability_availability === "unavailable";
-  const isCodex = item.capability_kind === "codex.delegated-work";
-  const canLimit = isCodex
-    ? item.valid_for_seconds > 60
-    : item.valid_for_seconds > 60 ||
-      item.max_uses > 1 ||
-      (item.max_payload_bytes ?? 1) > 1;
+
+  const canLimit = item.valid_for_seconds > 60;
 
   function submitLimit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
-    const payloadLimit = item.max_payload_bytes;
-    const narrows = isCodex
-      ? validForSeconds < item.valid_for_seconds
-      : validForSeconds < item.valid_for_seconds ||
-        maxUses < item.max_uses ||
-        (payloadLimit !== undefined && payloadLimit !== null
-          ? maxPayloadBytes < payloadLimit
-          : false);
-    if (!narrows) {
-      setLimitError("至少缩短有效期、次数或字节上限之一；不能扩大申请范围。");
+    if (validForSeconds >= item.valid_for_seconds) {
+      setLimitError("请缩短有效期；不能扩大申请范围。");
       return;
     }
     setLimitError(null);
     onDecide(
       createDecision(item.request_version, "limit", {
         validForSeconds,
-        ...(isCodex ? {} : { maxUses }),
-        ...(isCodex || payloadLimit === undefined || payloadLimit === null
-          ? {}
-          : { maxPayloadBytes }),
       }),
     );
   }
@@ -99,36 +79,18 @@ function CapabilityItem({
           <dt>场景</dt>
           <dd>{item.scene_id}</dd>
         </div>
-        {isCodex ? null : (
-          <>
-            <div>
-              <dt>受众</dt>
-              <dd>{item.audience_scope}</dd>
-            </div>
-            <div>
-              <dt>数据范围</dt>
-              <dd>{item.data_scope}</dd>
-            </div>
-          </>
-        )}
         <div>
           <dt>申请上限</dt>
           <dd>
             授权后最多 {item.valid_for_seconds}s · {item.max_uses} 次
-            {item.max_payload_bytes === undefined ||
-            item.max_payload_bytes === null
-              ? ""
-              : ` · ${item.max_payload_bytes} bytes`}
           </dd>
         </div>
-        {isCodex ? (
-          <div>
-            <dt>隔离范围</dt>
-            <dd>
-              {item.workspace_scope} · {item.artifact_scope} · 网络关闭
-            </dd>
-          </div>
-        ) : null}
+        <div>
+          <dt>隔离范围</dt>
+          <dd>
+            {item.workspace_scope} · {item.artifact_scope} · 网络关闭
+          </dd>
+        </div>
         <div>
           <dt>可用性</dt>
           <dd>{item.capability_availability}</dd>
@@ -172,14 +134,6 @@ function CapabilityItem({
                 <dd>{item.effective_grant.ended_at}</dd>
               </div>
             )}
-            <div>
-              <dt>最终字节限制</dt>
-              <dd>
-                {item.effective_grant.scope_kind === "creator_scene_reply"
-                  ? item.effective_grant.max_payload_bytes
-                  : "不适用"}
-              </dd>
-            </div>
             {item.effective_grant.scope_kind === "codex_delegated_work" ? (
               <div>
                 <dt>Codex 隔离</dt>
@@ -277,36 +231,6 @@ function CapabilityItem({
               }
             />
           </label>
-          {isCodex ? null : (
-            <label>
-              最大次数
-              <input
-                type="number"
-                min={1}
-                max={item.max_uses}
-                value={maxUses}
-                onChange={(event) =>
-                  setMaxUses(event.currentTarget.valueAsNumber)
-                }
-              />
-            </label>
-          )}
-          {isCodex ||
-          item.max_payload_bytes === undefined ||
-          item.max_payload_bytes === null ? null : (
-            <label>
-              最大字节
-              <input
-                type="number"
-                min={1}
-                max={item.max_payload_bytes}
-                value={maxPayloadBytes}
-                onChange={(event) =>
-                  setMaxPayloadBytes(event.currentTarget.valueAsNumber)
-                }
-              />
-            </label>
-          )}
           <button type="submit" disabled={busy}>
             应用更严格限制
           </button>

@@ -22,12 +22,83 @@ class WebObservationRecoveryParticipant:
         ("web_research_intent", "web.observation.admit"),
     )
 
+    async def _end_conversations(
+        self,
+        transaction: PostgreSQLTransaction,
+        scope: RecoveryScope,
+        work: tuple[RecoveryWorkSnapshot, ...],
+    ) -> set[UUID]:
+        # Research intents are derived from Creator dialogue. Standalone Web
+        # observations retain their own lifecycle.
+        intents = await (
+            await transaction.execute(
+                """SELECT web_research_intent_id,admission_work_id
+                   FROM armi.web_research_intents WHERE subject_id=%s
+                     AND status IN ('pending','admitted')""",
+                (scope.subject_id,),
+            )
+        ).fetchall()
+        intent_ids = [row[0] for row in intents]
+        requests = await (
+            await transaction.execute(
+                """SELECT web_observation_request_id,work_id
+                   FROM armi.web_observation_requests
+                   WHERE web_research_intent_id=ANY(%s::uuid[])
+                     AND status IN ('pending','running')""",
+                (intent_ids,),
+            )
+        ).fetchall()
+        request_ids = [row[0] for row in requests]
+        await transaction.execute(
+            """UPDATE armi.observation_attempts
+               SET dispatch_state='settled',result_status=CASE dispatch_state
+                     WHEN 'prepared' THEN 'cancelled' ELSE 'outcome_unknown' END,
+                   error_code='WEB-RUNTIME-INTERRUPTED',settled_at=statement_timestamp()
+               WHERE web_observation_request_id=ANY(%s::uuid[])
+                 AND dispatch_state IN ('prepared','dispatched')""",
+            (request_ids,),
+        )
+        await transaction.execute(
+            """UPDATE armi.web_observation_requests
+               SET status='cancelled',last_error_code='WEB-RUNTIME-INTERRUPTED',
+                   completed_at=statement_timestamp()
+               WHERE web_observation_request_id=ANY(%s::uuid[])""",
+            (request_ids,),
+        )
+        await transaction.execute(
+            """UPDATE armi.web_research_intents
+               SET status='cancelled',completed_at=statement_timestamp()
+               WHERE web_research_intent_id=ANY(%s::uuid[])""",
+            (intent_ids,),
+        )
+        work_ids: set[UUID] = {row[1] for row in (*intents, *requests)}
+        reconciliation = OwnerReconciliationContext(
+            transaction, self.owner_identity, work
+        )
+        for item in work:
+            if item.work_id in work_ids and item.status in {"ready", "leased"}:
+                await reconciliation.cancel(
+                    item.work_id, reason_code="REC-CONVERSATION-INTERRUPTED"
+                )
+
+        return work_ids
+
+    async def end_conversations(
+        self,
+        transaction: PostgreSQLTransaction,
+        scope: RecoveryScope,
+        work: tuple[RecoveryWorkSnapshot, ...],
+    ) -> None:
+        await self._end_conversations(transaction, scope, work)
+
     async def recover(
         self,
         transaction: PostgreSQLTransaction,
         scope: RecoveryScope,
         work: tuple[RecoveryWorkSnapshot, ...],
     ) -> RecoveryContribution:
+        cancelled = await self._end_conversations(transaction, scope, work)
+        work = tuple(item for item in work if item.work_id not in cancelled)
         ready_ids = [item.work_id for item in work if item.status == "ready"]
         await transaction.execute(
             """

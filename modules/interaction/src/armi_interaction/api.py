@@ -605,6 +605,10 @@ class ExternalRecognitionRecovery:
 
 @runtime_checkable
 class InteractionPerceptionPort(Protocol):
+    async def creator_input_ids(
+        self, transaction: PostgreSQLTransaction, interaction_ids: tuple[UUID, ...]
+    ) -> tuple[UUID, ...]: ...
+
     async def recover_terminal(
         self,
         transaction: PostgreSQLTransaction,

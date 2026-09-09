@@ -34,8 +34,68 @@ class CognitionRecoveryParticipant:
         transaction: PostgreSQLTransaction,
         scope: RecoveryScope,
         work: tuple[RecoveryWorkSnapshot, ...],
+        *,
+        conversation_only: bool = False,
     ) -> RecoveryContribution:
-        del scope
+        interrupted_opportunities = await self._opportunity.interrupt_conversations(
+            transaction, subject_id=scope.subject_id
+        )
+        episode_rows = await (
+            await transaction.execute(
+                """SELECT cognitive_episode_id FROM armi.cognitive_episodes
+                   WHERE opportunity_id=ANY(%s::uuid[])""",
+                (list(interrupted_opportunities),),
+            )
+        ).fetchall()
+        interrupted_episodes: set[UUID] = {row[0] for row in episode_rows}
+        await transaction.execute(
+            """UPDATE armi.cognitive_attempts
+               SET dispatch_status='settled',
+                   result_status=CASE dispatch_status WHEN 'prepared' THEN 'cancelled'
+                     ELSE 'outcome_unknown' END,
+                   error_code='MODEL-RUNTIME-INTERRUPTED',settled_at=statement_timestamp()
+               WHERE cognitive_episode_id=ANY(%s::uuid[])
+                 AND dispatch_status IN ('prepared','dispatched')""",
+            (list(interrupted_episodes),),
+        )
+        await transaction.execute(
+            """UPDATE armi.cognitive_episodes
+               SET status='cancelled',failure_code='COGNITION-RUNTIME-INTERRUPTED'
+               WHERE cognitive_episode_id=ANY(%s::uuid[])
+                 AND status NOT IN ('completed','failed','stale','candidate_rejected','cancelled')""",
+            (list(interrupted_episodes),),
+        )
+        query_rows = await (
+            await transaction.execute(
+                """UPDATE armi.exact_life_query_intents
+                   SET status='failed',result_count=0,
+                       failure_code='LIFE-QUERY-RUNTIME-INTERRUPTED',
+                       completed_at=statement_timestamp()
+                   WHERE source_opportunity_id=ANY(%s::uuid[]) AND status='pending'
+                   RETURNING execution_work_id""",
+                (list(interrupted_opportunities),),
+            )
+        ).fetchall()
+        interrupted_query_work: set[UUID] = {row[0] for row in query_rows}
+        reconciliation = OwnerReconciliationContext(
+            transaction, self.owner_identity, work
+        )
+        interrupted_work = {
+            item.work_id
+            for item in work
+            if item.status in {"ready", "leased"}
+            and (
+                item.owner_ref in interrupted_episodes
+                or item.work_id in interrupted_query_work
+            )
+        }
+        for work_id in interrupted_work:
+            await reconciliation.cancel(
+                work_id, reason_code="REC-CONVERSATION-INTERRUPTED"
+            )
+        work = tuple(item for item in work if item.work_id not in interrupted_work)
+        if conversation_only:
+            return RecoveryContribution(self.owner_identity)
         by_scope: dict[tuple[object, str], list[RecoveryWorkSnapshot]] = {}
         for item in work:
             by_scope.setdefault((item.owner_ref, item.work_kind), []).append(item)
@@ -230,3 +290,11 @@ class CognitionRecoveryParticipant:
                 ),
             ),
         )
+
+    async def end_conversations(
+        self,
+        transaction: PostgreSQLTransaction,
+        scope: RecoveryScope,
+        work: tuple[RecoveryWorkSnapshot, ...],
+    ) -> None:
+        await self.recover(transaction, scope, work, conversation_only=True)

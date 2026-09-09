@@ -2596,8 +2596,8 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         "armi_interaction",
         "armi_attention",
         "creator-activity.v2",
-        "creator-effect.v4",
-        "creator-operation.v4",
+        "creator-effect.v5",
+        "creator-operation.v5",
     )
     for paths in kernel_foundation_paths:
         for path in paths:
@@ -2696,7 +2696,6 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         ),
         "effect": (
             "effect_pipeline = compose_effect_registration_pipeline(",
-            "response_pipeline = compose_response_admission_pipeline(",
             "effect_ledger=effect_pipeline",
         ),
         "web observation": (

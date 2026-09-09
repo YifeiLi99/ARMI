@@ -154,7 +154,7 @@ class DurableVisualObservationCoordinator:
             ).fetchall()
             if observation_rows:
                 await self._attempts.settle_interrupted(
-                    unit,
+                    unit.transaction,
                     observation_ids=tuple(row[0] for row in observation_rows),
                     error_code=error_code,
                 )

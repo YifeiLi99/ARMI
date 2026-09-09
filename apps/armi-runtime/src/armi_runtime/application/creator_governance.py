@@ -267,7 +267,7 @@ def create_governance_use_cases(
             )
         response = CapabilityRequestPageResponse(
             contract_version="1.0",
-            projection_version="capability-request.v5",
+            projection_version="capability-request.v6",
             items=[
                 CapabilityRequestItemResponse.model_validate(
                     {
@@ -393,7 +393,7 @@ def create_governance_use_cases(
                         CreatorResourceKind("capability_request"),
                         str(result.request_id.value),
                         Instant(datetime.now(UTC)),
-                        "capability-request.v5",
+                        "capability-request.v6",
                     )
                 )
             except Exception:

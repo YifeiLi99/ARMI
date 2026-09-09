@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
+from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
 
 
 class PostgreSQLVisualRecognitionAttempts:
@@ -23,14 +23,14 @@ class PostgreSQLVisualRecognitionAttempts:
 
     async def settle_interrupted(
         self,
-        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        transaction: PostgreSQLTransaction,
         *,
         observation_ids: tuple[UUID, ...],
         error_code: str,
     ) -> None:
         if not observation_ids:
             return
-        await unit_of_work.transaction.execute(
+        await transaction.execute(
             """UPDATE armi.visual_recognition_attempts
                SET status=CASE status WHEN 'prepared' THEN 'failed'
                                       ELSE 'unknown' END,

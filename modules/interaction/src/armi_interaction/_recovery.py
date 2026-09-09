@@ -1,6 +1,9 @@
 """Interaction-owned startup recovery contribution."""
 
+from uuid import UUID
+
 from armi_runtime_foundation import (
+    OwnerReconciliationContext,
     PostgreSQLTransaction,
     RecoveryContribution,
     RecoveryFindingContribution,
@@ -16,13 +19,43 @@ class InteractionRecoveryParticipant:
     owner_identity = RecoveryOwnerIdentity("interaction")
     work_scopes = (("external_message", "external.content.finalize"),)
 
+    async def end_conversations(
+        self,
+        transaction: PostgreSQLTransaction,
+        scope: RecoveryScope,
+        work: tuple[RecoveryWorkSnapshot, ...],
+    ) -> None:
+        rows = await (
+            await transaction.execute(
+                """UPDATE armi.party_input_interactions SET recognition_status='failed'
+                   WHERE subject_id=%s AND purpose='creator_message'
+                     AND recognition_status='pending' RETURNING interaction_id""",
+                (scope.subject_id,),
+            )
+        ).fetchall()
+        input_ids: list[UUID] = [row[0] for row in rows]
+        await transaction.execute(
+            """UPDATE armi.external_message_parts SET processing_status='failed',
+                   failure_code='RECOGNITION-RUNTIME-INTERRUPTED',settled_at=statement_timestamp()
+               WHERE interaction_id=ANY(%s::uuid[]) AND processing_status='pending'""",
+            (input_ids,),
+        )
+        reconciliation = OwnerReconciliationContext(
+            transaction, self.owner_identity, work
+        )
+        for item in work:
+            if item.owner_ref in input_ids and item.status in {"ready", "leased"}:
+                await reconciliation.cancel(
+                    item.work_id, reason_code="REC-CONVERSATION-INTERRUPTED"
+                )
+
     async def recover(
         self,
         transaction: PostgreSQLTransaction,
         scope: RecoveryScope,
         work: tuple[RecoveryWorkSnapshot, ...],
     ) -> RecoveryContribution:
-        del work
+        await self.end_conversations(transaction, scope, work)
         row = await (
             await transaction.execute(
                 """

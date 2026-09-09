@@ -220,7 +220,7 @@ GRANT UPDATE ON TABLE armi.accepted_experiences, armi.activity_revisions, armi.l
 GRANT INSERT ON TABLE armi.managed_data_snapshot_parties, armi.managed_data_snapshots TO armi_runtime;
 GRANT UPDATE ON TABLE armi.managed_data_snapshots TO armi_runtime;
 GRANT USAGE, SELECT ON SEQUENCE armi.accepted_experiences_acceptance_ordinal_seq TO armi_runtime;
-GRANT SELECT ON TABLE armi.response_admissions, armi.effect_registrations TO armi_admin;
-GRANT SELECT, INSERT, UPDATE ON TABLE armi.response_admissions, armi.effect_registrations TO armi_runtime;
+GRANT SELECT ON TABLE armi.effect_registrations TO armi_admin;
+GRANT SELECT, INSERT, UPDATE ON TABLE armi.effect_registrations TO armi_runtime;
 GRANT SELECT ON TABLE armi.context_embedding_failures TO armi_admin;
 GRANT SELECT, INSERT ON TABLE armi.context_embedding_failures TO armi_runtime;

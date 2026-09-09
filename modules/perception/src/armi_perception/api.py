@@ -28,6 +28,7 @@ from armi_kernel.contracts import Instant, TraceId
 from armi_runtime_foundation import (
     PostgreSQLAdminTransaction,
     PostgreSQLRuntimeUnitOfWork,
+    PostgreSQLTransaction,
     StopSignal,
 )
 
@@ -285,7 +286,7 @@ class VisualRecognitionAttemptPort(Protocol):
 
     async def settle_interrupted(
         self,
-        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        transaction: PostgreSQLTransaction,
         *,
         observation_ids: tuple[UUID, ...],
         error_code: str,

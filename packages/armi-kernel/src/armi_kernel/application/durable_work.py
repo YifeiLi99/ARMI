@@ -39,7 +39,6 @@ class WorkType(StrEnum):
     COGNITION_MODEL_INVOKE = "cognition.model.invoke"
     COGNITION_CANDIDATE_VALIDATE = "cognition.candidate.validate"
     COGNITION_SUBJECT_COMMIT = "cognition.subject.commit"
-    COGNITION_RESPONSE_ADMIT = "cognition.response.admit"
     EFFECT_REGISTER = "effect.register"
     WEB_OBSERVATION_ADMIT = "web.observation.admit"
     WEB_SEARCH_INVOKE = "web.search.invoke"
@@ -77,9 +76,6 @@ RESPONSIBILITY_BINDINGS: tuple[ResponsibilityBinding, ...] = (
     ),
     ResponsibilityBinding(
         "cognitive_episode", WorkType.COGNITION_SUBJECT_COMMIT, "cognition"
-    ),
-    ResponsibilityBinding(
-        "action_intent", WorkType.COGNITION_RESPONSE_ADMIT, "expression"
     ),
     ResponsibilityBinding("action_intent", WorkType.EFFECT_REGISTER, "effect"),
     ResponsibilityBinding(

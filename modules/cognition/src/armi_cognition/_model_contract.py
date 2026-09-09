@@ -112,7 +112,7 @@ MODEL_REQUEST_VERSION = "armi.model-request.v1"
 DIALOGUE_MODEL_INPUT_VERSION = "armi.creator-dialogue-input.v6"
 CREATOR_BRANCH_MODEL_INPUT_VERSION = DIALOGUE_MODEL_INPUT_VERSION
 DialoguePromptVersion = Literal["armi.dialogue-prompt.v4"]
-CANDIDATE_VERSION = "armi.cognition-candidate.v10"
+CANDIDATE_VERSION = "armi.cognition-candidate.v11"
 ACTIVE_MODEL_ID = "doubao-seed-evolving"
 ACTIVE_MODEL_ADAPTER = "armi.model-adapter.volcengine-ark-responses-v1"
 ACTIVE_VERSION_POLICY = "provider_evolving_alias"
@@ -377,21 +377,6 @@ class ActivityChangePayload(_StrictModel):
     summary: Summary
 
 
-class RuntimeBoundCreatorSceneReplyRequestPayload(_StrictModel):
-    """Reply capability request whose authority scope is Runtime-bound."""
-
-    proposal_kind: Literal["capability_requests"]
-    fact_class: FactClass
-    capability_kind: Literal["creator.scene.reply"]
-    operation: Literal["send"]
-    audience_scope: Literal["creator"]
-    data_scope: Literal["creator_visible_response"]
-    purpose: Literal["respond_to_creator"]
-    valid_for_seconds: Annotated[int, Field(ge=60, le=604800)]
-    max_uses: Annotated[int, Field(ge=1, le=16)]
-    max_payload_bytes: Annotated[int, Field(ge=1, le=65536)]
-
-
 class RuntimeBoundCodexDelegatedWorkRequestPayload(_StrictModel):
     """Codex request whose fact class matches domain validation."""
 
@@ -406,11 +391,7 @@ class RuntimeBoundCodexDelegatedWorkRequestPayload(_StrictModel):
     valid_for_seconds: Annotated[int, Field(ge=60, le=3600)]
 
 
-type CapabilityRequestPayload = Annotated[
-    RuntimeBoundCreatorSceneReplyRequestPayload
-    | RuntimeBoundCodexDelegatedWorkRequestPayload,
-    Field(discriminator="capability_kind"),
-]
+type CapabilityRequestPayload = RuntimeBoundCodexDelegatedWorkRequestPayload
 
 
 class RuntimeBoundCreatorReplyPayload(_StrictModel):
@@ -542,7 +523,7 @@ class CandidateUncertainty(_StrictModel):
 
 
 class CognitionCandidate(_StrictModel):
-    schema_version: Literal["armi.cognition-candidate.v10"]
+    schema_version: Literal["armi.cognition-candidate.v11"]
     base: CandidateBase
     disposition: Literal[
         "change",
@@ -1871,7 +1852,6 @@ __all__ = (
     "CognitionCandidate",
     "CreatorDialogueCandidate",
     "RuntimeBoundCreatorReplyPayload",
-    "RuntimeBoundCreatorSceneReplyRequestPayload",
     "WebResearchRequestPayload",
     "WebResearchRequestProposal",
     "build_request_bytes",
