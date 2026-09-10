@@ -22,6 +22,8 @@ def seal(root: Path) -> None:
     site = root / "runtime/python/Lib/site-packages"
     if not (site / "armi_admin").is_dir():
         raise ValueError("INSTALLER-NOT-A-PAYLOAD")
+    if {path.name for path in root.glob("*.exe")} != {"ARMI.exe"}:
+        raise ValueError("INSTALLER-ENTRYPOINT-INVENTORY")
     # Wheel console launchers contain absolute shebangs. Public native launchers
     # live at the program root; Runtime workers use the private sys.executable.
     scripts = (root / "runtime/python/Scripts").resolve()

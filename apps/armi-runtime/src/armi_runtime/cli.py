@@ -1,4 +1,4 @@
-"""Agent-first interaction CLI; administrative commands live in armi-admin."""
+"""Agent-first interaction CLI selected by the product entry point."""
 
 from __future__ import annotations
 
@@ -21,8 +21,8 @@ from .interaction_client import InteractionClient, interaction_failure
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
-        prog="armi",
-        description="Creator-delegated interaction. Administrative operations: armi-admin.",
+        prog="ARMI cli interaction",
+        description="Creator-delegated interaction. Administrative operations: ARMI cli admin.",
     )
     result.add_argument(
         "--config",

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from armi_kernel.application import PersonalityAnchor
+from armi_local_control import program_installation_root
 from mcp.server import MCPServer
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -80,8 +81,8 @@ def dispatch(application: SetupApplication, request: SetupRequest) -> dict[str, 
 
 
 def application_from_arguments(argv: list[str] | None = None) -> SetupApplication:
-    parser = argparse.ArgumentParser(prog="armi-setup")
-    parser.add_argument("--environment-root", type=Path, required=True)
+    parser = argparse.ArgumentParser(prog="ARMI cli setup")
+    parser.add_argument("--environment-root", type=Path)
     parser.add_argument("--installation-root", type=Path)
     args = parser.parse_args(argv)
     installation = args.installation_root
@@ -92,7 +93,8 @@ def application_from_arguments(argv: list[str] | None = None) -> SetupApplicatio
         installation = Path(value)
     return bootstrap_setup(
         SetupPaths(
-            environment_root=args.environment_root,
+            environment_root=args.environment_root
+            or program_installation_root(installation) / "environments/active",
             installation_root=installation,
         )
     )

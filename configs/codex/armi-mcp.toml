@@ -1,6 +1,7 @@
 # Local Creator-delegate interaction. Keep this separate from ARMI's Codex runner.
 [mcp_servers.armi]
-command = "armi-mcp"
+command = "C:/ARMI/ARMI.exe"
+args = ["mcp", "interaction"]
 env_vars = ["ARMI_CLIENT_CONFIG"]
 required = true
 default_tools_approval_mode = "auto"

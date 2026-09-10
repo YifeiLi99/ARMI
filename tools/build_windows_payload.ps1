@@ -55,12 +55,7 @@ if (-not (Test-Path -LiteralPath $vcvars)) { throw 'INSTALLER-COMPILER: locked M
 $launcherSource = Join-Path $workspace 'tools/windows/launcher.c'
 $objects = Join-Path $workspace ('.tmp/quality/windows-launcher-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $objects | Out-Null
-& $env:ComSpec /d /s /c "`"call `"$vcvars`" && cl /nologo /W4 /WX /O2 /MT /Brepro `"$launcherSource`" /Fo`"$objects\console.obj`" /Fe`"$output\armi-admin.exe`" /link /Brepro shell32.lib`""
-if ($LASTEXITCODE -ne 0) { throw 'INSTALLER-CONSOLE-LAUNCHER' }
-foreach ($name in @('armi', 'armi-mcp', 'armi-admin-mcp', 'armi-setup', 'armi-setup-mcp', 'armi-codex-runner', 'armi-install-control')) {
-    Copy-Item -LiteralPath (Join-Path $output 'armi-admin.exe') -Destination (Join-Path $output ($name + '.exe'))
-}
-& $env:ComSpec /d /s /c "`"call `"$vcvars`" && cl /nologo /W4 /WX /O2 /MT /Brepro /DARMI_GUI `"$launcherSource`" /Fo`"$objects\desktop.obj`" /Fe`"$output\armi-desktop.exe`" /link /Brepro /SUBSYSTEM:WINDOWS shell32.lib`""
+& $env:ComSpec /d /s /c "`"call `"$vcvars`" && cl /nologo /W4 /WX /O2 /MT /Brepro /DARMI_GUI `"$launcherSource`" /Fo`"$objects\desktop.obj`" /Fe`"$output\ARMI.exe`" /link /Brepro /SUBSYSTEM:WINDOWS shell32.lib user32.lib`""
 if ($LASTEXITCODE -ne 0) { throw 'INSTALLER-DESKTOP-LAUNCHER' }
 & $python -I -B (Join-Path $workspace 'tools/seal_windows_payload.py') $output
 if ($LASTEXITCODE -ne 0) { throw 'INSTALLER-SEAL' }
@@ -69,4 +64,6 @@ if ($LASTEXITCODE -ne 0) { throw 'INSTALLER-SEAL' }
 if ($LASTEXITCODE -ne 0) { throw 'INSTALLER-PACKAGE-IDENTITY' }
 & $python -I -B -c 'import tkinter; assert tkinter.Tcl().eval("info patchlevel").startswith("8.6.")'
 if ($LASTEXITCODE -ne 0) { throw 'INSTALLER-TK-RUNTIME' }
+& $python -B (Join-Path $workspace 'tools/verify_windows_entrypoint.py') $output
+if ($LASTEXITCODE -ne 0) { throw 'INSTALLER-ENTRYPOINT-VERIFICATION' }
 Write-Output "Windows payload prepared: $output"

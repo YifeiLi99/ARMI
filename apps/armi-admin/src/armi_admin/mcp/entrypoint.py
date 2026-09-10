@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from collections.abc import Sequence
 
@@ -20,15 +21,19 @@ from .server import create_admin_server
 
 
 def _parser() -> argparse.ArgumentParser:
-    return argparse.ArgumentParser(prog="armi-admin-mcp")
+    parser = argparse.ArgumentParser(prog="ARMI mcp admin")
+    parser.add_argument("--config", type=str)
+    return parser
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     """Load one private binding and hand stdout exclusively to MCPServer."""
 
-    _parser().parse_args(argv)
+    args = _parser().parse_args(argv)
     try:
-        config, config_path = load_admin_config()
+        config, config_path = load_admin_config(
+            {**os.environ, "ARMI_ADMIN_CONFIG": args.config} if args.config else None
+        )
         verify_admin_package_set(config.expected.package_set_digest)
         credentials = AdminCredentialPort(
             locator=config.locator,

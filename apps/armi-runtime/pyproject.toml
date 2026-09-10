@@ -53,11 +53,6 @@ dependencies = [
     "uvicorn==0.51.0",
 ]
 
-[project.scripts]
-armi = "armi_runtime.cli:main"
-armi-mcp = "armi_runtime.mcp:main"
-armi-codex-runner = "armi_runtime.codex_runner_cli:main"
-
 [tool.uv.sources]
 armi-local-control = { workspace = true }
 armi-adapter-qq = { workspace = true }

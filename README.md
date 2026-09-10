@@ -6,7 +6,7 @@
 
 ARMI 不把人格提示词、模型会话或任务 Agent 当成“她”。当前系统只承载一个持续存在的电子人：同一主体跨越对话、活动、渠道、模型、进程与重启继续生活，并在被正式接纳的经历中形成自己的 Self、Mind、记忆、关系、心情和选择。
 
-对外交互优先服务获得 Creator 委托的 Agent，再服务人类直接操作。`armi` / `armi-mcp` 提供交互使用，`armi-admin` / `armi-admin-mcp` 提供管理、检查与调试；Creator Web 保留。代理不是新的社交主体，代理输入沿正式 intake 记录来源，Creator 管理授权不替代 ARMI 的主体意愿。
+对外交互优先服务获得 Creator 委托的 Agent，再服务人类直接操作。`ARMI cli interaction` / `ARMI mcp interaction` 提供交互使用，`ARMI cli admin` / `ARMI mcp admin` 提供管理、检查与调试；Creator Web 保留。代理不是新的社交主体，代理输入沿正式 intake 记录来源，Creator 管理授权不替代 ARMI 的主体意愿。
 
 产品以完整、直接、高效的 Agent/LLM 自动化链路为第一优先级，人类界面为第二优先级。已开启的能力在配置范围内持续可用，不额外设置申请、审核、批准流程；普通回复是基础能力。简化应减少无独立职责的步骤、状态和重复记录，同时保留隐私、数据保护与执行正确性。普通 Creator 文本、语音、QQ 私聊及共用回复链的主动表达已采用直接执行、中断即结束；Codex 委托同样直接执行、中断即结束：通过 `codex.enabled` 开启后重启生效，默认关闭；执行器或凭据不可用会明确失败。保留 Creator／代理提交任务入口，由 ARMI 决定委托并自行理解结果，无逐次审批。管理端授权保持独立合同。
 
@@ -28,7 +28,7 @@ ARMI 不把人格提示词、模型会话或任务 Agent 当成“她”。当�
 
 | 层 | 当前实现 |
 |---|---|
-| 应用 | 权威 `armi-runtime`、隔离 `armi-admin`、React Creator Web |
+| 应用 | 统一入口 `armi-app`、权威 `armi-runtime`、隔离 `armi-admin`、React Creator Web |
 | 业务 | 23 个独立 Python distribution；Capability 仅保留静态目录，其余按 owner 承担事实、恢复和数据权利责任 |
 | 底座/适配器 | Kernel、Runtime Foundation、Local Control、Artifact Store、PostgreSQL contract、NapCat、QQ、ESP32 display 共 8 个包 |
 | 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；baseline `armi.schema-baseline.v16` |
@@ -41,7 +41,7 @@ ARMI 不把人格提示词、模型会话或任务 Agent 当成“她”。当�
 
 “仓库存在实现”不等于目标环境已经启用、供应商可用、账号已登录、设备已连接或 live 已验收。
 
-本机文件可以先用 `armi upload import --file <路径> --idempotency-key <稳定键>` 导入，再用 `armi message send --scene-key default --attachments '["<upload_id>"]' --idempotency-key <输入键> --wait` 发送，正文可通过 `--message` 同时提供。MCP 对应 `upload_import`、`message_send`、`operation_get/wait`。上传支持分块续传和重复校验，完成上传不会自动触发认知；发送后沿用同一操作引用查询逐附件识别、交流和效果结果。图片、MP3、MP4、PDF、Office 和文本沿用现有 Perception 格式与体积限制，缺少模型凭据时明确返回不可用原因。
+本机文件可以先用 `ARMI cli interaction upload import --file <路径> --idempotency-key <稳定键>` 导入，再用 `ARMI cli interaction message send --scene-key default --attachments '["<upload_id>"]' --idempotency-key <输入键> --wait` 发送，正文可通过 `--message` 同时提供。MCP 对应 `upload_import`、`message_send`、`operation_get/wait`。上传支持分块续传和重复校验，完成上传不会自动触发认知；发送后沿用同一操作引用查询逐附件识别、交流和效果结果。图片、MP3、MP4、PDF、Office 和文本沿用现有 Perception 格式与体积限制，缺少模型凭据时明确返回不可用原因。
 
 ## 认知与现实闭环
 
@@ -64,6 +64,7 @@ ARMI 不把人格提示词、模型会话或任务 Agent 当成“她”。当�
 
 ```text
 apps/
+  armi-app/                     统一桌面、CLI 与 MCP 模式入口
   armi-runtime/                 Runtime、交互 CLI/MCP、Creator HTTP、适配器与组合根
   armi-admin/                   独立 Admin CLI/MCP
   armi-creator-web/             React Creator 工作台
@@ -83,9 +84,15 @@ Schema 实际打包在 `packages/armi-postgresql-contract/src/armi_postgresql_co
 
 **安装目录约定：ARMI 自身管理的程序、数据库、凭据、模型、工具、日志、缓存、临时工作区和管理记录，全部保存在用户选择的安装根目录内。** 例如安装到 `C:\ARMI` 后，程序位于 `versions/`，环境位于 `environments/active/`，安装设置与独立管理记录位于 `control/`，缓存与临时文件位于 `cache/`、`tmp/`。首次使用直接采用安装目录内的环境位置，不再另选外部数据目录；目录不可写时明确报错，不回退到其他位置。程序与数据仅在安装根目录内部划分子目录。更新与卸载只处理受管程序文件，保留环境、凭据及必要管理记录，不递归删除整个安装根目录。Windows 快捷方式和卸载、自启登记仍使用系统机制，但不承载 ARMI 私有数据。
 
-桌面入口直接打开根内默认环境的设置页；CLI/MCP 的显式环境路径也必须位于安装根的 `environments/` 下。安装进程的子进程缓存和临时目录使用根内位置，不读取旧 AppData 环境偏好。源码构建目录和 `.armi/reusable/` 是开发与保留资源区域，不是已安装实例的数据目录，资源投入正式使用时须显式放入安装根目录内。
+桌面入口使用根内默认环境；CLI/MCP 的显式环境路径也必须位于安装根的 `environments/` 下。安装进程的子进程缓存和临时目录使用根内位置，不读取旧 AppData 环境偏好。源码构建目录和 `.armi/reusable/` 是开发与保留资源区域，不是已安装实例的数据目录，资源投入正式使用时须显式放入安装根目录内。
 
 Windows 11 x64 安装版包含原生 PostgreSQL、扩展、私有 Python 和已构建网页；用户不需要 Docker、全局 Python/Node、PowerShell 7 或编译器。安装位置由用户选择，通过 ARMI 入口打开首次配置和托盘。环境准备与出生分开；未显式出生不会进入正常生活。可选能力默认关闭，登录自启需在设置中开启。
+
+根目录只保留 `ARMI.exe` 与 `unins000.exe` 两个 EXE。双击主程序，未配置时进入设置；正常启动成功后打开 Creator Web，托盘提供设置与退出。重复启动复用同环境实例。AI 使用同一个程序的 `cli interaction/admin/setup` 或 `mcp interaction/admin/setup` 模式，不需要操作窗口；MCP 每次只加载一种独立权限的服务。`ARMI.exe settings` 直接打开设置。内部 worker、Codex runner 与安装控制为 Python 模块，不交付独立 ARMI 辅助启动器。
+
+下文 `ARMI` 代表安装路径下的 `ARMI.exe`，机器接入使用绝对路径和参数数组，不依赖全局 PATH；源码开发使用受管 Python 的 `python -m armi_app …`。PowerShell 可用 `& 'C:\ARMI\ARMI.exe' cli admin identity | Out-String` 等管道命令等待结果。MCP 接入模板中的路径应改成实际安装位置。
+
+更新先验证并切换主入口和版本，再发布快捷方式；中断时保留数据，重新运行安装包核验恢复。激活失败时安装器返回非零退出码，保留旧快捷方式并显示失败结果，不自动打开程序。旧包清单可确认的根目录辅助 EXE 在成功后清理，修改过的同名文件不会被强行覆盖。安装包拒绝数据库合同不兼容的更新。
 
 安装包目前是未签名本地构建，不执行在线更新。兼容更新只替换程序；数据库合同不兼容时拒绝切换。卸载保留环境数据与凭据，重新安装兼容程序可继续绑定已登记环境。既有 Docker 环境不导入、不修改。
 
@@ -98,7 +105,7 @@ Windows 11 x64 安装版包含原生 PostgreSQL、扩展、私有 Python 和已�
 .\tools\build_windows_installer.ps1 -PayloadDirectory .tmp\windows-payload -OutputDirectory .tmp\installers
 ```
 
-上述构建默认使用已经准备好的精确 wheel 缓存；缺失时显式失败。原生 PG 制品由 `tools/build_native_postgresql.ps1` 构建，开发与系统测试共用它。正式管理入口核对 wheel package set；可用 `armi-admin.exe identity` 离线取得当前安装摘要。已经完成环境配置和出生后，托盘或显式 Admin 绑定按依赖顺序启动 PostgreSQL、语义召回与 Runtime，并等待核心 readiness：
+上述构建默认使用已经准备好的精确 wheel 缓存；缺失时显式失败。原生 PG 制品由 `tools/build_native_postgresql.ps1` 构建，开发与系统测试共用它。正式管理入口核对 wheel package set；可用 `ARMI cli admin identity` 离线取得当前安装摘要。已经完成环境配置和出生后，托盘或显式 Admin 绑定按依赖顺序启动 PostgreSQL、语义召回与 Runtime，并等待核心 readiness：
 
 ```powershell
 .\start_armi.ps1 -AdminConfig C:\path\to\admin.yaml -OpenBrowser
@@ -109,19 +116,19 @@ Windows 11 x64 安装版包含原生 PostgreSQL、扩展、私有 Python 和已�
 机器可以通过安装应用服务准备新环境。以下 JSON 的 `operation_id` 必须是调用者保存并在重试中复用的 UUIDv7；安装入口从自身位置寻找全部运行依赖：
 
 ```powershell
-'{"action":"prepare","operation_id":"<UUIDv7>"}' | & 'C:\ARMI\armi-setup.exe' --environment-root 'C:\ARMI\environments\active'
+'{"action":"prepare","operation_id":"<UUIDv7>"}' | & 'C:\ARMI\ARMI.exe' cli setup
 ```
 
-`armi-setup-mcp.exe` 使用相同请求合同；`status`、`check`、`credential`、`birth`、`login_startup` 和 `admin` 与窗口共用用例。配置不返回秘密正文；日常 Admin、Creator 签发和交互绑定相互独立。已有环境的正式维护入口：
+`ARMI mcp setup` 使用相同请求合同；`status`、`check`、`credential`、`birth`、`login_startup` 和 `admin` 与窗口共用用例。配置不返回秘密正文；日常 Admin、Creator 签发和交互绑定相互独立。已有环境的正式维护入口：
 
 ```powershell
 $env:ARMI_ADMIN_CONFIG = 'C:\path\to\admin.yaml'
-armi-admin capabilities
-armi-admin maintenance --idempotency-key install-001 --json '{"action":"database_install"}'
-armi-admin maintenance --idempotency-key birth-001 --json '{"action":"birth"}'
-armi-admin start
-armi-admin status
-armi-admin stop
+ARMI cli admin capabilities
+ARMI cli admin maintenance --idempotency-key install-001 --json '{"action":"database_install"}'
+ARMI cli admin maintenance --idempotency-key birth-001 --json '{"action":"birth"}'
+ARMI cli admin start
+ARMI cli admin status
+ARMI cli admin stop
 ```
 
 这些命令会连接或修改目标本地环境，执行前应核对绝对路径和 credential locator。完整环境、QQ、音视频、恢复、维护与重置手册见 [安装、启动与维护](docs/05-运行与验证/01-安装、启动与维护.md)。
@@ -130,24 +137,24 @@ armi-admin stop
 
 ```powershell
 $env:ARMI_CLIENT_CONFIG = 'C:\path\to\interaction-client.yaml'
-armi capabilities
-armi message send --scene-key default --message '你好' --idempotency-key message-001 --wait
-armi operation wait --result-ref <返回的引用> --timeout-seconds 20
+ARMI cli interaction capabilities
+ARMI cli interaction message send --scene-key default --message '你好' --idempotency-key message-001 --wait
+ARMI cli interaction operation wait --result-ref <返回的引用> --timeout-seconds 20
 ```
 
-CLI 默认输出 JSON，MCP 使用相同请求合同与应用逻辑。接纳不是完成；等待超时或断线返回继续查询的引用，不重新发送输入。用 `armi schema` 和 `armi-admin schema` 离线读取当前操作参数。
+CLI 默认输出 JSON，MCP 使用相同请求合同与应用逻辑。接纳不是完成；等待超时或断线返回继续查询的引用，不重新发送输入。用 `ARMI cli interaction schema` 和 `ARMI cli admin schema` 离线读取当前操作参数。
 
-`armi artifact read --effect-id <effect-id> --artifact-kind patch --output <文件路径>` 会逐块读取并核验完整摘要，默认不覆盖文件。MCP 的 `artifact_read` 使用 `offset` / `length`，返回下一块位置和同一制品的摘要。
+`ARMI cli interaction artifact read --effect-id <effect-id> --artifact-kind patch --output <文件路径>` 会逐块读取并核验完整摘要，默认不覆盖文件。MCP 的 `artifact_read` 使用 `offset` / `length`，返回下一块位置和同一制品的摘要。
 
-重置、主体内容校正和相关数据删除先取得具体预览及 `authorization_request`，再由独立 Creator 授权绑定签发。相关数据删除使用 `armi-admin data-deletion-preview` 和 `data-deletion-apply`，普通交互请求不能绕过批准：
+重置、主体内容校正和相关数据删除先取得具体预览及 `authorization_request`，再由独立 Creator 授权绑定签发。相关数据删除使用 `ARMI cli admin data-deletion-preview` 和 `data-deletion-apply`，普通交互请求不能绕过批准：
 
 ```powershell
-armi-admin --config <Creator授权绑定> authorization approve --request-id <request-id> --expected-request-digest <request-digest> --idempotency-key approval-001
+ARMI cli admin --config <Creator授权绑定> authorization approve --request-id <request-id> --expected-request-digest <request-digest> --idempotency-key approval-001
 ```
 
-普通代理绑定没有签发权限或私钥 locator。执行重置或主体内容校正时提交对应 `authorization_id`；同一凭据不能供另一调用重用。用 `armi-admin invocation get --operation-name <操作名> --idempotency-key <原调用键>` 查询耐久回执；配置修改与包升级不会使旧回执失联。
+普通代理绑定没有签发权限或私钥 locator。执行重置或主体内容校正时提交对应 `authorization_id`；同一凭据不能供另一调用重用。用 `ARMI cli admin invocation get --operation-name <操作名> --idempotency-key <原调用键>` 查询耐久回执；配置修改与包升级不会使旧回执失联。
 
-调用中断后，使用同参数的 `armi-admin invocation reconcile`（MCP：`invocation_reconcile`）核验原结果。核验依据已记录的完成阶段、配置替换文件身份或 owner 幂等记录，不重新执行原操作；证据不足仍返回 `unknown`。配置 `status` 区分已采用、部分消费者采用、需要重启、组件未运行、环境变量覆盖和无法核验；仅保存文件不证明已生效或必须重启。
+调用中断后，使用同参数的 `ARMI cli admin invocation reconcile`（MCP：`invocation_reconcile`）核验原结果。核验依据已记录的完成阶段、配置替换文件身份或 owner 幂等记录，不重新执行原操作；证据不足仍返回 `unknown`。配置 `status` 区分已采用、部分消费者采用、需要重启、组件未运行、环境变量覆盖和无法核验；仅保存文件不证明已生效或必须重启。
 
 Creator Web 开发要求先有 ready Runtime：
 

@@ -263,20 +263,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     if imports.returncode != 0:
         print(imports.stderr or imports.stdout, file=sys.stderr)
         return 1
-    entrypoints = (
-        "armi",
-        "armi-mcp",
-        "armi-admin",
-        "armi-codex-runner",
-        "armi-admin-mcp",
-    )
+    if list((venv / "Scripts").glob("armi*.exe")):
+        print("WHEEL-INSTALL-LEGACY-LAUNCHER", file=sys.stderr)
+        return 1
+    entrypoints = ("armi_app",)
     for entrypoint in entrypoints:
-        executable = venv / "Scripts" / f"{entrypoint}.exe"
-        if not executable.is_file():
-            print(f"WHEEL-INSTALL-ENTRYPOINT: missing {entrypoint}", file=sys.stderr)
-            return 1
         help_result = _run(
-            (str(executable), "--help"), cwd=venv, environment=environment
+            (str(python), "-m", entrypoint, "--help"), cwd=venv, environment=environment
         )
         if help_result.returncode != 0 or "usage:" not in help_result.stdout.lower():
             print(

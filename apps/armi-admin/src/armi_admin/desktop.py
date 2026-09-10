@@ -571,11 +571,7 @@ class Desktop:
             self.root.deiconify()
             cast(Any, self.root).lift()
         elif action == "open":
-            url = self.application.status().get("creator_url")
-            if isinstance(url, str):
-                webbrowser.open(url)
-            else:
-                self.status.set("请先准备环境。")
+            self.start_on_launch(False)
         elif (
             action == "quit"
             and not (self.environment / "postgresql/cluster.json").exists()
@@ -653,10 +649,17 @@ class Desktop:
 
     def start_on_launch(self, background: bool) -> None:
         if self.application.status().get("status") != "ready":
+            self.root.deiconify()
+            return
+        if self.busy:
             return
 
         def finished(result: dict[str, Any]) -> None:
-            if result.get("status") == "succeeded" and background:
+            if result.get("status") == "succeeded":
+                if not background:
+                    url = self.application.status().get("creator_url")
+                    if isinstance(url, str):
+                        webbrowser.open(url)
                 self.hide()
             elif result.get("status") != "succeeded":
                 self.root.deiconify()
@@ -664,13 +667,13 @@ class Desktop:
         self.admin("environment_start", {"idempotency_key": str(uuid7())}, finished)
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(prog="armi-desktop")
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="ARMI")
     parser.add_argument("--environment-root", type=Path)
     parser.add_argument("--installation-root", type=Path)
     parser.add_argument("--start", action="store_true")
     parser.add_argument("--background", action="store_true")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     installation = args.installation_root or Path(os.environ["ARMI_INSTALLATION_ROOT"])
     root = tk.Tk()
     environment = (
@@ -723,7 +726,7 @@ def main() -> int:
                 or win32process.GetWindowThreadProcessId(window)[1] != process.pid
             ):
                 raise ValueError("identity mismatch")
-            win32gui.PostMessage(window, win32con.WM_USER + 21, 0, 0)
+            win32gui.PostMessage(window, win32con.WM_USER + 21, int(args.start), 0)
         except Exception:
             messagebox.showerror("ARMI", "已有实例的身份无法确认，请检查状态。")
         root.destroy()

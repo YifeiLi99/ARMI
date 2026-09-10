@@ -25,53 +25,88 @@ Compression=lzma2/normal
 SolidCompression=yes
 WizardStyle=modern
 DisableProgramGroupPage=yes
-UninstallDisplayIcon={app}\armi-desktop.exe
+UninstallDisplayIcon={app}\ARMI.exe
 CloseApplications=no
 RestartApplications=no
 SetupLogging=yes
 
 [Files]
 Source: "{#PayloadRoot}\*"; DestDir: "{app}\versions\{#PackageId}"; Flags: ignoreversion recursesubdirs createallsubdirs onlyifdoesntexist
-Source: "{#PayloadRoot}\*.exe"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
+Source: "{#PayloadRoot}\bundle.json"; DestDir: "{app}\tmp"; DestName: "activate-{#PackageId}.json"; Flags: ignoreversion; AfterInstall: ActivateProgram
 
 [Icons]
-Name: "{group}\ARMI"; Filename: "{app}\armi-desktop.exe"; Parameters: "--start"
-Name: "{group}\ARMI Settings"; Filename: "{app}\armi-desktop.exe"
-Name: "{group}\Uninstall ARMI"; Filename: "{uninstallexe}"
+Name: "{group}\ARMI"; Filename: "{app}\ARMI.exe"; Check: ActivationReady
+Name: "{group}\Uninstall ARMI"; Filename: "{uninstallexe}"; Check: ActivationReady
 
 [Run]
-Filename: "{app}\armi-desktop.exe"; Description: "Open ARMI setup (optional features require configuration)"; Flags: postinstall nowait skipifsilent
+Filename: "{app}\ARMI.exe"; Description: "Open ARMI"; Flags: postinstall nowait skipifsilent; Check: ActivationReady
 
 [UninstallDelete]
+Type: files; Name: "{app}\ARMI.exe"
+Type: files; Name: "{app}\ARMI.exe.pending"
 Type: files; Name: "{app}\.current-version"
 Type: files; Name: "{app}\.current-version.pending"
 Type: files; Name: "{app}\.activation.json"
 Type: files; Name: "{app}\.update.lock"
 
 [Code]
-procedure CurStepChanged(CurStep: TSetupStep);
+var
+  Activated: Boolean;
+
+function ActivationReady: Boolean;
+begin
+  Result := Activated;
+end;
+
+function GetCustomSetupExitCode: Integer;
+begin
+  if Activated then Result := 0 else Result := 9;
+end;
+
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  if (CurPageID = wpFinished) and not Activated then begin
+    WizardForm.FinishedHeadingLabel.Caption := 'ARMI activation failed';
+    WizardForm.FinishedLabel.Caption := 'The program switch failed. The previous program and environment data were retained. Close any process using ARMI and run this installer again.';
+  end;
+end;
+
+procedure ActivateProgram;
 var
   ExitCode: Integer;
   ProgramRoot: String;
 begin
-  if CurStep = ssPostInstall then begin
     ProgramRoot := ExpandConstant('{app}\versions\{#PackageId}');
-    if not Exec(ProgramRoot + '\armi-install-control.exe',
-      'activate --installation-root "' + ExpandConstant('{app}') +
+    Activated := False;
+    if not Exec(ProgramRoot + '\runtime\python\pythonw.exe',
+      '-I -B -m armi_admin.install_cli activate --installation-root "' + ExpandConstant('{app}') +
       '" --program-root "' + ProgramRoot + '"', '', SW_HIDE,
-      ewWaitUntilTerminated, ExitCode) then
-      RaiseException('ARMI activation could not start. The previous program remains selected.');
-    if ExitCode <> 0 then
-      RaiseException('ARMI activation failed. The previous program and environment data were retained.');
-  end;
+      ewWaitUntilTerminated, ExitCode) then begin
+      Log('ARMI-ACTIVATION-FAILED: activation process could not start');
+      Exit;
+    end;
+    if ExitCode <> 0 then begin
+      Log('ARMI-ACTIVATION-FAILED: previous program and environment data retained');
+      Exit;
+    end;
+    Activated := True;
+    DeleteFile(ExpandConstant('{group}\ARMI Settings.lnk'));
+    DeleteFile(ExpandConstant('{app}\tmp\activate-{#PackageId}.json'));
 end;
 
 function InitializeUninstall: Boolean;
 var
   ExitCode: Integer;
+  Version: AnsiString;
 begin
-  Result := Exec(ExpandConstant('{app}\armi-install-control.exe'),
-    'uninstall --installation-root "' + ExpandConstant('{app}') + '"',
+  Result := LoadStringFromFile(ExpandConstant('{app}\.current-version'), Version);
+  if not Result then Exit;
+  if (Length(Trim(String(Version))) <> 24) or (Pos('\', String(Version)) > 0) or (Pos('/', String(Version)) > 0) then begin
+    Result := False;
+    Exit;
+  end;
+  Result := Exec(ExpandConstant('{app}\versions\') + Trim(String(Version)) + '\runtime\python\pythonw.exe',
+    '-I -B -m armi_admin.install_cli uninstall --installation-root "' + ExpandConstant('{app}') + '"',
     '', SW_HIDE, ewWaitUntilTerminated, ExitCode);
   if Result then Result := ExitCode = 0;
   if not Result then

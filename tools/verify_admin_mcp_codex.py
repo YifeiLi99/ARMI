@@ -57,7 +57,9 @@ def main() -> int:
                 "--env",
                 "ARMI_ADMIN_CONFIG=isolated-placeholder",
                 "--",
-                "armi-admin-mcp",
+                "C:/ARMI/ARMI.exe",
+                "mcp",
+                "admin",
             ],
             environment,
         )
@@ -81,8 +83,8 @@ def main() -> int:
             raise SystemExit("ADMIN-CODEX-ALLOWLIST")
         if detail["transport"] != {
             "type": "stdio",
-            "command": "armi-admin-mcp",
-            "args": [],
+            "command": "C:/ARMI/ARMI.exe",
+            "args": ["mcp", "admin"],
             "env": None,
             "env_vars": ["ARMI_ADMIN_CONFIG"],
             "cwd": None,

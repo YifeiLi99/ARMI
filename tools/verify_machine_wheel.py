@@ -17,7 +17,7 @@ from mcp.client import Client
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
 
-async def verify(root: Path) -> None:
+async def verify(root: Path, executable: Path | None = None) -> None:
     environment_id = str(uuid7())
     config = root / "admin.yaml"
     config.write_text(
@@ -46,9 +46,9 @@ async def verify(root: Path) -> None:
     }
     environment["ARMI_ADMIN_CONFIG"] = str(config)
     AdminConfig.model_validate(json.loads(config.read_text(encoding="utf-8")))
-    scripts = Path(sys.executable).parent
+    entry = [str(executable)] if executable else [sys.executable, "-m", "armi_app"]
     command = subprocess.run(
-        [str(scripts / "armi-admin.exe"), "capabilities"],
+        [*entry, "cli", "admin", "capabilities"],
         env=environment,
         cwd=root,
         capture_output=True,
@@ -63,7 +63,8 @@ async def verify(root: Path) -> None:
     async with Client(
         stdio_client(
             StdioServerParameters(
-                command=str(scripts / "armi-admin-mcp.exe"),
+                command=entry[0],
+                args=[*entry[1:], "mcp", "admin"],
                 cwd=root,
                 env=environment,
             )

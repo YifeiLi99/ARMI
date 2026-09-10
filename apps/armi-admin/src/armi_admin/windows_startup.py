@@ -11,7 +11,7 @@ from armi_admin.application.deployment import installed_root
 
 
 def login_startup(
-    launcher: Path, environment: Path, enabled: bool | None
+    launcher: Path, environment: Path, enabled: bool | None, *, migrate: bool = False
 ) -> dict[str, object]:
     installation = installed_root(launcher.parent)
     if installation is not None:
@@ -25,7 +25,6 @@ def login_startup(
             str(launcher),
             "--environment-root",
             str(environment),
-            "--start",
             "--background",
         ]
     )
@@ -40,7 +39,19 @@ def login_startup(
     except FileNotFoundError:
         current, kind = None, winreg.REG_SZ
     if current is not None and (current != command or kind != winreg.REG_SZ):
-        raise ValueError("SETUP-STARTUP-BINDING-MISMATCH")
+        legacy = subprocess.list2cmdline(
+            [
+                str(launcher.with_name("armi-desktop.exe")),
+                "--environment-root",
+                str(environment),
+                "--start",
+                "--background",
+            ]
+        )
+        if current != legacy or kind != winreg.REG_SZ:
+            raise ValueError("SETUP-STARTUP-BINDING-MISMATCH")
+        if enabled is None and migrate:
+            enabled = True
     if enabled is True:
         if not launcher.is_absolute() or not launcher.is_file():
             raise ValueError("SETUP-STARTUP-LAUNCHER-MISSING")

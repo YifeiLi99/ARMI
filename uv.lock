@@ -8,6 +8,7 @@ members = [
     "armi-adapter-esp32-display",
     "armi-adapter-qq",
     "armi-admin",
+    "armi-app",
     "armi-artifact-store",
     "armi-attention",
     "armi-capability",
@@ -214,6 +215,21 @@ requires-dist = [
     { name = "pydantic", specifier = "==2.13.4" },
     { name = "pywin32", specifier = "==312" },
     { name = "rfc8785", specifier = "==0.1.4" },
+]
+
+[[package]]
+name = "armi-app"
+version = "0.0.0"
+source = { editable = "apps/armi-app" }
+dependencies = [
+    { name = "armi-admin" },
+    { name = "armi-runtime" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "armi-admin", editable = "apps/armi-admin" },
+    { name = "armi-runtime", editable = "apps/armi-runtime" },
 ]
 
 [[package]]

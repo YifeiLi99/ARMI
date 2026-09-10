@@ -610,6 +610,13 @@ DISTRIBUTIONS = (
         ),
     ),
     Distribution(
+        name="armi-app",
+        module="armi_app",
+        project_dir=Path("apps/armi-app"),
+        layers=(),
+        dependencies=("armi-admin==0.0.0", "armi-runtime==0.0.0"),
+    ),
+    Distribution(
         name="armi-admin",
         module="armi_admin",
         project_dir=Path("apps/armi-admin"),
@@ -847,25 +854,7 @@ def validate_workspace_metadata(root: Path) -> list[Violation]:
             (
                 "project.scripts",
                 project.get("scripts"),
-                (
-                    {
-                        "armi": "armi_runtime.cli:main",
-                        "armi-mcp": "armi_runtime.mcp:main",
-                        "armi-codex-runner": "armi_runtime.codex_runner_cli:main",
-                    }
-                    if distribution.name == "armi-runtime"
-                    else (
-                        {
-                            "armi-admin-mcp": "armi_admin.mcp.entrypoint:main",
-                            "armi-setup": "armi_admin.setup_cli:main",
-                            "armi-setup-mcp": "armi_admin.setup_cli:mcp_main",
-                            "armi-desktop": "armi_admin.desktop:main",
-                            "armi-admin": "armi_admin.cli:main",
-                        }
-                        if distribution.name == "armi-admin"
-                        else None
-                    )
-                ),
+                None,
             ),
             (
                 "build-system.requires",

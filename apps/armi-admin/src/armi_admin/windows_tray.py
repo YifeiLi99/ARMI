@@ -129,7 +129,7 @@ class WindowsTray:
                 win32gui.PostMessage(window, win32con.WM_NULL, 0, 0)
             return 0
         if message == win32con.WM_USER + 21:
-            self.emit("settings")
+            self.emit("open" if wparam else "settings")
             return 0
         if message == win32con.WM_USER + 22:
             self.emit("quit")

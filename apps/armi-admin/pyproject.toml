@@ -32,13 +32,6 @@ dependencies = [
     "rfc8785==0.1.4",
 ]
 
-[project.scripts]
-armi-admin = "armi_admin.cli:main"
-armi-admin-mcp = "armi_admin.mcp.entrypoint:main"
-armi-setup = "armi_admin.setup_cli:main"
-armi-setup-mcp = "armi_admin.setup_cli:mcp_main"
-armi-desktop = "armi_admin.desktop:main"
-
 [tool.uv.sources]
 armi-local-control = { workspace = true }
 armi-artifact-store = { workspace = true }

@@ -25,7 +25,7 @@ from armi_admin.composition import bootstrap_admin
 
 
 def _run(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="armi-admin")
+    parser = argparse.ArgumentParser(prog="ARMI cli admin")
     parser.add_argument(
         "--config",
         type=Path,

@@ -163,14 +163,7 @@ def main() -> int:
         entry_points = [
             name for name in names if name.endswith(".dist-info/entry_points.txt")
         ]
-        entry_point_valid = len(entry_points) == 1 and archive.read(
-            entry_points[0]
-        ) == (
-            b"[console_scripts]\n"
-            b"armi = armi_runtime.cli:main\n"
-            b"armi-codex-runner = armi_runtime.codex_runner_cli:main\n"
-            b"armi-mcp = armi_runtime.mcp:main\n"
-        )
+        entry_point_valid = not entry_points
     with ZipFile(contract_wheel) as archive:
         contract_names = set(archive.namelist())
         contract_missing = sorted(CONTRACT_REQUIRED - contract_names)

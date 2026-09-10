@@ -37,19 +37,34 @@ static int launch(int argc, wchar_t **argv) {
     wchar_t *name = wcsrchr(root, L'\\');
     if (!name) return 2;
     ++name;
-    const wchar_t *code = NULL;
-    if (!_wcsicmp(name, L"armi.exe")) code = L"from armi_runtime.cli import main; raise SystemExit(main())";
-    if (!_wcsicmp(name, L"armi-mcp.exe")) code = L"from armi_runtime.mcp import main; raise SystemExit(main())";
-    if (!_wcsicmp(name, L"armi-codex-runner.exe")) code = L"from armi_runtime.codex_runner_cli import main; raise SystemExit(main())";
-    if (!_wcsicmp(name, L"armi-admin.exe")) code = L"from armi_admin.cli import main; raise SystemExit(main())";
-    if (!_wcsicmp(name, L"armi-admin-mcp.exe")) code = L"from armi_admin.mcp.entrypoint import main; raise SystemExit(main())";
-    if (!_wcsicmp(name, L"armi-setup.exe")) code = L"from armi_admin.setup_cli import main; raise SystemExit(main())";
-    if (!_wcsicmp(name, L"armi-setup-mcp.exe")) code = L"from armi_admin.setup_cli import mcp_main; mcp_main()";
-    if (!_wcsicmp(name, L"armi-desktop.exe")) code = L"from armi_admin.desktop import main; raise SystemExit(main())";
-    if (!_wcsicmp(name, L"armi-install-control.exe")) code = L"from armi_admin.install_cli import main; raise SystemExit(main())";
-    int installer = !_wcsicmp(name, L"armi-install-control.exe");
-    if (!code) return 2;
+    int machine = argc > 1 && _wcsicmp(argv[1], L"settings") && _wcsicmp(argv[1], L"--background") && _wcsicmp(argv[1], L"--environment-root") && _wcsicmp(argv[1], L"--installation-root");
+    HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
+    HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+    HANDLE error = GetStdHandle(STD_ERROR_HANDLE);
+    if (machine) {
+        AttachConsole(ATTACH_PARENT_PROCESS);
+        if (input && input != INVALID_HANDLE_VALUE) SetStdHandle(STD_INPUT_HANDLE, input);
+        if (output && output != INVALID_HANDLE_VALUE) SetStdHandle(STD_OUTPUT_HANDLE, output);
+        if (error && error != INVALID_HANDLE_VALUE) SetStdHandle(STD_ERROR_HANDLE, error);
+    }
     name[-1] = 0;
+    if (swprintf_s(pointer, 32768, L"%s\\.update.lock", root) < 0) return 2;
+    HANDLE update = CreateFileW(pointer, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_ALWAYS, 0, NULL);
+    if (update == INVALID_HANDLE_VALUE) {
+        if (!machine) MessageBoxW(NULL, L"ARMI is being updated. Please retry after installation completes.", L"ARMI", MB_OK | MB_ICONERROR);
+        return 2;
+    }
+    if (swprintf_s(pointer, 32768, L"%s\\.activation.json", root) < 0) return 2;
+    if (GetFileAttributesW(pointer) != INVALID_FILE_ATTRIBUTES) {
+        if (!machine) MessageBoxW(NULL, L"ARMI update was interrupted. Run the installer again to recover. Environment data is retained.", L"ARMI", MB_OK | MB_ICONERROR);
+        else {
+            const char failure[] = "ARMI-UPDATE-RECOVERY-REQUIRED\n";
+            DWORD written;
+            WriteFile(GetStdHandle(STD_ERROR_HANDLE), failure, sizeof(failure) - 1, &written, NULL);
+        }
+        CloseHandle(update);
+        return 2;
+    }
     if (swprintf_s(pointer, 32768, L"%s\\.current-version", root) < 0) return 2;
     HANDLE file = CreateFileW(pointer, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, 0, NULL);
     if (file != INVALID_HANDLE_VALUE) {
@@ -67,24 +82,25 @@ static int launch(int argc, wchar_t **argv) {
         if (wcscpy_s(root, 32768, pointer)) return 2;
     } else if (GetLastError() != ERROR_FILE_NOT_FOUND) return 2;
     if (!SetEnvironmentVariableW(L"ARMI_INSTALLATION_ROOT", root)) return 2;
-    if (swprintf_s(script, 4096, L"%s%s", installer ? L"" : L"from armi_admin.install_cli import recover_startup; recover_startup(); ", code) < 0) return 2;
-#ifdef ARMI_GUI
-    if (swprintf_s(python, 32768, L"%s\\runtime\\python\\pythonw.exe", root) < 0) return 2;
-#else
-    if (swprintf_s(python, 32768, L"%s\\runtime\\python\\python.exe", root) < 0) return 2;
-#endif
-    if (!quote(python) || !quote(L"-I") || !quote(L"-B") || !quote(L"-c") || !quote(script)) return 2;
+    wchar_t launcherPid[32];
+    if (swprintf_s(launcherPid, 32, L"%lu", GetCurrentProcessId()) < 0) return 2;
+    if (!SetEnvironmentVariableW(L"ARMI_LAUNCHER_PID", launcherPid)) return 2;
+    if (wcscpy_s(script, 4096, L"armi_app")) return 2;
+    if (swprintf_s(python, 32768, L"%s\\runtime\\python\\%s", root, machine ? L"python.exe" : L"pythonw.exe") < 0) return 2;
+    if (!quote(python) || !quote(L"-I") || !quote(L"-B") || !quote(L"-X") || !quote(L"utf8") || !quote(L"-m") || !quote(script)) return 2;
     for (int i = 1; i < argc; ++i) if (!quote(argv[i])) return 2;
     STARTUPINFOW startup = {0};
     PROCESS_INFORMATION process = {0};
     startup.cb = sizeof(startup);
-#ifndef ARMI_GUI
-    startup.dwFlags = STARTF_USESTDHANDLES;
-    startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
-    startup.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
-    startup.hStdError = GetStdHandle(STD_ERROR_HANDLE);
-#endif
-    if (!CreateProcessW(python, command, NULL, NULL, TRUE, 0, NULL, NULL, &startup, &process)) return 2;
+    if (machine) {
+        startup.dwFlags = STARTF_USESTDHANDLES;
+        startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+        startup.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+        startup.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+    }
+    BOOL created = CreateProcessW(python, command, NULL, NULL, machine, machine ? CREATE_NO_WINDOW : 0, NULL, NULL, &startup, &process);
+    CloseHandle(update);
+    if (!created) return 2;
     CloseHandle(process.hThread);
     WaitForSingleObject(process.hProcess, INFINITE);
     DWORD result = 2;

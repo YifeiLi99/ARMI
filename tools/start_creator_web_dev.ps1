@@ -2,7 +2,7 @@
 param(
     [string]$EnvironmentRoot = $env:ARMI_ENVIRONMENT_ROOT,
     [string]$AdminConfig = $env:ARMI_ADMIN_CONFIG,
-    [string]$AdminExecutable = 'armi-admin',
+    [string]$AdminExecutable,
     [switch]$OpenBrowser
 )
 
@@ -17,6 +17,11 @@ $workspace = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 if ([string]::IsNullOrWhiteSpace($AdminConfig)) {
     throw 'ARMI-WEB-DEV-BINDING: specify -AdminConfig or ARMI_ADMIN_CONFIG.'
 }
+$script:entryArguments = @()
+if ([string]::IsNullOrWhiteSpace($AdminExecutable)) {
+    $AdminExecutable = Join-Path $workspace '.venv/Scripts/python.exe'
+    $script:entryArguments = @('-m', 'armi_app')
+}
 $adminCommand = Get-Command $AdminExecutable -CommandType Application -ErrorAction Stop
 $armiExecutable = $adminCommand.Source
 $node = Join-Path $workspace '.armi-tools/installs/node/node-v24.18.0-win-x64/node.exe'
@@ -29,7 +34,7 @@ foreach ($path in @($armiExecutable, $node, $vite)) {
 
 function Invoke-ArmiJson {
     param([Parameter(Mandatory)][string[]]$Arguments)
-    $raw = @(& $script:armiExecutable --config $script:AdminConfig @Arguments)
+    $raw = @(& $script:armiExecutable @script:entryArguments cli admin --config $script:AdminConfig @Arguments)
     if ($LASTEXITCODE -ne 0) {
         throw "ARMI-WEB-DEV-CLI: armi command failed: $($Arguments -join ' ')"
     }

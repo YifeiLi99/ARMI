@@ -149,7 +149,8 @@ class InteractionMCPServer(MCPServer[Any]):
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
-        prog="armi-mcp", description="Creator-delegated local stdio interaction."
+        prog="ARMI mcp interaction",
+        description="Creator-delegated local stdio interaction.",
     )
     parser.add_argument("--config", type=Path)
     args = parser.parse_args(argv)

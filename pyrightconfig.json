@@ -1,5 +1,5 @@
 {
-  "include": ["packages", "modules", "apps/armi-runtime", "apps/armi-admin", "tools", "tests"],
+  "include": ["packages", "modules", "apps/armi-runtime", "apps/armi-admin", "apps/armi-app", "tools", "tests"],
   "exclude": [
     ".armi-tools",
     ".tmp",
@@ -8,6 +8,7 @@
     "apps/armi-creator-web"
   ],
   "extraPaths": [
+    "apps/armi-app/src",
     "packages/armi-local-control/src",
     "packages/armi-kernel/src",
     "packages/armi-artifact-store/src",
@@ -46,6 +47,7 @@
   "pythonPlatform": "Windows",
   "typeCheckingMode": "standard",
   "strict": [
+    "apps/armi-app/src",
     "packages/armi-local-control/src",
     "packages/armi-kernel/src",
     "packages/armi-artifact-store/src",

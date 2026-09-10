@@ -29,7 +29,7 @@ ARMI 承载一个自主电子人长期存在。系统的首要对象不是“回
                          Windows local machine
 
  Creator browser ──HTTP/SSE──┐
- armi / armi-mcp ──认证本机──┤
+ ARMI cli/mcp interaction ──认证本机──┤
  QQ/NapCat ──OneBot──────────┤
  WASAPI / DirectShow / USB ──┤
                              ▼
@@ -47,13 +47,15 @@ ARMI 承载一个自主电子人长期存在。系统的首要对象不是“回
 
       model / Web / Codex / NapCat / device I/O occurs outside write UoW
 
- armi-admin / armi-admin-mcp ──独立配置/角色/进程──► owner Admin ports
+ ARMI cli admin / ARMI mcp admin ──独立配置/角色/进程──► owner Admin ports
  Codex runner ──一次性 workspace；无 DB/Admin/宿主 secret
 ```
 
 Runtime 是唯一正常活动写入者。Admin 使用独立进程、配置、credential、pool 和 owner 管理端口；Creator UI 不接触 Admin。ARMI→Codex runner 显式关闭 MCP，不能发现 Codex→ARMI Admin 链。
 
-Windows 安装版按当前用户部署，不注册系统服务。私有 Python、锁定 wheels、已构建网页和原生 PostgreSQL 随包交付；`armi-setup` / `armi-setup-mcp` 与 Tk/ttk 窗口共用安装应用服务。首次配置只在明确的新目录生成独立凭据和绑定，完成数据库初始化后仍保持未出生，出生调用正式 owner 路径。托盘通过已有生命周期用例启停 Runtime、附属工作和所属数据库；关闭网页不停止进程。
+`armi-app` 是依赖 Runtime 与 Admin 的顶层分派包，按 GUI、CLI、MCP 模式仅加载指定入口；它不合并权限或业务用例，底层应用不反向依赖它。安装版唯一产品 EXE 为 `ARMI.exe`，机器模式保留标准流与退出码，GUI 模式不创建控制台。取消原生启动器时只结束本次机器传输，不结束独立 Runtime。安装维护由私有 Python 模块执行；主入口、版本指针及程序字段由更新日志统一恢复，旧辅助 EXE 只在确认归属且切换成功后清理。
+
+Windows 安装版按当前用户部署，不注册系统服务。私有 Python、锁定 wheels、已构建网页和原生 PostgreSQL 随包交付；`ARMI cli setup` / `ARMI mcp setup` 与 Tk/ttk 窗口共用安装应用服务。首次配置只在明确的新目录生成独立凭据和绑定，完成数据库初始化后仍保持未出生，出生调用正式 owner 路径。托盘通过已有生命周期用例启停 Runtime、附属工作和所属数据库；关闭网页不停止进程。
 
 程序与环境在安装根内使用不同子目录。安装器将包放入 `versions/<package_id>`，原生 EXE 根据 `.current-version` 找到私有运行环境。程序清单记录文件摘要、包身份和数据库合同；更新先核对现有环境及数据库，再替换程序路径和包身份，原子切换版本指针。中断恢复记录只保存程序字段，不复制凭据或数据；不兼容数据库合同拒绝切换。卸载先核验并停止受管进程，保留根内环境数据和 `control/` 中必要的安装与环境身份记录。此路径不提供备份、旧 Docker 数据导入或跨 schema 迁移。
 

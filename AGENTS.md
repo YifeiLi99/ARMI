@@ -56,7 +56,7 @@
 本文件不预授权 Docker、持久服务、真实 Provider、账号、设备或付费调用。沿用会话中已明确授权的环境和动作范围；换环境、账号、凭据或生产资源时重新核对授权。
 
 - 未经用户针对本次操作明确授权，不复制、打包或导出数据库、Artifact Store、环境配置或 secret 作为离线恢复制品。项目不提供此恢复功能；重装与删除目标数据需明确授权，不能先擅自备份再操作。
-- 对外接口优先服务 Creator 委托的 Agent：交互使用 `armi` / `armi-mcp`，管理检查与调试使用 `armi-admin` / `armi-admin-mcp`。输入使用 `message send` 正式 intake 与稳定 idempotency key；代理来源由认证入口写入，不直写数据库、不伪造浏览器 session。Web 保留，界面操作与视觉验收才使用浏览器驱动。
+- 对外统一使用 `ARMI.exe`：无参数打开界面，`settings` 打开设置，`cli` / `mcp` 下通过 `interaction`、`admin`、`setup` 明确选择能力。只交付一个 ARMI 主入口和安装器生成的卸载入口，不为内部模块生成独立启动 EXE；Runtime、Admin 与 Creator 签发仍保持独立授权。源码开发使用 `python -m armi_app …`。输入使用 `message send` 正式 intake 与稳定 idempotency key；代理来源由认证入口写入，不直写数据库、不伪造浏览器 session。Web 保留，界面操作与视觉验收才使用浏览器驱动。
   本地附件先经 `upload import` 或分块上传得到受治理引用，再显式接纳；上传完成不触发认知。`runtime_entrypoint` 是私有启动 worker，不承担业务或管理命令。私有主体快照另需 `subject_snapshot.private` 授权范围。
 - 交互用例和操作合同位于 Runtime `application/`，HTTP、CLI、MCP 只适配传输，不经 HTTP handler 转接机器操作。重置与主体内容校正核验独立 Creator 绑定签发的一次性授权；普通代理不能签发或通过配置修改信任根。配置消费者仅在验证并实际采用后登记当前版本；读取文件或保存配置不等于生效。中断管理调用通过 `invocation reconcile` 核验，不以当前状态猜测历史成功或重放原效果。
 - ARMI→Codex runner 与外部 Agent→ARMI MCP 隔离，不互相发现或继承 credential。Admin 支持显式绑定的 `active`、`development`、`system_test`、`acceptance`，采用独立 config、role、按需 pool 和 owner Admin ports；配置不能修改自己的管理授权。不暴露任意 SQL/Shell/Python。正式环境禁止故障注入；危险操作及主体内容校正需要具体授权。

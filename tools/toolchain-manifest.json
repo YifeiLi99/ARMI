@@ -111,7 +111,7 @@
   "lockfiles": [
     {
       "path": "uv.lock",
-      "sha256": "440321abebd48eea87f31df88f920cfec1b2b87dc931386b03dc657f64504c77"
+      "sha256": "c80b0e2c2c4c48f3afcae171910657dc8c8bc1a3a4f1e81b41026dc1280eb3db"
     },
     {
       "path": "apps/armi-creator-web/package-lock.json",

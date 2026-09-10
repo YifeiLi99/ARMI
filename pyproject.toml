@@ -52,6 +52,7 @@ members = [
     "modules/live-voice",
     "modules/live-vision",
     "apps/armi-runtime",
+    "apps/armi-app",
     "apps/armi-admin",
 ]
 

@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$AdminConfig = $env:ARMI_ADMIN_CONFIG,
-    [string]$AdminExecutable = 'armi-admin',
+    [string]$AdminExecutable,
     [switch]$OpenBrowser
 )
 
@@ -13,20 +13,21 @@ if ($PSVersionTable.PSEdition -ne 'Core' -or $PSVersionTable.PSVersion.Major -lt
 if ([string]::IsNullOrWhiteSpace($AdminConfig)) {
     throw 'ARMI-START-BINDING: specify -AdminConfig or ARMI_ADMIN_CONFIG.'
 }
-$command = Get-Command $AdminExecutable -CommandType Application -ErrorAction SilentlyContinue
-if ($null -eq $command) {
-    throw 'ARMI-START-INSTALL: specify -AdminExecutable from the installed wheel environment.'
+$entryArguments = @()
+if ([string]::IsNullOrWhiteSpace($AdminExecutable)) {
+    $AdminExecutable = Join-Path $PSScriptRoot '.venv/Scripts/python.exe'
+    $entryArguments = @('-m', 'armi_app')
 }
-$executable = $command.Source
+$executable = (Get-Command $AdminExecutable -CommandType Application -ErrorAction Stop).Source
 $binding = [IO.Path]::GetFullPath($AdminConfig)
-$raw = @(& $executable --config $binding start)
+$raw = @(& $executable @entryArguments cli admin --config $binding start)
 $result = ($raw -join "`n") | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0) {
     $raw | Write-Output
     exit $LASTEXITCODE
 }
 if ($OpenBrowser) {
-    $configRaw = @(& $executable --config $binding configuration --json '{"action":"read"}')
+    $configRaw = @(& $executable @entryArguments cli admin --config $binding configuration --json '{"action":"read"}')
     if ($LASTEXITCODE -ne 0) {
         throw 'ARMI-START-CONFIG: unable to resolve the bound Creator Web address.'
     }

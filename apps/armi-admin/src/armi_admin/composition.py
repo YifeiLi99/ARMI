@@ -185,7 +185,7 @@ def bootstrap_setup(paths: SetupPaths) -> SetupApplication:
     from .windows_startup import login_startup
 
     def startup(enabled: bool | None) -> dict[str, object]:
-        launcher = paths.installation_root / "armi-desktop.exe"
+        launcher = paths.installation_root / "ARMI.exe"
         return login_startup(launcher, paths.environment_root, enabled)
 
     return SetupApplication(paths, invoke, startup)
