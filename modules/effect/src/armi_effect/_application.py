@@ -13,6 +13,7 @@ from armi_data_rights.api import DataRightsEffectGate, DataRightsFencePort
 from armi_expression.api import ExpressionIntentReadPort
 from armi_interaction.api import InteractionEffectRoutePort
 from armi_kernel.application import (
+    ArtifactIntegrityStatus,
     ArtifactViolation,
     CreatorProjectionInvalidation,
     CreatorProjectionNotifier,
@@ -33,6 +34,7 @@ from armi_runtime_foundation import (
     RuntimeTransactionFailure,
 )
 
+from ._artifact_read import ArtifactReadIdentity, CreatorArtifactReader
 from ._dispatch import (
     EffectDispatchSnapshot,
     PostgreSQLEffectDispatchRepository,
@@ -66,6 +68,7 @@ def _ignore_diagnostic(event: str) -> None:
 class EffectPipeline:
     __slots__ = (
         "_adapter",
+        "_artifact_reader",
         "_codex_artifacts",
         "_custody",
         "_data_rights",
@@ -106,6 +109,7 @@ class EffectPipeline:
     ) -> None:
         self._factory = factory
         self._storage = storage
+        self._artifact_reader = CreatorArtifactReader(storage)
         self._repository = PostgreSQLEffectLedgerRepository()
         self._intents = intents
         self._codex_artifacts = codex_artifacts
@@ -141,10 +145,12 @@ class EffectPipeline:
         await self._storage.prepare()
 
     async def close(self) -> None:
-        self._stop.set()
+        self.stop()
+        await self._artifact_reader.wait_closed()
 
     def stop(self) -> None:
         self._stop.set()
+        self._artifact_reader.close()
 
     async def get_effect(
         self, effect_id: EffectId, *, creator_party_id: UUID
@@ -176,23 +182,60 @@ class EffectPipeline:
         creator_party_id: UUID,
         kind: EffectArtifactKind,
     ) -> EffectArtifactContent:
+        requests = ordered_custody_requests(
+            ExecutionCustodyRequest(
+                ExecutionCustodyScope(
+                    ExecutionCustodyScopeKind.RUNTIME_AUTHORITY,
+                    self._factory.environment_id,
+                ),
+                ExecutionCustodyMode.SHARED,
+            ),
+            ExecutionCustodyRequest(
+                ExecutionCustodyScope(
+                    ExecutionCustodyScopeKind.DATA_RIGHTS_PARTY, creator_party_id
+                ),
+                ExecutionCustodyMode.SHARED,
+            ),
+        )
+        try:
+            async with self._custody.hold(requests, deadline_at=None):
+                return await self._artifact_reader.read(
+                    lambda: self._artifact_identity(effect_id, creator_party_id, kind)
+                )
+        except ArtifactViolation, ContractViolation, OSError:
+            self._artifact_reader.invalidate(creator_party_id, effect_id, kind)
+            raise EffectViolation("EFFECT-PAYLOAD-UNAVAILABLE") from None
+        except BaseException:
+            self._artifact_reader.invalidate(creator_party_id, effect_id, kind)
+            raise
+
+    async def _artifact_identity(
+        self, effect_id: EffectId, creator: UUID, kind: EffectArtifactKind
+    ) -> ArtifactReadIdentity:
+        if self._stop.is_set():
+            raise EffectViolation("EFFECT-RUNTIME-STALE")
+        fence = self._runtime_admission()
+        # Read-only transactions have no write fence. Admission is checked on
+        # both sides of the owner queries while shared Runtime custody is held.
         async with self._factory.unit_of_work(read_only=True) as uow:
-            (
-                artifact_id,
-                digest,
-                size,
-                media_type,
-            ) = await self._codex_artifacts.artifact_reference(
+            view = await self._repository.get_effect(uow, effect_id, creator)
+            if view.effect_kind != "codex_delegation":
+                raise EffectViolation("EFFECT-ARTIFACT-KIND")
+            ref = await self._codex_artifacts.artifact_reference(
                 uow,
                 effect_id=effect_id.value,
                 kind=kind.value,
             )
-        value = await self._read_payload(artifact_id, digest.value, size)
-        if value is None:
+        if self._stop.is_set() or self._runtime_admission() != fence:
+            self._artifact_reader.clear()
+            raise EffectViolation("EFFECT-RUNTIME-STALE")
+        if (
+            ref.integrity_status is not ArtifactIntegrityStatus.VERIFIED
+            or ref.media_type not in {"application/json", "text/plain"}
+            or not 0 < ref.byte_size <= 20 * 1024 * 1024
+        ):
             raise EffectViolation("EFFECT-PAYLOAD-UNAVAILABLE")
-        if media_type not in {"application/json", "text/plain"}:
-            raise EffectViolation("EFFECT-PAYLOAD-UNAVAILABLE")
-        return EffectArtifactContent(kind, media_type, value)
+        return ArtifactReadIdentity(fence, creator, effect_id, kind, ref)
 
     async def dispatch_once(self) -> bool:
         try:

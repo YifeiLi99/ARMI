@@ -229,40 +229,6 @@ def _unavailable(code: str) -> dict[str, object]:
     ).to_wire()
 
 
-def creator_visible_codex_artifact(
-    kind: EffectArtifactKind, content: bytes, media_type: str
-) -> tuple[bytes, str]:
-    """Project the verified final result as the Creator's actual deliverable."""
-    if kind is not EffectArtifactKind.FINAL_RESULT:
-        content.decode("utf-8", errors="strict")
-        return (content, media_type)
-    try:
-        value = cast(
-            object,
-            json.loads(
-                content.decode("utf-8", errors="strict"),
-                object_pairs_hook=_strict_object_pairs,
-                parse_constant=lambda _value: (_ for _ in ()).throw(
-                    ValueError("non-finite JSON")
-                ),
-            ),
-        )
-        if type(value) is not dict:
-            raise ValueError
-        document = cast(dict[str, object], value)
-        if set(document) != {"summary", "changed_paths", "deliverable"}:
-            raise ValueError
-        deliverable = document["deliverable"]
-        if type(deliverable) is not str or not deliverable.strip():
-            raise ValueError
-        projected = deliverable.encode("utf-8", errors="strict")
-        if len(projected) > 1024 * 1024:
-            raise ValueError
-        return (projected, "text/plain")
-    except UnicodeDecodeError, UnicodeEncodeError, ValueError:
-        raise EffectViolation("EFFECT-ARTIFACT-INTEGRITY") from None
-
-
 def _scene_wire(view: CreatorSceneView) -> CreatorSceneResponse:
     return CreatorSceneResponse(
         contract_version="1.0",
@@ -1187,7 +1153,6 @@ __all__ = (
     "asynccontextmanager",
     "cast",
     "creator_result",
-    "creator_visible_codex_artifact",
     "datetime",
     "json",
     "operation_wire",

@@ -9,7 +9,7 @@ from armi_codex.api import CodexArtifactReadPort
 from armi_effect.api import (
     EffectViolation,
 )
-from armi_kernel.contracts import Digest
+from armi_kernel.application import ArtifactRef
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
 
 
@@ -31,7 +31,7 @@ class RuntimeCodexArtifactReference:
         *,
         effect_id: UUID,
         kind: str,
-    ) -> tuple[UUID, Digest, int, str]:
+    ) -> ArtifactRef:
         artifact_id = await self._codex.artifact_ref(
             unit_of_work.transaction,
             effect_id=effect_id,
@@ -45,12 +45,7 @@ class RuntimeCodexArtifactReference:
         )
         if ref is None:
             raise EffectViolation("EFFECT-PAYLOAD-UNAVAILABLE")
-        return (
-            ref.artifact_id.value,
-            ref.content_digest,
-            ref.byte_size,
-            ref.media_type,
-        )
+        return ref
 
 
 __all__ = ("RuntimeCodexArtifactReference",)

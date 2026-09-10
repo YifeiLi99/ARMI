@@ -39,7 +39,6 @@ from .creator_http import (
     _rejected,
     _single_header,
     _unavailable,
-    creator_visible_codex_artifact,
     operation_wire,
 )
 from .interaction_authority import (
@@ -309,11 +308,7 @@ def register_operation_routes(
             artifact = await commands.artifact(
                 effect_id, metadata.creator_party_id, kind
             )
-            content, media_type = creator_visible_codex_artifact(
-                kind,
-                artifact.content,
-                artifact.media_type,
-            )
+            content, media_type = artifact.content, artifact.media_type
         except BrowserSessionViolation as error:
             return JSONResponse(
                 status_code=error.status_code, content=_rejected(error.code)

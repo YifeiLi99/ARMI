@@ -10,7 +10,7 @@ from typing import Literal, Protocol, cast, runtime_checkable
 from uuid import UUID
 
 from armi_data_rights.api import DataRightsFence
-from armi_kernel.application import ArtifactPort, RuntimeFence
+from armi_kernel.application import ArtifactPort, ArtifactRef, RuntimeFence
 from armi_kernel.contracts import Digest, Instant, TraceId
 from armi_runtime_foundation import (
     PostgreSQLAdminTransaction,
@@ -116,11 +116,14 @@ class EffectArtifactContent:
     kind: EffectArtifactKind
     media_type: str
     content: bytes
+    content_digest: Digest
 
     def __post_init__(self) -> None:
         if self.media_type not in {"application/json", "text/plain"}:
             raise EffectViolation("CON-EFFECT-ARTIFACT")
         if not self.content or len(self.content) > 20 * 1024 * 1024:
+            raise EffectViolation("CON-EFFECT-ARTIFACT")
+        if type(self.content_digest) is not Digest:
             raise EffectViolation("CON-EFFECT-ARTIFACT")
 
 
@@ -375,7 +378,7 @@ class EffectCodexArtifactPort(Protocol):
         *,
         effect_id: UUID,
         kind: str,
-    ) -> tuple[UUID, Digest, int, str]: ...
+    ) -> ArtifactRef: ...
 
 
 @dataclass(frozen=True, slots=True)

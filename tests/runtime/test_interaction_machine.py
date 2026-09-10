@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import io
 import json
 from pathlib import Path
@@ -25,6 +26,7 @@ from armi_runtime import cli
 from armi_runtime.application.creator_contract import Readiness
 from armi_runtime.application.interaction_catalog import interaction_routes
 from armi_runtime.interaction_client import InteractionClient
+from armi_runtime.interfaces.browser_sessions import BrowserSessionStore
 from armi_runtime.interfaces.creator_app import create_runtime_app
 from armi_runtime.interfaces.static_assets import StaticAssetStore
 from armi_runtime.mcp import InteractionMCPServer
@@ -79,7 +81,12 @@ def unused_provider() -> Never:
 
 
 def machine(
-    tmp_path: Path, creator_input=None, *, writable: bool = False, effect_ledger=None
+    tmp_path: Path,
+    creator_input=None,
+    *,
+    writable: bool = False,
+    effect_ledger=None,
+    browser: bool = False,
 ):
     environment_id, creator_id, delegate_id = uuid7(), uuid7(), uuid7()
     secrets = tmp_path / "secrets"
@@ -118,7 +125,13 @@ def machine(
         runtime_status=unused_provider,
         qq_channel_health=unused_provider,
         assets=StaticAssetStore({}),
-        browser_sessions=None,
+        browser_sessions=BrowserSessionStore(
+            environment_id=environment_id,
+            creator_party_id=creator_id,
+            session_ttl_seconds=28800,
+        )
+        if browser
+        else None,
         expected_authority="127.0.0.1:6198",
         request_body_max_bytes=262144,
         on_started=unused,
@@ -172,15 +185,24 @@ async def test_artifact_chunks_and_cli_output_preserve_governed_content(
 ) -> None:
     from armi_effect.api import EffectArtifactContent, EffectArtifactKind
 
-    content = ("受治理的制品\n" * 20000).encode("utf-8")
+    content = b"patch\n" * 699050 + b"end\n"
+    assert len(content) == 4 * 1024 * 1024
     callers = []
+    artifact = EffectArtifactContent(
+        EffectArtifactKind.PATCH, "text/plain", content, Digest.from_bytes(content)
+    )
+    original_sha256 = hashlib.sha256
+
+    def reject_full_rehash(value=b"", **kwargs):
+        assert value != content, "transport must reuse the owner-provided digest"
+        return original_sha256(value, **kwargs)
+
+    monkeypatch.setattr(hashlib, "sha256", reject_full_rehash)
 
     class Ledger:
         async def read_artifact(self, effect_id, *, creator_party_id, kind):
             callers.append(creator_party_id)
-            return EffectArtifactContent(
-                EffectArtifactKind.PATCH, "text/plain", content
-            )
+            return artifact
 
     app, binding, _ = machine(tmp_path, effect_ledger=Ledger())
     client = InteractionClient(binding, transport=httpx.ASGITransport(app=app))
@@ -233,10 +255,12 @@ async def test_artifact_download_rejects_changed_content_without_publishing(
         async def read_artifact(self, effect_id, *, creator_party_id, kind):
             nonlocal calls
             calls += 1
+            content = (b"a" if calls == 1 else b"b") * 100000
             return EffectArtifactContent(
                 EffectArtifactKind.PATCH,
                 "text/plain",
-                (b"a" if calls == 1 else b"b") * 100000,
+                content,
+                Digest.from_bytes(content),
             )
 
     app, binding, _ = machine(tmp_path, effect_ledger=Ledger())
@@ -248,6 +272,140 @@ async def test_artifact_download_rejects_changed_content_without_publishing(
         )
     assert not output.exists()
     assert not tuple(tmp_path.glob("*.part"))
+
+
+@pytest.mark.asyncio
+async def test_web_and_machine_return_the_same_projected_final_result(tmp_path):
+    from armi_effect.api import EffectArtifactContent, EffectArtifactKind
+
+    content = "实际交付正文\n".encode()
+    digest = Digest.from_bytes(content)
+    callers = []
+
+    class Ledger:
+        async def read_artifact(self, effect_id, *, creator_party_id, kind):
+            callers.append(creator_party_id)
+            return EffectArtifactContent(kind, "text/plain", content, digest)
+
+    app, binding, _ = machine(tmp_path, effect_ledger=Ledger(), browser=True)
+    transport = httpx.ASGITransport(app=app)
+    client = InteractionClient(binding, transport=transport)
+    args = {
+        "effect_id": str(uuid7()),
+        "artifact_kind": EffectArtifactKind.FINAL_RESULT.value,
+    }
+    result = await InteractionMCPServer(client).call_tool("artifact_read", args)
+    wire = result.structured_content
+    assert wire is not None
+    assert base64.b64decode(wire["artifact"]["content"]) == content
+    assert wire["result"]["digest"] == digest.value
+    headers = {
+        "Origin": "http://127.0.0.1:6198",
+        "Sec-Fetch-Site": "same-origin",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Dest": "empty",
+    }
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://127.0.0.1:6198"
+    ) as http:
+        session = await http.post("/v1/browser-sessions", headers=headers, content=b"")
+        assert session.status_code == 200
+        headers["Authorization"] = "Bearer " + session.json()["browser_session_token"]
+        response = await http.get(
+            f"/v1/effects/{args['effect_id']}/artifacts/final_result", headers=headers
+        )
+    assert response.status_code == 200
+    assert response.content == content
+    assert response.headers["content-type"].startswith("text/plain")
+    assert set(callers) == {binding.creator_party_id}
+
+
+@pytest.mark.asyncio
+async def test_download_rejects_wrong_final_digest_without_publishing(tmp_path):
+    from armi_effect.api import EffectArtifactContent
+
+    class Ledger:
+        async def read_artifact(self, effect_id, *, creator_party_id, kind):
+            return EffectArtifactContent(
+                kind, "text/plain", b"delivered", Digest.from_bytes(b"wrong")
+            )
+
+    app, binding, _ = machine(tmp_path, effect_ledger=Ledger())
+    client = InteractionClient(binding, transport=httpx.ASGITransport(app=app))
+    output = tmp_path / "artifact.patch"
+    with pytest.raises(ValueError, match="ARTIFACT-INTEGRITY"):
+        await client.download_artifact(
+            {"effect_id": str(uuid7()), "artifact_kind": "patch"}, output
+        )
+    assert not output.exists()
+    assert not tuple(tmp_path.glob("*.part"))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("offset,length", [(0, 1), (3, 1), (4, 2), (6, 1)])
+async def test_artifact_window_preserves_byte_boundaries(tmp_path, offset, length):
+    from armi_effect.api import EffectArtifactContent
+
+    content = "你好".encode()
+
+    class Ledger:
+        async def read_artifact(self, effect_id, *, creator_party_id, kind):
+            return EffectArtifactContent(
+                kind, "text/plain", content, Digest.from_bytes(content)
+            )
+
+    app, binding, _ = machine(tmp_path, effect_ledger=Ledger())
+    client = InteractionClient(binding, transport=httpx.ASGITransport(app=app))
+    result = await client.invoke(
+        "artifact_read",
+        {
+            "effect_id": str(uuid7()),
+            "artifact_kind": "patch",
+            "offset": offset,
+            "length": length,
+        },
+    )
+    assert (
+        base64.b64decode(result["artifact"]["content"])
+        == content[offset : offset + length]
+    )
+    assert result["result"]["next_offset"] == (
+        None if offset + length >= len(content) else offset + length
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "offset,length,local_error",
+    [(7, 1, False), (-1, 1, True), (0, 0, True), (0, 1048577, True)],
+)
+async def test_invalid_artifact_window_is_rejected(
+    tmp_path, offset, length, local_error
+):
+    from armi_effect.api import EffectArtifactContent
+
+    content = b"abcdef"
+
+    class Ledger:
+        async def read_artifact(self, effect_id, *, creator_party_id, kind):
+            return EffectArtifactContent(
+                kind, "text/plain", content, Digest.from_bytes(content)
+            )
+
+    app, binding, _ = machine(tmp_path, effect_ledger=Ledger())
+    client = InteractionClient(binding, transport=httpx.ASGITransport(app=app))
+    arguments = {
+        "effect_id": str(uuid7()),
+        "artifact_kind": "patch",
+        "offset": offset,
+        "length": length,
+    }
+    if local_error:
+        with pytest.raises(ValueError, match="INTERACTION-ARGUMENTS"):
+            await client.invoke("artifact_read", arguments)
+        return
+    result = await client.invoke("artifact_read", arguments)
+    assert result["transport_status"] >= 400
 
 
 @pytest.mark.asyncio

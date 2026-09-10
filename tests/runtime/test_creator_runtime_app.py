@@ -30,7 +30,6 @@ from armi_data_rights.api import (
     DataRightsScopeKind,
     DataRightsViolation,
 )
-from armi_effect.api import EffectArtifactKind
 from armi_evidence.api import EvidenceId
 from armi_interaction.api import (
     CreatorInputAcceptance,
@@ -128,7 +127,6 @@ from armi_runtime.interfaces.browser_sessions import BrowserSessionStore
 from armi_runtime.interfaces.creator_app import create_runtime_app
 from armi_runtime.interfaces.creator_events import CreatorEventBroker
 from armi_runtime.interfaces.creator_http import (
-    creator_visible_codex_artifact,
     operation_wire,
 )
 from armi_runtime.interfaces.static_assets import StaticAsset, StaticAssetStore
@@ -1070,15 +1068,6 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                 self.assertIn("outcome", details)
                 self.assertNotIn("completion_kind", details)
                 self.assertNotIn("delivery_state", details)
-
-    def test_codex_final_result_projects_only_verified_deliverable(self) -> None:
-        content, media_type = creator_visible_codex_artifact(
-            EffectArtifactKind.FINAL_RESULT,
-            b'{"changed_paths":["result.md"],"deliverable":"done\\n","summary":"ok"}',
-            "application/json",
-        )
-        self.assertEqual(content, b"done\n")
-        self.assertEqual(media_type, "text/plain")
 
     def _status(self) -> RuntimeStatusResponse:
         snapshot = self.lifecycle.snapshot()

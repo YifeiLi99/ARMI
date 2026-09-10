@@ -185,7 +185,6 @@ from armi_runtime.application.creator_projection import (
     _scene_wire,
     _strict_object_pairs,
     _unavailable,
-    creator_visible_codex_artifact,
     operation_wire,
 )
 
@@ -762,7 +761,6 @@ __all__ = (
     "_unavailable",
     "asynccontextmanager",
     "cast",
-    "creator_visible_codex_artifact",
     "datetime",
     "operation_wire",
     "parse_last_event_id",
