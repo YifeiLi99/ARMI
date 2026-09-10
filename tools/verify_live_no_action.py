@@ -40,7 +40,7 @@ from armi_runtime.composition.model_verification import (
     load_active_binding,
     parse_candidate,
 )
-from live_ark_credential import DEFAULT_ENVIRONMENT_ROOT, load_live_ark_credential
+from live_ark_credential import load_live_ark_credential
 
 
 async def _verify(environment_root: Path) -> dict[str, object]:
@@ -295,9 +295,7 @@ async def _verify(environment_root: Path) -> dict[str, object]:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--environment-root", type=Path, default=DEFAULT_ENVIRONMENT_ROOT
-    )
+    parser.add_argument("--environment-root", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
         evidence = asyncio.run(_verify(args.environment_root.resolve()))

@@ -20,7 +20,7 @@ from armi_runtime.composition.web_search_verification import (
     WebSearchViolation,
     normalize_provider_response,
 )
-from live_ark_credential import DEFAULT_ENVIRONMENT_ROOT, load_live_ark_credential
+from live_ark_credential import load_live_ark_credential
 from openai import AsyncOpenAI
 
 _BUDGET_MICROYUAN = 2_000_000
@@ -104,9 +104,7 @@ async def _run(root: Path, environment_root: Path) -> dict[str, object]:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, default=Path.cwd())
-    parser.add_argument(
-        "--environment-root", type=Path, default=DEFAULT_ENVIRONMENT_ROOT
-    )
+    parser.add_argument("--environment-root", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
         evidence = asyncio.run(

@@ -8,7 +8,6 @@ from pathlib import Path
 from armi_kernel.application import CredentialLocator, CredentialPort, CredentialPurpose
 from armi_runtime.composition.environment import prepare_environment
 
-DEFAULT_ENVIRONMENT_ROOT = Path(__file__).resolve().parents[2] / "ARMI-Environment"
 _LOCATOR_NAME = "model.ark_api_key"
 _PURPOSE = CredentialPurpose("model.request")
 
@@ -40,7 +39,6 @@ def load_live_ark_credential(environment_root: Path) -> LiveArkCredential:
 
 
 __all__ = (
-    "DEFAULT_ENVIRONMENT_ROOT",
     "LiveArkCredential",
     "load_live_ark_credential",
 )

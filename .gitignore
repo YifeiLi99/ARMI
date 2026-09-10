@@ -2,6 +2,7 @@
 /docs/
 
 # 本地配置与凭据
+/.armi/
 .env
 .env.*
 !.env.example

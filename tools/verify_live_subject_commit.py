@@ -15,8 +15,6 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from live_ark_credential import DEFAULT_ENVIRONMENT_ROOT
-
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
@@ -24,9 +22,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--root", type=Path, default=Path(__file__).resolve().parents[1]
     )
     parser.add_argument("--tool-root", type=Path, default=Path(".armi-tools"))
-    parser.add_argument(
-        "--environment-root", type=Path, default=DEFAULT_ENVIRONMENT_ROOT
-    )
+    parser.add_argument("--environment-root", type=Path, required=True)
     args = parser.parse_args(argv)
     root = args.root.resolve()
     environment = dict(os.environ)
