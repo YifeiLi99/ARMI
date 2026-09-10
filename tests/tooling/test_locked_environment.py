@@ -59,7 +59,14 @@ class LockedEnvironmentTests(unittest.TestCase):
         tools = {item["id"]: item for item in manifest["tools"]}
         self.assertEqual(
             {tool_id for tool_id, item in tools.items() if "archive_sha256" in item},
-            {"uv", "node", "postgresql"},
+            {
+                "uv",
+                "node",
+                "postgresql",
+                "pgvector-windows",
+                "msvc-build-tools",
+                "inno-setup",
+            },
         )
         self.assertEqual(
             {tool_id for tool_id, item in tools.items() if "install_digest" in item},

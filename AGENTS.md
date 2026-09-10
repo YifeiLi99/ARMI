@@ -42,9 +42,9 @@
 
 ## 4. 数据库与配置变更
 
-- 安装版的全部 ARMI 受管文件放在用户选择的安装根目录内：程序、环境、PGDATA、凭据、模型、工具、日志、缓存、临时工作区、设置和管理记录均不可外置。程序与数据只在根内划分子目录；环境默认 `environments/active/`，独立管理记录放 `control/`。不可写时明确失败，不回退到根外 AppData 或仓库父目录。Windows 快捷方式及卸载、自启登记按系统机制保存，不承载私有数据。更新和卸载只处理受管程序，保留环境与必要管理记录，禁止递归删除整个安装根。该部署决定须由后续实现同步，不将现存外置路径当作兼容要求。
+- 安装版的全部 ARMI 受管文件放在用户选择的安装根目录内：程序、环境、PGDATA、凭据、模型、工具、日志、缓存、临时工作区、设置和管理记录均不可外置。程序与数据只在根内划分子目录；环境默认 `environments/active/`，独立管理记录放 `control/`。不可写时明确失败，不回退到根外 AppData 或仓库父目录。Windows 快捷方式及卸载、自启登记按系统机制保存，不承载私有数据。更新和卸载只处理受管程序，保留环境与必要管理记录，禁止递归删除整个安装根。不将历史外置路径当作兼容要求。
 
-- PostgreSQL 是唯一权威关系数据库；开发/测试使用项目固定的 Docker PostgreSQL 与扩展。精确版本查配置、[工具链 manifest](tools/toolchain-manifest.json) 和 packaged contract，不在此维护第二份版本快照。
+- PostgreSQL 是唯一权威关系数据库；开发、测试和安装版使用同一受管原生 PostgreSQL 与扩展制品，由 `armi-local-control` 管理独立目录和端口，不依赖 Docker。精确版本查配置、[工具链 manifest](tools/toolchain-manifest.json) 和 packaged contract，不在此维护第二份版本快照。
 - [Schema 资源](packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema/) 只保留可重做的唯一 Alembic `0000`。结构变化直接更新 baseline SQL、`0000` 资源列表、identity、owner registry、ACL 和消费者；不增加历史 revision、autogenerate、downgrade 或旧库迁移兼容。目标库显式重装，修改 schema 的授权不包含删除目标库。
 - Admin `maintenance` 的 `database_install` 只接受无用户 relation 且无 `armi` namespace 的库：namespace 独立短事务建立，`0000` 原子安装其余内容。失败可留下空 namespace，不能留下业务表或前移 revision。普通启动只验证版本、摘要和精确 ACL，不自动安装/迁移或用超级用户掩盖漂移。
 - 同一内部合同族只保留一个当前数字版本。升级同步生产者、消费者、DDL、配置、OpenAPI、生成代码、工具和测试，删除旧解析器、字段、双读双写及缺字段补默认值。第三方协议遵守其自身合同。

@@ -290,21 +290,16 @@ class ProcessPayload(Payload):
     error_code: str | None = None
 
 
-class DatabaseContainer(Payload):
-    state: str | None
-    health: str | None
-
-
 class DatabaseProcessPayload(Payload):
     ownership: Literal["exclusive", "shared", "external"]
     action: Literal["not_managed"] | None = None
-    status: Literal["started", "stopped"] | None = None
+    status: Literal["ready", "stopped"] | None = None
     reachability: (
         Literal["reachable", "unavailable", "not_authorized", "not_checked"] | None
     ) = None
     role_status: str | None = None
     error_code: str | None = None
-    containers: list[DatabaseContainer] | None = None
+    port: int | None = None
 
 
 class SemanticProcessPayload(Payload):

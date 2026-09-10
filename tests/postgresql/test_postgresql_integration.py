@@ -384,7 +384,7 @@ def _admin_cli_binding(
     binding.write_text(
         json.dumps(
             {
-                "schema_version": "armi.admin-config.v7",
+                "schema_version": "armi.admin-config.v8",
                 "operator_id": "isolated-system-agent",
                 "authorized_operations": [
                     "configuration.read",
@@ -3736,7 +3736,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
         config = AdminConfig.model_validate(
             {
-                "schema_version": "armi.admin-config.v7",
+                "schema_version": "armi.admin-config.v8",
                 "authorization_public_key": _ADMIN_AUTHORIZATION_KEY.public_key()
                 .public_bytes_raw()
                 .hex(),
@@ -3893,7 +3893,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             config = AdminConfig.model_validate(
                 {
-                    "schema_version": "armi.admin-config.v7",
+                    "schema_version": "armi.admin-config.v8",
                     "authorization_public_key": _ADMIN_AUTHORIZATION_KEY.public_key()
                     .public_bytes_raw()
                     .hex(),
@@ -4163,7 +4163,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 connection.rollback()
             config = AdminConfig.model_validate(
                 {
-                    "schema_version": "armi.admin-config.v7",
+                    "schema_version": "armi.admin-config.v8",
                     "authorization_public_key": _ADMIN_AUTHORIZATION_KEY.public_key()
                     .public_bytes_raw()
                     .hex(),

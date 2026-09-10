@@ -83,15 +83,22 @@ Schema 实际打包在 `packages/armi-postgresql-contract/src/armi_postgresql_co
 
 **安装目录约定：ARMI 自身管理的程序、数据库、凭据、模型、工具、日志、缓存、临时工作区和管理记录，全部保存在用户选择的安装根目录内。** 例如安装到 `C:\ARMI` 后，程序位于 `versions/`，环境位于 `environments/active/`，安装设置与独立管理记录位于 `control/`，缓存与临时文件位于 `cache/`、`tmp/`。首次使用直接采用安装目录内的环境位置，不再另选外部数据目录；目录不可写时明确报错，不回退到其他位置。程序与数据仅在安装根目录内部划分子目录。更新与卸载只处理受管程序文件，保留环境、凭据及必要管理记录，不递归删除整个安装根目录。Windows 快捷方式和卸载、自启登记仍使用系统机制，但不承载 ARMI 私有数据。
 
-此约定已确定，但当前已生成的测试安装包尚未适配，仍可能显示 AppData 环境选择窗口；不能把文档变更当作程序已完成修改。源码构建目录和 `.armi/reusable/` 是开发与保留资源区域，不是已安装实例的数据目录，资源投入正式使用时须显式放入安装根目录内。
+桌面入口直接打开根内默认环境的设置页；CLI/MCP 的显式环境路径也必须位于安装根的 `environments/` 下。安装进程的子进程缓存和临时目录使用根内位置，不读取旧 AppData 环境偏好。源码构建目录和 `.armi/reusable/` 是开发与保留资源区域，不是已安装实例的数据目录，资源投入正式使用时须显式放入安装根目录内。
 
-前提：目标环境已经有有效 `environment.yaml`、`data/`、`secrets/`，数据库已安装且 subject 已出生。工具链首次准备：
+Windows 11 x64 安装版包含原生 PostgreSQL、扩展、私有 Python 和已构建网页；用户不需要 Docker、全局 Python/Node、PowerShell 7 或编译器。安装位置由用户选择，通过 ARMI 入口打开首次配置和托盘。环境准备与出生分开；未显式出生不会进入正常生活。可选能力默认关闭，登录自启需在设置中开启。
+
+安装包目前是未签名本地构建，不执行在线更新。兼容更新只替换程序；数据库合同不兼容时拒绝切换。卸载保留环境数据与凭据，重新安装兼容程序可继续绑定已登记环境。既有 Docker 环境不导入、不修改。
+
+从源码构建需要 PowerShell 7；构建机先准备固定 MSVC/Inno，再准备工具链和原生数据库。最终用户不执行这些命令：
 
 ```powershell
+.\tools\prepare_windows_build_tools.ps1 -ApprovedOfficialDirect
 .\tools\bootstrap_toolchain.ps1 -ApprovedOfficialDirect
+.\tools\build_windows_payload.ps1 -OutputDirectory .tmp\windows-payload
+.\tools\build_windows_installer.ps1 -PayloadDirectory .tmp\windows-payload -OutputDirectory .tmp\installers
 ```
 
-依赖和 Web 资源在安装时准备。正式管理入口使用 wheel 安装并核对绑定中的 package set；可用 `armi-admin identity` 离线取得当前安装摘要。日常启动读取独立 Admin 绑定，按依赖顺序启动明确归属本环境的 PostgreSQL、语义召回与 Runtime，并等待核心 readiness：
+上述构建默认使用已经准备好的精确 wheel 缓存；缺失时显式失败。原生 PG 制品由 `tools/build_native_postgresql.ps1` 构建，开发与系统测试共用它。正式管理入口核对 wheel package set；可用 `armi-admin.exe identity` 离线取得当前安装摘要。已经完成环境配置和出生后，托盘或显式 Admin 绑定按依赖顺序启动 PostgreSQL、语义召回与 Runtime，并等待核心 readiness：
 
 ```powershell
 .\start_armi.ps1 -AdminConfig C:\path\to\admin.yaml -OpenBrowser
@@ -99,7 +106,13 @@ Schema 实际打包在 `packages/armi-postgresql-contract/src/armi_postgresql_co
 
 环境由 Admin 配置固定，不通过调用参数切换身份。启动不会安装依赖、安装数据库、执行出生或重建 Web。`-OpenBrowser` 是显式选项；共享或外部数据库不会随整体停止回收。
 
-新环境的明确建立顺序：
+机器可以通过安装应用服务准备新环境。以下 JSON 的 `operation_id` 必须是调用者保存并在重试中复用的 UUIDv7；安装入口从自身位置寻找全部运行依赖：
+
+```powershell
+'{"action":"prepare","operation_id":"<UUIDv7>"}' | & 'C:\ARMI\armi-setup.exe' --environment-root 'C:\ARMI\environments\active'
+```
+
+`armi-setup-mcp.exe` 使用相同请求合同；`status`、`check`、`credential`、`birth`、`login_startup` 和 `admin` 与窗口共用用例。配置不返回秘密正文；日常 Admin、Creator 签发和交互绑定相互独立。已有环境的正式维护入口：
 
 ```powershell
 $env:ARMI_ADMIN_CONFIG = 'C:\path\to\admin.yaml'

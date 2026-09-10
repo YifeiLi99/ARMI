@@ -635,6 +635,8 @@ DISTRIBUTIONS = (
             "armi-runtime-foundation==0.0.0",
             "armi-postgresql-contract==0.0.0",
             "mcp==2.0.0",
+            "packaging==26.2",
+            "pywin32==312",
             "cryptography==49.0.0",
             "psycopg[binary]==3.3.4",
             "psycopg-pool==3.3.1",
@@ -855,6 +857,9 @@ def validate_workspace_metadata(root: Path) -> list[Violation]:
                     else (
                         {
                             "armi-admin-mcp": "armi_admin.mcp.entrypoint:main",
+                            "armi-setup": "armi_admin.setup_cli:main",
+                            "armi-setup-mcp": "armi_admin.setup_cli:mcp_main",
+                            "armi-desktop": "armi_admin.desktop:main",
                             "armi-admin": "armi_admin.cli:main",
                         }
                         if distribution.name == "armi-admin"

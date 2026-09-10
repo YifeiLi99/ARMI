@@ -10,6 +10,7 @@ from typing import Literal
 from uuid import uuid7
 
 from armi_kernel.application import CredentialPurpose
+from armi_local_control import environment_control_root
 from armi_local_control.configuration.paths import has_reparse_point
 from armi_local_control.runtime_process import LocalProcessLock
 from cryptography.exceptions import InvalidSignature
@@ -70,9 +71,7 @@ class AuthorizationStore:
         self.config = config
         self.credentials = credentials
         self.root = (
-            config.environment_root.parent
-            / ".armi-admin"
-            / config.environment_id
+            environment_control_root(config.environment_root, config.environment_id)
             / "authorizations"
         )
 

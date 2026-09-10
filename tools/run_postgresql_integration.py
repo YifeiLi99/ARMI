@@ -131,10 +131,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             return completed.returncode
     except PostgreSQLUnavailable as error:
-        print(f"{error}: isolated Docker PostgreSQL is unavailable", file=sys.stderr)
+        print(f"{error}: isolated native PostgreSQL is unavailable", file=sys.stderr)
         return 2
     except PostgreSQLLaunchError as error:
-        print(f"{error}: isolated Docker PostgreSQL failed", file=sys.stderr)
+        print(f"{error}: isolated native PostgreSQL failed", file=sys.stderr)
         return 1
 
 

@@ -9,6 +9,8 @@ from uuid import uuid7
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from armi_local_control.layout import environment_control_root
+
 from .paths import has_reparse_point
 
 
@@ -33,13 +35,11 @@ def evidence_path(root: Path, environment_id: str, write_id: str) -> Path:
     if len(write_id) != 64 or any(char not in "0123456789abcdef" for char in write_id):
         raise ValueError("ADMIN-CONFIG-WRITE-IDENTITY")
     path = (
-        root.parent
-        / ".armi-admin"
-        / environment_id
+        environment_control_root(root, environment_id)
         / "configuration-writes"
         / (write_id + ".json")
     )
-    if has_reparse_point(path, root=root.parent):
+    if has_reparse_point(path, root=Path(path.anchor)):
         raise ValueError("ADMIN-CONFIG-PATH")
     return path
 

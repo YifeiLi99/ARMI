@@ -22,7 +22,7 @@ from typing import Any, Literal, cast
 from uuid import uuid7
 
 from armi_kernel.application import CredentialPurpose
-from armi_local_control import RuntimeProcessManager
+from armi_local_control import RuntimeProcessManager, environment_control_root
 from armi_local_control.configuration.paths import has_reparse_point
 from armi_local_control.lifecycle import environment_control_lock
 from armi_local_control.maintenance import (
@@ -186,12 +186,10 @@ class AdminControlPlane:
     def apply_reset(
         self, token: str, *, authorize: Callable[[], None]
     ) -> dict[str, Any]:
-        control_root = (
-            self._config.environment_root.parent
-            / ".armi-admin"
-            / self._config.environment_id
+        control_root = environment_control_root(
+            self._config.environment_root, self._config.environment_id
         )
-        if has_reparse_point(control_root, root=self._config.environment_root.parent):
+        if has_reparse_point(control_root, root=Path(control_root.anchor)):
             raise AdminControlError("ADMIN-RESET-PATH")
         control_root.mkdir(parents=True, exist_ok=True)
         with environment_control_lock(

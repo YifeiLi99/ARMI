@@ -102,7 +102,7 @@ class AdminConfig(BaseModel):
         strict=True,
     )
 
-    schema_version: Literal["armi.admin-config.v7"]
+    schema_version: Literal["armi.admin-config.v8"]
     operator_id: str = Field(
         min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$"
     )

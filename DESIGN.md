@@ -23,7 +23,7 @@ ARMI 承载一个自主电子人长期存在。系统的首要对象不是“回
 
 ## 2. 部署与进程拓扑
 
-**部署约束：已安装 ARMI 的全部受管文件必须位于同一个安装根目录。** 根内按 `versions/`（程序）、`environments/active/`（数据库、配置、凭据、模型与运行数据）、`control/`（安装设置、环境索引和独立管理记录）、`cache/`、`tmp/` 分工。管理记录放在可重置环境之外，但不能放到安装根之外。安装根不可写时明确失败，不另建 AppData 数据目录或仓库父目录下的控制目录。Windows 系统入口登记不作为私有数据存储位置。更新与卸载须按受管程序清单执行，保留环境与必要管理记录，不整根递归删除。该约束已确定，现有路径校验、首次选择窗口和外置安装索引实现尚待同步。
+**部署约束：已安装 ARMI 的全部受管文件必须位于同一个安装根目录。** 根内按 `versions/`（程序）、`environments/active/`（数据库、配置、凭据、模型与运行数据）、`control/`（安装设置、环境索引和独立管理记录）、`cache/`、`tmp/` 分工。管理记录放在可重置环境之外，但不能放到安装根之外。安装根不可写时明确失败，不另建 AppData 数据目录或仓库父目录下的控制目录。Windows 系统入口登记不作为私有数据存储位置。更新与卸载须按受管程序清单执行，保留环境与必要管理记录，不整根递归删除。桌面默认打开根内环境，Setup 统一拒绝根外环境路径；安装索引与 Admin 控制路径共享此布局，入口为自身及子进程设置根内缓存、临时目录。
 
 ```text
                          Windows local machine
@@ -52,6 +52,12 @@ ARMI 承载一个自主电子人长期存在。系统的首要对象不是“回
 ```
 
 Runtime 是唯一正常活动写入者。Admin 使用独立进程、配置、credential、pool 和 owner 管理端口；Creator UI 不接触 Admin。ARMI→Codex runner 显式关闭 MCP，不能发现 Codex→ARMI Admin 链。
+
+Windows 安装版按当前用户部署，不注册系统服务。私有 Python、锁定 wheels、已构建网页和原生 PostgreSQL 随包交付；`armi-setup` / `armi-setup-mcp` 与 Tk/ttk 窗口共用安装应用服务。首次配置只在明确的新目录生成独立凭据和绑定，完成数据库初始化后仍保持未出生，出生调用正式 owner 路径。托盘通过已有生命周期用例启停 Runtime、附属工作和所属数据库；关闭网页不停止进程。
+
+程序与环境在安装根内使用不同子目录。安装器将包放入 `versions/<package_id>`，原生 EXE 根据 `.current-version` 找到私有运行环境。程序清单记录文件摘要、包身份和数据库合同；更新先核对现有环境及数据库，再替换程序路径和包身份，原子切换版本指针。中断恢复记录只保存程序字段，不复制凭据或数据；不兼容数据库合同拒绝切换。卸载先核验并停止受管进程，保留根内环境数据和 `control/` 中必要的安装与环境身份记录。此路径不提供备份、旧 Docker 数据导入或跨 schema 迁移。
+
+原生 PG 管理器使用 `initdb`、`pg_ctl` 和数据库检查，进程身份绑定可执行文件、命令行、创建时间、数据目录、持久端口及集群 system identifier。仅监听回环地址，使用 UTF-8、UTC、builtin `C.UTF-8`、校验和与 SCRAM；端口冲突失败，不连接占用该端口的其他数据库。系统测试通过同一管理器创建独立临时集群。
 
 对外优先服务 Creator 委托的 Agent。交互绑定固定环境、Creator、delegate、凭据 locator 和读写范围；来源由认证入口写入 `party_input_interactions.delegate_id`，并进入当前输入与近期对话的 Context。代理不成为第二关系身份，不能用消息正文声明授权。
 
@@ -233,9 +239,9 @@ Effect 的 Creator 制品读取用例统一返回实际交付内容及其摘要�
 
 Admin 因果追踪从输入、认知、操作或效果引用沿 owner ports 连接 Evidence、Opportunity、冻结 Context 制品、Subject Commit、Effect、outbox 与交付，不读取私有制品正文。私有主体快照另需 `subject_snapshot.private`。Agent 的相关数据删除通过 `data_deletion_preview/apply`：预览和执行复用 Data Rights participant 的目标发现逻辑，授权绑定目标摘要；owner 在短事务中重算摘要，确认范围未变后才登记及执行删除。Creator Web 的本人申请保留，普通机器交互及混合 other-human 删除请求不能绕过一次性授权。
 
-Admin CLI/MCP 共用 `application/service.py` 和显式操作目录，配置为 `armi.admin-config.v7`。支持显式绑定的 `active`、`development`、`system_test`、`acceptance`；正式环境禁止 test controls。绑定记录 `operator_id` 和逐项 `authorized_operations`，普通配置编辑不能修改本身的管理权限。
+Admin CLI/MCP 共用 `application/service.py` 和显式操作目录，配置为 `armi.admin-config.v8`。支持显式绑定的 `active`、`development`、`system_test`、`acceptance`；正式环境禁止 test controls。绑定记录 `operator_id` 和逐项 `authorized_operations`，普通配置编辑不能修改本身的管理权限。
 
-管理 wire 为 `4.0`。生命周期、配置应用及管理写请求用稳定环境、incarnation、操作者和幂等键保存耐久回执；包升级和普通配置修改不改变回执身份。读取与预览获取当前事实，不复用写回执。`invocation get/wait` 返回阶段；运行中、已结算和中断后的 unknown 分开，不自动重放副作用，读取旧回执仍核验当前权限。
+管理 wire 为 `5.0`。生命周期、配置应用及管理写请求用稳定环境、incarnation、操作者和幂等键保存耐久回执；包升级和普通配置修改不改变回执身份。读取与预览获取当前事实，不复用写回执。`invocation get/wait` 返回阶段；运行中、已结算和中断后的 unknown 分开，不自动重放副作用，读取旧回执仍核验当前权限。
 
 重置及主体内容校正使用一次性 Ed25519 授权凭据：独立 Creator 授权绑定持有签发 locator，普通 Agent 绑定只持有验证公钥。凭据绑定具体预览、目标/版本/影响、环境 incarnation、操作者与参数，最长 10 分钟且不晚于预览到期；支持查询、撤销和耐久消费。执行继续经过停机、版本及 owner 检查，文字授权引用只作审计说明。重置不做数据库 dump 或整环境归档，正式 Creator 导出独立保留。
 

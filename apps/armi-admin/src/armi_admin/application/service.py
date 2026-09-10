@@ -14,7 +14,7 @@ from typing import Any, Literal, cast
 from uuid import uuid7
 
 from armi_kernel.application import CredentialPurpose
-from armi_local_control import ConfigurationViolation
+from armi_local_control import ConfigurationViolation, environment_control_root
 from armi_local_control.configuration.defaults import runtime_defaults_file
 from armi_local_control.configuration.editing import (
     EnvironmentConfiguration,
@@ -646,9 +646,9 @@ class AdminToolService:
             if name in {"invocation_get", "invocation_wait", "invocation_reconcile"}:
                 typed_invocation = cast(InvocationStatusRequest, request)
                 journal = InvocationJournal(
-                    self._config.environment_root.parent
-                    / ".armi-admin"
-                    / self._config.environment_id,
+                    environment_control_root(
+                        self._config.environment_root, self._config.environment_id
+                    ),
                     self._config.invocation_identity(),
                 )
                 result = journal.read(
@@ -1190,9 +1190,9 @@ class AdminToolService:
             ).encode("utf-8")
         )
         journal = InvocationJournal(
-            self._config.environment_root.parent
-            / ".armi-admin"
-            / self._config.environment_id,
+            environment_control_root(
+                self._config.environment_root, self._config.environment_id
+            ),
             self._config.invocation_identity(),
         )
         try:

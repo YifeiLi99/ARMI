@@ -54,7 +54,7 @@ def _config() -> AdminConfig:
     root = Path.cwd().resolve()
     return AdminConfig.model_validate(
         {
-            "schema_version": "armi.admin-config.v7",
+            "schema_version": "armi.admin-config.v8",
             "operator_id": "isolated-test-agent",
             "authorized_operations": tuple(item.name for item in ADMIN_OPERATIONS),
             "environment_kind": "system_test",
@@ -160,7 +160,7 @@ class AdminConfigurationTests(unittest.TestCase):
         )
         self.assertEqual(
             schema["properties"]["schema_version"]["const"],
-            "armi.admin-config.v7",
+            "armi.admin-config.v8",
         )
 
     def test_artifacts_have_no_drift(self) -> None:
@@ -474,7 +474,7 @@ class AdminProtocolTests(unittest.TestCase):
             config_path.write_text(
                 "\n".join(
                     (
-                        "schema_version: armi.admin-config.v7",
+                        "schema_version: armi.admin-config.v8",
                         "operator_id: isolated-test-agent",
                         "authorized_operations: [health]",
                         "environment_kind: system_test",

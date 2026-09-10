@@ -132,7 +132,9 @@ class AdminOperation:
                         **({"apply": apply} if action == "artifact_cleanup" else {}),
                     },
                     "required_scope": "maintenance." + action,
-                    "result_schema": AdminToolResult[MAINTENANCE_PAYLOADS[action]].model_json_schema(),
+                    "result_schema": AdminToolResult[
+                        MAINTENANCE_PAYLOADS[action]
+                    ].model_json_schema(),
                     "read_only": MaintenanceRequest.model_construct(
                         action=action, apply=apply
                     ).read_only,
@@ -149,7 +151,9 @@ class AdminOperation:
                 {
                     "selector": {"action": action},
                     "required_scope": "other_human." + action,
-                    "result_schema": AdminToolResult[OTHER_HUMAN_PAYLOADS[action]].model_json_schema(),
+                    "result_schema": AdminToolResult[
+                        OTHER_HUMAN_PAYLOADS[action]
+                    ].model_json_schema(),
                     "read_only": action in {"data_rights_list", "data_rights_get"},
                     "destructive": False,
                 }

@@ -342,7 +342,8 @@ def _reject_unknown_armi_environment(environment: Mapping[str, str]) -> None:
         name
         for name in environment
         if name.startswith("ARMI_")
-        and name not in {"ARMI_ADMIN_CONFIG", "ARMI_CLIENT_CONFIG"}
+        and name
+        not in {"ARMI_ADMIN_CONFIG", "ARMI_CLIENT_CONFIG", "ARMI_INSTALLATION_ROOT"}
         and not name.startswith("ARMI_SECRET_")
         and name not in _ENV_OVERRIDES
     )

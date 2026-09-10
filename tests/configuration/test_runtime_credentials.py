@@ -34,7 +34,10 @@ def test_credential_diagnostics_resolve_only_runtime_grants_without_exposing_val
         tmp_path, credential_scope=runtime_credential_scope(), environment={}
     )
     result = inspect_runtime_credentials(prepared)
-    checks = {item["purpose"]: item for item in cast(list[dict[str, object]], result["checks"])}
+    checks = {
+        item["purpose"]: item
+        for item in cast(list[dict[str, object]], result["checks"])
+    }
     assert checks["database.runtime"]["status"] == "resolvable"
     assert checks["model.request"]["status"] == "missing"
     assert "admin.authorization.sign" not in checks
@@ -44,7 +47,9 @@ def test_credential_diagnostics_resolve_only_runtime_grants_without_exposing_val
     denied = inspect_runtime_credentials(restricted)
     assert (
         next(
-            item for item in cast(list[dict[str, object]], denied["checks"]) if item["purpose"] == "database.runtime"
+            item
+            for item in cast(list[dict[str, object]], denied["checks"])
+            if item["purpose"] == "database.runtime"
         )["status"]
         == "unavailable"
     )

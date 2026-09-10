@@ -2,19 +2,17 @@
 
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Literal, cast
-
-from pydantic import BaseModel, ConfigDict, field_validator
+from typing import Any, Literal
 
 from .configuration import ConfigurationViolation, load_effective_config
-from .configuration.models import AbsolutePath
 from .configuration.paths import has_reparse_point
+from .layout import environment_control_root
+from .native_postgresql import NativePostgreSQL, PostgreSQLControlBinding
 from .runtime_errors import RuntimeViolation
 from .runtime_process import LocalProcessLock, RuntimeProcessManager
 from .semantic_recall_process import SemanticRecallProcessManager
@@ -22,30 +20,12 @@ from .semantic_recall_process import SemanticRecallProcessManager
 
 def environment_control_lock(root: Path, environment_id: str) -> LocalProcessLock:
     """Serialize maintenance with lifecycle outside the resettable data tree."""
-    path = root.parent / ".armi-admin" / environment_id / "environment-control.lock"
-    if has_reparse_point(path, root=root.parent):
+    path = environment_control_root(root, environment_id) / "environment-control.lock"
+    if has_reparse_point(path, root=Path(path.anchor)):
         raise RuntimeViolation(
             "LOCAL-CONTROL-PATH", "environment control path is invalid"
         )
     return LocalProcessLock(path)
-
-
-class PostgreSQLControlBinding(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-    ownership: Literal["exclusive", "shared"]
-    compose_file: AbsolutePath
-    environment_file: AbsolutePath
-    project_name: str
-    service_name: str
-
-    @field_validator("project_name", "service_name")
-    @classmethod
-    def safe_name(cls, value: str) -> str:
-        import re
-
-        if re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", value) is None:
-            raise ValueError("LOCAL-CONTROL-SERVICE-NAME")
-        return value
 
 
 class LocalEnvironmentController:
@@ -111,68 +91,16 @@ class LocalEnvironmentController:
                     else {"reachability": "not_checked"}
                 ),
             }
-        command = [
-            "docker",
-            "compose",
-            "--project-name",
-            binding.project_name,
-            "--file",
-            str(binding.compose_file),
-            "--env-file",
-            str(binding.environment_file),
-        ]
-        if action == "start":
-            command.extend(["up", "--detach", "--wait", binding.service_name])
-        elif action == "stop":
-            command.extend(["stop", binding.service_name])
-        else:
-            command.extend(["ps", "--all", "--format", "json", binding.service_name])
-        try:
-            result = subprocess.run(
-                command,
-                stdin=subprocess.DEVNULL,
-                capture_output=True,
-                timeout=120,
-                check=False,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-            )
-        except subprocess.TimeoutExpired:
-            raise RuntimeViolation(
-                "LOCAL-POSTGRESQL-UNKNOWN",
-                "managed PostgreSQL outcome is unknown; query status before retrying",
-            ) from None
-        except FileNotFoundError:
-            raise RuntimeViolation(
-                "LOCAL-POSTGRESQL-UNAVAILABLE",
-                "managed PostgreSQL command is unavailable",
-            ) from None
-        if result.returncode:
-            raise RuntimeViolation(
-                "LOCAL-POSTGRESQL-FAILED", "managed PostgreSQL operation failed"
-            )
-        if action == "status":
-            records: list[Any] = [
-                json.loads(line)
-                for line in result.stdout.decode("utf-8").splitlines()
-                if line.strip()
-            ]
-            if len(records) == 1 and isinstance(records[0], list):
-                records = cast(list[Any], records[0])
-            if any(not isinstance(item, dict) for item in records):
-                raise RuntimeViolation(
-                    "LOCAL-POSTGRESQL-RESPONSE", "invalid managed PostgreSQL status"
-                )
-            return {
-                "ownership": binding.ownership,
-                "containers": [
-                    {"state": item.get("State"), "health": item.get("Health")}
-                    for item in records
-                ],
-            }
-        return {
-            "ownership": "exclusive",
-            "status": "started" if action == "start" else "stopped",
-        }
+        result = NativePostgreSQL(
+            binding, environment_root=self.root, environment_id=self.environment_id
+        ).execute(action)
+        if (
+            action != "stop"
+            and result["status"] == "ready"
+            and self.database_probe is not None
+        ):
+            result.update(self.database_probe())
+        return result
 
     def execute(
         self,

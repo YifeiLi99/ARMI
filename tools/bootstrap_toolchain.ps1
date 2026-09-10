@@ -205,6 +205,12 @@ if (-not $PrepareToolsOnly) {
     }
 }
 
+$nativeDatabase = Join-Path $tools 'installs/postgresql-native/18.4-vector-0.8.6-utf8/pgsql/distribution.json'
+if (-not (Test-Path -LiteralPath $nativeDatabase)) {
+    & (Join-Path $PSScriptRoot 'build_native_postgresql.ps1') -ToolRoot $tools -ApprovedOfficialDirect:$ApprovedOfficialDirect
+    if ($LASTEXITCODE -ne 0) { throw 'S003-NATIVE-POSTGRESQL: native extension build failed' }
+}
+
 [pscustomobject]@{
     status = 'pass'
     python = $pythonVersion

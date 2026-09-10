@@ -49,14 +49,14 @@
     "PostgreSQLControlBinding": {
       "additionalProperties": false,
       "properties": {
-        "compose_file": {
+        "data_directory": {
           "format": "windows-absolute-path",
-          "title": "Compose File",
+          "title": "Data Directory",
           "type": "string"
         },
-        "environment_file": {
+        "installation_root": {
           "format": "windows-absolute-path",
-          "title": "Environment File",
+          "title": "Installation Root",
           "type": "string"
         },
         "ownership": {
@@ -67,21 +67,18 @@
           "title": "Ownership",
           "type": "string"
         },
-        "project_name": {
-          "title": "Project Name",
-          "type": "string"
-        },
-        "service_name": {
-          "title": "Service Name",
-          "type": "string"
+        "port": {
+          "maximum": 65535,
+          "minimum": 1024,
+          "title": "Port",
+          "type": "integer"
         }
       },
       "required": [
         "ownership",
-        "compose_file",
-        "environment_file",
-        "project_name",
-        "service_name"
+        "installation_root",
+        "data_directory",
+        "port"
       ],
       "title": "PostgreSQLControlBinding",
       "type": "object"
@@ -241,7 +238,7 @@
       "title": "Runtime Defaults Path"
     },
     "schema_version": {
-      "const": "armi.admin-config.v7",
+      "const": "armi.admin-config.v8",
       "title": "Schema Version",
       "type": "string"
     },

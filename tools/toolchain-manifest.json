@@ -12,9 +12,37 @@
     "https://github.com/astral-sh/",
     "https://playwright.azureedge.net/",
     "https://cdn.playwright.dev/",
-    "https://get.enterprisedb.com/"
+    "https://get.enterprisedb.com/",
+    "https://github.com/pgvector/",
+    "https://github.com/jrsoftware/",
+    "https://aka.ms/vs/",
+    "https://download.visualstudio.microsoft.com/"
   ],
   "tools": [
+    {
+      "id": "msvc-build-tools",
+      "version": "17.14.40",
+      "toolset_version": "14.44.35207",
+      "windows_sdk_version": "10.0.26100.0",
+      "acquisition": "official-signed-windows-installer",
+      "archive_url": "https://aka.ms/vs/17/release/vs_BuildTools.exe",
+      "archive_sha256": "c988ff1317d082a67a8b4a26ab60e5fe0a8e41de3e4c22b626a0db6b490b5425"
+    },
+    {
+      "id": "pgvector-windows",
+      "version": "0.8.6",
+      "acquisition": "official-source-msvc-x64-build",
+      "archive_url": "https://github.com/pgvector/pgvector/archive/refs/tags/v0.8.6.zip",
+      "archive_sha256": "e93a1567219c9ce523ca16473f6c41cc80e01345b2d91ccdee40b473b7c5dd0a"
+    },
+    {
+      "id": "inno-setup",
+      "version": "7.1.0",
+      "compiler_sha256": "d06ebd38f38e3cee60a3c50cc45bd449d77e0bc6a5cabc607ea9886808e4de1a",
+      "acquisition": "official-signed-windows-installer",
+      "archive_url": "https://github.com/jrsoftware/issrc/releases/download/is-7_1_0/innosetup-7.1.0-x64.exe",
+      "archive_sha256": "0362a383ed217d4c4239b5933866dd96d3eb2102737da92f80f6057a4b40df2f"
+    },
     {
       "id": "cpython",
       "version": "3.14.6",
@@ -83,7 +111,7 @@
   "lockfiles": [
     {
       "path": "uv.lock",
-      "sha256": "70f2ef327df3103d0a85cd8af08104d56575890e76eeec947f91a27aaeba4a43"
+      "sha256": "440321abebd48eea87f31df88f920cfec1b2b87dc931386b03dc657f64504c77"
     },
     {
       "path": "apps/armi-creator-web/package-lock.json",
@@ -97,7 +125,7 @@
   "offline_scope": {
     "cold_machine": "unsupported",
     "warm_cache": "Python and npm locked dependencies can be reinstalled after their exact archives have populated the isolated cache.",
-    "tool_artifacts": "uv, CPython, Node/npm, Chromium and the PostgreSQL 18.4 client tools must already exist in the isolated tool root; the database server image is managed by Docker.",
+    "tool_artifacts": "uv, CPython, Node/npm, Chromium and native PostgreSQL 18.4 with pgvector 0.8.6 must already exist in the isolated tool root. Installer construction additionally requires MSVC and Inno Setup.",
     "missing_artifact": "fail_without_network_fallback"
   }
 }

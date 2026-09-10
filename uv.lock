@@ -177,9 +177,11 @@ dependencies = [
     { name = "armi-web-observation" },
     { name = "cryptography" },
     { name = "mcp" },
+    { name = "packaging" },
     { name = "psycopg", extra = ["binary"] },
     { name = "psycopg-pool" },
     { name = "pydantic" },
+    { name = "pywin32" },
     { name = "rfc8785" },
 ]
 
@@ -206,9 +208,11 @@ requires-dist = [
     { name = "armi-web-observation", editable = "modules/web-observation" },
     { name = "cryptography", specifier = "==49.0.0" },
     { name = "mcp", specifier = "==2.0.0" },
+    { name = "packaging", specifier = "==26.2" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
     { name = "psycopg-pool", specifier = "==3.3.1" },
     { name = "pydantic", specifier = "==2.13.4" },
+    { name = "pywin32", specifier = "==312" },
     { name = "rfc8785", specifier = "==0.1.4" },
 ]
 

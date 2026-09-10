@@ -23,7 +23,7 @@ async def verify(root: Path) -> None:
     config.write_text(
         json.dumps(
             {
-                "schema_version": "armi.admin-config.v7",
+                "schema_version": "armi.admin-config.v8",
                 "operator_id": "wheel-verifier",
                 "authorized_operations": ["capabilities", "environment_status"],
                 "environment_kind": "active",

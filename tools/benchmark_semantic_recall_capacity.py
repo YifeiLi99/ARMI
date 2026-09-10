@@ -7,67 +7,20 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import os
-import secrets
-import socket
-import subprocess
-import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
 import psycopg
+from isolated_postgresql import isolated_postgresql
 from psycopg import sql
 
-_IMAGE = "pgvector/pgvector:0.8.6-pg18-trixie"
 _MODEL_BINDING = "armi.embedding.qwen3-0_6b-q8_0-local-1024.v1"
-
-
-def _port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.bind(("127.0.0.1", 0))
-        return int(probe.getsockname()[1])
-
-
-def _run(command: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        command,
-        check=False,
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    )
 
 
 def _nearest_rank_p95(values: list[float]) -> float:
     return sorted(values)[math.ceil(len(values) * 0.95) - 1]
-
-
-def _wait_for_postgres(container: str) -> None:
-    deadline = time.monotonic() + 60
-    consecutive_ready = 0
-    while time.monotonic() < deadline:
-        ready = _run(
-            [
-                "docker",
-                "exec",
-                container,
-                "pg_isready",
-                "--username=bench_admin",
-                "--dbname=postgres",
-            ]
-        )
-        if ready.returncode == 0:
-            consecutive_ready += 1
-            if consecutive_ready == 2:
-                return
-            time.sleep(0.5)
-            continue
-        consecutive_ready = 0
-        time.sleep(0.25)
-    raise RuntimeError("BENCHMARK-POSTGRES-READY")
 
 
 def _create_schema(connection: psycopg.Connection[Any]) -> None:
@@ -368,109 +321,30 @@ def main() -> int:
     if args.rows < 10_000 or args.queries < 10:
         raise SystemExit("rows must be >=10000 and queries must be >=10")
     root = args.root.resolve()
-    init_script = root / "tools/docker/postgresql/initdb/00-vector.sql"
-    if _run(["docker", "info", "--format", "{{.ServerVersion}}"]).returncode != 0:
-        raise SystemExit("Docker Engine is unavailable")
-    port = _port()
-    password = secrets.token_urlsafe(32)
-    container = f"armi-semantic-benchmark-{os.getpid()}-{secrets.token_hex(4)}"
-    temporary_root = root / ".tmp"
-    temporary_root.mkdir(exist_ok=True)
-    started = False
-    with tempfile.TemporaryDirectory(
-        prefix="semantic-benchmark-", dir=temporary_root
-    ) as temporary:
-        environment_file = Path(temporary) / "container.env"
-        environment_file.write_text(
-            "\n".join(
-                (
-                    "POSTGRES_DB=postgres",
-                    "POSTGRES_USER=bench_admin",
-                    f"POSTGRES_PASSWORD={password}",
-                    "POSTGRES_INITDB_ARGS=--encoding=UTF8 "
-                    "--locale-provider=builtin --builtin-locale=C.UTF-8",
-                    "TZ=UTC",
-                    "",
-                )
-            ),
-            encoding="utf-8",
-            newline="\n",
+    with isolated_postgresql(root) as database:
+        dsn = database.admin_dsn
+        with psycopg.connect(dsn) as connection:
+            _create_schema(connection)
+            connection.commit()
+            insert_seconds = _insert_rows(connection, 1, args.rows)
+            index_seconds = _build_indexes(connection, args.gist_siglen)
+            connection.execute("ANALYZE bench.projections")
+            connection.commit()
+            result = _benchmark(
+                connection, dsn, args.rows, args.queries, args.gist_siglen
+            )
+        print(
+            json.dumps(
+                {
+                    **result,
+                    "insert_seconds": round(insert_seconds, 3),
+                    "index_build_seconds": round(index_seconds, 3),
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            )
         )
-        try:
-            launch = _run(
-                [
-                    "docker",
-                    "run",
-                    "--detach",
-                    "--name",
-                    container,
-                    "--env-file",
-                    os.fspath(environment_file),
-                    "--shm-size",
-                    "2g",
-                    "--publish",
-                    f"127.0.0.1:{port}:5432",
-                    "--mount",
-                    f"type=bind,src={init_script.resolve()},"
-                    "dst=/docker-entrypoint-initdb.d/00-vector.sql,readonly",
-                    "--tmpfs",
-                    "/var/lib/postgresql:rw",
-                    _IMAGE,
-                    "-c",
-                    "shared_buffers=256MB",
-                    "-c",
-                    "max_connections=20",
-                ]
-            )
-            if launch.returncode != 0:
-                raise RuntimeError(launch.stderr.strip() or "BENCHMARK-START")
-            started = True
-            _wait_for_postgres(container)
-            dsn = f"postgresql://bench_admin:{password}@127.0.0.1:{port}/postgres"
-            with psycopg.connect(dsn) as connection:
-                _create_schema(connection)
-                connection.commit()
-                insert_seconds = _insert_rows(connection, 1, args.rows)
-                index_seconds = _build_indexes(connection, args.gist_siglen)
-                connection.execute("ANALYZE bench.projections")
-                connection.commit()
-                result = _benchmark(
-                    connection, dsn, args.rows, args.queries, args.gist_siglen
-                )
-            stats = _run(
-                [
-                    "docker",
-                    "stats",
-                    "--no-stream",
-                    "--format",
-                    "{{.CPUPerc}}|{{.MemUsage}}",
-                    container,
-                ]
-            )
-            print(
-                json.dumps(
-                    {
-                        **result,
-                        "insert_seconds": round(insert_seconds, 3),
-                        "index_build_seconds": round(index_seconds, 3),
-                        "container_resources_after_benchmark": stats.stdout.strip(),
-                    },
-                    ensure_ascii=False,
-                    sort_keys=True,
-                )
-            )
-            return 0
-        except Exception:
-            if started:
-                logs = _run(["docker", "logs", "--tail", "80", container])
-                if logs.stdout:
-                    print(logs.stdout)
-                if logs.stderr:
-                    print(logs.stderr)
-            raise
-        finally:
-            if started:
-                _run(["docker", "rm", "--force", container])
+    return 0
 
 
 if __name__ == "__main__":

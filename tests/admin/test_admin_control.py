@@ -38,7 +38,7 @@ def _config(root: Path) -> AdminConfig:
     (environment / "environment.yaml").write_text("fixture: true\n", encoding="utf-8")
     return AdminConfig.model_validate(
         {
-            "schema_version": "armi.admin-config.v7",
+            "schema_version": "armi.admin-config.v8",
             "operator_id": "isolated-test-agent",
             "authorized_operations": tuple(item.name for item in ADMIN_OPERATIONS),
             "environment_kind": "system_test",
