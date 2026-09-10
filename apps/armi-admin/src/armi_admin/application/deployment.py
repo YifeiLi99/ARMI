@@ -26,13 +26,11 @@ class EnvironmentIndex(BaseModel):
 
 
 def installed_root(program: Path) -> Path | None:
-    if program.parent.name != "versions":
-        return None
-    candidate = program.parent.parent
-    current = candidate / ".current-version"
-    if current.exists() and current.read_text(encoding="ascii").strip() == program.name:
-        return candidate
-    return None
+    return (
+        program.parent
+        if program.name == "app" and (program / "bundle.json").is_file()
+        else None
+    )
 
 
 def environment_index(installation: Path) -> Path:

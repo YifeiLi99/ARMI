@@ -65,22 +65,11 @@ static int launch(int argc, wchar_t **argv) {
         CloseHandle(update);
         return 2;
     }
-    if (swprintf_s(pointer, 32768, L"%s\\.current-version", root) < 0) return 2;
-    HANDLE file = CreateFileW(pointer, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, 0, NULL);
-    if (file != INVALID_HANDLE_VALUE) {
-        char version[27] = {0};
-        DWORD count = 0;
-        BOOL read = ReadFile(file, version, 26, &count, NULL);
-        CloseHandle(file);
-        if (!read || count != 25 || version[24] != '\n') return 2;
-        wchar_t identifier[25] = {0};
-        for (int i = 0; i < 24; ++i) {
-            if (!((version[i] >= '0' && version[i] <= '9') || (version[i] >= 'a' && version[i] <= 'f'))) return 2;
-            identifier[i] = (wchar_t)version[i];
-        }
-        if (swprintf_s(pointer, 32768, L"%s\\versions\\%s", root, identifier) < 0) return 2;
+    if (swprintf_s(pointer, 32768, L"%s\\app\\bundle.json", root) < 0) return 2;
+    if (GetFileAttributesW(pointer) != INVALID_FILE_ATTRIBUTES) {
+        if (swprintf_s(pointer, 32768, L"%s\\app", root) < 0) return 2;
         if (wcscpy_s(root, 32768, pointer)) return 2;
-    } else if (GetLastError() != ERROR_FILE_NOT_FOUND) return 2;
+    }
     if (!SetEnvironmentVariableW(L"ARMI_INSTALLATION_ROOT", root)) return 2;
     wchar_t launcherPid[32];
     if (swprintf_s(launcherPid, 32, L"%lu", GetCurrentProcessId()) < 0) return 2;

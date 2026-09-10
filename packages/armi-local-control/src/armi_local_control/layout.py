@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 def program_installation_root(program: Path) -> Path:
-    return program.parent.parent if program.parent.name == "versions" else program
+    return program.parent if program.name == "app" else program
 
 
 def environment_control_root(environment: Path, environment_id: str) -> Path:

@@ -88,7 +88,7 @@ def test_setup_transport_redacts_input_from_failure(tmp_path):
 
 
 def test_installed_environment_stays_inside_installation(tmp_path):
-    program = tmp_path / "versions/package"
+    program = tmp_path / "app"
     environment = tmp_path / "environments/active"
     assert SetupPaths(environment_root=environment, installation_root=program)
     for forbidden in (

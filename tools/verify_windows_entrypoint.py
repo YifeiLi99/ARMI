@@ -13,14 +13,29 @@ from tempfile import TemporaryDirectory
 from uuid import uuid7
 
 import psutil
+from armi_admin.application.distribution import ProgramBundle
 from mcp.client import Client
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from verify_machine_wheel import verify
 
 
-async def check(program: Path) -> None:
+async def check(program: Path, *, installed: bool = False) -> None:
     executable = program / "ARMI.exe"
-    assert {p.name for p in program.glob("*.exe")} == {"ARMI.exe"}
+    expected_entries = {"ARMI.exe", "unins000.exe"} if installed else {"ARMI.exe"}
+    assert {p.name for p in program.glob("*.exe")} == expected_entries
+    if installed:
+        current = program / "app"
+        bundle = ProgramBundle.read(current)
+        bundle.verify(current)
+        assert {p.name for p in current.glob("*.exe")} == {"ARMI.exe"}
+        assert executable.read_bytes() == (current / "ARMI.exe").read_bytes()
+        for obsolete in (
+            "versions",
+            ".current-version",
+            ".activation.json",
+            "tmp/update/previous",
+        ):
+            assert not (program / obsolete).exists(), obsolete
     environment = {k: v for k, v in os.environ.items() if not k.startswith("ARMI_")}
     environment["PATH"] = str(Path(os.environ["SYSTEMROOT"]) / "System32")
     for mode in ("cli", "mcp"):
@@ -41,10 +56,18 @@ async def check(program: Path) -> None:
         timeout=30,
         check=False,
     )
-    assert (
-        result.returncode == 0
-        and json.loads(result.stdout)["status"] == "not_configured"
-    )
+    assert result.returncode == 0
+    status = json.loads(result.stdout)["status"]
+    assert status in {
+        "not_configured",
+        "claimed",
+        "configured",
+        "roles_ready",
+        "installing",
+        "ready",
+    }
+    if not installed:
+        assert status == "not_configured"
     with TemporaryDirectory(prefix="entrypoint-", dir=program.parent) as raw:
         root = Path(raw)
         await verify(root, executable)
@@ -116,4 +139,6 @@ async def check(program: Path) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("program", type=Path)
-    asyncio.run(check(parser.parse_args().program.resolve()))
+    parser.add_argument("--installed", action="store_true")
+    arguments = parser.parse_args()
+    asyncio.run(check(arguments.program.resolve(), installed=arguments.installed))

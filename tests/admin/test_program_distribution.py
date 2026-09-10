@@ -8,6 +8,20 @@ from armi_admin.application.distribution import ProgramBundle
 from armi_admin.install_cli import activate, recover
 
 
+@pytest.fixture(autouse=True)
+def fake_program_probe():
+    with patch("armi_admin.install_cli.verify_program"):
+        yield
+
+
+def staged(root: Path, **kwargs) -> Path:
+    temporary = root / "tmp/update/staging"
+    identity = bundle(temporary, **kwargs)
+    target = temporary.with_name(identity.package_id)
+    temporary.rename(target)
+    return target
+
+
 def bundle(
     root: Path, *, schema_digest: str = "schema-a", launcher: bytes = b"launcher-a"
 ) -> ProgramBundle:
@@ -61,10 +75,7 @@ def test_activation_rejects_incompatible_database_before_stopping(tmp_path):
     (installation / ".current-version").write_text(
         previous.name + "\n", encoding="ascii"
     )
-    staging = installation / "versions/staging"
-    new_bundle = bundle(staging, schema_digest="schema-b")
-    new = staging.with_name(new_bundle.package_id)
-    staging.rename(new)
+    new = staged(installation, schema_digest="schema-b")
     with (
         patch("armi_admin.install_cli.registered_environments", return_value=()),
         patch("armi_admin.install_cli._run_admin") as run,
@@ -80,7 +91,7 @@ def test_recovery_rejects_environment_not_owned_by_installation(tmp_path):
     (tmp_path / ".activation.json").write_text(
         json.dumps(
             {
-                "schema_version": "armi.program-activation.v2",
+                "schema_version": "armi.program-activation.v3",
                 "old_version": None,
                 "new_version": "1" * 24,
                 "environments": [
@@ -108,9 +119,8 @@ def test_environment_index_cannot_register_external_data(tmp_path):
         registered_environments,
     )
 
-    program = tmp_path / "versions/current"
-    program.mkdir(parents=True)
-    (tmp_path / ".current-version").write_text("current\n", encoding="ascii")
+    program = tmp_path / "app"
+    bundle(program)
     environment = tmp_path / "environments/active"
     register_environment(program, environment)
     assert registered_environments(tmp_path) == (environment,)
@@ -136,30 +146,19 @@ def test_process_temporary_and_cache_paths_stay_under_installation(
         assert Path(os.environ[name]).is_relative_to(tmp_path)
 
 
-def test_failed_pointer_switch_restores_main_executable_and_version(tmp_path):
-    old = tmp_path / "versions/old"
-    before = bundle(old)
-    previous = old.with_name(before.package_id)
-    old.rename(previous)
+def test_failed_program_check_restores_main_executable_and_app(tmp_path):
+    before = bundle(tmp_path / "app")
     (tmp_path / "ARMI.exe").write_bytes(b"launcher-a")
-    (tmp_path / ".current-version").write_text(previous.name + "\n", encoding="ascii")
-    staging = tmp_path / "versions/staging"
-    after = bundle(staging, launcher=b"launcher-b")
-    target = staging.with_name(after.package_id)
-    staging.rename(target)
-
-    def publish(root, value):
-        if value == target.name:
-            raise OSError("interrupted before commit")
-        (root / ".current-version").write_text(value + "\n", encoding="ascii")
-
+    target = staged(tmp_path, launcher=b"launcher-b")
     with (
-        patch("armi_admin.install_cli._publish_pointer", side_effect=publish),
+        patch("armi_admin.install_cli.verify_program", side_effect=OSError("probe")),
         pytest.raises(OSError),
     ):
         activate(tmp_path, target)
     assert (tmp_path / "ARMI.exe").read_bytes() == b"launcher-a"
-    assert (tmp_path / ".current-version").read_text().strip() == previous.name
+    assert ProgramBundle.read(tmp_path / "app") == before
+    before.verify(tmp_path / "app")
+    assert not (tmp_path / "tmp/update/previous").exists()
     assert not (tmp_path / ".activation.json").exists()
 
 
@@ -174,7 +173,7 @@ def test_modified_root_entry_is_not_overwritten(tmp_path):
         patch("armi_admin.install_cli.stop_desktop") as stop,
         pytest.raises(ValueError, match="INSTALLER-LAUNCHER-OWNER"),
     ):
-        activate(tmp_path, previous)
+        activate(tmp_path, staged(tmp_path, launcher=b"launcher-b"))
     stop.assert_not_called()
     assert (tmp_path / "ARMI.exe").read_bytes() == b"not the installed program"
 
@@ -184,19 +183,13 @@ def test_occupied_windows_entry_fails_then_recovers_after_release(tmp_path):
 
     if sys.platform != "win32":
         pytest.skip("Windows executable replacement semantics")
-    staging = tmp_path / "versions/staging"
-    before = bundle(staging)
-    previous = staging.with_name(before.package_id)
-    staging.rename(previous)
+    previous = staged(tmp_path)
     activate(tmp_path, previous)
-    staging = tmp_path / "versions/staging"
-    after = bundle(staging, launcher=b"launcher-b")
-    target = staging.with_name(after.package_id)
-    staging.rename(target)
+    target = staged(tmp_path, launcher=b"launcher-b")
     with (tmp_path / "ARMI.exe").open("rb"), pytest.raises(PermissionError):
         activate(tmp_path, target)
     assert (tmp_path / "ARMI.exe").read_bytes() == b"launcher-a"
-    assert (tmp_path / ".current-version").read_text().strip() == previous.name
+    assert ProgramBundle.read(tmp_path / "app").package_id == previous.name
     recover(tmp_path)
     assert not (tmp_path / ".activation.json").exists()
     activate(tmp_path, target)
@@ -236,3 +229,81 @@ def test_enabled_legacy_startup_is_preserved_and_rewired(tmp_path):
         assert write.call_args.args[-1] == subprocess.list2cmdline(
             [str(launcher), "--environment-root", str(environment), "--background"]
         )
+
+
+def test_legacy_upgrade_removes_owned_history_and_keeps_data(tmp_path):
+    old = tmp_path / "versions/staging"
+    before = bundle(old)
+    old.rename(old.with_name(before.package_id))
+    (tmp_path / ".current-version").write_text(before.package_id, encoding="ascii")
+    (tmp_path / "ARMI.exe").write_bytes(b"launcher-a")
+    data = tmp_path / "environments/active/marker"
+    data.parent.mkdir(parents=True)
+    data.write_bytes(b"retained data")
+    target = staged(tmp_path, launcher=b"launcher-b")
+    activate(tmp_path, target)
+    assert ProgramBundle.read(tmp_path / "app").package_id == target.name
+    assert not (tmp_path / "versions").exists()
+    assert not (tmp_path / ".current-version").exists()
+    assert data.read_bytes() == b"retained data"
+
+
+def test_interrupted_copy_recovers_and_next_update_cleans_previous(tmp_path):
+    before = bundle(tmp_path / "app")
+    (tmp_path / "ARMI.exe").write_bytes(b"launcher-a")
+    target = staged(tmp_path, launcher=b"launcher-b")
+
+    def interrupted(source, destination, identity):
+        destination.mkdir()
+        (destination / "program.txt").write_bytes(b"partial")
+        raise KeyboardInterrupt
+
+    with (
+        patch("armi_admin.install_cli.copy_program", side_effect=interrupted),
+        pytest.raises(KeyboardInterrupt),
+    ):
+        activate(tmp_path, target)
+    assert (tmp_path / ".activation.json").exists()
+    recover(tmp_path)
+    before.verify(tmp_path / "app")
+    assert (tmp_path / "ARMI.exe").read_bytes() == b"launcher-a"
+    activate(tmp_path, target)
+    assert not (tmp_path / "tmp/update/previous").exists()
+    assert not (tmp_path / ".activation.json").exists()
+
+
+def test_cleanup_preserves_unknown_and_modified_files(tmp_path):
+    from armi_admin.application.program_files import remove_program
+
+    program = tmp_path / "app"
+    identity = bundle(program)
+    (program / "user.txt").write_bytes(b"user")
+    (program / "program.txt").write_bytes(b"modified")
+    assert remove_program(program, identity) is False
+    assert (program / "user.txt").read_bytes() == b"user"
+    assert (program / "program.txt").read_bytes() == b"modified"
+    assert (program / "bundle.json").exists()
+    assert not (program / "ARMI.exe").exists()
+
+
+def test_committed_cleanup_interruption_finishes_without_rolling_back(tmp_path):
+    old = tmp_path / "versions/staging"
+    before = bundle(old)
+    old.rename(old.with_name(before.package_id))
+    (tmp_path / ".current-version").write_text(before.package_id, encoding="ascii")
+    (tmp_path / "ARMI.exe").write_bytes(b"launcher-a")
+    target = staged(tmp_path, launcher=b"launcher-b")
+    original = Path.rmdir
+
+    def interrupted(path):
+        if path == old.with_name(before.package_id):
+            raise OSError("interrupted after file cleanup")
+        original(path)
+
+    with patch.object(Path, "rmdir", interrupted), pytest.raises(OSError):
+        activate(tmp_path, target)
+    assert (tmp_path / ".activation.json").exists()
+    recover(tmp_path)
+    assert ProgramBundle.read(tmp_path / "app").package_id == target.name
+    assert not (tmp_path / "versions").exists()
+    assert not (tmp_path / ".activation.json").exists()

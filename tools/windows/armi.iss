@@ -31,7 +31,7 @@ RestartApplications=no
 SetupLogging=yes
 
 [Files]
-Source: "{#PayloadRoot}\*"; DestDir: "{app}\versions\{#PackageId}"; Flags: ignoreversion recursesubdirs createallsubdirs onlyifdoesntexist
+Source: "{#PayloadRoot}\*"; DestDir: "{app}\tmp\update\{#PackageId}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#PayloadRoot}\bundle.json"; DestDir: "{app}\tmp"; DestName: "activate-{#PackageId}.json"; Flags: ignoreversion; AfterInstall: ActivateProgram
 
 [Icons]
@@ -42,6 +42,7 @@ Name: "{group}\Uninstall ARMI"; Filename: "{uninstallexe}"; Check: ActivationRea
 Filename: "{app}\ARMI.exe"; Description: "Open ARMI"; Flags: postinstall nowait skipifsilent; Check: ActivationReady
 
 [UninstallDelete]
+#include UninstallInventory
 Type: files; Name: "{app}\ARMI.exe"
 Type: files; Name: "{app}\ARMI.exe.pending"
 Type: files; Name: "{app}\.current-version"
@@ -76,7 +77,7 @@ var
   ExitCode: Integer;
   ProgramRoot: String;
 begin
-    ProgramRoot := ExpandConstant('{app}\versions\{#PackageId}');
+    ProgramRoot := ExpandConstant('{app}\tmp\update\{#PackageId}');
     Activated := False;
     if not Exec(ProgramRoot + '\runtime\python\pythonw.exe',
       '-I -B -m armi_admin.install_cli activate --installation-root "' + ExpandConstant('{app}') +
@@ -90,6 +91,9 @@ begin
       Exit;
     end;
     Activated := True;
+    { The staging interpreter has exited; only this installer-owned staging path is removed. }
+    if not DelTree(ProgramRoot, True, True, True) then
+      Log('ARMI-STAGING-CLEANUP-PENDING: staging files remain');
     DeleteFile(ExpandConstant('{group}\ARMI Settings.lnk'));
     DeleteFile(ExpandConstant('{app}\tmp\activate-{#PackageId}.json'));
 end;
@@ -97,15 +101,8 @@ end;
 function InitializeUninstall: Boolean;
 var
   ExitCode: Integer;
-  Version: AnsiString;
 begin
-  Result := LoadStringFromFile(ExpandConstant('{app}\.current-version'), Version);
-  if not Result then Exit;
-  if (Length(Trim(String(Version))) <> 24) or (Pos('\', String(Version)) > 0) or (Pos('/', String(Version)) > 0) then begin
-    Result := False;
-    Exit;
-  end;
-  Result := Exec(ExpandConstant('{app}\versions\') + Trim(String(Version)) + '\runtime\python\pythonw.exe',
+  Result := Exec(ExpandConstant('{app}\app\runtime\python\pythonw.exe'),
     '-I -B -m armi_admin.install_cli uninstall --installation-root "' + ExpandConstant('{app}') + '"',
     '', SW_HIDE, ewWaitUntilTerminated, ExitCode);
   if Result then Result := ExitCode = 0;

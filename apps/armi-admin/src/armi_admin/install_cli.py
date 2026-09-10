@@ -27,6 +27,7 @@ from armi_admin.application.deployment import (
 )
 from armi_admin.application.distribution import ProgramBundle
 from armi_admin.application.installation import SetupIdentity
+from armi_admin.application.program_files import copy_program, remove_program
 from armi_admin.composition import bootstrap_admin
 from armi_admin.windows_startup import login_startup
 from armi_admin.windows_tray import stop_desktop
@@ -47,15 +48,6 @@ def _pointer(root: Path) -> str | None:
     if len(value) != 24 or any(letter not in "0123456789abcdef" for letter in value):
         raise ValueError("INSTALLER-CURRENT-VERSION")
     return value
-
-
-def _publish_pointer(root: Path, value: str) -> None:
-    temporary = root / ".current-version.pending"
-    with temporary.open("w", encoding="ascii", newline="\n") as output:
-        output.write(value + "\n")
-        output.flush()
-        os.fsync(output.fileno())
-    os.replace(temporary, root / ".current-version")
 
 
 def _run_admin(program: Path, environment: Path, action: str) -> dict[str, Any]:
@@ -108,64 +100,113 @@ def _restore_fields(config: dict[str, Any], fields: dict[str, Any]) -> dict[str,
     }
 
 
+def _program_path(root: Path, program: Path) -> bool:
+    return program == root / "app" or (
+        program.parent == root / "versions"
+        and len(program.name) == 24
+        and all(c in "0123456789abcdef" for c in program.name)
+    )
+
+
+def _installed_program(root: Path) -> Path | None:
+    if (root / "app/bundle.json").is_file():
+        return root / "app"
+    previous = _pointer(root)
+    return root / "versions" / previous if previous else None
+
+
+def _finish_update(root: Path, journal: dict[str, Any]) -> None:
+    for item in journal["environments"]:
+        login_startup(
+            root / "ARMI.exe", Path(item["environment_root"]), None, migrate=True
+        )
+    old_version = journal["old_version"]
+    _clean_legacy_launchers(root, old_version)
+    previous = root / "tmp/update/previous"
+    if previous.exists():
+        if not any(previous.iterdir()):
+            previous.rmdir()
+        else:
+            remove_program(previous, ProgramBundle.read(previous))
+    versions = root / "versions"
+    if versions.exists():
+        if has_reparse_point(versions, root=root):
+            raise ValueError("INSTALLER-CLEANUP-BOUNDARY")
+        for program in versions.iterdir():
+            if _program_path(root, program) and program.is_dir():
+                if has_reparse_point(program, root=root):
+                    raise ValueError("INSTALLER-CLEANUP-BOUNDARY")
+                if (program / "bundle.json").is_file():
+                    remove_program(program, ProgramBundle.read(program))
+                elif not any(program.iterdir()):
+                    program.rmdir()
+        if not any(versions.iterdir()):
+            versions.rmdir()
+    for name in (
+        ".current-version",
+        ".current-version.pending",
+        "ARMI.exe.pending",
+        "tmp/update/launcher.previous",
+        "control/update/launcher.previous",
+    ):
+        (root / name).unlink(missing_ok=True)
+    (root / ".activation.json").unlink()
+
+
 def recover(root: Path) -> None:
     path = root / ".activation.json"
     if not path.exists():
         return
     journal: dict[str, Any] = json.loads(path.read_bytes())
-    if journal.get("schema_version") != "armi.program-activation.v2":
+    if journal.get("schema_version") != "armi.program-activation.v3":
         raise ValueError("INSTALLER-ACTIVATION-JOURNAL")
     registered = set(registered_environments(root))
     for item in journal["environments"]:
         environment = Path(item["environment_root"])
-        old_program = Path(item["program_binding"]["installation_root"])
         if (
             environment not in registered
-            or has_reparse_point(environment, root=Path(environment.anchor))
-            or old_program.parent != root / "versions"
+            or has_reparse_point(environment, root=root)
+            or not _program_path(
+                root, Path(item["program_binding"]["installation_root"])
+            )
         ):
             raise ValueError("INSTALLER-ACTIVATION-BOUNDARY")
-    current = _pointer(root)
-    launcher = journal.get("launcher")
-    if current == journal["new_version"] and (
-        launcher is None
-        or (root / "ARMI.exe").read_bytes()
-        == (root / "versions" / journal["new_version"] / "ARMI.exe").read_bytes()
-    ):
-        for item in journal["environments"]:
-            login_startup(
-                root / "ARMI.exe", Path(item["environment_root"]), None, migrate=True
-            )
-        if launcher is not None:
-            _clean_legacy_launchers(root, journal["old_version"])
-        path.unlink()
+    if journal["phase"] == "committed":
+        _finish_update(root, journal)
         return
-    if current not in {journal["old_version"], journal["new_version"]}:
-        raise ValueError("INSTALLER-ACTIVATION-CONFLICT")
-    if launcher is not None:
-        backup = root / "control/update/launcher.previous"
-        if launcher["previous"]:
+    if journal["phase"] != "prepared":
+        raise ValueError("INSTALLER-ACTIVATION-JOURNAL")
+    bundle = ProgramBundle.model_validate(journal["bundle"])
+    app = root / "app"
+    previous = root / "tmp/update/previous"
+    # A crash before the first rename leaves the original app in place.
+    if not journal["had_app"] or previous.exists():
+        if not remove_program(app, bundle, partial=True):
+            raise ValueError("INSTALLER-RECOVERY-FOREIGN-FILES")
+        if previous.exists():
+            previous.rename(app)
+    backup = root / "tmp/update/launcher.previous"
+    launcher = root / "ARMI.exe"
+    if journal["had_launcher"]:
+        if not launcher.exists() or launcher.read_bytes() != backup.read_bytes():
             shutil.copyfile(backup, root / "ARMI.exe.pending")
-            os.replace(root / "ARMI.exe.pending", root / "ARMI.exe")
-        else:
-            (root / "ARMI.exe").unlink(missing_ok=True)
-        if journal["old_version"] is None:
-            (root / ".current-version").unlink(missing_ok=True)
-        else:
-            _publish_pointer(root, journal["old_version"])
+            os.replace(root / "ARMI.exe.pending", launcher)
+    else:
+        launcher.unlink(missing_ok=True)
     for item in journal["environments"]:
         environment = Path(item["environment_root"])
         for name, fields in item["configurations"].items():
             if name not in {"admin.yaml", "issuer.yaml"}:
                 raise ValueError("INSTALLER-ACTIVATION-CONFIG")
             config_path = environment / name
-            current_config = load_yaml_mapping(config_path.read_bytes())
             restored = AdminConfig.model_validate(
-                _restore_fields(current_config, fields)
+                _restore_fields(load_yaml_mapping(config_path.read_bytes()), fields)
             )
             write_control(config_path, restored.model_dump(mode="json"))
         write_control(environment / ".setup/program.json", item["program_binding"])
+    (root / "ARMI.exe.pending").unlink(missing_ok=True)
     path.unlink()
+    backup.unlink(missing_ok=True)
 
 
 def configure_process_paths(root: Path) -> None:
@@ -184,9 +225,9 @@ def configure_process_paths(root: Path) -> None:
 
 def recover_startup() -> None:
     program = Path(os.environ["ARMI_INSTALLATION_ROOT"])
-    if program.parent.name != "versions":
+    if program.name != "app":
         return
-    root = program.parent.parent
+    root = program.parent
     configure_process_paths(root)
     if (root / ".activation.json").exists():
         with LocalProcessLock(root / ".update.lock"):
@@ -211,6 +252,8 @@ def _clean_legacy_launchers(
     if previous is None:
         return
     old_program = root / "versions" / previous
+    if not (old_program / "bundle.json").exists():
+        return
     old = ProgramBundle.read(old_program)
     for name in old.files:
         if (
@@ -271,34 +314,54 @@ def _check_database(program: Path, bundle: ProgramBundle, environment: Path) -> 
         database.execute("stop")
 
 
+def verify_program(program: Path) -> None:
+    result = subprocess.run(
+        [
+            str(program / "runtime/python/python.exe"),
+            "-I",
+            "-B",
+            "-m",
+            "armi_admin.cli",
+            "identity",
+        ],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        timeout=60,
+        check=False,
+        creationflags=subprocess.CREATE_NO_WINDOW,
+    )
+    if result.returncode != 0:
+        raise ValueError("INSTALLER-PROGRAM-CHECK")
+
+
 def activate(root: Path, program: Path) -> dict[str, object]:
     root = root.resolve(strict=True)
     program = program.resolve(strict=True)
     bundle = ProgramBundle.read(program)
     bundle.verify(program)
-    if program.parent != root / "versions" or program.name != bundle.package_id:
+    if program.parent != root / "tmp/update" or program.name != bundle.package_id:
         raise ValueError("INSTALLER-STAGING-BOUNDARY")
     with LocalProcessLock(root / ".update.lock"):
         recover(root)
-        previous = _pointer(root)
+        previous = _installed_program(root)
+        old_version = _pointer(root)
         environments = tuple(
             environment
             for environment in registered_environments(root)
             if environment.exists()
         )
         if previous is not None:
-            old_bundle = ProgramBundle.read(root / "versions" / previous)
+            old_bundle = ProgramBundle.read(previous)
             if old_bundle.database != bundle.database:
                 raise ValueError("INSTALLER-DATABASE-CONTRACT-INCOMPATIBLE")
-            old_bundle.verify(root / "versions" / previous)
+            old_bundle.verify(previous)
         launcher = root / "ARMI.exe"
         if launcher.exists() and (
             previous is None
-            or launcher.read_bytes()
-            != (root / "versions" / previous / "armi.exe").read_bytes()
+            or launcher.read_bytes() != (previous / "ARMI.exe").read_bytes()
         ):
             raise ValueError("INSTALLER-LAUNCHER-OWNER")
-        _clean_legacy_launchers(root, previous, check_only=True)
+        _clean_legacy_launchers(root, old_version, check_only=True)
         plans: list[dict[str, Any]] = []
         for environment in environments:
             if has_reparse_point(environment, root=Path(environment.anchor)):
@@ -307,7 +370,7 @@ def activate(root: Path, program: Path) -> dict[str, object]:
             if binding.database != bundle.database:
                 raise ValueError("INSTALLER-DATABASE-CONTRACT-INCOMPATIBLE")
             old_program = Path(binding.installation_root)
-            if old_program.parent != root / "versions":
+            if not _program_path(root, old_program):
                 raise ValueError("INSTALLER-ENVIRONMENT-OWNER")
             configurations = {
                 name: load_yaml_mapping((environment / name).read_bytes())
@@ -339,47 +402,58 @@ def activate(root: Path, program: Path) -> dict[str, object]:
                 ProgramBundle.read(old_program).verify(old_program)
                 _run_admin(old_program, environment, "stop")
             _check_database(program, bundle, environment)
-        private_directory(root / "control/update")
+        app = root / "app"
+        backup = root / "tmp/update/previous"
+        if backup.exists() or (app.exists() and previous != app):
+            raise ValueError("INSTALLER-APP-DIRECTORY-NOT-OWNED")
+        private_directory(root / "tmp/update")
         if launcher.exists():
-            shutil.copyfile(launcher, root / "control/update/launcher.previous")
+            shutil.copyfile(launcher, root / "tmp/update/launcher.previous")
         shutil.copyfile(program / "ARMI.exe", root / "ARMI.exe.pending")
-        write_control(
-            root / ".activation.json",
-            {
-                "schema_version": "armi.program-activation.v2",
-                "old_version": previous,
-                "new_version": bundle.package_id,
-                "environments": plans,
-                "launcher": {"previous": launcher.exists()},
-            },
-        )
+        journal: dict[str, Any] = {
+            "schema_version": "armi.program-activation.v3",
+            "phase": "prepared",
+            "old_version": old_version,
+            "bundle": bundle.model_dump(mode="json"),
+            "environments": plans,
+            "had_app": previous == app,
+            "had_launcher": launcher.exists(),
+        }
+        write_control(root / ".activation.json", journal)
         try:
+            # Replace the small root entry first: Windows denies this if it is in use.
+            # Both launchers honor the update lock/journal, so no partial app can run.
+            os.replace(root / "ARMI.exe.pending", launcher)
+            if previous == app:
+                app.rename(backup)
+            copy_program(program, app, bundle)
+            bundle.verify(app)
             for plan in plans:
                 environment = Path(plan["environment_root"])
                 for name in plan["configurations"]:
                     path = environment / name
                     config = AdminConfig.model_validate(
                         replacement_config(
-                            load_yaml_mapping(path.read_bytes()), program, bundle
+                            load_yaml_mapping(path.read_bytes()), app, bundle
                         )
                     )
                     write_control(path, config.model_dump(mode="json"))
                 write_control(
                     environment / ".setup/program.json",
                     {
-                        "installation_root": str(program),
+                        "installation_root": str(app),
                         "database": bundle.database.model_dump(mode="json"),
                     },
                 )
-            os.replace(root / "ARMI.exe.pending", launcher)
-            _publish_pointer(root, bundle.package_id)
+            verify_program(app)
             for environment in environments:
-                login_startup(root / "ARMI.exe", environment, None, migrate=True)
-            _clean_legacy_launchers(root, previous)
-            (root / ".activation.json").unlink()
+                _check_database(app, bundle, environment)
+            journal["phase"] = "committed"
+            write_control(root / ".activation.json", journal)
         except Exception:
             recover(root)
             raise
+        _finish_update(root, journal)
     return {
         "status": "activated",
         "package_id": bundle.package_id,
@@ -397,7 +471,7 @@ def uninstall(root: Path) -> dict[str, object]:
                 continue
             binding = environment_binding(environment)
             program = Path(binding.installation_root)
-            if program.parent != root / "versions":
+            if program != root / "app":
                 raise ValueError("INSTALLER-ENVIRONMENT-OWNER")
             ProgramBundle.read(program).verify(program)
             stop_desktop(environment)

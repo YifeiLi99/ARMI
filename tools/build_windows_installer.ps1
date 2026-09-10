@@ -18,7 +18,28 @@ $python = Join-Path $payload 'runtime/python/python.exe'
 if ($LASTEXITCODE -ne 0) { throw 'INSTALLER-PAYLOAD-INTEGRITY' }
 $bundle = Get-Content -LiteralPath (Join-Path $payload 'bundle.json') -Raw -Encoding utf8 | ConvertFrom-Json
 New-Item -ItemType Directory -Path $output -Force | Out-Null
-& $compiler --quiet ('/DPayloadRoot=' + $payload) ('/DPackageId=' + $bundle.package_id) ('/DOutputRoot=' + $output) (Join-Path $PSScriptRoot 'windows/armi.iss')
+$inventory = Join-Path $output ('uninstall-' + $bundle.package_id + '.iss')
+$directories = [Collections.Generic.HashSet[string]]::new()
+$lines = [Collections.Generic.List[string]]::new()
+foreach ($relative in @($bundle.files.PSObject.Properties.Name) + @('bundle.json')) {
+    $name = $relative.Replace('/', '\')
+    $lines.Add('Type: files; Name: "{app}\app\' + $name + '"')
+    $parent = Split-Path -Parent $name
+    if ($name.EndsWith('.py') -and $parent) {
+        $cache = $parent + '\__pycache__'
+        if ($directories.Add($cache)) { $lines.Add('Type: files; Name: "{app}\app\' + $cache + '\*.pyc"') }
+    }
+    while ($parent) {
+        [void]$directories.Add($parent)
+        $parent = Split-Path -Parent $parent
+    }
+}
+foreach ($directory in ($directories | Sort-Object Length -Descending)) {
+    $lines.Add('Type: dirifempty; Name: "{app}\app\' + $directory + '"')
+}
+$lines.Add('Type: dirifempty; Name: "{app}\app"')
+[IO.File]::WriteAllLines($inventory, $lines, [Text.UTF8Encoding]::new($false))
+& $compiler --quiet ('/DPayloadRoot=' + $payload) ('/DPackageId=' + $bundle.package_id) ('/DOutputRoot=' + $output) ('/DUninstallInventory=' + $inventory) (Join-Path $PSScriptRoot 'windows/armi.iss')
 if ($LASTEXITCODE -ne 0) { throw 'INSTALLER-COMPILE-FAILED' }
 $executable = Join-Path $output ('ARMI-Windows-x64-' + $bundle.package_id + '-unsigned.exe')
 Write-Output $executable
