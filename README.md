@@ -142,6 +142,8 @@ Vite 固定使用 `127.0.0.1:5173` 并代理现有 Runtime，不启动第二个�
 
 本地可复用模型、安装缓存及私有凭据可保存在被 Git 忽略的 `.armi/reusable/`，它不是可运行环境，不继承主体、数据库或管理身份。凭据目录仅允许当前用户访问；复用凭据需要在新环境显式配置，语义模型需要重新安装和校准。Live 验证脚本必须传入 `--environment-root`，不再默认读取仓库旁的旧环境。
 
+保留资源按用途分目录：`models/semantic-recall/` 保存模型，`tools/semantic-recall/cache/` 保存安装包，`secrets/` 下按 `ark`、`codex`、`volc` 分别保存账号凭据，`config/` 保存配置参考；这些路径均相对于 `.armi/reusable/`。目录内的 `README.md` 说明用途与复用方式。
+
 ## 质量门禁
 
 ```powershell
