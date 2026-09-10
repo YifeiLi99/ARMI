@@ -386,7 +386,7 @@ class CodexTaskSourceGateway(
                     CreatorResourceKind("operation"),
                     str(acceptance.opportunity_id),
                     now,
-                    "creator-operation.v6",
+                    "creator-operation.v7",
                 )
             )
         except Exception:

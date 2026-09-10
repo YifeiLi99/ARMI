@@ -19,7 +19,7 @@ class InteractionRecoveryParticipant:
     owner_identity = RecoveryOwnerIdentity("interaction")
     work_scopes = (("external_message", "external.content.finalize"),)
 
-    async def end_conversations(
+    async def end_interrupted_work(
         self,
         transaction: PostgreSQLTransaction,
         scope: RecoveryScope,
@@ -55,7 +55,7 @@ class InteractionRecoveryParticipant:
         scope: RecoveryScope,
         work: tuple[RecoveryWorkSnapshot, ...],
     ) -> RecoveryContribution:
-        await self.end_conversations(transaction, scope, work)
+        await self.end_interrupted_work(transaction, scope, work)
         row = await (
             await transaction.execute(
                 """

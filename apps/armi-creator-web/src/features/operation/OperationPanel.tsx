@@ -16,8 +16,7 @@ const waitingLabels = {
   context_preparation: "正在准备 Context",
   model_attempt: "Context 已准备，等待模型步骤",
   model_response: "正在等待模型响应",
-  candidate_validation: "正在校验认知候选",
-  subject_commit: "候选已校验，等待主体提交",
+  cognition_finalization: "认知结果正在校验、准备制品并提交",
   future_opportunity: "已暂缓，等待未来机会",
   new_evidence: "需要新的证据",
   effect_dispatch: "效果已登记，正在等待接收与核验",
@@ -88,7 +87,11 @@ export function OperationPanel({
             </div>
             <div>
               <dt>阶段</dt>
-              <dd>{data.details.stage}</dd>
+              <dd>
+                {data.details.stage === "finalizing"
+                  ? "正在校验并提交认知结果"
+                  : data.details.stage}
+              </dd>
             </div>
             <div>
               <dt>结果</dt>

@@ -24,7 +24,7 @@ const RESOURCES = {
     "scene-timeline.v6",
     SCENE_KEY,
   ],
-  operation: ["operation.invalidated", "creator-operation.v6", UUID_V7],
+  operation: ["operation.invalidated", "creator-operation.v7", UUID_V7],
   other_human_record: [
     "other_human.record.invalidated",
     "other-human-record.v1",

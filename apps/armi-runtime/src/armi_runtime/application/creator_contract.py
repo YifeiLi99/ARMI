@@ -625,7 +625,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
         "life-record-query.v2",
         "creator-relationship.v3",
         "scene-timeline.v6",
-        "creator-operation.v6",
+        "creator-operation.v7",
         "other-human-record.v1",
         "creator-effect.v6",
         "subject-summary.v1",
@@ -852,8 +852,7 @@ class WaitingOutcomeResponse(_CommonOutcomeResponse):
         "context_preparation",
         "model_attempt",
         "model_response",
-        "candidate_validation",
-        "subject_commit",
+        "cognition_finalization",
         "effect_dispatch",
         "codex_dispatch",
         "codex_verification",
@@ -864,10 +863,8 @@ class WaitingOutcomeResponse(_CommonOutcomeResponse):
     resume_condition: Literal[
         "context_prepared",
         "model_step_available",
-        "model_returned",
-        "candidate_validation_available",
-        "candidate_validated",
-        "subject_commit_available",
+        "finalizing",
+        "cognition_settled",
         "opportunity_available",
         "creator_evidence_accepted",
         "effect_settled",
@@ -929,7 +926,7 @@ class CreatorCodexExecutionDetails(_StrictWireModel):
 
 
 class CreatorOperationDetails(_StrictWireModel):
-    projection_version: Literal["creator-operation.v6"]
+    projection_version: Literal["creator-operation.v7"]
     operation_ref: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     operation_kind: Literal[
         "cognition",
@@ -958,8 +955,7 @@ class CreatorOperationDetails(_StrictWireModel):
         "accepted",
         "context_preparing",
         "model_pending",
-        "candidate_validating",
-        "subject_committing",
+        "finalizing",
         "candidate_rejected",
         "applied",
         "no_change",
@@ -969,11 +965,7 @@ class CreatorOperationDetails(_StrictWireModel):
         "declined",
         "deferred",
         "ended",
-        "awaiting_authorization",
-        "confirmation_required",
-        "authorization_denied",
         "unavailable",
-        "registering_effect",
         "registered",
         "dispatching",
         "completed",

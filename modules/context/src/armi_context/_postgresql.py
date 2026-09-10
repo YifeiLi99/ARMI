@@ -62,7 +62,7 @@ from .api import (
     ContextViolation,
 )
 
-_MODEL_WORK_KIND = WorkType.COGNITION_MODEL_INVOKE
+_MODEL_WORK_KIND = WorkType.COGNITION_EXECUTE
 
 
 @dataclass(frozen=True, slots=True)

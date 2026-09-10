@@ -318,6 +318,10 @@ class OpportunityCognitionPort(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID
     ) -> tuple[UUID, ...]: ...
 
+    async def interrupt_cognition(
+        self, transaction: PostgreSQLTransaction, *, opportunity_ids: tuple[UUID, ...]
+    ) -> None: ...
+
 
 @runtime_checkable
 class OpportunityOperationReadPort(Protocol):

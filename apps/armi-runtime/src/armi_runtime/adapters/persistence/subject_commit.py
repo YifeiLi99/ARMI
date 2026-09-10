@@ -129,7 +129,7 @@ from armi_web_observation.api import (
 
 from .unit_of_work import PostgreSQLUnitOfWork
 
-_WORK_KIND = WorkType.COGNITION_SUBJECT_COMMIT
+_WORK_KIND = WorkType.COGNITION_EXECUTE
 
 
 @dataclass(frozen=True, slots=True)
@@ -368,51 +368,6 @@ class PostgreSQLSubjectCommitRepository:
             lease=lease,
             snapshot=snapshot,
             observed_version=int(row[0]),
-        )
-
-    async def fail(
-        self,
-        unit_of_work: PostgreSQLUnitOfWork,
-        *,
-        lease: WorkLease,
-        episode_id: UUID,
-        code: str,
-    ) -> None:
-        """Terminally settle a current subject-commit attempt and its episode."""
-
-        connection = unit_of_work._connection_for_repository()  # pyright: ignore[reportPrivateUsage]
-        await _assert_lease(connection, lease, episode_id)
-        cognition = await self._cognition_commit.snapshot(
-            unit_of_work.transaction, episode_id=episode_id
-        )
-        await self._cognition_commit.finish_episode(
-            unit_of_work.transaction,
-            episode_id=episode_id,
-            status=CognitionEpisodeStatus.FAILED,
-            application_status=None,
-            failure_code=code,
-        )
-        try:
-            await self._opportunity_transition.resolve_subject_commit(
-                unit_of_work.transaction,
-                opportunity_id=cognition.opportunity_id,
-            )
-        except LifeViolation:
-            raise SubjectCommitViolation("SUBJECT-OPPORTUNITY-STATE") from None
-        await unit_of_work.work.fail(lease, error_code=code)
-        await unit_of_work.audit.append(
-            AuditDraft(
-                AuditEventId(uuid7()),
-                AuditReference("runtime", unit_of_work.environment_id),
-                Purpose("cognition.subject.commit"),
-                "cognition.subject.failed",
-                AuditReference("cognitive_episode", episode_id),
-                AuditResultStatus.FAILED,
-                cognition.trace_id,
-                AuditSensitivity.PRIVATE,
-                subject_id=SubjectId(cognition.subject_id),
-                request=AuditReference("durable_work", lease.work_id.value),
-            )
         )
 
     async def affected_activity_ids(
@@ -1538,7 +1493,7 @@ async def _assert_lease(connection: Any, lease: WorkLease, episode_id: UUID) -> 
             """
             SELECT 1 FROM armi.durable_work
             WHERE work_id = %s AND owner_ref = %s
-              AND work_kind = 'cognition.subject.commit'
+              AND work_kind = 'cognition.execute'
               AND status = 'leased' AND current_attempt_id = %s
               AND lease_owner = %s AND lease_token = %s
               AND lease_expires_at > statement_timestamp()

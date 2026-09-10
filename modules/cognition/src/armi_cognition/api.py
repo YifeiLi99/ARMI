@@ -29,9 +29,12 @@ from armi_kernel.application import (
     CandidateValidationId,
     CandidateViolation,
     LifeRecordKind,
+    ModelAttemptId,
     ModelBinding,
     ModelInvocationResult,
     ModelRequest,
+    WorkLease,
+    WorkRecord,
     require_cognition_purpose,
 )
 from armi_kernel.contracts import Digest, TraceId
@@ -355,8 +358,8 @@ class CognitionModelAdapterFactory(Protocol):
         binding: ModelBinding,
         candidate_schema: CognitionSchemaDocument,
         candidate_parser: CognitionCandidateParser,
-        instructions: str | None = None,
-        schema_name: str | None = None,
+        instructions: str,
+        schema_name: str,
     ) -> CognitionModelPort: ...
 
 
@@ -385,6 +388,35 @@ class CognitionWorkerPort(Protocol):
     def stop(self) -> None: ...
 
     async def run_worker(self) -> None: ...
+
+
+class CognitionPreparedCandidate(Protocol):
+    """An in-memory validation result with its Cognition-owned fact writer."""
+
+    @property
+    def episode_id(self) -> UUID: ...
+
+    @property
+    def trace_id(self) -> TraceId: ...
+
+    @property
+    def result(self) -> CandidateValidationResult: ...
+
+    async def record(
+        self, unit_of_work: PostgreSQLRuntimeUnitOfWork, lease: WorkLease
+    ) -> None: ...
+
+
+class CognitionSubmissionPort(Protocol):
+    async def submit(
+        self, lease: WorkLease, candidate: CognitionPreparedCandidate
+    ) -> None: ...
+
+
+class CognitionFinalizationPort(Protocol):
+    async def finalize(
+        self, work: WorkRecord, attempt_id: ModelAttemptId, response_bytes: bytes
+    ) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -659,13 +691,6 @@ class CognitionExactLifeQueryPort(Protocol):
     ) -> None: ...
 
 
-@runtime_checkable
-class SubjectChangeSetCodec(Protocol):
-    """Decode a frozen cognition change set through explicitly bound owner codecs."""
-
-    def decode(self, value: bytes) -> SubjectChangeSet: ...
-
-
 @dataclass(frozen=True, slots=True)
 class CognitionAdminEpisodeSnapshot:
     episode_id: UUID
@@ -726,19 +751,21 @@ __all__ = (
     "CognitionExactLifeQueryPort",
     "CognitionExactLifeQuerySnapshot",
     "CognitionExperienceContextItem",
+    "CognitionFinalizationPort",
     "CognitionModelAdapterFactory",
     "CognitionModelPort",
     "CognitionOperationReadPort",
     "CognitionOperationSnapshot",
     "CognitionOwnerPort",
+    "CognitionPreparedCandidate",
     "CognitionRuntimeStatePort",
     "CognitionRuntimeStateSnapshot",
     "CognitionSchemaDocument",
     "CognitionSubjectCommitPort",
+    "CognitionSubmissionPort",
     "CognitionWakeupPort",
     "CognitionWorkerPort",
     "CognitiveBranchRole",
     "MaintenanceIssueTarget",
     "SubjectChangeSet",
-    "SubjectChangeSetCodec",
 )

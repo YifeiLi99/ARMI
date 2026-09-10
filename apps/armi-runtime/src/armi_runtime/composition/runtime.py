@@ -1040,47 +1040,6 @@ async def _serve(
             )
             await context_pipeline.open()
             candidate_context = compose_context_candidate_read()
-            candidate_pipeline = compose_candidate_validation_pipeline(
-                prepared,
-                unit_of_work_factory=runtime_unit_of_work_factory,
-                custody=execution_custody,
-                activity_cognition=activity_module.cognition,
-                activity_read=activity_module.read,
-                material_context=candidate_context.material,
-                memory_context=candidate_context.memory,
-                context=candidate_context.cognition,
-                runtime_state=runtime_cognition_state,
-                interaction=interaction_module.cognition_read,
-                opportunity_context=opportunity_cognition,
-                opportunity_transitions=opportunity_cognition,
-                evidence=evidence_module.read,
-                codex=codex_reads.task_sources,
-                codex_available=lambda: codex_availability.available,
-                memory_cognition=memory_module.cognition,
-                memory_read=memory_module.read,
-                mood_cognition=mood_module.cognition,
-                mood_read=mood_module.read,
-                prompt_cognition=prompt_module.cognition,
-                prompt_read=prompt_module.read,
-                material_cognition=material_module.cognition,
-                material_read=material_module.read,
-                relationship_cognition=relationship_module.cognition,
-                relationship_read=relationship_module.read,
-                sleep_cognition=sleep_module.cognition,
-                sleep_read=sleep_module.read,
-                subject_state_cognition=subject_state_module.cognition,
-                subject_state_read=subject_state_module.read,
-                catalog=artifact_catalog,
-                visual_sources_active=frozenset(
-                    kind.value for kind in live_vision_services
-                ),
-                wakeups=work_wakeups,
-                diagnostic=lambda event: diagnostic.emit(
-                    event,
-                    result_code="CANDIDATE_PIPELINE",
-                ),
-            )
-            await candidate_pipeline.open()
             subject_commit_pipeline = compose_subject_commit_pipeline(
                 prepared,
                 unit_of_work_factory=runtime_unit_of_work_factory,
@@ -1133,7 +1092,45 @@ async def _serve(
                 ),
                 fault_injector=inject_admin_fault,
             )
-            await subject_commit_pipeline.open()
+            candidate_pipeline = compose_candidate_validation_pipeline(
+                prepared,
+                unit_of_work_factory=runtime_unit_of_work_factory,
+                submission=subject_commit_pipeline,
+                activity_cognition=activity_module.cognition,
+                activity_read=activity_module.read,
+                material_context=candidate_context.material,
+                memory_context=candidate_context.memory,
+                context=candidate_context.cognition,
+                runtime_state=runtime_cognition_state,
+                interaction=interaction_module.cognition_read,
+                opportunity_context=opportunity_cognition,
+                opportunity_transitions=opportunity_cognition,
+                evidence=evidence_module.read,
+                codex=codex_reads.task_sources,
+                codex_available=lambda: codex_availability.available,
+                memory_cognition=memory_module.cognition,
+                memory_read=memory_module.read,
+                mood_cognition=mood_module.cognition,
+                mood_read=mood_module.read,
+                prompt_cognition=prompt_module.cognition,
+                prompt_read=prompt_module.read,
+                material_cognition=material_module.cognition,
+                material_read=material_module.read,
+                relationship_cognition=relationship_module.cognition,
+                relationship_read=relationship_module.read,
+                sleep_cognition=sleep_module.cognition,
+                sleep_read=sleep_module.read,
+                subject_state_cognition=subject_state_module.cognition,
+                subject_state_read=subject_state_module.read,
+                catalog=artifact_catalog,
+                visual_sources_active=frozenset(
+                    kind.value for kind in live_vision_services
+                ),
+                diagnostic=lambda event: diagnostic.emit(
+                    event,
+                    result_code="CANDIDATE_PIPELINE",
+                ),
+            )
             effect_pipeline = compose_effect_pipeline(
                 prepared,
                 unit_of_work_factory=runtime_unit_of_work_factory,
@@ -1225,6 +1222,7 @@ async def _serve(
                     with configuration_consumption.consumer("cognition"):
                         model_pipeline = compose_model_pipeline(
                             prepared,
+                            finalization=candidate_pipeline,
                             unit_of_work_factory=runtime_unit_of_work_factory,
                             context=candidate_context.cognition,
                             opportunities=opportunity_cognition,
@@ -1408,10 +1406,6 @@ async def _serve(
                 await web_research_pipeline.close()
             if web_search_pipeline is not None:
                 await web_search_pipeline.close()
-            if candidate_pipeline is not None:
-                await candidate_pipeline.close()
-            if subject_commit_pipeline is not None:
-                await subject_commit_pipeline.close()
             if effect_pipeline is not None:
                 await effect_pipeline.close()
             if codex_pipeline is not None:
@@ -1570,7 +1564,7 @@ async def _serve(
             for index in range(config.model.concurrency):
                 supervisor.start(
                     model_pipeline.run_worker(),
-                    name=f"model-invoke-worker-{index + 1}",
+                    name=f"cognition-execute-worker-{index + 1}",
                 )
         if web_search_pipeline is not None:
             if web_research_pipeline is not None:
@@ -1583,16 +1577,6 @@ async def _serve(
                     web_search_pipeline.run_worker(),
                     name=f"web-search-worker-{index + 1}",
                 )
-        if candidate_pipeline is not None:
-            supervisor.start(
-                candidate_pipeline.run_worker(),
-                name="candidate-validation-worker",
-            )
-        if subject_commit_pipeline is not None:
-            supervisor.start(
-                subject_commit_pipeline.run_worker(),
-                name="subject-commit-worker",
-            )
         if effect_pipeline is not None:
             supervisor.start(
                 effect_pipeline.run(),
@@ -1701,16 +1685,6 @@ async def _serve(
                 "web_research",
                 None if web_research_pipeline is None else web_research_pipeline.stop,
             ),
-            (
-                "candidate",
-                None if candidate_pipeline is None else candidate_pipeline.stop,
-            ),
-            (
-                "subject_commit",
-                None
-                if subject_commit_pipeline is None
-                else subject_commit_pipeline.stop,
-            ),
             ("effect", None if effect_pipeline is None else effect_pipeline.stop),
             ("codex", None if codex_pipeline is None else codex_pipeline.stop),
             (
@@ -1734,7 +1708,7 @@ async def _serve(
             if operation is not None:
                 await shutdown_step(f"{name}_stop", operation)
         if recovery_port is not None:
-            await shutdown_step("conversation_end", recovery_port.end_conversations)
+            await shutdown_step("conversation_end", recovery_port.end_interrupted_work)
         released = False
         try:
             released = await supervisor.drain(
@@ -1808,16 +1782,6 @@ async def _serve(
             (
                 "web_search",
                 None if web_search_pipeline is None else web_search_pipeline.close,
-            ),
-            (
-                "candidate",
-                None if candidate_pipeline is None else candidate_pipeline.close,
-            ),
-            (
-                "subject_commit",
-                None
-                if subject_commit_pipeline is None
-                else subject_commit_pipeline.close,
             ),
             ("effect", None if effect_pipeline is None else effect_pipeline.close),
             ("qq_channel", None if qq_channel is None else qq_channel.close),
@@ -2275,8 +2239,6 @@ async def _serve(
             model_pipeline,
             web_search_pipeline,
             web_research_pipeline,
-            candidate_pipeline,
-            subject_commit_pipeline,
             effect_pipeline,
             codex_pipeline,
         ):
@@ -2699,8 +2661,6 @@ async def _serve(
             await context_pipeline.close()
         if life_opportunity_pipeline is not None:
             await life_opportunity_pipeline.close()
-        if candidate_pipeline is not None:
-            await candidate_pipeline.close()
         if effect_pipeline is not None:
             await effect_pipeline.close()
         if qq_channel is not None:

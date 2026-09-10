@@ -95,7 +95,7 @@ from .api import (
 )
 
 CONTEXT_PREPARE = "cognition.context.prepare"
-MODEL_INVOKE = "cognition.model.invoke"
+COGNITION_EXECUTE = "cognition.execute"
 OPPORTUNITY_AVAILABLE = "opportunity.available"
 _WORK_KIND = WorkType.COGNITION_CONTEXT_PREPARE
 Diagnostic = Callable[[str], None]
@@ -442,7 +442,7 @@ class ContextPipeline:
                     manifest_artifact=manifest_registration.ref,
                     compiled_artifact=compiled_registration.ref,
                 )
-            self._wakeups.notify(MODEL_INVOKE)
+            self._wakeups.notify(COGNITION_EXECUTE)
             return True
         except ContextViolation as error:
             await self._fail_if_current(lease, episode_id, error.code)

@@ -23,6 +23,7 @@ from armi_runtime.composition.candidate_validation_tool import (
     build_candidate_validator,
 )
 from armi_runtime.composition.model_verification import (
+    GENERIC_COGNITION_INSTRUCTIONS,
     CandidateValidationContext,
     build_request_bytes,
     candidate_schema,
@@ -88,6 +89,8 @@ async def _verify(environment_root: Path) -> dict[str, object]:
         ),
     )
     adapter = VolcengineArkModelAdapter(
+        instructions=GENERIC_COGNITION_INSTRUCTIONS,
+        schema_name="armi_cognition_candidate_v12",
         binding=binding,
         credential_port=credential.port,
         locator=credential.locator,

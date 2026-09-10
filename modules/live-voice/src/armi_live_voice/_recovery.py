@@ -18,7 +18,7 @@ class LiveVoiceRecoveryParticipant:
     owner_identity = RecoveryOwnerIdentity("live-voice")
     work_scopes: tuple[tuple[str, str], ...] = ()
 
-    async def end_conversations(
+    async def end_interrupted_work(
         self,
         transaction: PostgreSQLTransaction,
         scope: RecoveryScope,

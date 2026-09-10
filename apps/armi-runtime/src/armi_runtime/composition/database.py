@@ -52,16 +52,17 @@ from armi_cognition.api import (
     CognitionCandidateParser,
     CognitionContextLifecyclePort,
     CognitionExactLifeQueryPort,
+    CognitionFinalizationPort,
     CognitionModelPort,
     CognitionOperationReadPort,
     CognitionRuntimeStatePort,
     CognitionSchemaDocument,
     CognitionSubjectCommitPort,
+    CognitionSubmissionPort,
     CognitionWorkerPort,
 )
 from armi_cognition.bootstrap import (
     bootstrap_cognition_candidate,
-    bootstrap_cognition_change_set_codec,
     bootstrap_cognition_exact_life_query,
     bootstrap_cognition_model,
 )
@@ -1372,6 +1373,7 @@ def compose_model_pipeline(
     opportunities: OpportunityCognitionSelectionPort,
     catalog: ArtifactCatalogPort,
     custody: ExecutionCustodyPort,
+    finalization: CognitionFinalizationPort,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
 ) -> CognitionWorkerPort:
@@ -1387,20 +1389,10 @@ def compose_model_pipeline(
         binding: ModelBinding,
         candidate_schema: CognitionSchemaDocument,
         candidate_parser: CognitionCandidateParser,
-        instructions: str | None = None,
-        schema_name: str | None = None,
+        instructions: str,
+        schema_name: str,
     ) -> CognitionModelPort:
         parser = cast(CandidateParser, candidate_parser)
-        if instructions is None and schema_name is None:
-            return VolcengineArkModelAdapter(
-                binding=binding,
-                credential_port=prepared.credential_port,
-                locator=model_locator,
-                candidate_schema=candidate_schema,
-                candidate_parser=parser,
-            )
-        if instructions is None or schema_name is None:
-            raise ModelViolation("MODEL-BINDING")
         return VolcengineArkModelAdapter(
             binding=binding,
             credential_port=prepared.credential_port,
@@ -1419,6 +1411,7 @@ def compose_model_pipeline(
         opportunities=opportunities,
         work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
         custody=custody,
+        finalization=finalization,
         adapter_factory=adapter_factory,
         binding_path=runtime_config_path(
             "model-bindings.yaml", environment_root=prepared.root
@@ -1493,7 +1486,7 @@ def compose_candidate_validation_pipeline(
     prepared: PreparedEnvironment,
     *,
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
-    custody: ExecutionCustodyPort,
+    submission: CognitionSubmissionPort,
     activity_cognition: ActivityCognitionPort,
     activity_read: ActivityReadPort,
     material_context: MaterialCandidateContextPort,
@@ -1522,9 +1515,8 @@ def compose_candidate_validation_pipeline(
     subject_state_read: SubjectStateReadPort,
     catalog: ArtifactCatalogPort,
     visual_sources_active: frozenset[str] = frozenset(),
-    wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
-) -> CognitionWorkerPort:
+) -> CognitionFinalizationPort:
     """Resolve the Runtime credential for the active S025 validator."""
 
     config = prepared.effective.config
@@ -1532,8 +1524,7 @@ def compose_candidate_validation_pipeline(
         factory=unit_of_work_factory,
         storage=_artifact_storage(prepared, unit_of_work_factory, catalog),
         catalog=catalog,
-        work=PostgreSQLDurableWorkGateway(unit_of_work_factory),
-        custody=custody,
+        submission=submission,
         activity_cognition=activity_cognition,
         activity_read=activity_read,
         material_context=material_context,
@@ -1562,7 +1553,6 @@ def compose_candidate_validation_pipeline(
         subject_state_read=subject_state_read,
         web_search_active=config.web.enabled,
         visual_sources_active=visual_sources_active,
-        wakeups=wakeups,
         diagnostic=diagnostic,
     )
 
@@ -1613,16 +1603,6 @@ def compose_subject_commit_pipeline(
         max_object_bytes=config.artifacts.max_object_bytes,
         orphan_grace_seconds=config.artifacts.orphan_grace_seconds,
         catalog=catalog,
-        change_set_codec=bootstrap_cognition_change_set_codec(
-            activity=activity_cognition,
-            material=material_cognition,
-            memory=memory_cognition,
-            mood=mood_cognition,
-            prompt=prompt_cognition,
-            relationship=relationship_cognition,
-            sleep=sleep_cognition,
-            subject_state=subject_state_cognition,
-        ),
         activity_cognition=activity_cognition,
         activity_commit=activity_commit,
         codex_commit=codex_commit,

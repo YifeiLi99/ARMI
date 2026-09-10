@@ -1442,7 +1442,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "creator-operation.v6";
+      projection_version: "creator-operation.v7";
       /** Reason Code */
       reason_code?: string | null;
       /**
@@ -1453,8 +1453,7 @@ export interface components {
         | "accepted"
         | "context_preparing"
         | "model_pending"
-        | "candidate_validating"
-        | "subject_committing"
+        | "finalizing"
         | "candidate_rejected"
         | "applied"
         | "no_change"
@@ -1464,11 +1463,7 @@ export interface components {
         | "declined"
         | "deferred"
         | "ended"
-        | "awaiting_authorization"
-        | "confirmation_required"
-        | "authorization_denied"
         | "unavailable"
-        | "registering_effect"
         | "registered"
         | "dispatching"
         | "completed"
@@ -1516,7 +1511,7 @@ export interface components {
         | "life-record-query.v2"
         | "creator-relationship.v3"
         | "scene-timeline.v6"
-        | "creator-operation.v6"
+        | "creator-operation.v7"
         | "other-human-record.v1"
         | "creator-effect.v6"
         | "subject-summary.v1"
@@ -2691,10 +2686,8 @@ export interface components {
       resume_condition:
         | "context_prepared"
         | "model_step_available"
-        | "model_returned"
-        | "candidate_validation_available"
-        | "candidate_validated"
-        | "subject_commit_available"
+        | "finalizing"
+        | "cognition_settled"
         | "opportunity_available"
         | "creator_evidence_accepted"
         | "effect_settled"
@@ -2716,8 +2709,7 @@ export interface components {
         | "context_preparation"
         | "model_attempt"
         | "model_response"
-        | "candidate_validation"
-        | "subject_commit"
+        | "cognition_finalization"
         | "effect_dispatch"
         | "codex_dispatch"
         | "codex_verification"

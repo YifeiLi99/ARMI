@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from collections.abc import AsyncIterator, Callable
-from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any, cast
-from uuid import uuid7
+from uuid import UUID, uuid7
 
 import rfc8785
 from armi_activity.api import ActivityCognitionPort, ActivityReadPort, ActivityStatus
@@ -31,6 +29,7 @@ from armi_kernel.application import (
     ArtifactIntegrityStatus,
     ArtifactPolicy,
     ArtifactPrivacyScope,
+    ArtifactPublication,
     ArtifactRef,
     ArtifactViolation,
     AuditDraft,
@@ -40,21 +39,12 @@ from armi_kernel.application import (
     AuditSensitivity,
     CandidateFactClass,
     CandidateViolation,
-    DurableWorkPort,
-    ExecutionCustodyMode,
-    ExecutionCustodyPort,
-    ExecutionCustodyRequest,
-    ExecutionCustodyScope,
-    ExecutionCustodyScopeKind,
-    ExecutionCustodyViolation,
+    ModelAttemptId,
     TransactionIsolation,
     WorkLease,
     WorkRecord,
-    WorkType,
-    WorkViolation,
-    ordered_custody_requests,
 )
-from armi_kernel.contracts import Purpose, SubjectId
+from armi_kernel.contracts import Purpose, SubjectId, TraceId
 from armi_material.api import (
     MaterialCandidateContextPort,
     MaterialCandidateSource,
@@ -93,7 +83,6 @@ from armi_relationship.api import (
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWork,
     PostgreSQLRuntimeUnitOfWorkFactory,
-    RuntimeTransactionFailure,
 )
 from armi_sleep.api import MaintenancePhase, SleepCognitionPort, SleepReadPort
 from armi_subject_state.api import SubjectStateCognitionPort, SubjectStateReadPort
@@ -112,74 +101,69 @@ from ._validator import (
     DeterministicCandidateValidator,
 )
 from .api import (
+    CandidateValidationResult,
     CognitionArtifactCatalogPort,
     CognitionRuntimeStatePort,
-    CognitionWakeupPort,
+    CognitionSubmissionPort,
 )
-
-_WORK_KIND = WorkType.COGNITION_CANDIDATE_VALIDATE
-CANDIDATE_VALIDATE = _WORK_KIND
-SUBJECT_COMMIT = "cognition.subject.commit"
-_LEASE_SECONDS = 30
-Diagnostic = Callable[[str], None]
-
-
-async def _one_chunk(value: bytes) -> AsyncIterator[bytes]:
-    yield value
 
 
 def _ignore_diagnostic(_event: str) -> None:
     return None
 
 
+async def _one_chunk(value: bytes) -> AsyncIterator[bytes]:
+    yield value
+
+
 @dataclass(frozen=True, slots=True)
-class _Pulse:
-    version: int
-    event: asyncio.Event
+class _PreparedCandidate:
+    result: CandidateValidationResult
+    snapshot: CandidateEpisodeSnapshot
+    publication: ArtifactPublication | None
+    catalog: CognitionArtifactCatalogPort
+    repository: PostgreSQLCandidateValidationRepository
+
+    @property
+    def episode_id(self) -> UUID:
+        return self.snapshot.episode_id
+
+    @property
+    def trace_id(self) -> TraceId:
+        return self.snapshot.trace_id
+
+    async def record(
+        self, unit_of_work: PostgreSQLRuntimeUnitOfWork, lease: WorkLease
+    ) -> None:
+        artifact = None
+        if self.publication is not None:
+            registration = await self.catalog.register(
+                unit_of_work, ArtifactId(uuid7()), self.publication
+            )
+            artifact = registration.ref
+            if registration.inserted:
+                await unit_of_work.audit.append(
+                    _artifact_audit(unit_of_work, artifact, self.snapshot)
+                )
+        await self.repository.settle(
+            unit_of_work,
+            lease=lease,
+            snapshot=self.snapshot,
+            result=self.result,
+            validator_identity=CANDIDATE_VALIDATOR_IDENTITY,
+            change_set_artifact=artifact,
+        )
 
 
-class _LocalWakeups:
-    def __init__(self) -> None:
-        self._pulses: dict[str, _Pulse] = {}
-
-    def version(self, channel: str) -> int:
-        return self._pulse(channel).version
-
-    def notify(self, channel: str) -> None:
-        current = self._pulse(channel)
-        current.event.set()
-        self._pulses[channel] = _Pulse(current.version + 1, asyncio.Event())
-
-    async def wait(
-        self,
-        channel: str,
-        after_version: int,
-        *,
-        stop: asyncio.Event,
-        timeout_seconds: float,
-    ) -> int:
-        current = self._pulse(channel)
-        if current.version != after_version or stop.is_set():
-            return current.version
-        with suppress(TimeoutError):
-            await asyncio.wait_for(current.event.wait(), timeout=timeout_seconds)
-        return self._pulse(channel).version
-
-    def _pulse(self, channel: str) -> _Pulse:
-        return self._pulses.setdefault(channel, _Pulse(0, asyncio.Event()))
-
-
-class CandidateValidationPipeline:
-    """Claim validation work without authority to apply subject changes."""
+class CandidateValidationService:
+    """Validate this execution result and hand it directly to the commit owner."""
 
     __slots__ = (
         "_activity_cognition",
         "_catalog",
         "_codex_available",
-        "_custody",
         "_diagnostic",
         "_factory",
-        "_lease_owner",
         "_material_cognition",
         "_memory_cognition",
         "_mood_cognition",
@@ -187,13 +171,11 @@ class CandidateValidationPipeline:
         "_relationship_cognition",
         "_repository",
         "_sleep_cognition",
-        "_stop",
         "_storage",
         "_subject_state_cognition",
+        "_submission",
         "_visual_sources_active",
-        "_wakeups",
         "_web_search_active",
-        "_work",
     )
 
     def __init__(
@@ -202,8 +184,7 @@ class CandidateValidationPipeline:
         factory: PostgreSQLRuntimeUnitOfWorkFactory,
         storage: ContentAddressedArtifactStore,
         catalog: CognitionArtifactCatalogPort,
-        work: DurableWorkPort,
-        custody: ExecutionCustodyPort,
+        submission: CognitionSubmissionPort,
         activity_cognition: ActivityCognitionPort,
         activity_read: ActivityReadPort,
         material_context: MaterialCandidateContextPort,
@@ -232,11 +213,10 @@ class CandidateValidationPipeline:
         subject_state_read: SubjectStateReadPort,
         web_search_active: bool = False,
         visual_sources_active: frozenset[str] = frozenset(),
-        wakeups: CognitionWakeupPort | None = None,
-        diagnostic: Diagnostic | None = None,
+        diagnostic: Callable[[str], None] | None = None,
     ) -> None:
         self._factory = factory
-        self._custody = custody
+        self._submission = submission
         self._activity_cognition = activity_cognition
         self._storage = storage
         self._memory_cognition = memory_cognition
@@ -270,301 +250,154 @@ class CandidateValidationPipeline:
             materials=material_read,
             subject_state=subject_state_read,
         )
-        self._work = work
-        self._lease_owner = uuid7()
-        self._stop = asyncio.Event()
-        self._wakeups = wakeups or _LocalWakeups()
         self._diagnostic = diagnostic or _ignore_diagnostic
 
-    async def open(self) -> None:
-        try:
-            await self._storage.prepare()
-        except ArtifactViolation:
-            raise CandidateViolation("CANDIDATE-ARTIFACT") from None
-
-    async def close(self) -> None:
-        self._stop.set()
-
-    def stop(self) -> None:
-        self._stop.set()
-
-    async def validate_once(self) -> bool:
-        try:
-            records = await self._work.claim(
-                work_kind=_WORK_KIND,
-                lease_owner=self._lease_owner,
-                lease_seconds=_LEASE_SECONDS,
-                limit=1,
-            )
-        except WorkViolation:
-            raise CandidateViolation("CANDIDATE-DATABASE") from None
-        if not records:
-            return False
-        record = records[0]
-        lease = cast(WorkLease, record.lease)
-        custody_context = None
-        custody_held = False
-        try:
-            snapshot = await self._snapshot(record)
-            requests = [
-                ExecutionCustodyRequest(
-                    ExecutionCustodyScope(
-                        ExecutionCustodyScopeKind.RUNTIME_AUTHORITY,
-                        self._factory.environment_id,
-                    ),
-                    ExecutionCustodyMode.SHARED,
-                )
-            ]
-            party_id = snapshot.other_party_id or snapshot.creator_party_id
-            if party_id is not None:
-                requests.append(
-                    ExecutionCustodyRequest(
-                        ExecutionCustodyScope(
-                            ExecutionCustodyScopeKind.DATA_RIGHTS_PARTY,
-                            party_id,
-                        ),
-                        ExecutionCustodyMode.SHARED,
-                    )
-                )
-            if (
-                snapshot.purpose == "consider_creator_outreach"
-                and snapshot.scene_id is not None
-            ):
-                requests.append(
-                    ExecutionCustodyRequest(
-                        ExecutionCustodyScope(
-                            ExecutionCustodyScopeKind.OUTREACH_SCENE,
-                            snapshot.scene_id,
-                        ),
-                        ExecutionCustodyMode.SHARED,
-                    )
-                )
-            custody_context = self._custody.hold(
-                ordered_custody_requests(*requests),
-                deadline_at=record.draft.deadline_at,
-            )
-            await custody_context.__aenter__()
-            custody_held = True
-            snapshot = await self._snapshot(record)
-            response_bytes = await self._read_response(snapshot)
-            material_contexts = await self._read_material_contexts(
-                snapshot.current_materials
-            )
-            candidate_bytes = _candidate_bytes(response_bytes)
-            validator = DeterministicCandidateValidator(
-                CandidateValidationContext(
-                    snapshot.subject_id,
-                    snapshot.generation_id,
-                    snapshot.episode_id,
-                    snapshot.model_attempt_id,
-                    snapshot.base_subject_version,
-                    snapshot.base_state_epoch,
-                    snapshot.bundle_activation_id,
-                    snapshot.context_digest,
-                    snapshot.scene_id,
-                    snapshot.creator_party_id,
-                    snapshot.current_components,
-                    snapshot.purpose,
-                    self._web_search_active,
-                    self._codex_available(),
-                    snapshot.codex_task_sources,
-                    snapshot.opportunity_id,
-                    snapshot.current_activity_id,
-                    snapshot.current_activity_revision_id,
-                    snapshot.current_activity_head_version,
-                    None
-                    if snapshot.current_activity_status is None
-                    else ActivityStatus(snapshot.current_activity_status),
-                    tuple(
-                        CandidateMemoryContext(
-                            item[0],
-                            item[1],
-                            item[2],
-                            CandidateFactClass(item[3]),
-                            MemorySourceKind(item[4]),
-                            item[5],
-                            item[6],
-                            MemoryAccessibility(item[7]),
-                        )
-                        for item in snapshot.current_memories
-                    ),
-                    subject_party_id=snapshot.subject_party_id,
-                    current_relationship=(
-                        None
-                        if snapshot.current_relationship is None
-                        else CandidateRelationshipContext(
-                            snapshot.current_relationship[0],
-                            snapshot.current_relationship[1],
-                            snapshot.current_relationship[2],
-                            tuple(
-                                RelationshipFact(
-                                    item[0], RelationshipFactKind(item[1]), item[2]
-                                )
-                                for item in snapshot.current_relationship[3]
-                            ),
-                            snapshot.current_relationship[4],
-                            tuple(
-                                RelationshipBoundary(
-                                    RelationshipPartyRole(item[0]),
-                                    RelationshipBoundaryKind(item[1]),
-                                    RelationshipBoundaryAction(item[2]),
-                                    item[3],
-                                )
-                                for item in snapshot.current_relationship[5]
-                            ),
-                            RelationshipStatus(snapshot.current_relationship[6]),
-                            tuple(
-                                CandidateRelationshipCommitmentContext(
-                                    RelationshipCommitment(
-                                        item[0],
-                                        RelationshipPartyRole(item[1]),
-                                        item[2],
-                                        item[3],
-                                        RelationshipCommitmentStatus(item[4]),
-                                        RelationshipCommitmentEventKind(item[5]),
-                                        item[6],
-                                    )
-                                )
-                                for item in snapshot.current_relationship[7]
-                            ),
-                            tuple(
-                                RelationshipIssue(
-                                    item[0],
-                                    RelationshipIssueKind(item[1]),
-                                    item[2],
-                                    item[3],
-                                    RelationshipIssueStatus(item[4]),
-                                )
-                                for item in snapshot.current_relationship[8]
-                            ),
-                        )
-                    ),
-                    current_materials=material_contexts,
-                    current_subject_prompt=(
-                        None
-                        if snapshot.current_subject_prompt is None
-                        else CandidateSubjectPromptContext(
-                            *snapshot.current_subject_prompt
-                        )
-                    ),
-                    candidate_contract_version=snapshot.candidate_contract_version,
-                    current_maintenance_session_id=(
-                        snapshot.current_maintenance_session_id
-                    ),
-                    current_maintenance_revision_id=(
-                        snapshot.current_maintenance_revision_id
-                    ),
-                    current_maintenance_head_version=(
-                        snapshot.current_maintenance_head_version
-                    ),
-                    current_maintenance_phase=(
-                        None
-                        if snapshot.current_maintenance_phase is None
-                        else MaintenancePhase(snapshot.current_maintenance_phase)
-                    ),
-                    other_party_id=snapshot.other_party_id,
-                    scene_kind=snapshot.scene_kind,
-                    sender_party_kind=snapshot.sender_party_kind,
-                    visual_sources_active=self._visual_sources_active,
-                ),
-                activity_cognition=self._activity_cognition,
-                material_cognition=self._material_cognition,
-                memory_cognition=self._memory_cognition,
-                mood_cognition=self._mood_cognition,
-                prompt_cognition=self._prompt_cognition,
-                relationship_cognition=self._relationship_cognition,
-                sleep_cognition=self._sleep_cognition,
-                subject_state_cognition=self._subject_state_cognition,
-            )
-            result = validator.validate(candidate_bytes, bases=snapshot.bases)
-            published = (
-                await self._publish(result.change_set.canonical_bytes, snapshot)
-                if result.change_set is not None
-                else None
-            )
-            async with self._factory.unit_of_work() as unit_of_work:
-                change_set_artifact = None
-                if published is not None:
-                    registration = await self._catalog.register(
-                        unit_of_work,
-                        ArtifactId(uuid7()),
-                        published,
-                    )
-                    change_set_artifact = registration.ref
-                    if registration.inserted:
-                        await unit_of_work.audit.append(
-                            _artifact_audit(
-                                unit_of_work,
-                                registration.ref,
-                                snapshot,
-                            )
-                        )
-                await self._repository.settle(
-                    unit_of_work,
-                    lease=lease,
-                    snapshot=snapshot,
-                    result=result,
-                    validator_identity=CANDIDATE_VALIDATOR_IDENTITY,
-                    change_set_artifact=change_set_artifact,
-                )
-            self._wakeups.notify(SUBJECT_COMMIT)
-            return True
-        except CandidateViolation as error:
-            if error.code == "CANDIDATE-WORK-STALE":
-                self._diagnostic("candidate.work.stale")
-                return True
-            await self._fail(record, error.code)
-            return True
-        except ArtifactViolation:
-            await self._fail(record, "CANDIDATE-ARTIFACT")
-            return True
-        except RuntimeTransactionFailure, WorkViolation:
-            self._diagnostic("candidate.worker.transient_failure")
-            return True
-        except ExecutionCustodyViolation:
-            self._diagnostic("candidate.worker.custody_unavailable")
-            return True
-        finally:
-            if custody_context is not None and custody_held:
-                await custody_context.__aexit__(None, None, None)
-
-    async def run_worker(self) -> None:
-        observed = self._wakeups.version(CANDIDATE_VALIDATE)
-        while not self._stop.is_set():
-            try:
-                worked = await self.validate_once()
-            except CandidateViolation:
-                if not self._stop.is_set():
-                    self._diagnostic("candidate.worker.failed")
-                worked = False
-            if worked:
-                await asyncio.sleep(0)
-                continue
-            observed = await self._wakeups.wait(
-                CANDIDATE_VALIDATE,
-                observed,
-                stop=self._stop,
-                timeout_seconds=1,
-            )
-
-    async def _snapshot(self, work: WorkRecord) -> CandidateEpisodeSnapshot:
+    async def finalize(
+        self, work: WorkRecord, attempt_id: ModelAttemptId, response_bytes: bytes
+    ) -> None:
         async with self._factory.unit_of_work(
             isolation=TransactionIsolation.REPEATABLE_READ,
-            read_only=True,
         ) as unit_of_work:
-            return await self._repository.snapshot(unit_of_work, work)
-
-    async def _read_response(self, snapshot: CandidateEpisodeSnapshot) -> bytes:
-        value = b""
-        try:
-            stream = await self._storage.open_verified(snapshot.response_artifact)
-            async with stream:
-                value = await stream.read()
-        except ArtifactViolation:
-            raise CandidateViolation("CANDIDATE-ARTIFACT") from None
-        if not value:
-            raise CandidateViolation("CANDIDATE-ARTIFACT")
-        return value
+            snapshot = await self._repository.snapshot(unit_of_work, work, attempt_id)
+        material_contexts = await self._read_material_contexts(
+            snapshot.current_materials
+        )
+        candidate_bytes = _candidate_bytes(response_bytes)
+        validator = DeterministicCandidateValidator(
+            CandidateValidationContext(
+                snapshot.subject_id,
+                snapshot.generation_id,
+                snapshot.episode_id,
+                snapshot.model_attempt_id,
+                snapshot.base_subject_version,
+                snapshot.base_state_epoch,
+                snapshot.bundle_activation_id,
+                snapshot.context_digest,
+                snapshot.scene_id,
+                snapshot.creator_party_id,
+                snapshot.current_components,
+                snapshot.purpose,
+                self._web_search_active,
+                self._codex_available(),
+                snapshot.codex_task_sources,
+                snapshot.opportunity_id,
+                snapshot.current_activity_id,
+                snapshot.current_activity_revision_id,
+                snapshot.current_activity_head_version,
+                None
+                if snapshot.current_activity_status is None
+                else ActivityStatus(snapshot.current_activity_status),
+                tuple(
+                    CandidateMemoryContext(
+                        item[0],
+                        item[1],
+                        item[2],
+                        CandidateFactClass(item[3]),
+                        MemorySourceKind(item[4]),
+                        item[5],
+                        item[6],
+                        MemoryAccessibility(item[7]),
+                    )
+                    for item in snapshot.current_memories
+                ),
+                subject_party_id=snapshot.subject_party_id,
+                current_relationship=(
+                    None
+                    if snapshot.current_relationship is None
+                    else CandidateRelationshipContext(
+                        snapshot.current_relationship[0],
+                        snapshot.current_relationship[1],
+                        snapshot.current_relationship[2],
+                        tuple(
+                            RelationshipFact(
+                                item[0], RelationshipFactKind(item[1]), item[2]
+                            )
+                            for item in snapshot.current_relationship[3]
+                        ),
+                        snapshot.current_relationship[4],
+                        tuple(
+                            RelationshipBoundary(
+                                RelationshipPartyRole(item[0]),
+                                RelationshipBoundaryKind(item[1]),
+                                RelationshipBoundaryAction(item[2]),
+                                item[3],
+                            )
+                            for item in snapshot.current_relationship[5]
+                        ),
+                        RelationshipStatus(snapshot.current_relationship[6]),
+                        tuple(
+                            CandidateRelationshipCommitmentContext(
+                                RelationshipCommitment(
+                                    item[0],
+                                    RelationshipPartyRole(item[1]),
+                                    item[2],
+                                    item[3],
+                                    RelationshipCommitmentStatus(item[4]),
+                                    RelationshipCommitmentEventKind(item[5]),
+                                    item[6],
+                                )
+                            )
+                            for item in snapshot.current_relationship[7]
+                        ),
+                        tuple(
+                            RelationshipIssue(
+                                item[0],
+                                RelationshipIssueKind(item[1]),
+                                item[2],
+                                item[3],
+                                RelationshipIssueStatus(item[4]),
+                            )
+                            for item in snapshot.current_relationship[8]
+                        ),
+                    )
+                ),
+                current_materials=material_contexts,
+                current_subject_prompt=(
+                    None
+                    if snapshot.current_subject_prompt is None
+                    else CandidateSubjectPromptContext(*snapshot.current_subject_prompt)
+                ),
+                candidate_contract_version=snapshot.candidate_contract_version,
+                current_maintenance_session_id=(
+                    snapshot.current_maintenance_session_id
+                ),
+                current_maintenance_revision_id=(
+                    snapshot.current_maintenance_revision_id
+                ),
+                current_maintenance_head_version=(
+                    snapshot.current_maintenance_head_version
+                ),
+                current_maintenance_phase=(
+                    None
+                    if snapshot.current_maintenance_phase is None
+                    else MaintenancePhase(snapshot.current_maintenance_phase)
+                ),
+                other_party_id=snapshot.other_party_id,
+                scene_kind=snapshot.scene_kind,
+                sender_party_kind=snapshot.sender_party_kind,
+                visual_sources_active=self._visual_sources_active,
+            ),
+            activity_cognition=self._activity_cognition,
+            material_cognition=self._material_cognition,
+            memory_cognition=self._memory_cognition,
+            mood_cognition=self._mood_cognition,
+            prompt_cognition=self._prompt_cognition,
+            relationship_cognition=self._relationship_cognition,
+            sleep_cognition=self._sleep_cognition,
+            subject_state_cognition=self._subject_state_cognition,
+        )
+        result = validator.validate(candidate_bytes, bases=snapshot.bases)
+        published = (
+            await self._publish(result.change_set.canonical_bytes, snapshot)
+            if result.change_set is not None
+            else None
+        )
+        await self._submission.submit(
+            cast(WorkLease, work.lease),
+            _PreparedCandidate(
+                result, snapshot, published, self._catalog, self._repository
+            ),
+        )
 
     async def _read_material_contexts(
         self,
@@ -619,17 +452,6 @@ class CandidateValidationPipeline:
         )
         return await self._storage.publish(staged)
 
-    async def _fail(self, work: WorkRecord, code: str) -> None:
-        try:
-            async with self._factory.unit_of_work() as unit_of_work:
-                await self._repository.fail(
-                    unit_of_work,
-                    work=work,
-                    error_code=code,
-                )
-        except CandidateViolation, RuntimeTransactionFailure, WorkViolation:
-            self._diagnostic("candidate.settlement.deferred")
-
 
 def _candidate_bytes(response_bytes: bytes) -> bytes:
     try:
@@ -666,4 +488,4 @@ def _artifact_audit(
     )
 
 
-__all__ = ("CandidateValidationPipeline",)
+__all__ = ("CandidateValidationService",)

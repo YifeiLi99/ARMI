@@ -32,7 +32,7 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import Purpose, SubjectId, TraceId
 from armi_runtime_foundation import (
-    ConversationEndParticipant,
+    InterruptedWorkEndParticipant,
     PostgreSQLTransaction,
     RecoveryAuditContribution,
     RecoveryContribution,
@@ -116,7 +116,7 @@ class PostgreSQLRuntimeRecovery:
         except (RuntimeTransactionFailure, ValueError) as error:
             raise RecoveryViolation("REC-DATABASE") from error
 
-    async def end_conversations(self) -> None:
+    async def end_interrupted_work(self) -> None:
         fence = self._require_fence()
         scope = RecoveryScope(
             self._environment_id,
@@ -132,13 +132,13 @@ class PostgreSQLRuntimeRecovery:
             await self._verify_fence(unit.transaction, fence)
             work = await self._work_snapshots(unit.transaction)
             for participant in self._participants:
-                if isinstance(participant, ConversationEndParticipant):
+                if isinstance(participant, InterruptedWorkEndParticipant):
                     selected = tuple(
                         item
                         for item in work
                         if (item.owner_kind, item.work_kind) in participant.work_scopes
                     )
-                    await participant.end_conversations(
+                    await participant.end_interrupted_work(
                         unit.transaction, scope, selected
                     )
             await self._verify_fence(unit.transaction, fence)

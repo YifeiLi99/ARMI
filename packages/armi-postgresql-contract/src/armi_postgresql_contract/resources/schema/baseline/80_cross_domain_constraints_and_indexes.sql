@@ -3029,9 +3029,6 @@ ALTER TABLE ONLY armi.effects
 ALTER TABLE ONLY armi.effects
     ADD CONSTRAINT effects_payload_artifact_fkey FOREIGN KEY (payload_artifact_id) REFERENCES armi.artifacts(artifact_id);
 
---
--- Name: effects effects_policy_owner_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
---
 
 
 

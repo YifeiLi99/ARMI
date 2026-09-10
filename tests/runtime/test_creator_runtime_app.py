@@ -957,11 +957,8 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             CreatorOperationPhase.CONTEXT_PREPARING: "waiting",
             CreatorOperationPhase.CONTEXT_PREPARED: "waiting",
             CreatorOperationPhase.MODEL_CALLING: "waiting",
-            CreatorOperationPhase.MODEL_RETURNED: "waiting",
-            CreatorOperationPhase.CANDIDATE_VALIDATING: "waiting",
-            CreatorOperationPhase.CANDIDATE_VALIDATED: "waiting",
+            CreatorOperationPhase.FINALIZING: "waiting",
             CreatorOperationPhase.CANDIDATE_REJECTED: "rejected",
-            CreatorOperationPhase.SUBJECT_COMMITTING: "waiting",
             CreatorOperationPhase.EFFECT_REGISTERED: "accepted",
             CreatorOperationPhase.EFFECT_DISPATCHING: "waiting",
             CreatorOperationPhase.EFFECT_COMPLETED: "completed",
@@ -990,11 +987,8 @@ class CreatorRuntimeAppTests(unittest.TestCase):
             CreatorOperationPhase.CONTEXT_PREPARING: "cognition",
             CreatorOperationPhase.CONTEXT_PREPARED: "cognition",
             CreatorOperationPhase.MODEL_CALLING: "cognition",
-            CreatorOperationPhase.MODEL_RETURNED: "cognition",
-            CreatorOperationPhase.CANDIDATE_VALIDATING: "cognition",
-            CreatorOperationPhase.CANDIDATE_VALIDATED: "cognition",
+            CreatorOperationPhase.FINALIZING: "cognition",
             CreatorOperationPhase.CANDIDATE_REJECTED: "cognition",
-            CreatorOperationPhase.SUBJECT_COMMITTING: "cognition",
             CreatorOperationPhase.EFFECT_REGISTERED: "response_effect",
             CreatorOperationPhase.EFFECT_DISPATCHING: "response_effect",
             CreatorOperationPhase.EFFECT_COMPLETED: "response_effect",
@@ -1068,7 +1062,7 @@ class CreatorRuntimeAppTests(unittest.TestCase):
                 details = cast(dict[str, object], wire["details"])
                 self.assertIsInstance(details, dict)
                 self.assertEqual(wire["status"], expected_status[phase])
-                self.assertEqual(details["projection_version"], "creator-operation.v6")
+                self.assertEqual(details["projection_version"], "creator-operation.v7")
                 self.assertEqual(
                     details["operation_ref"], str(acceptance.opportunity_id)
                 )

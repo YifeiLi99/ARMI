@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
 from typing import cast
 from uuid import UUID, uuid7
 
@@ -36,11 +35,8 @@ from armi_kernel.application import (
     CandidateOwnerDraft,
     CandidateRejection,
     CandidateViolation,
-    WorkDraft,
-    WorkId,
+    ModelAttemptId,
     WorkLease,
-    WorkOwner,
-    WorkPayloadRef,
     WorkRecord,
     WorkResultRef,
     WorkStatus,
@@ -48,8 +44,6 @@ from armi_kernel.application import (
 )
 from armi_kernel.contracts import (
     Digest,
-    IdempotencyKey,
-    Instant,
     Purpose,
     SubjectId,
     TraceId,
@@ -87,8 +81,7 @@ from .api import (
     SubjectChangeSet,
 )
 
-_WORK_KIND = WorkType.COGNITION_CANDIDATE_VALIDATE
-_COMMIT_WORK_KIND = WorkType.COGNITION_SUBJECT_COMMIT
+_WORK_KIND = WorkType.COGNITION_EXECUTE
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,6 +217,7 @@ class PostgreSQLCandidateValidationRepository:
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
         work: WorkRecord,
+        attempt_id: ModelAttemptId,
     ) -> CandidateEpisodeSnapshot:
         connection = unit_of_work.transaction
         if (
@@ -231,8 +225,6 @@ class PostgreSQLCandidateValidationRepository:
             or work.lease is None
             or work.draft.work_kind != _WORK_KIND
             or work.draft.owner.kind != "cognitive_episode"
-            or work.draft.payload is None
-            or work.draft.payload.kind != "model_attempt"
         ):
             raise CandidateViolation("CANDIDATE-WORK-STALE")
         row = await (
@@ -258,34 +250,20 @@ class PostgreSQLCandidateValidationRepository:
                   ON attempt.cognitive_episode_id = episode.cognitive_episode_id
                  AND attempt.model_attempt_id = %s
                 WHERE episode.cognitive_episode_id = %s
-                  AND episode.status IN ('model_returned', 'validating')
+                  AND episode.status = 'finalizing'
                   AND attempt.dispatch_status = 'settled'
                   AND attempt.result_status = 'succeeded'
                   AND attempt.response_artifact_id IS NOT NULL
                 FOR UPDATE OF episode
                 """,
                 (
-                    work.draft.payload.reference,
+                    attempt_id.value,
                     work.draft.owner.reference,
                 ),
             )
         ).fetchone()
         if row is None:
             raise CandidateViolation("CANDIDATE-WORK-STALE")
-        updated = await (
-            await connection.execute(
-                """
-                UPDATE armi.cognitive_episodes
-                SET status = 'validating'
-                WHERE cognitive_episode_id = %s
-                  AND status IN ('model_returned', 'validating')
-                RETURNING cognitive_episode_id
-                """,
-                (row[0],),
-            )
-        ).fetchone()
-        if updated is None:
-            raise CandidateViolation("CANDIDATE-EPISODE-STATE")
         state = await self._runtime_state.current_state(connection, subject_id=row[2])
         if (
             state.subject_version != int(row[4])
@@ -540,41 +518,6 @@ class PostgreSQLCandidateValidationRepository:
             interaction.context_party_kind,
         )
 
-    async def fail(
-        self,
-        unit_of_work: PostgreSQLRuntimeUnitOfWork,
-        *,
-        work: WorkRecord,
-        error_code: str,
-    ) -> None:
-        """Terminally fail deterministic validation work and its episode."""
-
-        if (
-            work.status is not WorkStatus.LEASED
-            or work.lease is None
-            or work.draft.work_kind != _WORK_KIND
-            or work.draft.owner.kind != "cognitive_episode"
-        ):
-            raise CandidateViolation("CANDIDATE-WORK-STALE")
-        connection = unit_of_work.transaction
-        lease = work.lease
-        episode_id = work.draft.owner.reference
-        await unit_of_work.work.fail(lease, error_code=error_code)
-        updated = await (
-            await connection.execute(
-                """
-                UPDATE armi.cognitive_episodes
-                SET status = 'failed', failure_code = %s
-                WHERE cognitive_episode_id = %s
-                  AND status IN ('model_returned', 'validating')
-                RETURNING cognitive_episode_id
-                """,
-                (error_code, episode_id),
-            )
-        ).fetchone()
-        if updated is None:
-            raise CandidateViolation("CANDIDATE-EPISODE-STATE")
-
     async def settle(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
@@ -586,6 +529,7 @@ class PostgreSQLCandidateValidationRepository:
         change_set_artifact: ArtifactRef | None,
     ) -> None:
         connection = unit_of_work.transaction
+        await unit_of_work.work.validate_lease(lease)
         _assert_lease(lease, snapshot)
         fence = unit_of_work.runtime_fence
         if fence is None:
@@ -637,7 +581,7 @@ class PostgreSQLCandidateValidationRepository:
         episode_status = (
             "candidate_rejected"
             if result.status is CandidateValidationStatus.REJECTED
-            else "candidate_validated"
+            else "finalizing"
         )
         updated = await (
             await connection.execute(
@@ -648,7 +592,7 @@ class PostgreSQLCandidateValidationRepository:
                     failure_code = %s,
                     validated_at = statement_timestamp()
                 WHERE cognitive_episode_id = %s
-                  AND status = 'validating'
+                  AND status = 'finalizing'
                 RETURNING cognitive_episode_id
                 """,
                 (
@@ -668,37 +612,10 @@ class PostgreSQLCandidateValidationRepository:
             )
         ):
             raise CandidateViolation("CANDIDATE-OPPORTUNITY-STATE")
-        if change_set is not None:
-            artifact = cast(ArtifactRef, change_set_artifact)
-            now_row = await (
-                await connection.execute("SELECT statement_timestamp()")
-            ).fetchone()
-            if now_row is None:
-                raise CandidateViolation("CANDIDATE-DATABASE")
-            now = Instant(now_row[0])
-            await unit_of_work.work.enqueue(
-                WorkDraft(
-                    WorkId(uuid7()),
-                    _COMMIT_WORK_KIND,
-                    WorkOwner("cognitive_episode", snapshot.episode_id),
-                    IdempotencyKey(f"subject-commit:{snapshot.episode_id}"),
-                    artifact.content_digest,
-                    50,
-                    now,
-                    Instant(now.value + timedelta(seconds=3600)),
-                    2,
-                    snapshot.trace_id,
-                    SubjectId(snapshot.subject_id),
-                    WorkPayloadRef("candidate_validation", result.validation_id.value),
-                )
+        if result.status is CandidateValidationStatus.REJECTED:
+            await unit_of_work.work.complete(
+                lease, WorkResultRef("candidate_validation", result.validation_id.value)
             )
-        await unit_of_work.work.complete(
-            lease,
-            WorkResultRef(
-                "candidate_validation",
-                result.validation_id.value,
-            ),
-        )
         await unit_of_work.audit.append(
             AuditDraft(
                 AuditEventId(uuid7()),

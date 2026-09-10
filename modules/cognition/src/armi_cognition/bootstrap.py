@@ -40,12 +40,12 @@ from armi_sleep.api import SleepCognitionPort, SleepReadPort
 from armi_subject_state.api import SubjectStateCognitionPort, SubjectStateReadPort
 
 from ._admin import PostgreSQLCognitionAdmin
-from ._candidate_application import CandidateValidationPipeline
-from ._change_set_codec import parse_subject_change_set
+from ._candidate_application import CandidateValidationService
 from ._context_postgresql import PostgreSQLCognitionContextLifecycle
 from ._data_rights import PostgreSQLCognitionDataRightsParticipant
 from ._exact_life_query import PostgreSQLCognitionExactLifeQuery
 from ._model_application import ModelPipeline
+from ._model_contract import GENERIC_COGNITION_INSTRUCTIONS
 from ._model_contract import (
     build_request_bytes as build_model_request_bytes,
 )
@@ -73,15 +73,15 @@ from .api import (
     CognitionArtifactCatalogPort,
     CognitionContextLifecyclePort,
     CognitionExactLifeQueryPort,
+    CognitionFinalizationPort,
     CognitionModelAdapterFactory,
     CognitionOperationReadPort,
     CognitionOwnerPort,
     CognitionRuntimeStatePort,
     CognitionSubjectCommitPort,
+    CognitionSubmissionPort,
     CognitionWakeupPort,
     CognitionWorkerPort,
-    SubjectChangeSet,
-    SubjectChangeSetCodec,
 )
 
 
@@ -140,76 +140,6 @@ def bootstrap_cognition_operation() -> CognitionOperationReadPort:
     return PostgreSQLCognitionSubjectCommit()
 
 
-class _BoundSubjectChangeSetCodec:
-    __slots__ = (
-        "_activity",
-        "_material",
-        "_memory",
-        "_mood",
-        "_prompt",
-        "_relationship",
-        "_sleep",
-        "_subject_state",
-    )
-
-    def __init__(
-        self,
-        *,
-        activity: ActivityCognitionPort,
-        material: MaterialCognitionPort,
-        memory: MemoryCognitionPort,
-        mood: MoodCognitionPort,
-        prompt: PromptCognitionPort,
-        relationship: RelationshipCognitionPort,
-        sleep: SleepCognitionPort,
-        subject_state: SubjectStateCognitionPort,
-    ) -> None:
-        self._activity = activity
-        self._material = material
-        self._memory = memory
-        self._mood = mood
-        self._prompt = prompt
-        self._relationship = relationship
-        self._sleep = sleep
-        self._subject_state = subject_state
-
-    def decode(self, value: bytes) -> SubjectChangeSet:
-        return parse_subject_change_set(
-            value,
-            self._relationship,
-            self._memory,
-            self._sleep,
-            self._activity,
-            self._material,
-            self._subject_state,
-            self._mood,
-            self._prompt,
-        )
-
-
-def bootstrap_cognition_change_set_codec(
-    *,
-    activity: ActivityCognitionPort,
-    material: MaterialCognitionPort,
-    memory: MemoryCognitionPort,
-    mood: MoodCognitionPort,
-    prompt: PromptCognitionPort,
-    relationship: RelationshipCognitionPort,
-    sleep: SleepCognitionPort,
-    subject_state: SubjectStateCognitionPort,
-) -> SubjectChangeSetCodec:
-    return _BoundSubjectChangeSetCodec(
-        activity=activity,
-        material=material,
-        memory=memory,
-        mood=mood,
-        prompt=prompt,
-        relationship=relationship,
-        sleep=sleep,
-        subject_state=subject_state,
-    )
-
-
 def bootstrap_cognition_model(
     *,
     factory: PostgreSQLRuntimeUnitOfWorkFactory,
@@ -219,6 +149,7 @@ def bootstrap_cognition_model(
     opportunities: OpportunityCognitionSelectionPort,
     work: DurableWorkPort,
     custody: ExecutionCustodyPort,
+    finalization: CognitionFinalizationPort,
     adapter_factory: CognitionModelAdapterFactory,
     binding_path: Path,
     web_search_active: bool = False,
@@ -233,6 +164,7 @@ def bootstrap_cognition_model(
         opportunities=opportunities,
         work=work,
         custody=custody,
+        finalization=finalization,
         adapter_factory=adapter_factory,
         binding_path=binding_path,
         web_search_active=web_search_active,
@@ -246,8 +178,7 @@ def bootstrap_cognition_candidate(
     factory: PostgreSQLRuntimeUnitOfWorkFactory,
     storage: ContentAddressedArtifactStore,
     catalog: CognitionArtifactCatalogPort,
-    work: DurableWorkPort,
-    custody: ExecutionCustodyPort,
+    submission: CognitionSubmissionPort,
     activity_cognition: ActivityCognitionPort,
     activity_read: ActivityReadPort,
     material_context: MaterialCandidateContextPort,
@@ -276,15 +207,13 @@ def bootstrap_cognition_candidate(
     subject_state_read: SubjectStateReadPort,
     web_search_active: bool = False,
     visual_sources_active: frozenset[str] = frozenset(),
-    wakeups: CognitionWakeupPort | None = None,
     diagnostic: Callable[[str], None] | None = None,
-) -> CognitionWorkerPort:
-    return CandidateValidationPipeline(
+) -> CognitionFinalizationPort:
+    return CandidateValidationService(
         factory=factory,
         storage=storage,
         catalog=catalog,
-        work=work,
-        custody=custody,
+        submission=submission,
         activity_cognition=activity_cognition,
         activity_read=activity_read,
         material_context=material_context,
@@ -313,7 +242,6 @@ def bootstrap_cognition_candidate(
         subject_state_read=subject_state_read,
         web_search_active=web_search_active,
         visual_sources_active=visual_sources_active,
-        wakeups=wakeups,
         diagnostic=diagnostic,
     )
 
@@ -329,9 +257,9 @@ def bootstrap_cognition_recovery(
 
 
 __all__ = (
+    "GENERIC_COGNITION_INSTRUCTIONS",
     "bootstrap_cognition_admin",
     "bootstrap_cognition_candidate",
-    "bootstrap_cognition_change_set_codec",
     "bootstrap_cognition_context",
     "bootstrap_cognition_data_rights",
     "bootstrap_cognition_exact_life_query",

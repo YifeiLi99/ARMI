@@ -54,7 +54,7 @@ def test_mood_reflection_adapter_uses_no_provider_and_authors_no_vad() -> None:
     )
     result = asyncio.run(adapter.invoke(cast(Any, request)))
     assert result.response_bytes is not None
-    response = json.loads(result.response_bytes)
+    response = json.loads(result.response_bytes)["candidate"]
     assert response["expected_version"] == 7
     assert response["next_state"] == {}
     assert "valence" not in result.response_bytes.decode("utf-8")
@@ -73,9 +73,9 @@ class _Cursor:
 
 @pytest.mark.parametrize(
     ("dispatch_status", "creates_attempt"),
-    (("prepared", True), ("dispatched", False)),
+    (("prepared", False), ("dispatched", False)),
 )
-def test_model_attempt_recovery_only_replays_pre_dispatch(
+def test_model_attempt_reclaim_ends_unfinished_attempt(
     dispatch_status: str,
     creates_attempt: bool,
 ) -> None:
@@ -86,7 +86,7 @@ def test_model_attempt_recovery_only_replays_pre_dispatch(
         attempt_id=SimpleNamespace(value=uuid7()),
         owner=uuid7(),
         token=3,
-        work_kind=WorkType.COGNITION_MODEL_INVOKE,
+        work_kind=WorkType.COGNITION_EXECUTE,
         work_owner=SimpleNamespace(kind="cognitive_episode", reference=episode_id),
     )
 
@@ -157,7 +157,12 @@ def test_model_attempt_recovery_only_replays_pre_dispatch(
         work.fail.assert_not_awaited()
     else:
         assert result is None
-        work.fail.assert_not_awaited()
+        work.fail.assert_awaited_once_with(
+            lease,
+            error_code="MODEL-OUTCOME-UNKNOWN"
+            if dispatch_status == "dispatched"
+            else "COGNITION-EXECUTION-INTERRUPTED",
+        )
 
 
 def test_retryable_preparation_failure_settles_on_final_work_attempt() -> None:
@@ -215,7 +220,7 @@ def test_retryable_preparation_failure_settles_on_final_work_attempt() -> None:
     repository.fail_episode.assert_awaited_once()
 
 
-def test_recovery_fails_episode_when_model_work_exhausted() -> None:
+def test_recovery_ends_unfinished_cognition_without_resuming_exhausted_work() -> None:
     episode_id = uuid7()
     opportunity_id = uuid7()
     statements: list[str] = []
@@ -242,6 +247,7 @@ def test_recovery_fails_episode_when_model_work_exhausted() -> None:
                 SimpleNamespace(
                     resolve_cognition_failure=resolve_cognition_failure,
                     interrupt_conversations=AsyncMock(return_value=()),
+                    interrupt_cognition=AsyncMock(),
                 ),
             )
         ).recover(
@@ -250,7 +256,7 @@ def test_recovery_fails_episode_when_model_work_exhausted() -> None:
             (
                 RecoveryWorkSnapshot(
                     uuid7(),
-                    "cognition.model.invoke",
+                    "cognition.execute",
                     "cognitive_episode",
                     episode_id,
                     "failed",
@@ -261,8 +267,8 @@ def test_recovery_fails_episode_when_model_work_exhausted() -> None:
         )
     )
 
-    assert any("MODEL-WORK-ATTEMPTS-EXHAUSTED" in item for item in statements)
-    assert contribution.findings[0].reference == opportunity_id
+    assert any("COGNITION-RUNTIME-INTERRUPTED" in item for item in statements)
+    assert contribution.findings == ()
 
 
 class _RowsCursor(_Cursor):

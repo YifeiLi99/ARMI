@@ -24,7 +24,6 @@ from armi_codex.bootstrap import (
     compose_codex_task_source_gateway,
 )
 from armi_cognition.bootstrap import (
-    bootstrap_cognition_change_set_codec,
     bootstrap_cognition_operation,
     bootstrap_cognition_subject_commit,
     build_candidate_schema,
@@ -127,7 +126,6 @@ __all__ = (
     "bootstrap_codex_commit",
     "bootstrap_codex_read_ports",
     "bootstrap_codex_timeline_projection",
-    "bootstrap_cognition_change_set_codec",
     "bootstrap_cognition_operation",
     "bootstrap_cognition_subject_commit",
     "bootstrap_data_rights_core",

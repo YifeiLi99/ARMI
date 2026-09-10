@@ -22,6 +22,7 @@ from armi_kernel.application import ModelResultStatus, ModelUsage
 from armi_kernel.contracts import Digest
 from armi_runtime.adapters.model.volcengine_ark import VolcengineArkModelAdapter
 from armi_runtime.composition.model_verification import (
+    GENERIC_COGNITION_INSTRUCTIONS,
     build_request_bytes,
     candidate_schema,
     checked_model_request,
@@ -58,6 +59,8 @@ async def _verify(environment_root: Path) -> dict[str, object]:
         ),
     )
     adapter = VolcengineArkModelAdapter(
+        instructions=GENERIC_COGNITION_INSTRUCTIONS,
+        schema_name="armi_cognition_candidate_v12",
         binding=binding,
         credential_port=credential.port,
         locator=credential.locator,

@@ -29,6 +29,7 @@ from armi_kernel.application import (
     AuditReference,
     AuditResultStatus,
     AuditSensitivity,
+    CandidateViolation,
     DurableWorkPort,
     ExecutionCustodyMode,
     ExecutionCustodyPort,
@@ -43,6 +44,7 @@ from armi_kernel.application import (
     ModelResultStatus,
     ModelUsage,
     ModelViolation,
+    SubjectCommitViolation,
     WorkLease,
     WorkRecord,
     WorkType,
@@ -75,6 +77,7 @@ from ._model_contract import (
     AUTONOMOUS_ACTIVITY_INSTRUCTIONS,
     CREATOR_OUTREACH_INSTRUCTIONS,
     DIALOGUE_CANDIDATE_VERSION,
+    GENERIC_COGNITION_INSTRUCTIONS,
     MAINTENANCE_WORK_CANDIDATE_VERSION,
     MEMORY_MAINTENANCE_INSTRUCTIONS,
     SLEEP_DECISION_CANDIDATE_VERSION,
@@ -106,15 +109,15 @@ from ._reflection_contract import (
 from .api import (
     CognitionArtifactCatalogPort,
     CognitionCandidateParser,
+    CognitionFinalizationPort,
     CognitionModelAdapterFactory,
     CognitionModelPort,
     CognitionSchemaDocument,
     CognitionWakeupPort,
 )
 
-_WORK_KIND = WorkType.COGNITION_MODEL_INVOKE
-MODEL_INVOKE = _WORK_KIND
-CANDIDATE_VALIDATE = "cognition.candidate.validate"
+_WORK_KIND = WorkType.COGNITION_EXECUTE
+COGNITION_EXECUTE = _WORK_KIND
 _LEASE_SECONDS = 30
 _RENEW_SECONDS = 20
 Diagnostic = Callable[[str], None]
@@ -187,7 +190,19 @@ class _DeterministicMoodReflectionAdapter:
             ModelResultStatus.SUCCEEDED,
             "local-mood-reflection",
             self._binding.model_id,
-            response,
+            rfc8785.dumps(
+                {
+                    "schema_version": "armi.model-response-artifact.v1",
+                    "provider_request_id": "local-mood-reflection",
+                    "provider_model_id": self._binding.model_id,
+                    "candidate": json.loads(response),
+                    "usage": {
+                        "input_tokens": max(1, len(request.canonical_bytes) // 4),
+                        "output_tokens": 1,
+                        "cached_input_tokens": 0,
+                    },
+                }
+            ),
             ModelUsage(max(1, len(request.canonical_bytes) // 4), 1, 0, 0),
         )
 
@@ -233,6 +248,7 @@ class ModelPipeline:
         "_diagnostic",
         "_dialogue_version",
         "_factory",
+        "_finalization",
         "_lease_owner",
         "_repository",
         "_stop",
@@ -251,6 +267,7 @@ class ModelPipeline:
         opportunities: OpportunityCognitionSelectionPort,
         work: DurableWorkPort,
         custody: ExecutionCustodyPort,
+        finalization: CognitionFinalizationPort,
         adapter_factory: CognitionModelAdapterFactory,
         binding_path: Path,
         web_search_active: bool = False,
@@ -476,8 +493,8 @@ class ModelPipeline:
             binding: ModelBinding,
             candidate_schema: dict[str, Any],
             candidate_parser: CognitionCandidateParser,
-            instructions: str | None = None,
-            schema_name: str | None = None,
+            instructions: str = GENERIC_COGNITION_INSTRUCTIONS,
+            schema_name: str = "armi_cognition_candidate_v12",
         ) -> CognitionModelPort:
             return adapter_factory(
                 binding=binding,
@@ -489,6 +506,7 @@ class ModelPipeline:
                 schema_name=schema_name,
             )
 
+        self._finalization = finalization
         self._factory = factory
         self._storage = storage
         self._adapters = {
@@ -675,11 +693,22 @@ class ModelPipeline:
             raise ModelViolation("MODEL-DATABASE") from None
         if not records:
             return False
-        record = records[0]
+        await self._execute_with_renewal(records[0])
+        return True
+
+    async def _execute(self, record: WorkRecord) -> None:
         lease = cast(WorkLease, record.lease)
+        response_saved = False
+        snapshot: ModelEpisodeSnapshot | None = None
         custody_context = None
         custody_held = False
         try:
+            if record.attempt_count > 1:
+                async with self._factory.unit_of_work() as unit_of_work:
+                    if await self._repository.end_abandoned_finalization(
+                        unit_of_work, record
+                    ):
+                        return
             snapshot = await self._snapshot(record)
             custody_requests = [
                 ExecutionCustodyRequest(
@@ -770,7 +799,7 @@ class ModelPipeline:
                 )
                 if attempt_id is None:
                     self._diagnostic("model.outcome_unknown")
-                    return True
+                    return
             async with self._factory.unit_of_work() as unit_of_work:
                 await self._repository.mark_dispatched(
                     unit_of_work,
@@ -778,7 +807,7 @@ class ModelPipeline:
                     attempt_id=attempt_id,
                     episode_id=snapshot.episode_id,
                 )
-            result, lease = await self._invoke_with_renewal(adapter, request, lease)
+            result = await adapter.invoke(request)
             if result.status is ModelResultStatus.SUCCEEDED:
                 published_response = await self._publish(
                     cast(bytes, result.response_bytes),
@@ -814,7 +843,12 @@ class ModelPipeline:
                         attempt_id=attempt_id,
                         response_artifact=response_registration.ref,
                     )
-                self._wakeups.notify(CANDIDATE_VALIDATE)
+                response_saved = True
+                if self._stop.is_set():
+                    return
+                await self._finalization.finalize(
+                    record, attempt_id, cast(bytes, result.response_bytes)
+                )
             else:
                 await self._settle_failure(
                     lease=lease,
@@ -822,11 +856,19 @@ class ModelPipeline:
                     attempt_id=attempt_id,
                     result=result,
                 )
-            return True
+            return
+        except (CandidateViolation, SubjectCommitViolation) as error:
+            if snapshot is None:
+                raise
+            await self._fail_finalization(lease, snapshot, error.code)
+            return
         except ModelViolation as error:
+            if response_saved and snapshot is not None:
+                await self._fail_finalization(lease, snapshot, error.code)
+                return
             if error.code == "MODEL-WORK-STALE":
                 self._diagnostic("model.work.stale")
-                return True
+                return
             current_snapshot = locals().get("snapshot")
             attempt = locals().get("attempt_id")
             if isinstance(attempt, ModelAttemptId) and isinstance(
@@ -838,12 +880,15 @@ class ModelPipeline:
                     attempt_id=attempt,
                     result=_error_result(error),
                 )
-                return True
+                return
             await self._settle_before_attempt(
                 record, lease, locals().get("snapshot"), error
             )
-            return True
+            return
         except ArtifactViolation:
+            if response_saved and snapshot is not None:
+                await self._fail_finalization(lease, snapshot, "MODEL-ARTIFACT")
+                return
             error = ModelViolation("MODEL-ARTIFACT")
             attempt = locals().get("attempt_id")
             current_snapshot = locals().get("snapshot")
@@ -863,22 +908,24 @@ class ModelPipeline:
                     current_snapshot,
                     error,
                 )
-            return True
+            return
         except RuntimeTransactionFailure as error:
+            if response_saved and snapshot is not None:
+                await self._fail_finalization(lease, snapshot, error.code)
             self._diagnostic(f"model.worker.transient_failure.{error.code.lower()}")
-            return True
+            return
         except WorkViolation as error:
             self._diagnostic(f"model.worker.transient_failure.{error.code.lower()}")
-            return True
+            return
         except ExecutionCustodyViolation:
             self._diagnostic("model.worker.custody_unavailable")
-            return True
+            return
         finally:
             if custody_context is not None and custody_held:
                 await custody_context.__aexit__(None, None, None)
 
     async def run_worker(self) -> None:
-        observed = self._wakeups.version(MODEL_INVOKE)
+        observed = self._wakeups.version(COGNITION_EXECUTE)
         while not self._stop.is_set():
             try:
                 worked = await self.invoke_once()
@@ -890,7 +937,7 @@ class ModelPipeline:
                 await asyncio.sleep(0)
                 continue
             observed = await self._wakeups.wait(
-                MODEL_INVOKE,
+                COGNITION_EXECUTE,
                 observed,
                 stop=self._stop,
                 timeout_seconds=1,
@@ -934,35 +981,45 @@ class ModelPipeline:
         )
         return await self._storage.publish(staged)
 
-    async def _invoke_with_renewal(
-        self,
-        adapter: CognitionModelPort,
-        request: ModelRequest,
-        lease: WorkLease,
-    ) -> tuple[ModelInvocationResult, WorkLease]:
+    async def _fail_finalization(
+        self, lease: WorkLease, snapshot: ModelEpisodeSnapshot, code: str
+    ) -> None:
+        async with self._factory.unit_of_work() as unit_of_work:
+            await self._repository.fail_episode(
+                unit_of_work, lease=lease, snapshot=snapshot, code=code
+            )
+
+    async def _execute_with_renewal(self, record: WorkRecord) -> None:
+        lease = cast(WorkLease, record.lease)
         task = asyncio.create_task(
-            adapter.invoke(request),
-            name=f"model-attempt-{lease.attempt_id}",
+            self._execute(record), name=f"cognition-{lease.attempt_id}"
         )
-        current_lease = lease
+        stopped = asyncio.create_task(self._stop.wait())
         try:
             while True:
-                done, _ = await asyncio.wait({task}, timeout=_RENEW_SECONDS)
-                if done:
-                    return await task, current_lease
+                done, _ = await asyncio.wait(
+                    {task, stopped},
+                    timeout=_RENEW_SECONDS,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if task in done:
+                    await task
+                    return
+                if stopped in done:
+                    task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
+                    return
                 try:
-                    current_lease = await self._work.renew(
-                        current_lease,
-                        lease_seconds=_LEASE_SECONDS,
-                    )
+                    lease = await self._work.renew(lease, lease_seconds=_LEASE_SECONDS)
                 except WorkViolation:
                     task.cancel()
                     await asyncio.gather(task, return_exceptions=True)
-                    raise ModelViolation("MODEL-WORK-STALE") from None
-        except asyncio.CancelledError:
+                    self._diagnostic("cognition.work.stale")
+                    return
+        finally:
+            stopped.cancel()
             task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
-            raise
+            await asyncio.gather(task, stopped, return_exceptions=True)
 
     def _adapter_for(self, purpose: str) -> CognitionModelPort:
         try:

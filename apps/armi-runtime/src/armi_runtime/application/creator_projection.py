@@ -619,39 +619,15 @@ def _operation_outcome_wire(operation: CreatorOperation) -> dict[str, object]:
             message="The model attempt is awaiting a provider response.",
             result_ref=result_ref,
             waiting_for="model_response",
-            resume_condition="model_returned",
+            resume_condition="finalizing",
         ).to_wire()
-    if operation.phase is CreatorOperationPhase.MODEL_RETURNED:
+    if operation.phase is CreatorOperationPhase.FINALIZING:
         return WaitingOutcome(
             **_outcome_common(),
-            message="The model response is waiting for candidate validation.",
+            message="The cognition result is being validated and committed.",
             result_ref=result_ref,
-            waiting_for="candidate_validation",
-            resume_condition="candidate_validation_available",
-        ).to_wire()
-    if operation.phase is CreatorOperationPhase.CANDIDATE_VALIDATING:
-        return WaitingOutcome(
-            **_outcome_common(),
-            message="The cognition candidate is being validated.",
-            result_ref=result_ref,
-            waiting_for="candidate_validation",
-            resume_condition="candidate_validated",
-        ).to_wire()
-    if operation.phase is CreatorOperationPhase.CANDIDATE_VALIDATED:
-        return WaitingOutcome(
-            **_outcome_common(),
-            message="The validated candidate is waiting for subject commit.",
-            result_ref=result_ref,
-            waiting_for="subject_commit",
-            resume_condition="subject_commit_available",
-        ).to_wire()
-    if operation.phase is CreatorOperationPhase.SUBJECT_COMMITTING:
-        return WaitingOutcome(
-            **_outcome_common(),
-            message="The validated change is being committed.",
-            result_ref=result_ref,
-            waiting_for="subject_commit",
-            resume_condition="subject_commit_available",
+            waiting_for="cognition_finalization",
+            resume_condition="cognition_settled",
         ).to_wire()
     if operation.phase is CreatorOperationPhase.EFFECT_REGISTERED:
         return AcceptedOutcome(
@@ -832,7 +808,7 @@ def operation_wire(operation: CreatorOperation) -> dict[str, object]:
     stage = _operation_stage(phase)
     outcome = _operation_outcome(phase)
     wire["details"] = {
-        "projection_version": "creator-operation.v6",
+        "projection_version": "creator-operation.v7",
         "operation_ref": str(operation.acceptance.opportunity_id),
         "operation_kind": operation.operation_kind,
         "stage": stage,
@@ -921,11 +897,9 @@ def _operation_stage(phase: CreatorOperationPhase) -> str:
         CreatorOperationPhase.CONTEXT_PREPARING: "context_preparing",
         CreatorOperationPhase.CONTEXT_PREPARED: "context_preparing",
         CreatorOperationPhase.MODEL_CALLING: "model_pending",
-        CreatorOperationPhase.MODEL_RETURNED: "model_pending",
-        CreatorOperationPhase.CANDIDATE_VALIDATING: "candidate_validating",
-        CreatorOperationPhase.CANDIDATE_VALIDATED: "candidate_validating",
+        CreatorOperationPhase.FINALIZING: "model_pending",
+        CreatorOperationPhase.FINALIZING: "finalizing",
         CreatorOperationPhase.CANDIDATE_REJECTED: "candidate_rejected",
-        CreatorOperationPhase.SUBJECT_COMMITTING: "subject_committing",
         CreatorOperationPhase.EFFECT_REGISTERED: "registered",
         CreatorOperationPhase.EFFECT_DISPATCHING: "dispatching",
         CreatorOperationPhase.EFFECT_COMPLETED: "completed",

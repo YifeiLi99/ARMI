@@ -36,9 +36,7 @@ class WorkType(StrEnum):
     """Closed set of durable responsibilities admitted by this Runtime."""
 
     COGNITION_CONTEXT_PREPARE = "cognition.context.prepare"
-    COGNITION_MODEL_INVOKE = "cognition.model.invoke"
-    COGNITION_CANDIDATE_VALIDATE = "cognition.candidate.validate"
-    COGNITION_SUBJECT_COMMIT = "cognition.subject.commit"
+    COGNITION_EXECUTE = "cognition.execute"
     WEB_OBSERVATION_ADMIT = "web.observation.admit"
     WEB_SEARCH_INVOKE = "web.search.invoke"
     EXTERNAL_CONTENT_RECOGNIZE = "external.content.recognize"
@@ -67,15 +65,7 @@ RESPONSIBILITY_BINDINGS: tuple[ResponsibilityBinding, ...] = (
     ResponsibilityBinding(
         "cognitive_episode", WorkType.COGNITION_CONTEXT_PREPARE, "cognition"
     ),
-    ResponsibilityBinding(
-        "cognitive_episode", WorkType.COGNITION_MODEL_INVOKE, "cognition"
-    ),
-    ResponsibilityBinding(
-        "cognitive_episode", WorkType.COGNITION_CANDIDATE_VALIDATE, "cognition"
-    ),
-    ResponsibilityBinding(
-        "cognitive_episode", WorkType.COGNITION_SUBJECT_COMMIT, "cognition"
-    ),
+    ResponsibilityBinding("cognitive_episode", WorkType.COGNITION_EXECUTE, "cognition"),
     ResponsibilityBinding(
         "web_research_intent", WorkType.WEB_OBSERVATION_ADMIT, "web-observation"
     ),

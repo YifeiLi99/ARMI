@@ -9,9 +9,7 @@ from armi_runtime_foundation import StopSignal
 
 OPPORTUNITY_AVAILABLE = "opportunity.available"
 CONTEXT_PREPARE = "cognition.context.prepare"
-MODEL_INVOKE = "cognition.model.invoke"
-CANDIDATE_VALIDATE = "cognition.candidate.validate"
-SUBJECT_COMMIT = "cognition.subject.commit"
+COGNITION_EXECUTE = "cognition.execute"
 EXACT_LIFE_QUERY = "life.query.execute"
 EXTERNAL_CONTENT = "external.content"
 
@@ -80,12 +78,10 @@ class WorkWakeupBus:
 
 
 __all__ = (
-    "CANDIDATE_VALIDATE",
+    "COGNITION_EXECUTE",
     "CONTEXT_PREPARE",
     "EXACT_LIFE_QUERY",
     "EXTERNAL_CONTENT",
-    "MODEL_INVOKE",
     "OPPORTUNITY_AVAILABLE",
-    "SUBJECT_COMMIT",
     "WorkWakeupBus",
 )

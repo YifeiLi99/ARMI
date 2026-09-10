@@ -2596,7 +2596,7 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         "armi_attention",
         "creator-activity.v2",
         "creator-effect.v6",
-        "creator-operation.v6",
+        "creator-operation.v7",
     )
     for paths in kernel_foundation_paths:
         for path in paths:

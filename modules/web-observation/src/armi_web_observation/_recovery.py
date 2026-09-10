@@ -22,7 +22,7 @@ class WebObservationRecoveryParticipant:
         ("web_research_intent", "web.observation.admit"),
     )
 
-    async def _end_conversations(
+    async def _end_interrupted_work(
         self,
         transaction: PostgreSQLTransaction,
         scope: RecoveryScope,
@@ -83,13 +83,13 @@ class WebObservationRecoveryParticipant:
 
         return work_ids
 
-    async def end_conversations(
+    async def end_interrupted_work(
         self,
         transaction: PostgreSQLTransaction,
         scope: RecoveryScope,
         work: tuple[RecoveryWorkSnapshot, ...],
     ) -> None:
-        await self._end_conversations(transaction, scope, work)
+        await self._end_interrupted_work(transaction, scope, work)
 
     async def recover(
         self,
@@ -97,7 +97,7 @@ class WebObservationRecoveryParticipant:
         scope: RecoveryScope,
         work: tuple[RecoveryWorkSnapshot, ...],
     ) -> RecoveryContribution:
-        cancelled = await self._end_conversations(transaction, scope, work)
+        cancelled = await self._end_interrupted_work(transaction, scope, work)
         work = tuple(item for item in work if item.work_id not in cancelled)
         ready_ids = [item.work_id for item in work if item.status == "ready"]
         await transaction.execute(

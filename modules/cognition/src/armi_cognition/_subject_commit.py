@@ -133,7 +133,7 @@ class PostgreSQLCognitionSubjectCommit:
                 JOIN armi.cognitive_candidate_validations AS validation
                   ON validation.cognitive_episode_id = episode.cognitive_episode_id
                 WHERE episode.cognitive_episode_id = %s
-                  AND episode.status = 'candidate_validated'
+                  AND episode.status = 'finalizing'
                   AND validation.validation_status IN ('accepted', 'partially_accepted')
                   AND validation.change_set_artifact_id IS NOT NULL
                   AND NOT EXISTS (
@@ -354,7 +354,7 @@ class PostgreSQLCognitionSubjectCommit:
                     UPDATE armi.cognitive_episodes
                     SET status = 'failed', failure_code = %s
                     WHERE cognitive_episode_id = %s
-                      AND status = 'candidate_validated'
+                      AND status = 'finalizing'
                     RETURNING cognitive_episode_id
                     """,
                     (failure_code, episode_id),
@@ -370,7 +370,7 @@ class PostgreSQLCognitionSubjectCommit:
                     SET status = %s, application_resolution = %s,
                         committed_at = statement_timestamp()
                     WHERE cognitive_episode_id = %s
-                      AND status = 'candidate_validated'
+                      AND status = 'finalizing'
                     RETURNING cognitive_episode_id
                     """,
                     (status.value, application_status.value, episode_id),

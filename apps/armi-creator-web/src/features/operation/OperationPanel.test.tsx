@@ -22,7 +22,7 @@ function outcome(status: string, codex = false): object {
     occurred_at: "2026-07-30T10:00:00.000000Z",
     message: "safe",
     details: {
-      projection_version: "creator-operation.v6",
+      projection_version: "creator-operation.v7",
       operation_ref: OPERATION_ID,
       operation_kind: codex
         ? "codex_delegation"

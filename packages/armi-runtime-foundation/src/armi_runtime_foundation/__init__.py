@@ -15,8 +15,8 @@ from .projection_cursor import (
     ProjectionCursorStale,
 )
 from .recovery import (
-    ConversationEndParticipant,
     EmptyRecoveryParticipant,
+    InterruptedWorkEndParticipant,
     OwnerReconciliationContext,
     RecoveryAuditContribution,
     RecoveryContribution,
@@ -44,8 +44,8 @@ from .transactions import (
 )
 
 __all__ = (
-    "ConversationEndParticipant",
     "EmptyRecoveryParticipant",
+    "InterruptedWorkEndParticipant",
     "OwnerReconciliationContext",
     "PostgreSQLAdminParameter",
     "PostgreSQLAdminResult",

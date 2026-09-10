@@ -1,6 +1,9 @@
 """Explicit composition surface for isolated model verification tools."""
 
 from armi_cognition.bootstrap import (
+    GENERIC_COGNITION_INSTRUCTIONS,
+)
+from armi_cognition.bootstrap import (
     build_candidate_schema as candidate_schema,
 )
 from armi_cognition.bootstrap import (
@@ -20,6 +23,7 @@ from armi_cognition.bootstrap import (
 )
 
 __all__ = (
+    "GENERIC_COGNITION_INSTRUCTIONS",
     "CandidateValidationContext",
     "build_request_bytes",
     "candidate_schema",

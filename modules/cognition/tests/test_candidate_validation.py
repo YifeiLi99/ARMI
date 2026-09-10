@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from collections.abc import Mapping
 from dataclasses import replace
-from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock
 from uuid import UUID, uuid7
 
 import pytest
@@ -16,13 +13,9 @@ import rfc8785
 from armi_activity.api import ActivityStatus
 from armi_codex.api import CodexDelegationDraft
 from armi_cognition._candidate_postgresql import (
-    PostgreSQLCandidateValidationRepository,
     _relationship_party_ids,
     _stored_relationship_basis,
     _validation_drafts,
-)
-from armi_cognition._change_set_codec import (
-    parse_subject_change_set as _parse_subject_change_set,
 )
 from armi_cognition._other_human_contract import (
     OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
@@ -51,8 +44,6 @@ from armi_kernel.application import (
     CandidateFactClass,
     CandidateOwnerDraft,
     LifeRecordKind,
-    SubjectCommitViolation,
-    WorkStatus,
 )
 from armi_kernel.contracts import Digest
 from armi_material.api import (
@@ -177,20 +168,6 @@ def DeterministicCandidateValidator(
     )
 
 
-def parse_subject_change_set(value: bytes) -> Any:
-    return _parse_subject_change_set(
-        value,
-        bootstrap_relationship_cognition(),
-        bootstrap_memory_cognition(),
-        bootstrap_sleep_cognition(),
-        bootstrap_activity_cognition(),
-        bootstrap_material_cognition(),
-        bootstrap_subject_state_cognition(),
-        bootstrap_mood_cognition(),
-        bootstrap_prompt_cognition(),
-    )
-
-
 def _relationships(change_set: Any) -> tuple[Any, ...]:
     application = bootstrap_relationship_cognition()
     return tuple(
@@ -305,57 +282,6 @@ def test_empty_relationship_slot_is_not_loaded_as_persisted_relationship() -> No
 
     assert _stored_relationship_basis((empty_slot,)) is None
     assert _stored_relationship_basis((empty_slot, relationship)) is relationship
-
-
-def test_terminal_validation_failure_also_fails_owning_episode() -> None:
-    episode_id = uuid7()
-    lease = SimpleNamespace(
-        work_id=SimpleNamespace(value=uuid7()),
-        attempt_id=SimpleNamespace(value=uuid7()),
-        owner=uuid7(),
-        token=7,
-    )
-    connection = SimpleNamespace(
-        execute=AsyncMock(
-            return_value=SimpleNamespace(fetchone=AsyncMock(return_value=(episode_id,)))
-        )
-    )
-    work = SimpleNamespace(fail=AsyncMock())
-    unit_of_work = SimpleNamespace(
-        transaction=connection,
-        work=work,
-    )
-
-    asyncio.run(
-        PostgreSQLCandidateValidationRepository(
-            *(cast(Any, SimpleNamespace()) for _ in range(13)),
-        ).fail(
-            cast(Any, unit_of_work),
-            work=cast(
-                Any,
-                SimpleNamespace(
-                    status=WorkStatus.LEASED,
-                    lease=lease,
-                    draft=SimpleNamespace(
-                        work_kind="cognition.candidate.validate",
-                        owner=SimpleNamespace(
-                            kind="cognitive_episode", reference=episode_id
-                        ),
-                    ),
-                ),
-            ),
-            error_code="CON-CANDIDATE-RELATIONSHIP-CONTEXT",
-        )
-    )
-
-    work.fail.assert_awaited_once_with(
-        lease,
-        error_code="CON-CANDIDATE-RELATIONSHIP-CONTEXT",
-    )
-    assert (
-        "UPDATE armi.cognitive_episodes"
-        in connection.execute.await_args_list[0].args[0]
-    )
 
 
 def _mind_state(*, thoughts: list[str] | None = None) -> dict[str, object]:
@@ -600,13 +526,13 @@ def test_other_human_dialogue_uses_party_scoped_v22_change_set(
     assert result.change_set is not None
     assert result.change_set.disposition.value == disposition
     assert b"armi.subject-change-set.v33" in result.change_set.canonical_bytes
-    reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
-    assert reparsed.disposition.value == disposition
+    validated = result.change_set
+    assert validated.disposition.value == disposition
     if draft_type is not None:
-        assert isinstance(reparsed.action_choices[0], draft_type)
-        assert reparsed.action_choices[0].other_party_id == ids[6]
+        assert isinstance(validated.action_choices[0], draft_type)
+        assert validated.action_choices[0].other_party_id == ids[6]
         if draft_type is OtherHumanReplyDraft:
-            reply = reparsed.action_choices[0]
+            reply = validated.action_choices[0]
             assert isinstance(reply, OtherHumanReplyDraft)
             assert reply.operation == "send"
 
@@ -690,8 +616,6 @@ def test_other_human_dialogue_builds_only_current_party_relationship() -> None:
     assert relationship.boundaries[0].party_role is RelationshipPartyRole.OTHER
     assert relationship.commitments[0].party_role is RelationshipPartyRole.OTHER
     assert isinstance(result.change_set.action_choices[0], OtherHumanReplyDraft)
-    reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
-    assert _relationships(reparsed) == _relationships(result.change_set)
 
 
 def test_two_other_human_relationship_candidates_keep_separate_party_identity() -> None:
@@ -954,8 +878,6 @@ def test_other_human_commitment_violation_stays_in_current_relationship() -> Non
     assert (
         relationship.open_issues[0].kind is RelationshipIssueKind.COMMITMENT_VIOLATION
     )
-    reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
-    assert _relationships(reparsed) == _relationships(result.change_set)
 
 
 @pytest.mark.parametrize(
@@ -1001,8 +923,6 @@ def test_sleep_decision_binds_window_authority(kind: str, disposition: str) -> N
     assert _sleep(result.change_set)[0].cycle_anchor_ref == ids[6]
     assert result.change_set.disposition.value == disposition
     assert b"armi.subject-change-set.v33" in result.change_set.canonical_bytes
-    reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
-    assert _sleep(reparsed) == _sleep(result.change_set)
 
 
 def _maintenance_fixture(
@@ -1094,9 +1014,6 @@ def test_memory_maintenance_commits_change_or_explicit_no_change() -> None:
     assert decision.outcome is MaintenanceWorkOutcome.MEMORY_CHANGED
     assert decision.memory_proposal_ref == "proposal:1"
     assert b"armi.subject-change-set.v33" in changed.change_set.canonical_bytes
-    assert parse_subject_change_set(changed.change_set.canonical_bytes) == (
-        changed.change_set
-    )
 
     unchanged = DeterministicCandidateValidator(context).validate(
         _bytes({"kind": "memory_unchanged", "summary": "当前无需改变。"}),
@@ -1316,7 +1233,7 @@ def _candidate(context: CandidateValidationContext) -> dict[str, object]:
     }
 
 
-def test_visual_request_requires_an_active_exact_source_and_round_trips() -> None:
+def test_visual_request_requires_an_active_exact_source() -> None:
     context, bases = _fixture()
     context = replace(context, visual_sources_active=frozenset({"screen"}))
     purpose_basis = CandidateBasis(
@@ -1352,11 +1269,6 @@ def test_visual_request_requires_an_active_exact_source_and_round_trips() -> Non
     assert result.change_set is not None
     assert (
         result.change_set.visual_observation_requests[0].source_kind.value == "screen"
-    )
-    decoded = parse_subject_change_set(result.change_set.canonical_bytes)
-    assert (
-        decoded.visual_observation_requests
-        == result.change_set.visual_observation_requests
     )
 
     disabled = DeterministicCandidateValidator(
@@ -1500,7 +1412,7 @@ def test_autonomous_context_does_not_bind_attention_resource_authority() -> None
     assert _activities(result.change_set) == ()
 
 
-def test_attention_engagement_binds_authority_and_round_trips_change_set_v8() -> None:
+def test_attention_engagement_binds_authority() -> None:
     context, bases = _fixture()
     activity_id = uuid7()
     revision_id = uuid7()
@@ -1543,9 +1455,7 @@ def test_attention_engagement_binds_authority_and_round_trips_change_set_v8() ->
     decision = _activities(result.change_set)[0]
     assert decision.activity_id == activity_id
     assert decision.current_revision_id == revision_id
-    parsed = parse_subject_change_set(result.change_set.canonical_bytes)
-    assert _activities(parsed) == _activities(result.change_set)
-    assert len(_validation_drafts(parsed)) == 1
+    assert len(_validation_drafts(result.change_set)) == 1
 
 
 def test_attention_candidate_cannot_bypass_internal_work_with_progress() -> None:
@@ -1679,16 +1589,13 @@ def test_internal_activity_work_maps_real_outcomes_into_atomic_change_set_v18(
     assert result.change_set is not None
     assert b"armi.subject-change-set.v33" in result.change_set.canonical_bytes
     assert _activities(result.change_set)[0].decision_kind.value == decision_kind
-    parsed = parse_subject_change_set(result.change_set.canonical_bytes)
-    assert _activities(parsed) == _activities(result.change_set)
-    assert _materials(parsed) == _materials(result.change_set)
     if decision_kind == "complete":
-        assert len(_materials(parsed)) == 1
-        assert _materials(parsed)[0].owner_party_id == subject_party_id
-        assert _materials(parsed)[0].atomic_group_ref == "group:1"
-        assert _materials(parsed)[0].body_bytes is not None
+        assert len(_materials(result.change_set)) == 1
+        assert _materials(result.change_set)[0].owner_party_id == subject_party_id
+        assert _materials(result.change_set)[0].atomic_group_ref == "group:1"
+        assert _materials(result.change_set)[0].body_bytes is not None
     else:
-        assert _materials(parsed) == ()
+        assert _materials(result.change_set) == ()
 
 
 def test_internal_activity_work_requires_current_in_progress_head() -> None:
@@ -2147,10 +2054,6 @@ def test_compact_dialogue_exact_life_query_is_typed_and_rejects_audit_scope() ->
     assert query.record_kind == LifeRecordKind("memory")
     assert query.query_text == candidate["query"]
     assert query.limit == 20
-    assert (
-        parse_subject_change_set(first.change_set.canonical_bytes).exact_life_queries
-        == first.change_set.exact_life_queries
-    )
 
     rejected = DeterministicCandidateValidator(context).validate(
         _bytes(
@@ -2521,8 +2424,6 @@ def test_creator_reply_binds_authority_scope_and_forbids_model_owned_ids() -> No
     assert reply.scene_id == context.scene_id
     assert reply.creator_party_id == context.creator_party_id
     assert b"armi.subject-change-set.v33" in result.change_set.canonical_bytes
-    reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
-    assert reparsed.canonical_bytes == result.change_set.canonical_bytes
 
     candidate["action_choices"][0]["basis_refs"] = ["ctx:2", "ctx:4"]  # type: ignore[index]
     missing_capability_basis = DeterministicCandidateValidator(context).validate(
@@ -2585,9 +2486,6 @@ def test_compact_dialogue_reply_is_bound_to_authority_deterministically() -> Non
     assert reply.scene_id == context.scene_id
     assert reply.creator_party_id == context.creator_party_id
     assert b"armi.subject-change-set.v33" in first.change_set.canonical_bytes
-    assert parse_subject_change_set(
-        first.change_set.canonical_bytes
-    ).canonical_bytes == (first.change_set.canonical_bytes)
 
 
 def test_compact_dialogue_binds_grounded_self_and_mind_growth() -> None:
@@ -2655,9 +2553,7 @@ def test_compact_dialogue_binds_grounded_self_and_mind_growth() -> None:
         **_mind_state(),
         "understanding": ["这是我此刻作出的自主选择"],
     }
-    reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
-    assert _subject_states(reparsed) == _subject_states(result.change_set)
-    assert not any(item.owner == "mood" for item in reparsed.owner_drafts)
+    assert not any(item.owner == "mood" for item in result.change_set.owner_drafts)
 
 
 def test_compact_dialogue_creates_and_revises_subject_prompt_from_experience() -> None:
@@ -2724,9 +2620,7 @@ def test_compact_dialogue_creates_and_revises_subject_prompt_from_experience() -
         "expression_method": "直接说明结论并保留真实的不确定性",
         "reflection_method": "回看经历如何改变了自己的理解方式",
     }
-    assert _prompts(parse_subject_change_set(created.change_set.canonical_bytes)) == (
-        prompt,
-    )
+    assert _prompts(created.change_set) == (prompt,)
 
     revision_id = uuid7()
     revised_context = replace(
@@ -3013,8 +2907,6 @@ def test_compact_dialogue_creates_runtime_owned_life_material_deterministically(
         and item.owner == CandidateOwner.MATERIAL.value
         for item in _validation_drafts(first.change_set)
     )
-    reparsed = parse_subject_change_set(first.change_set.canonical_bytes)
-    assert _materials(reparsed) == _materials(first.change_set)
 
 
 def test_compact_dialogue_material_update_requires_frozen_current_head() -> None:
@@ -3239,9 +3131,7 @@ def test_compact_dialogue_material_state_changes_reuse_current_content(
     assert material.body_bytes is None
     assert material.privacy_status == privacy_status.value
     assert material.revision_kind is revision_kind
-    assert _materials(parse_subject_change_set(result.change_set.canonical_bytes)) == (
-        material,
-    )
+    assert _materials(result.change_set) == (material,)
     wrong_owner = DeterministicCandidateValidator(
         replace(
             context,
@@ -3359,8 +3249,6 @@ def test_compact_dialogue_establishes_relationship_from_same_experience() -> Non
             "创造者要求结束接触。",
         ),
     )
-    reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
-    assert _relationships(reparsed) == _relationships(result.change_set)
     assert any(
         isinstance(item, CandidateOwnerDraft) and item.owner == "relationship"
         for item in _validation_drafts(result.change_set)
@@ -3430,9 +3318,7 @@ def test_dialogue_establishes_armi_commitment_without_granting_authority() -> No
     assert commitment.last_event_kind is RelationshipCommitmentEventKind.ESTABLISHED
     assert relationship.commitment_event is not None
     assert relationship.commitment_event.commitment_id == commitment.commitment_id
-    assert _relationships(
-        parse_subject_change_set(result.change_set.canonical_bytes)
-    ) == (relationship,)
+    assert _relationships(result.change_set) == (relationship,)
 
 
 @pytest.mark.parametrize(
@@ -3908,17 +3794,10 @@ def test_compact_dialogue_forms_grounded_reported_memory_in_same_change_set() ->
     assert memory.source_kind is MemorySourceKind.REPORTED
     assert memory.mechanism_identity == "armi.memory-formation.contextual-v1"
     assert b"armi.subject-change-set.v33" in result.change_set.canonical_bytes
-    reparsed = parse_subject_change_set(result.change_set.canonical_bytes)
-    assert _memories(reparsed) == _memories(result.change_set)
     assert any(
         isinstance(item, CandidateOwnerDraft) and item.owner == "memory"
         for item in _validation_drafts(result.change_set)
     )
-
-    drifted = json.loads(result.change_set.canonical_bytes)
-    drifted["owner_drafts"][0]["payload"]["source_kind"] = "experienced"
-    with pytest.raises(SubjectCommitViolation):
-        parse_subject_change_set(rfc8785.dumps(cast(Any, drifted)))
 
 
 def test_compact_dialogue_reinterprets_current_memory_without_overwriting_history() -> (
@@ -4026,9 +3905,7 @@ def test_compact_dialogue_reinterprets_current_memory_without_overwriting_histor
     assert revision.related_memory_id == related_id
     assert revision.relation_kind is MemoryRelationKind.CONTRADICTS
     assert b"armi.subject-change-set.v33" in result.change_set.canonical_bytes
-    assert _memories(parse_subject_change_set(result.change_set.canonical_bytes)) == (
-        revision,
-    )
+    assert _memories(result.change_set) == (revision,)
 
     stale_context = replace(
         context,

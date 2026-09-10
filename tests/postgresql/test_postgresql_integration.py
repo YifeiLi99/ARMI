@@ -54,10 +54,12 @@ from armi_artifact_store.content_store import (
 from armi_attention.api import OpportunityAdmissionOutcome, OpportunityAdmissionStatus
 from armi_codex.api import (
     CodexCleanupStatus,
+    CodexDelegationDraft,
+    CodexTaskSourceId,
     CodexVerificationStatus,
     CreatorCodexTaskCommand,
 )
-from armi_cognition.api import CognitionSchemaDocument
+from armi_cognition.api import CognitionSchemaDocument, SubjectChangeSet
 from armi_context.api import EMBEDDING_BINDING_ID
 from armi_data_rights.api import DataRightsFence
 from armi_expression.api import CreatorReplyDraft
@@ -79,6 +81,7 @@ from armi_interaction.api import (
     SceneTimelineQuery,
 )
 from armi_kernel.application import (
+    COGNITION_PURPOSES,
     ArtifactId,
     ArtifactIntegrityStatus,
     ArtifactPolicy,
@@ -91,6 +94,10 @@ from armi_kernel.application import (
     BirthViolation,
     CandidateApplicationStatus,
     CandidateBasis,
+    CandidateDisposition,
+    CandidateExperienceDraft,
+    CandidateFactClass,
+    CognitionPurpose,
     CredentialLocator,
     LifeRecordActor,
     LifeRecordKind,
@@ -180,6 +187,7 @@ from armi_runtime.composition.birth_manifest import packaged_birth_digests
 from armi_runtime.composition.data_rights_contracts import (
     DATA_RIGHTS_OWNER_CONTRACTS,
 )
+from armi_runtime.composition.model_verification import GENERIC_COGNITION_INSTRUCTIONS
 from armi_runtime.composition.owner_roster import compose_runtime_owner_roster
 from armi_runtime.composition.postgresql_test import (
     ArtifactCatalogRepository,
@@ -201,7 +209,6 @@ from armi_runtime.composition.postgresql_test import (
     bootstrap_codex_commit,
     bootstrap_codex_read_ports,
     bootstrap_codex_timeline_projection,
-    bootstrap_cognition_change_set_codec,
     bootstrap_cognition_operation,
     bootstrap_cognition_subject_commit,
     bootstrap_data_rights_core,
@@ -1546,8 +1553,40 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             "() => JSON.parse(sessionStorage.getItem("
                             "'armi.browser-session.v1')).token"
                         )
+                        # Isolated phase injection exercises the real Runtime projection
+                        # and page without calling a Provider.
+                        with psycopg.connect(fixture.provisioner_dsn) as database:
+                            deadline = time.monotonic() + 10
+                            while True:
+                                row = database.execute(
+                                    """UPDATE armi.cognitive_episodes
+                                       SET status='finalizing',model_returned_at=statement_timestamp()
+                                       WHERE opportunity_id=%s AND status='prepared'
+                                       RETURNING cognitive_episode_id""",
+                                    (UUID(accepted["result_ref"]),),
+                                ).fetchone()
+                                database.commit()
+                                if row is not None:
+                                    break
+                                if time.monotonic() >= deadline:
+                                    self.fail(
+                                        "controlled cognition did not reach prepared"
+                                    )
+                                time.sleep(0.05)
                         page.reload(wait_until="domcontentloaded")
                         page.locator(".authenticated-view").wait_for()
+                        page.get_by_role("button", name="详情", exact=True).click()
+                        page.get_by_text(
+                            "正在校验并提交认知结果", exact=True
+                        ).wait_for()
+                        self.assertFalse(
+                            page.evaluate(
+                                "document.documentElement.scrollWidth > innerWidth"
+                            )
+                        )
+                        screenshot = Path(".tmp/quality/creator-system-finalizing.png")
+                        screenshot.parent.mkdir(parents=True, exist_ok=True)
+                        page.screenshot(path=str(screenshot), full_page=True)
                         self.assertTrue(
                             any(
                                 url.endswith("/v1/scenes/default/events")
@@ -5976,13 +6015,26 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 connection.execute("SELECT * FROM armi.scene_timeline_items")
             connection.rollback()
 
+    def test_all_cognition_purposes_end_without_replaying(self) -> None:
+        for purpose in COGNITION_PURPOSES:
+            for stage in (
+                "context_unfinished",
+                "model_prepared",
+                "cognition_unfinished",
+                "finalizing",
+            ):
+                with self.subTest(purpose=purpose, stage=stage):
+                    self._exercise_creator_reply(
+                        interruption_stage=stage, purpose=purpose.value
+                    )
+
     def test_t03_subject_commit_is_atomic_and_private(self) -> None:
         self._exercise_creator_reply()
 
     def test_creator_reply_interruption_never_replays_an_old_turn(self) -> None:
         for stage in (
             "cognition_unfinished",
-            "candidate_validated",
+            "finalizing",
             "registered",
             "prepared",
             "dispatching",
@@ -5994,7 +6046,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
     def test_codex_direct_commit_and_interruption(self) -> None:
         for stage in (
             "cognition_unfinished",
-            "candidate_validated",
+            "finalizing",
             "rollback",
             "result_saved",
             "result_cognition",
@@ -6006,7 +6058,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 self._exercise_creator_reply(interruption_stage=stage, codex=True)
 
     def _exercise_creator_reply(
-        self, *, interruption_stage: str | None = None, codex: bool = False
+        self,
+        *,
+        interruption_stage: str | None = None,
+        codex: bool = False,
+        purpose: str | None = None,
     ) -> None:
         fixture = self.create_database()
         self._install_current(
@@ -6241,16 +6297,56 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         "purpose": "delegate_codex_work",
                     }
                 ]
-            change_set = bootstrap_cognition_change_set_codec(
-                activity=bootstrap_activity_cognition(),
-                material=bootstrap_material_cognition(),
-                memory=bootstrap_memory_cognition(),
-                mood=bootstrap_mood_cognition(),
-                prompt=bootstrap_prompt_cognition(),
-                relationship=bootstrap_relationship_cognition(),
-                sleep=bootstrap_sleep_cognition(),
-                subject_state=bootstrap_subject_state_cognition(),
-            ).decode(rfc8785.dumps(cast(Any, change_set_document)))
+            change_set = SubjectChangeSet(
+                canonical_bytes=rfc8785.dumps(cast(Any, change_set_document)),
+                subject_id=born.subject_id,
+                generation_id=born.life_generation_id,
+                episode_id=ids["episode"],
+                model_attempt_id=ids["model_attempt"],
+                base_subject_version=0,
+                base_state_epoch=0,
+                bundle_activation_id=born.bundle_activation_id,
+                context_digest=digests["compiled_context"],
+                disposition=CandidateDisposition.CHANGE,
+                experiences=(
+                    CandidateExperienceDraft(
+                        "proposal:1",
+                        "group:1",
+                        (1,),
+                        CandidateFactClass.EXTERNAL_CLAIM,
+                        "I heard the Creator make a claim.",
+                        "It remains an external claim.",
+                        "private",
+                    ),
+                ),
+                action_choices=()
+                if codex
+                else (
+                    CreatorReplyDraft(
+                        "proposal:3",
+                        "group:2",
+                        (1, 2, 3),
+                        born.subject_id,
+                        scene_id,
+                        creator_party_id,
+                        payloads["reply"],
+                    ),
+                ),
+                codex_delegations=(
+                    CodexDelegationDraft(
+                        "proposal:3",
+                        "group:2",
+                        (1,),
+                        CodexTaskSourceId(ids["codex_source"]),
+                        digests["input"],
+                        "codex.output-artifact.v1",
+                    ),
+                )
+                if codex
+                else (),
+                web_research_requests=(),
+                rejections=(),
+            )
         else:
             try:
                 live_credential = load_live_ark_credential(
@@ -6294,6 +6390,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         canonical_bytes=rfc8785.dumps(candidate_schema())
                     ),
                     candidate_parser=parse_candidate,
+                    instructions=GENERIC_COGNITION_INSTRUCTIONS,
+                    schema_name="armi_cognition_candidate_v12",
                 )
                 input_tokens = await adapter.tokenize(request_bytes)
                 request = checked_model_request(
@@ -6579,7 +6677,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     context_manifest_digest, compiled_context_digest,
                     trace_id, prepared_at, model_returned_at,
                     final_disposition, validated_at) VALUES (%s, %s, %s, %s, %s, 'consider_creator_input',
-                          'candidate_validated', 0, 0, %s,
+                          'finalizing', 0, 0, %s,
                           'armi.context-compiler.layered-v3',
                           %s, %s, %s, %s, %s, statement_timestamp(),
                           statement_timestamp(), 'change', statement_timestamp())
@@ -6686,10 +6784,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
 
             insert_work(
-                ids["model_work"],
-                "cognition.model.invoke",
-                "completed",
-                ids["model_attempt"],
+                ids["commit_work"],
+                "cognition.execute",
+                "leased",
+                None,
+                ids["commit_attempt"],
             )
             connection.execute(
                 """
@@ -6715,8 +6814,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 (
                     ids["model_attempt"],
                     ids["episode"],
-                    ids["model_work"],
-                    ids["model_work_attempt"],
+                    ids["commit_work"],
+                    ids["commit_attempt"],
                     candidate_contract_version,
                     artifact_ids["request"],
                     provider_request_id,
@@ -6727,12 +6826,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     cached_input_tokens,
                     estimated_cost,
                 ),
-            )
-            insert_work(
-                ids["validation_work"],
-                "cognition.candidate.validate",
-                "completed",
-                ids["validation"],
             )
             connection.execute(
                 """
@@ -6751,7 +6844,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     ids["validation"],
                     ids["episode"],
                     ids["model_attempt"],
-                    ids["validation_work"],
+                    ids["commit_work"],
                     born.subject_id,
                     born.life_generation_id,
                     born.bundle_activation_id,
@@ -6915,13 +7008,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "UPDATE armi.cognitive_episodes SET purpose='consider_codex_task' WHERE cognitive_episode_id=%s",
                     (ids["episode"],),
                 )
-            insert_work(
-                ids["commit_work"],
-                "cognition.subject.commit",
-                "leased",
-                None,
-                ids["commit_attempt"],
-            )
 
         fence = RuntimeFence(
             RuntimeInstanceId(ids["runtime"]),
@@ -6936,7 +7022,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             ids["runtime"],
             Instant(datetime.now(UTC) + timedelta(minutes=5)),
             1,
-            WorkType.COGNITION_SUBJECT_COMMIT,
+            WorkType.COGNITION_EXECUTE,
             WorkOwner("cognitive_episode", ids["episode"]),
             1,
         )
@@ -7124,6 +7210,88 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 await sleep_module.close()
                 await activity_module.close()
 
+        if purpose is not None:
+            sceneless = (
+                COGNITION_PURPOSES[CognitionPurpose(purpose)].scene_requirement
+                == "forbidden"
+            )
+            with psycopg.connect(fixture.provisioner_dsn) as connection:
+                connection.execute(
+                    """UPDATE armi.opportunities SET purpose=%s,
+                       scene_id=CASE WHEN %s THEN NULL ELSE scene_id END,
+                       context_party_id=CASE WHEN %s THEN NULL ELSE context_party_id END,
+                       source_kind=CASE WHEN %s THEN 'maintenance_window' ELSE source_kind END,
+                       evidence_id=CASE WHEN %s THEN NULL ELSE evidence_id END
+                       WHERE opportunity_id=%s""",
+                    (
+                        purpose,
+                        sceneless,
+                        sceneless,
+                        sceneless,
+                        sceneless,
+                        ids["opportunity"],
+                    ),
+                )
+                connection.execute(
+                    """UPDATE armi.cognitive_episodes SET purpose=%s,
+                       scene_id=CASE WHEN %s THEN NULL ELSE scene_id END,
+                       context_party_id=CASE WHEN %s THEN NULL ELSE context_party_id END
+                       WHERE cognitive_episode_id=%s""",
+                    (purpose, sceneless, sceneless, ids["episode"]),
+                )
+        if interruption_stage in {
+            "context_unfinished",
+            "model_prepared",
+            "cognition_unfinished",
+            "finalizing",
+        }:
+            with psycopg.connect(fixture.provisioner_dsn) as connection:
+                connection.execute(
+                    "DELETE FROM armi.cognitive_candidate_basis_links WHERE candidate_validation_id=%s",
+                    (ids["validation"],),
+                )
+                connection.execute(
+                    "DELETE FROM armi.cognitive_candidate_validation_items WHERE candidate_validation_id=%s",
+                    (ids["validation"],),
+                )
+                connection.execute(
+                    "DELETE FROM armi.cognitive_candidate_validations WHERE candidate_validation_id=%s",
+                    (ids["validation"],),
+                )
+                connection.execute(
+                    "UPDATE armi.cognitive_episodes SET validated_at=NULL,final_disposition=NULL WHERE cognitive_episode_id=%s",
+                    (ids["episode"],),
+                )
+                if interruption_stage in {"context_unfinished", "model_prepared"}:
+                    connection.execute(
+                        """UPDATE armi.cognitive_attempts SET dispatch_status='prepared',
+                           result_status=NULL,response_artifact_id=NULL,settled_at=NULL,dispatched_at=NULL,
+                           provider_request_id=NULL,provider_model_id=NULL,input_tokens=NULL,
+                           output_tokens=NULL,cached_input_tokens=NULL,estimated_cost_microyuan=NULL
+                           WHERE cognitive_episode_id=%s""",
+                        (ids["episode"],),
+                    )
+                    connection.execute(
+                        """UPDATE armi.cognitive_episodes SET status='prepared',
+                           model_returned_at=NULL WHERE cognitive_episode_id=%s""",
+                        (ids["episode"],),
+                    )
+                if interruption_stage == "context_unfinished":
+                    connection.execute(
+                        "DELETE FROM armi.cognitive_attempts WHERE cognitive_episode_id=%s",
+                        (ids["episode"],),
+                    )
+                    connection.execute(
+                        """UPDATE armi.cognitive_episodes SET status='preparing',prepared_at=NULL,
+                           context_manifest_artifact_id=NULL,compiled_context_artifact_id=NULL,
+                           context_manifest_digest=NULL,compiled_context_digest=NULL
+                           WHERE cognitive_episode_id=%s""",
+                        (ids["episode"],),
+                    )
+                    connection.execute(
+                        "UPDATE armi.durable_work SET work_kind='cognition.context.prepare' WHERE work_id=%s",
+                        (ids["commit_work"],),
+                    )
         if interruption_stage == "cognition_unfinished":
             with psycopg.connect(fixture.provisioner_dsn) as connection:
                 connection.execute(
@@ -7138,7 +7306,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "WHERE cognitive_episode_id=%s",
                     (ids["episode"],),
                 )
-        if interruption_stage in {"cognition_unfinished", "candidate_validated"}:
+        if interruption_stage in {
+            "context_unfinished",
+            "model_prepared",
+            "cognition_unfinished",
+            "finalizing",
+        }:
             self._verify_reply_interruption(
                 fixture, fence, ids, payloads, interruption_stage, codex=codex
             )
@@ -7522,7 +7695,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                                     work_id, work_kind, owner_kind, owner_ref, subject_id,
                                     idempotency_key, payload_digest, priority, not_before,
                                     deadline_at, status, max_attempts, trace_id)
-                                SELECT uuidv7(), 'cognition.model.invoke', 'cognitive_episode',
+                                SELECT uuidv7(), 'cognition.execute', 'cognitive_episode',
                                     cognitive_episode_id, subject_id,
                                     'controlled-codex-result-work', %s, 50, statement_timestamp(),
                                     statement_timestamp() + interval '5 minutes', 'ready', 1, trace_id
@@ -7533,7 +7706,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                                     result_episode,
                                 ),
                             )
-                await recovery.end_conversations()
+                await recovery.end_interrupted_work()
                 if codex_claim is not None:
                     with self.assertRaisesRegex(
                         RuntimeError, "EFFECT-SETTLEMENT-STALE"
@@ -7546,7 +7719,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                                 started=True,
                             )
                 # A second lifecycle pass must not recreate work or dispatch.
-                await recovery.end_conversations()
+                await recovery.end_interrupted_work()
                 async with factory.unit_of_work() as unit:
                     self.assertIsNone(
                         await dispatcher.claim(unit, claim_owner=ids["runtime"])
@@ -7572,7 +7745,32 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ).fetchone(),
                 (0,),
             )
-            if stage in {"cognition_unfinished", "candidate_validated"}:
+            if stage in {
+                "context_unfinished",
+                "model_prepared",
+                "cognition_unfinished",
+                "finalizing",
+            }:
+                self.assertEqual(
+                    connection.execute(
+                        "SELECT result_status FROM armi.cognitive_attempts"
+                    ).fetchone(),
+                    None
+                    if stage == "context_unfinished"
+                    else (
+                        "cancelled"
+                        if stage == "model_prepared"
+                        else "outcome_unknown"
+                        if stage == "cognition_unfinished"
+                        else "succeeded",
+                    ),
+                )
+                self.assertEqual(
+                    connection.execute(
+                        "SELECT current_disposition FROM armi.opportunities"
+                    ).fetchone(),
+                    ("cancelled",),
+                )
                 self.assertEqual(
                     connection.execute(
                         "SELECT count(*) FROM armi.subject_commits"
@@ -8300,7 +8498,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         (
                             "operation",
                             accepted["result_ref"],
-                            "creator-operation.v6",
+                            "creator-operation.v7",
                         ),
                     )
                     self.assertEqual(operation_event_lines[3], b"\n")
@@ -8486,7 +8684,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         (
                             SELECT count(*)
                             FROM armi.cognitive_episodes
-                            WHERE status = 'prepared'
+                            WHERE status = 'cancelled' AND purpose='consider_creator_input'
+                              AND failure_code='COGNITION-RUNTIME-INTERRUPTED'
                         ),
                         (
                             SELECT count(*)
@@ -8623,23 +8822,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             self.assertEqual(restarted.returncode, 0, restart_stderr)
             self.assertEqual(restart_stdout, "")
             with psycopg.connect(fixture.runtime_dsn) as database:
-                recovery_count = database.execute(
-                    """
-                    SELECT
-                        max(metric_value) FILTER (
-                            WHERE metric_kind = 'opportunity.resumable_count'
-                        ),
-                        max(metric_value) FILTER (
-                            WHERE metric_kind = 'cognition.resumable_episode_count'
-                        )
-                    FROM armi.runtime_recovery_metrics
-                    WHERE recovery_run_id = (
-                        SELECT recovery_run_id FROM armi.runtime_recovery_runs
-                        ORDER BY started_at DESC, recovery_run_id DESC LIMIT 1
-                    )
-                    """
-                ).fetchone()
-                self.assertEqual(recovery_count, (1, 1))
+                self.assertEqual(
+                    database.execute(
+                        """SELECT count(*) FROM armi.cognitive_episodes
+                           WHERE status NOT IN ('completed','cancelled','failed','stale','candidate_rejected')"""
+                    ).fetchone(),
+                    (0,),
+                )
                 self.assertEqual(
                     database.execute(
                         """
@@ -8652,7 +8841,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     [
                         ("artifact.object.delete", 1),
                         ("cognition.context.prepare", 2),
-                        ("cognition.model.invoke", 2),
+                        ("cognition.execute", 2),
                     ],
                 )
                 self.assertEqual(

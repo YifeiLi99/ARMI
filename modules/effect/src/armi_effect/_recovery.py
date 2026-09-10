@@ -224,7 +224,7 @@ class EffectRecoveryParticipant:
             audits=tuple(audits),
         )
 
-    async def end_conversations(
+    async def end_interrupted_work(
         self,
         transaction: PostgreSQLTransaction,
         scope: RecoveryScope,

@@ -4,11 +4,10 @@ import asyncio
 
 import pytest
 from armi_runtime.composition.work_wakeup import (
-    CANDIDATE_VALIDATE,
+    COGNITION_EXECUTE,
     CONTEXT_PREPARE,
-    MODEL_INVOKE,
+    EXACT_LIFE_QUERY,
     OPPORTUNITY_AVAILABLE,
-    SUBJECT_COMMIT,
     WorkWakeupBus,
 )
 
@@ -17,11 +16,11 @@ from armi_runtime.composition.work_wakeup import (
 async def test_notification_before_wait_is_not_lost() -> None:
     wakeups = WorkWakeupBus()
     stop = asyncio.Event()
-    observed = wakeups.version(MODEL_INVOKE)
+    observed = wakeups.version(COGNITION_EXECUTE)
 
-    wakeups.notify(MODEL_INVOKE)
+    wakeups.notify(COGNITION_EXECUTE)
     current = await wakeups.wait(
-        MODEL_INVOKE,
+        COGNITION_EXECUTE,
         observed,
         stop=stop,
         timeout_seconds=10,
@@ -34,11 +33,11 @@ async def test_notification_before_wait_is_not_lost() -> None:
 async def test_notifications_are_channel_scoped_and_polling_remains_fallback() -> None:
     wakeups = WorkWakeupBus()
     stop = asyncio.Event()
-    observed = wakeups.version(CANDIDATE_VALIDATE)
-    wakeups.notify(MODEL_INVOKE)
+    observed = wakeups.version(CONTEXT_PREPARE)
+    wakeups.notify(COGNITION_EXECUTE)
 
     current = await wakeups.wait(
-        CANDIDATE_VALIDATE,
+        CONTEXT_PREPARE,
         observed,
         stop=stop,
         timeout_seconds=0.01,
@@ -54,9 +53,8 @@ async def test_payload_free_pulses_wake_the_interactive_chain_immediately() -> N
     channels = (
         OPPORTUNITY_AVAILABLE,
         CONTEXT_PREPARE,
-        MODEL_INVOKE,
-        CANDIDATE_VALIDATE,
-        SUBJECT_COMMIT,
+        COGNITION_EXECUTE,
+        EXACT_LIFE_QUERY,
     )
     completed: list[str] = []
 
@@ -87,10 +85,10 @@ async def test_payload_free_pulses_wake_the_interactive_chain_immediately() -> N
 async def test_stop_releases_waiters_without_a_business_notification() -> None:
     wakeups = WorkWakeupBus()
     stop = asyncio.Event()
-    observed = wakeups.version(SUBJECT_COMMIT)
+    observed = wakeups.version(EXACT_LIFE_QUERY)
     waiter = asyncio.create_task(
         wakeups.wait(
-            SUBJECT_COMMIT,
+            EXACT_LIFE_QUERY,
             observed,
             stop=stop,
             timeout_seconds=10,

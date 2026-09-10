@@ -31,7 +31,7 @@ ARMI 不把人格提示词、模型会话或任务 Agent 当成“她”。当�
 | 应用 | 权威 `armi-runtime`、隔离 `armi-admin`、React Creator Web |
 | 业务 | 23 个独立 Python distribution；Capability 仅保留静态目录，其余按 owner 承担事实、恢复和数据权利责任 |
 | 底座/适配器 | Kernel、Runtime Foundation、Local Control、Artifact Store、PostgreSQL contract、NapCat、QQ、ESP32 display 共 8 个包 |
-| 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；baseline `armi.schema-baseline.v15` |
+| 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；baseline `armi.schema-baseline.v16` |
 | 物理 schema | 当前 baseline 101 张表、1269 个字段、1 个只读 view、62 个显式索引；表和生产 DML 都受 owner registry 检查 |
 | Creator API | 52 个 OpenAPI path；同源 bearer session、签名分页、SSE 投影失效刷新 |
 | 管理面 | CLI/MCP 共用 Admin 应用服务；支持绑定的 `active` / `development` / `system_test` / `acceptance`，具体操作受配置授权约束 |
@@ -51,12 +51,12 @@ ARMI 不把人格提示词、模型会话或任务 Agent 当成“她”。当�
 正式 intake
   → interaction / evidence / opportunity
   → 冻结 purpose-scoped Context
-  → 一次严格 Creator cognitive act JSON
-  → 引用与 owner 校验
-  → 一次原子 Subject Commit
-  → expression / capability / effect 登记
+  → cognition.execute：一次模型调用 → 候选校验 → 制品准备
+  → 原子提交校验/应用结果 + 主体变化 + 意图 + Effect/outbox + 工作结算
   → 边界执行与回执核验
 ```
+
+所有共用认知（包括其他人对话、自主活动、Codex 和睡眠整理）中断即结束本轮。模型响应成功先单独保存，后续校验或提交失败不改写模型调用结果；`finalizing` 表示正在校验、准备制品并提交。长期活动与维护进度保留，由原调度重新准备新 Context，不读取旧响应或候选续算。
 
 模型候选可表达回复、拒绝、不行动、不改变、延期、需要信息、精确生命查询、网页研究或对已启用 camera/screen 的一次视觉观察请求，并可携带有依据的 experience/appraisal/受限 owner changes。模型不能填写主体版本、权限结果、VAD、模型身份、usage 或现实执行结果。慢模型、网络、文件、设备和 Codex I/O 一律在数据库写事务外；回库时重新验证 Runtime fence、work lease、generation 和主体/owner 版本。
 
@@ -67,7 +67,7 @@ apps/
   armi-runtime/                 Runtime、交互 CLI/MCP、Creator HTTP、适配器与组合根
   armi-admin/                   独立 Admin CLI/MCP
   armi-creator-web/             React Creator 工作台
-modules/                        23 个业务事实 owner
+modules/                        23 个业务模块
 packages/                       8 个稳定底座与边界适配器
 devices/esp32-s3-touch-lcd-7c-box/
                                 私有心情窗固件

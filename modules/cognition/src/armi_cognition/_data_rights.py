@@ -213,9 +213,7 @@ class PostgreSQLCognitionDataRightsParticipant:
                SET status='cancelled',failure_code='DATA-RIGHTS-CANCELLED'
                WHERE context_party_id=%s
                  AND status IN (
-                     'preparing','prepared','calling_model','model_returned',
-                     'validating','candidate_validated','candidate_rejected',
-                     'committing'
+                     'preparing','prepared','calling_model','finalizing'
                  )
                  AND (
                      %s IN ('stop_use','delete_related')

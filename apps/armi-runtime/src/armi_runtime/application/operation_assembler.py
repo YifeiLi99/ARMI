@@ -192,10 +192,7 @@ class RuntimeCreatorOperationAssembler(CreatorOperationQueryPort):
                             CreatorOperationPhase.CONTEXT_PREPARING,
                             CreatorOperationPhase.CONTEXT_PREPARED,
                             CreatorOperationPhase.MODEL_CALLING,
-                            CreatorOperationPhase.MODEL_RETURNED,
-                            CreatorOperationPhase.CANDIDATE_VALIDATING,
-                            CreatorOperationPhase.CANDIDATE_VALIDATED,
-                            CreatorOperationPhase.SUBJECT_COMMITTING,
+                            CreatorOperationPhase.FINALIZING,
                             CreatorOperationPhase.EFFECT_REGISTERED,
                             CreatorOperationPhase.EFFECT_DISPATCHING,
                         }:
@@ -337,10 +334,7 @@ def _derive_phase(
         "preparing": CreatorOperationPhase.CONTEXT_PREPARING,
         "prepared": CreatorOperationPhase.CONTEXT_PREPARED,
         "calling_model": CreatorOperationPhase.MODEL_CALLING,
-        "model_returned": CreatorOperationPhase.MODEL_RETURNED,
-        "validating": CreatorOperationPhase.CANDIDATE_VALIDATING,
-        "candidate_validated": CreatorOperationPhase.CANDIDATE_VALIDATED,
-        "committing": CreatorOperationPhase.SUBJECT_COMMITTING,
+        "finalizing": CreatorOperationPhase.FINALIZING,
         "candidate_rejected": CreatorOperationPhase.CANDIDATE_REJECTED,
     }
     if disposition == "cancelled" and episode_status is None:

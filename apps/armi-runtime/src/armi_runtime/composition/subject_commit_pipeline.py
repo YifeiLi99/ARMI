@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import AsyncIterator, Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
-from uuid import UUID, uuid7
+from uuid import uuid7
 
 from armi_activity.api import (
     ActivityCognitionPort,
@@ -24,9 +22,9 @@ from armi_artifact_store.life_material_codec import (
 from armi_attention.api import OpportunityTransitionPort
 from armi_codex.api import CodexCommitPort
 from armi_cognition.api import (
+    CognitionPreparedCandidate,
     CognitionSubjectCommitPort,
     SubjectChangeSet,
-    SubjectChangeSetCodec,
 )
 from armi_context.api import ContextProjectionInvalidationPort
 from armi_data_rights.api import DataRightsSubjectCommitGate
@@ -60,10 +58,9 @@ from armi_kernel.application import (
     SubjectCommitResult,
     SubjectCommitViolation,
     WorkLease,
-    WorkType,
     WorkViolation,
 )
-from armi_kernel.contracts import ContractViolation, Digest, Instant, Purpose, SubjectId
+from armi_kernel.contracts import Digest, Instant, Purpose, SubjectId, TraceId
 from armi_live_vision.api import VisualObservationCommitPort
 from armi_live_voice.api import LiveVoiceViolation, VoiceCognitionResultPort
 from armi_material.api import (
@@ -97,7 +94,6 @@ from armi_subject_state.api import (
 )
 from armi_web_observation.api import WebResearchCommitPort, WebResearchRequestDraft
 
-from armi_runtime.adapters.persistence.durable_work import PostgreSQLDurableWorkGateway
 from armi_runtime.adapters.persistence.subject_commit import (
     PostgreSQLSubjectCommitRepository,
     SubjectCommitOwnerDrafts,
@@ -108,19 +104,15 @@ from armi_runtime.adapters.persistence.unit_of_work import (
     PostgreSQLUnitOfWorkFactory,
 )
 from armi_runtime.adapters.transaction_errors import (
-    DatabaseFailureKind,
     DatabaseTransactionError,
 )
 
 from .work_wakeup import (
     EXACT_LIFE_QUERY,
     OPPORTUNITY_AVAILABLE,
-    SUBJECT_COMMIT,
     WorkWakeupBus,
 )
 
-_WORK_KIND = WorkType.COGNITION_SUBJECT_COMMIT
-_LEASE_SECONDS = 30
 Diagnostic = Callable[[str], None]
 FaultInjector = Callable[[str], None]
 
@@ -135,11 +127,9 @@ class SubjectCommitPipeline:
     __slots__ = (
         "_activity_cognition",
         "_catalog",
-        "_change_set_codec",
         "_diagnostic",
         "_factory",
         "_fault_injector",
-        "_lease_owner",
         "_material_cognition",
         "_memory_cognition",
         "_mood_cognition",
@@ -148,19 +138,16 @@ class SubjectCommitPipeline:
         "_relationship_cognition",
         "_repository",
         "_sleep_cognition",
-        "_stop",
         "_storage",
         "_subject_state_cognition",
         "_voice_results",
         "_wakeups",
-        "_work",
     )
 
     def __init__(
         self,
         *,
         factory: PostgreSQLUnitOfWorkFactory,
-        change_set_codec: SubjectChangeSetCodec,
         storage: ContentAddressedArtifactStore,
         catalog: ArtifactCatalogPort,
         activity_cognition: ActivityCognitionPort,
@@ -198,7 +185,6 @@ class SubjectCommitPipeline:
         fault_injector: FaultInjector | None = None,
     ) -> None:
         self._factory = factory
-        self._change_set_codec = change_set_codec
         self._activity_cognition = activity_cognition
         self._catalog = catalog
         self._storage = storage
@@ -234,47 +220,24 @@ class SubjectCommitPipeline:
             web_research_commit,
             visual_observation_commit,
         )
-        self._work = PostgreSQLDurableWorkGateway(factory)
-        self._lease_owner = uuid7()
-        self._stop = asyncio.Event()
         self._wakeups = wakeups or WorkWakeupBus()
         self._diagnostic = diagnostic or _ignore_diagnostic
         self._fault_injector = fault_injector or _ignore_diagnostic
 
-    async def open(self) -> None:
-        await self._storage.prepare()
-
-    async def close(self) -> None:
-        self._stop.set()
-
-    def stop(self) -> None:
-        self._stop.set()
-
-    async def commit_once(self) -> bool:
+    async def submit(
+        self, lease: WorkLease, candidate: CognitionPreparedCandidate
+    ) -> None:
         snapshot: SubjectCommitSnapshot | None = None
-        episode_id: UUID | None = None
+        episode_id = candidate.episode_id
+        change_set = candidate.result.change_set
         has_reply = False
         awaits_followup = False
         try:
-            records = await self._work.claim(
-                work_kind=_WORK_KIND,
-                lease_owner=self._lease_owner,
-                lease_seconds=_LEASE_SECONDS,
-                limit=1,
-            )
-        except WorkViolation:
-            raise SubjectCommitViolation("SUBJECT-DATABASE") from None
-        if not records:
-            return False
-        lease = cast(WorkLease, records[0].lease)
-        try:
-            owner = records[0].draft.owner
-            if owner.kind != "cognitive_episode":
-                raise SubjectCommitViolation("SUBJECT-WORK-OWNER")
-            episode_id = owner.reference
-            snapshot = await self._snapshot(lease, episode_id)
-            change_set = self._change_set_codec.decode(await self._read(snapshot))
-            snapshot = self._bind_accepted_owner_payloads(snapshot, change_set)
+            if change_set is None:
+                async with self._factory.unit_of_work() as unit_of_work:
+                    await candidate.record(unit_of_work, lease)
+                self._wake_downstream()
+                return
             owner_drafts = self._decode_owner_drafts(change_set)
             replies = tuple(
                 item
@@ -285,7 +248,9 @@ class SubjectCommitPipeline:
                 raise SubjectCommitViolation("SUBJECT-RESPONSE-COUNT")
             has_reply = bool(replies)
             published_reply = (
-                await self._publish_response(replies[0], snapshot) if replies else None
+                await self._publish_response(replies[0], candidate.trace_id)
+                if replies
+                else None
             )
             research_requests = change_set.web_research_requests
             if len(research_requests) > 1:
@@ -296,7 +261,7 @@ class SubjectCommitPipeline:
                 or change_set.visual_observation_requests
             )
             published_research = (
-                await self._publish_research(research_requests[0], snapshot)
+                await self._publish_research(research_requests[0], candidate.trace_id)
                 if research_requests
                 else None
             )
@@ -308,18 +273,27 @@ class SubjectCommitPipeline:
                 published_materials.append(
                     (
                         material.proposal_ref,
-                        await self._publish_material(material.body_bytes, snapshot),
+                        await self._publish_material(
+                            material.body_bytes, candidate.trace_id
+                        ),
                     )
                 )
             prompt_drafts = owner_drafts.prompt
             published_prompts = [
                 (
                     prompt.proposal_ref,
-                    await self._publish_prompt(prompt.content_bytes, snapshot),
+                    await self._publish_prompt(
+                        prompt.content_bytes, candidate.trace_id
+                    ),
                 )
                 for prompt in prompt_drafts
             ]
             async with self._factory.unit_of_work() as unit_of_work:
+                await candidate.record(unit_of_work, lease)
+                snapshot = await self._repository.snapshot(
+                    unit_of_work, lease, episode_id
+                )
+                snapshot = self._bind_accepted_owner_payloads(snapshot, change_set)
                 response_artifact = None
                 research_artifact = None
                 material_artifacts: dict[str, ArtifactRef] = {}
@@ -413,20 +387,18 @@ class SubjectCommitPipeline:
                 has_reply=has_reply,
                 awaits_followup=awaits_followup,
             )
-            return True
+            return
         except SubjectCommitViolation as error:
             if error.code == "SUBJECT-WORK-STALE":
                 self._diagnostic("subject_commit.work.stale")
-                return True
+                return
             if error.code in {"SUBJECT-HEAD-STALE", "SUBJECT-CAS-STALE"}:
                 if snapshot is not None:
-                    await self._settle_stale(lease, snapshot)
-                return True
-            await self._fail(lease, episode_id, error.code)
-            return True
+                    await self._settle_stale(lease, snapshot, candidate)
+                return
+            raise
         except ArtifactViolation:
-            await self._fail(lease, episode_id, "SUBJECT-RESPONSE-ARTIFACT")
-            return True
+            raise SubjectCommitViolation("SUBJECT-RESPONSE-ARTIFACT") from None
         except DatabaseTransactionError as error:
             if error.code == "DB-TX-COMMIT-UNKNOWN" and snapshot is not None:
                 recovered = await self._recover_committed(snapshot)
@@ -438,42 +410,15 @@ class SubjectCommitPipeline:
                         has_reply=has_reply,
                         awaits_followup=awaits_followup,
                     )
-                    return True
+                    return
                 self._diagnostic("subject_commit.commit.outcome_unknown")
-                return True
-            if error.retryable_work:
-                await self._release(lease, error.code)
-            elif error.kind is DatabaseFailureKind.DEPENDENCY:
-                self._diagnostic(
-                    f"subject_commit.settlement.deferred.{error.code.lower()}"
-                )
-            else:
-                await self._fail(lease, episode_id, error.code)
-            return True
+                return
+            raise
         except WorkViolation as error:
             self._diagnostic(
                 f"subject_commit.worker.transient_failure.{error.code.lower()}"
             )
-            return True
-
-    async def run_worker(self) -> None:
-        observed = self._wakeups.version(SUBJECT_COMMIT)
-        while not self._stop.is_set():
-            try:
-                worked = await self.commit_once()
-            except SubjectCommitViolation:
-                if not self._stop.is_set():
-                    self._diagnostic("subject_commit.worker.failed")
-                worked = False
-            if worked:
-                await asyncio.sleep(0)
-                continue
-            observed = await self._wakeups.wait(
-                SUBJECT_COMMIT,
-                observed,
-                stop=self._stop,
-                timeout_seconds=1,
-            )
+            return
 
     def _wake_downstream(self) -> None:
         self._wakeups.notify(OPPORTUNITY_AVAILABLE)
@@ -496,27 +441,6 @@ class SubjectCommitPipeline:
             )
         except LiveVoiceViolation:
             self._diagnostic("subject_commit.voice_result.failed")
-
-    async def _snapshot(
-        self, lease: WorkLease, episode_id: UUID
-    ) -> SubjectCommitSnapshot:
-        try:
-            async with self._factory.unit_of_work() as unit_of_work:
-                return await self._repository.snapshot(unit_of_work, lease, episode_id)
-        except DatabaseTransactionError:
-            raise SubjectCommitViolation("SUBJECT-DATABASE") from None
-
-    async def _read(self, snapshot: SubjectCommitSnapshot) -> bytes:
-        value = b""
-        try:
-            stream = await self._storage.open_verified(snapshot.change_set_artifact)
-            async with stream:
-                value = await stream.read()
-        except ArtifactViolation, ContractViolation, OSError:
-            raise SubjectCommitViolation("SUBJECT-CHANGE-SET-ARTIFACT") from None
-        if not value:
-            raise SubjectCommitViolation("SUBJECT-CHANGE-SET-ARTIFACT")
-        return value
 
     def _decode_owner_drafts(
         self, change_set: SubjectChangeSet
@@ -590,47 +514,15 @@ class SubjectCommitPipeline:
             ),
         )
 
-    async def _fail(self, lease: WorkLease, episode_id: UUID | None, code: str) -> None:
-        if episode_id is None:
-            self._diagnostic("subject_commit.settlement.deferred")
-            return
-        try:
-            async with self._factory.unit_of_work() as unit_of_work:
-                await self._repository.fail(
-                    unit_of_work,
-                    lease=lease,
-                    episode_id=episode_id,
-                    code=code,
-                )
-                self._wake_downstream()
-        except DatabaseTransactionError, SubjectCommitViolation, WorkViolation:
-            self._diagnostic("subject_commit.settlement.deferred")
-
-    async def _release(self, lease: WorkLease, code: str) -> None:
-        try:
-            async with self._factory.unit_of_work() as unit_of_work:
-                row = await (
-                    await unit_of_work._connection_for_repository().execute(  # pyright: ignore[reportPrivateUsage]
-                        "SELECT statement_timestamp()"
-                    )
-                ).fetchone()
-                if row is None:
-                    return
-                await unit_of_work.work.release(
-                    lease,
-                    not_before=Instant(row[0]),
-                    error_code=code,
-                )
-        except DatabaseTransactionError, SubjectCommitViolation, WorkViolation:
-            self._diagnostic("subject_commit.settlement.deferred")
-
     async def _settle_stale(
         self,
         lease: WorkLease,
         snapshot: SubjectCommitSnapshot,
+        candidate: CognitionPreparedCandidate,
     ) -> None:
         try:
             async with self._factory.unit_of_work() as unit_of_work:
+                await candidate.record(unit_of_work, lease)
                 result = await self._repository.settle_stale(
                     unit_of_work,
                     lease=lease,
@@ -644,7 +536,7 @@ class SubjectCommitPipeline:
     async def _publish_response(
         self,
         reply: CreatorReplyDraft | OtherHumanReplyDraft,
-        snapshot: SubjectCommitSnapshot,
+        trace_id: TraceId,
     ):
         staged = await self._storage.stage(
             _one_chunk(reply.content_bytes),
@@ -656,7 +548,7 @@ class SubjectCommitPipeline:
                     else "creator.response.text"
                 ),
                 "subject.commit",
-                snapshot.trace_id,
+                trace_id,
                 ArtifactPrivacyScope.PRIVATE,
             ),
         )
@@ -665,7 +557,7 @@ class SubjectCommitPipeline:
     async def _publish_research(
         self,
         request: WebResearchRequestDraft,
-        snapshot: SubjectCommitSnapshot,
+        trace_id: TraceId,
     ):
         staged = await self._storage.stage(
             _one_chunk(request.query_bytes),
@@ -673,14 +565,14 @@ class SubjectCommitPipeline:
                 "text/plain",
                 "web.research.query",
                 "subject.commit",
-                snapshot.trace_id,
+                trace_id,
                 ArtifactPrivacyScope.PRIVATE,
             ),
         )
         return await self._storage.publish(staged)
 
     async def _publish_material(
-        self, body_bytes: bytes, snapshot: SubjectCommitSnapshot
+        self, body_bytes: bytes, trace_id: TraceId
     ) -> ArtifactPublication:
         try:
             content = build_life_material_artifact(body_bytes)
@@ -690,7 +582,7 @@ class SubjectCommitPipeline:
                     "application/json",
                     "life.material.content",
                     "subject.commit",
-                    snapshot.trace_id,
+                    trace_id,
                     ArtifactPrivacyScope.PRIVATE,
                 ),
             )
@@ -699,7 +591,7 @@ class SubjectCommitPipeline:
             raise SubjectCommitViolation("SUBJECT-MATERIAL-ARTIFACT") from None
 
     async def _publish_prompt(
-        self, content_bytes: bytes, snapshot: SubjectCommitSnapshot
+        self, content_bytes: bytes, trace_id: TraceId
     ) -> ArtifactPublication:
         try:
             staged = await self._storage.stage(
@@ -708,7 +600,7 @@ class SubjectCommitPipeline:
                     "application/json",
                     "subject.prompt.content",
                     "subject.commit",
-                    snapshot.trace_id,
+                    trace_id,
                     ArtifactPrivacyScope.PRIVATE,
                 ),
             )
@@ -738,7 +630,7 @@ class SubjectCommitPipeline:
                 CreatorResourceKind("operation"),
                 str(snapshot.root_opportunity_id),
                 now,
-                "creator-operation.v6",
+                "creator-operation.v7",
             )
         ]
         if result.subject_commit_id is not None:
@@ -859,7 +751,6 @@ def build_subject_commit_pipeline(
     max_object_bytes: int,
     orphan_grace_seconds: int,
     catalog: ArtifactCatalogPort,
-    change_set_codec: SubjectChangeSetCodec,
     activity_cognition: ActivityCognitionPort,
     activity_commit: ActivityCommitPort,
     codex_commit: CodexCommitPort,
@@ -904,7 +795,6 @@ def build_subject_commit_pipeline(
             orphan_grace_seconds=orphan_grace_seconds,
         ),
         catalog=catalog,
-        change_set_codec=change_set_codec,
         activity_cognition=activity_cognition,
         activity_commit=activity_commit,
         codex_commit=codex_commit,

@@ -341,10 +341,10 @@ class RecoveryParticipant(Protocol):
 
 
 @runtime_checkable
-class ConversationEndParticipant(Protocol):
+class InterruptedWorkEndParticipant(Protocol):
     """Existing owner lifecycle hook for ending ephemeral conversation work."""
 
-    async def end_conversations(
+    async def end_interrupted_work(
         self,
         transaction: PostgreSQLTransaction,
         scope: RecoveryScope,
@@ -392,8 +392,8 @@ class EmptyRecoveryParticipant:
 
 
 __all__ = (
-    "ConversationEndParticipant",
     "EmptyRecoveryParticipant",
+    "InterruptedWorkEndParticipant",
     "OwnerReconciliationContext",
     "RecoveryAuditContribution",
     "RecoveryContribution",

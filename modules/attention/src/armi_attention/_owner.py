@@ -30,6 +30,18 @@ from .api import (
 
 
 class PostgreSQLOpportunityOwner:
+    async def interrupt_cognition(
+        self, transaction: PostgreSQLTransaction, *, opportunity_ids: tuple[UUID, ...]
+    ) -> None:
+        await transaction.execute(
+            """UPDATE armi.opportunities
+               SET current_disposition='cancelled',resolved_at=statement_timestamp(),
+                   resolution_reason_code='REC-COGNITION-INTERRUPTED'
+               WHERE opportunity_id=ANY(%s::uuid[])
+                 AND current_disposition IN ('open','selected')""",
+            (list(opportunity_ids),),
+        )
+
     async def interrupt_conversations(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID
     ) -> tuple[UUID, ...]:

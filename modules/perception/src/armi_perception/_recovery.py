@@ -23,7 +23,7 @@ class PerceptionRecoveryParticipant:
     def __init__(self, interaction: InteractionPerceptionPort) -> None:
         self._interaction = interaction
 
-    async def _end_conversations(
+    async def _end_interrupted_work(
         self,
         transaction: PostgreSQLTransaction,
         work: tuple[RecoveryWorkSnapshot, ...],
@@ -53,13 +53,13 @@ class PerceptionRecoveryParticipant:
                 cancelled.add(item.work_id)
         return cancelled
 
-    async def end_conversations(
+    async def end_interrupted_work(
         self,
         transaction: PostgreSQLTransaction,
         scope: RecoveryScope,
         work: tuple[RecoveryWorkSnapshot, ...],
     ) -> None:
-        await self._end_conversations(transaction, work)
+        await self._end_interrupted_work(transaction, work)
 
     async def recover(
         self,
@@ -68,7 +68,7 @@ class PerceptionRecoveryParticipant:
         work: tuple[RecoveryWorkSnapshot, ...],
     ) -> RecoveryContribution:
         del scope
-        cancelled = await self._end_conversations(transaction, work)
+        cancelled = await self._end_interrupted_work(transaction, work)
         work = tuple(item for item in work if item.work_id not in cancelled)
         rows = await (
             await transaction.execute("""
