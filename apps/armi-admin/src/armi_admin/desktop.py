@@ -489,16 +489,12 @@ class Desktop:
         self.tabs.add(frame, text="QQ 接入")
         ttk.Label(
             frame,
-            text="QQ 默认关闭。填写双方 QQ 号后，一键下载独立组件、配置并启用，自动打开登录页。\n"
+            text="QQ 默认关闭。填写你的 QQ 号后，一键准备并打开扫码页，ARMI 的 QQ 号从登录结果自动读取。\n"
             "首次扫码和 QQ 安全验证需本人完成。默认仅与你私聊，群聊及其他人的回复保持关闭。",
             wraplength=760,
         ).pack(anchor="w", pady=(0, 12))
-        self.qq_account = tk.StringVar()
         self.qq_creator = tk.StringVar()
-        for label, variable in (
-            ("ARMI 使用的 QQ 号", self.qq_account),
-            ("你的 QQ 号（Creator）", self.qq_creator),
-        ):
+        for label, variable in (("你的 QQ 号（Creator）", self.qq_creator),):
             row = ttk.Frame(frame)
             row.pack(fill="x", pady=5)
             ttk.Label(row, text=label, width=25).pack(side="left")
@@ -533,6 +529,31 @@ class Desktop:
             ),
         ).pack(anchor="w")
         self.qq_preparing = False
+        self.qq_login_timer: str | None = None
+        self.root.after(1000, self._qq_resume_login)
+
+    def _qq_resume_login(self) -> None:
+        if self.closed:
+            return
+        if self.busy:
+            self.root.after(1000, self._qq_resume_login)
+            return
+        self.request(
+            SetupRequest(action="napcat", napcat=SetupNapcatRequest(action="status")),
+            self._qq_result,
+        )
+
+    def _qq_complete_login(self) -> None:
+        self.qq_login_timer = None
+        if self.closed:
+            return
+        if self.busy:
+            self.qq_login_timer = self.root.after(1000, self._qq_complete_login)
+            return
+        self.request(
+            SetupRequest(action="napcat", napcat=SetupNapcatRequest(action="complete")),
+            self._qq_result,
+        )
 
     def _prepare_qq(self) -> None:
         if self.busy:
@@ -540,14 +561,14 @@ class Desktop:
         try:
             request = SetupNapcatRequest(
                 action="prepare",
-                account_id=int(self.qq_account.get()),
                 creator_user_id=int(self.qq_creator.get()),
                 enabled=True,
                 open_login=True,
             )
         except ValueError:
             messagebox.showerror(
-                "QQ 接入", "请填写两个不同的有效 QQ 号：ARMI 使用的账号和你本人的账号。"
+                "QQ 接入",
+                "请填写你本人的有效 QQ 号（Creator）；ARMI 的账号由扫码登录确定。",
             )
             return
         self.qq_preparing = True
@@ -571,7 +592,8 @@ class Desktop:
             "extracting": "校验通过，正在安装",
             "verifying": "正在验证组件可运行",
             "installed": "组件已安装",
-            "accounts_required": "组件已安装，请填写双方 QQ 号",
+            "accounts_required": "组件已安装，请填写你的 QQ 号（Creator）",
+            "awaiting_login": "请扫码登录 ARMI 的 QQ；登录后会自动读取号码并完成配置",
             "stopping": "正在正常停止环境",
             "configuring": "正在自动配置 QQ 接入",
             "configured": "已配置，QQ 接入保持关闭",
@@ -595,11 +617,20 @@ class Desktop:
             self.qq_progress["value"] = 100
         if result.get("error_code"):
             text += "：" + str(result["error_code"])
+        if result.get("account_id"):
+            text += "；ARMI QQ：" + str(result["account_id"])
+        if result.get("error_code") == "NAPCAT-ACCOUNT-IDENTITIES":
+            text = "扫码账号与你的 Creator QQ 相同，请使用另一个 QQ 账号登录 ARMI。"
         self.qq_status.set(text)
 
     def _qq_result(self, result: dict[str, Any]) -> None:
         self.qq_preparing = False
         self._qq_display(result)
+        if self.qq_login_timer is not None:
+            self.root.after_cancel(self.qq_login_timer)
+            self.qq_login_timer = None
+        if result.get("status") == "awaiting_login" or result.get("login_pending"):
+            self.qq_login_timer = self.root.after(10000, self._qq_complete_login)
 
     def _optional_result(self, result: dict[str, Any]) -> None:
         payload: dict[str, Any] = result.get("result") or {}

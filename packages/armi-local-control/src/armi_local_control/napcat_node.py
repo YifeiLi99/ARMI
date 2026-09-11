@@ -87,8 +87,9 @@ class NapCatNode:
         self.root = environment / "tools/napcat"
         self.control = environment / ".setup"
         self.progress_path = self.control / "napcat-install.json"
+        self.login_path = self.control / "napcat-login.json"
         self.process_path = environment / "run/napcat-node.json"
-        for path in (self.root, self.control, self.process_path):
+        for path in (self.root, self.control, self.process_path, self.login_path):
             if has_reparse_point(path, root=Path(path.anchor)):
                 raise _fail("LOCAL-PATH")
 
@@ -124,7 +125,61 @@ class NapCatNode:
             "status", "installed" if result["installed"] else "not_installed"
         )
         result["version"] = VERSION
+        result["login_pending"] = self.login_path.exists()
         return result
+
+    def login_account(self) -> int | None:
+        """Read the authenticated online account; never infer it from a QR code."""
+        path = self.root / "config/webui.json"
+        if has_reparse_point(path, root=self.environment):
+            raise _fail("LOCAL-PATH")
+        config = json.loads(path.read_bytes())
+        if config.get("host") != "127.0.0.1" or type(config.get("port")) is not int:
+            raise _fail("WEBUI-CONFIGURATION")
+        try:
+            with httpx.Client(
+                base_url=f"http://127.0.0.1:{config['port']}/api/",
+                trust_env=False,
+                timeout=3,
+            ) as client:
+
+                def post(route: str, payload: dict[str, str]) -> dict[str, Any]:
+                    response = client.post(route, json=payload)
+                    response.raise_for_status()
+                    value = response.json()
+                    if value.get("code") != 0 or not isinstance(
+                        value.get("data"), dict
+                    ):
+                        raise _fail("LOGIN-RESPONSE")
+                    return value["data"]
+
+                auth = post(
+                    "auth/login",
+                    {
+                        "hash": hashlib.sha256(
+                            (config["token"] + ".napcat").encode()
+                        ).hexdigest()
+                    },
+                )
+                credential = auth.get("Credential")
+                if not isinstance(credential, str) or not credential:
+                    raise _fail("WEBUI-AUTHENTICATION")
+                client.headers["Authorization"] = "Bearer " + credential
+                if post("QQLogin/CheckLoginStatus", {}).get("isLogin") is not True:
+                    return None
+                info = post("QQLogin/GetQQLoginInfo", {})
+                if info.get("online") is not True:
+                    return None
+                uin = info.get("uin")
+                if (
+                    type(uin) not in (str, int)
+                    or not str(uin).isdecimal()
+                    or not 0 < int(str(uin)) <= 2**63 - 1
+                ):
+                    raise _fail("LOGIN-ACCOUNT")
+                return int(str(uin))
+        except httpx.HTTPError:
+            raise _fail("LOGIN-UNAVAILABLE") from None
 
     def install(self, environment_id: str) -> dict[str, Any]:
         private_directory(self.control)
@@ -276,7 +331,7 @@ class NapCatNode:
         if (
             not config.is_file()
             or load_yaml_mapping(config.read_bytes()).get("enabled") is not True
-        ):
+        ) and not self.login_path.exists():
             return {"status": "disabled"}
         private_directory(self.process_path.parent)
         with LocalProcessLock(self.process_path.with_suffix(".lock")):

@@ -54,6 +54,104 @@ def test_enable_requires_explicit_distinct_accounts(fields):
         SetupNapcatRequest(action="prepare", **fields)
 
 
+def test_begin_login_never_creates_binding_or_onebot_before_scan(tmp_path):
+    service = application(tmp_path / "environments/active")
+    node = NapCatNode(service.root)
+    node.control.mkdir()
+    calls = []
+
+    def invoke(operation, arguments):
+        calls.append((operation, arguments))
+        return {"status": "succeeded", "result": {"version": "v1", "values": {}}}
+
+    with (
+        patch.object(service, "invoke", side_effect=invoke),
+        patch("armi_admin.application.installation.socket.create_connection"),
+    ):
+        result = service._begin_napcat_login(
+            SetupNapcatRequest(
+                action="prepare", creator_user_id=98765, enabled=True, open_login=True
+            )
+        )
+    assert result["status"] == "awaiting_login"
+    assert json.loads(node.login_path.read_bytes()) == {"creator_user_id": 98765}
+    assert (
+        json.loads((node.root / "config/webui.json").read_bytes())["autoLoginAccount"]
+        == ""
+    )
+    assert list((node.root / "config").glob("onebot*")) == []
+    assert not (service.root / "channels/qq-napcat.yaml").exists()
+    assert [op for op, _ in calls] == [
+        "configuration",
+        "environment_stop",
+        "environment_start",
+        "maintenance",
+    ]
+
+
+@pytest.mark.parametrize("account", [None, 12345])
+def test_completion_uses_only_online_account_and_is_idempotent(tmp_path, account):
+    service = application(tmp_path / "environments/active")
+    node = NapCatNode(service.root)
+    node.control.mkdir()
+    node.login_path.write_text(json.dumps({"creator_user_id": 98765}))
+    with (
+        patch.object(service, "_read", return_value=Mock(stage="ready")),
+        patch.object(NapCatNode, "login_account", return_value=account),
+        patch.object(
+            service, "_configure_napcat", return_value={"status": "ready"}
+        ) as configure,
+    ):
+        result = service.napcat(SetupNapcatRequest(action="complete"))
+        if account is None:
+            assert result["status"] == "awaiting_login"
+            configure.assert_not_called()
+            assert node.login_path.exists()
+        else:
+            assert result["account_id"] == account
+            assert configure.call_args.kwargs["account_id"] == account
+            assert configure.call_args.args[0].creator_user_id == 98765
+            assert not node.login_path.exists()
+            service.napcat(SetupNapcatRequest(action="complete"))
+            assert configure.call_count == 1
+
+
+def test_scanning_creator_account_is_rejected_without_binding(tmp_path):
+    service = application(tmp_path / "environments/active")
+    node = NapCatNode(service.root)
+    node.control.mkdir()
+    node.login_path.write_text(json.dumps({"creator_user_id": 98765}))
+    with (
+        patch.object(service, "_read", return_value=Mock(stage="ready")),
+        patch.object(NapCatNode, "login_account", return_value=98765),
+        patch.object(service, "_configure_napcat") as configure,
+        pytest.raises(SetupError, match="ACCOUNT-IDENTITIES"),
+    ):
+        service.napcat(SetupNapcatRequest(action="complete"))
+    configure.assert_not_called()
+    assert not node.login_path.exists()
+
+
+def test_uncertain_configuration_is_not_replayed_by_login_poll(tmp_path):
+    service = application(tmp_path / "environments/active")
+    node = NapCatNode(service.root)
+    node.control.mkdir()
+    node.login_path.write_text(json.dumps({"creator_user_id": 98765}))
+    with (
+        patch.object(service, "_read", return_value=Mock(stage="ready")),
+        patch.object(NapCatNode, "login_account", return_value=12345),
+        patch.object(
+            service,
+            "_configure_napcat",
+            side_effect=SetupError("NAPCAT-ADMIN-CONFIGURATION-UNCONFIRMED"),
+        ) as configure,
+    ):
+        with pytest.raises(SetupError, match="UNCONFIRMED"):
+            service.napcat(SetupNapcatRequest(action="complete"))
+        service.napcat(SetupNapcatRequest(action="complete"))
+    assert configure.call_count == 1
+
+
 def test_configuration_uses_owner_and_preserves_generated_credentials(tmp_path):
     service = application(tmp_path / "environments/active")
     saved = {}
@@ -71,16 +169,14 @@ def test_configuration_uses_owner_and_preserves_generated_credentials(tmp_path):
                 saved.update(arguments["document"])
         return {"status": "succeeded", "result": {}}
 
-    request = SetupNapcatRequest(
-        action="prepare", account_id=12345, creator_user_id=98765
-    )
+    request = SetupNapcatRequest(action="prepare", creator_user_id=98765)
     with patch.object(service, "invoke", side_effect=invoke):
-        service._configure_napcat(request)
+        service._configure_napcat(request, account_id=12345)
         tokens = {
             path.name: path.read_bytes()
             for path in (service.root / "secrets").iterdir()
         }
-        service._configure_napcat(request)
+        service._configure_napcat(request, account_id=12345)
     assert tokens == {
         path.name: path.read_bytes() for path in (service.root / "secrets").iterdir()
     }
@@ -110,9 +206,8 @@ def test_unconfirmed_stop_does_not_write_configuration_or_credentials(tmp_path):
         pytest.raises(SetupError, match="STOP-UNCONFIRMED"),
     ):
         service._configure_napcat(
-            SetupNapcatRequest(
-                action="prepare", account_id=12345, creator_user_id=98765
-            )
+            SetupNapcatRequest(action="prepare", creator_user_id=98765),
+            account_id=12345,
         )
     assert invoke.call_count == 2
     assert list((service.root / "secrets").iterdir()) == []

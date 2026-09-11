@@ -1,3 +1,5 @@
+import hashlib
+import json
 import zipfile
 from unittest.mock import patch
 
@@ -89,3 +91,42 @@ def test_download_rejects_redirect_outside_official_asset_hosts(tmp_path):
     ):
         NapCatNode(tmp_path)._download(tmp_path / "component.zip")
     assert not (tmp_path / "component.zip").exists()
+
+
+@pytest.mark.parametrize(
+    "online,uin,expected", [(False, "12345", None), (True, "12345", 12345)]
+)
+def test_account_discovery_authenticates_and_requires_online_login(
+    tmp_path, online, uin, expected
+):
+    node = NapCatNode(tmp_path)
+    config = node.root / "config"
+    config.mkdir(parents=True)
+    (config / "webui.json").write_text(
+        json.dumps({"host": "127.0.0.1", "port": 3001, "token": "local-test-token"})
+    )
+    paths = []
+
+    def respond(request):
+        paths.append(request.url.path)
+        if request.url.path == "/api/auth/login":
+            assert (
+                json.loads(request.content)["hash"]
+                == hashlib.sha256(b"local-test-token.napcat").hexdigest()
+            )
+            data = {"Credential": "test-session"}
+        else:
+            assert request.headers["authorization"] == "Bearer test-session"
+            data = (
+                {"isLogin": online}
+                if request.url.path.endswith("CheckLoginStatus")
+                else {"online": online, "uin": uin}
+            )
+        return httpx.Response(200, json={"code": 0, "data": data})
+
+    client = httpx.Client(
+        base_url="http://127.0.0.1:3001/api/", transport=httpx.MockTransport(respond)
+    )
+    with patch.object(node_module.httpx, "Client", return_value=client):
+        assert node.login_account() == expected
+    assert ("/api/QQLogin/GetQQLoginInfo" in paths) is online

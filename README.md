@@ -186,9 +186,11 @@ Vite 固定使用 `127.0.0.1:5173` 并代理现有 Runtime，不启动第二个�
 
 账号凭据在环境准备完成后，通过“设置 → 账号凭据”填写并保存，随后停止、重新启动环境生效。模型和 Web 搜索共用一份 `model.ark_api_key`；语音、Codex、QQ 启用时分别配置自己的凭据。安装版凭据文件位于所属环境的 `secrets/provider-<凭据名称>`，例如验收版模型 key 在 `%LOCALAPPDATA%\ARMI.Acceptance\environments\active\secrets\provider-model.ark_api_key`。当前内容未加密，依靠文件权限保护，界面不回显已保存内容；项目文档不保存凭据值。普通升级和默认卸载保留这些文件，明确选择清理数据才删除。Runtime 核心就绪不代表模型可用，缺少有效模型凭据时不能据此声称对话已可用。
 
-QQ 默认关闭，也不随 MSIX 预装 NapCat。在“设置 → QQ 接入”填写 ARMI 的 QQ 号和 Creator 的 QQ 号，点击“一键安装并启用 QQ”，自动下载固定版本的官方 Windows Node 组件、校验摘要、配置本机端口和两份独立通信密钥、启动环境并打开登录页。扫码及 QQ 安全验证仍由账号本人完成；默认只允许回复 Creator 私聊，群聊保持关闭。组件在所属环境的 `tools/napcat/`，正常停机回收受管 Node 进程，更新和默认卸载保留配置及数据。
+QQ 默认关闭，也不随 MSIX 预装 NapCat。在“设置 → QQ 接入”只填写你的 Creator QQ 号，ARMI 的号码在扫码登录后自动读取，点击“一键安装并启用 QQ”，自动下载固定版本的官方 Windows Node 组件、校验摘要、配置本机端口和两份独立通信密钥、启动环境并打开登录页。扫码及 QQ 安全验证仍由账号本人完成；默认只允许回复 Creator 私聊，群聊保持关闭。组件在所属环境的 `tools/napcat/`，正常停机回收受管 Node 进程，更新和默认卸载保留配置及数据。
 
-机器使用同一 `ARMI.exe cli setup` / `mcp setup` 用例：请求 `{"action":"napcat","napcat":{"action":"prepare","account_id":12345,"creator_user_id":98765,"enabled":true}}`，号码需替换为实际值；需要打开浏览器时增加 `open_login:true`。不传号码、不开启时仅安装组件；`{"action":"napcat","napcat":{"action":"status"}}` 读取安装准备进度，实时渠道状态使用 Admin `maintenance.napcat_status`。NapCat 下载来自其上游 Releases，与 ARMI 自身是否使用 GitHub 更新无关；使用须遵守上游 [许可证](https://github.com/NapNeko/NapCatQQ/blob/v4.18.9/LICENSE)。
+机器使用同一 `ARMI.exe cli setup` / `mcp setup` 用例：请求 `{"action":"napcat","napcat":{"action":"prepare","creator_user_id":98765,"enabled":true}}`，Creator 号码需替换为实际值；需要打开浏览器时增加 `open_login:true`。不传号码、不开启时仅安装组件；`{"action":"napcat","napcat":{"action":"status"}}` 读取安装准备进度，实时渠道状态使用 Admin `maintenance.napcat_status`。NapCat 下载来自其上游 Releases，与 ARMI 自身是否使用 GitHub 更新无关；使用须遵守上游 [许可证](https://github.com/NapNeko/NapCatQQ/blob/v4.18.9/LICENSE)。
+
+QQ 准备返回 `awaiting_login` 后，设置窗口自动检测登录并完成配置，无需再按确认按钮。CLI/MCP 调用方每隔至少 10 秒提交 `{"action":"napcat","napcat":{"action":"complete"}}`，服务从本机认证接口取得在线账号后完成绑定并返回 `account_id`；未登录继续返回等待状态。`status` 保持只读，不触发绑定。重复完成不会重复配置；自动配置中断后不会盲目重放管理操作。
 
 ## 质量门禁
 
