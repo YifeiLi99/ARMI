@@ -69,8 +69,6 @@ class QQAdapterConfig:
         ):
             raise ValueError("QQ account identities are invalid")
         groups = dict(self.allowed_groups)
-        if not groups:
-            raise ValueError("at least one QQ group must be explicitly allowed")
         for group_id, label in groups.items():
             try:
                 label_bytes = label.encode("utf-8") if type(label) is str else b""

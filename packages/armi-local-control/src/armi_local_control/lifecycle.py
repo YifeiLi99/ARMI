@@ -12,6 +12,7 @@ from typing import Any, Literal
 from .configuration import ConfigurationViolation, load_effective_config
 from .configuration.paths import has_reparse_point
 from .layout import environment_control_root
+from .napcat_node import NapCatNode
 from .native_postgresql import NativePostgreSQL, PostgreSQLControlBinding
 from .runtime_errors import RuntimeViolation
 from .runtime_process import LocalProcessLock, RuntimeProcessManager
@@ -175,6 +176,7 @@ class LocalEnvironmentController:
             return self._execute("start")
         if action == "stop":
             runtime = self._execute("stop", component="runtime")
+            self._step("napcat.stop", NapCatNode(self.root).stop)
             semantic = self._step(
                 "semantic.stop", SemanticRecallProcessManager(self.root).stop
             )
@@ -195,6 +197,10 @@ class LocalEnvironmentController:
         semantic = self._step("semantic.start", lambda: self._semantic().start())
         runtime = self._step("runtime.start", self._start_runtime)
         status = self._step("runtime.readiness", lambda: self._ready(runtime))
+        if status.get("status") != "not_ready":
+            self._step(
+                "napcat.start", lambda: NapCatNode(self.root).start(self.environment_id)
+            )
         if status.get("status") == "not_ready":
             return {
                 "status": "not_ready",

@@ -60,7 +60,7 @@ def load_qq_napcat_config(path: Path) -> QQNapCatBindingConfig | None:
     if type(groups) is not dict:
         raise ValueError("QQ group allowlist is invalid")
     groups = cast(dict[object, object], groups)
-    if not 1 <= len(groups) <= 1024:
+    if len(groups) > 1024:
         raise ValueError("QQ group allowlist is invalid")
     if any(
         type(key) is not str

@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class RuntimeViolation(RuntimeError):
-    """A safe failure containing no deployment values or raw exceptions."""
+    """Safe failure; traceback must remain writable for context managers."""
 
     code: str
     message: str

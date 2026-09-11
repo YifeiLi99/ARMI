@@ -28,7 +28,7 @@ from armi_local_control import (
 )
 from armi_local_control.runtime_process import LocalProcessLock
 
-from armi_admin.application.installation import SetupPaths
+from armi_admin.application.installation import SetupNapcatRequest, SetupPaths
 from armi_admin.application.updates import UpdateAction
 from armi_admin.composition import bootstrap_setup
 from armi_admin.setup_cli import SetupRequest, SetupUpdateRequest, dispatch
@@ -79,6 +79,7 @@ class Desktop:
         self._update_tab()
         self._uninstall_tab()
         self._optional_tab()
+        self._qq_tab()
         controls = ttk.Frame(root)
         controls.pack(fill="x", padx=20, pady=(0, 18))
         for label, action in (
@@ -482,6 +483,123 @@ class Desktop:
         ttk.Label(frame, textvariable=self.optional_status, wraplength=760).pack(
             anchor="w", pady=12
         )
+
+    def _qq_tab(self) -> None:
+        frame = ttk.Frame(self.tabs, padding=20)
+        self.tabs.add(frame, text="QQ 接入")
+        ttk.Label(
+            frame,
+            text="QQ 默认关闭。填写双方 QQ 号后，一键下载独立组件、配置并启用，自动打开登录页。\n"
+            "首次扫码和 QQ 安全验证需本人完成。默认仅与你私聊，群聊及其他人的回复保持关闭。",
+            wraplength=760,
+        ).pack(anchor="w", pady=(0, 12))
+        self.qq_account = tk.StringVar()
+        self.qq_creator = tk.StringVar()
+        for label, variable in (
+            ("ARMI 使用的 QQ 号", self.qq_account),
+            ("你的 QQ 号（Creator）", self.qq_creator),
+        ):
+            row = ttk.Frame(frame)
+            row.pack(fill="x", pady=5)
+            ttk.Label(row, text=label, width=25).pack(side="left")
+            ttk.Entry(row, textvariable=variable, width=28).pack(side="left")
+        ttk.Button(
+            frame, text="一键安装并启用 QQ（联网）", command=self._prepare_qq
+        ).pack(anchor="w", pady=12)
+        ttk.Button(
+            frame,
+            text="读取准备状态",
+            command=lambda: self.request(
+                SetupRequest(
+                    action="napcat", napcat=SetupNapcatRequest(action="status")
+                ),
+                self._qq_result,
+            ),
+        ).pack(anchor="w")
+        self.qq_progress = ttk.Progressbar(frame, maximum=100)
+        self.qq_progress.pack(fill="x", pady=12)
+        self.qq_status = tk.StringVar(value="尚未准备；安装完成不代表已登录 QQ")
+        ttk.Label(frame, textvariable=self.qq_status, wraplength=760).pack(anchor="w")
+        ttk.Label(
+            frame,
+            text="组件由 NapCat 官方发布，适用其使用许可。账号会话和组件保存在本环境，更新 ARMI 时保留。",
+            wraplength=760,
+        ).pack(anchor="w", pady=16)
+        ttk.Button(
+            frame,
+            text="查看 NapCat 使用许可",
+            command=lambda: webbrowser.open(
+                "https://github.com/NapNeko/NapCatQQ/blob/v4.18.9/LICENSE"
+            ),
+        ).pack(anchor="w")
+        self.qq_preparing = False
+
+    def _prepare_qq(self) -> None:
+        if self.busy:
+            return
+        try:
+            request = SetupNapcatRequest(
+                action="prepare",
+                account_id=int(self.qq_account.get()),
+                creator_user_id=int(self.qq_creator.get()),
+                enabled=True,
+                open_login=True,
+            )
+        except ValueError:
+            messagebox.showerror(
+                "QQ 接入", "请填写两个不同的有效 QQ 号：ARMI 使用的账号和你本人的账号。"
+            )
+            return
+        self.qq_preparing = True
+        self.request(SetupRequest(action="napcat", napcat=request), self._qq_result)
+        self.root.after(500, self._qq_progress_poll)
+
+    def _qq_progress_poll(self) -> None:
+        if self.closed or not self.qq_preparing:
+            return
+        try:
+            result = self.application.napcat(SetupNapcatRequest(action="status"))
+            self._qq_display(result)
+        except OSError, ValueError, RuntimeError:
+            self.qq_status.set("暂时无法读取进度，操作仍在进行中")
+        self.root.after(500, self._qq_progress_poll)
+
+    def _qq_display(self, result: dict[str, Any]) -> None:
+        labels = {
+            "not_installed": "尚未安装",
+            "downloading": "正在下载组件",
+            "extracting": "校验通过，正在安装",
+            "verifying": "正在验证组件可运行",
+            "installed": "组件已安装",
+            "accounts_required": "组件已安装，请填写双方 QQ 号",
+            "stopping": "正在正常停止环境",
+            "configuring": "正在自动配置 QQ 接入",
+            "configured": "已配置，QQ 接入保持关闭",
+            "starting": "正在启动环境和 QQ 登录页",
+            "login_required": "准备完成，请在登录页扫码；完成验证后会自动接入",
+            "ready": "QQ 接入已就绪",
+            "failed": "准备失败",
+            "unavailable": "组件不可用，请查看 QQ 状态中的原因",
+            "misconfigured": "QQ 配置不匹配，请查看 QQ 状态中的原因",
+        }
+        text = labels.get(str(result.get("status")), str(result.get("status")))
+        if result.get("total"):
+            percent = 100 * result.get("received", 0) / result["total"]
+            self.qq_progress["value"] = percent
+            text += f"（{percent:.0f}%）"
+        elif result.get("installed") or result.get("status") in {
+            "configured",
+            "ready",
+            "login_required",
+        }:
+            self.qq_progress["value"] = 100
+        if result.get("error_code"):
+            text += "：" + str(result["error_code"])
+        self.qq_status.set(text)
+
+    def _qq_result(self, result: dict[str, Any]) -> None:
+        self.qq_preparing = False
+        self._qq_display(result)
 
     def _optional_result(self, result: dict[str, Any]) -> None:
         payload: dict[str, Any] = result.get("result") or {}

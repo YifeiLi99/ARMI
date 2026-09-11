@@ -821,6 +821,7 @@ class AdminToolService:
                 (
                     "postgresql." + action,
                     "semantic." + action,
+                    "napcat." + action,
                     "runtime.readiness" if action == "start" else "runtime.stop",
                 )
                 if component == "environment"

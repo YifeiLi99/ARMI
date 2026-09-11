@@ -21,6 +21,7 @@ from armi_admin.application.installation import (
     SetupApplication,
     SetupCredentialRequest,
     SetupError,
+    SetupNapcatRequest,
     SetupPaths,
 )
 from armi_admin.application.updates import UpdateAction
@@ -59,10 +60,12 @@ class SetupRequest(BaseModel):
         "admin",
         "update",
         "uninstall",
+        "napcat",
     ]
     enabled: bool | None = None
     delete_data: bool = False
     update: SetupUpdateRequest | None = None
+    napcat: SetupNapcatRequest | None = None
     credential: SetupCredentialRequest | None = None
     personality_anchor: SetupAnchor | None = None
     operation_id: str | None = None
@@ -115,6 +118,10 @@ def dispatch(application: SetupApplication, request: SetupRequest) -> dict[str, 
             return application.update(request.update.action, request.update.enabled)
         if request.action == "uninstall":
             return application.uninstall(delete_data=request.delete_data)
+        if request.action == "napcat":
+            if request.napcat is None:
+                raise SetupError("NAPCAT-REQUEST-REQUIRED")
+            return application.napcat(request.napcat)
         if request.operation is None:
             raise SetupError("SETUP-ADMIN-OPERATION-REQUIRED")
         return application.invoke(request.operation, request.arguments)

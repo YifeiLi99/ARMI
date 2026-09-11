@@ -28,6 +28,7 @@ from armi_local_control.configuration.paths import (
     has_reparse_point,
     require_within_roots,
 )
+from armi_local_control.napcat_node import NapCatNode
 from armi_local_control.runtime_errors import RuntimeViolation
 
 from .environment import PreparedEnvironment
@@ -156,6 +157,18 @@ class NapCatProcessManager:
                 "CLI-QQ-NAPCAT-CONFLICT",
                 "the configured NapCat endpoint is occupied or misconfigured",
             )
+        node = NapCatNode(self._prepared.root)
+        if node.installed():
+            node.start(str(self._prepared.effective.config.environment.environment_id))
+            deadline = time.monotonic() + _START_TIMEOUT_SECONDS
+            while time.monotonic() < deadline:
+                current = self.status()
+                if current.state in {"ready", "login_required"}:
+                    return NapCatStartResult(
+                        "started" if current.state == "ready" else "attention", current
+                    )
+                time.sleep(0.5)
+            return NapCatStartResult("attention", current)
         installation = self._installation(binding)
         if _executable_is_running(installation.qq_executable):
             raise RuntimeViolation(

@@ -106,6 +106,32 @@ def _segments(
 
 
 class QQAdapterTests(unittest.IsolatedAsyncioTestCase):
+    async def test_creator_only_configuration_rejects_other_private_and_groups(
+        self,
+    ) -> None:
+        port = _InputPort()
+        adapter = QQIngressAdapter(
+            config=QQAdapterConfig(
+                10001, 90009, {}, False, False, frozenset(), frozenset()
+            ),
+            input_port=port,
+            gateway=_Gateway(),
+        )
+        segments = _segments(("text", {"text": "hello"}))
+        creator = NapCatPrivateMessageEvent(
+            1_800_000_000, 10001, "1", 90009, "Creator", segments
+        )
+        other = NapCatPrivateMessageEvent(
+            1_800_000_000, 10001, "2", 30003, "Other", segments
+        )
+        group = NapCatGroupMessageEvent(
+            1_800_000_000, 10001, "3", 20002, 90009, "Creator", segments
+        )
+        self.assertIsNotNone(await adapter.accept_event(creator))
+        self.assertIsNone(await adapter.accept_event(other))
+        self.assertIsNone(await adapter.accept_event(group))
+        self.assertEqual(len(port.accepted), 1)
+
     async def test_ingress_classifies_qq_visual_sources_and_magic_faces(self) -> None:
         port = _InputPort()
         adapter = QQIngressAdapter(
@@ -370,6 +396,16 @@ class QQAdapterTests(unittest.IsolatedAsyncioTestCase):
 
 
 class QQConfigTests(unittest.TestCase):
+    def test_creator_private_only_needs_no_allowed_group(self) -> None:
+        config = QQAdapterConfig(
+            10001, 90009, {}, False, False, frozenset(), frozenset()
+        )
+        adapter = QQIngressAdapter(
+            config=config, input_port=_InputPort(), gateway=_Gateway()
+        )
+        self.assertIsNotNone(adapter)
+        self.assertEqual(dict(config.allowed_groups), {})
+
     def test_absent_file_keeps_channel_disabled(self) -> None:
         with TemporaryDirectory() as root:
             self.assertIsNone(load_qq_napcat_config(Path(root) / "missing.yaml"))

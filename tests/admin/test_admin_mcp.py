@@ -755,5 +755,35 @@ def test_reconcile_start_requires_preidentified_ready_runtime() -> None:
     assert observation["basis"] == "current_process_state_only"
 
 
+def test_environment_reconcile_requires_optional_process_step() -> None:
+    service = _service()
+    evidence = InvocationEvidence(
+        operation="environment_start",
+        idempotency_key="start",
+        request_digest="digest",
+        references=InvocationReferences(component="environment"),
+        completed_steps={
+            "postgresql.start": {"status": "ready"},
+            "semantic.start": {"status": "disabled"},
+            "runtime.readiness": {"readiness": "ready"},
+        },
+    )
+    with patch.object(
+        AdminControlPlane, "runtime_status", return_value={"status": "stopped"}
+    ):
+        result, _ = service._reconcile_invocation(evidence)
+    assert result is None
+    complete = evidence.model_copy(
+        update={
+            "completed_steps": {
+                **evidence.completed_steps,
+                "napcat.start": {"status": "not_installed"},
+            }
+        }
+    )
+    result, _ = service._reconcile_invocation(complete)
+    assert result is not None and result["status"] == "succeeded"
+
+
 if __name__ == "__main__":
     unittest.main()
