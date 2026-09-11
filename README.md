@@ -111,7 +111,7 @@ Windows 11 x64 安装版包含原生 PostgreSQL、扩展、私有 Python 和已�
 
 本机验收可为构建命令增加 `-Development`，自动使用独立验收包身份；`tools/test_msix_platform.ps1 -CertificateThumbprint <测试证书指纹>` 执行最小平台验收。自签名测试证书须先在测试电脑建立信任：将公开 `.cer` 导入 `LocalMachine\TrustedPeople` 需要管理员权限，这是一次性的本机信任配置，不是微软审核或每次打包授权。正式构建不接受自签名证书，未配置正式 Publisher 或可用签名私钥时明确失败。
 
-日常开发可直接从当前源码构建并安装本机 MSIX 验收版，全程无需 GitHub Releases：
+当前开发阶段暂不使用 GitHub Releases。要求“更新本机”时，默认从当前源码构建并安装或原位升级本机 MSIX 验收版，不以先卸载再重装代替升级，不重建已有数据库：
 
 ```powershell
 .\tools\install_local_msix.ps1
@@ -184,7 +184,11 @@ Vite 固定使用 `127.0.0.1:5173` 并代理现有 Runtime，不启动第二个�
 
 保留资源按用途分目录：`models/semantic-recall/` 保存模型，`tools/semantic-recall/cache/` 保存安装包，`secrets/` 下按 `ark`、`codex`、`volc` 分别保存账号凭据，`config/` 保存配置参考；这些路径均相对于 `.armi/reusable/`。目录内的 `README.md` 说明用途与复用方式。
 
+账号凭据在环境准备完成后，通过“设置 → 账号凭据”填写并保存，随后停止、重新启动环境生效。模型和 Web 搜索共用一份 `model.ark_api_key`；语音、Codex、QQ 启用时分别配置自己的凭据。安装版凭据文件位于所属环境的 `secrets/provider-<凭据名称>`，例如验收版模型 key 在 `%LOCALAPPDATA%\ARMI.Acceptance\environments\active\secrets\provider-model.ark_api_key`。当前内容未加密，依靠文件权限保护，界面不回显已保存内容；项目文档不保存凭据值。普通升级和默认卸载保留这些文件，明确选择清理数据才删除。Runtime 核心就绪不代表模型可用，缺少有效模型凭据时不能据此声称对话已可用。
+
 ## 质量门禁
+
+源码修改后先按影响运行自动化测试，不必先安装 MSIX；数据库与系统测试创建隔离环境。安装更新、卸载、包身份、执行别名、自启和托盘等安装版行为再用真实签名包验收。当前不另外维护常驻开发主体，源码测试环境与本机安装的验收版分开；验收版已有身份、生活数据和凭据必须保留，不能当作可随手重置的临时数据。只有要求更新本机或验证安装版效果时，才进入本地打包安装流程。
 
 ```powershell
 # Fast：锁、格式、lint、类型、离线单测、架构、安全、前端

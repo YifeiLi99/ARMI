@@ -45,6 +45,8 @@
 - Windows 安装版使用 MSIX：Windows 管理只读程序目录，永久数据统一放在 Known Folder API 定位的 `%LOCALAPPDATA%\ARMI`。环境使用 `environments/active/`，独立管理与更新记录使用 `control/`，缓存和临时文件使用 `cache/`、`tmp/`；不可写时明确失败，不回退到其他位置。目录虚拟化排除确保数据实际落盘并在卸载后保留。验收包必须使用独立包身份与 `%LOCALAPPDATA%\ARMI.Acceptance`，不得触及正式或旧 Inno 安装与数据。
 
 - 稳定包身份为 `YifeiLi99.ARMI`，发布配置集中在 `configs/windows-release.yaml`；正式签名材料不进入仓库。安装、程序替换与卸载交给 Windows，不维护卸载 EXE、程序切换日志或文件回滚。Windows 直接卸载保留数据；ARMI 设置和 setup 机器接口的卸载默认保留，只有明确选择永久清理才删除当前包的数据目录，必须先经 Admin 正常停机，失败不继续。更新只接受可信签名、相同包身份、递增版本及相同数据库合同；程序部署成功与 Runtime 就绪分别核验。已安装 Admin/Creator 配置绑定稳定包身份，不保存随版本变化的程序路径；源码和隔离测试保留明确资源绑定。
+- 当前开发阶段暂不使用 GitHub Releases。用户要求“更新本机”时，默认通过 [本地构建安装入口](tools/install_local_msix.ps1) 从当前源码构建、签名并安装或原位升级独立验收包；沿用已建立的证书信任，不逐次重新要求打包授权。已有安装不得以先卸载再重装代替升级，不删除、重建数据库或重复出生；数据库合同不兼容时停止部署并报告，不擅自清理数据解决。保持验收版 GitHub 自动更新关闭，不自行发布 Release、配置正式签名或购买服务。修改源码本身不代表需要立即更新本机；具体命令与产物位置见 [README](README.md)。
+- 凭据通过设置或同一 setup 凭据用例写入所属环境的私有文件，配置只引用 locator，不写进项目文档或仓库。模型与 Web 搜索共用一份 `model.ark_api_key`；语音、Codex、QQ 保持各自独立凭据，不把“一份模型 key”解释为所有服务共用密钥。当前存储保护方式和生效步骤见 [运行手册](docs/05-运行与验证/01-安装、启动与维护.md)。
 - PostgreSQL 是唯一权威关系数据库；开发、测试和安装版使用同一受管原生 PostgreSQL 与扩展制品，由 `armi-local-control` 管理独立目录和端口，不依赖 Docker。精确版本查配置、[工具链 manifest](tools/toolchain-manifest.json) 和 packaged contract，不在此维护第二份版本快照。
 - [Schema 资源](packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema/) 只保留可重做的唯一 Alembic `0000`。结构变化直接更新 baseline SQL、`0000` 资源列表、identity、owner registry、ACL 和消费者；不增加历史 revision、autogenerate、downgrade 或旧库迁移兼容。目标库显式重装，修改 schema 的授权不包含删除目标库。
 - Admin `maintenance` 的 `database_install` 只接受无用户 relation 且无 `armi` namespace 的库：namespace 独立短事务建立，`0000` 原子安装其余内容。失败可留下空 namespace，不能留下业务表或前移 revision。普通启动只验证版本、摘要和精确 ACL，不自动安装/迁移或用超级用户掩盖漂移。
@@ -68,6 +70,8 @@
 ## 6. 验证、文档与入口
 
 按改动影响选择检查，完成条件满足后收尾；Fast/Release/System 不构成每次任务的固定流水线。公共合同、schema、依赖锁、生成器、composition 或启动变化要覆盖受影响消费者。使用项目受管工具，缺失时明确报告，不换未核对版本绕过门禁。
+
+源码自动化测试可直接运行；数据库与系统测试使用隔离目录、数据库和端口，不要求先安装 MSIX。包身份、执行别名、托盘、自启、安装更新、卸载及数据保留行为必须用真实签名安装包验收。默认不另建常驻开发主体；`.armi/reusable/` 只是可复用资源，不是运行环境。本机验收版已有身份、数据库和凭据属于需保留的数据，不能因名称带“验收”就当作可任意重置的临时测试环境。安装版的破坏性验证使用独立的一次性测试包与数据。安装成功、Runtime 核心就绪和模型对话可用分别核验，不以启动成功代替真实对话验证。
 
 | 任务 | 入口与完成条件 |
 |---|---|
