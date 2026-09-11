@@ -52,8 +52,7 @@ class DoubaoSpeechRecognitionBinding:
 
 @dataclass(frozen=True, slots=True)
 class _Credentials:
-    app_id: str
-    access_token: str
+    api_key: str
 
 
 class _CredentialFormatError(ValueError):
@@ -87,8 +86,7 @@ class DoubaoSpeechRecognizer(ExternalContentRecognitionPort):
             credentials = _decode_credentials(secret)
             request_id = str(uuid4())
             headers = {
-                "X-Api-App-Key": credentials.app_id,
-                "X-Api-Access-Key": credentials.access_token,
+                "X-Api-Key": credentials.api_key,
                 "X-Api-Resource-Id": self._binding.resource_id,
                 "X-Api-Request-Id": request_id,
                 "X-Api-Sequence": "-1",
@@ -103,7 +101,7 @@ class DoubaoSpeechRecognizer(ExternalContentRecognitionPort):
                         self._binding.submit_url,
                         headers=headers,
                         json={
-                            "user": {"uid": credentials.app_id},
+                            "user": {"uid": request_id},
                             "audio": {
                                 "data": base64.b64encode(request.content).decode(
                                     "ascii"
@@ -267,24 +265,12 @@ class DoubaoSpeechRecognizer(ExternalContentRecognitionPort):
 
 def _decode_credentials(secret: bytearray) -> _Credentials:
     try:
-        decoded: object = json.loads(secret.decode("utf-8", errors="strict"))
-    except UnicodeDecodeError, json.JSONDecodeError:
+        api_key = secret.decode("utf-8", errors="strict").strip()
+    except UnicodeDecodeError:
         raise _CredentialFormatError("speech credentials are invalid") from None
-    if type(decoded) is not dict:
+    if not api_key or any(ord(c) < 33 or ord(c) > 126 or c in '{}"' for c in api_key):
         raise _CredentialFormatError("speech credentials are invalid")
-    document = cast(dict[str, object], decoded)
-    if set(document) != {"app_id", "access_token"}:
-        raise _CredentialFormatError("speech credentials are invalid")
-    app_id = document["app_id"]
-    access_token = document["access_token"]
-    if (
-        type(app_id) is not str
-        or not app_id.strip()
-        or type(access_token) is not str
-        or not access_token.strip()
-    ):
-        raise _CredentialFormatError("speech credentials are invalid")
-    return _Credentials(app_id, access_token)
+    return _Credentials(api_key)
 
 
 def _audio_format(request: ExternalContentRecognitionRequest) -> str:

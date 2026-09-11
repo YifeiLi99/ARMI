@@ -36,7 +36,7 @@ from armi_admin.windows_tray import WindowsTray
 
 _CREDENTIAL_NAMES = {
     "火山方舟 API Key（模型与网页搜索）": "model.ark_api_key",
-    "火山引擎语音凭据": "speech.volc_credentials",
+    "豆包语音 API Key（识别与合成）": "speech.volc_credentials",
     "Codex 登录凭据": "codex.auth_json",
 }
 
@@ -367,13 +367,6 @@ class Desktop:
         ).pack(anchor="w", pady=14)
         self.secret = ttk.Entry(frame, show="●", width=70)
         self.secret.pack(fill="x")
-        self.speech_fields = ttk.Frame(frame)
-        ttk.Label(self.speech_fields, text="应用 ID（App ID）").pack(anchor="w")
-        self.speech_app_id = ttk.Entry(self.speech_fields, width=60)
-        self.speech_app_id.pack(fill="x", pady=(4, 10))
-        ttk.Label(self.speech_fields, text="访问令牌（Access Token）").pack(anchor="w")
-        self.speech_token = ttk.Entry(self.speech_fields, show="●", width=60)
-        self.speech_token.pack(fill="x", pady=4)
         self.codex_import = ttk.Button(
             frame,
             text="选择并导入 Codex 登录文件…",
@@ -405,10 +398,7 @@ class Desktop:
 
     def _credential_selected(self, _event: object = None) -> None:
         self.secret.delete(0, "end")
-        self.speech_app_id.delete(0, "end")
-        self.speech_token.delete(0, "end")
         self.secret.pack_forget()
-        self.speech_fields.pack_forget()
         self.codex_import.pack_forget()
         name = _CREDENTIAL_NAMES[self.credential_name.get()]
         if name == "model.ark_api_key":
@@ -418,9 +408,9 @@ class Desktop:
             self.secret.pack(fill="x", before=self.credential_actions)
         elif name == "speech.volc_credentials":
             self.credential_help.set(
-                "填写火山引擎语音服务提供的应用 ID 和访问令牌，不是火山方舟 API Key。\n分别填写下面两项，程序会自动保存所需格式。新语音会话读取新凭据，当前会话不切换。"
+                "填写豆包语音新版控制台“API Key 管理”创建的一个 API Key，用于语音识别与合成。\n无需 App ID 或 Access Token；与方舟模型 Key 分开保存。新语音会话读取新 Key，保存不代表服务已开通或验证通过。"
             )
-            self.speech_fields.pack(fill="x", before=self.credential_actions)
+            self.secret.pack(fill="x", before=self.credential_actions)
         else:
             self.credential_help.set(
                 "先在本机 Codex 完成登录，再选择其 auth.json 登录文件导入，无需手写 JSON。\n通常位于用户目录的 .codex 文件夹；也可选择你自定义 Codex 目录中的文件。后续委托读取，当前任务不切换。"
@@ -875,25 +865,13 @@ class Desktop:
             if name == "codex.auth_json":
                 self._import_codex_credential()
                 return
-            if name == "speech.volc_credentials":
-                app_id = self.speech_app_id.get().strip()
-                token = self.speech_token.get().strip()
-                if not app_id or not token:
-                    messagebox.showerror(
-                        "请补充语音凭据", "应用 ID 和访问令牌都需要填写。"
-                    )
-                    return
-                value = json.dumps({"app_id": app_id, "access_token": token})
-            else:
-                value = self.secret.get().strip()
-                if not value:
-                    messagebox.showerror(
-                        "请填写 API Key", "请粘贴火山方舟控制台创建的 API Key。"
-                    )
-                    return
+            value = self.secret.get().strip()
+            if not value:
+                messagebox.showerror(
+                    "请填写 API Key", "请按上方说明粘贴对应服务控制台创建的 API Key。"
+                )
+                return
         self.secret.delete(0, "end")
-        self.speech_app_id.delete(0, "end")
-        self.speech_token.delete(0, "end")
         self._save_credential(name, action, value)
 
     def _save_credential(self, name: str, action: str, value: str | None) -> None:

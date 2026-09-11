@@ -57,7 +57,7 @@ def test_credential_diagnostics_resolve_only_runtime_grants_without_exposing_val
 
 def test_existing_credential_port_reads_new_file_without_restart(tmp_path):
     from armi_kernel.application import CredentialLocator, CredentialPurpose
-    from armi_local_control.configuration.secrets import EnvironmentFileCredentialPort
+    from armi_local_control.configuration import EnvironmentFileCredentialPort
 
     secret = tmp_path / "key"
     secret.write_bytes(b"first-test-key")

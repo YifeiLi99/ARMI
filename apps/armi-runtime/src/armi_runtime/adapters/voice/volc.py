@@ -52,41 +52,27 @@ _MAX_TTS_SESSION_BYTES = 32 * 1024 * 1024
 
 @dataclass(frozen=True, slots=True)
 class VolcCredentials:
-    app_id: str
-    access_token: str
+    api_key: str
 
     def __post_init__(self) -> None:
-        if not self.app_id or not self.access_token:
+        if not self.api_key or any(
+            ord(c) < 33 or ord(c) > 126 or c in '{}"' for c in self.api_key
+        ):
             raise LiveVoiceViolation(
                 "VOICE-VOLC-CREDENTIAL", "Volcengine speech credential is incomplete"
             )
 
 
 def decode_volc_credentials(secret: bytes | bytearray) -> VolcCredentials:
-    """Decode the exact approved speech credential document."""
+    """Decode the speech console API key, never an old credential document."""
 
     try:
-        decoded: object = json.loads(bytes(secret).decode("utf-8", errors="strict"))
-    except UnicodeDecodeError, json.JSONDecodeError:
+        api_key = bytes(secret).decode("utf-8", errors="strict").strip()
+    except UnicodeDecodeError:
         raise LiveVoiceViolation(
             "VOICE-VOLC-CREDENTIAL", "Volcengine speech credential is invalid"
         ) from None
-    if type(decoded) is not dict:
-        raise LiveVoiceViolation(
-            "VOICE-VOLC-CREDENTIAL", "Volcengine speech credential is invalid"
-        )
-    document = cast(dict[str, object], decoded)
-    if set(document) != {"app_id", "access_token"}:
-        raise LiveVoiceViolation(
-            "VOICE-VOLC-CREDENTIAL", "Volcengine speech credential is invalid"
-        )
-    app_id = document["app_id"]
-    access_token = document["access_token"]
-    if type(app_id) is not str or type(access_token) is not str:
-        raise LiveVoiceViolation(
-            "VOICE-VOLC-CREDENTIAL", "Volcengine speech credential is invalid"
-        )
-    return VolcCredentials(app_id.strip(), access_token.strip())
+    return VolcCredentials(api_key)
 
 
 @dataclass(frozen=True, slots=True)
@@ -240,8 +226,7 @@ class VolcStreamingAsr:
         connect = importlib.import_module("websockets.asyncio.client").connect
 
         headers = {
-            "X-Api-App-Key": self._credentials.app_id,
-            "X-Api-Access-Key": self._credentials.access_token,
+            "X-Api-Key": self._credentials.api_key,
             "X-Api-Resource-Id": self._resource_id,
             "X-Api-Request-Id": str(uuid4()),
         }
@@ -461,8 +446,7 @@ class VolcStreamingTts:
             return self._socket
         connect = importlib.import_module("websockets.asyncio.client").connect
         headers = {
-            "X-Api-App-Key": self._credentials.app_id,
-            "X-Api-Access-Key": self._credentials.access_token,
+            "X-Api-Key": self._credentials.api_key,
             "X-Api-Resource-Id": self._resource_id,
             "X-Api-Connect-Id": str(uuid4()),
         }

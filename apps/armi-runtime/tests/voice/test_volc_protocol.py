@@ -22,12 +22,12 @@ from armi_runtime.adapters.voice.volc import (
 )
 
 
-def test_voice_credentials_decode_from_scoped_json() -> None:
-    value = bytearray(b'{"app_id":" app ","access_token":" token "}')
+def test_voice_credentials_decode_from_scoped_api_key() -> None:
+    value = bytearray(b" test-speech-key ")
 
     credentials = decode_volc_credentials(value)
 
-    assert credentials == VolcCredentials("app", "token")
+    assert credentials == VolcCredentials("test-speech-key")
 
 
 @pytest.mark.parametrize(
@@ -36,10 +36,12 @@ def test_voice_credentials_decode_from_scoped_json() -> None:
         bytearray(b"{}"),
         bytearray(b'{"app_id":"app","access_token":""}'),
         bytearray(b'{"app_id":"app","access_token":"token","extra":1}'),
-        bytearray(b"not-json"),
+        bytearray(b""),
+        bytearray(b"key\r\ninjected-header"),
+        bytearray(b"\xff"),
     ),
 )
-def test_voice_credentials_reject_incomplete_or_ambiguous_json(
+def test_voice_credentials_reject_old_documents_and_invalid_keys(
     value: bytearray,
 ) -> None:
     with pytest.raises(LiveVoiceViolation, match="credential"):
@@ -167,10 +169,18 @@ async def test_asr_sends_audio_without_waiting_for_a_response_per_frame(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     socket = FakeAsrSocket()
+
+    def connect(*args, **kwargs):
+        headers = kwargs["additional_headers"]
+        assert headers["X-Api-Key"] == "test-speech-key"
+        assert "X-Api-App-Key" not in headers
+        assert "X-Api-Access-Key" not in headers
+        return socket
+
     monkeypatch.setattr(
         volc_module.importlib,
         "import_module",
-        lambda _: SimpleNamespace(connect=lambda *args, **kwargs: socket),
+        lambda _: SimpleNamespace(connect=connect),
     )
 
     async def frames():
@@ -179,9 +189,9 @@ async def test_asr_sends_audio_without_waiting_for_a_response_per_frame(
 
     events = [
         event
-        async for event in VolcStreamingAsr(VolcCredentials("app", "token")).recognize(
-            frames()
-        )
+        async for event in VolcStreamingAsr(
+            VolcCredentials("test-speech-key")
+        ).recognize(frames())
     ]
 
     assert [event.text for event in events] == ["完成。"]
@@ -223,6 +233,11 @@ async def test_tts_reuses_prepared_connection_for_multiple_sessions(
 
     async def connect(*_: object, **__: object):
         nonlocal connections
+        headers = __["additional_headers"]
+        assert isinstance(headers, dict)
+        assert headers["X-Api-Key"] == "test-speech-key"
+        assert "X-Api-App-Key" not in headers
+        assert "X-Api-Access-Key" not in headers
         connections += 1
         return socket
 
@@ -231,7 +246,7 @@ async def test_tts_reuses_prepared_connection_for_multiple_sessions(
         "import_module",
         lambda _: SimpleNamespace(connect=connect),
     )
-    tts = VolcStreamingTts(VolcCredentials("app", "token"))
+    tts = VolcStreamingTts(VolcCredentials("test-speech-key"))
 
     async def fragment(text: str):
         yield text
@@ -263,7 +278,7 @@ async def test_tts_propagates_text_stream_failure_without_waiting_for_session_en
         "import_module",
         lambda _: SimpleNamespace(connect=connect),
     )
-    tts = VolcStreamingTts(VolcCredentials("app", "token"))
+    tts = VolcStreamingTts(VolcCredentials("test-speech-key"))
 
     async def failing_fragments():
         yield "已经发出的片段"

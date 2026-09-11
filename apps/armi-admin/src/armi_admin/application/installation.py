@@ -9,7 +9,7 @@ import socket
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Literal, Self, cast
+from typing import Any, Literal, Self
 from uuid import UUID, uuid7
 
 import psycopg
@@ -559,19 +559,17 @@ class SetupApplication:
                 raw = request.value.get_secret_value().encode("utf-8")
                 if not raw or len(raw) > 16_384 or b"\x00" in raw:
                     raise SetupError("SETUP-CREDENTIAL-VALUE-INVALID")
-                if request.name in {"speech.volc_credentials", "codex.auth_json"}:
+                if request.name == "speech.volc_credentials":
+                    key = raw.decode("utf-8").strip()
+                    if not key or any(
+                        ord(c) < 33 or ord(c) > 126 or c in '{}"' for c in key
+                    ):
+                        raise SetupError("SETUP-CREDENTIAL-FORMAT-INVALID")
+                    raw = key.encode("utf-8")
+                if request.name == "codex.auth_json":
                     try:
                         decoded: object = json.loads(raw)
                         if not isinstance(decoded, dict):
-                            raise ValueError
-                        document = cast(dict[str, Any], decoded)
-                        if request.name == "speech.volc_credentials" and (
-                            set(document) != {"app_id", "access_token"}
-                            or any(
-                                type(value) is not str or not value.strip()
-                                for value in document.values()
-                            )
-                        ):
                             raise ValueError
                     except ValueError:
                         raise SetupError("SETUP-CREDENTIAL-FORMAT-INVALID") from None

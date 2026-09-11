@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Callable
 from typing import TypeVar
 from uuid import uuid7
@@ -30,7 +31,7 @@ _T = TypeVar("_T")
 
 class _Handle:
     def __init__(self) -> None:
-        self._value = bytearray(b'{"app_id":"app","access_token":"token"}')
+        self._value = bytearray(b"test-speech-key")
         self.closed = False
 
     def consume(self, operation: Callable[[memoryview], _T]) -> _T:
@@ -97,8 +98,12 @@ async def test_accepted_task_retries_query_503_then_preserves_success(
 
     async def handler(request: httpx.Request) -> httpx.Response:
         nonlocal calls
+        assert request.headers["X-Api-Key"] == "test-speech-key"
+        assert "X-Api-App-Key" not in request.headers
+        assert "X-Api-Access-Key" not in request.headers
         calls += 1
         if request.url.path == "/submit":
+            assert json.loads(request.content)["user"]["uid"] != "test-speech-key"
             return httpx.Response(
                 200,
                 headers={"X-Api-Status-Code": "20000000", "X-Tt-Logid": "task-1"},

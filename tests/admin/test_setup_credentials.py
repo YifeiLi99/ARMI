@@ -14,7 +14,7 @@ from tests.admin.test_napcat_setup import application
         ("model.ark_api_key", "test-key"),
         (
             "speech.volc_credentials",
-            '{"app_id":"test-app","access_token":"test-token"}',
+            "test-speech-key",
         ),
         ("codex.auth_json", '{"tokens":{}}'),
     ],
@@ -32,7 +32,10 @@ def test_provider_save_does_not_require_restart_or_claim_connection(
     assert value not in json.dumps(result)
 
 
-def test_invalid_speech_document_does_not_overwrite_existing_secret(tmp_path):
+@pytest.mark.parametrize(
+    "value", ['{"app_id":"app","access_token":"token"}', "key\r\ninjected", "   "]
+)
+def test_invalid_speech_key_does_not_overwrite_existing_secret(tmp_path, value):
     service = application(tmp_path / "environments/active")
     path = service.root / "secrets/provider-speech.volc_credentials"
     path.write_bytes(b"existing-private-value")
@@ -44,7 +47,7 @@ def test_invalid_speech_document_does_not_overwrite_existing_secret(tmp_path):
             SetupCredentialRequest(
                 name="speech.volc_credentials",
                 action="put",
-                value=SecretStr('{"wrong":"value"}'),
+                value=SecretStr(value),
             )
         )
     assert path.read_bytes() == b"existing-private-value"
