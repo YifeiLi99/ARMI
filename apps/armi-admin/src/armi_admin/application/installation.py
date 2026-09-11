@@ -23,16 +23,18 @@ from armi_local_control import (
 from armi_local_control.configuration.models import AbsolutePath
 from armi_local_control.configuration.paths import has_reparse_point
 from armi_local_control.runtime_process import LocalProcessLock
+from armi_local_control.windows_package import package_identity
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from psycopg.conninfo import make_conninfo
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
 from .configuration import AdminConfig
-from .deployment import register_environment
+from .deployment import environment_binding, register_environment
 from .distribution import ProgramBundle
 from .package_identity import admin_package_set_digest
 from .postgresql_bootstrap import apply_policy, inspect_policy, physical_role_name
+from .updates import UpdateAction
 
 
 class SetupError(RuntimeError):
@@ -151,9 +153,11 @@ class SetupApplication:
         paths: SetupPaths,
         admin_operation: Callable[[str, dict[str, Any]], dict[str, Any]],
         login_startup: Callable[[bool | None], dict[str, object]] | None = None,
+        update: Callable[[UpdateAction, bool | None], dict[str, Any]] | None = None,
     ) -> None:
         self._admin_operation = admin_operation
         self._login_startup = login_startup
+        self._update = update
         self.paths = paths
         self.root = paths.environment_root
         if has_reparse_point(self.root, root=Path(self.root.anchor)):
@@ -172,10 +176,17 @@ class SetupApplication:
         bundle.verify(self.paths.installation_root)
         if bundle.package_set_digest != admin_package_set_digest():
             raise SetupError("SETUP-PROGRAM-IDENTITY-MISMATCH")
+        identity = package_identity()
+        if (self.control / "program.json").exists():
+            bound = environment_binding(self.root)
+            if bound.database != bundle.database or bound.package_family != (
+                identity.family if identity else None
+            ):
+                raise SetupError("SETUP-DATABASE-CONTRACT-INCOMPATIBLE")
         return {
             "status": "ready",
             "package_id": bundle.package_id,
-            "signed": bundle.signed,
+            "distribution": "msix" if identity else "source_payload",
         }
 
     def _save(self, state: SetupIdentity, stage: str) -> SetupIdentity:
@@ -327,6 +338,7 @@ class SetupApplication:
             }
 
     def birth(self, anchor: PersonalityAnchor) -> dict[str, Any]:
+        self.check()
         with LocalProcessLock(self.control / "setup.lock"):
             state = self._read()
             if state.stage != "ready":
@@ -363,7 +375,9 @@ class SetupApplication:
         write_control(
             self.control / "program.json",
             {
-                "installation_root": str(self.paths.installation_root),
+                "package_family": identity.family
+                if (identity := package_identity())
+                else None,
                 "database": bundle.database.model_dump(mode="json"),
             },
         )
@@ -420,7 +434,7 @@ class SetupApplication:
         write_control(self.root / "environment.yaml", environment)
         config = AdminConfig.model_validate(
             {
-                "schema_version": "armi.admin-config.v8",
+                "schema_version": "armi.admin-config.v9",
                 "operator_id": "native-local-admin",
                 "authorized_operations": list(_DAILY_SCOPES),
                 "environment_kind": "active",
@@ -440,8 +454,26 @@ class SetupApplication:
                 "expected": {"package_set_digest": admin_package_set_digest()},
             }
         )
-        write_control(self.root / "admin.yaml", config.model_dump(mode="json"))
         issuer = config.model_dump(mode="json")
+        identity = package_identity()
+        if identity is not None:
+            issuer["expected"] = {"package_family": identity.family}
+            issuer["packaged_postgresql_control"] = {
+                key: value
+                for key, value in issuer["postgresql_control"].items()
+                if key != "installation_root"
+            }
+            for field in (
+                "postgresql_client_root",
+                "runtime_defaults_path",
+                "creator_web_resources",
+                "postgresql_control",
+            ):
+                issuer[field] = None
+        write_control(
+            self.root / "admin.yaml",
+            AdminConfig.model_validate(issuer).model_dump(mode="json"),
+        )
         issuer.update(
             {
                 "operator_id": "native-creator-issuer",
@@ -527,6 +559,13 @@ class SetupApplication:
     def login_startup(self, enabled: bool | None) -> dict[str, object]:
         if self._login_startup is None:
             raise SetupError("SETUP-STARTUP-UNAVAILABLE")
-        if self._read().stage != "ready":
+        if enabled is True and self._read().stage != "ready":
             raise SetupError("SETUP-INITIALIZATION-INCOMPLETE")
         return self._login_startup(enabled)
+
+    def update(
+        self, action: UpdateAction, enabled: bool | None = None
+    ) -> dict[str, Any]:
+        if self._update is None:
+            raise SetupError("UPDATE-UNAVAILABLE")
+        return self._update(action, enabled)

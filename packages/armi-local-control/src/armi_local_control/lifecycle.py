@@ -183,6 +183,9 @@ class LocalEnvironmentController:
                     "LOCAL-SEMANTIC-STOP-UNKNOWN", "semantic stop is unconfirmed"
                 )
             database = self._step("postgresql.stop", lambda: self.database("stop"))
+            from .windows_package import stop_idle_host
+
+            stop_idle_host(self.environment_id)
             return {
                 "runtime": runtime,
                 "semantic_recall": semantic,

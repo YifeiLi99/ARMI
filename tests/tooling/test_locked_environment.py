@@ -65,7 +65,6 @@ class LockedEnvironmentTests(unittest.TestCase):
                 "postgresql",
                 "pgvector-windows",
                 "msvc-build-tools",
-                "inno-setup",
             },
         )
         self.assertEqual(

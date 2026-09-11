@@ -141,7 +141,7 @@ def bootstrap_setup(paths: SetupPaths) -> SetupApplication:
 
     from .application.configuration import load_admin_config
     from .application.credentials import AdminCredentialPort
-    from .application.installation import SetupApplication, SetupError
+    from .application.installation import SetupApplication, SetupError, SetupPaths
     from .application.package_identity import verify_admin_package_set
 
     def invoke(operation_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -150,7 +150,7 @@ def bootstrap_setup(paths: SetupPaths) -> SetupApplication:
         config, path = load_admin_config(
             {"ARMI_ADMIN_CONFIG": str(paths.environment_root / "admin.yaml")}
         )
-        verify_admin_package_set(config.expected.package_set_digest)
+        verify_admin_package_set(config.expected.resolved_digest())
         operation = next(
             (item for item in ADMIN_OPERATIONS if item.name == operation_name), None
         )
@@ -188,7 +188,31 @@ def bootstrap_setup(paths: SetupPaths) -> SetupApplication:
         launcher = paths.installation_root / "ARMI.exe"
         return login_startup(launcher, paths.environment_root, enabled)
 
-    return SetupApplication(paths, invoke, startup)
+    from uuid import uuid7
+
+    from .application.deployment import installed_root, registered_environments
+    from .application.updates import UpdateApplication
+
+    def stop_environments() -> None:
+        root = installed_root(paths.installation_root)
+        if root is None:
+            raise SetupError("UPDATE-MSIX-REQUIRED")
+        for environment in registered_environments(root):
+            service = bootstrap_setup(
+                SetupPaths(
+                    environment_root=environment,
+                    installation_root=paths.installation_root,
+                )
+            )
+            result = service.invoke(
+                "environment_stop", {"idempotency_key": str(uuid7())}
+            )
+            if result.get("status") != "succeeded":
+                raise SetupError("UPDATE-ENVIRONMENT-STOP-UNCONFIRMED")
+
+    return SetupApplication(
+        paths, invoke, startup, UpdateApplication(stop_environments).execute
+    )
 
 
 __all__ = ("AdminComposition", "bootstrap_admin", "bootstrap_setup")

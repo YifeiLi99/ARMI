@@ -84,12 +84,19 @@ def test_setup_transport_redacts_input_from_failure(tmp_path):
         result = dispatch(
             service, SetupRequest(action="prepare", operation_id=str(uuid7()))
         )
-    assert result == {"status": "failed", "error_code": "SETUP-OPERATION-FAILED"}
+    assert result["status"] == "failed"
+    assert result["error_code"] == "SETUP-OPERATION-FAILED"
+    assert result["diagnostic"]["type"] == "ValueError"
+    assert "private input" not in str(result)
+    assert all(
+        set(frame) == {"file", "line", "function"}
+        for frame in result["diagnostic"]["frames"]
+    )
 
 
-def test_installed_environment_stays_inside_installation(tmp_path):
+def test_standalone_environment_stays_inside_explicit_program_root(tmp_path):
     program = tmp_path / "app"
-    environment = tmp_path / "environments/active"
+    environment = program / "environments/active"
     assert SetupPaths(environment_root=environment, installation_root=program)
     for forbidden in (
         tmp_path.parent / "external",

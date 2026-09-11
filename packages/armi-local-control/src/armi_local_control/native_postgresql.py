@@ -10,6 +10,7 @@ import re
 import socket
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from typing import Literal, cast
 
@@ -21,6 +22,7 @@ from .configuration.paths import has_reparse_point
 from .process_identity import ManagedProcessIdentity, ManagedProcessState
 from .runtime_errors import RuntimeViolation
 from .runtime_process import LocalProcessLock
+from .windows_package import package_identity, run_owned, spawn_owned
 
 
 class PostgreSQLControlBinding(BaseModel):
@@ -130,8 +132,9 @@ class NativePostgreSQL:
             # File capture lets the launcher finish without waiting for pipe EOF.
             private_directory(self.control / "tmp")
             with tempfile.TemporaryFile(dir=self.control / "tmp") as output:
-                result = subprocess.run(
+                result = run_owned(
                     [str(executable), *arguments],
+                    environment_id=self.environment_id,
                     stdin=subprocess.DEVNULL,
                     stdout=output,
                     stderr=output,
@@ -151,6 +154,10 @@ class NativePostgreSQL:
                 "LOCAL-POSTGRESQL-UNAVAILABLE", "native PostgreSQL cannot run"
             ) from None
         if result.returncode:
+            # These lifecycle tools receive no secret values on their command
+            # line. Keep their diagnostic output in the protected control area;
+            # never return it through the machine transport.
+            (self.control / "last-command-error.log").write_bytes(captured[-1048576:])
             raise RuntimeViolation(
                 "LOCAL-POSTGRESQL-FAILED",
                 f"PostgreSQL {tool} failed; inspect the local database log",
@@ -265,6 +272,52 @@ class NativePostgreSQL:
             write_control(self.identity_path, identity)
             return {"status": "initialized", **identity}
 
+    def _start_packaged(self) -> None:
+        # pg_ctl uses a restricted-token command shell on Windows. Packaged
+        # activation of that shell's server can escape the environment Job.
+        # Start the server directly, suspended until attached to the host Job;
+        # postgres retains its own privilege and cluster checks.
+        environment = {
+            k: v for k, v in os.environ.items() if not k.upper().startswith("PG")
+        }
+        environment.update({"LANG": "C", "LC_ALL": "C", "LC_MESSAGES": "C"})
+        with (self.control / "postgresql.log").open("ab") as output:
+            process = spawn_owned(
+                [
+                    str(self.binding.installation_root / "bin/postgres.exe"),
+                    "-D",
+                    str(self.data),
+                ],
+                environment_id=self.environment_id,
+                stdin=subprocess.DEVNULL,
+                stdout=output,
+                stderr=output,
+                env=environment,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+        deadline = time.monotonic() + 45
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                raise RuntimeViolation(
+                    "LOCAL-POSTGRESQL-FAILED",
+                    "PostgreSQL start failed; inspect the local database log",
+                )
+            pid_path = self.data / "postmaster.pid"
+            try:
+                lines = pid_path.read_text(encoding="utf-8").splitlines()
+            except FileNotFoundError:
+                lines = []
+            if (
+                len(lines) >= 8
+                and lines[0] == str(process.pid)
+                and lines[7].strip() == "ready"
+            ):
+                return
+            time.sleep(0.1)
+        raise RuntimeViolation(
+            "LOCAL-POSTGRESQL-UNKNOWN", "query cluster status before retrying"
+        )
+
     def _process(self) -> ManagedProcessIdentity | None:
         pid_path = self.data / "postmaster.pid"
         if not pid_path.exists():
@@ -300,8 +353,20 @@ class NativePostgreSQL:
             ) from None
 
     def execute(self, action: Literal["start", "stop", "status"]) -> dict[str, object]:
-        self._identity()
         with LocalProcessLock(self.control / "native.lock"):
+            if (
+                action == "stop"
+                and not self.identity_path.exists()
+                and (not self.data.exists() or not any(self.data.iterdir()))
+            ):
+                # Failed first preparation can leave an idle environment host
+                # before initdb creates a cluster. It must still be stoppable.
+                return {
+                    "ownership": "exclusive",
+                    "status": "stopped",
+                    "port": self.binding.port,
+                }
+            self._identity()
             identity = self._process()
             if action == "start" and identity is None:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
@@ -310,17 +375,20 @@ class NativePostgreSQL:
                             "LOCAL-POSTGRESQL-PORT",
                             "the bound port belongs to another process",
                         )
-                self._run(
-                    "pg_ctl",
-                    "start",
-                    "-D",
-                    str(self.data),
-                    "-l",
-                    str(self.control / "postgresql.log"),
-                    "-w",
-                    "-t",
-                    "45",
-                )
+                if package_identity() is not None:
+                    self._start_packaged()
+                else:
+                    self._run(
+                        "pg_ctl",
+                        "start",
+                        "-D",
+                        str(self.data),
+                        "-l",
+                        str(self.control / "postgresql.log"),
+                        "-w",
+                        "-t",
+                        "45",
+                    )
                 identity = self._process()
                 if identity is None:
                     raise RuntimeViolation(

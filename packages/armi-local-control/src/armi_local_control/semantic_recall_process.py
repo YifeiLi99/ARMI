@@ -452,7 +452,11 @@ class SemanticRecallProcessManager:
                 subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
             )
         try:
-            process = subprocess.Popen(command, **options)
+            from .windows_package import spawn_owned
+
+            process = spawn_owned(
+                command, environment_id=self._environment_identity(), **options
+            )
         except OSError as exc:
             log_handle.close()
             raise RuntimeViolation(

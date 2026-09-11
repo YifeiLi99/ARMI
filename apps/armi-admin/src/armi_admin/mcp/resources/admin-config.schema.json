@@ -13,14 +13,32 @@
     "AdminExpectedIdentity": {
       "additionalProperties": false,
       "properties": {
+        "package_family": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Package Family"
+        },
         "package_set_digest": {
-          "title": "Package Set Digest",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Package Set Digest"
         }
       },
-      "required": [
-        "package_set_digest"
-      ],
       "title": "AdminExpectedIdentity",
       "type": "object"
     },
@@ -44,6 +62,33 @@
         }
       },
       "title": "AdminLogSettings",
+      "type": "object"
+    },
+    "PackagedPostgreSQLBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "data_directory": {
+          "title": "Data Directory",
+          "type": "string"
+        },
+        "ownership": {
+          "const": "exclusive",
+          "title": "Ownership",
+          "type": "string"
+        },
+        "port": {
+          "maximum": 65535,
+          "minimum": 1024,
+          "title": "Port",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "ownership",
+        "data_directory",
+        "port"
+      ],
+      "title": "PackagedPostgreSQLBinding",
       "type": "object"
     },
     "PostgreSQLControlBinding": {
@@ -186,6 +231,17 @@
       "title": "Operator Id",
       "type": "string"
     },
+    "packaged_postgresql_control": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PackagedPostgreSQLBinding"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "postgresql_client_root": {
       "anyOf": [
         {
@@ -238,7 +294,7 @@
       "title": "Runtime Defaults Path"
     },
     "schema_version": {
-      "const": "armi.admin-config.v8",
+      "const": "armi.admin-config.v9",
       "title": "Schema Version",
       "type": "string"
     },

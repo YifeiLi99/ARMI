@@ -302,6 +302,7 @@ class RuntimeProcessManager:
             )
             command = (
                 _background_python(),
+                "-B",
                 "-m",
                 "armi_runtime.runtime_entrypoint",
                 "runtime",
@@ -330,15 +331,21 @@ class RuntimeProcessManager:
                 "close_fds": True,
             }
             if os.name == "nt":
+                from .windows_package import package_identity
+
                 options["creationflags"] = (
-                    subprocess.CREATE_NEW_PROCESS_GROUP
-                    | subprocess.DETACHED_PROCESS
-                    | subprocess.CREATE_BREAKAWAY_FROM_JOB
+                    subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
                 )
+                if package_identity() is None:
+                    options["creationflags"] |= subprocess.CREATE_BREAKAWAY_FROM_JOB
             else:
                 options["start_new_session"] = True
             try:
-                process = subprocess.Popen(command, **options)
+                from .windows_package import spawn_owned
+
+                process = spawn_owned(
+                    command, environment_id=self._environment_id, **options
+                )
             except OSError as exc:
                 self._clear_stale_files()
                 raise RuntimeViolation(

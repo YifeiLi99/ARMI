@@ -120,7 +120,7 @@ def _run(argv: list[str] | None = None) -> int:
     if args.config is not None:
         environment["ARMI_ADMIN_CONFIG"] = str(args.config.resolve())
     config, path = load_admin_config(environment)
-    verify_admin_package_set(config.expected.package_set_digest)
+    verify_admin_package_set(config.expected.resolved_digest())
     credentials = AdminCredentialPort(
         locator=config.locator,
         migrator_locator=config.migrator_locator,

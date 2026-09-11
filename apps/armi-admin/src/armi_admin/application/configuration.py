@@ -80,9 +80,38 @@ LocatorValue = Annotated[
 class AdminExpectedIdentity(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    package_set_digest: str
+    package_set_digest: str | None = None
+    package_family: str | None = Field(default=None, min_length=1)
 
-    _package_set_digest = field_validator("package_set_digest")(_validate_digest)
+    @field_validator("package_set_digest")
+    @classmethod
+    def _digest(cls, value: str | None) -> str | None:
+        return None if value is None else _validate_digest(value)
+
+    @model_validator(mode="after")
+    def _one_binding(self) -> Self:
+        if (self.package_set_digest is None) == (self.package_family is None):
+            raise ValueError("ADMIN-CONFIG-PROGRAM-BINDING")
+        return self
+
+    def resolved_digest(self) -> str:
+        if self.package_set_digest is not None:
+            return self.package_set_digest
+        from armi_local_control.windows_package import package_identity
+
+        from .distribution import ProgramBundle
+
+        identity = package_identity()
+        if identity is None or identity.family != self.package_family:
+            raise AdminConfigError("ADMIN-CONFIG-PACKAGE-FAMILY")
+        return ProgramBundle.read(identity.program_root).package_set_digest
+
+
+class PackagedPostgreSQLBinding(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    ownership: Literal["exclusive"]
+    data_directory: str
+    port: int = Field(ge=1024, le=65535)
 
 
 class AdminLogSettings(BaseModel):
@@ -102,7 +131,7 @@ class AdminConfig(BaseModel):
         strict=True,
     )
 
-    schema_version: Literal["armi.admin-config.v8"]
+    schema_version: Literal["armi.admin-config.v9"]
     operator_id: str = Field(
         min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$"
     )
@@ -119,6 +148,7 @@ class AdminConfig(BaseModel):
     runtime_defaults_path: Path | None = None
     creator_web_resources: Path | None = None
     postgresql_control: PostgreSQLControlBinding | None = None
+    packaged_postgresql_control: PackagedPostgreSQLBinding | None = None
     postgresql_version: Literal["18.4"] = "18.4"
     database_locator: LocatorValue = Field(title="Database Locator")
     migrator_database_locator: LocatorValue = Field(title="Migrator Database Locator")
@@ -319,7 +349,60 @@ def load_admin_config(
         if raw.startswith(b"\xef\xbb\xbf"):
             raise AdminConfigError("ADMIN-CONFIG-ENCODING")
         value = load_yaml_mapping(raw)
-        return AdminConfig.model_validate(value), resolved
+        config = AdminConfig.model_validate(value)
+        if config.expected.package_family is not None:
+            from armi_local_control.windows_package import data_root, package_identity
+
+            identity = package_identity()
+            if identity is None or identity.family != config.expected.package_family:
+                raise AdminConfigError("ADMIN-CONFIG-PACKAGE-FAMILY")
+            if any(
+                (
+                    config.postgresql_client_root,
+                    config.runtime_defaults_path,
+                    config.creator_web_resources,
+                    config.postgresql_control,
+                )
+            ):
+                raise AdminConfigError("ADMIN-CONFIG-PACKAGED-PATH-OVERRIDE")
+            binding = config.packaged_postgresql_control
+            root = data_root()
+            if (
+                binding is None
+                or root is None
+                or config.environment_root.parent != root / "environments"
+            ):
+                raise AdminConfigError("ADMIN-CONFIG-PACKAGED-ENVIRONMENT")
+            from .deployment import environment_binding
+            from .distribution import ProgramBundle
+
+            bound = environment_binding(config.environment_root)
+            bundle = ProgramBundle.read(identity.program_root)
+            if (
+                bound.package_family != identity.family
+                or bound.database != bundle.database
+            ):
+                raise AdminConfigError("ADMIN-CONFIG-PACKAGED-DATABASE-INCOMPATIBLE")
+            config = config.model_copy(
+                update={
+                    "postgresql_client_root": identity.program_root
+                    / "postgresql/pgsql",
+                    "runtime_defaults_path": identity.program_root
+                    / "resources/runtime.yaml",
+                    "creator_web_resources": identity.program_root
+                    / "resources/creator-web",
+                    "postgresql_control": PostgreSQLControlBinding.model_validate(
+                        {
+                            **binding.model_dump(),
+                            "installation_root": identity.program_root
+                            / "postgresql/pgsql",
+                        }
+                    ),
+                }
+            )
+        elif config.packaged_postgresql_control is not None:
+            raise AdminConfigError("ADMIN-CONFIG-PACKAGED-BINDING")
+        return config, resolved
     except AdminConfigError:
         raise
     except (

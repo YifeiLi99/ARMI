@@ -11,9 +11,9 @@ $tools = [IO.Path]::GetFullPath($ToolRoot)
 $manifest = Get-Content -LiteralPath (Join-Path $workspace 'tools/toolchain-manifest.json') -Raw -Encoding utf8 | ConvertFrom-Json
 $cache = Join-Path $tools 'cache/native-installer'
 New-Item -ItemType Directory -Path $cache -Force | Out-Null
-foreach ($id in @('msvc-build-tools', 'inno-setup')) {
+foreach ($id in @('msvc-build-tools')) {
     $spec = @($manifest.tools | Where-Object id -eq $id)[0]
-    $fileName = if ($id -eq 'msvc-build-tools') { 'vs_BuildTools.exe' } else { 'innosetup-' + $spec.version + '-x64.exe' }
+    $fileName = 'vs_BuildTools.exe'
     $archive = Join-Path $cache $fileName
     if (-not (Test-Path -LiteralPath $archive)) {
         if (-not $ApprovedOfficialDirect) { throw "INSTALLER-TOOL-CACHE: $id requires its exact installer" }
@@ -32,15 +32,6 @@ foreach ($id in @('msvc-build-tools', 'inno-setup')) {
             if ($result.ExitCode -notin @(0, 3010)) { throw "INSTALLER-MSVC-INSTALL: exit $($result.ExitCode)" }
         }
         if ((Get-Content -LiteralPath $versionFile -Raw).Trim() -ne $spec.toolset_version) { throw 'INSTALLER-MSVC-VERSION' }
-    } else {
-        $destination = Join-Path $tools ('installs/inno-' + $spec.version)
-        $compiler = Join-Path $destination 'ISCC.exe'
-        if (-not (Test-Path -LiteralPath $compiler)) {
-            $arguments = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CURRENTUSER /DIR="' + $destination + '"'
-            $result = Start-Process -FilePath $archive -ArgumentList $arguments -WindowStyle Hidden -Wait -PassThru
-            if ($result.ExitCode -ne 0) { throw "INSTALLER-INNO-INSTALL: exit $($result.ExitCode)" }
-        }
-        if ((Get-FileHash -LiteralPath $compiler -Algorithm SHA256).Hash.ToLowerInvariant() -ne $spec.compiler_sha256) { throw 'INSTALLER-INNO-VERSION' }
     }
     Write-Output "$id ready"
 }

@@ -1493,6 +1493,7 @@ def _check_import(
                 "armi_local_control.runtime_errors",
                 "armi_local_control.process_identity",
                 "armi_local_control.runtime_process",
+                "armi_local_control.windows_package",
                 "armi_local_control.semantic_recall_process",
             }
         ),
@@ -2093,6 +2094,7 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         "runtime_errors",
         "process_identity",
         "runtime_process",
+        "windows_package",
         "semantic_recall_process",
     ):
         module = "armi_local_control" + ("." + suffix if suffix else "")

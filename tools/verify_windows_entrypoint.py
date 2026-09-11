@@ -24,22 +24,9 @@ async def check(program: Path, *, installed: bool = False) -> None:
     expected_entries = {"ARMI.exe"}
     assert {p.name for p in program.glob("*.exe")} == expected_entries
     if installed:
-        assert not tuple(program.glob("unins*.*"))
-        assert (program / "卸载 ARMI.lnk").is_file()
-        assert (program / "control/uninstall/unins000.exe").is_file()
-        assert (program / "control/uninstall/unins000.dat").is_file()
-        current = program / "app"
-        bundle = ProgramBundle.read(current)
-        bundle.verify(current)
-        assert {p.name for p in current.glob("*.exe")} == {"ARMI.exe"}
-        assert executable.read_bytes() == (current / "ARMI.exe").read_bytes()
-        for obsolete in (
-            "versions",
-            ".current-version",
-            ".activation.json",
-            "tmp/update/previous",
-        ):
-            assert not (program / obsolete).exists(), obsolete
+        assert (program / "AppxManifest.xml").is_file()
+        assert (program / "armi_windows.dll").is_file()
+        ProgramBundle.read(program).verify(program)
     environment = {k: v for k, v in os.environ.items() if not k.startswith("ARMI_")}
     environment["PATH"] = str(Path(os.environ["SYSTEMROOT"]) / "System32")
     for mode in ("cli", "mcp"):
@@ -72,9 +59,17 @@ async def check(program: Path, *, installed: bool = False) -> None:
     }
     if not installed:
         assert status == "not_configured"
-    with TemporaryDirectory(prefix="entrypoint-", dir=program.parent) as raw:
+    scratch = Path(__file__).resolve().parents[1] / ".tmp"
+    scratch.mkdir(exist_ok=True)
+    with TemporaryDirectory(prefix="entrypoint-", dir=scratch) as raw:
         root = Path(raw)
-        await verify(root, executable)
+        await verify(
+            root,
+            executable,
+            expected_digest=ProgramBundle.read(program).package_set_digest
+            if installed
+            else None,
+        )
         binding = root / "client.yaml"
         binding.write_text(
             json.dumps(

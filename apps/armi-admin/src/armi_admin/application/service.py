@@ -221,7 +221,7 @@ class AdminToolService:
                 "environment_id": self._config.environment_id,
                 "environment_kind": self._config.environment_kind.value,
                 "operator_id": self._config.operator_id,
-                "package_set_digest": self._config.expected.package_set_digest,
+                "package_set_digest": self._config.expected.resolved_digest(),
                 "authorized_operations": list(self._config.authorized_operations),
                 "runtime_status": runtime_status,
                 "database_status": "not_checked",

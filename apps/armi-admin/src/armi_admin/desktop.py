@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import queue
+import time
 import tkinter as tk
 import webbrowser
 from collections.abc import Callable
@@ -28,8 +29,9 @@ from armi_local_control import (
 from armi_local_control.runtime_process import LocalProcessLock
 
 from armi_admin.application.installation import SetupPaths
+from armi_admin.application.updates import UpdateAction
 from armi_admin.composition import bootstrap_setup
-from armi_admin.setup_cli import SetupRequest, dispatch
+from armi_admin.setup_cli import SetupRequest, SetupUpdateRequest, dispatch
 from armi_admin.windows_tray import WindowsTray
 
 
@@ -74,6 +76,7 @@ class Desktop:
         self._credential_tab()
         self._devices_tab()
         self._startup_tab()
+        self._update_tab()
         self._optional_tab()
         controls = ttk.Frame(root)
         controls.pack(fill="x", padx=20, pady=(0, 18))
@@ -90,6 +93,115 @@ class Desktop:
         identity = hashlib.sha256(str(environment).casefold().encode()).hexdigest()
         self.tray = WindowsTray(identity, self.events.put)
         self.root.after(100, self._poll)
+        self.root.after(5000, self._automatic_update)
+
+    def _update_tab(self) -> None:
+        frame = ttk.Frame(self.tabs, padding=20)
+        self.tabs.add(frame, text="更新与数据")
+        data = program_installation_root(self.installation)
+        ttk.Label(
+            frame,
+            text=f"永久数据位置：{data}\n从 Windows 卸载 ARMI 会保留此目录。重新安装兼容版本后可接续使用。",
+            wraplength=760,
+        ).pack(anchor="w", pady=(0, 16))
+        self.automatic_updates = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            frame,
+            text="自动检查并准备兼容更新（每 24 小时）",
+            variable=self.automatic_updates,
+            command=lambda: self._update_request(
+                "automatic", self.automatic_updates.get()
+            ),
+        ).pack(anchor="w")
+        self.update_status = tk.StringVar(value="尚未读取更新状态")
+        ttk.Label(frame, textvariable=self.update_status, wraplength=760).pack(
+            anchor="w", pady=16
+        )
+        for label, action in (
+            ("读取状态", "status"),
+            ("检查更新", "check"),
+            ("下载并准备", "prepare"),
+            ("重启并更新", "apply"),
+        ):
+            ttk.Button(
+                frame,
+                text=label,
+                command=lambda action=action: self._update_request(
+                    cast(UpdateAction, action)
+                ),
+            ).pack(anchor="w", pady=4)
+        ttk.Label(
+            frame,
+            text="更新由 Windows 部署；数据库合同不兼容时不会自动更新。准备完成后，下次启动生效，也可重启并更新。",
+            wraplength=760,
+        ).pack(anchor="w", pady=16)
+
+    def _update_request(
+        self, action: UpdateAction, enabled: bool | None = None
+    ) -> None:
+        self.request(
+            SetupRequest(
+                action="update",
+                update=SetupUpdateRequest(action=action, enabled=enabled),
+            ),
+            self._update_result,
+        )
+
+    def _update_result(self, result: dict[str, Any]) -> None:
+        if isinstance(result.get("automatic"), bool):
+            self.automatic_updates.set(result["automatic"])
+        labels = {
+            "idle": "尚未检查更新"
+            if result.get("checked_at") is None
+            else "当前没有可用的新版本",
+            "available": "发现兼容更新，可下载准备",
+            "incompatible": "新版本数据库合同不兼容，保留当前程序和数据",
+            "downloaded": "已下载，尚未登记部署",
+            "deployment_requested": "已请求部署，结果待 Windows 确认",
+            "registration_deferred": "Windows 已登记延后更新，尚未切换运行版本",
+            "deployed": "Windows 已确认新版本部署",
+            "unavailable": "仅 MSIX 安装版支持自动更新",
+            "failed": "更新未完成",
+        }
+        status = labels.get(str(result.get("status")), str(result.get("status")))
+        if result.get("installed_version"):
+            status = f"已安装版本：{result['installed_version']}\n{status}"
+        if result.get("error_code"):
+            status += f"\n{result['error_code']}"
+        self.update_status.set(status)
+        self.status.set("更新状态已读取")
+
+    def _automatic_update(self) -> None:
+        if self.closed:
+            return
+        self.root.after(60000, self._automatic_update)
+        if self.busy:
+            return
+
+        def checked(result: dict[str, Any]) -> None:
+            self._update_result(result)
+            if result.get("status") == "available":
+                self._update_request("prepare")
+
+        def observed(result: dict[str, Any]) -> None:
+            self._update_result(result)
+            if (
+                result.get("automatic") is True
+                and result.get("status")
+                not in {"deployment_requested", "registration_deferred"}
+                and time.time() - (result.get("checked_at") or 0) >= 86400
+            ):
+                self.request(
+                    SetupRequest(
+                        action="update", update=SetupUpdateRequest(action="check")
+                    ),
+                    checked,
+                )
+
+        self.request(
+            SetupRequest(action="update", update=SetupUpdateRequest(action="status")),
+            observed,
+        )
 
     def _setup_tab(self) -> None:
         frame = ttk.Frame(self.tabs, padding=20)
@@ -629,6 +741,9 @@ class Desktop:
                     "not_running": "尚未运行",
                     "enabled": "登录自启已开启",
                     "disabled": "登录自启已关闭",
+                    "disabled_by_user": "Windows 中已禁用自启，请在系统设置中重新开启",
+                    "disabled_by_policy": "系统策略已禁用自启",
+                    "enabled_by_policy": "系统策略已开启自启",
                     "reconcile_required": "初始化结果待核对，请保留环境数据",
                 }
                 if "runtime" in payload and "postgresql" in payload:
@@ -683,7 +798,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         SetupPaths(environment_root=environment, installation_root=installation)
     except ValueError:
-        messagebox.showerror("ARMI", "环境必须位于安装目录的 environments 子目录中。")
+        messagebox.showerror("ARMI", "环境必须位于数据目录的 environments 子目录中。")
         root.destroy()
         return 1
     own_control_only = (
@@ -705,7 +820,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         private_directory(environment / ".setup")
     except OSError, ValueError:
-        messagebox.showerror("ARMI", "无法写入安装目录，请检查当前用户的目录权限。")
+        messagebox.showerror("ARMI", "无法写入数据目录，请检查当前用户的目录权限。")
         root.destroy()
         return 1
     lock = LocalProcessLock(environment / ".setup/desktop.lock")

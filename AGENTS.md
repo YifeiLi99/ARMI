@@ -42,9 +42,9 @@
 
 ## 4. 数据库与配置变更
 
-- 安装版的全部 ARMI 受管文件放在用户选择的安装根目录内：程序、环境、PGDATA、凭据、模型、工具、日志、缓存、临时工作区、设置和管理记录均不可外置。程序与数据只在根内划分子目录；环境默认 `environments/active/`，独立管理记录放 `control/`。不可写时明确失败，不回退到根外 AppData 或仓库父目录。Windows 快捷方式及卸载、自启登记按系统机制保存，不承载私有数据。更新和卸载只处理受管程序，保留环境与必要管理记录，禁止递归删除整个安装根。不将历史外置路径当作兼容要求。
+- Windows 安装版使用 MSIX：Windows 管理只读程序目录，永久数据统一放在 Known Folder API 定位的 `%LOCALAPPDATA%\ARMI`。环境使用 `environments/active/`，独立管理与更新记录使用 `control/`，缓存和临时文件使用 `cache/`、`tmp/`；不可写时明确失败，不回退到其他位置。目录虚拟化排除确保数据实际落盘并在卸载后保留。验收包必须使用独立包身份与 `%LOCALAPPDATA%\ARMI.Acceptance`，不得触及正式或旧 Inno 安装与数据。
 
-- 安装程序固定放在 `app/`；更新仅在 `tmp/update/` 暂存新旧程序，成功后清理，不累计历史版本目录。切换失败恢复旧程序，环境数据不参与程序替换。卸载程序与配套清单放在 `control/uninstall/`，根目录仅保留主 EXE 和“卸载 ARMI”快捷方式。
+- 稳定包身份为 `YifeiLi99.ARMI`，发布配置集中在 `configs/windows-release.yaml`；正式签名材料不进入仓库。安装、程序替换与卸载交给 Windows，不维护卸载 EXE、程序切换日志或文件回滚。更新只接受可信签名、相同包身份、递增版本及相同数据库合同；程序部署成功与 Runtime 就绪分别核验。已安装 Admin/Creator 配置绑定稳定包身份，不保存随版本变化的程序路径；源码和隔离测试保留明确资源绑定。
 - PostgreSQL 是唯一权威关系数据库；开发、测试和安装版使用同一受管原生 PostgreSQL 与扩展制品，由 `armi-local-control` 管理独立目录和端口，不依赖 Docker。精确版本查配置、[工具链 manifest](tools/toolchain-manifest.json) 和 packaged contract，不在此维护第二份版本快照。
 - [Schema 资源](packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema/) 只保留可重做的唯一 Alembic `0000`。结构变化直接更新 baseline SQL、`0000` 资源列表、identity、owner registry、ACL 和消费者；不增加历史 revision、autogenerate、downgrade 或旧库迁移兼容。目标库显式重装，修改 schema 的授权不包含删除目标库。
 - Admin `maintenance` 的 `database_install` 只接受无用户 relation 且无 `armi` namespace 的库：namespace 独立短事务建立，`0000` 原子安装其余内容。失败可留下空 namespace，不能留下业务表或前移 revision。普通启动只验证版本、摘要和精确 ACL，不自动安装/迁移或用超级用户掩盖漂移。
@@ -57,7 +57,7 @@
 本文件不预授权 Docker、持久服务、真实 Provider、账号、设备或付费调用。沿用会话中已明确授权的环境和动作范围；换环境、账号、凭据或生产资源时重新核对授权。
 
 - 未经用户针对本次操作明确授权，不复制、打包或导出数据库、Artifact Store、环境配置或 secret 作为离线恢复制品。项目不提供此恢复功能；重装与删除目标数据需明确授权，不能先擅自备份再操作。
-- 对外统一使用 `ARMI.exe`：无参数打开界面，`settings` 打开设置，`cli` / `mcp` 下通过 `interaction`、`admin`、`setup` 明确选择能力。只交付一个 ARMI 主入口和安装器生成的卸载入口，不为内部模块生成独立启动 EXE；Runtime、Admin 与 Creator 签发仍保持独立授权。源码开发使用 `python -m armi_app …`。输入使用 `message send` 正式 intake 与稳定 idempotency key；代理来源由认证入口写入，不直写数据库、不伪造浏览器 session。Web 保留，界面操作与视觉验收才使用浏览器驱动。
+- 对外统一使用 `ARMI.exe`：无参数打开界面，`settings` 打开设置，`cli` / `mcp` 下通过 `interaction`、`admin`、`setup` 明确选择能力。MSIX 注册开始菜单和稳定执行别名，卸载使用 Windows 应用管理；不为内部模块生成独立启动 EXE。私有环境宿主由系统激活，使用禁止脱离的 Job 管理所属长期进程，CLI/MCP 结束不误停环境；生命周期操作仍先经 Admin 授权。Runtime、Admin 与 Creator 签发保持独立授权。源码开发使用 `python -m armi_app …`。输入使用 `message send` 正式 intake 与稳定 idempotency key；代理来源由认证入口写入，不直写数据库、不伪造浏览器 session。Web 保留，界面操作与视觉验收才使用浏览器驱动。
   本地附件先经 `upload import` 或分块上传得到受治理引用，再显式接纳；上传完成不触发认知。`runtime_entrypoint` 是私有启动 worker，不承担业务或管理命令。私有主体快照另需 `subject_snapshot.private` 授权范围。
 - 交互用例和操作合同位于 Runtime `application/`，HTTP、CLI、MCP 只适配传输，不经 HTTP handler 转接机器操作。重置与主体内容校正核验独立 Creator 绑定签发的一次性授权；普通代理不能签发或通过配置修改信任根。配置消费者仅在验证并实际采用后登记当前版本；读取文件或保存配置不等于生效。中断管理调用通过 `invocation reconcile` 核验，不以当前状态猜测历史成功或重放原效果。
 - ARMI→Codex runner 与外部 Agent→ARMI MCP 隔离，不互相发现或继承 credential。Admin 支持显式绑定的 `active`、`development`、`system_test`、`acceptance`，采用独立 config、role、按需 pool 和 owner Admin ports；配置不能修改自己的管理授权。不暴露任意 SQL/Shell/Python。正式环境禁止故障注入；危险操作及主体内容校正需要具体授权。

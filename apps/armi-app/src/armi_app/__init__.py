@@ -44,10 +44,12 @@ def main(argv: list[str] | None = None) -> int:
         module, entry = "armi_admin.desktop", "main"
         if mode is None:
             arguments.insert(0, "--start")
-    if os.environ.get("ARMI_INSTALLATION_ROOT"):
-        from armi_admin.install_cli import recover_startup
+    from armi_local_control.windows_package import initialize_process_paths
 
-        recover_startup()
+    # The transport watcher has consumed this private launcher handoff. It is
+    # not a Runtime configuration override and must not reach its strict loader.
+    os.environ.pop("ARMI_LAUNCHER_PID", None)
+    initialize_process_paths()
     result = getattr(importlib.import_module(module), entry)(arguments)
     return result if isinstance(result, int) else 0
 

@@ -1,6 +1,7 @@
 # Local Creator-delegate interaction. Keep this separate from ARMI's Codex runner.
 [mcp_servers.armi]
-command = "C:/ARMI/ARMI.exe"
+# Replace <USER> with the current user's profile name; TOML does not expand %LOCALAPPDATA%.
+command = "C:/Users/<USER>/AppData/Local/Microsoft/WindowsApps/ARMI.exe"
 args = ["mcp", "interaction"]
 env_vars = ["ARMI_CLIENT_CONFIG"]
 required = true

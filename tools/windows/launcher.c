@@ -2,6 +2,7 @@
 #define UNICODE
 #define _UNICODE
 #include <windows.h>
+#include <appmodel.h>
 #include <shellapi.h>
 #include <wchar.h>
 
@@ -31,7 +32,7 @@ static int quote(const wchar_t *value) {
 }
 
 static int launch(int argc, wchar_t **argv) {
-    wchar_t root[32768], python[32768], pointer[32768], script[4096];
+    wchar_t root[32768], python[32768], script[4096];
     DWORD length = GetModuleFileNameW(NULL, root, 32768);
     if (!length || length >= 32768) return 2;
     wchar_t *name = wcsrchr(root, L'\\');
@@ -48,27 +49,22 @@ static int launch(int argc, wchar_t **argv) {
         if (error && error != INVALID_HANDLE_VALUE) SetStdHandle(STD_ERROR_HANDLE, error);
     }
     name[-1] = 0;
-    if (swprintf_s(pointer, 32768, L"%s\\.update.lock", root) < 0) return 2;
-    HANDLE update = CreateFileW(pointer, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_ALWAYS, 0, NULL);
-    if (update == INVALID_HANDLE_VALUE) {
-        if (!machine) MessageBoxW(NULL, L"ARMI is being updated. Please retry after installation completes.", L"ARMI", MB_OK | MB_ICONERROR);
-        return 2;
-    }
-    if (swprintf_s(pointer, 32768, L"%s\\.activation.json", root) < 0) return 2;
-    if (GetFileAttributesW(pointer) != INVALID_FILE_ATTRIBUTES) {
-        if (!machine) MessageBoxW(NULL, L"ARMI update was interrupted. Run the installer again to recover. Environment data is retained.", L"ARMI", MB_OK | MB_ICONERROR);
-        else {
-            const char failure[] = "ARMI-UPDATE-RECOVERY-REQUIRED\n";
-            DWORD written;
-            WriteFile(GetStdHandle(STD_ERROR_HANDLE), failure, sizeof(failure) - 1, &written, NULL);
-        }
-        CloseHandle(update);
-        return 2;
-    }
-    if (swprintf_s(pointer, 32768, L"%s\\app\\bundle.json", root) < 0) return 2;
-    if (GetFileAttributesW(pointer) != INVALID_FILE_ATTRIBUTES) {
-        if (swprintf_s(pointer, 32768, L"%s\\app", root) < 0) return 2;
-        if (wcscpy_s(root, 32768, pointer)) return 2;
+    UINT32 capacity = 32768;
+    LONG packaged = GetCurrentPackagePath(&capacity, root);
+    if (packaged != ERROR_SUCCESS && packaged != APPMODEL_ERROR_NO_PACKAGE) return 2;
+    if (argc == 3 && (!_wcsicmp(argv[1], L"--environment-host") || !_wcsicmp(argv[1], L"--apply-update"))) {
+        if (packaged != ERROR_SUCCESS) return 2;
+        wchar_t libraryPath[32768];
+        if (swprintf_s(libraryPath, 32768, L"%s\\armi_windows.dll", root) < 0) return 2;
+        HMODULE library = LoadLibraryExW(libraryPath, NULL, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
+        if (!library) return 2;
+        typedef HRESULT (__stdcall *Host)(const wchar_t *);
+        Host host = (Host)GetProcAddress(library, !_wcsicmp(argv[1], L"--environment-host") ? "armi_environment_host" : "armi_restart_update");
+        HRESULT result = host ? host(argv[2]) : E_FAIL;
+        FreeLibrary(library);
+        if (result != S_FALSE || _wcsicmp(argv[1], L"--apply-update")) return SUCCEEDED(result) ? 0 : 2;
+        argc = 1;
+        machine = 0;
     }
     if (!SetEnvironmentVariableW(L"ARMI_INSTALLATION_ROOT", root)) return 2;
     wchar_t launcherPid[32];
@@ -88,7 +84,6 @@ static int launch(int argc, wchar_t **argv) {
         startup.hStdError = GetStdHandle(STD_ERROR_HANDLE);
     }
     BOOL created = CreateProcessW(python, command, NULL, NULL, machine, machine ? CREATE_NO_WINDOW : 0, NULL, NULL, &startup, &process);
-    CloseHandle(update);
     if (!created) return 2;
     CloseHandle(process.hThread);
     WaitForSingleObject(process.hProcess, INFINITE);

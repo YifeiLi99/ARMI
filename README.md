@@ -82,28 +82,30 @@ Schema 实际打包在 `packages/armi-postgresql-contract/src/armi_postgresql_co
 
 ## 日常启动
 
-**安装目录约定：ARMI 自身管理的程序、数据库、凭据、模型、工具、日志、缓存、临时工作区和管理记录，全部保存在用户选择的安装根目录内。** 例如安装到 `C:\ARMI` 后，当前程序位于固定的 `app/`，环境位于 `environments/active/`，安装设置与独立管理记录位于 `control/`，缓存与临时文件位于 `cache/`、`tmp/`。首次使用直接采用安装目录内的环境位置，不再另选外部数据目录；目录不可写时明确报错，不回退到其他位置。程序与数据仅在安装根目录内部划分子目录。更新与卸载只处理受管程序文件，保留环境、凭据及必要管理记录，不递归删除整个安装根目录。Windows 快捷方式和卸载、自启登记仍使用系统机制，但不承载 ARMI 私有数据。
+**Windows 安装版使用 MSIX，程序由 Windows 管理，永久数据保存在 `%LOCALAPPDATA%\ARMI`。** 其中 `environments/active/` 保存数据库、配置、凭据、模型和生活数据，`control/` 保存设置、环境登记、管理回执和更新状态，`cache/`、`tmp/` 保存缓存与临时文件。程序目录保持只读；数据目录通过 Known Folder API 定位，使用 MSIX 目录虚拟化排除声明，普通卸载后仍保留。
 
-桌面入口使用根内默认环境；CLI/MCP 的显式环境路径也必须位于安装根的 `environments/` 下。安装进程的子进程缓存和临时目录使用根内位置，不读取旧 AppData 环境偏好。源码构建目录和 `.armi/reusable/` 是开发与保留资源区域，不是已安装实例的数据目录，资源投入正式使用时须显式放入安装根目录内。
+桌面入口使用上述默认环境，安装版 CLI/MCP 的显式环境也必须位于数据目录的 `environments/` 下。测试包使用独立的 `YifeiLi99.ARMI.Acceptance` 包身份、`ARMI.Acceptance.exe` 别名和 `%LOCALAPPDATA%\ARMI.Acceptance` 数据目录。本次不迁移、修改或删除旧 Inno 安装与数据；源码构建目录和 `.armi/reusable/` 仍是开发资源区域。
 
-Windows 11 x64 安装版包含原生 PostgreSQL、扩展、私有 Python 和已构建网页；用户不需要 Docker、全局 Python/Node、PowerShell 7 或编译器。安装位置由用户选择，通过 ARMI 入口打开首次配置和托盘。环境准备与出生分开；未显式出生不会进入正常生活。可选能力默认关闭，登录自启需在设置中开启。
+Windows 11 x64 安装版包含原生 PostgreSQL、扩展、私有 Python 和已构建网页；用户不需要 Docker、全局 Python/Node、PowerShell 7 或编译器。通过开始菜单或执行别名打开 ARMI。环境准备与出生分开，未显式出生不会进入正常生活；普通启动只检查和启动已有环境。可选能力默认关闭，登录自启使用默认关闭的 Windows StartupTask，并尊重用户在系统中的禁用状态。
 
-根目录只保留 `ARMI.exe` 一个 EXE，以及“卸载 ARMI”快捷方式；卸载 EXE 和配套 DAT 放在 `control/uninstall/`，Windows 系统卸载入口与快捷方式指向同一内部卸载程序。双击主程序，未配置时进入设置；正常启动成功后打开 Creator Web，托盘提供设置与退出。重复启动复用同环境实例。AI 使用同一个程序的 `cli interaction/admin/setup` 或 `mcp interaction/admin/setup` 模式，不需要操作窗口；MCP 每次只加载一种独立权限的服务。`ARMI.exe settings` 直接打开设置。内部 worker、Codex runner 与安装控制为 Python 模块，不交付独立 ARMI 辅助启动器。
+`ARMI.exe` 是唯一对外主入口。未配置时进入设置；正常启动成功后打开 Creator Web，托盘提供设置与退出。重复启动复用同环境实例。AI 使用同一程序的 `cli interaction/admin/setup` 或 `mcp interaction/admin/setup` 模式，MCP 每次只加载一种独立权限的服务。`ARMI.exe settings` 直接打开设置。卸载使用 Windows 的应用管理，不交付独立卸载 EXE。长期进程由系统激活的私有环境宿主监督，CLI/MCP 退出不会误停环境；宿主或包被终止时，所属进程随 Job 结束。
 
-下文 `ARMI` 代表安装路径下的 `ARMI.exe`，机器接入使用绝对路径和参数数组，不依赖全局 PATH；源码开发使用受管 Python 的 `python -m armi_app …`。PowerShell 可用 `& 'C:\ARMI\ARMI.exe' cli admin identity | Out-String` 等管道命令等待结果。MCP 接入模板中的路径应改成实际安装位置。
+下文 `ARMI` 代表执行别名 `ARMI.exe`。机器接入使用稳定的绝对路径 `%LOCALAPPDATA%\Microsoft\WindowsApps\ARMI.exe` 和参数数组，不绑定含版本号的 WindowsApps 包目录。PowerShell 可用 `& "$env:LOCALAPPDATA\Microsoft\WindowsApps\ARMI.exe" cli admin identity | Out-String` 等管道命令。源码开发使用受管 Python 的 `python -m armi_app …`。
 
-更新先将新包暂存到 `tmp/update/`，核验包与数据库合同、停止所属进程，再更换主入口及 `app/` 并检查程序和数据库。旧程序仅在本次更新期间临时保留；成功后清理，不累计历史版本。失败恢复旧程序，中断后重新运行安装包完成恢复。旧 `versions/` 布局在成功升级后按清单清理；未知或修改过的文件保留。激活失败时安装器返回非零退出码，保留旧快捷方式并显示失败结果，不自动打开程序。安装包拒绝数据库合同不兼容的更新。
+桌面后台启动后检查 GitHub `YifeiLi99/ARMI` Releases，常驻时每 24 小时检查；设置中可关闭自动更新或手动检查。普通 CLI/MCP 调用不额外联网检查。下载后核验可信签名、相同包身份、架构、递增版本和签名覆盖的数据库合同，再由 Windows 登记延后更新；下次系统激活生效。“重启并更新”先完成所属环境停机，停机失败不强制继续。部署状态以 Windows 实际版本为准，不凭下载完成宣称成功。
 
-安装包目前是未签名本地构建，不执行在线更新。兼容更新只替换程序；数据库合同不兼容时拒绝切换。卸载保留环境数据与凭据，重新安装兼容程序可继续绑定已登记环境。既有 Docker 环境不导入、不修改。
+自动更新只准备数据库合同一致的版本，不迁移或重装数据库。用户直接安装不兼容 MSIX 后，Windows 可能完成程序部署，但 ARMI 会拒绝进入生活并保留数据；业务检查失败不会自动降级。卸载保留数据与凭据，重新安装兼容包后核验并接续原环境，不重复出生。正式签名和 GitHub 发布尚需配置，本地签名测试通过不等于公众安装或在线发布已经通过。
 
-从源码构建需要 PowerShell 7；构建机先准备固定 MSVC/Inno，再准备工具链和原生数据库。最终用户不执行这些命令：
+从源码构建需要 PowerShell 7、锁定的 MSVC 与 Windows SDK `10.0.26100.0`。发布身份、版本和更新源集中在 `configs/windows-release.yaml`，Publisher 必须匹配签名证书；证书私钥不进入仓库。最终用户不执行这些命令：
 
 ```powershell
 .\tools\prepare_windows_build_tools.ps1 -ApprovedOfficialDirect
 .\tools\bootstrap_toolchain.ps1 -ApprovedOfficialDirect
 .\tools\build_windows_payload.ps1 -OutputDirectory .tmp\windows-payload
-.\tools\build_windows_installer.ps1 -PayloadDirectory .tmp\windows-payload -OutputDirectory .tmp\installers
+.\tools\build_windows_installer.ps1 -PayloadDirectory .tmp\windows-payload -OutputDirectory .tmp\installers -CertificateThumbprint <签名证书指纹>
 ```
+
+本机验收可为构建命令增加 `-Development`，自动使用独立验收包身份；`tools/test_msix_platform.ps1 -CertificateThumbprint <测试证书指纹>` 执行最小平台验收。自签名测试证书须先在测试电脑建立信任：将公开 `.cer` 导入 `LocalMachine\TrustedPeople` 需要管理员权限，这是一次性的本机信任配置，不是微软审核或每次打包授权。正式构建不接受自签名证书，未配置正式 Publisher 或可用签名私钥时明确失败。
 
 上述构建默认使用已经准备好的精确 wheel 缓存；缺失时显式失败。原生 PG 制品由 `tools/build_native_postgresql.ps1` 构建，开发与系统测试共用它。正式管理入口核对 wheel package set；可用 `ARMI cli admin identity` 离线取得当前安装摘要。已经完成环境配置和出生后，托盘或显式 Admin 绑定按依赖顺序启动 PostgreSQL、语义召回与 Runtime，并等待核心 readiness：
 
@@ -116,10 +118,10 @@ Windows 11 x64 安装版包含原生 PostgreSQL、扩展、私有 Python 和已�
 机器可以通过安装应用服务准备新环境。以下 JSON 的 `operation_id` 必须是调用者保存并在重试中复用的 UUIDv7；安装入口从自身位置寻找全部运行依赖：
 
 ```powershell
-'{"action":"prepare","operation_id":"<UUIDv7>"}' | & 'C:\ARMI\ARMI.exe' cli setup
+'{"action":"prepare","operation_id":"<UUIDv7>"}' | & "$env:LOCALAPPDATA\Microsoft\WindowsApps\ARMI.exe" cli setup
 ```
 
-`ARMI mcp setup` 使用相同请求合同；`status`、`check`、`credential`、`birth`、`login_startup` 和 `admin` 与窗口共用用例。配置不返回秘密正文；日常 Admin、Creator 签发和交互绑定相互独立。已有环境的正式维护入口：
+`ARMI mcp setup` 使用相同请求合同；`status`、`check`、`credential`、`birth`、`login_startup`、`admin` 和 `update` 与窗口共用用例。更新请求形如 `{"action":"update","update":{"action":"status"}}`，内部 action 可为 `status/check/prepare/apply/automatic`，自动更新设置另传 `enabled` 布尔值。配置不返回秘密正文；日常 Admin、Creator 签发和交互绑定相互独立。已有环境的正式维护入口：
 
 ```powershell
 $env:ARMI_ADMIN_CONFIG = 'C:\path\to\admin.yaml'

@@ -34,7 +34,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         config, config_path = load_admin_config(
             {**os.environ, "ARMI_ADMIN_CONFIG": args.config} if args.config else None
         )
-        verify_admin_package_set(config.expected.package_set_digest)
+        verify_admin_package_set(config.expected.resolved_digest())
         credentials = AdminCredentialPort(
             locator=config.locator,
             migrator_locator=config.migrator_locator,

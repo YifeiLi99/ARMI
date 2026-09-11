@@ -1,0 +1,11 @@
+# 正式发布必须填写与正式代码签名证书完全一致的 Publisher。
+# 签名证书及其私钥由构建机证书库或外部签名服务保管。
+schema_version: armi.windows-release.v1
+name: YifeiLi99.ARMI
+publisher: null
+publisher_display_name: YifeiLi99
+version: 0.1.0.0
+data_directory: ARMI
+execution_alias: ARMI.exe
+repository: YifeiLi99/ARMI
+release_tag: v0.1.0

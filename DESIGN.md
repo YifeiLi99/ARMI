@@ -23,7 +23,7 @@ ARMI 承载一个自主电子人长期存在。系统的首要对象不是“回
 
 ## 2. 部署与进程拓扑
 
-**部署约束：已安装 ARMI 的全部受管文件必须位于同一个安装根目录。** 根内按 `app/`（当前程序）、`environments/active/`（数据库、配置、凭据、模型与运行数据）、`control/`（安装设置、环境索引和独立管理记录）、`cache/`、`tmp/` 分工。管理记录放在可重置环境之外，但不能放到安装根之外。安装根不可写时明确失败，不另建 AppData 数据目录或仓库父目录下的控制目录。Windows 系统入口登记不作为私有数据存储位置。更新与卸载须按受管程序清单执行，保留环境与必要管理记录，不整根递归删除。桌面默认打开根内环境，Setup 统一拒绝根外环境路径；安装索引与 Admin 控制路径共享此布局，入口为自身及子进程设置根内缓存、临时目录。
+Windows 安装版采用 MSIX。Windows 管理只读程序目录，入口通过包身份查找资源；Known Folder API 定位的 `%LOCALAPPDATA%\ARMI` 保存永久数据。其下 `environments/active/` 保存数据库、配置、凭据、模型与生活数据，`control/` 保存设置、环境索引和独立管理与更新记录，`cache/`、`tmp/` 保存缓存与临时文件。MSIX 的目录虚拟化排除声明使这些数据实际落盘并在卸载后保留。开发验收使用独立包身份和 `ARMI.Acceptance` 数据目录。源码使用明确资源绑定；本次不迁移或修改旧 Inno 安装与数据。
 
 ```text
                          Windows local machine
@@ -53,13 +53,15 @@ ARMI 承载一个自主电子人长期存在。系统的首要对象不是“回
 
 Runtime 是唯一正常活动写入者。Admin 使用独立进程、配置、credential、pool 和 owner 管理端口；Creator UI 不接触 Admin。ARMI→Codex runner 显式关闭 MCP，不能发现 Codex→ARMI Admin 链。
 
-`armi-app` 是依赖 Runtime 与 Admin 的顶层分派包，按 GUI、CLI、MCP 模式仅加载指定入口；它不合并权限或业务用例，底层应用不反向依赖它。安装版唯一产品 EXE 为 `ARMI.exe`，机器模式保留标准流与退出码，GUI 模式不创建控制台。取消原生启动器时只结束本次机器传输，不结束独立 Runtime。安装维护由私有 Python 模块执行；主入口、当前程序目录及程序字段由更新日志统一恢复，旧辅助 EXE 只在确认归属且切换成功后清理。
+`armi-app` 是依赖 Runtime 与 Admin 的顶层分派包，按 GUI、CLI、MCP 模式仅加载指定入口；它不合并权限或业务用例，底层应用不反向依赖它。唯一对外产品入口为 `ARMI.exe`，机器模式保留标准流与退出码，GUI 模式不创建控制台。开始菜单与执行别名由 MSIX 注册；机器接入使用 `%LOCALAPPDATA%\Microsoft\WindowsApps\ARMI.exe`，不持久绑定带版本的包路径。随包 C++/WinRT 库只提供包身份、签名与部署、自启和进程管理接口。登录自启使用默认关闭的 Windows StartupTask，尊重系统中的用户禁用状态。
 
 Windows 安装版按当前用户部署，不注册系统服务。私有 Python、锁定 wheels、已构建网页和原生 PostgreSQL 随包交付；`ARMI cli setup` / `ARMI mcp setup` 与 Tk/ttk 窗口共用安装应用服务。首次配置只在明确的新目录生成独立凭据和绑定，完成数据库初始化后仍保持未出生，出生调用正式 owner 路径。托盘通过已有生命周期用例启停 Runtime、附属工作和所属数据库；关闭网页不停止进程。
 
-程序与环境在安装根内使用不同子目录。原生 EXE 从固定的 `app/` 加载私有运行环境。安装器在 `tmp/update/<package_id>` 暂存并核验新包；更新与启动共用锁，停止所属进程后替换根入口，将旧 `app/` 临时移到 `tmp/update/previous`，从暂存包建立新 `app/`。校验最终程序和真实数据库后提交，清理旧程序与暂存包，不累计历史版本。更新日志记录准备或提交阶段以及程序字段；失败恢复旧目录、入口与绑定，中断后重跑安装器恢复。不复制凭据或数据，不兼容数据库合同拒绝切换。旧 `versions/` 和指针仅由升级清理入口识别，成功升级后按旧清单移除；未知或修改过的文件保留。卸载先核验并停止受管进程，由构建时清单移除程序，保留根内环境数据和 `control/` 中必要的安装与环境身份记录。此路径不提供备份、旧 Docker 数据导入或跨 schema 迁移。
+安装版环境宿主通过系统激活同一主入口的私有模式启动，持有禁止脱离、关闭即终止后代的 Windows Job。CLI/MCP 调用结束不关闭宿主；正常停止仍经 Admin 授权，按 Runtime、附属进程、PostgreSQL 顺序完成。宿主不持有业务权限或成为新的事实 owner。系统会话结束、宿主崩溃或卸载导致的强制终止按崩溃处理；数据库允许正常恢复，未完成认知与回复仍中断即结束。
 
-原生 PG 管理器使用 `initdb`、`pg_ctl` 和数据库检查，进程身份绑定可执行文件、命令行、创建时间、数据目录、持久端口及集群 system identifier。仅监听回环地址，使用 UTF-8、UTC、builtin `C.UTF-8`、校验和与 SCRAM；端口冲突失败，不连接占用该端口的其他数据库。系统测试通过同一管理器创建独立临时集群。
+更新从 GitHub `YifeiLi99/ARMI` Releases 的 `armi-update.json` 发现候选，下载到数据目录的 `tmp/update/`。接受候选需核验可信 MSIX 签名、包身份、架构、递增版本及签名覆盖的包内数据库合同；只自动准备数据库合同一致的版本。Windows PackageManager 以延后注册选项管理替换；重启更新先停所属环境，停机失败不强行部署。控制目录保存更新状态，重启后以 Windows 实际版本判断部署结果，不把下载完成视为升级成功，不维护程序文件回滚。用户直接安装不兼容包可能完成 Windows 部署，但 ARMI 启动检查拒绝进入生活且保留数据，不承诺业务检查失败会自动降级。
+
+原生 PG 管理器使用 `initdb` 初始化、`pg_ctl` 正常停止及数据库检查。安装版直接创建 `postgres.exe`，在运行前加入环境宿主 Job，避免 `pg_ctl` 的受限令牌启动链经系统激活后脱离宿主；源码环境仍用 `pg_ctl` 启动。包内 PostgreSQL 注册为同一应用的内部 FullTrustProcess，支持 `initdb` 的子进程激活，不增加公开入口。进程身份绑定可执行文件、命令行、创建时间、数据目录、持久端口及集群 system identifier。仅监听回环地址，使用 UTF-8、UTC、builtin `C.UTF-8`、校验和与 SCRAM；端口冲突失败，不连接占用该端口的其他数据库。系统测试通过同一管理器创建独立临时集群。
 
 对外优先服务 Creator 委托的 Agent。交互绑定固定环境、Creator、delegate、凭据 locator 和读写范围；来源由认证入口写入 `party_input_interactions.delegate_id`，并进入当前输入与近期对话的 Context。代理不成为第二关系身份，不能用消息正文声明授权。
 
@@ -67,7 +69,7 @@ Windows 安装版按当前用户部署，不注册系统服务。私有 Python�
 
 `armi-local-control` 共用配置加载、本机过程身份、进程锁及生命周期合同，不是业务 owner。交互客户端不持有 Admin 数据库凭据；Admin 按操作需要建连，因此数据库停止时仍可发现工具、检查本机进程和启动环境。
 
-卸载程序及配套清单位于 `control/uninstall/`，根目录与开始菜单只提供“卸载 ARMI”快捷方式，系统卸载登记指向同一程序。升级旧布局时先核验固定安装器日志头与 AppId，将旧卸载清单保留到内部目录供 Inno 追加；旧根文件在新卸载程序与清单写入成功后按迁移前摘要清理，失败时保留旧入口。
+卸载完全使用 Windows 应用管理，不交付独立卸载程序，也不依赖卸载前脚本。重新安装兼容包后核验已有环境身份和数据库合同，复用凭据与管理回执，不重新出生。正式签名与在线发布需单独配置；本地测试证书验收不代表公众安装或在线发布已经通过。
 
 ## 3. 分层与依赖
 
@@ -243,7 +245,7 @@ Effect 的 Creator 制品读取用例统一返回实际交付内容及其摘要�
 
 Admin 因果追踪从输入、认知、操作或效果引用沿 owner ports 连接 Evidence、Opportunity、冻结 Context 制品、Subject Commit、Effect、outbox 与交付，不读取私有制品正文。私有主体快照另需 `subject_snapshot.private`。Agent 的相关数据删除通过 `data_deletion_preview/apply`：预览和执行复用 Data Rights participant 的目标发现逻辑，授权绑定目标摘要；owner 在短事务中重算摘要，确认范围未变后才登记及执行删除。Creator Web 的本人申请保留，普通机器交互及混合 other-human 删除请求不能绕过一次性授权。
 
-Admin CLI/MCP 共用 `application/service.py` 和显式操作目录，配置为 `armi.admin-config.v8`。支持显式绑定的 `active`、`development`、`system_test`、`acceptance`；正式环境禁止 test controls。绑定记录 `operator_id` 和逐项 `authorized_operations`，普通配置编辑不能修改本身的管理权限。
+Admin CLI/MCP 共用 `application/service.py` 和显式操作目录，配置为 `armi.admin-config.v9`。安装版绑定稳定包 family，程序资源和 wheel 集合由当前包内清单解析，升级不改写 Admin 或 Creator 签发配置中的版本路径；源码与隔离测试使用明确 wheel/资源绑定。支持显式绑定的 `active`、`development`、`system_test`、`acceptance`；正式环境禁止 test controls。绑定记录 `operator_id` 和逐项 `authorized_operations`，普通配置编辑不能修改本身的管理权限。
 
 管理 wire 为 `5.0`。生命周期、配置应用及管理写请求用稳定环境、incarnation、操作者和幂等键保存耐久回执；包升级和普通配置修改不改变回执身份。读取与预览获取当前事实，不复用写回执。`invocation get/wait` 返回阶段；运行中、已结算和中断后的 unknown 分开，不自动重放副作用，读取旧回执仍核验当前权限。
 

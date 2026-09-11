@@ -57,6 +57,22 @@ def test_initialization_preserves_unknown_nonempty_cluster(tmp_path: Path) -> No
     assert marker.read_bytes() == b"existing data"
 
 
+def test_failed_initial_preparation_can_stop_without_initializing(
+    tmp_path: Path,
+) -> None:
+    manager = cluster(tmp_path)
+    with patch.object(manager, "_run") as run:
+        assert manager.execute("stop")["status"] == "stopped"
+        with pytest.raises(RuntimeViolation, match="NOT-INITIALIZED"):
+            manager.execute("start")
+        manager.data.mkdir(parents=True)
+        (manager.data / "unknown").write_bytes(b"preserve")
+        with pytest.raises(RuntimeViolation, match="NOT-INITIALIZED"):
+            manager.execute("stop")
+    run.assert_not_called()
+    assert (manager.data / "unknown").read_bytes() == b"preserve"
+
+
 def test_occupied_port_never_connects_or_starts_database(tmp_path: Path) -> None:
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
@@ -95,6 +111,47 @@ def test_foreign_system_identifier_prevents_stop(tmp_path: Path) -> None:
     ):
         manager.execute("stop")
     process.assert_not_called()
+
+
+def test_packaged_server_waits_for_its_own_ready_pid(tmp_path: Path) -> None:
+    manager = cluster(tmp_path)
+    manager.data.mkdir(parents=True)
+    process = Mock(pid=123, poll=Mock(return_value=None))
+    pid_file = manager.data / "postmaster.pid"
+    pid_file.write_text("999\ndata\n0\n15432\n\n\n\nready\n", encoding="utf-8")
+
+    def ready(_):
+        pid_file.write_text("123\ndata\n0\n15432\n\n\n\nready\n", encoding="utf-8")
+
+    with (
+        patch(
+            "armi_local_control.native_postgresql.spawn_owned", return_value=process
+        ) as spawn,
+        patch(
+            "armi_local_control.native_postgresql.time.sleep", side_effect=ready
+        ) as sleep,
+    ):
+        manager._start_packaged()
+    sleep.assert_called_once()
+    assert spawn.call_args.args[0] == [
+        str(manager.binding.installation_root / "bin/postgres.exe"),
+        "-D",
+        str(manager.data),
+    ]
+    assert spawn.call_args.kwargs["environment_id"] == manager.environment_id
+
+
+def test_packaged_server_early_exit_is_not_ready(tmp_path: Path) -> None:
+    manager = cluster(tmp_path)
+    manager.control.mkdir(parents=True)
+    with (
+        patch(
+            "armi_local_control.native_postgresql.spawn_owned",
+            return_value=Mock(poll=Mock(return_value=1)),
+        ),
+        pytest.raises(RuntimeViolation, match="LOCAL-POSTGRESQL-FAILED"),
+    ):
+        manager._start_packaged()
 
 
 def test_database_timeout_never_exposes_subprocess_output(tmp_path: Path) -> None:

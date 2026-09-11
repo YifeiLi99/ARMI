@@ -3,34 +3,37 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from armi_local_control import private_directory, write_control
 from armi_local_control.runtime_process import LocalProcessLock
 from pydantic import BaseModel, ConfigDict
 
-from .distribution import BundleDatabase, ProgramBundle
+from .distribution import BundleDatabase
 
 
 class EnvironmentProgramBinding(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
-    installation_root: str
+    package_family: str | None
     database: BundleDatabase
 
 
 class EnvironmentIndex(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
-    schema_version: Literal["armi.installation-environments.v1"]
+    schema_version: Literal["armi.installation-environments.v2"]
     installation_root: str
     environments: list[str]
 
 
 def installed_root(program: Path) -> Path | None:
-    return (
-        program.parent
-        if program.name == "app" and (program / "bundle.json").is_file()
-        else None
-    )
+    from armi_local_control.windows_package import data_root, package_identity
+
+    identity = package_identity()
+    if identity is None:
+        return None
+    if identity.program_root != program:
+        raise ValueError("MSIX-PROGRAM-IDENTITY")
+    return data_root()
 
 
 def environment_index(installation: Path) -> Path:
@@ -68,7 +71,7 @@ def register_environment(program: Path, environment: Path) -> None:
         write_control(
             path,
             {
-                "schema_version": "armi.installation-environments.v1",
+                "schema_version": "armi.installation-environments.v2",
                 "installation_root": str(installation),
                 "environments": sorted(str(root) for root in roots),
             },
@@ -79,19 +82,3 @@ def environment_binding(environment: Path) -> EnvironmentProgramBinding:
     return EnvironmentProgramBinding.model_validate_json(
         (environment / ".setup/program.json").read_bytes()
     )
-
-
-def replacement_config(
-    value: dict[str, Any], program: Path, bundle: ProgramBundle
-) -> dict[str, Any]:
-    return {
-        **value,
-        "postgresql_client_root": str(program / "postgresql/pgsql"),
-        "runtime_defaults_path": str(program / "resources/runtime.yaml"),
-        "creator_web_resources": str(program / "resources/creator-web"),
-        "postgresql_control": {
-            **value["postgresql_control"],
-            "installation_root": str(program / "postgresql/pgsql"),
-        },
-        "expected": {"package_set_digest": bundle.package_set_digest},
-    }

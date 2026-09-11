@@ -4,7 +4,16 @@ from pathlib import Path
 
 
 def program_installation_root(program: Path) -> Path:
-    return program.parent if program.name == "app" else program
+    from .windows_package import data_root, package_identity
+
+    identity = package_identity()
+    if identity is None:
+        return program
+    if program != identity.program_root:
+        raise ValueError("MSIX-PROGRAM-IDENTITY")
+    root = data_root()
+    assert root is not None
+    return root
 
 
 def environment_control_root(environment: Path, environment_id: str) -> Path:

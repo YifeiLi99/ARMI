@@ -17,13 +17,15 @@ from mcp.client import Client
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
 
-async def verify(root: Path, executable: Path | None = None) -> None:
+async def verify(
+    root: Path, executable: Path | None = None, *, expected_digest: str | None = None
+) -> None:
     environment_id = str(uuid7())
     config = root / "admin.yaml"
     config.write_text(
         json.dumps(
             {
-                "schema_version": "armi.admin-config.v8",
+                "schema_version": "armi.admin-config.v9",
                 "operator_id": "wheel-verifier",
                 "authorized_operations": ["capabilities", "environment_status"],
                 "environment_kind": "active",
@@ -35,7 +37,9 @@ async def verify(root: Path, executable: Path | None = None) -> None:
                 "database_locator": "env:ARMI_SECRET_ADMIN_DATABASE",
                 "migrator_database_locator": "env:ARMI_SECRET_MIGRATOR_DATABASE",
                 "preview_key_locator": "env:ARMI_SECRET_ADMIN_PREVIEW_KEY",
-                "expected": {"package_set_digest": admin_package_set_digest()},
+                "expected": {
+                    "package_set_digest": expected_digest or admin_package_set_digest()
+                },
             }
         ),
         encoding="utf-8",
