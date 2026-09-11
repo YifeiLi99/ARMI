@@ -26,6 +26,7 @@ __all__ = (
     "spawn_owned",
     "startup",
     "stop_idle_host",
+    "uninstall",
 )
 
 
@@ -113,6 +114,10 @@ def defer_update(path: Path) -> dict[str, Any]:
 
 def restart_update(path: Path) -> dict[str, Any]:
     return _call(9, str(path))
+
+
+def uninstall(*, delete_data: bool = False) -> dict[str, Any]:
+    return _call(10, "delete" if delete_data else "preserve")
 
 
 def startup(enabled: bool | None) -> dict[str, Any]:

@@ -154,10 +154,12 @@ class SetupApplication:
         admin_operation: Callable[[str, dict[str, Any]], dict[str, Any]],
         login_startup: Callable[[bool | None], dict[str, object]] | None = None,
         update: Callable[[UpdateAction, bool | None], dict[str, Any]] | None = None,
+        uninstall: Callable[[bool], dict[str, Any]] | None = None,
     ) -> None:
         self._admin_operation = admin_operation
         self._login_startup = login_startup
         self._update = update
+        self._uninstall = uninstall
         self.paths = paths
         self.root = paths.environment_root
         if has_reparse_point(self.root, root=Path(self.root.anchor)):
@@ -569,3 +571,8 @@ class SetupApplication:
         if self._update is None:
             raise SetupError("UPDATE-UNAVAILABLE")
         return self._update(action, enabled)
+
+    def uninstall(self, *, delete_data: bool = False) -> dict[str, Any]:
+        if self._uninstall is None:
+            raise SetupError("UNINSTALL-MSIX-REQUIRED")
+        return self._uninstall(delete_data)

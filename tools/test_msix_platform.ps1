@@ -176,6 +176,70 @@ public static class ArmiProbeActivation {
     Get-AppxPackage -Name $packageName | Remove-AppxPackage
     if (Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -eq $executable }) { throw 'MSIX-PROBE-UNINSTALL-ORPHANS' }
     if (-not (Test-Path -LiteralPath $marker)) { throw 'MSIX-PROBE-UNINSTALL-RETENTION' }
+    # Delete only the disposable probe directory, never ARMI or ARMI.Acceptance.
+    $probeData = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'ARMI.MsixAcceptance'))
+    if ($probeData -ne [IO.Path]::GetFullPath((Split-Path $marker)) -or
+        @(Get-ChildItem -LiteralPath $probeData -Force | Where-Object Name -ne 'probe.txt').Count) {
+        throw 'MSIX-PROBE-UNINSTALL-UNEXPECTED-DATA'
+    }
+    foreach ($mode in @('preserve', 'delete')) {
+        Add-AppxPackage -Path (Join-Path $output 'ARMI-0.0.2.0.msix')
+        if ($mode -eq 'preserve') {
+            $probeEnvironment = Join-Path $probeData 'environments/probe'
+            $probeControl = Join-Path $probeData 'control'
+            New-Item -ItemType Directory -Path (Join-Path $probeEnvironment '.setup'), $probeControl -Force | Out-Null
+            $probeState = Join-Path $probeEnvironment '.setup/operation.json'
+            $probeIndex = Join-Path $probeControl 'environments.yaml'
+            [IO.File]::WriteAllText($probeState, (@{environment_id=$environmentId} | ConvertTo-Json))
+            [IO.File]::WriteAllText($probeIndex, (@{schema_version='armi.installation-environments.v2'; environments=@($probeEnvironment)} | ConvertTo-Json))
+            & $alias host-child $environmentId
+            if ($LASTEXITCODE -ne 0) { throw 'MSIX-PROBE-UNINSTALL-BUSY-SETUP' }
+            & $alias native 10 delete
+            if ($LASTEXITCODE -eq 0) { throw 'MSIX-PROBE-UNINSTALL-BUSY-ACCEPTED' }
+            if (-not (Test-Path -LiteralPath $marker)) { throw 'MSIX-PROBE-UNINSTALL-BUSY-DATA' }
+            $hosts = @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -eq $executable -and $_.CommandLine -like "*--environment-host $environmentId*" })
+            if ($hosts.Count -ne 1) { throw 'MSIX-PROBE-UNINSTALL-BUSY-HOST' }
+            Stop-Process -Id $hosts[0].ProcessId
+            $deadline = [DateTime]::UtcNow.AddSeconds(10)
+            do {
+                $remaining = @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -eq $executable })
+                if (-not $remaining.Count) { break }
+                Start-Sleep -Milliseconds 100
+            } while ([DateTime]::UtcNow -lt $deadline)
+            if ($remaining.Count) { throw 'MSIX-PROBE-UNINSTALL-BUSY-ORPHANS' }
+            # Remove only the exact fixture files and empty directories just created.
+            [IO.File]::Delete($probeState)
+            [IO.File]::Delete($probeIndex)
+            [IO.Directory]::Delete((Join-Path $probeEnvironment '.setup'))
+            [IO.Directory]::Delete($probeEnvironment)
+            [IO.Directory]::Delete((Join-Path $probeData 'environments'))
+            [IO.Directory]::Delete($probeControl)
+        }
+        if ($mode -eq 'delete') {
+            $outside = Join-Path $output ('outside-cleanup-boundary-' + [Guid]::NewGuid().ToString('N'))
+            New-Item -ItemType Directory -Path $outside | Out-Null
+            [IO.File]::WriteAllText((Join-Path $outside 'keep.txt'), 'outside')
+            $junction = Join-Path $probeData 'boundary-junction'
+            New-Item -ItemType Junction -Path $junction -Target $outside | Out-Null
+            & $alias native 10 delete
+            if ($LASTEXITCODE -eq 0) { throw 'MSIX-PROBE-UNINSTALL-REPARSE-ACCEPTED' }
+            if (-not (Test-Path -LiteralPath $marker) -or -not (Get-AppxPackage -Name $packageName)) { throw 'MSIX-PROBE-UNINSTALL-REJECTION-MUTATED' }
+            [IO.Directory]::Delete($junction)
+            if ((Get-Content -LiteralPath (Join-Path $outside 'keep.txt') -Raw) -ne 'outside') { throw 'MSIX-PROBE-UNINSTALL-BOUNDARY' }
+        }
+        & $alias native 10 $mode
+        if ($LASTEXITCODE -ne 0) { throw "MSIX-PROBE-UNINSTALL-REQUEST: $mode" }
+        $deadline = [DateTime]::UtcNow.AddSeconds(150)
+        do {
+            $installed = Get-AppxPackage -Name $packageName
+            if (-not $installed) { break }
+            Start-Sleep -Milliseconds 250
+        } while ([DateTime]::UtcNow -lt $deadline)
+        if ($installed) { throw "MSIX-PROBE-UNINSTALL-TIMEOUT: $mode" }
+        if ($mode -eq 'preserve' -and -not (Test-Path -LiteralPath $marker)) { throw 'MSIX-PROBE-OPTIONAL-RETENTION' }
+        if ($mode -eq 'delete' -and (Test-Path -LiteralPath $probeData)) { throw 'MSIX-PROBE-OPTIONAL-CLEANUP' }
+        Write-Output "MSIX optional uninstall passed: $mode"
+    }
     Write-Output "MSIX platform probe passed: $output"
 } finally {
     Get-AppxPackage -Name $packageName | Remove-AppxPackage

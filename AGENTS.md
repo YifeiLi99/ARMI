@@ -44,7 +44,7 @@
 
 - Windows 安装版使用 MSIX：Windows 管理只读程序目录，永久数据统一放在 Known Folder API 定位的 `%LOCALAPPDATA%\ARMI`。环境使用 `environments/active/`，独立管理与更新记录使用 `control/`，缓存和临时文件使用 `cache/`、`tmp/`；不可写时明确失败，不回退到其他位置。目录虚拟化排除确保数据实际落盘并在卸载后保留。验收包必须使用独立包身份与 `%LOCALAPPDATA%\ARMI.Acceptance`，不得触及正式或旧 Inno 安装与数据。
 
-- 稳定包身份为 `YifeiLi99.ARMI`，发布配置集中在 `configs/windows-release.yaml`；正式签名材料不进入仓库。安装、程序替换与卸载交给 Windows，不维护卸载 EXE、程序切换日志或文件回滚。更新只接受可信签名、相同包身份、递增版本及相同数据库合同；程序部署成功与 Runtime 就绪分别核验。已安装 Admin/Creator 配置绑定稳定包身份，不保存随版本变化的程序路径；源码和隔离测试保留明确资源绑定。
+- 稳定包身份为 `YifeiLi99.ARMI`，发布配置集中在 `configs/windows-release.yaml`；正式签名材料不进入仓库。安装、程序替换与卸载交给 Windows，不维护卸载 EXE、程序切换日志或文件回滚。Windows 直接卸载保留数据；ARMI 设置和 setup 机器接口的卸载默认保留，只有明确选择永久清理才删除当前包的数据目录，必须先经 Admin 正常停机，失败不继续。更新只接受可信签名、相同包身份、递增版本及相同数据库合同；程序部署成功与 Runtime 就绪分别核验。已安装 Admin/Creator 配置绑定稳定包身份，不保存随版本变化的程序路径；源码和隔离测试保留明确资源绑定。
 - PostgreSQL 是唯一权威关系数据库；开发、测试和安装版使用同一受管原生 PostgreSQL 与扩展制品，由 `armi-local-control` 管理独立目录和端口，不依赖 Docker。精确版本查配置、[工具链 manifest](tools/toolchain-manifest.json) 和 packaged contract，不在此维护第二份版本快照。
 - [Schema 资源](packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema/) 只保留可重做的唯一 Alembic `0000`。结构变化直接更新 baseline SQL、`0000` 资源列表、identity、owner registry、ACL 和消费者；不增加历史 revision、autogenerate、downgrade 或旧库迁移兼容。目标库显式重装，修改 schema 的授权不包含删除目标库。
 - Admin `maintenance` 的 `database_install` 只接受无用户 relation 且无 `armi` namespace 的库：namespace 独立短事务建立，`0000` 原子安装其余内容。失败可留下空 namespace，不能留下业务表或前移 revision。普通启动只验证版本、摘要和精确 ACL，不自动安装/迁移或用超级用户掩盖漂移。

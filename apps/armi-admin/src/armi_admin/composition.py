@@ -193,10 +193,10 @@ def bootstrap_setup(paths: SetupPaths) -> SetupApplication:
     from .application.deployment import installed_root, registered_environments
     from .application.updates import UpdateApplication
 
-    def stop_environments() -> None:
+    def stop_environments(operation: str = "UPDATE") -> None:
         root = installed_root(paths.installation_root)
         if root is None:
-            raise SetupError("UPDATE-MSIX-REQUIRED")
+            raise SetupError(operation + "-MSIX-REQUIRED")
         for environment in registered_environments(root):
             service = bootstrap_setup(
                 SetupPaths(
@@ -208,10 +208,16 @@ def bootstrap_setup(paths: SetupPaths) -> SetupApplication:
                 "environment_stop", {"idempotency_key": str(uuid7())}
             )
             if result.get("status") != "succeeded":
-                raise SetupError("UPDATE-ENVIRONMENT-STOP-UNCONFIRMED")
+                raise SetupError(operation + "-ENVIRONMENT-STOP-UNCONFIRMED")
+
+    def uninstall(delete_data: bool) -> dict[str, Any]:
+        from armi_local_control.windows_package import uninstall as remove_package
+
+        stop_environments("UNINSTALL")
+        return remove_package(delete_data=delete_data)
 
     return SetupApplication(
-        paths, invoke, startup, UpdateApplication(stop_environments).execute
+        paths, invoke, startup, UpdateApplication(stop_environments).execute, uninstall
     )
 
 

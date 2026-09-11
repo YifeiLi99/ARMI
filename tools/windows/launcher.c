@@ -52,14 +52,23 @@ static int launch(int argc, wchar_t **argv) {
     UINT32 capacity = 32768;
     LONG packaged = GetCurrentPackagePath(&capacity, root);
     if (packaged != ERROR_SUCCESS && packaged != APPMODEL_ERROR_NO_PACKAGE) return 2;
-    if (argc == 3 && (!_wcsicmp(argv[1], L"--environment-host") || !_wcsicmp(argv[1], L"--apply-update"))) {
+    int uninstall = argc == 3 && !_wcsicmp(argv[1], L"--uninstall-package");
+    if (packaged == ERROR_SUCCESS && !uninstall) {
+        wchar_t family[PACKAGE_FAMILY_NAME_MAX_LENGTH + 1], eventName[256];
+        UINT32 familyLength = ARRAYSIZE(family);
+        if (GetCurrentPackageFamilyName(&familyLength, family) != ERROR_SUCCESS) return 2;
+        if (swprintf_s(eventName, ARRAYSIZE(eventName), L"Local\\%s.uninstalling", family) < 0) return 2;
+        HANDLE removing = OpenEventW(SYNCHRONIZE, FALSE, eventName);
+        if (removing) { CloseHandle(removing); return 2; }
+    }
+    if (argc == 3 && (uninstall || !_wcsicmp(argv[1], L"--environment-host") || !_wcsicmp(argv[1], L"--apply-update"))) {
         if (packaged != ERROR_SUCCESS) return 2;
         wchar_t libraryPath[32768];
         if (swprintf_s(libraryPath, 32768, L"%s\\armi_windows.dll", root) < 0) return 2;
         HMODULE library = LoadLibraryExW(libraryPath, NULL, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
         if (!library) return 2;
         typedef HRESULT (__stdcall *Host)(const wchar_t *);
-        Host host = (Host)GetProcAddress(library, !_wcsicmp(argv[1], L"--environment-host") ? "armi_environment_host" : "armi_restart_update");
+        Host host = (Host)GetProcAddress(library, uninstall ? "armi_uninstall_package" : !_wcsicmp(argv[1], L"--environment-host") ? "armi_environment_host" : "armi_restart_update");
         HRESULT result = host ? host(argv[2]) : E_FAIL;
         FreeLibrary(library);
         if (result != S_FALSE || _wcsicmp(argv[1], L"--apply-update")) return SUCCEEDED(result) ? 0 : 2;

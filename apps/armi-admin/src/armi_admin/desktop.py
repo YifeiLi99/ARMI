@@ -77,6 +77,7 @@ class Desktop:
         self._devices_tab()
         self._startup_tab()
         self._update_tab()
+        self._uninstall_tab()
         self._optional_tab()
         controls = ttk.Frame(root)
         controls.pack(fill="x", padx=20, pady=(0, 18))
@@ -135,6 +136,69 @@ class Desktop:
             text="更新由 Windows 部署；数据库合同不兼容时不会自动更新。准备完成后，下次启动生效，也可重启并更新。",
             wraplength=760,
         ).pack(anchor="w", pady=16)
+
+    def _uninstall_tab(self) -> None:
+        frame = ttk.Frame(self.tabs, padding=20)
+        self.tabs.add(frame, text="卸载")
+        ttk.Label(
+            frame,
+            text="默认只卸载程序，保留数据库、身份、生活记录、配置和凭据。\n"
+            "需要同时清理数据时，请在卸载窗口中明确勾选。\n"
+            "直接从 Windows 设置卸载始终保留数据。",
+            wraplength=760,
+        ).pack(anchor="w", pady=(0, 20))
+        ttk.Button(frame, text="卸载 ARMI…", command=self._uninstall_dialog).pack(
+            anchor="w"
+        )
+
+    def _uninstall_dialog(self) -> None:
+        if self.busy:
+            return
+        window = tk.Toplevel(self.root)
+        window.title("卸载 ARMI")
+        window.transient(self.root)
+        window.resizable(False, False)
+        frame = ttk.Frame(window, padding=24)
+        frame.pack(fill="both", expand=True)
+        data = program_installation_root(self.installation)
+        ttk.Label(
+            frame,
+            text=f"将停止本机此安装版的全部环境并卸载程序。\n数据目录：{data}",
+            wraplength=520,
+        ).pack(anchor="w", pady=(0, 16))
+        delete_data = tk.BooleanVar(master=window, value=False)
+        ttk.Checkbutton(
+            frame,
+            text="同时永久删除全部数据（数据库、身份、生活记录、配置和凭据）",
+            variable=delete_data,
+        ).pack(anchor="w")
+        ttk.Label(
+            frame,
+            text="未勾选时保留数据，重装兼容版本后可接续。\n"
+            "勾选后无法恢复；数据清理与 Windows 卸载不是原子操作，失败时可能已清理部分数据。",
+            wraplength=520,
+        ).pack(anchor="w", pady=16)
+
+        def submit() -> None:
+            selected = delete_data.get()
+            window.destroy()
+            self.request(
+                SetupRequest(action="uninstall", delete_data=selected),
+                self._uninstall_result,
+            )
+
+        buttons = ttk.Frame(frame)
+        buttons.pack(anchor="e")
+        cancel = ttk.Button(buttons, text="取消", command=window.destroy)
+        cancel.pack(side="left", padx=8)
+        ttk.Button(buttons, text="确认卸载", command=submit).pack(side="left")
+        window.bind("<Escape>", lambda _event: window.destroy())
+        window.grab_set()
+        cancel.focus_set()
+
+    def _uninstall_result(self, result: dict[str, Any]) -> None:
+        if result.get("status") == "uninstall_requested":
+            self._close()
 
     def _update_request(
         self, action: UpdateAction, enabled: bool | None = None

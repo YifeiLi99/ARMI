@@ -58,8 +58,10 @@ class SetupRequest(BaseModel):
         "login_startup",
         "admin",
         "update",
+        "uninstall",
     ]
     enabled: bool | None = None
+    delete_data: bool = False
     update: SetupUpdateRequest | None = None
     credential: SetupCredentialRequest | None = None
     personality_anchor: SetupAnchor | None = None
@@ -111,6 +113,8 @@ def dispatch(application: SetupApplication, request: SetupRequest) -> dict[str, 
             if request.update is None:
                 raise SetupError("UPDATE-REQUEST-REQUIRED")
             return application.update(request.update.action, request.update.enabled)
+        if request.action == "uninstall":
+            return application.uninstall(delete_data=request.delete_data)
         if request.operation is None:
             raise SetupError("SETUP-ADMIN-OPERATION-REQUIRED")
         return application.invoke(request.operation, request.arguments)

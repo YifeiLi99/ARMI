@@ -2,6 +2,7 @@
 #define UNICODE
 #define _UNICODE
 #include <windows.h>
+#include <appmodel.h>
 #include <shlobj.h>
 #include <appxpackaging.h>
 #include <shlwapi.h>
@@ -134,15 +135,21 @@ void attach_child(JsonObject const& request) {
     if (ResumeThread(thread.value) != 1) throw hresult_invalid_argument(L"MSIX-HOST-CHILD-SUSPEND-STATE");
 }
 
-void require_idle_environments() {
+std::filesystem::path package_data_root() {
     auto name = std::wstring(Package::Current().Id().Name());
-    if (name != L"YifeiLi99.ARMI" && name != L"YifeiLi99.ARMI.Acceptance") {
-        throw hresult_invalid_argument(L"MSIX-UPDATE-PACKAGE-NAME");
+    if (name != L"YifeiLi99.ARMI" && name != L"YifeiLi99.ARMI.Acceptance" &&
+        name != L"YifeiLi99.ARMI.MsixAcceptance") {
+        throw hresult_invalid_argument(L"MSIX-PACKAGE-NAME");
     }
     PWSTR raw = nullptr;
     check_hresult(SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, &raw));
     auto root = std::filesystem::path(raw) / name.substr(10);
     CoTaskMemFree(raw);
+    return root;
+}
+
+void require_idle_environments() {
+    auto root = package_data_root();
     auto index = root / L"control/environments.yaml";
     if (!std::filesystem::exists(index)) return;
     auto registry = read_json(index);
@@ -164,6 +171,57 @@ void require_idle_environments() {
         check_bool(QueryInformationJobObject(job.value, JobObjectBasicAccountingInformation, &accounting, sizeof(accounting), nullptr));
         if (accounting.ActiveProcesses) throw hresult_error(HRESULT_FROM_WIN32(ERROR_BUSY));
     }
+}
+
+void require_plain_data_tree(std::filesystem::path const& root) {
+    // Reject junctions/symlinks before any deletion. Neither the root nor its
+    // ancestors may redirect cleanup into another installation or user folder.
+    for (auto path = root; !path.empty(); path = path.parent_path()) {
+        DWORD attributes = GetFileAttributesW(path.c_str());
+        if (attributes == INVALID_FILE_ATTRIBUTES) {
+            if (GetLastError() != ERROR_FILE_NOT_FOUND && GetLastError() != ERROR_PATH_NOT_FOUND) throw_last_error();
+        } else if (attributes & FILE_ATTRIBUTE_REPARSE_POINT) {
+            throw hresult_invalid_argument(L"MSIX-UNINSTALL-REPARSE-POINT");
+        }
+        if (path == path.parent_path()) break;
+    }
+    if (!std::filesystem::exists(root)) return;
+    for (auto const& entry : std::filesystem::recursive_directory_iterator(root)) {
+        DWORD attributes = GetFileAttributesW(entry.path().c_str());
+        if (attributes == INVALID_FILE_ATTRIBUTES) throw_last_error();
+        if (attributes & FILE_ATTRIBUTE_REPARSE_POINT) throw hresult_invalid_argument(L"MSIX-UNINSTALL-REPARSE-POINT");
+    }
+}
+
+void close_package_clients() {
+    // Admin has already stopped life. Close only this session's remaining
+    // package clients, so GUI locks and persistent stdio servers cannot retain
+    // data handles during removal. The deployment gate prevents new work.
+    auto family = Package::Current().Id().FamilyName();
+    DWORD session = 0;
+    check_bool(ProcessIdToSessionId(GetCurrentProcessId(), &session));
+    for (int pass = 0; pass < 8; ++pass) {
+        bool found = false;
+        Handle snapshot(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
+        PROCESSENTRY32W entry{sizeof(entry)};
+        if (!Process32FirstW(snapshot.value, &entry)) throw_last_error();
+        do {
+            DWORD otherSession = 0;
+            if (entry.th32ProcessID == GetCurrentProcessId() ||
+                !ProcessIdToSessionId(entry.th32ProcessID, &otherSession) || otherSession != session) continue;
+            HANDLE raw = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE | SYNCHRONIZE, FALSE, entry.th32ProcessID);
+            if (!raw) continue; // Unrelated protected/system processes are not ours.
+            Handle process(raw);
+            wchar_t name[PACKAGE_FAMILY_NAME_MAX_LENGTH + 1];
+            UINT32 length = ARRAYSIZE(name);
+            if (GetPackageFamilyName(process.value, &length, name) != ERROR_SUCCESS || family != name) continue;
+            found = true;
+            if (!TerminateProcess(process.value, 0) && WaitForSingleObject(process.value, 0) != WAIT_OBJECT_0) throw_last_error();
+            if (WaitForSingleObject(process.value, 10000) != WAIT_OBJECT_0) throw hresult_error(HRESULT_FROM_WIN32(ERROR_BUSY));
+        } while (Process32NextW(snapshot.value, &entry));
+        if (!found) return;
+    }
+    throw hresult_error(HRESULT_FROM_WIN32(ERROR_BUSY));
 }
 
 LRESULT CALLBACK host_window(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
@@ -285,7 +343,8 @@ JsonObject candidate(std::wstring const& path, bool allowCurrent = false) {
 
 // 0 identity, 1 inspect trusted candidate, 2 defer own update,
 // 3 startup status, 4 request startup, 5 disable startup,
-// 6 activate environment host, 7 attach suspended packaged child, 8 stop idle host.
+// 6 activate environment host, 7 attach suspended packaged child, 8 stop idle host,
+// 9 restart update, 10 request own uninstall (explicit delete or preserve).
 extern "C" __declspec(dllexport) HRESULT __stdcall armi_windows_call(
     UINT32 operation, wchar_t const* argument, wchar_t* output, UINT32 capacity) noexcept {
     try {
@@ -370,6 +429,21 @@ extern "C" __declspec(dllexport) HRESULT __stdcall armi_windows_call(
             text(result, L"status", L"deployment_requested");
             break;
         }
+        case 10: {
+            if (!argument || (std::wstring_view(argument) != L"delete" && std::wstring_view(argument) != L"preserve")) return E_INVALIDARG;
+            require_idle_environments();
+            if (std::wstring_view(argument) == L"delete") require_plain_data_tree(package_data_root());
+            com_ptr<IApplicationActivationManager> activation;
+            check_hresult(CoCreateInstance(CLSID_ApplicationActivationManager, nullptr, CLSCTX_LOCAL_SERVER,
+                __uuidof(IApplicationActivationManager), activation.put_void()));
+            auto app = std::wstring(Package::Current().Id().FamilyName()) + L"!ARMI";
+            auto arguments = L"--uninstall-package " + std::wstring(argument) + L":" + std::to_wstring(GetCurrentProcessId());
+            DWORD pid;
+            check_hresult(activation->ActivateApplication(app.c_str(), arguments.c_str(), AO_NOERRORUI, &pid));
+            text(result, L"status", L"uninstall_requested");
+            result.Insert(L"delete_data", JsonValue::CreateBooleanValue(std::wstring_view(argument) == L"delete"));
+            break;
+        }
         default:
             return E_INVALIDARG;
         }
@@ -379,6 +453,52 @@ extern "C" __declspec(dllexport) HRESULT __stdcall armi_windows_call(
         return S_OK;
     } catch (...) {
         return to_hresult();
+    }
+}
+
+extern "C" __declspec(dllexport) HRESULT __stdcall armi_uninstall_package(wchar_t const* argument) noexcept {
+    bool cleaning = false;
+    try {
+        Apartment apartment;
+        if (!argument) return E_INVALIDARG;
+        std::wstring request(argument);
+        auto separator = request.find(L':');
+        auto mode = request.substr(0, separator);
+        if (separator == std::wstring::npos || (mode != L"delete" && mode != L"preserve")) return E_INVALIDARG;
+        auto caller = request.substr(separator + 1);
+        if (caller.empty() || caller.find_first_not_of(L"0123456789") != std::wstring::npos) return E_INVALIDARG;
+        auto pid = std::stoul(caller);
+        if (!pid || pid == GetCurrentProcessId()) return E_INVALIDARG;
+        // Let the CLI emit its receipt, or the desktop release its lock and exit.
+        // A persistent MCP client is closed with the other package clients below.
+        HANDLE raw = OpenProcess(SYNCHRONIZE, FALSE, pid);
+        if (raw) { Handle process(raw); WaitForSingleObject(process.value, 10000); }
+        DeploymentGate gate;
+        auto eventName = L"Local\\" + std::wstring(Package::Current().Id().FamilyName()) + L".uninstalling";
+        Handle removing(CreateEventW(nullptr, TRUE, TRUE, eventName.c_str()));
+        if (GetLastError() == ERROR_ALREADY_EXISTS) return HRESULT_FROM_WIN32(ERROR_BUSY);
+        require_idle_environments();
+        auto root = package_data_root();
+        if (mode == L"delete") require_plain_data_tree(root);
+        close_package_clients();
+        if (mode == L"delete") {
+            require_plain_data_tree(root);
+            cleaning = true;
+            std::filesystem::remove_all(root);
+        }
+        // Windows owns package registration and files. This process may be
+        // terminated by deployment; requested is never reported as completed.
+        using namespace Windows::Management::Deployment;
+        auto result = PackageManager().RemovePackageAsync(Package::Current().Id().FullName()).get();
+        check_hresult(result.ExtendedErrorCode());
+        return S_OK;
+    } catch (...) {
+        auto result = to_hresult();
+        wchar_t message[512];
+        swprintf_s(message, L"ARMI uninstall failed (0x%08X). %s", static_cast<unsigned int>(result),
+            cleaning ? L"Data cleanup may have completed partially or fully. The package may still be installed." : L"Data cleanup was not started. The package may still be installed.");
+        MessageBoxW(nullptr, message, L"ARMI", MB_OK | MB_ICONERROR);
+        return result;
     }
 }
 

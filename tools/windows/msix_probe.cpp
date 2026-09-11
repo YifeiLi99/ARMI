@@ -32,12 +32,13 @@ int wmain(int argc, wchar_t** argv) {
         winrt::init_apartment();
         auto package = winrt::Windows::ApplicationModel::Package::Current();
         auto executable = std::filesystem::path(package.InstalledPath().c_str()) / L"ARMI.exe";
-        if (argc == 3 && std::wstring_view(argv[1]) == L"--environment-host") {
+        if (argc == 3 && (std::wstring_view(argv[1]) == L"--environment-host" || std::wstring_view(argv[1]) == L"--uninstall-package")) {
             auto libraryPath = executable.parent_path() / L"armi_windows.dll";
             HMODULE library = LoadLibraryW(libraryPath.c_str());
             if (!library) throw winrt::hresult_error(HRESULT_FROM_WIN32(GetLastError()));
             using Host = HRESULT(__stdcall*)(wchar_t const*);
-            auto host = reinterpret_cast<Host>(GetProcAddress(library, "armi_environment_host"));
+            auto host = reinterpret_cast<Host>(GetProcAddress(library,
+                std::wstring_view(argv[1]) == L"--uninstall-package" ? "armi_uninstall_package" : "armi_environment_host"));
             if (!host) return 2;
             HRESULT result = host(argv[2]);
             FreeLibrary(library);
