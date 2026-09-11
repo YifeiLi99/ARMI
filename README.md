@@ -160,6 +160,8 @@ ARMI cli interaction operation wait --result-ref <返回的引用> --timeout-sec
 
 CLI 默认输出 JSON，MCP 使用相同请求合同与应用逻辑。接纳不是完成；等待超时或断线返回继续查询的引用，不重新发送输入。用 `ARMI cli interaction schema` 和 `ARMI cli admin schema` 离线读取当前操作参数。
 
+开发代理操作 ARMI 默认使用正式 CLI/MCP，包括查询、配置、启停、诊断和结果核验；构建及安装更新使用项目脚本和 Windows 包管理接口。只有用户针对当前操作明确要求 Computer Use（电脑操控）时才使用桌面或浏览器界面操控；“打开”“看看”“检查”及修改界面本身不构成该要求。打开窗口可调用正式入口，机器接口缺失时说明缺口，不自行切换界面操作。视觉验收遵守同一边界，未做的视觉检查如实说明。
+
 `ARMI cli interaction artifact read --effect-id <effect-id> --artifact-kind patch --output <文件路径>` 会逐块读取并核验完整摘要，默认不覆盖文件。MCP 的 `artifact_read` 使用 `offset` / `length`，返回下一块位置和同一制品的摘要。
 
 重置、主体内容校正和相关数据删除先取得具体预览及 `authorization_request`，再由独立 Creator 授权绑定签发。相关数据删除使用 `ARMI cli admin data-deletion-preview` 和 `data-deletion-apply`，普通交互请求不能绕过批准：

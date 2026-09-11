@@ -7,6 +7,7 @@
 以用户目标为范围，完成实现、必要验证和收尾。允许自主比较方案、做可逆实验、调整妨碍目标的结构并补齐必要依赖，不需要用户逐行指定。历史路线图、研究建议和旧阶段清单不构成新任务授权；可以提出更好的方向，但不擅自改变产品目标或外部影响。
 
 - **Agent/LLM 优先**：交互与管理链路首先服务 Agent/LLM，优先完整、直接、高效、可自动化的机器接口。人类界面是第二优先级，不能要求机器通过页面、按钮、人工搬运结果或逐步确认才能完成已有能力；人类界面适配同一用例，不反向决定机器流程。
+- **ARMI 操作默认走 CLI/MCP**：开发代理操作 ARMI 时，查询、配置、启停、诊断和结果核验默认使用正式 CLI/MCP；构建、安装更新使用项目脚本及 Windows 包管理接口。只有用户针对当前操作明确要求 Computer Use（电脑操控）时，才使用桌面或浏览器界面操控。要求“打开”“看看”“检查”或修改界面，不自动授权 Computer Use；打开窗口可调用正式入口。机器接口缺失时先说明缺口，不自行改走界面。视觉验收也遵守此边界：未明确要求 Computer Use 时使用已有自动化检查，并如实说明尚未进行的视觉验收。
 - **功能完整，流程简单**：功能在设置中开启即代表在配置范围内持续允许使用，由 ARMI 自主决定何时行动；范围内直接执行，不再叠加申请、审核、批准或一次性许可消费。普通回复作为基础能力直接可用。缺少必要信息或超出配置范围时明确返回原因与所缺信息，不自动建立审批工作流。
 - **按实际职责瘦身**：删除或合并没有独立作用的中间状态、重复记录、重复校验、纯转发层和人工步骤，不以统一流程为理由让简单动作套用完整审批机制。校验保留在负责的边界；跨异步间隔确实可能变化的事实才重验。真实性、隐私范围、原子提交、幂等和效果核验仍须完整，不能靠减少功能或隐藏失败实现简化。
 - **普通对话范围内直接执行，中断即结束**：Creator 文本、实时语音、QQ 私聊及共用回复链的主动表达，不生成回复申请、grant、policy 或业务有效期。Subject Commit 同事务登记回复意图及 Effect/outbox，发送边界核验渠道、接收目标和数据权利。停机、崩溃或 Runtime 更换后，未完成的这一轮不续算、不补答、不补发；保留已提交事实和已发生的发送结果，未发送取消，结果不确定保留 unknown/部分完成且不阻塞新对话。Codex 委托也按此原则执行：`codex.enabled` 默认关闭，开启且本地执行器就绪后，由 ARMI 决定是否委托，Subject Commit 同事务登记委托意图和 Effect/outbox，无逐次申请或许可。中断覆盖原任务及结果派生的认知和回复；未启动取消，已启动且结果不确定保留 unknown，终止子进程并清理临时工作区，不重跑或补结果。管理端授权保持独立合同。
@@ -63,7 +64,7 @@
 - QQ 界面必须区分组件已安装、账号已登录和连接已就绪，并说明下一步操作；下载进度不能充当在线状态。已有绑定的登录恢复不重新安装、重做配置或循环重启；平台要求重新扫码时明确提示，不承诺登录态永久有效。
 
 - 未经用户针对本次操作明确授权，不复制、打包或导出数据库、Artifact Store、环境配置或 secret 作为离线恢复制品。项目不提供此恢复功能；重装与删除目标数据需明确授权，不能先擅自备份再操作。
-- 对外统一使用 `ARMI.exe`：无参数打开界面，`settings` 打开设置，`cli` / `mcp` 下通过 `interaction`、`admin`、`setup` 明确选择能力。MSIX 注册开始菜单和稳定执行别名，卸载使用 Windows 应用管理；不为内部模块生成独立启动 EXE。私有环境宿主由系统激活，使用禁止脱离的 Job 管理所属长期进程，CLI/MCP 结束不误停环境；生命周期操作仍先经 Admin 授权。Runtime、Admin 与 Creator 签发保持独立授权。源码开发使用 `python -m armi_app …`。输入使用 `message send` 正式 intake 与稳定 idempotency key；代理来源由认证入口写入，不直写数据库、不伪造浏览器 session。Web 保留，界面操作与视觉验收才使用浏览器驱动。
+- 对外统一使用 `ARMI.exe`：无参数打开界面，`settings` 打开设置，`cli` / `mcp` 下通过 `interaction`、`admin`、`setup` 明确选择能力。MSIX 注册开始菜单和稳定执行别名，卸载使用 Windows 应用管理；不为内部模块生成独立启动 EXE。私有环境宿主由系统激活，使用禁止脱离的 Job 管理所属长期进程，CLI/MCP 结束不误停环境；生命周期操作仍先经 Admin 授权。Runtime、Admin 与 Creator 签发保持独立授权。源码开发使用 `python -m armi_app …`。输入使用 `message send` 正式 intake 与稳定 idempotency key；代理来源由认证入口写入，不直写数据库、不伪造浏览器 session。Web 保留；界面操控与视觉验收遵守本文件的 Computer Use 明确要求边界。
   本地附件先经 `upload import` 或分块上传得到受治理引用，再显式接纳；上传完成不触发认知。`runtime_entrypoint` 是私有启动 worker，不承担业务或管理命令。私有主体快照另需 `subject_snapshot.private` 授权范围。
 - 交互用例和操作合同位于 Runtime `application/`，HTTP、CLI、MCP 只适配传输，不经 HTTP handler 转接机器操作。重置与主体内容校正核验独立 Creator 绑定签发的一次性授权；普通代理不能签发或通过配置修改信任根。配置消费者仅在验证并实际采用后登记当前版本；读取文件或保存配置不等于生效。中断管理调用通过 `invocation reconcile` 核验，不以当前状态猜测历史成功或重放原效果。
 - ARMI→Codex runner 与外部 Agent→ARMI MCP 隔离，不互相发现或继承 credential。Admin 支持显式绑定的 `active`、`development`、`system_test`、`acceptance`，采用独立 config、role、按需 pool 和 owner Admin ports；配置不能修改自己的管理授权。不暴露任意 SQL/Shell/Python。正式环境禁止故障注入；危险操作及主体内容校正需要具体授权。
@@ -84,7 +85,7 @@
 | 工具链与质量检查 | Windows x86_64 / PowerShell 7，从仓库根运行。首次准备：`./tools/bootstrap_toolchain.ps1 -ApprovedOfficialDirect`，须有联网安装授权。定向：`./tools/quality.ps1 -Gate <ID>`；架构用 `ARC-SURFACE`，仓库卫生用 `SEC-REPOSITORY`。完整 gate 与依赖见 [tools/quality.py](tools/quality.py)。 |
 | 扩大验证 | `./tools/quality.ps1` 为 Fast；`-Release` 增加构建与 wheel 隔离安装；`-System` 再增加隔离 PostgreSQL、固定 Chromium 与 Creator 系统旅程，不调用真实模型、Web、Codex、QQ 或设备。`-Gate`、`-Release`、`-System` 互斥；定向测试沿用脚本环境与 [pytest 配置](pyproject.toml)。 |
 | 数据库变更 | 用获授权的真实 PostgreSQL 验证空库、唯一 `0000` 原子安装、head/identity/digests/ACL、重复 install 合同、注入失败后的业务表回滚与 revision 不前移，并核对残留空 namespace 和受影响 owner 主路径。 |
-| Creator Web | `./tools/start_creator_web_dev.ps1 -EnvironmentRoot <环境根> -OpenBrowser` 连接已有 ready Runtime，Vite 固定 `127.0.0.1:5173`。视觉变更用真实页面验证受影响布局与交互，不以 mock 代替正式验收。 |
+| Creator Web | `./tools/start_creator_web_dev.ps1 -EnvironmentRoot <环境根> -OpenBrowser` 连接已有 ready Runtime，Vite 固定 `127.0.0.1:5173`。用户明确要求 Computer Use 时，用真实页面验收受影响布局与交互，不以 mock 代替；否则使用已有自动化检查并说明视觉验收边界。 |
 | 目标环境与 live | 安装、启动、重置按 [README.md](README.md) 和[运行手册](docs/05-运行与验证/01-安装、启动与维护.md)。声称真实 Creator 闭环可用，须在获授权后运行 [verify_live_creator_roundtrip.py](tools/verify_live_creator_roundtrip.py)，证明 cognition、Subject Commit、reply effect 核验、outbox 交付及非空回复 artifact。 |
 
 文档沿用 [docs 索引](docs/README.md) 的目录职责：README 提供产品与快速入口，DESIGN 提供可提交实现总览，`docs/` 保存设计正文、运行证据和有来源的研究。只同步受影响内容，不新增路线图、阶段清单、临时审计或重复机器合同。Schema 变化从新 SQL 反算并同步 `docs/03-数据设计/` 字段快照。
