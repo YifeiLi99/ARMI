@@ -376,22 +376,28 @@ class Desktop:
         self.credential_actions = actions
         actions.pack(anchor="w", pady=12)
         for label, action in (
-            ("保存", "put"),
+            ("保存并验证", "put_and_verify"),
+            ("验证已保存的 Key", "verify"),
             ("移除", "remove"),
             ("检查是否已保存", "status"),
         ):
-            ttk.Button(
+            button = ttk.Button(
                 actions,
                 text=label,
                 command=lambda action=action: self.credential(action),
-            ).pack(side="left", padx=4)
+            )
+            button.pack(side="left", padx=4)
+            if action == "put_and_verify":
+                self.credential_save_button = button
+            elif action == "verify":
+                self.credential_verify_button = button
         self.credential_status = tk.StringVar(value="请选择凭据并检查保存状态。")
         ttk.Label(frame, textvariable=self.credential_status, wraplength=760).pack(
             anchor="w", pady=10
         )
         ttk.Label(
             frame,
-            text="QQ 通信凭据由“QQ 接入”自动生成，无需在这里填写。\n凭据只保存在本环境的受限文件中，不回显已保存内容。",
+            text="“保存并验证”和“验证已保存的 Key”会实际调用服务，产生少量用量；只发送固定测试内容，不发送生活数据。\nQQ 通信凭据由“QQ 接入”自动生成。凭据只保存在本环境的受限文件中，不回显已保存内容。",
             wraplength=760,
         ).pack(anchor="w", pady=10)
         self._credential_selected()
@@ -401,6 +407,13 @@ class Desktop:
         self.secret.pack_forget()
         self.codex_import.pack_forget()
         name = _CREDENTIAL_NAMES[self.credential_name.get()]
+        provider_key = name in {"model.ark_api_key", "speech.volc_credentials"}
+        self.credential_save_button.configure(
+            text="保存并验证" if provider_key else "导入并保存"
+        )
+        self.credential_verify_button.configure(
+            state="normal" if provider_key else "disabled"
+        )
         if name == "model.ark_api_key":
             self.credential_help.set(
                 "填写火山方舟控制台创建的 API Key，用于模型调用及已启用的网页搜索。\n保存后后续请求读取新 Key，无需为更换 Key 重启；保存不代表服务商验证通过。"
@@ -861,7 +874,7 @@ class Desktop:
             return
         name = _CREDENTIAL_NAMES[self.credential_name.get()]
         value = None
-        if action == "put":
+        if action in {"put", "put_and_verify"}:
             if name == "codex.auth_json":
                 self._import_codex_credential()
                 return
@@ -878,6 +891,10 @@ class Desktop:
         payload = {"name": name, "action": action}
         if value is not None:
             payload["value"] = value
+        if action in {"put_and_verify", "verify"}:
+            self.credential_status.set(
+                "正在实际验证服务，请稍候。测试会产生少量服务商用量；不发送生活数据。"
+            )
         self.request(
             SetupRequest.model_validate(
                 {"action": "credential", "credential": payload}
@@ -897,6 +914,37 @@ class Desktop:
             else "操作失败：" + str(result.get("error_code", "未知原因"))
         )
         self.credential_status.set(text)
+        verification = result.get("verification")
+        if isinstance(verification, dict):
+            verification = cast(dict[str, Any], verification)
+            labels = {
+                "model": "普通模型",
+                "voice_model": "语音专用模型",
+                "tts": "语音合成 TTS",
+                "asr": "语音识别 ASR",
+            }
+            lines = [
+                "已保存，本次实际验证通过。"
+                if verification.get("status") == "passed"
+                else "已保存，但验证未通过。"
+            ]
+            for check, item in verification.get("checks", {}).items():
+                state = {
+                    "passed": "通过",
+                    "failed": "失败",
+                    "not_tested": "尚未验证",
+                }.get(item.get("status"), "未知")
+                lines.append(
+                    f"{labels.get(check, check)}：{state}。{item.get('message', '')} {item.get('error_code', '')}".strip()
+                )
+            if verification.get("error_code"):
+                lines.append(
+                    str(verification["error_code"])
+                    + "："
+                    + str(verification.get("message", ""))
+                )
+            text = "\n".join(lines)
+            self.credential_status.set(text)
         self.status.set(text)
 
     def _target_changed(self, _event: object = None) -> None:

@@ -1235,14 +1235,15 @@ async def _serve(
                             ),
                         )
                         await model_pipeline.open()
-                except ModelViolation:
+                except ModelViolation as error:
                     model_pipeline = None
                     lifecycle.add_degradation("RUNTIME_MODEL_UNAVAILABLE")
+                    lifecycle.add_degradation(error.code)
                     diagnostic.emit(
                         "runtime.model.unavailable",
                         level=logging.WARNING,
                         result_code="MODEL_UNAVAILABLE",
-                        reason_codes=("RUNTIME_MODEL_UNAVAILABLE",),
+                        reason_codes=("RUNTIME_MODEL_UNAVAILABLE", error.code),
                     )
                 if config.web.enabled:
                     try:

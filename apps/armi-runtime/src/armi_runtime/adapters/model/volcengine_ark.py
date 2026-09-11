@@ -273,8 +273,17 @@ class VolcengineArkModelAdapter(ModelPort):
     ) -> None:
         if (
             binding.provider != "volcengine_ark"
-            or binding.model_id != _EVOLVING_MODEL_ID
-            or binding.version_policy != "provider_evolving_alias"
+            or not (
+                (
+                    binding.model_id == _EVOLVING_MODEL_ID
+                    and binding.version_policy == "provider_evolving_alias"
+                )
+                or (
+                    binding.model_id == "doubao-seed-character-260628"
+                    and binding.version_policy == "fixed_provider_model"
+                    and binding.profile == "creator_voice_act"
+                )
+            )
             or not binding.response_model_identity_required
         ):
             raise ModelViolation("MODEL-BINDING")
@@ -387,6 +396,10 @@ class VolcengineArkModelAdapter(ModelPort):
             or not provider_request_id
             or type(model_id) is not str
             or _PROVIDER_MODEL_ID.fullmatch(model_id) is None
+            or (
+                self._binding.version_policy == "fixed_provider_model"
+                and model_id != self._binding.model_id
+            )
             or type(output_text) is not str
             or not output_text
             or type(input_tokens) is not int

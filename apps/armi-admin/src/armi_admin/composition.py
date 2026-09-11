@@ -216,8 +216,52 @@ def bootstrap_setup(paths: SetupPaths) -> SetupApplication:
         stop_environments("UNINSTALL")
         return remove_package(delete_data=delete_data)
 
+    def verify_credential(name: str, secret: bytes) -> dict[str, Any]:
+        import os
+        import subprocess
+        import sys
+        from typing import cast
+
+        try:
+            completed = subprocess.run(
+                [sys.executable, "-m", "armi_runtime.credential_probe"],
+                input=json.dumps(
+                    {
+                        "name": name,
+                        "key": secret.decode("utf-8"),
+                        "root": str(paths.environment_root),
+                    }
+                ).encode("utf-8"),
+                capture_output=True,
+                timeout=90,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            )
+            if completed.returncode or len(completed.stdout) > 32768:
+                raise ValueError
+            decoded: object = json.loads(completed.stdout)
+            if not isinstance(decoded, dict):
+                raise ValueError
+            result = cast(dict[str, Any], decoded)
+            if result.get("status") not in {
+                "passed",
+                "failed",
+            }:
+                raise ValueError
+            return result
+        except OSError, ValueError, subprocess.TimeoutExpired:
+            return {
+                "status": "failed",
+                "error_code": "SETUP-CREDENTIAL-VERIFY-FAILED",
+                "message": "验证进程失败或超时。凭据已保存。尚未验证通过。",
+            }
+
     return SetupApplication(
-        paths, invoke, startup, UpdateApplication(stop_environments).execute, uninstall
+        paths,
+        invoke,
+        startup,
+        UpdateApplication(stop_environments).execute,
+        uninstall,
+        verify_credential,
     )
 
 

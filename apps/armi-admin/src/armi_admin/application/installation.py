@@ -1,5 +1,7 @@
 """Installation use cases shared by desktop, setup CLI, and setup MCP."""
 
+# ruff: noqa: RUF001
+
 from __future__ import annotations
 
 import json
@@ -79,7 +81,7 @@ class SetupCredentialRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     name: ProviderCredential
-    action: Literal["put", "remove", "status"]
+    action: Literal["put", "put_and_verify", "verify", "remove", "status"]
     value: SecretStr | None = None
 
 
@@ -173,11 +175,13 @@ class SetupApplication:
         login_startup: Callable[[bool | None], dict[str, object]] | None = None,
         update: Callable[[UpdateAction, bool | None], dict[str, Any]] | None = None,
         uninstall: Callable[[bool], dict[str, Any]] | None = None,
+        verify_credential: Callable[[str, bytes], dict[str, Any]] | None = None,
     ) -> None:
         self._admin_operation = admin_operation
         self._login_startup = login_startup
         self._update = update
         self._uninstall = uninstall
+        self._verify_credential = verify_credential
         self.paths = paths
         self.root = paths.environment_root
         if has_reparse_point(self.root, root=Path(self.root.anchor)):
@@ -547,13 +551,20 @@ class SetupApplication:
         }
 
     def credential(self, request: SetupCredentialRequest) -> dict[str, object]:
+        saved = b""
+        verify = request.action in {"put_and_verify", "verify"}
+        if verify and (
+            request.name not in {"model.ark_api_key", "speech.volc_credentials"}
+            or self._verify_credential is None
+        ):
+            raise SetupError("SETUP-CREDENTIAL-VERIFY-UNSUPPORTED")
         with LocalProcessLock(self.control / "setup.lock"):
             if self._read().stage != "ready":
                 raise SetupError("SETUP-INITIALIZATION-INCOMPLETE")
             path = self.root / "secrets" / ("provider-" + request.name)
             if has_reparse_point(path, root=self.root):
                 raise SetupError("SETUP-CREDENTIAL-PATH")
-            if request.action == "put":
+            if request.action in {"put", "put_and_verify"}:
                 if request.value is None:
                     raise SetupError("SETUP-CREDENTIAL-VALUE-REQUIRED")
                 raw = request.value.get_secret_value().encode("utf-8")
@@ -584,12 +595,28 @@ class SetupApplication:
                     temporary.unlink(missing_ok=True)
             elif request.action == "remove":
                 path.unlink(missing_ok=True)
-            return {
+            result: dict[str, object] = {
                 "status": "configured" if path.is_file() else "missing",
                 "name": request.name,
                 "restart_required": request.action != "status"
                 and request.name.startswith("channel.qq."),
             }
+            if verify:
+                if not path.is_file():
+                    raise SetupError("SETUP-CREDENTIAL-VALUE-REQUIRED")
+                saved = path.read_bytes()
+        if verify:
+            assert self._verify_credential is not None
+            verification = self._verify_credential(request.name, saved)
+            with LocalProcessLock(self.control / "setup.lock"):
+                if not path.is_file() or path.read_bytes() != saved:
+                    verification = {
+                        "status": "failed",
+                        "error_code": "SETUP-CREDENTIAL-CHANGED",
+                        "message": "验证期间凭据已改变，请重新验证。",
+                    }
+            result["verification"] = verification
+        return result
 
     def login_startup(self, enabled: bool | None) -> dict[str, object]:
         if self._login_startup is None:

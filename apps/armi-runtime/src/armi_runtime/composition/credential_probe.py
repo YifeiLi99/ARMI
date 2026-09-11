@@ -1,0 +1,201 @@
+"""Bounded provider checks for explicit setup requests; no Runtime or life writes."""
+
+# ruff: noqa: RUF001
+
+from __future__ import annotations
+
+import asyncio
+import json
+import sys
+import unicodedata
+from pathlib import Path
+from typing import Any
+
+import httpx
+from armi_cognition.bootstrap import load_active_model_binding, load_voice_model_binding
+from armi_local_control.configuration import load_effective_config
+from openai import AsyncOpenAI
+
+from armi_runtime.adapters.voice.volc import (
+    VolcStreamingAsr,
+    VolcStreamingTts,
+    decode_volc_credentials,
+)
+
+from .config_assets import runtime_config_path
+
+_PHRASE = "你好，这是语音连接测试。"
+
+
+def _failure(error: Exception) -> dict[str, Any]:
+    # Provider messages can contain request details. Return only codes and safe guidance.
+    chain: BaseException | None = error
+    status = None
+    code = None
+    connection_failed = False
+    while chain is not None:
+        status = status or getattr(chain, "status_code", None)
+        connection_failed = connection_failed or isinstance(chain, ConnectionError)
+        response = getattr(chain, "response", None)
+        status = status or getattr(response, "status_code", None)
+        candidate = getattr(chain, "code", None)
+        if isinstance(candidate, str) and candidate.startswith(
+            ("VOICE-", "MODEL-", "CFG-")
+        ):
+            code = candidate
+        chain = chain.__cause__
+    message = "连接或协议验证失败，请检查网络、服务开通状态及资源配置。"
+    if status in (401, 403):
+        message = "鉴权或权限失败，请检查 Key、项目权限和服务是否开通。"
+    elif status == 429:
+        message = "服务限流或额度不足，请检查控制台。"
+    elif isinstance(error, TimeoutError):
+        message = "验证超时，请检查网络后重试。"
+    elif connection_failed:
+        message = "网络连接失败，请检查服务地址和网络可达性。"
+    return {
+        "status": "failed",
+        "error_code": f"HTTP-{status}"
+        if isinstance(status, int)
+        else code or "PROVIDER-VERIFY-FAILED",
+        "message": message,
+    }
+
+
+async def _model_check(key: str, binding: Any) -> dict[str, Any]:
+    async with AsyncOpenAI(
+        api_key=key,
+        base_url=binding.api_base,
+        timeout=25,
+        max_retries=0,
+        http_client=httpx.AsyncClient(trust_env=False),
+    ) as client:
+        response = await client.responses.create(
+            model=binding.model_id,
+            input='连接测试，请输出 {"ok":true}。',
+            store=False,
+            max_output_tokens=32,
+            tools=[],
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "armi_connection_check",
+                    "strict": True,
+                    "schema": {
+                        "type": "object",
+                        "properties": {"ok": {"type": "boolean"}},
+                        "required": ["ok"],
+                        "additionalProperties": False,
+                    },
+                }
+            },
+            extra_body={"thinking": {"type": "disabled"}},
+        )
+        if json.loads(response.output_text) != {"ok": True}:
+            raise ValueError("provider output mismatch")
+        return {"status": "passed", "model": binding.model_id}
+
+
+async def verify(name: str, key: str, root: Path) -> dict[str, Any]:
+    checks: dict[str, Any] = {}
+    if name == "model.ark_api_key":
+        path = runtime_config_path("model-bindings.yaml", environment_root=root)
+        for label, loader in (
+            ("model", load_active_model_binding),
+            ("voice_model", load_voice_model_binding),
+        ):
+            try:
+                async with asyncio.timeout(30):
+                    checks[label] = await _model_check(key, loader(path))
+            except Exception as error:
+                checks[label] = _failure(error)
+    elif name == "speech.volc_credentials":
+        config = load_effective_config(
+            defaults_path=runtime_config_path("runtime.yaml"),
+            environment_path=root / "environment.yaml",
+        ).config.voice
+        credentials = decode_volc_credentials(key.encode())
+        tts = VolcStreamingTts(
+            credentials,
+            resource_id=config.tts_resource_id,
+            voice_type=config.tts_voice_type,
+        )
+        audio = bytearray()
+
+        async def fragments():
+            yield _PHRASE
+
+        try:
+            async with asyncio.timeout(30):
+                async for block in tts.synthesize(fragments()):
+                    audio.extend(block)
+                    if len(audio) > 32000 * 15:
+                        raise ValueError("probe audio too long")
+                if not audio:
+                    raise ValueError("empty synthesis")
+            checks["tts"] = {"status": "passed", "audio_bytes": len(audio)}
+        except Exception as error:
+            checks["tts"] = _failure(error)
+        finally:
+            await tts.close()
+        if checks["tts"]["status"] == "passed":
+
+            async def frames():
+                for offset in range(0, len(audio), 6400):
+                    yield bytes(audio[offset : offset + 6400])
+                    await asyncio.sleep(0.2)
+
+            try:
+                async with asyncio.timeout(30):
+                    asr = VolcStreamingAsr(
+                        credentials, resource_id=config.asr_resource_id
+                    )
+                    text = ""
+                    async for event in asr.recognize(frames()):
+                        if event.text:
+                            text = event.text
+
+                    def normalize(value: str) -> str:
+                        return "".join(
+                            c
+                            for c in value
+                            if not unicodedata.category(c).startswith(("P", "Z"))
+                        )
+
+                    if normalize(text) != normalize(_PHRASE):
+                        raise ValueError("recognition mismatch")
+                checks["asr"] = {"status": "passed"}
+            except Exception as error:
+                checks["asr"] = _failure(error)
+        else:
+            checks["asr"] = {
+                "status": "not_tested",
+                "message": "TTS 未生成测试音频，ASR 尚未验证。",
+            }
+    else:
+        raise ValueError("unsupported credential")
+    return {
+        "status": "passed"
+        if all(item["status"] == "passed" for item in checks.values())
+        else "failed",
+        "checks": checks,
+    }
+
+
+def main() -> int:
+    try:
+        raw = sys.stdin.buffer.read(32769)
+        if len(raw) > 32768:
+            raise ValueError("input size")
+        request = json.loads(raw)
+        result = asyncio.run(
+            verify(request["name"], request["key"], Path(request["root"]))
+        )
+    except Exception as error:
+        result = _failure(error)
+    print(json.dumps(result, ensure_ascii=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -248,6 +248,7 @@ class VolcStreamingAsr:
             async with connect(
                 self._endpoint,
                 additional_headers=headers,
+                proxy=None,
                 max_size=2**22,
                 open_timeout=5,
             ) as socket:
@@ -453,6 +454,7 @@ class VolcStreamingTts:
         socket = await connect(
             self._endpoint,
             additional_headers=headers,
+            proxy=None,
             max_size=2**22,
             open_timeout=5,
         )
