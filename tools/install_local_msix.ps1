@@ -14,6 +14,10 @@ $packageName = 'YifeiLi99.ARMI.Acceptance'
 $dataRoot = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'ARMI.Acceptance'
 $outputRoot = Join-Path $workspace 'dist/msix-local'
 $scratchRoot = Join-Path $workspace '.tmp'
+. (Join-Path $PSScriptRoot 'local_msix_outputs.ps1')
+$work = Join-Path $scratchRoot 'local-msix-build'
+$output = $null
+$packageReady = $false
 New-Item -ItemType Directory -Path $scratchRoot -Force | Out-Null
 # Serialize version allocation and builds in this checkout; never reuse an old payload.
 $lock = [IO.File]::Open((Join-Path $scratchRoot 'local-msix.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
@@ -66,7 +70,7 @@ try {
     }
     if ($index -lt 0) { throw 'LOCAL-MSIX-VERSION-EXHAUSTED' }
     $version = $parts -join '.'
-    $work = Join-Path $scratchRoot ('local-msix-' + [Guid]::NewGuid().ToString('N'))
+    Remove-LocalMsixDirectory -Path $work -Root $scratchRoot
     New-Item -ItemType Directory -Path $work | Out-Null
     $localRelease = Join-Path $work 'windows-release.yaml'
     & $python -I -B -c 'import sys,yaml; from pathlib import Path; v=yaml.safe_load(Path(sys.argv[1]).read_text(encoding="utf-8")); v["version"]=sys.argv[3]; Path(sys.argv[2]).write_text(yaml.safe_dump(v,allow_unicode=True,sort_keys=False),encoding="utf-8")' $releasePath $localRelease $version
@@ -81,6 +85,9 @@ try {
     & (Join-Path $PSScriptRoot 'build_windows_installer.ps1') -PayloadDirectory $payload -OutputDirectory $output -CertificateThumbprint $certificate.Thumbprint -ReleaseConfiguration $localRelease -Development *> (Join-Path $work 'package.log')
     if ($LASTEXITCODE -ne 0) { throw "LOCAL-MSIX-PACK: inspect $work\package.log" }
     $package = Join-Path $output ($packageName + '-' + $version + '-x64.msix')
+    $bundle = Get-Content -LiteralPath (Join-Path $output 'staging/bundle.json') -Raw -Encoding utf8 | ConvertFrom-Json
+    $packageReady = $true
+    Clear-LocalMsixHistory -Root $outputRoot -KeepVersion $version
     if ($BuildOnly) { Write-Output $package; return }
 
     # Use only registered acceptance environments and the existing Admin stop use case.
@@ -93,7 +100,6 @@ try {
             throw 'LOCAL-MSIX-ENVIRONMENT-REGISTRATION'
         }
         $environments = @($registration.environments)
-        $bundle = Get-Content -LiteralPath (Join-Path $output 'staging/bundle.json') -Raw -Encoding utf8 | ConvertFrom-Json
         foreach ($environment in $environments) {
             $resolved = [IO.Path]::GetFullPath($environment)
             if ([IO.Path]::GetDirectoryName($resolved) -ne (Join-Path $dataRoot 'environments')) { throw 'LOCAL-MSIX-ENVIRONMENT-BOUNDARY' }
@@ -126,6 +132,17 @@ try {
     Write-Output "Package: $package"
     Write-Output "Run: & '$alias'"
 } finally {
-    Pop-Location
-    $lock.Dispose()
+    try {
+        Remove-LocalMsixDirectory -Path (Join-Path $work 'payload') -Root $scratchRoot
+        if ($output) {
+            if ($packageReady) {
+                Remove-LocalMsixDirectory -Path (Join-Path $output 'staging') -Root $outputRoot
+            } else {
+                Remove-LocalMsixDirectory -Path $output -Root $outputRoot
+            }
+        }
+    } finally {
+        Pop-Location
+        $lock.Dispose()
+    }
 }

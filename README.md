@@ -121,6 +121,8 @@ Windows 11 x64 安装版包含原生 PostgreSQL、扩展、私有 Python 和已�
 
 默认选择证书库中唯一有效且匹配验收 Publisher 的私钥证书；多个候选时显式传 `-CertificateThumbprint <指纹>`。签名和信任需预先配置，脚本不导入证书。只打包、不安装时增加 `-BuildOnly`；产物位于 `dist/msix-local/<版本>/`，可把 `.msix` 复制到另一台已信任同一测试证书的电脑后双击安装或更新。数据库合同改变时本机更新明确拒绝复用旧数据，生成的包仍保留；不会重装数据库或自动出生。
 
+`dist/msix-local/` 只保留最新成功签名的一版产物；新包生成成功后自动删除旧版本，`-BuildOnly` 同样执行。构建失败删除未完成产物并保留上一成功版本；安装失败仍保留本次已签名的包。退出时清理完整 payload 和 staging，构建日志固定在 `.tmp/local-msix-build/`，下次构建替换，不按次累积。
+
 上述构建默认使用已经准备好的精确 wheel 缓存；缺失时显式失败。原生 PG 制品由 `tools/build_native_postgresql.ps1` 构建，开发与系统测试共用它。正式管理入口核对 wheel package set；可用 `ARMI cli admin identity` 离线取得当前安装摘要。已经完成环境配置和出生后，托盘或显式 Admin 绑定按依赖顺序启动 PostgreSQL、语义召回与 Runtime，并等待核心 readiness：
 
 ```powershell
