@@ -88,7 +88,7 @@ Schema 实际打包在 `packages/armi-postgresql-contract/src/armi_postgresql_co
 
 Windows 11 x64 安装版包含原生 PostgreSQL、扩展、私有 Python 和已构建网页；用户不需要 Docker、全局 Python/Node、PowerShell 7 或编译器。安装位置由用户选择，通过 ARMI 入口打开首次配置和托盘。环境准备与出生分开；未显式出生不会进入正常生活。可选能力默认关闭，登录自启需在设置中开启。
 
-根目录只保留 `ARMI.exe` 与 `unins000.exe` 两个 EXE。双击主程序，未配置时进入设置；正常启动成功后打开 Creator Web，托盘提供设置与退出。重复启动复用同环境实例。AI 使用同一个程序的 `cli interaction/admin/setup` 或 `mcp interaction/admin/setup` 模式，不需要操作窗口；MCP 每次只加载一种独立权限的服务。`ARMI.exe settings` 直接打开设置。内部 worker、Codex runner 与安装控制为 Python 模块，不交付独立 ARMI 辅助启动器。
+根目录只保留 `ARMI.exe` 一个 EXE，以及“卸载 ARMI”快捷方式；卸载 EXE 和配套 DAT 放在 `control/uninstall/`，Windows 系统卸载入口与快捷方式指向同一内部卸载程序。双击主程序，未配置时进入设置；正常启动成功后打开 Creator Web，托盘提供设置与退出。重复启动复用同环境实例。AI 使用同一个程序的 `cli interaction/admin/setup` 或 `mcp interaction/admin/setup` 模式，不需要操作窗口；MCP 每次只加载一种独立权限的服务。`ARMI.exe settings` 直接打开设置。内部 worker、Codex runner 与安装控制为 Python 模块，不交付独立 ARMI 辅助启动器。
 
 下文 `ARMI` 代表安装路径下的 `ARMI.exe`，机器接入使用绝对路径和参数数组，不依赖全局 PATH；源码开发使用受管 Python 的 `python -m armi_app …`。PowerShell 可用 `& 'C:\ARMI\ARMI.exe' cli admin identity | Out-String` 等管道命令等待结果。MCP 接入模板中的路径应改成实际安装位置。
 

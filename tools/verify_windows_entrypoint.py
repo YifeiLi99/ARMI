@@ -21,9 +21,13 @@ from verify_machine_wheel import verify
 
 async def check(program: Path, *, installed: bool = False) -> None:
     executable = program / "ARMI.exe"
-    expected_entries = {"ARMI.exe", "unins000.exe"} if installed else {"ARMI.exe"}
+    expected_entries = {"ARMI.exe"}
     assert {p.name for p in program.glob("*.exe")} == expected_entries
     if installed:
+        assert not tuple(program.glob("unins*.*"))
+        assert (program / "卸载 ARMI.lnk").is_file()
+        assert (program / "control/uninstall/unins000.exe").is_file()
+        assert (program / "control/uninstall/unins000.dat").is_file()
         current = program / "app"
         bundle = ProgramBundle.read(current)
         bundle.verify(current)

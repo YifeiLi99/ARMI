@@ -26,6 +26,7 @@ SolidCompression=yes
 WizardStyle=modern
 DisableProgramGroupPage=yes
 UninstallDisplayIcon={app}\ARMI.exe
+UninstallFilesDir={app}\control\uninstall
 CloseApplications=no
 RestartApplications=no
 SetupLogging=yes
@@ -36,7 +37,8 @@ Source: "{#PayloadRoot}\bundle.json"; DestDir: "{app}\tmp"; DestName: "activate-
 
 [Icons]
 Name: "{group}\ARMI"; Filename: "{app}\ARMI.exe"; Check: ActivationReady
-Name: "{group}\Uninstall ARMI"; Filename: "{uninstallexe}"; Check: ActivationReady
+Name: "{group}\卸载 ARMI"; Filename: "{uninstallexe}"; Check: ActivationReady
+Name: "{app}\卸载 ARMI"; Filename: "{uninstallexe}"; Check: ActivationReady
 
 [Run]
 Filename: "{app}\ARMI.exe"; Description: "Open ARMI"; Flags: postinstall nowait skipifsilent; Check: ActivationReady
@@ -53,6 +55,85 @@ Type: files; Name: "{app}\.update.lock"
 [Code]
 var
   Activated: Boolean;
+  LegacyUninstaller: Boolean;
+  LegacyExeHash, LegacyDatHash: String;
+
+function IsARMIUninstallLog(const Filename: String): Boolean;
+var
+  Data: AnsiString;
+begin
+  { Header of the pinned Inno uninstall-log format: 64-byte ID, 128-byte AppId. }
+  Result := LoadStringFromFile(Filename, Data);
+  if Result then
+    Result := (Copy(Data, 1, 35) = 'Inno Setup Uninstall Log (b) 64-bit') and
+      (Copy(Data, 65, 38) = '{C14A7A77-2E62-4F66-AB8A-76459B310416}');
+end;
+
+function PreserveUninstallFile(const Source, Dest: String): Boolean;
+begin
+  Result := FileExists(Dest);
+  if Result then Exit;
+  Result := FileCopy(Source, Dest + '.pending', False);
+  if Result then Result := GetSHA256OfFile(Source) = GetSHA256OfFile(Dest + '.pending');
+  if Result then Result := RenameFile(Dest + '.pending', Dest);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  OldBase, NewBase: String;
+begin
+  Result := '';
+  OldBase := ExpandConstant('{app}\unins000');
+  NewBase := ExpandConstant('{app}\control\uninstall\unins000');
+  LegacyUninstaller := FileExists(OldBase + '.exe') or FileExists(OldBase + '.dat');
+  if not LegacyUninstaller then Exit;
+  if not IsARMIUninstallLog(OldBase + '.dat') or
+    (not FileExists(OldBase + '.exe') and
+      (not FileExists(NewBase + '.exe') or not IsARMIUninstallLog(NewBase + '.dat'))) then begin
+    Result := 'ARMI cannot identify the existing uninstall files. No files were removed.';
+    Exit;
+  end;
+  LegacyExeHash := '';
+  if FileExists(OldBase + '.exe') then LegacyExeHash := GetSHA256OfFile(OldBase + '.exe');
+  LegacyDatHash := GetSHA256OfFile(OldBase + '.dat');
+  if not ForceDirectories(ExtractFileDir(NewBase)) then begin
+    Result := 'ARMI cannot create its internal uninstall directory.';
+    Exit;
+  end;
+  if FileExists(NewBase + '.dat') then begin
+    if not IsARMIUninstallLog(NewBase + '.dat') then
+      Result := 'ARMI cannot identify the internal uninstall log.';
+  end else if not PreserveUninstallFile(OldBase + '.dat', NewBase + '.dat') then
+    Result := 'ARMI could not preserve the existing uninstall log.';
+  if Result <> '' then Exit;
+  if not PreserveUninstallFile(OldBase + '.exe', NewBase + '.exe') then
+    Result := 'ARMI could not preserve the existing uninstaller.';
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  OldBase: String;
+begin
+  if (CurStep <> ssPostInstall) or not Activated then Exit;
+  if LegacyUninstaller then begin
+    OldBase := ExpandConstant('{app}\unins000');
+    if not FileExists(ExpandConstant('{uninstallexe}')) or
+      not IsARMIUninstallLog(ChangeFileExt(ExpandConstant('{uninstallexe}'), '.dat')) or
+      (CompareText(ExtractFileDir(ExpandConstant('{uninstallexe}')),
+        ExpandConstant('{app}\control\uninstall')) <> 0) or
+      ((LegacyExeHash <> '') and (GetSHA256OfFile(OldBase + '.exe') <> LegacyExeHash)) or
+      (GetSHA256OfFile(OldBase + '.dat') <> LegacyDatHash) then begin
+      Activated := False;
+      RaiseException('ARMI could not verify uninstall relocation; old files were retained.');
+    end;
+    if (FileExists(OldBase + '.exe') and not DeleteFile(OldBase + '.exe')) or
+      not DeleteFile(OldBase + '.dat') then begin
+      Activated := False;
+      RaiseException('ARMI could not remove the old uninstall files.');
+    end;
+  end;
+  DeleteFile(ExpandConstant('{group}\Uninstall ARMI.lnk'));
+end;
 
 function ActivationReady: Boolean;
 begin
