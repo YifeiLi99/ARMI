@@ -908,7 +908,7 @@ class SetupApplication:
                 "network": {
                     "httpServers": [
                         {
-                            "name": "ARMI",
+                            "name": "ARMI API",
                             "enable": True,
                             "host": "127.0.0.1",
                             "port": api.port,
@@ -920,7 +920,7 @@ class SetupApplication:
                     ],
                     "httpClients": [
                         {
-                            "name": "ARMI",
+                            "name": "ARMI Events",
                             "enable": True,
                             "url": f"http://127.0.0.1:{document['event_port']}/",
                             "token": event,

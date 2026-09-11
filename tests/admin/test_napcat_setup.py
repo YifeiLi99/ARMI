@@ -291,6 +291,9 @@ def test_configuration_uses_owner_and_preserves_generated_credentials(tmp_path):
     assert network["httpServers"][0]["host"] == "127.0.0.1"
     assert network["httpClients"][0]["url"].startswith("http://127.0.0.1:")
     assert network["httpServers"][0]["token"] != network["httpClients"][0]["token"]
+    # NapCat stores every transport type in one Map keyed by name.
+    names = [adapter["name"] for adapters in network.values() for adapter in adapters]
+    assert len(names) == len(set(names))
 
 
 def test_unconfirmed_stop_does_not_write_configuration_or_credentials(tmp_path):
