@@ -499,23 +499,30 @@ class Desktop:
             row.pack(fill="x", pady=5)
             ttk.Label(row, text=label, width=25).pack(side="left")
             ttk.Entry(row, textvariable=variable, width=28).pack(side="left")
-        ttk.Button(
-            frame, text="一键安装并启用 QQ（联网）", command=self._prepare_qq
-        ).pack(anchor="w", pady=12)
+        self.qq_action = "prepare"
+        self.qq_installed = False
+        self.qq_button = ttk.Button(
+            frame, text="正在检查状态…", state="disabled", command=self._prepare_qq
+        )
+        self.qq_button.pack(anchor="w", pady=12)
         ttk.Button(
             frame,
-            text="读取准备状态",
+            text="刷新安装与连接状态",
             command=lambda: self.request(
                 SetupRequest(
-                    action="napcat", napcat=SetupNapcatRequest(action="status")
+                    action="napcat", napcat=SetupNapcatRequest(action="refresh")
                 ),
                 self._qq_result,
             ),
         ).pack(anchor="w")
         self.qq_progress = ttk.Progressbar(frame, maximum=100)
-        self.qq_progress.pack(fill="x", pady=12)
+        self.qq_component = tk.StringVar(value="1. 组件：正在检查")
+        ttk.Label(frame, textvariable=self.qq_component).pack(anchor="w", pady=(12, 6))
         self.qq_status = tk.StringVar(value="尚未准备；安装完成不代表已登录 QQ")
-        ttk.Label(frame, textvariable=self.qq_status, wraplength=760).pack(anchor="w")
+        self.qq_status_label = ttk.Label(
+            frame, textvariable=self.qq_status, wraplength=760
+        )
+        self.qq_status_label.pack(anchor="w")
         ttk.Label(
             frame,
             text="组件由 NapCat 官方发布，适用其使用许可。账号会话和组件保存在本环境，更新 ARMI 时保留。",
@@ -539,7 +546,7 @@ class Desktop:
             self.root.after(1000, self._qq_resume_login)
             return
         self.request(
-            SetupRequest(action="napcat", napcat=SetupNapcatRequest(action="status")),
+            SetupRequest(action="napcat", napcat=SetupNapcatRequest(action="refresh")),
             self._qq_result,
         )
 
@@ -558,6 +565,15 @@ class Desktop:
     def _prepare_qq(self) -> None:
         if self.busy:
             return
+        if self.qq_action == "open_login":
+            self.qq_button.configure(state="disabled")
+            self.request(
+                SetupRequest(
+                    action="napcat", napcat=SetupNapcatRequest(action="open_login")
+                ),
+                self._qq_result,
+            )
+            return
         try:
             request = SetupNapcatRequest(
                 action="prepare",
@@ -572,6 +588,7 @@ class Desktop:
             )
             return
         self.qq_preparing = True
+        self.qq_button.configure(state="disabled")
         self.request(SetupRequest(action="napcat", napcat=request), self._qq_result)
         self.root.after(500, self._qq_progress_poll)
 
@@ -586,37 +603,94 @@ class Desktop:
         self.root.after(500, self._qq_progress_poll)
 
     def _qq_display(self, result: dict[str, Any]) -> None:
+        phase = str(result.get("status", "unavailable"))
+        installed = bool(result.get("installed", self.qq_installed)) or phase in {
+            "installed",
+            "accounts_required",
+            "awaiting_login",
+            "stopping",
+            "configuring",
+            "configured",
+            "starting",
+            "login_required",
+            "ready",
+        }
+        self.qq_installed = installed
+        self.qq_component.set(
+            "1. 组件："
+            + (
+                f"已安装 NapCat {result.get('version', '')}"
+                if installed
+                else "尚未安装"
+            )
+        )
+        self.qq_progress.stop()
+        self.qq_progress.pack_forget()
+        if phase in {"downloading", "extracting", "verifying"}:
+            self.qq_component.set("1. 组件：正在下载或安装，请稍候")
+            self.qq_progress.pack(fill="x", pady=8, before=self.qq_status_label)
+            self.qq_progress.configure(
+                mode="determinate" if result.get("total") else "indeterminate"
+            )
+            if not result.get("total"):
+                self.qq_progress.start()
+        bound = bool(result.get("account_id"))
+        self.qq_action = (
+            "open_login"
+            if bound or result.get("login_pending") or phase == "awaiting_login"
+            else "prepare"
+        )
+        working = phase in {
+            "downloading",
+            "extracting",
+            "verifying",
+            "stopping",
+            "configuring",
+            "starting",
+        }
+        self.qq_button.configure(
+            text=(
+                "已连接"
+                if phase == "ready"
+                else "打开登录页 / 继续扫码"
+                if self.qq_action == "open_login"
+                else "继续设置 QQ"
+                if installed
+                else "安装并接入 QQ（联网）"
+            ),
+            state="disabled" if working or phase == "ready" else "normal",
+        )
+        if result.get("creator_user_id") and not self.qq_creator.get():
+            self.qq_creator.set(str(result["creator_user_id"]))
         labels = {
-            "not_installed": "尚未安装",
+            "not_installed": "2. 账号：尚未登录\n3. 连接：尚未设置\n下一步：填写你的 Creator QQ 号，点击安装并接入。",
             "downloading": "正在下载组件",
             "extracting": "校验通过，正在安装",
             "verifying": "正在验证组件可运行",
             "installed": "组件已安装",
-            "accounts_required": "组件已安装，请填写你的 QQ 号（Creator）",
-            "awaiting_login": "请扫码登录 ARMI 的 QQ；登录后会自动读取号码并完成配置",
+            "accounts_required": "2. 账号：尚未绑定\n3. 连接：尚未设置\n下一步：填写你的 Creator QQ 号，点击继续设置；已安装组件会复用。",
+            "awaiting_login": "2. 账号：等待扫码登录\n3. 连接：等待账号确认\n下一步：在登录页扫码并完成 QQ 验证，随后自动配置。登录页关闭时可重新打开。",
             "stopping": "正在正常停止环境",
             "configuring": "正在自动配置 QQ 接入",
-            "configured": "已配置，QQ 接入保持关闭",
+            "configured": "2. 账号：已保存绑定\n3. 连接：QQ 功能已关闭\n下一步：在功能设置中启用 QQ 后重新启动环境。",
             "starting": "正在启动环境和 QQ 登录页",
-            "login_required": "准备完成，请在登录页扫码；完成验证后会自动接入",
-            "ready": "QQ 接入已就绪",
-            "failed": "准备失败",
-            "unavailable": "组件不可用，请查看 QQ 状态中的原因",
-            "misconfigured": "QQ 配置不匹配，请查看 QQ 状态中的原因",
+            "login_required": "2. 账号：未登录或登录已失效\n3. 连接：尚未就绪\n下一步：打开登录页扫码。已有配置会保留，不会重新安装或配置。",
+            "ready": "2. 账号：已登录\n3. 连接：QQ 接入已就绪\n无需继续设置；实际回复还取决于 Runtime 和模型是否可用。",
+            "failed": "本次操作失败；已有组件和账号数据保留。\n下一步：刷新状态检查当前进度，再按提示继续。",
+            "unavailable": "2. 账号：暂时无法确认登录\n3. 连接：未就绪\n下一步：打开登录页检查；若仍失败，刷新状态查看原因。",
+            "misconfigured": "2. 账号或通信配置不匹配\n3. 连接：未就绪\n下一步：确认扫码的是原绑定账号；不要反复安装。",
         }
         text = labels.get(str(result.get("status")), str(result.get("status")))
+        if phase == "unavailable" and result.get("logged_in"):
+            text = "2. 账号：已登录\n3. 连接：通信检查尚未通过\n下一步：稍候会自动复查，无需再次扫码或安装。"
         if result.get("total"):
             percent = 100 * result.get("received", 0) / result["total"]
             self.qq_progress["value"] = percent
             text += f"（{percent:.0f}%）"
-        elif result.get("installed") or result.get("status") in {
-            "configured",
-            "ready",
-            "login_required",
-        }:
-            self.qq_progress["value"] = 100
         if result.get("error_code"):
             text += "：" + str(result["error_code"])
+        if result.get("reason_codes"):
+            text += "\n原因：" + "、".join(result["reason_codes"])
         if result.get("account_id"):
             text += "；ARMI QQ：" + str(result["account_id"])
         if result.get("error_code") == "NAPCAT-ACCOUNT-IDENTITIES":
@@ -626,10 +700,17 @@ class Desktop:
     def _qq_result(self, result: dict[str, Any]) -> None:
         self.qq_preparing = False
         self._qq_display(result)
+        self.status.set("QQ 状态已更新，请查看接入步骤和下一步提示。")
         if self.qq_login_timer is not None:
             self.root.after_cancel(self.qq_login_timer)
             self.qq_login_timer = None
-        if result.get("status") == "awaiting_login" or result.get("login_pending"):
+        if result.get("status") in {
+            "awaiting_login",
+            "login_required",
+            "starting",
+            "unavailable",
+            "ready",
+        } or result.get("login_pending"):
             self.qq_login_timer = self.root.after(10000, self._qq_complete_login)
 
     def _optional_result(self, result: dict[str, Any]) -> None:

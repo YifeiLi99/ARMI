@@ -152,6 +152,107 @@ def test_uncertain_configuration_is_not_replayed_by_login_poll(tmp_path):
     assert configure.call_count == 1
 
 
+@pytest.mark.parametrize(
+    "account,expected",
+    [(None, "login_required"), (12345, "ready"), (45678, "misconfigured")],
+)
+def test_bound_login_recovery_observes_health_without_reconfiguring(
+    tmp_path, account, expected
+):
+    service = application(tmp_path / "environments/active")
+    calls = []
+
+    def invoke(operation, arguments):
+        calls.append((operation, arguments))
+        return {
+            "status": "succeeded",
+            "result": {
+                "values": {
+                    "account_id": 12345,
+                    "creator_user_id": 98765,
+                    "enabled": True,
+                }
+            }
+            if operation == "configuration"
+            else {"state": "ready"},
+        }
+
+    with (
+        patch.object(service, "_read", return_value=Mock(stage="ready")),
+        patch.object(NapCatNode, "installed", return_value=True),
+        patch.object(NapCatNode, "login_account", return_value=account),
+        patch.object(service, "invoke", side_effect=invoke),
+        patch.object(service, "_configure_napcat") as configure,
+    ):
+        for _ in range(2):
+            assert (
+                service.napcat(SetupNapcatRequest(action="complete"))["status"]
+                == expected
+            )
+    configure.assert_not_called()
+    assert all(op in {"configuration", "maintenance"} for op, _ in calls)
+
+
+def test_repeated_prepare_of_bound_account_never_stops_or_reconfigures(tmp_path):
+    service = application(tmp_path / "environments/active")
+    webui = service.root / "tools/napcat/config/webui.json"
+    webui.parent.mkdir(parents=True)
+    webui.write_text(json.dumps({"port": 3001}))
+    with (
+        patch("armi_admin.application.installation.socket.create_connection"),
+        patch.object(
+            service,
+            "_napcat_admin",
+            return_value={
+                "values": {
+                    "account_id": 12345,
+                    "creator_user_id": 98765,
+                    "enabled": True,
+                }
+            },
+        ) as admin,
+        patch.object(
+            service, "_napcat_connection", return_value={"status": "login_required"}
+        ),
+    ):
+        service._begin_napcat_login(
+            SetupNapcatRequest(
+                action="prepare", creator_user_id=98765, enabled=True, open_login=True
+            )
+        )
+    assert [call.args[0] for call in admin.call_args_list] == [
+        "configuration",
+        "environment_start",
+        "maintenance",
+    ]
+
+
+def test_login_page_hides_install_progress_and_offers_recovery():
+    from armi_admin.desktop import Desktop
+
+    desktop = object.__new__(Desktop)
+    desktop.qq_installed = False
+    desktop.qq_component = Mock()
+    desktop.qq_progress = Mock()
+    desktop.qq_button = Mock()
+    desktop.qq_creator = Mock()
+    desktop.qq_status = Mock()
+    desktop._qq_display(
+        {
+            "status": "login_required",
+            "installed": True,
+            "version": "4.18.9",
+            "account_id": 12345,
+        }
+    )
+    desktop.qq_progress.pack_forget.assert_called_once()
+    desktop.qq_progress.pack.assert_not_called()
+    assert desktop.qq_action == "open_login"
+    assert "已安装" in desktop.qq_component.set.call_args.args[0]
+    assert "下一步" in desktop.qq_status.set.call_args.args[0]
+    assert desktop.qq_button.configure.call_args.kwargs["state"] == "normal"
+
+
 def test_configuration_uses_owner_and_preserves_generated_credentials(tmp_path):
     service = application(tmp_path / "environments/active")
     saved = {}

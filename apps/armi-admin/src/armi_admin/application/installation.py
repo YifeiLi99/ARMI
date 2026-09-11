@@ -45,7 +45,7 @@ class SetupError(RuntimeError):
 
 class SetupNapcatRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    action: Literal["status", "prepare", "complete"]
+    action: Literal["status", "refresh", "prepare", "complete", "open_login"]
     creator_user_id: int | None = Field(default=None, gt=0, le=2**63 - 1)
     enabled: bool = False
     open_login: bool = False
@@ -605,11 +605,19 @@ class SetupApplication:
         state = self._read()
         if state.stage != "ready":
             raise SetupError("SETUP-INITIALIZATION-INCOMPLETE")
+        if request.action == "refresh":
+            return self._napcat_connection()
         with LocalProcessLock(self.control / "napcat-setup.lock"):
             try:
+                if request.action == "open_login":
+                    self._napcat_admin(
+                        "environment_start", {"idempotency_key": str(uuid7())}
+                    )
+                    self._open_napcat_login()
+                    return self._napcat_connection()
                 if request.action == "complete":
                     if not node.login_path.exists():
-                        return node.status()
+                        return self._napcat_connection()
                     pending = json.loads(node.login_path.read_bytes())
                     try:
                         account_id = node.login_account()
@@ -653,6 +661,73 @@ class SetupApplication:
                 node.progress("failed", error_code=code)
                 raise
 
+    def _open_napcat_login(self) -> None:
+        webui = self.root / "tools/napcat/config/webui.json"
+        if has_reparse_point(webui, root=self.root):
+            raise SetupError("NAPCAT-CONFIGURATION-PATH")
+        port = json.loads(webui.read_bytes())["port"]
+        deadline = time.monotonic() + 60
+        while True:
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=1):
+                    break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise SetupError("NAPCAT-LOGIN-UI-UNAVAILABLE") from None
+                time.sleep(0.25)
+        self._napcat_admin(
+            "maintenance",
+            {
+                "action": "napcat_open",
+                "auto_login": True,
+                "idempotency_key": str(uuid7()),
+            },
+        )
+
+    def _napcat_connection(self) -> dict[str, Any]:
+        """Observe current login and transport health without replaying setup."""
+        from armi_local_control.napcat_node import NapCatNode
+        from armi_local_control.runtime_errors import RuntimeViolation
+
+        node = NapCatNode(self.root)
+        result = node.status()
+        if not result["installed"] or result["login_pending"]:
+            return result
+        current = self._napcat_admin(
+            "configuration", {"target": "qq", "action": "read"}
+        )
+        values: dict[str, Any] = current.get("values") or {}
+        if not values:
+            return {**result, "status": "accounts_required"}
+        result.pop("error_code", None)
+        result.pop("reason_codes", None)
+        result.update(
+            account_id=values["account_id"],
+            creator_user_id=values["creator_user_id"],
+            enabled=values.get("enabled", False),
+        )
+        if not result["enabled"]:
+            return {**result, "status": "configured"}
+        try:
+            account = node.login_account()
+        except RuntimeViolation as error:
+            return {**result, "status": "unavailable", "reason_codes": [error.code]}
+        if account is None:
+            return {**result, "status": "login_required", "logged_in": False}
+        result["logged_in"] = True
+        if account != values["account_id"]:
+            return {
+                **result,
+                "status": "misconfigured",
+                "reason_codes": ["NAPCAT-EXISTING-ACCOUNT-BINDING"],
+            }
+        health = self._napcat_admin("maintenance", {"action": "napcat_status"})
+        return {
+            **result,
+            "status": health.get("state", "unavailable"),
+            "reason_codes": health.get("reason_codes", []),
+        }
+
     def _napcat_admin(
         self, operation: str, arguments: dict[str, Any]
     ) -> dict[str, Any]:
@@ -674,6 +749,12 @@ class SetupApplication:
         values: dict[str, Any] = current.get("values") or {}
         if values and values.get("creator_user_id") != request.creator_user_id:
             raise SetupError("NAPCAT-EXISTING-ACCOUNT-BINDING")
+        if values.get("enabled"):
+            # A bound account only needs login recovery, never another configure/restart.
+            admin("environment_start", {"idempotency_key": str(uuid7())})
+            if request.open_login:
+                self._open_napcat_login()
+            return self._napcat_connection()
         admin("environment_stop", {"idempotency_key": str(uuid7())})
         if values:
             admin(
@@ -895,11 +976,10 @@ class SetupApplication:
                     "idempotency_key": str(uuid7()),
                 },
             )
-        health = admin("maintenance", {"action": "napcat_status"})
-        return node.progress(
-            str(health.get("state", "unavailable")),
+        node.progress(
+            "starting",
             account_id=account_id,
-            reason_codes=health.get("reason_codes", []),
             enabled=True,
             webui_url=f"http://127.0.0.1:{webui_port}/webui/",
         )
+        return self._napcat_connection()
