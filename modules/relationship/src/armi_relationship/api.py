@@ -11,6 +11,7 @@ from uuid import UUID
 
 from armi_kernel.application import CandidateFactClass, CandidateOwnerDraft
 from armi_kernel.contracts import OpaqueCursor
+from armi_runtime_foundation import AdminContentPort as RelationshipAdminContentPort
 from armi_runtime_foundation import PostgreSQLTransaction
 
 RELATIONSHIP_MECHANISM_IDENTITY: Final = "armi.relationship.lifecycle-v2"
@@ -595,6 +596,7 @@ __all__ = (
     "CreatorRelationshipRevision",
     "CreatorRelationshipTimeline",
     "IssueResolution",
+    "RelationshipAdminContentPort",
     "RelationshipBoundary",
     "RelationshipBoundaryAction",
     "RelationshipBoundaryKind",

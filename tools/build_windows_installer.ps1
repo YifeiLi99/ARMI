@@ -4,7 +4,8 @@ param(
     [Parameter(Mandatory)][string]$OutputDirectory,
     [Parameter(Mandatory)][string]$CertificateThumbprint,
     [string]$ReleaseConfiguration = (Join-Path $PSScriptRoot '../configs/windows-release.yaml'),
-    [switch]$Development
+    [switch]$Development,
+    [switch]$IsolatedAcceptance
 )
 
 $ErrorActionPreference = 'Stop'
@@ -31,6 +32,7 @@ Copy-Item -LiteralPath $payload -Destination $staging -Recurse
 $python = Join-Path $staging 'runtime/python/python.exe'
 $options = @()
 if ($Development) { $options += '--development' }
+if ($IsolatedAcceptance) { $options += '--isolated-acceptance' }
 $release = & $python -I -B (Join-Path $PSScriptRoot 'prepare_msix_manifest.py') $staging $ReleaseConfiguration $certificate.Subject @options
 if ($LASTEXITCODE -ne 0) { throw 'MSIX-RELEASE-CONFIGURATION' }
 $release = $release | ConvertFrom-Json

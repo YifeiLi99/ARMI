@@ -9,24 +9,39 @@ if TYPE_CHECKING:
     from .application.installation import SetupApplication, SetupPaths
     from .machine import AdminSession
 
-from armi_artifact_store.bootstrap import bootstrap_artifact_admin
+from armi_activity.bootstrap import bootstrap_activity_admin_content
+from armi_artifact_store.bootstrap import (
+    bootstrap_artifact_admin,
+    bootstrap_artifact_admin_content,
+)
 from armi_attention.bootstrap import bootstrap_opportunity_admin
 from armi_codex.bootstrap import bootstrap_codex_admin
 from armi_cognition.bootstrap import bootstrap_cognition_admin
+from armi_data_rights.bootstrap import bootstrap_data_rights_admin_content_guard
 from armi_effect.bootstrap import bootstrap_effect_admin
 from armi_evidence.bootstrap import bootstrap_evidence_admin
 from armi_expression.bootstrap import bootstrap_expression_admin
 from armi_interaction.bootstrap import bootstrap_interaction_admin
 from armi_kernel.application import CredentialPurpose
 from armi_live_vision.bootstrap import bootstrap_live_vision_admin
-from armi_material.bootstrap import bootstrap_material_admin_read
+from armi_material.bootstrap import (
+    bootstrap_material_admin_content,
+    bootstrap_material_admin_read,
+)
+from armi_memory.bootstrap import bootstrap_memory_admin_content
 from armi_mood.bootstrap import (
+    bootstrap_mood_admin_content,
     bootstrap_mood_admin_correction,
     bootstrap_mood_admin_read,
 )
 from armi_perception.bootstrap import bootstrap_perception_admin
-from armi_prompt.bootstrap import bootstrap_prompt_admin_reference
+from armi_prompt.bootstrap import (
+    bootstrap_prompt_admin_content,
+    bootstrap_prompt_admin_reference,
+)
+from armi_relationship.bootstrap import bootstrap_relationship_admin_content
 from armi_subject_state.bootstrap import (
+    bootstrap_subject_state_admin_content,
     bootstrap_subject_state_admin_correction,
     bootstrap_subject_state_admin_read,
 )
@@ -38,6 +53,7 @@ from armi_admin.application import (
     AdminCorrectionCoordinator,
     AdminCredentialPort,
 )
+from armi_admin.application.content_management import ContentManagement
 from armi_admin.application.service import AdminToolService
 from armi_admin.persistence import AdminCorrectionGateway, AdminObservationGateway
 from armi_admin.persistence.role_session import AdminRoleBoundPool
@@ -143,6 +159,28 @@ def bootstrap_admin(
             observation=observation,
             pool=pool,
             local_owner=local_owner,
+            content=ContentManagement(
+                config,
+                pool,
+                owners={
+                    "memory": bootstrap_memory_admin_content(),
+                    "relationship": bootstrap_relationship_admin_content(),
+                    "activity": bootstrap_activity_admin_content(),
+                    "material": bootstrap_material_admin_content(),
+                    "prompt": bootstrap_prompt_admin_content(),
+                    "subject_state": bootstrap_subject_state_admin_content(),
+                    "mood": bootstrap_mood_admin_content(),
+                },
+                guards=(
+                    cognition,
+                    effects,
+                    bootstrap_data_rights_admin_content_guard(),
+                ),
+                parties=interaction,
+                artifacts=bootstrap_artifact_admin_content(
+                    artifact_root=artifact_root, factory=pool
+                ),
+            ),
         )
         return AdminComposition(service, pool)
     except BaseException:

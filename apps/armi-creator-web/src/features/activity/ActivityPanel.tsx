@@ -28,6 +28,8 @@ const STATUS_LABELS: Record<string, string> = {
 
 const EVENT_LABELS: Record<string, string> = {
   created: "建立活动",
+  admin_update: "管理员修改",
+  admin_delete: "管理员删除",
   engage: "投入注意",
   progress: "取得进展",
   wait: "开始等待",

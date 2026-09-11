@@ -33,6 +33,9 @@ class EffectAdminSnapshot:
 
 @runtime_checkable
 class EffectAdminPort(Protocol):
+    def content_busy(
+        self, transaction: PostgreSQLAdminTransaction, *, subject_id: UUID
+    ) -> bool: ...
     def for_intent(
         self, transaction: PostgreSQLAdminTransaction, *, action_intent_id: UUID
     ) -> tuple[EffectAdminSnapshot, ...]: ...

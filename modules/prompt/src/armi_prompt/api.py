@@ -10,6 +10,7 @@ from uuid import UUID
 
 from armi_kernel.application import ArtifactRef, CandidateFactClass, CandidateOwnerDraft
 from armi_kernel.contracts import Digest, Instant, TraceId
+from armi_runtime_foundation import AdminContentPort as PromptAdminContentPort
 from armi_runtime_foundation import PostgreSQLAdminTransaction, PostgreSQLTransaction
 
 CREATOR_PROMPT_PROJECTION_VERSION = "creator-prompt.v1"
@@ -285,6 +286,7 @@ __all__ = (
     "CreatorPromptRevisionCommand",
     "CreatorPromptView",
     "CreatorPromptViolation",
+    "PromptAdminContentPort",
     "PromptAdminReferencePort",
     "PromptBirthPort",
     "PromptCognitionPort",

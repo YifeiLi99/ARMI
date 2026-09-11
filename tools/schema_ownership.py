@@ -98,7 +98,10 @@ def source_owner_for_path(path: Path) -> str | None:
 
 def execution_role_for_path(path: Path) -> str | None:
     parts = path.as_posix().split("/")
-    if parts[:2] == ["apps", "armi-admin"] or path.name == "_admin.py":
+    if parts[:2] == ["apps", "armi-admin"] or path.name in {
+        "_admin.py",
+        "_admin_content.py",
+    }:
         return "armi_admin"
     if parts and parts[0] in {"apps", "modules", "packages"}:
         return "armi_runtime"

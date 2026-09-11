@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 import stat
 import time
 from collections.abc import Callable
@@ -56,6 +57,8 @@ from armi_admin.persistence.role_session import (
 
 from .authorization import AuthorizationError, AuthorizationStore
 from .configuration_activation import asset_activation, runtime_activation
+from .content_contracts import ContentWriteRequest
+from .content_management import ContentManagement
 from .contracts import (
     AdminIdentity,
     AdminMutationRequest,
@@ -149,6 +152,7 @@ def _sha256(value: bytes) -> str:
 class AdminToolService:
     __slots__ = (
         "_config",
+        "_content",
         "_control",
         "_corrections",
         "_credentials",
@@ -169,6 +173,7 @@ class AdminToolService:
         observation: AdminObservationGateway,
         pool: AdminRoleBoundPool,
         local_owner: bool = False,
+        content: ContentManagement | None = None,
     ) -> None:
         self._config = config
         self._credentials = credentials
@@ -178,6 +183,7 @@ class AdminToolService:
         self._pool = pool
         self._requires_reload = False
         self._local_owner = local_owner
+        self._content = content
         self._identity = AdminIdentity()
 
     @property
@@ -360,7 +366,10 @@ class AdminToolService:
     def database(
         self,
         name: str,
-        request: DatabaseBatchRequest | DatabaseCatalogRequest | DatabaseQueryRequest,
+        request: DatabaseBatchRequest
+        | DatabaseCatalogRequest
+        | DatabaseQueryRequest
+        | ContentWriteRequest,
     ) -> AdminToolResult[dict[str, Any]]:
         started = datetime.now(UTC)
         if name not in self._config.authorized_operations:
@@ -376,7 +385,11 @@ class AdminToolService:
             try:
                 self._validate_database_identity(self._read_snapshot())
                 manager = DatabaseManagement(self._config, self._pool)
-                if isinstance(request, DatabaseBatchRequest):
+                if isinstance(request, ContentWriteRequest):
+                    if self._content is None:
+                        raise ValueError("ADMIN-CONTENT-NOT-COMPOSED")
+                    payload = self._content.write(request)
+                elif isinstance(request, DatabaseBatchRequest):
                     mutation = request
                     payload = self._environment_controller().maintain_database(
                         lambda: manager.mutate(mutation)
@@ -409,8 +422,10 @@ class AdminToolService:
                 code = str(error)
                 return self._tool_failure(
                     started,
-                    "rejected",
-                    code if code.startswith("ADMIN-") else "ADMIN-DATABASE-INVALID",
+                    "conflict" if code.endswith(("CONFLICT", "BUSY")) else "rejected",
+                    code
+                    if re.fullmatch(r"[A-Z][A-Z0-9-]{1,95}", code)
+                    else "ADMIN-DATABASE-INVALID",
                 )
             except OSError, AdminRoleSessionError:
                 return self._tool_failure(
@@ -419,7 +434,7 @@ class AdminToolService:
 
         return (
             self._write(name, request, name, execute)
-            if isinstance(request, DatabaseBatchRequest)
+            if isinstance(request, (DatabaseBatchRequest, ContentWriteRequest))
             else execute()
         )
 
@@ -865,7 +880,7 @@ class AdminToolService:
         self, evidence: InvocationEvidence
     ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
         refs = evidence.references
-        if evidence.operation == "database_batch":
+        if evidence.operation in {"database_batch", "content_write"}:
             payload = DatabaseManagement(self._config, self._pool).reconcile(
                 operation=evidence.operation,
                 key=evidence.idempotency_key,

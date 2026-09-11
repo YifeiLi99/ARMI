@@ -55,6 +55,35 @@ class DatabaseTable:
 
     def describe(self) -> dict[str, Any]:
         policy = TABLE_OWNERSHIP.get(self.name)
+        online = {
+            "subjective_memories": (
+                "memory",
+                "head_version",
+                ("create", "update", "delete"),
+            ),
+            "relationships": (
+                "relationship",
+                "head_version",
+                ("create", "update", "delete"),
+            ),
+            "life_materials": (
+                "material",
+                "head_version",
+                ("create", "update", "delete"),
+            ),
+            "activities": ("activity", "head_version", ("create", "update", "delete")),
+            "prompt_documents": (
+                "prompt",
+                "revision_no in prompt_revisions; 0 for an empty document",
+                ("create", "update", "delete"),
+            ),
+            "subject_component_heads": (
+                "subject_state",
+                "component_version",
+                ("update",),
+            ),
+            "mood_heads": ("mood", "mood_version", ("update",)),
+        }.get(self.name)
         return {
             "table": self.name,
             "kind": "table" if self.kind == "r" else "view",
@@ -78,6 +107,16 @@ class DatabaseTable:
                 "delete": self.writable and bool(self.primary_key),
             },
             "write_mode": "maintenance" if self.writable else "read_only",
+            "online_management": None
+            if online is None
+            else {
+                "operation": "content_write",
+                "owner": online[0],
+                "actions": list(online[2]),
+                "expected_version_field": online[1],
+                "generation_field": "subjects.current_generation_id",
+                "restriction": "Versioned owner writes retain history and reject busy targets. Singleton components use subject_id as object_id; personality_anchor is immutable.",
+            },
             "restriction": "Runtime and business processes must stop; PostgreSQL stays running."
             if self.writable
             else "Use the owning module's formal identity, permission or result operation.",

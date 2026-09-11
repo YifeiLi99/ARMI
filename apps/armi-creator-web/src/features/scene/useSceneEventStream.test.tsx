@@ -199,7 +199,7 @@ it("keeps an event pending until every active projection refresh succeeds", asyn
         event_kind: "activity.invalidated",
         resource_kind: "activity",
         resource_ref: "018f47a6-7b2d-7c35-8b18-684e38ab6ef8",
-        projection_version: "creator-activity.v2",
+        projection_version: "creator-activity.v3",
         occurred_at: "2026-08-28T01:00:00.000000Z",
       });
       progress.push("event-confirmed");

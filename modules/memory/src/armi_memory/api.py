@@ -11,6 +11,7 @@ from uuid import UUID
 
 from armi_kernel.application import CandidateFactClass, CandidateOwnerDraft
 from armi_kernel.contracts import Instant, OpaqueCursor
+from armi_runtime_foundation import AdminContentPort as MemoryAdminContentPort
 from armi_runtime_foundation import PostgreSQLTransaction
 
 MEMORY_FORMATION_MECHANISM_IDENTITY = "armi.memory-formation.contextual-v1"
@@ -34,6 +35,7 @@ class MemoryViolation(RuntimeError):
 
 
 class MemorySourceKind(StrEnum):
+    ADMINISTRATOR = "administrator"
     EXPERIENCED = "experienced"
     REPORTED = "reported"
     INFERRED = "inferred"
@@ -65,7 +67,7 @@ def _uuid7(value: object) -> bool:
     return type(value) is UUID and value.version == 7
 
 
-def _text(value: object, maximum: int, *, optional: bool = False) -> bool:
+def valid_memory_text(value: object, maximum: int, *, optional: bool = False) -> bool:
     if value is None:
         return optional
     return type(value) is str and 1 <= len(value) <= maximum and "\x00" not in value
@@ -125,7 +127,7 @@ class CandidateMemoryDraft:
             or _REF.fullmatch(self.source_experience_ref) is None
             or self.source_experience_ref == self.proposal_ref
             or type(self.source_kind) is not MemorySourceKind
-            or not _text(self.summary, 512)
+            or not valid_memory_text(self.summary, 512)
             or not _memory_source_supported(self.source_kind, self.fact_class)
             or self.mechanism_identity != MEMORY_FORMATION_MECHANISM_IDENTITY
             or self.privacy_scope != "private"
@@ -177,8 +179,8 @@ class CandidateMemoryRevisionDraft:
             or self.revision_kind is MemoryRevisionKind.FORMED
             or type(self.accessibility) is not MemoryAccessibility
             or type(self.source_kind) is not MemorySourceKind
-            or not _text(self.summary, 512)
-            or not _text(self.uncertainty, 512, optional=True)
+            or not valid_memory_text(self.summary, 512)
+            or not valid_memory_text(self.uncertainty, 512, optional=True)
             or self.mechanism_identity != MEMORY_REVISION_MECHANISM_IDENTITY
             or self.mechanism_config_identity
             not in {"natural-dialogue-v1", "sleep-maintenance-v1"}
@@ -239,8 +241,8 @@ class MemoryContextItem:
             or self.head_version <= 0
             or type(self.fact_class) is not CandidateFactClass
             or type(self.source_kind) is not MemorySourceKind
-            or not _text(self.summary, 512)
-            or not _text(self.uncertainty, 512, optional=True)
+            or not valid_memory_text(self.summary, 512)
+            or not valid_memory_text(self.uncertainty, 512, optional=True)
             or type(self.accessibility) is not MemoryAccessibility
             or self.accessibility is MemoryAccessibility.FORGOTTEN
         ):
@@ -496,6 +498,7 @@ def _memory_source_supported(
                 CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
             },
             MemorySourceKind.UNKNOWN: {CandidateFactClass.UNKNOWN},
+            MemorySourceKind.ADMINISTRATOR: set(),
         }[source_kind]
     )
 
@@ -511,6 +514,7 @@ __all__ = (
     "CreatorMemoryTimeline",
     "CreatorMemoryTimelineItem",
     "MemoryAccessibility",
+    "MemoryAdminContentPort",
     "MemoryCandidateContextPort",
     "MemoryCandidateSourceRef",
     "MemoryCognitionPort",

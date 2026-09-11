@@ -10,6 +10,7 @@ from armi_artifact_store.api import ArtifactCatalogPort
 from armi_kernel.application import CreatorProjectionNotifier, ExecutionCustodyPort
 from armi_runtime_foundation import EmptyRecoveryParticipant, RecoveryParticipant
 
+from ._admin import PostgreSQLDataRightsAdminGuard
 from ._application import DataRightsOrderService
 from ._creator_export import CreatorExportService
 from ._data_rights_participant import PostgreSQLDataRightsParticipant
@@ -18,6 +19,7 @@ from ._deletion_postgresql import LocalDataDeletionRepository
 from ._postgresql import DataRightsOrderRepository
 from .api import (
     CreatorExportPort,
+    DataRightsAdminContentGuard,
     DataRightsArtifactLifecyclePort,
     DataRightsArtifactStorePort,
     DataRightsCognitionGate,
@@ -180,10 +182,15 @@ def bootstrap_data_rights_recovery() -> RecoveryParticipant:
     return EmptyRecoveryParticipant("data-rights")
 
 
+def bootstrap_data_rights_admin_content_guard() -> DataRightsAdminContentGuard:
+    return PostgreSQLDataRightsAdminGuard()
+
+
 __all__ = (
     "DataRightsCore",
     "DataRightsModule",
     "bootstrap_data_rights",
+    "bootstrap_data_rights_admin_content_guard",
     "bootstrap_data_rights_core",
     "bootstrap_data_rights_recovery",
 )

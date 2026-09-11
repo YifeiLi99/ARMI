@@ -22,7 +22,6 @@ from pydantic import (
 
 from .authorization import AuthorizationIntent
 from .contracts import (
-    AdminToolResult,
     DeleteUncommittedCreatorInputSpec,
     ReconcileUnknownCreatorEffectSpec,
     RepairSubjectComponentHeadSpec,
@@ -334,12 +333,19 @@ class EnvironmentProcessPayload(Payload):
     semantic_recall: SemanticProcessPayload | ProcessPayload
 
 
+class NapcatProcessPayload(Payload):
+    status: Literal[
+        "not_installed", "disabled", "already_running", "started", "stopped"
+    ]
+
+
 class LifecyclePayload(
     RootModel[
         EnvironmentProcessPayload
         | ProcessPayload
         | DatabaseProcessPayload
         | SemanticProcessPayload
+        | NapcatProcessPayload
     ]
 ):
     model_config = ConfigDict(strict=True, frozen=True)
@@ -947,23 +953,9 @@ class InvocationPayload(Payload):
     audit: InvocationAudit | None = None
     phase: str | None = None
     request_digest: str | None = None
-    result: (
-        AdminToolResult[
-            LifecyclePayload
-            | ProcessPayload
-            | ConfigurationPayload
-            | AuthorizationPayload
-            | CorrectionApplyPayload
-            | CorrectionWorkPayload
-            | RightsOrderPayload
-            | OtherHumanPayload
-            | MaintenancePayload
-            | EnvironmentInitializedPayload
-            | ResetPayload
-            | ControlPayload[RuntimeStatePayload | FaultPayload | InputAdmissionPayload]
-        ]
-        | None
-    ) = None
+    # Persisted wire results retain their original contract tag and content.
+    # Reading a receipt must not reinterpret it as today's operation result.
+    result: dict[str, JsonValue] | None = None
     reconciliation: ReconciliationPayload | None = None
     reconciliation_reason: Literal["evidence_missing"] | None = None
     wait_timed_out: bool | None = None
@@ -972,6 +964,7 @@ class InvocationPayload(Payload):
 
 RESULT_PAYLOADS: dict[str, type[BaseModel]] = {
     "database_catalog": RootModel[dict[str, JsonValue]],
+    "content_write": RootModel[dict[str, JsonValue]],
     "database_query": RootModel[dict[str, JsonValue]],
     "database_batch": RootModel[dict[str, JsonValue]],
     "invocation_get": InvocationPayload,

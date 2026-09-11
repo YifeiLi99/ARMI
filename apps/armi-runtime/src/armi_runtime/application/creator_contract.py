@@ -229,6 +229,8 @@ type ActivityStatusValue = Literal[
     "failed",
 ]
 type ActivityTransitionValue = Literal[
+    "admin_update",
+    "admin_delete",
     "created",
     "engage",
     "progress",
@@ -266,7 +268,7 @@ class CreatorActivityItemResponse(_StrictWireModel):
 
 class CreatorActivityPageResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["creator-activity.v2"]
+    projection_version: Literal["creator-activity.v3"]
     items: Annotated[list[CreatorActivityItemResponse], Field(max_length=100)]
     next_cursor: Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
 
@@ -282,7 +284,7 @@ class CreatorActivityTimelineItemResponse(_StrictWireModel):
 
 class CreatorActivityTimelineResponse(_StrictWireModel):
     contract_version: Literal["1.0"]
-    projection_version: Literal["creator-activity.v2"]
+    projection_version: Literal["creator-activity.v3"]
     activity_id: Annotated[str, Field(pattern=_UUIDV7_PATTERN)]
     items: Annotated[list[CreatorActivityTimelineItemResponse], Field(max_length=100)]
     next_cursor: Annotated[str, Field(pattern=_CURSOR_PATTERN, max_length=2048)] | None
@@ -619,7 +621,7 @@ class CreatorProjectionEventResponse(_StrictWireModel):
     ]
     resource_ref: Annotated[str, Field(min_length=1, max_length=64)]
     projection_version: Literal[
-        "creator-activity.v2",
+        "creator-activity.v3",
         "creator-memory.v2",
         "creator-maintenance.v3",
         "life-record-query.v2",

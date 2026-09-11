@@ -10,6 +10,15 @@ from .api import EffectAdminSnapshot
 class PostgreSQLEffectAdmin:
     __slots__ = ()
 
+    def content_busy(
+        self, transaction: PostgreSQLAdminTransaction, *, subject_id: UUID
+    ) -> bool:
+        row = transaction.execute(
+            "SELECT EXISTS(SELECT 1 FROM armi.effects WHERE subject_id=%s AND status IN ('registered','dispatching'))",
+            (subject_id,),
+        ).fetchone()
+        return row is not None and bool(row[0])
+
     def for_intent(
         self, transaction: PostgreSQLAdminTransaction, *, action_intent_id: UUID
     ) -> tuple[EffectAdminSnapshot, ...]:

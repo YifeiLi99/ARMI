@@ -31,29 +31,40 @@ _CONTENT_KEYS = {
 }
 
 
+def canonical_subject_content(document: object) -> bytes:
+    if type(document) is not dict:
+        raise PromptViolation("PROMPT-CONTENT")
+    document = cast(dict[str, Any], document)
+    if (
+        set(document) != _CONTENT_KEYS
+        or document["schema_version"] != "armi.subject-prompt.v1"
+        or any(
+            type(document[key]) is not str
+            or not 1 <= len(document[key]) <= 512
+            or not document[key].strip()
+            or "\x00" in document[key]
+            for key in ("cognition_method", "expression_method", "reflection_method")
+        )
+    ):
+        raise PromptViolation("PROMPT-CONTENT")
+    return rfc8785.dumps(cast(Any, document))
+
+
 def validate_candidate(value: CandidatePromptDraft) -> None:
     try:
         content = json.loads(value.content_bytes)
         if type(content) is not dict:
             raise ValueError
         document = cast(dict[str, object], content)
-        valid_content = (
-            set(document) == _CONTENT_KEYS
-            and document["schema_version"] == "armi.subject-prompt.v1"
-            and rfc8785.dumps(cast(Any, document)) == value.content_bytes
-            and all(
-                type(document[key]) is str
-                and 1 <= len(cast(str, document[key])) <= 512
-                and cast(str, document[key]).strip()
-                and "\x00" not in cast(str, document[key])
-                for key in (
-                    "cognition_method",
-                    "expression_method",
-                    "reflection_method",
-                )
-            )
-        )
-    except UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError:
+        valid_content = canonical_subject_content(document) == value.content_bytes
+    except (
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        KeyError,
+        TypeError,
+        ValueError,
+        PromptViolation,
+    ):
         valid_content = False
     if (
         _REF.fullmatch(value.proposal_ref) is None

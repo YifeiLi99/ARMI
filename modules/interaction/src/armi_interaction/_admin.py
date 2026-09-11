@@ -11,6 +11,28 @@ from .api import InteractionAdminInputSnapshot
 class PostgreSQLInteractionAdmin:
     __slots__ = ()
 
+    def content_parties(
+        self, transaction: PostgreSQLAdminTransaction, *, subject_id: UUID
+    ) -> tuple[UUID, UUID]:
+        rows = transaction.execute(
+            "SELECT party_id,party_kind FROM armi.parties WHERE status='active' AND "
+            "((party_kind='subject' AND represented_subject_id=%s) OR (party_kind='creator' AND creator_role='unique_primary_creator'))",
+            (subject_id,),
+        ).fetchall()
+        parties = {str(row[1]): cast(UUID, row[0]) for row in rows}
+        if set(parties) != {"subject", "creator"} or len(rows) != 2:
+            raise ValueError("ADMIN-CONTENT-PARTY-IDENTITY")
+        return parties["subject"], parties["creator"]
+
+    def content_party_kind(
+        self, transaction: PostgreSQLAdminTransaction, *, party_id: UUID
+    ) -> str | None:
+        row = transaction.execute(
+            "SELECT party_kind FROM armi.parties WHERE party_id=%s AND status='active'",
+            (party_id,),
+        ).fetchone()
+        return None if row is None else str(row[0])
+
     def scene_links(
         self, transaction: PostgreSQLAdminTransaction, *, scene_id: UUID
     ) -> tuple[UUID | None, tuple[UUID, ...]]:

@@ -661,7 +661,7 @@ class SubjectCommitPipeline:
                     CreatorResourceKind("activity"),
                     str(activity_id),
                     now,
-                    "creator-activity.v2",
+                    "creator-activity.v3",
                 )
                 for activity_id in activity_ids
             )

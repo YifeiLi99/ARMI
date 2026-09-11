@@ -8,16 +8,18 @@ CREATE TABLE armi.activities (
     activity_id uuid NOT NULL,
     subject_id uuid NOT NULL,
     activity_kind text NOT NULL,
-    origin_opportunity_id uuid NOT NULL,
+    origin_opportunity_id uuid,
     current_revision_id uuid,
     head_version bigint DEFAULT 0 NOT NULL,
     privacy_scope text NOT NULL,
     created_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
+    admin_change_id uuid,
     CONSTRAINT activities_activity_id_check CHECK ((uuid_extract_version(activity_id) = 7)),
     CONSTRAINT activities_activity_kind_check CHECK ((activity_kind = 'self_directed'::text)),
     CONSTRAINT activities_current_revision_state_check CHECK ((((head_version = 0) AND (current_revision_id IS NULL)) OR ((head_version > 0) AND (current_revision_id IS NOT NULL)))),
     CONSTRAINT activities_head_version_check CHECK ((head_version >= 0)),
-    CONSTRAINT activities_privacy_scope_check CHECK ((privacy_scope = 'private'::text))
+    CONSTRAINT activities_privacy_scope_check CHECK ((privacy_scope = 'private'::text)),
+    CONSTRAINT activities_admin_provenance CHECK (((admin_change_id IS NULL AND origin_opportunity_id IS NOT NULL) OR (admin_change_id IS NOT NULL AND origin_opportunity_id IS NULL)))
 );
 
 --
@@ -70,6 +72,7 @@ CREATE TABLE armi.activity_revisions (
     waiting_condition_kind text,
     resume_not_before timestamp(6) with time zone,
     data_rights_redacted_at timestamp(6) with time zone,
+    admin_change_id uuid,
     CONSTRAINT activity_revisions_activity_revision_id_check CHECK ((uuid_extract_version(activity_revision_id) = 7)),
     CONSTRAINT activity_revisions_check CHECK ((((revision_no = 1) AND (previous_revision_id IS NULL)) OR ((revision_no > 1) AND (previous_revision_id IS NOT NULL)))),
     CONSTRAINT activity_revisions_check1 CHECK (((data_rights_redacted_at IS NOT NULL) OR ((status = ANY (ARRAY['completed'::text, 'abandoned'::text, 'failed'::text])) = (terminal_reason IS NOT NULL)))),
@@ -77,11 +80,12 @@ CREATE TABLE armi.activity_revisions (
     CONSTRAINT activity_revisions_next_safe_step_check CHECK (((octet_length(next_safe_step) >= 1) AND (octet_length(next_safe_step) <= 4096))),
     CONSTRAINT activity_revisions_payload_shape_check CHECK (((data_rights_redacted_at IS NOT NULL) OR ((status = ANY (ARRAY['completed'::text, 'abandoned'::text, 'failed'::text])) AND (terminal_reason IS NOT NULL) AND (next_safe_step IS NULL) AND (waiting_condition IS NULL) AND (waiting_condition_kind IS NULL) AND (resumption_cue IS NULL) AND (resume_not_before IS NULL)) OR ((status = ANY (ARRAY['ready'::text, 'in_progress'::text, 'resuming'::text])) AND (terminal_reason IS NULL) AND (next_safe_step IS NOT NULL) AND (waiting_condition IS NULL) AND (waiting_condition_kind IS NULL) AND (resumption_cue IS NULL) AND (resume_not_before IS NULL)) OR ((status = 'waiting'::text) AND (terminal_reason IS NULL) AND (next_safe_step IS NOT NULL) AND (waiting_condition IS NOT NULL) AND (waiting_condition_kind = ANY (ARRAY['time'::text, 'creator_input'::text, 'external_evidence'::text])) AND (resumption_cue IS NOT NULL) AND ((waiting_condition_kind = 'time'::text) = (resume_not_before IS NOT NULL))) OR ((status = 'paused'::text) AND (terminal_reason IS NULL) AND (next_safe_step IS NOT NULL) AND (waiting_condition IS NOT NULL) AND (waiting_condition_kind = 'scheduled_review'::text) AND (resumption_cue IS NOT NULL) AND (resume_not_before IS NOT NULL)))),
     CONSTRAINT activity_revisions_proposal_ref_check CHECK (((proposal_ref IS NULL) OR (proposal_ref ~ '^proposal:[1-9][0-9]{0,2}$'::text))),
-    CONSTRAINT activity_revisions_provenance_check CHECK ((((transition_kind = ANY (ARRAY['system_pause'::text,'data_rights'::text])) AND (subject_commit_id IS NULL) AND (candidate_validation_id IS NULL) AND (proposal_ref IS NULL)) OR ((transition_kind <> ALL (ARRAY['system_pause'::text,'data_rights'::text])) AND (subject_commit_id IS NOT NULL) AND (candidate_validation_id IS NOT NULL) AND (proposal_ref IS NOT NULL)))),
+    CONSTRAINT activity_revisions_admin_provenance CHECK ((admin_change_id IS NULL AND transition_kind NOT IN ('admin_update','admin_delete')) OR (admin_change_id IS NOT NULL AND subject_commit_id IS NULL AND candidate_validation_id IS NULL AND proposal_ref IS NULL AND transition_kind IN ('created','admin_update','admin_delete'))),
+    CONSTRAINT activity_revisions_provenance_check CHECK ((admin_change_id IS NOT NULL AND subject_commit_id IS NULL AND candidate_validation_id IS NULL AND proposal_ref IS NULL) OR (((transition_kind = ANY (ARRAY['system_pause'::text,'data_rights'::text])) AND (subject_commit_id IS NULL) AND (candidate_validation_id IS NULL) AND (proposal_ref IS NULL)) OR ((transition_kind <> ALL (ARRAY['system_pause'::text,'data_rights'::text])) AND (subject_commit_id IS NOT NULL) AND (candidate_validation_id IS NOT NULL) AND (proposal_ref IS NOT NULL)))),
     CONSTRAINT activity_revisions_revision_no_check CHECK ((revision_no > 0)),
     CONSTRAINT activity_revisions_status_check CHECK ((status = ANY (ARRAY['considering'::text, 'ready'::text, 'in_progress'::text, 'waiting'::text, 'paused'::text, 'resuming'::text, 'completed'::text, 'abandoned'::text, 'failed'::text]))),
-    CONSTRAINT activity_revisions_transition_kind_check CHECK ((transition_kind = ANY (ARRAY['created'::text, 'engage'::text, 'progress'::text, 'wait'::text, 'pause'::text, 'resume'::text, 'complete'::text, 'abandon'::text, 'system_fail'::text, 'system_pause'::text, 'data_rights'::text]))),
-    CONSTRAINT activity_revisions_transition_state_check CHECK ((((transition_kind = 'created'::text) AND (revision_no = 1) AND (status = 'ready'::text)) OR ((transition_kind = 'engage'::text) AND (status = 'in_progress'::text)) OR ((transition_kind = 'progress'::text) AND (status = 'in_progress'::text)) OR ((transition_kind = 'wait'::text) AND (status = 'waiting'::text)) OR ((transition_kind = ANY (ARRAY['pause'::text, 'system_pause'::text])) AND (status = 'paused'::text)) OR ((transition_kind = 'resume'::text) AND (status = 'resuming'::text)) OR ((transition_kind = 'complete'::text) AND (status = 'completed'::text)) OR ((transition_kind = ANY (ARRAY['abandon'::text,'data_rights'::text])) AND (status = 'abandoned'::text)) OR ((transition_kind = 'system_fail'::text) AND (status = 'failed'::text)))),
+    CONSTRAINT activity_revisions_transition_kind_check CHECK ((transition_kind = ANY (ARRAY['admin_update'::text, 'admin_delete'::text, 'created'::text, 'engage'::text, 'progress'::text, 'wait'::text, 'pause'::text, 'resume'::text, 'complete'::text, 'abandon'::text, 'system_fail'::text, 'system_pause'::text, 'data_rights'::text]))),
+    CONSTRAINT activity_revisions_transition_state_check CHECK ((admin_change_id IS NOT NULL AND ((transition_kind='admin_update' AND status IN ('ready','paused','waiting')) OR (transition_kind='admin_delete' AND status='abandoned'))) OR (((transition_kind = 'created'::text) AND (revision_no = 1) AND (status = 'ready'::text)) OR ((transition_kind = 'engage'::text) AND (status = 'in_progress'::text)) OR ((transition_kind = 'progress'::text) AND (status = 'in_progress'::text)) OR ((transition_kind = 'wait'::text) AND (status = 'waiting'::text)) OR ((transition_kind = ANY (ARRAY['pause'::text, 'system_pause'::text])) AND (status = 'paused'::text)) OR ((transition_kind = 'resume'::text) AND (status = 'resuming'::text)) OR ((transition_kind = 'complete'::text) AND (status = 'completed'::text)) OR ((transition_kind = ANY (ARRAY['abandon'::text,'data_rights'::text])) AND (status = 'abandoned'::text)) OR ((transition_kind = 'system_fail'::text) AND (status = 'failed'::text)))),
     CONSTRAINT activity_revisions_waiting_kind_check CHECK (((waiting_condition_kind IS NULL) OR (waiting_condition_kind = ANY (ARRAY['time'::text, 'creator_input'::text, 'external_evidence'::text, 'scheduled_review'::text]))))
 );
 

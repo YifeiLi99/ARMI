@@ -227,7 +227,7 @@ def create_subject_life_use_cases(
             )
         response = CreatorActivityPageResponse(
             contract_version="1.0",
-            projection_version="creator-activity.v2",
+            projection_version="creator-activity.v3",
             items=[
                 CreatorActivityItemResponse(
                     activity_id=str(item.activity_id),
@@ -304,7 +304,7 @@ def create_subject_life_use_cases(
             )
         response = CreatorActivityTimelineResponse(
             contract_version="1.0",
-            projection_version="creator-activity.v2",
+            projection_version="creator-activity.v3",
             activity_id=str(timeline.activity_id),
             items=[
                 CreatorActivityTimelineItemResponse(

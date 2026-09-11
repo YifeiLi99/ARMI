@@ -10,6 +10,7 @@ from uuid import UUID
 
 from armi_kernel.application import CandidateFactClass, CandidateOwnerDraft
 from armi_kernel.contracts import OpaqueCursor
+from armi_runtime_foundation import AdminContentPort as ActivityAdminContentPort
 from armi_runtime_foundation import PostgreSQLTransaction
 
 from ._domain import (
@@ -21,8 +22,10 @@ from ._domain import (
     select_activity,
 )
 
-ACTIVITY_PROJECTION_VERSION: Final = "creator-activity.v2"
+ACTIVITY_PROJECTION_VERSION: Final = "creator-activity.v3"
 type ActivityTimelineKind = Literal[
+    "admin_update",
+    "admin_delete",
     "created",
     "engage",
     "progress",
@@ -660,6 +663,7 @@ class ActivityCommitPort(Protocol):
 
 __all__ = (
     "ACTIVITY_PROJECTION_VERSION",
+    "ActivityAdminContentPort",
     "ActivityAttentionDecisionKind",
     "ActivityCandidateSnapshot",
     "ActivityCognitionPort",

@@ -57,6 +57,39 @@ class RuntimeFoundationAdminAdapter:
             ("armi.runtime-authority:" + self._environment_id,),
         )
 
+    def content_guard(
+        self, transaction: PostgreSQLAdminTransaction, *, generation_id: UUID
+    ) -> RuntimeAdminSubject:
+        """Share Runtime custody/fence ordering, refusing contention instead of stopping work."""
+        names = (
+            "armi.execution-custody:runtime_authority:" + self._environment_id,
+            "armi.runtime-authority:" + self._environment_id,
+        )
+        for name in names:
+            locked = transaction.execute(
+                "SELECT pg_catalog.pg_try_advisory_xact_lock(pg_catalog.hashtextextended(%s,0))",
+                (name,),
+            ).fetchone()
+            if locked is None or not locked[0]:
+                raise ValueError("ADMIN-CONTENT-BUSY")
+        subject = self.subject(transaction, for_update=False)
+        if subject is None or subject.generation_id != generation_id:
+            raise ValueError("ADMIN-CONTENT-GENERATION-CONFLICT")
+        for name in (
+            f"armi.runtime-fence:subject:{subject.subject_id}",
+            f"armi.runtime-fence:generation:{generation_id}",
+        ):
+            locked = transaction.execute(
+                "SELECT pg_catalog.pg_try_advisory_xact_lock(pg_catalog.hashtextextended(%s,0))",
+                (name,),
+            ).fetchone()
+            if locked is None or not locked[0]:
+                raise ValueError("ADMIN-CONTENT-BUSY")
+        current = self.subject(transaction, for_update=True)
+        if current != subject:
+            raise ValueError("ADMIN-CONTENT-GENERATION-CONFLICT")
+        return subject
+
     def read_admin_change(
         self,
         transaction: PostgreSQLAdminTransaction,

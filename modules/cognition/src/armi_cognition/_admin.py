@@ -12,6 +12,16 @@ from .api import CognitionAdminEpisodeSnapshot
 class PostgreSQLCognitionAdmin:
     __slots__ = ()
 
+    def content_busy(
+        self, transaction: PostgreSQLAdminTransaction, *, subject_id: UUID
+    ) -> bool:
+        row = transaction.execute(
+            "SELECT EXISTS(SELECT 1 FROM armi.cognitive_episodes WHERE subject_id=%s "
+            "AND status IN ('preparing','prepared','calling_model','finalizing'))",
+            (subject_id,),
+        ).fetchone()
+        return row is not None and bool(row[0])
+
     def artifact_episodes(
         self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
     ) -> tuple[UUID, ...]:

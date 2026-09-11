@@ -9,6 +9,7 @@ from typing import Protocol, runtime_checkable
 from uuid import UUID
 
 from armi_kernel.application import CandidateFactClass, CandidateOwnerDraft
+from armi_runtime_foundation import AdminContentPort as SubjectStateAdminContentPort
 from armi_runtime_foundation import PostgreSQLAdminTransaction, PostgreSQLTransaction
 
 
@@ -286,6 +287,7 @@ __all__ = (
     "LifeModeHead",
     "SubjectComponentSummary",
     "SubjectStateAdminComponent",
+    "SubjectStateAdminContentPort",
     "SubjectStateAdminCorrectionPort",
     "SubjectStateAdminReadPort",
     "SubjectStateBirthContinuity",

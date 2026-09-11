@@ -15,11 +15,13 @@ from armi_runtime_foundation import (
 )
 
 from ._admin import PostgreSQLMaterialAdminRead
+from ._admin_content import PostgreSQLMaterialAdminContent
 from ._application import MaterialApplication
 from ._commit import PostgreSQLMaterialCommit
 from ._data_rights import PostgreSQLMaterialDataRightsParticipant
 from ._postgresql import PostgreSQLMaterialOwner
 from .api import (
+    MaterialAdminContentPort,
     MaterialAdminReadPort,
     MaterialCognitionPort,
     MaterialCommitPort,
@@ -83,9 +85,14 @@ def bootstrap_material_recovery() -> RecoveryParticipant:
     return EmptyRecoveryParticipant("material")
 
 
+def bootstrap_material_admin_content() -> MaterialAdminContentPort:
+    return PostgreSQLMaterialAdminContent()
+
+
 __all__ = (
     "MaterialModule",
     "bootstrap_material",
+    "bootstrap_material_admin_content",
     "bootstrap_material_admin_read",
     "bootstrap_material_cognition",
     "bootstrap_material_data_rights",

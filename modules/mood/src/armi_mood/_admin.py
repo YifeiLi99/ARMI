@@ -4,9 +4,14 @@ from __future__ import annotations
 
 import json
 from typing import cast
-from uuid import UUID
+from uuid import UUID, uuid7
 
-from armi_runtime_foundation import PostgreSQLAdminTransaction
+from armi_runtime_foundation import (
+    AdminContentCommand,
+    AdminContentContext,
+    AdminContentViolation,
+    PostgreSQLAdminTransaction,
+)
 
 from ._domain import validate_state
 from .api import MoodAdminComponent, MoodCorrectionHead, MoodViolation
@@ -14,6 +19,59 @@ from .api import MoodAdminComponent, MoodCorrectionHead, MoodViolation
 
 class PostgreSQLMoodAdmin:
     __slots__ = ()
+
+    def apply(
+        self,
+        transaction: PostgreSQLAdminTransaction,
+        context: AdminContentContext,
+        command: AdminContentCommand,
+    ) -> dict[str, object]:
+        if command.action != "update" or set(command.values) != {
+            "component_kind",
+            "replacement",
+        }:
+            raise AdminContentViolation("ADMIN-CONTENT-COMPONENT-OPERATION")
+        if command.object_id != context.subject_id:
+            raise AdminContentViolation("ADMIN-CONTENT-SUBJECT-CONFLICT")
+        kind = command.values["component_kind"]
+        if not isinstance(kind, str):
+            raise AdminContentViolation("ADMIN-CONTENT-COMPONENT-OPERATION")
+        replacement = self.canonicalize_replacement(
+            kind=kind, replacement=command.values["replacement"]
+        )
+        head = self.current_head(
+            transaction, subject_id=str(context.subject_id), kind=kind, for_update=True
+        )
+        if (
+            head is None
+            or head.current_version != command.expected_version
+            or head.maximum_version != head.current_version
+        ):
+            raise AdminContentViolation("ADMIN-CONTENT-VERSION-CONFLICT")
+        revision = uuid7()
+        version = head.current_version + 1
+        if not self.replace(
+            transaction,
+            revision_id=str(revision),
+            subject_id=str(context.subject_id),
+            kind=kind,
+            version=version,
+            previous_revision_id=str(head.current_revision_id),
+            replacement=replacement,
+        ):
+            raise AdminContentViolation("ADMIN-CONTENT-VERSION-CONFLICT")
+        transaction.execute(
+            "UPDATE armi.mood_revisions SET admin_change_id=%s WHERE mood_revision_id=%s",
+            (context.change_id, revision),
+        )
+        return {
+            "object_id": str(context.subject_id),
+            "component_kind": kind,
+            "revision_id": str(revision),
+            "new_version": version,
+            "history_retained": True,
+            "physical_rows_deleted": 0,
+        }
 
     def canonicalize_replacement(
         self, *, kind: str, replacement: object

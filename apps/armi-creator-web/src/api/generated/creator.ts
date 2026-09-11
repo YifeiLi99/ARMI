@@ -904,6 +904,8 @@ export interface components {
       | ("no_action" | "defer" | "need_information");
     /** @enum {string} */
     ActivityTransitionValue:
+      | "admin_update"
+      | "admin_delete"
       | "created"
       | "engage"
       | "progress"
@@ -1011,7 +1013,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "creator-activity.v2";
+      projection_version: "creator-activity.v3";
     };
     /** CreatorActivityTimelineItemResponse */
     CreatorActivityTimelineItemResponse: {
@@ -1043,7 +1045,7 @@ export interface components {
        * Projection Version
        * @constant
        */
-      projection_version: "creator-activity.v2";
+      projection_version: "creator-activity.v3";
     };
     /** CreatorCodexExecutionDetails */
     CreatorCodexExecutionDetails: {
@@ -1505,7 +1507,7 @@ export interface components {
        * @enum {string}
        */
       projection_version:
-        | "creator-activity.v2"
+        | "creator-activity.v3"
         | "creator-memory.v2"
         | "creator-maintenance.v3"
         | "life-record-query.v2"

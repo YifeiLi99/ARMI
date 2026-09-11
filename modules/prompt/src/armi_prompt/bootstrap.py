@@ -12,6 +12,7 @@ from armi_runtime_foundation import (
     RecoveryParticipant,
 )
 
+from ._admin_content import PostgreSQLPromptAdminContent
 from ._application import PromptApplication
 from ._creator import CreatorPromptService
 from ._creator_postgresql import CreatorPromptRepository
@@ -20,6 +21,7 @@ from ._postgresql import PostgreSQLPromptAdmin, PostgreSQLPromptOwner
 from ._recovery import PromptRecoveryParticipant
 from .api import (
     CreatorPromptPort,
+    PromptAdminContentPort,
     PromptAdminReferencePort,
     PromptBirthPort,
     PromptCognitionPort,
@@ -103,9 +105,14 @@ def bootstrap_prompt_recovery(read: PromptReadPort) -> RecoveryParticipant:
     return PromptRecoveryParticipant(read)
 
 
+def bootstrap_prompt_admin_content() -> PromptAdminContentPort:
+    return PostgreSQLPromptAdminContent()
+
+
 __all__ = (
     "PromptModule",
     "bootstrap_prompt",
+    "bootstrap_prompt_admin_content",
     "bootstrap_prompt_admin_reference",
     "bootstrap_prompt_cognition",
     "bootstrap_prompt_data_rights",

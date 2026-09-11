@@ -704,6 +704,9 @@ class CognitionAdminEpisodeSnapshot:
 
 @runtime_checkable
 class CognitionAdminPort(Protocol):
+    def content_busy(
+        self, transaction: PostgreSQLAdminTransaction, *, subject_id: UUID
+    ) -> bool: ...
     def artifact_episodes(
         self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
     ) -> tuple[UUID, ...]: ...

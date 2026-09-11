@@ -12,10 +12,12 @@ from armi_runtime_foundation import (
     RecoveryParticipant,
 )
 
+from ._admin import PostgreSQLRelationshipAdmin
 from ._application import RelationshipApplication
 from ._data_rights import PostgreSQLRelationshipDataRightsParticipant
 from ._postgresql import PostgreSQLRelationshipOwner
 from .api import (
+    RelationshipAdminContentPort,
     RelationshipCognitionPort,
     RelationshipCommitPort,
     RelationshipPolicyPort,
@@ -79,9 +81,14 @@ def bootstrap_relationship(
     )
 
 
+def bootstrap_relationship_admin_content() -> RelationshipAdminContentPort:
+    return PostgreSQLRelationshipAdmin()
+
+
 __all__ = (
     "RelationshipModule",
     "bootstrap_relationship",
+    "bootstrap_relationship_admin_content",
     "bootstrap_relationship_cognition",
     "bootstrap_relationship_data_rights",
     "bootstrap_relationship_recovery",

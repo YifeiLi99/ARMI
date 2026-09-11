@@ -1166,6 +1166,333 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 database_structure_digest(connection), evidence["structure_digest"]
             )
 
+    def test_online_content_owner_revisions_receipts_and_busy_fences(self) -> None:
+        from armi_admin.application.content_contracts import ContentWriteRequest
+
+        def one(
+            connection: Any, statement: str, parameters: tuple[Any, ...] = ()
+        ) -> Any:
+            row = connection.execute(statement, parameters).fetchone()
+            self.assertIsNotNone(row)
+            return row
+
+        fixture = self.create_database()
+        self._install_current(
+            fixture.migrator_dsn, environment_id=fixture.environment_id
+        )
+        packaged = packaged_birth_digests()
+        manifest = BirthManifest(
+            schema_version="armi.birth-manifest.v1",
+            environment_id=fixture.environment_id,
+            birth_request_id=uuid7(),
+            creator_party_id=uuid7(),
+            idempotency_key="online-admin-birth",
+            personality_anchor=PersonalityAnchor(
+                schema_version="armi.personality-anchor.v1",
+                voice_style="约 16 岁少女口吻",
+                traits=("清醒",),
+            ),
+            birth_contract_digest=packaged["birth_contract_digest"],
+            request_digest=Digest.from_bytes(b"online-admin-birth"),
+        )
+
+        async def birth_subject(root: Path) -> Any:
+            factory = PostgreSQLUnitOfWorkFactory(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+                pool_min=1,
+                pool_max=2,
+                acquire_timeout_seconds=2,
+                statement_timeout_seconds=5,
+                require_runtime_fence=False,
+            )
+            birth = BirthTransaction(
+                _publishing_artifact_store(root / "data/artifacts", factory),
+                ArtifactCatalogRepository(),
+                _birth_repository(),
+                factory,
+            )
+            await factory.open()
+            try:
+                return await birth.birth(manifest)
+            finally:
+                await factory.close()
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            born = asyncio.run(
+                birth_subject(root),
+                loop_factory=lambda: asyncio.SelectorEventLoop(
+                    selectors.SelectSelector()
+                ),
+            )
+            with psycopg.connect(fixture.provisioner_dsn) as connection:
+                connection.execute(
+                    "INSERT INTO armi.deployment_environments (environment_id,environment_kind,incarnation,resettable,test_controls_enabled) VALUES (%s,'acceptance',1,true,true)",
+                    (fixture.environment_id,),
+                )
+                generation = one(
+                    connection,
+                    "SELECT current_generation_id FROM armi.subjects WHERE subject_id=%s",
+                    (born.subject_id,),
+                )[0]
+                commits_before = one(
+                    connection, "SELECT count(*) FROM armi.subject_commits"
+                )[0]
+            config = AdminConfig.model_validate(
+                {
+                    "schema_version": "armi.admin-config.v9",
+                    "operator_id": "isolated-content-admin",
+                    "authorized_operations": ("content_write",),
+                    "environment_kind": "acceptance",
+                    "environment_id": str(fixture.environment_id),
+                    "environment_incarnation": 1,
+                    "resettable": True,
+                    "test_controls_enabled": True,
+                    "environment_root": root,
+                    "experiment_root": root,
+                    "database_locator": "env:ARMI_SECRET_ADMIN_DATABASE",
+                    "migrator_database_locator": "env:ARMI_SECRET_MIGRATOR_DATABASE",
+                    "preview_key_locator": "env:ARMI_SECRET_ADMIN_PREVIEW_KEY",
+                    "expected": {"package_set_digest": _ADMIN_PACKAGE_DIGEST},
+                }
+            )
+            credentials = AdminCredentialPort(
+                locator=config.locator,
+                migrator_locator=config.migrator_locator,
+                preview_locator=config.preview_locator,
+                config_root=root,
+                environ={
+                    "ARMI_SECRET_ADMIN_DATABASE": fixture.admin_role_dsn,
+                    "ARMI_SECRET_MIGRATOR_DATABASE": fixture.migrator_dsn,
+                    "ARMI_SECRET_ADMIN_PREVIEW_KEY": "isolated-content-preview",
+                },
+            )
+            composition = bootstrap_admin(config, credentials, local_owner=True)
+
+            def request(
+                owner: str,
+                action: str,
+                identity: str,
+                version: int,
+                data: Any,
+                key: str,
+            ) -> ContentWriteRequest:
+                return ContentWriteRequest.model_validate_json(
+                    json.dumps(
+                        {
+                            "environment_id": str(fixture.environment_id),
+                            "idempotency_key": key,
+                            "reason": "isolated online content acceptance",
+                            "expected_generation_id": str(generation),
+                            "change": {
+                                "owner": owner,
+                                "action": action,
+                                "object_id": identity,
+                                "expected_version": version,
+                                "data": data,
+                            },
+                        }
+                    )
+                )
+
+            def invoke(value: ContentWriteRequest) -> Any:
+                result = composition.service.database("content_write", value)
+                self.assertEqual(result.status, "succeeded", result.model_dump_json())
+                assert result.result is not None
+                self.assertEqual(result.result["execution_mode"], "online")
+                return result
+
+            try:
+                cases = {
+                    "memory": {"summary": "管理员提供的说明", "uncertainty": None},
+                    "activity": {"goal": "整理测试资料", "next_safe_step": "阅读说明"},
+                    "material": {
+                        "material_kind": "draft",
+                        "title": "测试资料",
+                        "body": "管理员写入的资料正文",
+                    },
+                    "prompt": {
+                        "prompt_kind": "creator_guidance",
+                        "content": "保持清晰表达。",
+                    },
+                    "relationship": {
+                        "other_party_id": str(manifest.creator_party_id),
+                        "facts": [
+                            {
+                                "fact_id": str(uuid7()),
+                                "kind": "party_expression",
+                                "summary": "管理员说明",
+                            }
+                        ],
+                        "interpretation": "管理员提供的关系说明",
+                    },
+                }
+
+                async def memory_context() -> Any:
+                    factory = PostgreSQLUnitOfWorkFactory(
+                        fixture.runtime_dsn,
+                        environment_id=fixture.environment_id,
+                        pool_min=1,
+                        pool_max=1,
+                        acquire_timeout_seconds=2,
+                        statement_timeout_seconds=5,
+                        require_runtime_fence=False,
+                    )
+                    module = bootstrap_memory(
+                        factory,
+                        environment_id=fixture.environment_id,
+                        creator_party_id=manifest.creator_party_id,
+                        subject_id=born.subject_id,
+                        cursor_key=hashlib.sha256(b"online-content-read").digest(),
+                        visibility=bootstrap_data_rights_core().visibility,
+                    )
+                    await factory.open()
+                    try:
+                        async with factory.unit_of_work(read_only=True) as unit:
+                            return await module.read.maintenance_context(
+                                unit.transaction,
+                                subject_id=born.subject_id,
+                                generation_id=generation,
+                                enabled=True,
+                            )
+                    finally:
+                        await factory.close()
+
+                for owner, data in cases.items():
+                    with self.subTest(owner=owner):
+                        identity = str(uuid7())
+                        if owner == "prompt":
+                            with psycopg.connect(fixture.provisioner_dsn) as connection:
+                                identity = str(
+                                    one(
+                                        connection,
+                                        "SELECT prompt_document_id FROM armi.prompt_documents WHERE subject_id=%s AND prompt_kind='creator_guidance'",
+                                        (born.subject_id,),
+                                    )[0]
+                                )
+                        created = request(
+                            owner, "create", identity, 0, data, owner + "-create"
+                        )
+                        first = invoke(created)
+                        repeated = invoke(created)
+                        self.assertEqual(first.result, repeated.result)
+                        revised = {
+                            key: value
+                            for key, value in data.items()
+                            if key not in {"material_kind", "other_party_id"}
+                        }
+                        if owner == "memory":
+                            revised["summary"] = "Administrator revised this memory"
+                        invoke(
+                            request(
+                                owner, "update", identity, 1, revised, owner + "-update"
+                            )
+                        )
+                        if owner == "memory":
+                            current_context = asyncio.run(
+                                memory_context(),
+                                loop_factory=lambda: asyncio.SelectorEventLoop(
+                                    selectors.SelectSelector()
+                                ),
+                            )
+                            self.assertEqual(len(current_context), 1)
+                            self.assertEqual(current_context[0].head_version, 2)
+                            self.assertEqual(
+                                current_context[0].summary, revised["summary"]
+                            )
+                            self.assertEqual(
+                                current_context[0].source_kind.value, "administrator"
+                            )
+                        conflict = composition.service.database(
+                            "content_write",
+                            request(
+                                owner, "update", identity, 1, revised, owner + "-stale"
+                            ),
+                        )
+                        self.assertEqual(
+                            conflict.status, "conflict", conflict.model_dump_json()
+                        )
+                        removed = invoke(
+                            request(
+                                owner, "delete", identity, 2, None, owner + "-delete"
+                            )
+                        )
+                        self.assertTrue(removed.result["change"]["history_retained"])
+                        self.assertEqual(removed.result["change"]["new_version"], 3)
+                with psycopg.connect(fixture.provisioner_dsn) as connection:
+                    components = connection.execute(
+                        "SELECT component_kind,component_version,semantic_payload FROM armi.subject_component_revisions WHERE subject_id=%s",
+                        (born.subject_id,),
+                    ).fetchall()
+                    mood = one(
+                        connection,
+                        "SELECT mood_version,semantic_payload FROM armi.mood_revisions WHERE subject_id=%s",
+                        (born.subject_id,),
+                    )
+                for kind, version, payload in components:
+                    invoke(
+                        request(
+                            "subject_state",
+                            "update",
+                            str(born.subject_id),
+                            version,
+                            {"component_kind": kind, "replacement": payload},
+                            kind + "-update",
+                        )
+                    )
+                invoke(
+                    request(
+                        "mood",
+                        "update",
+                        str(born.subject_id),
+                        mood[0],
+                        {"component_kind": "mood", "replacement": mood[1]},
+                        "mood-update",
+                    )
+                )
+                with psycopg.connect(fixture.provisioner_dsn) as blocker:
+                    blocker.execute(
+                        "SELECT pg_advisory_xact_lock_shared(hashtextextended(%s,0))",
+                        (
+                            "armi.execution-custody:runtime_authority:"
+                            + str(fixture.environment_id),
+                        ),
+                    )
+                    busy = composition.service.database(
+                        "content_write",
+                        request(
+                            "memory",
+                            "create",
+                            str(uuid7()),
+                            0,
+                            cases["memory"],
+                            "memory-busy",
+                        ),
+                    )
+                    self.assertEqual(busy.status, "conflict", busy.model_dump_json())
+                    self.assertIn("ADMIN-CONTENT-BUSY", busy.model_dump_json())
+                with psycopg.connect(fixture.provisioner_dsn) as connection:
+                    self.assertEqual(
+                        one(connection, "SELECT count(*) FROM armi.subject_commits")[0],
+                        commits_before,
+                    )
+                    self.assertEqual(
+                        one(connection, "SELECT count(*) FROM armi.admin_data_changes")[
+                            0
+                        ],
+                        19,
+                    )
+                    self.assertEqual(
+                        one(
+                            connection,
+                            "SELECT count(*) FROM armi.subjective_memory_revisions WHERE admin_change_id IS NOT NULL AND source_experience_id IS NULL AND subject_commit_id IS NULL",
+                        )[0],
+                        3,
+                    )
+            finally:
+                composition.close()
+
     def test_structured_database_management_types_conflicts_and_atomic_receipts(
         self,
     ) -> None:
@@ -2872,7 +3199,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     p1_read_projections = {
                         "/v1/scenes": "creator-scenes.v1",
                         "/v1/scenes/default/timeline?limit=1": "scene-timeline.v6",
-                        "/v1/activities": "creator-activity.v2",
+                        "/v1/activities": "creator-activity.v3",
                         "/v1/life-records?limit=1": "life-record-query.v2",
                         "/v1/memories?limit=1": "creator-memory.v2",
                         "/v1/maintenance/status": "creator-maintenance.v3",

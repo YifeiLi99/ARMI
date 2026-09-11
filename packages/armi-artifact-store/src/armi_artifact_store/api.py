@@ -61,6 +61,19 @@ class ArtifactDeletionState:
     last_error_code: str | None
 
 
+class ArtifactAdminContentPort(Protocol):
+    def prepare(
+        self, content: bytes, *, logical_kind: str, media_type: str, change_id: UUID
+    ) -> ArtifactPublication: ...
+    def register(
+        self,
+        transaction: PostgreSQLAdminTransaction,
+        *,
+        artifact_id: UUID,
+        publication: ArtifactPublication,
+    ) -> ArtifactRef: ...
+
+
 @runtime_checkable
 class ArtifactAdminPort(Protocol):
     def object_identity(
@@ -189,6 +202,7 @@ class ArtifactLifecyclePort(Protocol):
 
 
 __all__ = (
+    "ArtifactAdminContentPort",
     "ArtifactAdminPort",
     "ArtifactAdminRetirement",
     "ArtifactAdminSnapshot",

@@ -157,10 +157,12 @@ name = "armi-admin"
 version = "0.0.0"
 source = { editable = "apps/armi-admin" }
 dependencies = [
+    { name = "armi-activity" },
     { name = "armi-artifact-store" },
     { name = "armi-attention" },
     { name = "armi-codex" },
     { name = "armi-cognition" },
+    { name = "armi-data-rights" },
     { name = "armi-effect" },
     { name = "armi-evidence" },
     { name = "armi-expression" },
@@ -169,10 +171,12 @@ dependencies = [
     { name = "armi-live-vision" },
     { name = "armi-local-control" },
     { name = "armi-material" },
+    { name = "armi-memory" },
     { name = "armi-mood" },
     { name = "armi-perception" },
     { name = "armi-postgresql-contract" },
     { name = "armi-prompt" },
+    { name = "armi-relationship" },
     { name = "armi-runtime-foundation" },
     { name = "armi-subject-state" },
     { name = "armi-web-observation" },
@@ -187,10 +191,12 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "armi-activity", editable = "modules/activity" },
     { name = "armi-artifact-store", editable = "packages/armi-artifact-store" },
     { name = "armi-attention", editable = "modules/attention" },
     { name = "armi-codex", editable = "modules/codex" },
     { name = "armi-cognition", editable = "modules/cognition" },
+    { name = "armi-data-rights", editable = "modules/data-rights" },
     { name = "armi-effect", editable = "modules/effect" },
     { name = "armi-evidence", editable = "modules/evidence" },
     { name = "armi-expression", editable = "modules/expression" },
@@ -199,10 +205,12 @@ requires-dist = [
     { name = "armi-live-vision", editable = "modules/live-vision" },
     { name = "armi-local-control", editable = "packages/armi-local-control" },
     { name = "armi-material", editable = "modules/material" },
+    { name = "armi-memory", editable = "modules/memory" },
     { name = "armi-mood", editable = "modules/mood" },
     { name = "armi-perception", editable = "modules/perception" },
     { name = "armi-postgresql-contract", editable = "packages/armi-postgresql-contract" },
     { name = "armi-prompt", editable = "modules/prompt" },
+    { name = "armi-relationship", editable = "modules/relationship" },
     { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
     { name = "armi-subject-state", editable = "modules/subject-state" },
     { name = "armi-web-observation", editable = "modules/web-observation" },

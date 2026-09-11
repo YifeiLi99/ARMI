@@ -5,6 +5,7 @@
 *.md text eol=lf
 *.json text eol=lf
 *.py text eol=lf
+*.mako text eol=lf
 *.ps1 text eol=lf
 *.toml text eol=lf
 *.sql text eol=lf

@@ -11,6 +11,7 @@ from ._data_rights import PostgreSQLMoodDataRightsParticipant
 from ._postgresql import PostgreSQLMoodOwner
 from ._recovery import MoodRecoveryParticipant
 from .api import (
+    MoodAdminContentPort,
     MoodAdminCorrectionPort,
     MoodAdminReadPort,
     MoodBirthPort,
@@ -61,9 +62,14 @@ def bootstrap_mood_recovery(read: MoodReadPort) -> RecoveryParticipant:
     return MoodRecoveryParticipant(read)
 
 
+def bootstrap_mood_admin_content() -> MoodAdminContentPort:
+    return PostgreSQLMoodAdmin()
+
+
 __all__ = (
     "MoodModule",
     "bootstrap_mood",
+    "bootstrap_mood_admin_content",
     "bootstrap_mood_admin_correction",
     "bootstrap_mood_admin_read",
     "bootstrap_mood_cognition",

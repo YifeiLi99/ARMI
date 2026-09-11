@@ -9,6 +9,7 @@ from typing import Protocol, runtime_checkable
 from uuid import UUID
 
 from armi_kernel.application import CandidateFactClass, CandidateOwnerDraft
+from armi_runtime_foundation import AdminContentPort as MoodAdminContentPort
 from armi_runtime_foundation import PostgreSQLAdminTransaction, PostgreSQLTransaction
 
 
@@ -644,6 +645,7 @@ __all__ = (
     "EmotionComponent",
     "EmotionFamily",
     "MoodAdminComponent",
+    "MoodAdminContentPort",
     "MoodAdminCorrectionPort",
     "MoodAdminReadPort",
     "MoodBirthContinuity",

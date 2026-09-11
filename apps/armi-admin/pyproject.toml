@@ -3,6 +3,10 @@ name = "armi-admin"
 version = "0.0.0"
 requires-python = ">=3.14,<3.15"
 dependencies = [
+    "armi-memory==0.0.0",
+    "armi-relationship==0.0.0",
+    "armi-activity==0.0.0",
+    "armi-data-rights==0.0.0",
     "armi-local-control==0.0.0",
     "armi-artifact-store==0.0.0",
     "armi-cognition==0.0.0",
@@ -32,6 +36,10 @@ dependencies = [
 ]
 
 [tool.uv.sources]
+armi-memory = { workspace = true }
+armi-relationship = { workspace = true }
+armi-activity = { workspace = true }
+armi-data-rights = { workspace = true }
 armi-local-control = { workspace = true }
 armi-artifact-store = { workspace = true }
 armi-cognition = { workspace = true }

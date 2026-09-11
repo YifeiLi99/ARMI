@@ -12,11 +12,13 @@ from armi_runtime_foundation import (
     RecoveryParticipant,
 )
 
+from ._admin import PostgreSQLActivityAdmin
 from ._application import ActivityApplication
 from ._commit import PostgreSQLActivityCommit
 from ._data_rights import PostgreSQLActivityDataRightsParticipant
 from ._postgresql import PostgreSQLActivityRead
 from .api import (
+    ActivityAdminContentPort,
     ActivityCognitionPort,
     ActivityCommitPort,
     ActivityFocusReadPort,
@@ -71,9 +73,14 @@ def bootstrap_activity_recovery() -> RecoveryParticipant:
     return EmptyRecoveryParticipant("activity")
 
 
+def bootstrap_activity_admin_content() -> ActivityAdminContentPort:
+    return PostgreSQLActivityAdmin()
+
+
 __all__ = (
     "ActivityModule",
     "bootstrap_activity",
+    "bootstrap_activity_admin_content",
     "bootstrap_activity_cognition",
     "bootstrap_activity_data_rights",
     "bootstrap_activity_recovery",

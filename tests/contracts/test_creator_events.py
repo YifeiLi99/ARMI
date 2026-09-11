@@ -56,7 +56,7 @@ class CreatorEventContractTests(unittest.TestCase):
             resource_kind=CreatorResourceKind("activity"),
             resource_ref=str(activity_id),
             occurred_at=Instant(datetime(2026, 8, 4, tzinfo=UTC)),
-            projection_version="creator-activity.v2",
+            projection_version="creator-activity.v3",
         )
         self.assertEqual(invalidation.resource_ref, str(activity_id))
 

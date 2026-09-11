@@ -6,6 +6,8 @@
 #include <winrt/Windows.ApplicationModel.h>
 #include <winrt/Windows.Management.Deployment.h>
 #include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Foundation.Collections.h>
+#include <winrt/Windows.Data.Json.h>
 #include <fstream>
 #include <iostream>
 #include <filesystem>
@@ -65,17 +67,35 @@ int wmain(int argc, wchar_t** argv) {
             wchar_t output[65536];
             winrt::check_hresult(call(6, argv[2], output, ARRAYSIZE(output)));
             std::wstring command = L"\"" + executable.wstring() + L"\" --child-tree";
-            STARTUPINFOW startup{sizeof(startup)};
-            PROCESS_INFORMATION child{};
-            winrt::check_bool(CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr, nullptr, &startup, &child));
-            std::wstring request = L"{\"environment_id\":\"" + std::wstring(argv[2]) + L"\",\"pid\":" + std::to_wstring(child.dwProcessId) + L"}";
-            HRESULT result = call(7, request.c_str(), output, ARRAYSIZE(output));
-            if (FAILED(result)) TerminateProcess(child.hProcess, 2);
-            CloseHandle(child.hThread);
-            CloseHandle(child.hProcess);
+            using namespace winrt::Windows::Data::Json;
+            JsonObject request;
+            request.Insert(L"environment_id", JsonValue::CreateStringValue(argv[2]));
+            request.Insert(L"executable", JsonValue::CreateStringValue(executable.wstring()));
+            request.Insert(L"command", JsonValue::CreateStringValue(command));
+            request.Insert(L"cwd", JsonValue::CreateStringValue(executable.parent_path().wstring()));
+            request.Insert(L"creationflags", JsonValue::CreateNumberValue(CREATE_NO_WINDOW));
+            JsonArray variables;
+            auto block = GetEnvironmentStringsW();
+            if (!block) winrt::throw_last_error();
+            for (auto item = block; *item; item += wcslen(item) + 1) {
+                variables.Append(JsonValue::CreateStringValue(item));
+            }
+            FreeEnvironmentStringsW(block);
+            request.Insert(L"environment", variables);
+            HANDLE nullHandle = CreateFileW(L"NUL", GENERIC_READ | GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
+            if (nullHandle == INVALID_HANDLE_VALUE) winrt::throw_last_error();
+            JsonArray handles;
+            for (int i = 0; i < 3; ++i) handles.Append(JsonValue::CreateNumberValue(
+                static_cast<double>(reinterpret_cast<UINT_PTR>(nullHandle))));
+            request.Insert(L"handles", handles);
+            HRESULT result = call(7, request.Stringify().c_str(), output, ARRAYSIZE(output));
+            CloseHandle(nullHandle);
             FreeLibrary(library);
             winrt::check_hresult(result);
-            std::wcout << L"child-pid=" << child.dwProcessId << std::endl;
+            auto child = JsonObject::Parse(output);
+            CloseHandle(reinterpret_cast<HANDLE>(static_cast<UINT_PTR>(child.GetNamedNumber(L"handle"))));
+            std::wcout << L"child-pid=" << static_cast<DWORD>(child.GetNamedNumber(L"pid")) << std::endl;
             return 0;
         }
         PWSTR folder = nullptr;

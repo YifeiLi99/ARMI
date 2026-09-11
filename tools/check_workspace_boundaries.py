@@ -642,6 +642,10 @@ DISTRIBUTIONS = (
         project_dir=Path("apps/armi-admin"),
         layers=("application", "persistence", "process_control"),
         dependencies=(
+            "armi-memory==0.0.0",
+            "armi-relationship==0.0.0",
+            "armi-activity==0.0.0",
+            "armi-data-rights==0.0.0",
             "armi-local-control==0.0.0",
             "armi-artifact-store==0.0.0",
             "armi-cognition==0.0.0",
@@ -1607,6 +1611,7 @@ def _check_import(
         if (
             imported_module == "armi_relationship.bootstrap"
             and not source_module.startswith("armi_runtime.composition")
+            and source_module != "armi_admin.composition"
         ):
             violations.append(
                 Violation(
@@ -1628,8 +1633,9 @@ def _check_import(
                     "capability bootstrap is reserved for Runtime composition",
                 )
             )
-        if imported_module == "armi_memory.bootstrap" and not source_module.startswith(
-            "armi_runtime.composition"
+        if imported_module == "armi_memory.bootstrap" and not (
+            source_module.startswith("armi_runtime.composition")
+            or source_module == "armi_admin.composition"
         ):
             violations.append(
                 Violation(
@@ -1653,6 +1659,7 @@ def _check_import(
         if (
             imported_module == "armi_activity.bootstrap"
             and not source_module.startswith("armi_runtime.composition")
+            and source_module != "armi_admin.composition"
         ):
             violations.append(
                 Violation(
@@ -1841,6 +1848,7 @@ def _check_import(
         if (
             imported_module == "armi_data_rights.bootstrap"
             and not source_module.startswith("armi_runtime.composition")
+            and source_module != "armi_admin.composition"
         ):
             violations.append(
                 Violation(
@@ -2611,7 +2619,7 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         "armi_effect",
         "armi_interaction",
         "armi_attention",
-        "creator-activity.v2",
+        "creator-activity.v3",
         "creator-effect.v6",
         "creator-operation.v7",
     )

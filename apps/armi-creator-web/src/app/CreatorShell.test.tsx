@@ -129,7 +129,7 @@ function preparedContextOperation(): object {
 function activityPageResponse(goal?: string): object {
   return {
     contract_version: "1.0",
-    projection_version: "creator-activity.v2",
+    projection_version: "creator-activity.v3",
     items:
       goal === undefined
         ? []
@@ -209,6 +209,9 @@ function dataRightsResponse(): object {
 }
 
 function optionalLifeProjectionResponse(url: string): Response | undefined {
+  if (url === "/v1/data-rights/orders") {
+    return jsonResponse({contract_version: "1.0", projection_version: "data-rights-order-collection.v3", orders: []});
+  }
   if (url === "/v1/scenes") {
     return jsonResponse({
       contract_version: "1.0",
@@ -546,7 +549,7 @@ describe("Creator local connection shell", () => {
       event_kind: "activity.invalidated",
       resource_kind: "activity",
       resource_ref: ENVIRONMENT_ID,
-      projection_version: "creator-activity.v2",
+      projection_version: "creator-activity.v3",
       occurred_at: "2026-07-30T10:02:00.000000Z",
     });
     let activityReads = 0;

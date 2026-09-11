@@ -13,6 +13,7 @@ from armi_kernel.application import (
     TransactionIsolation,
     VerifiedByteStream,
 )
+from armi_runtime_foundation import AdminContentGuardPort as DataRightsAdminContentGuard
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWork,
     PostgreSQLTransaction,
@@ -203,6 +204,7 @@ __all__ = (
     "CreatorExportResult",
     "CreatorExportStatus",
     "CreatorExportViolation",
+    "DataRightsAdminContentGuard",
     "DataRightsApplyContribution",
     "DataRightsApplyRequest",
     "DataRightsArtifactField",

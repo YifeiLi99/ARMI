@@ -27,6 +27,8 @@ class ActivityStatus(StrEnum):
 
 
 class ActivityTransition(StrEnum):
+    ADMIN_UPDATE = "admin_update"
+    ADMIN_DELETE = "admin_delete"
     CREATED = "created"
     ENGAGE = "engage"
     PROGRESS = "progress"

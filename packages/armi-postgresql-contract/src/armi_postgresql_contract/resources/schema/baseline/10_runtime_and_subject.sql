@@ -99,17 +99,19 @@ CREATE TABLE armi.prompt_revisions (
     previous_revision_id uuid,
     content_artifact_id uuid NOT NULL,
     content_digest text NOT NULL,
-    author_party_id uuid NOT NULL,
+    author_party_id uuid,
     subject_commit_id uuid,
     change_reason text NOT NULL,
     activated_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
+    admin_change_id uuid,
     CONSTRAINT prompt_revisions_change_reason_check CHECK ((change_reason = ANY (ARRAY['birth'::text, 'created'::text, 'revised'::text, 'deactivated'::text, 'subject_created'::text, 'subject_revised'::text]))),
     CONSTRAINT prompt_revisions_check CHECK ((((revision_no = 1) AND (previous_revision_id IS NULL)) OR ((revision_no > 1) AND (previous_revision_id IS NOT NULL)))),
     CONSTRAINT prompt_revisions_check1 CHECK ((((change_reason = 'birth'::text) AND (revision_no = 1)) OR (change_reason <> 'birth'::text))),
     CONSTRAINT prompt_revisions_check2 CHECK ((((change_reason = ANY (ARRAY['subject_created'::text, 'subject_revised'::text])) AND (subject_commit_id IS NOT NULL)) OR ((change_reason <> ALL (ARRAY['subject_created'::text, 'subject_revised'::text])) AND (subject_commit_id IS NULL)))),
     CONSTRAINT prompt_revisions_content_digest_check CHECK ((content_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT prompt_revisions_prompt_revision_id_check CHECK ((uuid_extract_version(prompt_revision_id) = 7)),
-    CONSTRAINT prompt_revisions_revision_no_check CHECK ((revision_no >= 1))
+    CONSTRAINT prompt_revisions_revision_no_check CHECK ((revision_no >= 1)),
+    CONSTRAINT prompt_revisions_admin_provenance CHECK (((admin_change_id IS NULL AND author_party_id IS NOT NULL) OR (admin_change_id IS NOT NULL AND author_party_id IS NULL AND subject_commit_id IS NULL)))
 );
 
 --
@@ -256,9 +258,11 @@ CREATE TABLE armi.subject_component_revisions (
     created_at timestamp(6) with time zone DEFAULT clock_timestamp() NOT NULL,
     proposal_ref text,
     data_rights_redacted_at timestamp(6) with time zone,
+    admin_change_id uuid,
     CONSTRAINT subject_component_revisions_component_kind_check CHECK ((component_kind = ANY (ARRAY['self'::text, 'mind'::text, 'life_mode'::text]))),
     CONSTRAINT subject_component_revisions_component_revision_id_check CHECK ((uuid_extract_version(component_revision_id) = 7)),
     CONSTRAINT subject_component_revisions_component_version_check CHECK ((component_version > 0)),
+    CONSTRAINT subject_component_revisions_admin_provenance CHECK (admin_change_id IS NULL OR origin_kind='admin_correction'),
     CONSTRAINT subject_component_revisions_origin_check CHECK ((((origin_kind = 'bootstrap'::text) AND (component_version = 1) AND (previous_revision_id IS NULL) AND (subject_commit_id IS NULL) AND (proposal_ref IS NULL)) OR ((origin_kind = 'subject_commit'::text) AND (component_version > 1) AND (previous_revision_id IS NOT NULL) AND (subject_commit_id IS NOT NULL) AND (proposal_ref IS NOT NULL)) OR ((origin_kind = ANY (ARRAY['admin_correction'::text,'module_migration'::text,'data_rights'::text])) AND (component_version > 1) AND (previous_revision_id IS NOT NULL) AND (subject_commit_id IS NULL) AND (proposal_ref IS NULL)))),
     CONSTRAINT subject_component_revisions_origin_kind_check CHECK ((origin_kind = ANY (ARRAY['bootstrap'::text, 'subject_commit'::text, 'admin_correction'::text, 'module_migration'::text, 'data_rights'::text]))),
     CONSTRAINT subject_component_revisions_origin_ref_check CHECK ((uuid_extract_version(origin_ref) = 7)),

@@ -18,6 +18,7 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <vector>
 
 using namespace winrt;
 using namespace Windows::ApplicationModel;
@@ -39,7 +40,7 @@ struct Handle {
     explicit Handle(HANDLE handle) : value(handle) {
         if (!value || value == INVALID_HANDLE_VALUE) throw_last_error();
     }
-    ~Handle() { CloseHandle(value); }
+    ~Handle() { if (value) CloseHandle(value); }
     Handle(Handle const&) = delete;
 };
 
@@ -93,46 +94,112 @@ void activate_host(std::wstring const& environment) {
     throw hresult_error(HRESULT_FROM_WIN32(ERROR_TIMEOUT));
 }
 
-void attach_child(JsonObject const& request) {
+std::filesystem::path package_data_root();
+
+struct ProcessAttributes {
+    std::vector<std::byte> storage;
+    LPPROC_THREAD_ATTRIBUTE_LIST list;
+    ProcessAttributes() {
+        SIZE_T size = 0;
+        InitializeProcThreadAttributeList(nullptr, 3, 0, &size);
+        storage.resize(size);
+        list = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(storage.data());
+        check_bool(InitializeProcThreadAttributeList(list, 3, 0, &size));
+    }
+    ~ProcessAttributes() { DeleteProcThreadAttributeList(list); }
+    void set(DWORD_PTR key, void* value, SIZE_T size) {
+        check_bool(UpdateProcThreadAttribute(list, 0, key, value, size, nullptr, nullptr));
+    }
+};
+
+struct HostHandles {
+    HANDLE host;
+    HANDLE values[3]{};
+    explicit HostHandles(HANDLE process) : host(process) {}
+    ~HostHandles() {
+        for (auto handle : values) if (handle) {
+            HANDLE local = nullptr;
+            if (DuplicateHandle(host, handle, GetCurrentProcess(), &local, 0, FALSE,
+                DUPLICATE_CLOSE_SOURCE | DUPLICATE_SAME_ACCESS)) CloseHandle(local);
+        }
+    }
+};
+
+JsonObject spawn_child(JsonObject const& request) {
     DeploymentGate gate;
-    auto name = job_name(std::wstring(request.GetNamedString(L"environment_id")));
-    DWORD pid = static_cast<DWORD>(request.GetNamedNumber(L"pid"));
+    auto environment = std::wstring(request.GetNamedString(L"environment_id"));
+    auto name = job_name(environment);
+    DWORD pid = 0;
+    auto window = FindWindowW(L"ArmiEnvironmentHost", environment.c_str());
+    if (!window || !GetWindowThreadProcessId(window, &pid) || !host_ready(name)) {
+        throw hresult_invalid_argument(L"MSIX-HOST-NOT-READY");
+    }
+    Handle host(OpenProcess(PROCESS_CREATE_PROCESS | PROCESS_DUP_HANDLE |
+        PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid));
+    wchar_t family[PACKAGE_FAMILY_NAME_MAX_LENGTH + 1];
+    UINT32 length = ARRAYSIZE(family);
+    if (GetPackageFamilyName(host.value, &length, family) != ERROR_SUCCESS ||
+        std::wstring_view(family) != Package::Current().Id().FamilyName()) {
+        throw hresult_access_denied(L"MSIX-HOST-PACKAGE-BOUNDARY");
+    }
+    auto executable = std::filesystem::canonical(std::wstring(request.GetNamedString(L"executable")));
+    bool permitted = false;
+    for (auto root : {std::filesystem::path(Package::Current().InstalledPath().c_str()), package_data_root()}) {
+        auto prefix = std::filesystem::canonical(root).wstring() + L"\\";
+        auto path = executable.wstring();
+        permitted |= path.size() > prefix.size() && !_wcsnicmp(path.c_str(), prefix.c_str(), prefix.size());
+    }
+    DWORD flags = static_cast<DWORD>(request.GetNamedNumber(L"creationflags"));
+    if (!permitted || flags & ~(CREATE_NO_WINDOW | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)) {
+        throw hresult_invalid_argument(L"MSIX-HOST-PROCESS-BOUNDARY");
+    }
+    auto handles = request.GetNamedArray(L"handles");
+    if (handles.Size() != 3) throw hresult_invalid_argument(L"MSIX-HOST-STDIO");
+    HostHandles inherited(host.value);
+    for (UINT32 index = 0; index < 3; ++index) {
+        auto source = reinterpret_cast<HANDLE>(static_cast<UINT_PTR>(handles.GetNumberAt(index)));
+        check_bool(DuplicateHandle(GetCurrentProcess(), source, host.value,
+            &inherited.values[index], 0, TRUE, DUPLICATE_SAME_ACCESS));
+    }
     Handle job(OpenJobObjectW(JOB_OBJECT_ASSIGN_PROCESS | JOB_OBJECT_QUERY, FALSE, name.c_str()));
-    Handle process(OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid));
-    // Runtime also owns optional executables downloaded into its data directory.
-    // The caller may attach only its own newly suspended child, never another
-    // application's process supplied by PID.
-    Handle processes(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
-    PROCESSENTRY32W child{sizeof(child)};
-    bool owned = false;
-    if (Process32FirstW(processes.value, &child)) {
-        do {
-            if (child.th32ProcessID == pid) {
-                owned = child.th32ParentProcessID == GetCurrentProcessId();
-                break;
-            }
-        } while (Process32NextW(processes.value, &child));
+    ProcessAttributes attributes;
+    attributes.set(PROC_THREAD_ATTRIBUTE_PARENT_PROCESS, &host.value, sizeof(host.value));
+    attributes.set(PROC_THREAD_ATTRIBUTE_JOB_LIST, &job.value, sizeof(job.value));
+    attributes.set(PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inherited.values, sizeof(inherited.values));
+    STARTUPINFOEXW startup{};
+    startup.StartupInfo.cb = sizeof(startup);
+    startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+    startup.StartupInfo.hStdInput = inherited.values[0];
+    startup.StartupInfo.hStdOutput = inherited.values[1];
+    startup.StartupInfo.hStdError = inherited.values[2];
+    startup.lpAttributeList = attributes.list;
+    auto command = std::wstring(request.GetNamedString(L"command"));
+    auto cwd = std::wstring(request.GetNamedString(L"cwd"));
+    std::wstring variables;
+    for (auto value : request.GetNamedArray(L"environment")) {
+        variables += value.GetString();
+        variables += L'\0';
     }
-    if (!owned) throw hresult_access_denied(L"MSIX-HOST-CHILD-BOUNDARY");
-    BOOL alreadyOwned = FALSE;
-    check_bool(IsProcessInJob(process.value, job.value, &alreadyOwned));
-    if (!alreadyOwned) check_bool(AssignProcessToJobObject(job.value, process.value));
-    // Popen creates the child suspended. Resume its sole primary thread only
-    // after job assignment, so no descendant can escape before supervision.
-    Handle snapshot(CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0));
-    THREADENTRY32 entry{sizeof(entry)};
-    DWORD threadId = 0;
-    if (Thread32First(snapshot.value, &entry)) {
-        do {
-            if (entry.th32OwnerProcessID == pid) {
-                if (threadId) throw hresult_invalid_argument(L"MSIX-HOST-CHILD-NOT-SUSPENDED");
-                threadId = entry.th32ThreadID;
-            }
-        } while (Thread32Next(snapshot.value, &entry));
+    variables += L'\0';
+    PROCESS_INFORMATION process{};
+    // The system-activated host supplies the parent job chain. MCP client jobs
+    // never own these children; JOB_LIST establishes supervision at creation.
+    check_bool(CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr, TRUE,
+        flags | EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED,
+        variables.data(), cwd.empty() ? nullptr : cwd.c_str(), &startup.StartupInfo, &process));
+    Handle processHandle(process.hProcess);
+    Handle thread(process.hThread);
+    try {
+        JsonObject result;
+        result.Insert(L"pid", JsonValue::CreateNumberValue(process.dwProcessId));
+        result.Insert(L"handle", JsonValue::CreateNumberValue(static_cast<double>(reinterpret_cast<UINT_PTR>(process.hProcess))));
+        if (ResumeThread(thread.value) != 1) throw hresult_invalid_argument(L"MSIX-HOST-RESUME");
+        processHandle.value = nullptr; // transferred to the Python Popen instance
+        return result;
+    } catch (...) {
+        TerminateProcess(process.hProcess, 1);
+        throw;
     }
-    if (!threadId) throw hresult_invalid_argument(L"MSIX-HOST-CHILD-EXITED");
-    Handle thread(OpenThread(THREAD_SUSPEND_RESUME, FALSE, threadId));
-    if (ResumeThread(thread.value) != 1) throw hresult_invalid_argument(L"MSIX-HOST-CHILD-SUSPEND-STATE");
 }
 
 std::filesystem::path package_data_root() {
@@ -343,7 +410,7 @@ JsonObject candidate(std::wstring const& path, bool allowCurrent = false) {
 
 // 0 identity, 1 inspect trusted candidate, 2 defer own update,
 // 3 startup status, 4 request startup, 5 disable startup,
-// 6 activate environment host, 7 attach suspended packaged child, 8 stop idle host,
+// 6 activate environment host, 7 create supervised host child, 8 stop idle host,
 // 9 restart update, 10 request own uninstall (explicit delete or preserve).
 extern "C" __declspec(dllexport) HRESULT __stdcall armi_windows_call(
     UINT32 operation, wchar_t const* argument, wchar_t* output, UINT32 capacity) noexcept {
@@ -392,8 +459,7 @@ extern "C" __declspec(dllexport) HRESULT __stdcall armi_windows_call(
             break;
         case 7:
             if (!argument) return E_INVALIDARG;
-            attach_child(JsonObject::Parse(argument));
-            text(result, L"status", L"attached");
+            result = spawn_child(JsonObject::Parse(argument));
             break;
         case 8: {
             if (!argument) return E_INVALIDARG;
@@ -451,6 +517,11 @@ extern "C" __declspec(dllexport) HRESULT __stdcall armi_windows_call(
         if (serialized.size() >= capacity) return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
         wcscpy_s(output, capacity, serialized.c_str());
         return S_OK;
+    } catch (hresult_error const& error) {
+        if (output && capacity && error.message().size() < capacity) {
+            wcscpy_s(output, capacity, error.message().c_str());
+        }
+        return error.code();
     } catch (...) {
         return to_hresult();
     }
@@ -541,7 +612,7 @@ extern "C" __declspec(dllexport) HRESULT __stdcall armi_environment_host(wchar_t
         windowClass.hInstance = GetModuleHandleW(nullptr);
         windowClass.lpszClassName = L"ArmiEnvironmentHost";
         check_bool(RegisterClassW(&windowClass));
-        HWND window = CreateWindowExW(0, windowClass.lpszClassName, L"ARMI environment host", 0,
+        HWND window = CreateWindowExW(0, windowClass.lpszClassName, environment, 0,
             0, 0, 0, 0, nullptr, nullptr, windowClass.hInstance, nullptr);
         check_bool(window != nullptr);
         check_bool(SetEvent(ready.value));

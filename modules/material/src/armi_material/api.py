@@ -11,6 +11,7 @@ from uuid import UUID
 
 from armi_kernel.application import ArtifactId, ArtifactRef, CandidateOwnerDraft
 from armi_kernel.contracts import Instant
+from armi_runtime_foundation import AdminContentPort as MaterialAdminContentPort
 from armi_runtime_foundation import (
     PostgreSQLAdminTransaction,
     PostgreSQLRuntimeUnitOfWork,
@@ -518,6 +519,7 @@ __all__ = (
     "LifeMaterialPrivacyStatus",
     "LifeMaterialRevisionKind",
     "LifeMaterialStatus",
+    "MaterialAdminContentPort",
     "MaterialAdminItem",
     "MaterialAdminReadPort",
     "MaterialAdminSnapshot",

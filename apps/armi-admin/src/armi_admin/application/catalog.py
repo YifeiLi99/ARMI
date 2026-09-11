@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from pydantic import BaseModel
 
+from .content_contracts import ContentWriteRequest
 from .contracts import (
     AdminToolResult,
     ApplyCorrectionRequest,
@@ -92,6 +93,7 @@ class AdminOperation:
     def destructive(self) -> bool:
         return self.name in {
             "database_batch",
+            "content_write",
             "environment_reset",
             "data_deletion_apply",
             "apply_correction",
@@ -224,6 +226,7 @@ class AdminOperation:
                     self.name,
                     cast(
                         DatabaseBatchRequest
+                        | ContentWriteRequest
                         | DatabaseCatalogRequest
                         | DatabaseQueryRequest,
                         request,
@@ -241,6 +244,7 @@ class AdminOperation:
 
 
 OPERATION_DESCRIPTIONS = {
+    "content_write": "Online owner management of memory, relationships, materials, components, mood, prompts and activities. Read the object version and generation first. Appends administrator revisions and retains history. Delete follows owner semantics. Busy objects are rejected without stopping Runtime. The receipt commits atomically.",
     "database_catalog": "Read all ARMI tables and views, fields, keys, relations and explicit maintenance permissions.",
     "database_query": "Read structured predicates, selected fields and ordered pages. Values preserve PostgreSQL precision; no SQL is accepted.",
     "database_batch": "Atomically insert, update or delete explicit rows after normally stopping business processes. PostgreSQL remains running. Update/delete require primary keys and read versions. Protected identity, permission and receipt tables are read-only; this is physical maintenance, not online content editing.",
@@ -287,6 +291,7 @@ OPERATION_DESCRIPTIONS = {
 
 ADMIN_OPERATIONS = (
     AdminOperation("database_catalog", DatabaseCatalogRequest, "database"),
+    AdminOperation("content_write", ContentWriteRequest, "database"),
     AdminOperation("database_query", DatabaseQueryRequest, "database"),
     AdminOperation("database_batch", DatabaseBatchRequest, "database"),
     AdminOperation("data_deletion_preview", DataDeletionPreviewRequest, "mutate"),

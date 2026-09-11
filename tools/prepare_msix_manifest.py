@@ -23,7 +23,13 @@ NAMESPACES = {
 }
 
 
-def prepare(root: Path, config: Path, publisher: str, development: bool) -> None:
+def prepare(
+    root: Path,
+    config: Path,
+    publisher: str,
+    development: bool,
+    isolated_acceptance: bool = False,
+) -> None:
     release = yaml.safe_load(config.read_text(encoding="utf-8"))
     fields = {
         "schema_version",
@@ -40,12 +46,20 @@ def prepare(root: Path, config: Path, publisher: str, development: bool) -> None
         raise ValueError("MSIX-RELEASE-CONFIG-FIELDS")
     if release["schema_version"] != "armi.windows-release.v1":
         raise ValueError("MSIX-RELEASE-CONFIG-VERSION")
+    if isolated_acceptance and not development:
+        raise ValueError("MSIX-ISOLATED-ACCEPTANCE-REQUIRES-DEVELOPMENT")
     if development:
         release.update(
-            name="YifeiLi99.ARMI.Acceptance",
+            name="YifeiLi99.ARMI.MsixAcceptance"
+            if isolated_acceptance
+            else "YifeiLi99.ARMI.Acceptance",
             publisher=publisher,
-            data_directory="ARMI.Acceptance",
-            execution_alias="ARMI.Acceptance.exe",
+            data_directory="ARMI.MsixAcceptance"
+            if isolated_acceptance
+            else "ARMI.Acceptance",
+            execution_alias="ARMI.MsixAcceptance.exe"
+            if isolated_acceptance
+            else "ARMI.Acceptance.exe",
         )
     elif (
         release["name"] != "YifeiLi99.ARMI"
@@ -206,5 +220,12 @@ if __name__ == "__main__":
     parser.add_argument("config", type=Path)
     parser.add_argument("publisher")
     parser.add_argument("--development", action="store_true")
+    parser.add_argument("--isolated-acceptance", action="store_true")
     args = parser.parse_args()
-    prepare(args.root, args.config, args.publisher, args.development)
+    prepare(
+        args.root,
+        args.config,
+        args.publisher,
+        args.development,
+        args.isolated_acceptance,
+    )

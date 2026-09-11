@@ -4417,3 +4417,13 @@ CREATE INDEX managed_data_snapshot_parties_party_active_idx
 
 ALTER TABLE ONLY armi.cognitive_context_dependencies
     ADD CONSTRAINT cognitive_context_dependencies_episode_fkey FOREIGN KEY (cognitive_episode_id) REFERENCES armi.cognitive_episodes(cognitive_episode_id);
+
+-- Administrative revision receipts remain outside cognition provenance.
+ALTER TABLE armi.subjective_memory_revisions ADD CONSTRAINT subjective_memory_revisions_admin_change_fk FOREIGN KEY (admin_change_id) REFERENCES armi.admin_data_changes(admin_change_id) DEFERRABLE INITIALLY DEFERRED;
+ALTER TABLE armi.relationship_revisions ADD CONSTRAINT relationship_revisions_admin_change_fk FOREIGN KEY (admin_change_id) REFERENCES armi.admin_data_changes(admin_change_id) DEFERRABLE INITIALLY DEFERRED;
+ALTER TABLE armi.life_material_revisions ADD CONSTRAINT life_material_revisions_admin_change_fk FOREIGN KEY (admin_change_id) REFERENCES armi.admin_data_changes(admin_change_id) DEFERRABLE INITIALLY DEFERRED;
+ALTER TABLE armi.subject_component_revisions ADD CONSTRAINT subject_component_revisions_admin_change_fk FOREIGN KEY (admin_change_id) REFERENCES armi.admin_data_changes(admin_change_id) DEFERRABLE INITIALLY DEFERRED;
+ALTER TABLE armi.mood_revisions ADD CONSTRAINT mood_revisions_admin_change_fk FOREIGN KEY (admin_change_id) REFERENCES armi.admin_data_changes(admin_change_id) DEFERRABLE INITIALLY DEFERRED;
+ALTER TABLE armi.prompt_revisions ADD CONSTRAINT prompt_revisions_admin_change_fk FOREIGN KEY (admin_change_id) REFERENCES armi.admin_data_changes(admin_change_id) DEFERRABLE INITIALLY DEFERRED;
+ALTER TABLE armi.activities ADD CONSTRAINT activities_admin_change_fk FOREIGN KEY (admin_change_id) REFERENCES armi.admin_data_changes(admin_change_id) DEFERRABLE INITIALLY DEFERRED;
+ALTER TABLE armi.activity_revisions ADD CONSTRAINT activity_revisions_admin_change_fk FOREIGN KEY (admin_change_id) REFERENCES armi.admin_data_changes(admin_change_id) DEFERRABLE INITIALLY DEFERRED;

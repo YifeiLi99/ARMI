@@ -88,6 +88,8 @@
       },
       "ActivityTransitionValue": {
         "enum": [
+          "admin_update",
+          "admin_delete",
           "created",
           "engage",
           "progress",
@@ -395,7 +397,7 @@
             "title": "Next Cursor"
           },
           "projection_version": {
-            "const": "creator-activity.v2",
+            "const": "creator-activity.v3",
             "title": "Projection Version",
             "type": "string"
           }
@@ -507,7 +509,7 @@
             "title": "Next Cursor"
           },
           "projection_version": {
-            "const": "creator-activity.v2",
+            "const": "creator-activity.v3",
             "title": "Projection Version",
             "type": "string"
           }
@@ -1776,7 +1778,7 @@
           },
           "projection_version": {
             "enum": [
-              "creator-activity.v2",
+              "creator-activity.v3",
               "creator-memory.v2",
               "creator-maintenance.v3",
               "life-record-query.v2",

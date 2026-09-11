@@ -84,7 +84,10 @@ def _call(operation: int, argument: str | None = None) -> dict[str, Any]:
     output = ctypes.create_unicode_buffer(65536)
     result = _library().armi_windows_call(operation, argument, output, len(output))
     if result < 0:
-        raise WindowsPackageError(f"MSIX-WINDOWS-{result & 0xFFFFFFFF:08X}")
+        detail = output.value
+        raise WindowsPackageError(
+            f"MSIX-WINDOWS-{result & 0xFFFFFFFF:08X} operation={operation} {detail}".rstrip()
+        )
     return json.loads(output.value)
 
 
@@ -145,6 +148,8 @@ def data_root() -> Path | None:
         directory = "ARMI"
     elif identity.name == "YifeiLi99.ARMI.Acceptance":
         directory = "ARMI.Acceptance"
+    elif identity.name == "YifeiLi99.ARMI.MsixAcceptance":
+        directory = "ARMI.MsixAcceptance"
     else:
         raise WindowsPackageError("MSIX-PACKAGE-NAME")
     return identity.local_app_data / directory
@@ -168,25 +173,88 @@ def initialize_process_paths() -> None:
     tempfile.tempdir = str(root / "tmp")
 
 
+class _OwnedPopen(subprocess.Popen[Any]):
+    """Use CPython's pipe/wait implementation with a host-parented native spawn.
+
+    The private _execute_child seam is covered by the locked Python toolchain's
+    installed stdio and lifecycle acceptance checks.
+    """
+
+    def __init__(self, command: Any, *, environment_id: str, **options: Any) -> None:
+        self._environment_id = environment_id
+        super().__init__(command, **options)
+
+    def _execute_child(
+        self,
+        args: Any,
+        executable: Any,
+        preexec_fn: Any,
+        close_fds: Any,
+        pass_fds: Any,
+        cwd: Any,
+        env: Any,
+        startupinfo: Any,
+        creationflags: Any,
+        shell: Any,
+        p2cread: Any,
+        p2cwrite: Any,
+        c2pread: Any,
+        c2pwrite: Any,
+        errread: Any,
+        errwrite: Any,
+        *unused: Any,
+    ) -> None:
+        try:
+            if (
+                shell
+                or preexec_fn is not None
+                or pass_fds
+                or startupinfo is not None
+                or not isinstance(args, (list, tuple))
+                or not args
+            ):
+                raise WindowsPackageError("MSIX-HOST-SPAWN-OPTIONS")
+            command = [os.fsdecode(value) for value in cast(list[Any], args)]
+            variables = os.environ if env is None else env
+            result = _call(
+                7,
+                json.dumps(
+                    {
+                        "environment_id": self._environment_id,
+                        "executable": os.fsdecode(executable or command[0]),
+                        "command": subprocess.list2cmdline(command),
+                        "cwd": os.fsdecode(cwd) if cwd is not None else os.getcwd(),
+                        "creationflags": creationflags,
+                        "handles": [int(p2cread), int(c2pwrite), int(errwrite)],
+                        "environment": [
+                            f"{key}={value}"
+                            for key, value in sorted(
+                                variables.items(), key=lambda item: item[0].upper()
+                            )
+                        ],
+                    }
+                ),
+            )
+            self._child_created = True
+            self._handle = cast(Any, subprocess).Handle(int(result["handle"]))
+            self.pid = int(result["pid"])
+        finally:
+            cast(Any, self)._close_pipe_fds(
+                p2cread, p2cwrite, c2pread, c2pwrite, errread, errwrite
+            )
+
+
 def spawn_owned(
     command: Any, *, environment_id: str, **options: Any
 ) -> subprocess.Popen[Any]:
-    """Spawn suspended, attach to the independently activated host, then run."""
+    """Create inside the independently activated host's process and Job tree."""
     if package_identity() is None:
         return subprocess.Popen(command, **options)
     _call(6, environment_id)
     flags = options.get("creationflags", 0)
     if flags & subprocess.CREATE_BREAKAWAY_FROM_JOB:
         raise WindowsPackageError("MSIX-HOST-BREAKAWAY-FORBIDDEN")
-    options["creationflags"] = flags | 0x00000004  # CREATE_SUSPENDED
-    process = subprocess.Popen(command, **options)
-    try:
-        _call(7, json.dumps({"environment_id": environment_id, "pid": process.pid}))
-    except BaseException:
-        process.kill()
-        process.wait()
-        raise
-    return process
+    return _OwnedPopen(command, environment_id=environment_id, **options)
 
 
 def run_owned(

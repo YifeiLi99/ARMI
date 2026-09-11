@@ -39,7 +39,7 @@ describe("authenticated Creator event stream parser", () => {
       "activity.invalidated",
       "activity",
       "018f47a6-7b2d-7c35-8b18-684e38ab6ef6",
-      "creator-activity.v2",
+      "creator-activity.v3",
     ],
     [
       "memory.invalidated",

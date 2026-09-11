@@ -42,7 +42,7 @@ describe("Creator Activity panel", () => {
       if (String(input).startsWith("/v1/activities?")) {
         return jsonResponse({
           contract_version: "1.0",
-          projection_version: "creator-activity.v2",
+          projection_version: "creator-activity.v3",
           next_cursor: null,
           items: [
             {
@@ -68,7 +68,7 @@ describe("Creator Activity panel", () => {
       if (String(input).startsWith(`/v1/activities/${ACTIVITY_ID}/timeline?`)) {
         return jsonResponse({
           contract_version: "1.0",
-          projection_version: "creator-activity.v2",
+          projection_version: "creator-activity.v3",
           activity_id: ACTIVITY_ID,
           next_cursor: null,
           items: [

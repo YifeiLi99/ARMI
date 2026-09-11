@@ -12,10 +12,12 @@ from armi_runtime_foundation import (
     RecoveryParticipant,
 )
 
+from ._admin import PostgreSQLMemoryAdmin
 from ._application import MemoryApplication
 from ._data_rights import PostgreSQLMemoryDataRightsParticipant
 from ._postgresql import PostgreSQLMemoryOwner
 from .api import (
+    MemoryAdminContentPort,
     MemoryCognitionPort,
     MemoryCommitPort,
     MemoryProjectionPort,
@@ -79,9 +81,14 @@ def bootstrap_memory_recovery() -> RecoveryParticipant:
     return EmptyRecoveryParticipant("memory")
 
 
+def bootstrap_memory_admin_content() -> MemoryAdminContentPort:
+    return PostgreSQLMemoryAdmin()
+
+
 __all__ = (
     "MemoryModule",
     "bootstrap_memory",
+    "bootstrap_memory_admin_content",
     "bootstrap_memory_cognition",
     "bootstrap_memory_data_rights",
     "bootstrap_memory_recovery",

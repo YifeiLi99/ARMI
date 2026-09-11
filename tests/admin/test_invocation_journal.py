@@ -6,6 +6,23 @@ from armi_admin.application.invocations import (
     invocation_completed_step,
     invocation_progress,
 )
+from armi_admin.application.results import InvocationPayload
+
+
+@pytest.mark.parametrize("version", ["5.0", "6.0"])
+def test_historical_receipt_retains_original_contract_and_owner_result(
+    version: str,
+) -> None:
+    historical = {
+        "contract_version": version,
+        "status": "succeeded",
+        "operation_id": "stable",
+        "result": {"admin_change_id": "record", "change": {"new_version": 2}},
+    }
+    receipt = InvocationPayload.model_validate(
+        {"state": "finished", "result": historical}
+    )
+    assert receipt.model_dump(mode="json")["result"] == historical
 
 
 def test_active_call_reports_progress_then_preserves_interrupted_phase(
@@ -153,6 +170,7 @@ def test_completed_phase_survives_interruption_without_completing_the_call(
     def interrupted():
         invocation_progress("runtime.start")
         invocation_completed_step("runtime.start", {"status": "started", "pid": 123})
+        invocation_completed_step("napcat.start", {"status": "not_installed"})
         invocation_progress("runtime.readiness")
         raise RuntimeError("interrupted before readiness")
 
@@ -167,7 +185,8 @@ def test_completed_phase_survives_interruption_without_completing_the_call(
 
     def observe(evidence):
         assert evidence.completed_steps == {
-            "runtime.start": {"status": "started", "pid": 123}
+            "runtime.start": {"status": "started", "pid": 123},
+            "napcat.start": {"status": "not_installed"},
         }
         return None, {"basis": "insufficient_evidence"}
 
