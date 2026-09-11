@@ -65,11 +65,13 @@ class PostgreSQLMaterialAdminRead:
     def references_artifact(
         self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
     ) -> bool:
-        del transaction, artifact_id
-        # The current Admin role has no SELECT grant on material revisions.
-        # A concurrent or pre-existing reference is still protected by the FK
-        # when Artifact Store performs its catalog CAS delete.
-        return False
+        return (
+            transaction.execute(
+                "SELECT 1 FROM armi.life_material_revisions WHERE artifact_id=%s LIMIT 1",
+                (artifact_id,),
+            ).fetchone()
+            is not None
+        )
 
     def _item(
         self, transaction: PostgreSQLAdminTransaction, row: tuple[object, ...]

@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 from pathlib import Path
 
 from armi_admin.application import AdminConfig
-from armi_admin.application.catalog import ADMIN_OPERATIONS
+from armi_app.mcp import MCPBinding
 
 ROOT = Path(__file__).resolve().parents[1]
-TARGET = ROOT / "apps/armi-admin/src/armi_admin/mcp/resources/admin-config.schema.json"
-REGISTRATION = ROOT / "configs/codex/armi-admin-mcp.toml"
+TARGET = (
+    ROOT
+    / "apps/armi-admin/src/armi_admin/application/resources/admin-config.schema.json"
+)
+MCP_TARGET = ROOT / "apps/armi-app/src/armi_app/resources/mcp-binding.schema.json"
 
 
 def _expected() -> bytes:
@@ -31,18 +33,17 @@ def main() -> int:
         TARGET.write_bytes(expected)
     elif not TARGET.is_file() or TARGET.read_bytes() != expected:
         raise SystemExit("ADMIN-CONFIG-SCHEMA-DRIFT")
-    registration = REGISTRATION.read_text(encoding="utf-8")
-    registered, count = re.subn(
-        r"(?m)^enabled_tools = .*?$",
-        "enabled_tools = " + json.dumps([item.name for item in ADMIN_OPERATIONS]),
-        registration,
-    )
-    if count != 1:
-        raise SystemExit("ADMIN-MCP-REGISTRATION-CONTRACT")
+    binding = (
+        json.dumps(
+            MCPBinding.model_json_schema(), ensure_ascii=False, indent=2, sort_keys=True
+        )
+        + "\n"
+    ).encode("utf-8")
     if args.write:
-        REGISTRATION.write_text(registered, encoding="utf-8", newline="\n")
-    elif registered != registration:
-        raise SystemExit("ADMIN-MCP-REGISTRATION-DRIFT")
+        MCP_TARGET.parent.mkdir(parents=True, exist_ok=True)
+        MCP_TARGET.write_bytes(binding)
+    elif not MCP_TARGET.is_file() or MCP_TARGET.read_bytes() != binding:
+        raise SystemExit("MCP-BINDING-SCHEMA-DRIFT")
     return 0
 
 

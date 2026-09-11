@@ -1,4 +1,4 @@
-"""Product entry point; select one transport without combining its authorities."""
+"""Product entry point with one MCP transport and explicitly bound authorities."""
 
 from __future__ import annotations
 
@@ -23,23 +23,23 @@ def main(argv: list[str] | None = None) -> int:
         from ._lifetime import watch_launcher
 
         watch_launcher()
-        if not arguments:
-            parser.error("choose interaction, admin, or setup")
-        if arguments[0] in ("--help", "-h"):
-            parser.print_help()
-            return 0
-        scope = arguments.pop(0)
-        if scope not in ("interaction", "admin", "setup"):
-            parser.error("choose interaction, admin, or setup")
-        targets = {
-            ("cli", "interaction"): ("armi_runtime.cli", "main"),
-            ("cli", "admin"): ("armi_admin.cli", "main"),
-            ("cli", "setup"): ("armi_admin.setup_cli", "main"),
-            ("mcp", "interaction"): ("armi_runtime.mcp", "main"),
-            ("mcp", "admin"): ("armi_admin.mcp.entrypoint", "main"),
-            ("mcp", "setup"): ("armi_admin.setup_cli", "mcp_main"),
-        }
-        module, entry = targets[mode, scope]
+        if mode == "mcp":
+            module, entry = "armi_app.mcp", "main"
+        else:
+            if not arguments:
+                parser.error("choose interaction, admin, or setup")
+            if arguments[0] in ("--help", "-h"):
+                parser.print_help()
+                return 0
+            scope = arguments.pop(0)
+            targets = {
+                "interaction": ("armi_runtime.cli", "main"),
+                "admin": ("armi_admin.cli", "main"),
+                "setup": ("armi_admin.setup_cli", "main"),
+            }
+            if scope not in targets:
+                parser.error("choose interaction, admin, or setup")
+            module, entry = targets[scope]
     else:
         module, entry = "armi_admin.desktop", "main"
         if mode is None:

@@ -35,13 +35,15 @@ from armi_admin.application.contracts import (
 )
 from armi_admin.application.invocations import InvocationEvidence, InvocationReferences
 from armi_admin.application.service import AdminToolService
-from armi_admin.mcp.server import create_admin_server
+from armi_admin.composition import AdminComposition
+from armi_admin.machine import AdminSession
 from armi_admin.persistence import (
     AdminCorrectionGateway,
     AdminObservationGateway,
     AdminSchemaSnapshot,
 )
 from armi_admin.persistence.role_session import AdminRoleBoundPool
+from armi_app.mcp import ARMIMCPServer
 from armi_local_control.configuration.editing import EnvironmentConfiguration
 from armi_local_control.runtime_process import RuntimeProcessManager
 from mcp.client import Client
@@ -116,6 +118,18 @@ def test_private_snapshot_requires_separate_scope_before_owner_read() -> None:
     assert result.error_code == "ADMIN-PRIVATE-SCOPE-REQUIRED"
 
 
+def _server(service: AdminToolService) -> ARMIMCPServer:
+    session = AdminSession(service.config.environment_root / "admin.yaml")
+    binding = patch.object(
+        session,
+        "_bound",
+        return_value=AdminComposition(service, cast(AdminRoleBoundPool, object())),
+    )
+    binding.start()
+    unittest.addModuleCleanup(binding.stop)
+    return ARMIMCPServer(admin=session, client_path=None)
+
+
 def _current_snapshot() -> AdminSchemaSnapshot:
     return AdminSchemaSnapshot(
         server_version_num=180004,
@@ -130,7 +144,7 @@ def _current_snapshot() -> AdminSchemaSnapshot:
             "subjects",
         ),
         revision="0000",
-        baseline_identity="armi.schema-baseline.v16",
+        baseline_identity="armi.schema-baseline.v17",
         resource_digest=DIGEST,
         catalog_digest=DIGEST,
         role_policy_digest=DIGEST,
@@ -150,7 +164,7 @@ class AdminConfigurationTests(unittest.TestCase):
             )
 
     def test_only_public_config_schema_is_packaged(self) -> None:
-        resources = Path("apps/armi-admin/src/armi_admin/mcp/resources")
+        resources = Path("apps/armi-admin/src/armi_admin/application/resources")
         self.assertEqual(
             sorted(path.name for path in resources.glob("*.json")),
             ["admin-config.schema.json"],
@@ -449,7 +463,7 @@ class AdminToolServiceTests(unittest.TestCase):
 class AdminProtocolTests(unittest.TestCase):
     def test_modern_discover_and_legacy_initialize(self) -> None:
         async def exercise() -> tuple[str, str, list[str]]:
-            server = create_admin_server(_service())
+            server = _server(_service())
             async with Client(server, mode="auto") as modern:
                 names = [tool.name for tool in (await modern.list_tools()).tools]
                 modern_version = modern.protocol_version
@@ -462,10 +476,12 @@ class AdminProtocolTests(unittest.TestCase):
         self.assertNotEqual(legacy, "")
         from armi_admin.application.catalog import ADMIN_OPERATIONS
 
-        self.assertEqual(set(names), {item.name for item in ADMIN_OPERATIONS})
-        self.assertIn("environment_reset_preview", names)
-        self.assertIn("preview_correction", names)
-        self.assertIn("correction_status", names)
+        self.assertEqual(
+            set(names), {"admin_" + item.name for item in ADMIN_OPERATIONS}
+        )
+        self.assertIn("admin_environment_reset_preview", names)
+        self.assertIn("admin_preview_correction", names)
+        self.assertIn("admin_correction_status", names)
 
     def test_source_install_is_rejected_before_credentials_or_pool(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -502,8 +518,18 @@ class AdminProtocolTests(unittest.TestCase):
             environment["ARMI_SECRET_ADMIN_DATABASE"] = (
                 "postgresql://127.0.0.1:1/unavailable?connect_timeout=1"
             )
+            mcp_binding = root / "mcp.yaml"
+            mcp_binding.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "armi.mcp-binding.v1",
+                        "admin_config": str(config_path),
+                    }
+                ),
+                encoding="utf-8",
+            )
             completed = subprocess.run(
-                [sys.executable, "-m", "armi_admin.mcp.entrypoint"],
+                [sys.executable, "-m", "armi_app", "mcp", "--config", str(mcp_binding)],
                 cwd=Path.cwd(),
                 env=environment,
                 capture_output=True,
@@ -512,7 +538,7 @@ class AdminProtocolTests(unittest.TestCase):
             )
         self.assertEqual(completed.returncode, 2)
         self.assertEqual(completed.stdout, "")
-        self.assertEqual(completed.stderr.strip(), "ADMIN-PACKAGE-EDITABLE")
+        self.assertEqual(completed.stderr.strip(), "MCP-STARTUP-BINDING-INVALID")
 
     def test_correction_contract_is_strict_and_private_payload_is_typed(self) -> None:
         request = PreviewCorrectionRequest.model_validate_json(
@@ -647,10 +673,10 @@ class AdminProtocolTests(unittest.TestCase):
 
     def test_unknown_input_field_is_rejected_by_sdk(self) -> None:
         async def exercise() -> bool:
-            async with Client(create_admin_server(_service())) as client:
+            async with Client(_server(_service())) as client:
                 result = await client.call_tool(
-                    "health",
-                    {"request": {"contract_version": "1.0", "unknown": True}},
+                    "admin_health",
+                    {"contract_version": "1.0", "unknown": True},
                 )
                 return bool(result.is_error)
 
@@ -680,14 +706,13 @@ def test_mcp_scope_arrays_retain_strict_elements_and_reach_the_owner() -> None:
             "expansion_truncated": False,
         }
         service._observation = gateway
-        async with Client(create_admin_server(service)) as client:
+        async with Client(_server(service)) as client:
             request = {
-                "environment_id": ENVIRONMENT_ID,
                 "kind": "subject",
                 "object_ids": [ENVIRONMENT_ID],
                 "relations": ["current_owner"],
             }
-            result = await client.call_tool("inspect_scope", {"request": request})
+            result = await client.call_tool("admin_inspect_scope", request)
             assert not result.is_error and result.structured_content is not None
             assert (
                 result.structured_content["result"]["nodes"][0]["id"] == ENVIRONMENT_ID
@@ -700,7 +725,7 @@ def test_mcp_scope_arrays_retain_strict_elements_and_reach_the_owner() -> None:
                 cursor=None,
             )
             invalid = await client.call_tool(
-                "inspect_scope", {"request": {**request, "object_ids": [123]}}
+                "admin_inspect_scope", {**request, "object_ids": [123]}
             )
             assert invalid.is_error
             assert gateway.inspect_scope.call_count == 1

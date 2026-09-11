@@ -42,6 +42,11 @@ from .contracts import (
     TailDiagnosticsRequest,
     TraceFlowRequest,
 )
+from .database_contracts import (
+    DatabaseBatchRequest,
+    DatabaseCatalogRequest,
+    DatabaseQueryRequest,
+)
 from .results import MAINTENANCE_PAYLOADS, OTHER_HUMAN_PAYLOADS, RESULT_PAYLOADS
 
 if TYPE_CHECKING:
@@ -61,6 +66,7 @@ class AdminOperation:
         "configuration",
         "capabilities",
         "authorization",
+        "database",
     ]
 
     @property
@@ -73,6 +79,8 @@ class AdminOperation:
             "observe",
             "capabilities",
         } or self.name in {
+            "database_catalog",
+            "database_query",
             "environment_status",
             "environment_reset_preview",
             "data_deletion_preview",
@@ -83,6 +91,7 @@ class AdminOperation:
     @property
     def destructive(self) -> bool:
         return self.name in {
+            "database_batch",
             "environment_reset",
             "data_deletion_apply",
             "apply_correction",
@@ -210,6 +219,16 @@ class AdminOperation:
                 )
             case "configuration":
                 return service.configuration(cast(ConfigurationRequest, request))
+            case "database":
+                return service.database(
+                    self.name,
+                    cast(
+                        DatabaseBatchRequest
+                        | DatabaseCatalogRequest
+                        | DatabaseQueryRequest,
+                        request,
+                    ),
+                )
             case "observe":
                 return service.observe(cast(Any, self.name), cast(Any, request))
             case "lifecycle":
@@ -222,6 +241,9 @@ class AdminOperation:
 
 
 OPERATION_DESCRIPTIONS = {
+    "database_catalog": "Read all ARMI tables and views, fields, keys, relations and explicit maintenance permissions.",
+    "database_query": "Read structured predicates, selected fields and ordered pages. Values preserve PostgreSQL precision; no SQL is accepted.",
+    "database_batch": "Atomically insert, update or delete explicit rows after normally stopping business processes. PostgreSQL remains running. Update/delete require primary keys and read versions. Protected identity, permission and receipt tables are read-only; this is physical maintenance, not online content editing.",
     "data_deletion_preview": "Read owner-discovered deletion targets for Creator (no party key) or one other person; prepare a concrete authorization request without deleting data.",
     "data_deletion_apply": "Apply one Creator-authorized deletion scope; revalidate current owner targets and return the governed order and execution status.",
     "authorization_get": "Read the exact preview, recipient, expiry and single-use authorization state.",
@@ -264,6 +286,9 @@ OPERATION_DESCRIPTIONS = {
 
 
 ADMIN_OPERATIONS = (
+    AdminOperation("database_catalog", DatabaseCatalogRequest, "database"),
+    AdminOperation("database_query", DatabaseQueryRequest, "database"),
+    AdminOperation("database_batch", DatabaseBatchRequest, "database"),
     AdminOperation("data_deletion_preview", DataDeletionPreviewRequest, "mutate"),
     AdminOperation("data_deletion_apply", DataDeletionApplyRequest, "mutate"),
     AdminOperation("authorization_get", AuthorizationGetRequest, "authorization"),

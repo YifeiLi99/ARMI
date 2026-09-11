@@ -49,6 +49,21 @@ def verify_postgresql_contract(
     """Verify the server, extensions, sole revision and every catalog/ACL fact."""
 
     root = resource_root or schema_resource_root()
+    return verify_contract_identity(
+        connection,
+        expected_baseline=BASELINE_IDENTITY,
+        expected_resource=schema_resource_digest(root),
+        expected_role_policy=role_policy_digest(root),
+    )
+
+
+def verify_contract_identity(
+    connection: Any,
+    *,
+    expected_baseline: str,
+    expected_resource: str,
+    expected_role_policy: str,
+) -> PostgreSQLContractEvidence:
     try:
         version_row = connection.execute("SHOW server_version_num").fetchone()
         encoding_row = connection.execute("SHOW server_encoding").fetchone()
@@ -90,8 +105,6 @@ def verify_postgresql_contract(
         if table_count_row is None:
             raise ValueError
         current_catalog = database_catalog_digest(connection)
-        expected_resource = schema_resource_digest(root)
-        expected_role_policy = role_policy_digest(root)
     except (IndexError, TypeError, ValueError) as exc:
         raise PostgreSQLContractError("DB-DATABASE-IDENTITY") from exc
     if version != 180004:
@@ -107,7 +120,7 @@ def verify_postgresql_contract(
     if identity_rows != [
         (
             True,
-            BASELINE_IDENTITY,
+            expected_baseline,
             expected_resource,
             current_catalog,
             expected_role_policy,
@@ -122,7 +135,7 @@ def verify_postgresql_contract(
         locale=locale,
         extensions=extensions,
         revision=EXPECTED_REVISION,
-        baseline_identity=BASELINE_IDENTITY,
+        baseline_identity=expected_baseline,
         resource_digest=expected_resource,
         catalog_digest=current_catalog,
         role_policy_digest=expected_role_policy,

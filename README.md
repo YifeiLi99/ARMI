@@ -6,7 +6,7 @@
 
 ARMI 不把人格提示词、模型会话或任务 Agent 当成“她”。当前系统只承载一个持续存在的电子人：同一主体跨越对话、活动、渠道、模型、进程与重启继续生活，并在被正式接纳的经历中形成自己的 Self、Mind、记忆、关系、心情和选择。
 
-对外交互优先服务获得 Creator 委托的 Agent，再服务人类直接操作。`ARMI cli interaction` / `ARMI mcp interaction` 提供交互使用，`ARMI cli admin` / `ARMI mcp admin` 提供管理、检查与调试；Creator Web 保留。代理不是新的社交主体，代理输入沿正式 intake 记录来源，Creator 管理授权不替代 ARMI 的主体意愿。
+对外交互优先服务获得 Creator 委托的 Agent，再服务人类直接操作。`ARMI cli interaction` / 统一 MCP 的 `interaction_*` 提供交互使用，`ARMI cli admin` / 统一 MCP 的 `admin_*` 提供管理、检查与调试；Creator Web 保留。代理不是新的社交主体，代理输入沿正式 intake 记录来源，Creator 管理授权不替代 ARMI 的主体意愿。
 
 产品以完整、直接、高效的 Agent/LLM 自动化链路为第一优先级，人类界面为第二优先级。已开启的能力在配置范围内持续可用，不额外设置申请、审核、批准流程；普通回复是基础能力。简化应减少无独立职责的步骤、状态和重复记录，同时保留隐私、数据保护与执行正确性。普通 Creator 文本、语音、QQ 私聊及共用回复链的主动表达已采用直接执行、中断即结束；Codex 委托同样直接执行、中断即结束：通过 `codex.enabled` 开启后重启生效，默认关闭；执行器或凭据不可用会明确失败。保留 Creator／代理提交任务入口，由 ARMI 决定委托并自行理解结果，无逐次审批。管理端授权保持独立合同。
 
@@ -31,7 +31,7 @@ ARMI 不把人格提示词、模型会话或任务 Agent 当成“她”。当�
 | 应用 | 统一入口 `armi-app`、权威 `armi-runtime`、隔离 `armi-admin`、React Creator Web |
 | 业务 | 23 个独立 Python distribution；Capability 仅保留静态目录，其余按 owner 承担事实、恢复和数据权利责任 |
 | 底座/适配器 | Kernel、Runtime Foundation、Local Control、Artifact Store、PostgreSQL contract、NapCat、QQ、ESP32 display 共 8 个包 |
-| 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；baseline `armi.schema-baseline.v16` |
+| 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；baseline `armi.schema-baseline.v17` |
 | 物理 schema | 当前 baseline 101 张表、1269 个字段、1 个只读 view、62 个显式索引；表和生产 DML 都受 owner registry 检查 |
 | Creator API | 52 个 OpenAPI path；同源 bearer session、签名分页、SSE 投影失效刷新 |
 | 管理面 | CLI/MCP 共用 Admin 应用服务；支持绑定的 `active` / `development` / `system_test` / `acceptance`，具体操作受配置授权约束 |
@@ -88,7 +88,7 @@ Schema 实际打包在 `packages/armi-postgresql-contract/src/armi_postgresql_co
 
 Windows 11 x64 安装版包含原生 PostgreSQL、扩展、私有 Python 和已构建网页；用户不需要 Docker、全局 Python/Node、PowerShell 7 或编译器。通过开始菜单或执行别名打开 ARMI。环境准备与出生分开，未显式出生不会进入正常生活；普通启动只检查和启动已有环境。可选能力默认关闭，登录自启使用默认关闭的 Windows StartupTask，并尊重用户在系统中的禁用状态。
 
-`ARMI.exe` 是唯一对外主入口。未配置时进入设置；正常启动成功后打开 Creator Web，托盘提供设置与退出。重复启动复用同环境实例。AI 使用同一程序的 `cli interaction/admin/setup` 或 `mcp interaction/admin/setup` 模式，MCP 每次只加载一种独立权限的服务。`ARMI.exe settings` 直接打开设置。卸载使用 Windows 的应用管理，不交付独立卸载 EXE。长期进程由系统激活的私有环境宿主监督，CLI/MCP 退出不会误停环境；宿主或包被终止时，所属进程随 Job 结束。
+`ARMI.exe` 是唯一对外主入口。未配置时进入设置；正常启动成功后打开 Creator Web，托盘提供设置与退出。重复启动复用同环境实例。AI 使用同一程序的 `cli interaction/admin/setup` 或 统一 `mcp` 模式，MCP 通过同一连接提供 interaction_、admin_、setup_ 工具。`ARMI.exe settings` 直接打开设置。卸载使用 Windows 的应用管理，不交付独立卸载 EXE。长期进程由系统激活的私有环境宿主监督，CLI/MCP 退出不会误停环境；宿主或包被终止时，所属进程随 Job 结束。
 
 下文 `ARMI` 代表执行别名 `ARMI.exe`。机器接入使用稳定的绝对路径 `%LOCALAPPDATA%\Microsoft\WindowsApps\ARMI.exe` 和参数数组，不绑定含版本号的 WindowsApps 包目录。PowerShell 可用 `& "$env:LOCALAPPDATA\Microsoft\WindowsApps\ARMI.exe" cli admin identity | Out-String` 等管道命令。源码开发使用受管 Python 的 `python -m armi_app …`。
 
@@ -98,7 +98,7 @@ Windows 11 x64 安装版包含原生 PostgreSQL、扩展、私有 Python 和已�
 
 **卸载与清理：** 在 ARMI 设置的“卸载”页点击“卸载 ARMI…”。确认窗口中的“同时永久删除全部数据”每次默认不勾选；勾选后会清理当前安装版的数据目录，包括数据库、主体身份、生活记录、配置、凭据和缓存。所有环境先经 Admin 正常停止，停机失败不清理、不卸载。数据清理不可恢复，清理与 Windows 包卸载不是原子操作，失败时可能已清理部分或全部数据。直接从 Windows 设置卸载仍始终保留数据。
 
-机器使用同一 `cli setup` / `mcp setup` 用例：`{"action":"uninstall"}` 默认保留；只有 `{"action":"uninstall","delete_data":true}` 才清理。`uninstall_requested` 表示已交给原生入口处理，最终包状态以 Windows 为准；卸载会关闭此安装版的桌面与 CLI/MCP 进程。此操作不触及其他包身份或旧 Inno 数据，不影响普通安装更新的保留行为。
+机器使用同一 `cli setup` / MCP `setup_*` 用例：`{"action":"uninstall"}` 默认保留；只有 `{"action":"uninstall","delete_data":true}` 才清理。`uninstall_requested` 表示已交给原生入口处理，最终包状态以 Windows 为准；卸载会关闭此安装版的桌面与 CLI/MCP 进程。此操作不触及其他包身份或旧 Inno 数据，不影响普通安装更新的保留行为。
 
 从源码构建需要 PowerShell 7、锁定的 MSVC 与 Windows SDK `10.0.26100.0`。发布身份、版本和更新源集中在 `configs/windows-release.yaml`，Publisher 必须匹配签名证书；证书私钥不进入仓库。最终用户不执行这些命令：
 
@@ -119,7 +119,7 @@ Windows 11 x64 安装版包含原生 PostgreSQL、扩展、私有 Python 和已�
 
 该命令重新构建网页、wheels 和完整 payload，自动选择高于已安装版本与本地构建记录的四段版本，再签名并调用 Windows 安装。它仅使用 `YifeiLi99.ARMI.Acceptance` 身份和独立验收数据；已有环境先检查数据库合同，再通过 Admin 正常停机，停机失败则不请求更新。部署后核对 Windows 实际版本，关闭验收版的 GitHub 自动更新，保持环境停止，随后从开始菜单打开“ARMI 验收”即可测试。构建默认使用已准备的离线依赖缓存；缺少依赖时失败，不自动联网补齐。
 
-默认选择证书库中唯一有效且匹配验收 Publisher 的私钥证书；多个候选时显式传 `-CertificateThumbprint <指纹>`。签名和信任需预先配置，脚本不导入证书。只打包、不安装时增加 `-BuildOnly`；产物位于 `dist/msix-local/<版本>/`，可把 `.msix` 复制到另一台已信任同一测试证书的电脑后双击安装或更新。数据库合同改变时本机更新明确拒绝复用旧数据，生成的包仍保留；不会重装数据库或自动出生。
+默认选择证书库中唯一有效且匹配验收 Publisher 的私钥证书；多个候选时显式传 `-CertificateThumbprint <指纹>`。签名和信任需预先配置，脚本不导入证书。只打包、不安装时增加 `-BuildOnly`；产物位于 `dist/msix-local/<版本>/`，可把 `.msix` 复制到另一台已信任同一测试证书的电脑后双击安装或更新。数据库合同改变时，只有签名包声明了精确的受支持升级路径才继续：先正常停机、部署程序，再显式事务升级数据库。无匹配路径时在部署前拒绝；升级失败保留数据并报告程序已部署、数据库尚未升级，不重装数据库或重复出生。此流程的完整双签名包验收尚未完成，不据此更新当前使用中的实例。
 
 `dist/msix-local/` 只保留最新成功签名的一版产物；新包生成成功后自动删除旧版本，`-BuildOnly` 同样执行。构建失败删除未完成产物并保留上一成功版本；安装失败仍保留本次已签名的包。退出时清理完整 payload 和 staging，构建日志固定在 `.tmp/local-msix-build/`，下次构建替换，不按次累积。
 
@@ -137,7 +137,7 @@ Windows 11 x64 安装版包含原生 PostgreSQL、扩展、私有 Python 和已�
 '{"action":"prepare","operation_id":"<UUIDv7>"}' | & "$env:LOCALAPPDATA\Microsoft\WindowsApps\ARMI.exe" cli setup
 ```
 
-`ARMI mcp setup` 使用相同请求合同；`status`、`check`、`credential`、`birth`、`login_startup`、`admin` 和 `update` 与窗口共用用例。更新请求形如 `{"action":"update","update":{"action":"status"}}`，内部 action 可为 `status/check/prepare/apply/automatic`，自动更新设置另传 `enabled` 布尔值。配置不返回秘密正文；日常 Admin、Creator 签发和交互绑定相互独立。已有环境的正式维护入口：
+统一 MCP 的 `setup_*` 与 CLI、窗口共用应用用例；调用 MCP 时省略外层 `action`，例如 `setup_update` 的参数为 `{"update":{"action":"status"}}`。管理操作直接使用 `admin_*` 工具，不提供 `setup_admin` 转发。更新内部 action 可为 `status/check/prepare/apply/automatic`，自动更新设置另传 `enabled`。配置不返回秘密正文；显式受限绑定按各自授权范围执行。已有环境的正式维护入口：
 
 ```powershell
 $env:ARMI_ADMIN_CONFIG = 'C:\path\to\admin.yaml'
@@ -194,13 +194,34 @@ Vite 固定使用 `127.0.0.1:5173` 并代理现有 Runtime，不启动第二个�
 
 QQ 默认关闭，也不随 MSIX 预装 NapCat。在“设置 → QQ 接入”只填写你的 Creator QQ 号，ARMI 的号码在扫码登录后自动读取，点击“一键安装并启用 QQ”，自动下载固定版本的官方 Windows Node 组件、校验摘要、配置本机端口和两份独立通信密钥、启动环境并打开登录页。扫码及 QQ 安全验证仍由账号本人完成；默认只允许回复 Creator 私聊，群聊保持关闭。组件在所属环境的 `tools/napcat/`，正常停机回收受管 Node 进程，更新和默认卸载保留配置及数据。
 
-机器使用同一 `ARMI.exe cli setup` / `mcp setup` 用例：请求 `{"action":"napcat","napcat":{"action":"prepare","creator_user_id":98765,"enabled":true}}`，Creator 号码需替换为实际值；需要打开浏览器时增加 `open_login:true`。不传号码、不开启时仅安装组件；`{"action":"napcat","napcat":{"action":"status"}}` 读取安装准备进度，实时渠道状态使用 Admin `maintenance.napcat_status`。NapCat 下载来自其上游 Releases，与 ARMI 自身是否使用 GitHub 更新无关；使用须遵守上游 [许可证](https://github.com/NapNeko/NapCatQQ/blob/v4.18.9/LICENSE)。
+机器使用同一 `ARMI.exe cli setup` / MCP `setup_*` 用例：请求 `{"action":"napcat","napcat":{"action":"prepare","creator_user_id":98765,"enabled":true}}`，Creator 号码需替换为实际值；需要打开浏览器时增加 `open_login:true`。不传号码、不开启时仅安装组件；`{"action":"napcat","napcat":{"action":"status"}}` 读取安装准备进度，实时渠道状态使用 Admin `maintenance.napcat_status`。NapCat 下载来自其上游 Releases，与 ARMI 自身是否使用 GitHub 更新无关；使用须遵守上游 [许可证](https://github.com/NapNeko/NapCatQQ/blob/v4.18.9/LICENSE)。
 
 QQ 准备返回 `awaiting_login` 后，设置窗口自动检测登录并完成配置，无需再按确认按钮。CLI/MCP 调用方每隔至少 10 秒提交 `{"action":"napcat","napcat":{"action":"complete"}}`，服务从本机认证接口取得在线账号后完成绑定并返回 `account_id`；未登录继续返回等待状态。`status` 保持只读，不触发绑定。重复完成不会重复配置；自动配置中断后不会盲目重放管理操作。
 
 QQ 页面分别显示组件安装、账号登录和连接状态；进度条仅用于下载与安装。`refresh` 用例读取当前登录和渠道健康，`open_login` 打开已有登录页并启动必要环境，不重新安装或重做绑定。首次配置后的重启可能需要 QQ 再次扫码验证，此时显示 `login_required`；再次登录后仅核验连接，不循环重启。已保存的安装进度不代表当前在线，`ready` 也不等于真实消息收发已验证。
 
 模型和语音凭据提供“保存并验证”及“验证已保存的 Key”：setup `credential.action` 分别使用 `put_and_verify`（带 `value`）与 `verify`（不带值）。验证产生少量服务商用量，只发送固定测试内容。普通模型和语音专用模型分别检查真实 Responses 严格 JSON；语音以当前配置的 TTS 资源和音色生成测试句，再以当前 ASR 资源识别并核对文本。全部成功才返回 `verification.status=passed`；失败或尚未测试逐项显示。`status=configured` 只代表已保存。状态读取不联网、不沿用历史通过结果。此验证不覆盖主体认知、Web 搜索、录音文件识别或设备采集，不发送生活数据。
+
+## 统一 MCP 与数据库管理
+
+安装版只配置 `ARMI.exe mcp`；示例见 [Codex MCP 配置](configs/codex/armi-mcp.toml)。源码使用 `python -m armi_app mcp --environment-root <绝对环境目录> --installation-root <完整 payload 目录>`。环境未准备时仍可发现工具、查询设置和准备环境；结束 MCP 不停止环境。
+
+本地拥有者经私有目录 ACL、环境身份及本机绑定验证后获得完整 ARMI 管理范围，无需 Windows 提权或逐次应用内审批。受限连接使用 `--config <绝对路径>`，绑定文件为严格 YAML，格式如下；至少指定一个配置，路径必须绝对，不接受管理员声明：
+
+```yaml
+schema_version: armi.mcp-binding.v1
+admin_config: C:/path/to/restricted-admin.yaml
+interaction_config: C:/path/to/client.yaml
+```
+
+- `admin_database_catalog` 列出表、视图、字段、主键、关系和读写限制。
+- `admin_database_query` 接受 `table`、`fields`、`filters`、`order`、`limit`、`offset`。数值、数组、二进制和时间以 PostgreSQL 文本无损返回；JSON 使用 `{"postgresql_json":"<精确 JSON 文本>"}` 保留数字精度，也接受普通 JSON 输入。
+- `admin_database_batch` 接受 `idempotency_key`、`reason` 和 `changes`。每项选择 `insert/update/delete`；更新和删除必须给出完整 `key` 及查询返回的 `expected_version`。所有项同事务提交，失败全部回滚。执行前正常停止业务进程，保留 PostgreSQL 并持有环境控制锁；完成后保持停止。
+- 身份、权限、审计、管理回执及其他受保护记录不能通过表管理修改。事务内的 `admin_data_changes` 回执不伪装成认知；中断后通过 `admin_invocation_reconcile` 核对，不盲目重放。
+
+本地安装脚本支持签名资源声明的精确数据库前向路径：部署新包后显式执行升级。也可使用 CLI setup 请求 `{"action":"database_upgrade","upgrade_action":"status"}`，或 MCP `setup_database_upgrade` 参数 `{"upgrade_action":"status"}`；支持 `check/apply/status`。正常启动不升级。数据库升级失败时保留数据，分别报告程序已部署与数据库未确认，不自动降级程序。
+
+表管理是维护接口，不能代替各业务模块的在线内容编辑。各 owner 的完整在线 CRUD 及包含真实签名包的保留历史升级验收尚未完成。
 
 ## 质量门禁
 

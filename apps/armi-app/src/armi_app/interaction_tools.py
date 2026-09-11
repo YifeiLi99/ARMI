@@ -1,34 +1,26 @@
-"""Local stdio interaction MCP, sharing its client and contract with armi CLI."""
+"""Interaction tool adapter for the unified product MCP server."""
 
 from __future__ import annotations
 
-import argparse
 import json
-import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import httpx
-from armi_local_control.binding import load_client_binding
+from armi_runtime.machine import (
+    InteractionClient,
+    interaction_failure,
+    interaction_routes,
+)
 from jsonschema.exceptions import ValidationError
-from mcp.server import MCPServer
 from mcp.server.mcpserver import Context
 from mcp.types import CallToolResult, TextContent, Tool, ToolAnnotations
 
-from .application.interaction_catalog import interaction_routes
-from .interaction_client import InteractionClient, interaction_failure
 
-
-class InteractionMCPServer(MCPServer[Any]):
-    def __init__(self, client: InteractionClient) -> None:
-        super().__init__(
-            name="armi",
-            instructions="Act as the explicitly bound Creator delegate. Use capabilities, send with a stable idempotency key, then operation_wait/get and artifact_read. Acceptance is not completion. Administration is a separate armi_admin server.",
-            tools=[],
-            resources=[],
-            extensions=[],
-        )
-        self.client = client
+class InteractionTools:
+    def __init__(self, client: Callable[[], InteractionClient]) -> None:
+        self._client = client
 
     async def list_tools(self) -> list[Tool]:
         tools = [
@@ -109,6 +101,7 @@ class InteractionMCPServer(MCPServer[Any]):
         del context
         result: dict[str, Any]
         try:
+            client = self._client()
             if name == "upload_import":
                 from jsonschema import Draft202012Validator
 
@@ -117,7 +110,7 @@ class InteractionMCPServer(MCPServer[Any]):
                 )
                 if not Draft202012Validator(tool.input_schema).is_valid(arguments):  # pyright: ignore[reportUnknownMemberType] -- upstream deprecated overload
                     raise ValueError("UPLOAD-ARGUMENTS")
-                result = await self.client.import_media(
+                result = await client.import_media(
                     Path(arguments["file"]),
                     idempotency_key=arguments["idempotency_key"],
                     media_type=arguments.get("media_type"),
@@ -130,12 +123,12 @@ class InteractionMCPServer(MCPServer[Any]):
                 )
                 if not Draft202012Validator(tool.input_schema).is_valid(arguments):  # pyright: ignore[reportUnknownMemberType] -- upstream deprecated overload
                     raise ValueError("INTERACTION-ARGUMENTS")
-                result = await self.client.wait(
+                result = await client.wait(
                     arguments["result_ref"],
                     timeout_seconds=arguments.get("timeout_seconds", 20),
                 )
             else:
-                result = await self.client.invoke(name, arguments)
+                result = await client.invoke(name, arguments)
         except (ValueError, OSError, ValidationError, httpx.HTTPError) as error:
             result = interaction_failure(error)
         return CallToolResult(
@@ -147,24 +140,4 @@ class InteractionMCPServer(MCPServer[Any]):
         )
 
 
-def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(
-        prog="ARMI mcp interaction",
-        description="Creator-delegated local stdio interaction.",
-    )
-    parser.add_argument("--config", type=Path)
-    args = parser.parse_args(argv)
-    try:
-        InteractionMCPServer(InteractionClient(load_client_binding(args.config))).run(
-            "stdio"
-        )
-    except ValueError, OSError:
-        print("INTERACTION-MCP-CONFIG", file=sys.stderr)
-        raise SystemExit(2) from None
-
-
-if __name__ == "__main__":
-    main()
-
-
-__all__ = ("InteractionMCPServer", "main")
+__all__ = ("InteractionTools",)

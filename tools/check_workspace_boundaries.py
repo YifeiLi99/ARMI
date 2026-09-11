@@ -93,8 +93,21 @@ def validate_contract_single_version(root: Path) -> list[Violation]:
                 source = path.read_text(encoding="utf-8")
             except OSError, UnicodeError:
                 continue
+            upgrade_source = None
+            if (
+                path.parent
+                == root
+                / "packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/upgrades"
+                and path.suffix == ".json"
+            ):
+                document = json.loads(source)
+                if document.get("format") == "armi.database-upgrade.v1":
+                    upgrade_source = document["source"]["baseline"]
             for line_no, line in enumerate(source.splitlines(), start=1):
                 for match in _INTERNAL_CONTRACT_VERSION.finditer(line):
+                    # An exact supported source is upgrade input, not a parallel Runtime contract.
+                    if match.group(0) == upgrade_source:
+                        continue
                     family = match.group(1)
                     version = int(match.group(2))
                     occurrences.setdefault(family, {}).setdefault(version, []).append(
@@ -560,7 +573,6 @@ DISTRIBUTIONS = (
         layers=("adapters", "interfaces", "workers", "composition", "application"),
         dependencies=(
             "armi-local-control==0.0.0",
-            "mcp==2.0.0",
             "jsonschema==4.26.0",
             "alembic==1.18.5",
             "armi-adapter-qq==0.0.0",
@@ -614,13 +626,21 @@ DISTRIBUTIONS = (
         module="armi_app",
         project_dir=Path("apps/armi-app"),
         layers=(),
-        dependencies=("armi-admin==0.0.0", "armi-runtime==0.0.0"),
+        dependencies=(
+            "armi-admin==0.0.0",
+            "armi-runtime==0.0.0",
+            "armi-local-control==0.0.0",
+            "mcp==2.0.0",
+            "pydantic==2.13.4",
+            "jsonschema==4.26.0",
+            "httpx==0.28.1",
+        ),
     ),
     Distribution(
         name="armi-admin",
         module="armi_admin",
         project_dir=Path("apps/armi-admin"),
-        layers=("application", "mcp", "persistence", "process_control"),
+        layers=("application", "persistence", "process_control"),
         dependencies=(
             "armi-local-control==0.0.0",
             "armi-artifact-store==0.0.0",
@@ -641,7 +661,6 @@ DISTRIBUTIONS = (
             "armi-web-observation==0.0.0",
             "armi-runtime-foundation==0.0.0",
             "armi-postgresql-contract==0.0.0",
-            "mcp==2.0.0",
             "packaging==26.2",
             "pywin32==312",
             "cryptography==49.0.0",

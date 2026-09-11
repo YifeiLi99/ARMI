@@ -566,12 +566,23 @@ def _verify_local_media_machine(
     )
     reference = sent["result"]["result_ref"]
 
+    mcp_binding = binding.parent / "mcp-interaction.yaml"
+    mcp_binding.write_text(
+        json.dumps(
+            {
+                "schema_version": "armi.mcp-binding.v1",
+                "interaction_config": str(binding),
+            }
+        ),
+        encoding="utf-8",
+    )
+
     async def exercise() -> None:
         async with Client(
             stdio_client(
                 StdioServerParameters(
                     command=sys.executable,
-                    args=["-m", "armi_runtime.mcp", "--config", str(binding)],
+                    args=["-m", "armi_app", "mcp", "--config", str(mcp_binding)],
                     cwd=Path.cwd(),
                     env=environment,
                 )
@@ -579,7 +590,7 @@ def _verify_local_media_machine(
             read_timeout_seconds=30,
         ) as client:
             deletion_denied = await client.call_tool(
-                "data_rights_request",
+                "interaction_" + "data_rights_request",
                 {
                     "order_kind": "delete_related",
                     "idempotency_key": "unapproved-creator-delete",
@@ -616,7 +627,7 @@ def _verify_local_media_machine(
             )
             for group, action, tool_name, field, field_type in read_cases:
                 cli_result = await asyncio.to_thread(cli, group, action)
-                mcp_result = await client.call_tool(tool_name, {})
+                mcp_result = await client.call_tool("interaction_" + tool_name, {})
                 assert not mcp_result.is_error, (tool_name, mcp_result)
                 assert mcp_result.structured_content is not None
                 actual = mcp_result.structured_content["result"]
@@ -629,7 +640,7 @@ def _verify_local_media_machine(
             )
             assert created_scene["result"]["scene_key"] == cli_scene_key
             mcp_scene = await client.call_tool(
-                "scene_create", {"scene_key": mcp_scene_key}
+                "interaction_" + "scene_create", {"scene_key": mcp_scene_key}
             )
             assert not mcp_scene.is_error and mcp_scene.structured_content is not None
             assert mcp_scene.structured_content["result"]["scene_key"] == mcp_scene_key
@@ -638,7 +649,7 @@ def _verify_local_media_machine(
                     cli, "scene", action, "--scene-key", cli_scene_key
                 )
                 repeated_change = await client.call_tool(
-                    "scene_" + action, {"scene_key": cli_scene_key}
+                    "interaction_" + "scene_" + action, {"scene_key": cli_scene_key}
                 )
                 assert (
                     not repeated_change.is_error
@@ -647,7 +658,7 @@ def _verify_local_media_machine(
                 assert changed["result"]["status"] == status
                 assert repeated_change.structured_content["result"] == changed["result"]
             repeated = await client.call_tool(
-                "upload_import",
+                "interaction_" + "upload_import",
                 {
                     "file": str(source),
                     "media_type": "text/plain",
@@ -657,7 +668,7 @@ def _verify_local_media_machine(
             assert not repeated.is_error and repeated.structured_content is not None
             assert repeated.structured_content["result"] == uploaded["result"]
             accepted = await client.call_tool(
-                "message_send",
+                "interaction_" + "message_send",
                 {
                     "scene_key": "default",
                     "message": "请阅读附件",
@@ -670,7 +681,7 @@ def _verify_local_media_machine(
             deadline = time.monotonic() + 25
             while True:
                 observed = await client.call_tool(
-                    "operation_get", {"result_ref": reference}
+                    "interaction_" + "operation_get", {"result_ref": reference}
                 )
                 assert not observed.is_error and observed.structured_content is not None
                 result = observed.structured_content["result"]
@@ -682,7 +693,7 @@ def _verify_local_media_machine(
                 assert time.monotonic() < deadline, result
                 await asyncio.sleep(0.1)
             mixed = await client.call_tool(
-                "message_send",
+                "interaction_" + "message_send",
                 {
                     "scene_key": "default",
                     "attachments": [
@@ -697,7 +708,7 @@ def _verify_local_media_machine(
             deadline = time.monotonic() + 25
             while True:
                 observed = await client.call_tool(
-                    "operation_get", {"result_ref": mixed_reference}
+                    "interaction_" + "operation_get", {"result_ref": mixed_reference}
                 )
                 assert not observed.is_error and observed.structured_content is not None
                 result = observed.structured_content["result"]
@@ -1063,6 +1074,273 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             for field in contract.artifact_fields
         )
         self.assertEqual(installed, declared)
+
+    def test_supported_database_upgrade_preserves_data_and_matches_fresh_schema(
+        self,
+    ) -> None:
+        from zipfile import ZipFile
+
+        from armi_postgresql_contract.catalog_fingerprint import (
+            database_catalog_digest,
+            database_structure_digest,
+        )
+        from armi_postgresql_contract.schema_resources import (
+            BASELINE_IDENTITY,
+            schema_resource_digest,
+            schema_resource_root,
+        )
+        from armi_postgresql_contract.upgrades import (
+            apply_upgrade,
+            check_upgrade,
+            upgrade_plan,
+        )
+
+        fresh = self.create_database()
+        self._install_current(fresh.migrator_dsn, environment_id=fresh.environment_id)
+        resource = schema_resource_root().parent / "upgrades"
+        with psycopg.connect(fresh.admin_role_dsn) as connection:
+            evidence = {
+                "baseline": BASELINE_IDENTITY,
+                "schema_digest": schema_resource_digest(),
+                "structure_digest": database_structure_digest(connection),
+            }
+        reference = resource / "target-structure.json"
+        if os.environ.get("UPDATE_DATABASE_UPGRADE_REFERENCE") == "1":
+            reference.write_text(
+                json.dumps(evidence, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+        self.assertEqual(json.loads(reference.read_text(encoding="utf-8")), evidence)
+
+        old = self.create_database()
+        source = upgrade_plan()["source"]
+        with psycopg.connect(old.migrator_dsn) as connection:
+            connection.execute("SET ROLE armi_owner")
+            connection.execute("CREATE SCHEMA armi AUTHORIZATION armi_owner")
+            connection.execute(
+                "CREATE TABLE armi.alembic_version (version_num varchar(32) NOT NULL, CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))"
+            )
+            connection.execute("INSERT INTO armi.alembic_version VALUES ('0000')")
+            with ZipFile(resource / "v16-source.zip") as archive:
+                for name in sorted(archive.namelist()):
+                    if name.startswith("baseline/") and name.endswith(".sql"):
+                        connection.execute(
+                            cast(LiteralString, archive.read(name).decode("utf-8")),
+                            prepare=False,
+                        )
+            connection.execute(
+                "UPDATE armi.schema_baseline_identity SET resource_digest=%s,installed_catalog_digest=%s,role_policy_digest=%s",
+                (
+                    source["schema_digest"],
+                    database_catalog_digest(connection),
+                    source["role_policy_digest"],
+                ),
+            )
+            connection.execute(
+                "INSERT INTO armi.deployment_environments (environment_id,environment_kind,incarnation,resettable,test_controls_enabled) VALUES (%s,'acceptance',1,true,false)",
+                (old.environment_id,),
+            )
+        with psycopg.connect(old.migrator_dsn) as connection:
+            connection.execute("SET ROLE armi_owner")
+            self.assertEqual(check_upgrade(connection)["state"], "upgrade_required")
+            # PostgreSQL rolls the complete structural change back on an interrupted caller transaction.
+            with (
+                self.assertRaisesRegex(RuntimeError, "injected interruption"),
+                connection.transaction(),
+            ):
+                self.assertEqual(apply_upgrade(connection)["state"], "upgraded")
+                raise RuntimeError("injected interruption")
+            self.assertEqual(check_upgrade(connection)["state"], "upgrade_required")
+            self.assertEqual(apply_upgrade(connection)["state"], "upgraded")
+        with psycopg.connect(old.migrator_dsn) as connection:
+            connection.execute("SET ROLE armi_owner")
+            self.assertEqual(apply_upgrade(connection)["state"], "current")
+            self.assertEqual(
+                connection.execute(
+                    "SELECT environment_id,incarnation FROM armi.deployment_environments"
+                ).fetchall(),
+                [(old.environment_id, 1)],
+            )
+            self.assertEqual(
+                database_structure_digest(connection), evidence["structure_digest"]
+            )
+
+    def test_structured_database_management_types_conflicts_and_atomic_receipts(
+        self,
+    ) -> None:
+        from unittest.mock import Mock, patch
+
+        from armi_admin.application.database_contracts import (
+            DatabaseBatchRequest,
+            DatabaseCatalogRequest,
+            DatabaseQueryRequest,
+        )
+        from armi_admin.application.database_management import DatabaseManagement
+        from armi_admin.persistence.database_tables import DatabaseTableError
+        from armi_postgresql_contract.table_policy import (
+            TABLE_OWNERSHIP,
+            TableOwnership,
+        )
+
+        fixture = self.create_database()
+        self._install_current(
+            fixture.migrator_dsn, environment_id=fixture.environment_id
+        )
+        with psycopg.connect(fixture.provisioner_dsn) as connection:
+            connection.execute(
+                "INSERT INTO armi.deployment_environments (environment_id,environment_kind,incarnation,resettable,test_controls_enabled) VALUES (%s,'acceptance',1,true,false)",
+                (fixture.environment_id,),
+            )
+            # A real PostgreSQL table exercises codecs and constraints that do not all occur together in a business table.
+            connection.execute(
+                "CREATE TABLE armi.database_management_fixture (id uuid PRIMARY KEY, amount numeric(30,9) NOT NULL, payload jsonb NOT NULL, occurred_at timestamptz NOT NULL, content bytea NOT NULL, tags integer[] NOT NULL, count integer NOT NULL CHECK (count >= 0))"
+            )
+            connection.execute(
+                "GRANT SELECT,INSERT,UPDATE,DELETE ON armi.database_management_fixture TO armi_admin"
+            )
+        config = Mock(spec=AdminConfig)
+        config.environment_id = str(fixture.environment_id)
+        config.environment_incarnation = 1
+        config.operator_id = "isolated-admin"
+        pool = AdminRoleBoundPool(
+            fixture.admin_role_dsn, expected_role=fixture.admin_role
+        )
+        manager = DatabaseManagement(config, pool)
+        environment: dict[str, Any] = {"environment_id": str(fixture.environment_id)}
+        first_id, second_id = str(uuid7()), str(uuid7())
+
+        def batch(key: str, changes: list[dict[str, Any]]) -> DatabaseBatchRequest:
+            return DatabaseBatchRequest.model_validate_json(
+                json.dumps(
+                    {
+                        **environment,
+                        "idempotency_key": key,
+                        "reason": "isolated database verification",
+                        "changes": changes,
+                    }
+                )
+            )
+
+        values = {
+            "id": first_id,
+            "amount": "123456789012345678901.123456789",
+            "payload": {"postgresql_json": '{"exact":123456789012345678901.123456789}'},
+            "occurred_at": "2026-09-11T01:02:03.123456+00:00",
+            "content": "\\x0001ff",
+            "tags": "{1,2,3}",
+            "count": 1,
+        }
+        try:
+            with patch.dict(
+                TABLE_OWNERSHIP,
+                {
+                    "database_management_fixture": TableOwnership(
+                        "runtime", maintenance_writable=True
+                    )
+                },
+            ):
+                catalog = manager.read(DatabaseCatalogRequest(**environment))
+                policies = {table["table"]: table for table in catalog["tables"]}
+                self.assertFalse(policies["subjects"]["permissions"]["update"])
+                self.assertFalse(
+                    policies["admin_data_changes"]["permissions"]["insert"]
+                )
+                insert = batch(
+                    "insert",
+                    [
+                        {
+                            "action": "insert",
+                            "table": "database_management_fixture",
+                            "values": values,
+                        }
+                    ],
+                )
+                receipt = manager.mutate(insert)
+                self.assertEqual(manager.mutate(insert), receipt)
+                page = manager.read(
+                    DatabaseQueryRequest(
+                        **environment, table="database_management_fixture", limit=1
+                    )
+                )
+                row = page["rows"][0]
+                self.assertEqual(row["values"]["amount"], values["amount"])
+                self.assertEqual(row["values"]["content"], values["content"])
+                self.assertEqual(row["values"]["tags"], "{1,2,3}")
+                self.assertIn(
+                    "123456789012345678901.123456789",
+                    row["values"]["payload"]["postgresql_json"],
+                )
+                update = {
+                    "action": "update",
+                    "table": "database_management_fixture",
+                    "key": {"id": first_id},
+                    "expected_version": row["version"],
+                    "values": {"count": 2},
+                }
+                with self.assertRaises(psycopg.errors.CheckViolation):
+                    manager.mutate(
+                        batch(
+                            "rollback",
+                            [
+                                update,
+                                {
+                                    "action": "insert",
+                                    "table": "database_management_fixture",
+                                    "values": {**values, "id": second_id, "count": -1},
+                                },
+                            ],
+                        )
+                    )
+                after_failure = manager.read(
+                    DatabaseQueryRequest(
+                        **environment, table="database_management_fixture"
+                    )
+                )
+                self.assertEqual(after_failure["rows"], page["rows"])
+                changed = manager.mutate(batch("update", [update]))
+                with self.assertRaisesRegex(DatabaseTableError, "VERSION-CONFLICT"):
+                    manager.mutate(batch("stale", [update]))
+                deletion = batch(
+                    "delete",
+                    [
+                        {
+                            "action": "delete",
+                            "table": "database_management_fixture",
+                            "key": {"id": first_id},
+                            "expected_version": changed["changes"][0]["new_version"],
+                        }
+                    ],
+                )
+                manager.mutate(deletion)
+                self.assertEqual(
+                    manager.read(
+                        DatabaseQueryRequest(
+                            **environment, table="database_management_fixture"
+                        )
+                    )["rows"],
+                    [],
+                )
+                with self.assertRaisesRegex(DatabaseTableError, "READ-ONLY"):
+                    manager.mutate(
+                        batch(
+                            "protected",
+                            [
+                                {
+                                    "action": "insert",
+                                    "table": "subjects",
+                                    "values": {"subject_id": str(uuid7())},
+                                }
+                            ],
+                        )
+                    )
+            with psycopg.connect(fixture.admin_role_dsn) as connection:
+                keys = connection.execute(
+                    "SELECT idempotency_key FROM armi.admin_data_changes ORDER BY idempotency_key"
+                ).fetchall()
+                self.assertEqual(keys, [("delete",), ("insert",), ("update",)])
+        finally:
+            pool.close()
 
     def test_current_schema_installs_once_into_an_empty_database(self) -> None:
         fixture = self.create_database(environment_id=_SUMMARY_ENVIRONMENT_ID)

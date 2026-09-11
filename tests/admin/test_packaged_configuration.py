@@ -70,6 +70,22 @@ def test_package_upgrade_resolves_resources_without_rewriting_admin_identity(
     bundle.database = database.model_copy(update={"schema_digest": "incompatible"})
     with pytest.raises(AdminConfigError, match="DATABASE-INCOMPATIBLE"):
         load_admin_config({"ARMI_ADMIN_CONFIG": str(config_path)})
+    from armi_postgresql_contract.upgrades import upgrade_plan, upgrade_target
+
+    (environment / ".setup/program.json").write_text(
+        json.dumps(
+            {"package_family": identity.family, "database": upgrade_plan()["source"]}
+        ),
+        encoding="utf-8",
+    )
+    bundle.database = BundleDatabase.model_validate(upgrade_target())
+    with pytest.raises(AdminConfigError, match="DATABASE-INCOMPATIBLE"):
+        load_admin_config({"ARMI_ADMIN_CONFIG": str(config_path)})
+    upgrade_config, _ = load_admin_config(
+        {"ARMI_ADMIN_CONFIG": str(config_path)}, allow_supported_database_upgrade=True
+    )
+    assert upgrade_config.environment_id == value["environment_id"]
+    assert config_path.read_bytes() == content
     bundle.database = database
     identity.family = "Other_test"
     with pytest.raises(AdminConfigError, match="PACKAGE-FAMILY"):

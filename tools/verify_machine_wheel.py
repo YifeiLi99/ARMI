@@ -12,7 +12,6 @@ from tempfile import TemporaryDirectory
 from uuid import uuid7
 
 from armi_admin.application import AdminConfig, admin_package_set_digest
-from armi_admin.application.catalog import ADMIN_OPERATIONS
 from mcp.client import Client
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
@@ -64,11 +63,18 @@ async def verify(
     assert command.returncode == 0, command.stdout + command.stderr
     cli = json.loads(command.stdout)
     assert cli["status"] == "succeeded"
+    binding = root / "mcp.yaml"
+    binding.write_text(
+        json.dumps(
+            {"schema_version": "armi.mcp-binding.v1", "admin_config": str(config)}
+        ),
+        encoding="utf-8",
+    )
     async with Client(
         stdio_client(
             StdioServerParameters(
                 command=entry[0],
-                args=[*entry[1:], "mcp", "admin"],
+                args=[*entry[1:], "mcp", "--config", str(binding)],
                 cwd=root,
                 env=environment,
             )
@@ -77,13 +83,14 @@ async def verify(
     ) as client:
         listed = await client.list_tools()
         assert {tool.name for tool in listed.tools} == {
-            item.name for item in ADMIN_OPERATIONS
+            "admin_capabilities",
+            "admin_environment_status",
         }
-        called = await client.call_tool("capabilities", {"request": {}})
+        called = await client.call_tool("admin_capabilities", {})
         assert not called.is_error and called.structured_content is not None
         assert called.structured_content["result"] == cli["result"]
         denied = await client.call_tool(
-            "arm_fault",
+            "admin_arm_fault",
             {
                 "request": {
                     "environment_id": environment_id,
@@ -97,7 +104,7 @@ async def verify(
         )
         assert denied.structured_content is not None
         assert denied.structured_content["status"] == "rejected"
-        assert denied.structured_content["error_code"] == "ADMIN-SCOPE-REQUIRED"
+        assert denied.structured_content["error_code"] == "MCP-TOOL-NOT-AUTHORIZED"
     print("machine-wheel: CLI/MCP capability parity and cold active discovery passed")
 
 

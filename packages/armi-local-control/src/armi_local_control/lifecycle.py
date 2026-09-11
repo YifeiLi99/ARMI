@@ -116,6 +116,32 @@ class LocalEnvironmentController:
         with environment_control_lock(self.root, self.environment_id):
             return self._execute(action, component=component)
 
+    def maintain_database[T](self, operation: Callable[[], T]) -> T:
+        """Stop business processes and hold the lifecycle lock through maintenance.
+
+        PostgreSQL stays available. Failure to confirm any stop prevents the
+        callback; successful maintenance deliberately leaves Runtime stopped.
+        """
+        with environment_control_lock(self.root, self.environment_id):
+            self._stop_business_processes()
+            return operation()
+
+    def _stop_business_processes(self) -> dict[str, Any]:
+        runtime = self._execute("stop", component="runtime")
+        napcat = self._step("napcat.stop", NapCatNode(self.root).stop)
+        if napcat.get("status") != "stopped":
+            raise RuntimeViolation(
+                "LOCAL-NAPCAT-STOP-UNKNOWN", "NapCat stop is unconfirmed"
+            )
+        semantic = self._step(
+            "semantic.stop", SemanticRecallProcessManager(self.root).stop
+        )
+        if semantic.get("status") != "stopped":
+            raise RuntimeViolation(
+                "LOCAL-SEMANTIC-STOP-UNKNOWN", "semantic stop is unconfirmed"
+            )
+        return {"runtime": runtime, "semantic_recall": semantic}
+
     def _execute(
         self,
         action: Literal["start", "stop", "restart", "status"],
@@ -175,22 +201,13 @@ class LocalEnvironmentController:
             self._execute("stop")
             return self._execute("start")
         if action == "stop":
-            runtime = self._execute("stop", component="runtime")
-            self._step("napcat.stop", NapCatNode(self.root).stop)
-            semantic = self._step(
-                "semantic.stop", SemanticRecallProcessManager(self.root).stop
-            )
-            if semantic.get("status") != "stopped":
-                raise RuntimeViolation(
-                    "LOCAL-SEMANTIC-STOP-UNKNOWN", "semantic stop is unconfirmed"
-                )
+            business = self._stop_business_processes()
             database = self._step("postgresql.stop", lambda: self.database("stop"))
             from .windows_package import stop_idle_host
 
             stop_idle_host(self.environment_id)
             return {
-                "runtime": runtime,
-                "semantic_recall": semantic,
+                **business,
                 "postgresql": database,
             }
         database = self._step("postgresql.start", lambda: self.database("start"))

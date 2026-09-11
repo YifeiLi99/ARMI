@@ -173,3 +173,53 @@ def test_postgresql_status_verifies_database_after_native_process(
     native.return_value.execute.assert_called_once_with("status")
     probe.assert_called_once()
     assert result["role_status"] == "verified"
+
+
+def test_database_maintenance_holds_lock_and_keeps_postgresql(tmp_path: Path) -> None:
+    control = controller(tmp_path)
+    control.runtime = Mock()
+    control.runtime.stop.return_value = {"status": "stopped"}
+
+    def write() -> str:
+        with pytest.raises(RuntimeViolation, match="CLI-RUNTIME-CONTROL-BUSY"):
+            control.execute("start")
+        return "committed"
+
+    with (
+        patch.object(control, "database") as database,
+        patch("armi_local_control.lifecycle.NapCatNode") as napcat,
+        patch("armi_local_control.lifecycle.SemanticRecallProcessManager") as semantic,
+    ):
+        napcat.return_value.stop.return_value = {"status": "stopped"}
+        semantic.return_value.stop.return_value = {"status": "stopped"}
+        assert control.maintain_database(write) == "committed"
+    database.assert_not_called()
+    control.runtime.stop.assert_called_once()
+    control.runtime.start.assert_not_called()
+
+
+@pytest.mark.parametrize("failure", ["runtime", "napcat", "semantic"])
+def test_database_maintenance_never_writes_after_unconfirmed_stop(
+    tmp_path: Path, failure: str
+) -> None:
+    control = controller(tmp_path)
+    control.runtime = Mock()
+    control.runtime.stop.return_value = {
+        "status": "unknown" if failure == "runtime" else "stopped"
+    }
+    write = Mock()
+    with (
+        patch.object(control, "database") as database,
+        patch("armi_local_control.lifecycle.NapCatNode") as napcat,
+        patch("armi_local_control.lifecycle.SemanticRecallProcessManager") as semantic,
+    ):
+        napcat.return_value.stop.return_value = {
+            "status": "unknown" if failure == "napcat" else "stopped"
+        }
+        semantic.return_value.stop.return_value = {
+            "status": "unknown" if failure == "semantic" else "stopped"
+        }
+        with pytest.raises(RuntimeViolation, match="STOP-UNKNOWN"):
+            control.maintain_database(write)
+    write.assert_not_called()
+    database.assert_not_called()

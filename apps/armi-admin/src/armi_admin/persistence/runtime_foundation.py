@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
 from armi_runtime_foundation import PostgreSQLAdminTransaction
@@ -54,6 +55,59 @@ class RuntimeFoundationAdminAdapter:
         transaction.execute(
             "SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(%s,0))",
             ("armi.runtime-authority:" + self._environment_id,),
+        )
+
+    def read_admin_change(
+        self,
+        transaction: PostgreSQLAdminTransaction,
+        *,
+        operator_id: str,
+        operation: str,
+        key: str,
+        request_digest: str,
+    ) -> dict[str, Any] | None:
+        row = transaction.execute(
+            "SELECT request_digest, result FROM armi.admin_data_changes "
+            "WHERE environment_id=%s AND environment_incarnation=%s "
+            "AND operator_id=%s AND operation_name=%s AND idempotency_key=%s",
+            (self._environment_id, self._incarnation, operator_id, operation, key),
+        ).fetchone()
+        if row is None:
+            return None
+        if row[0] != request_digest:
+            raise ValueError("ADMIN-DATABASE-IDEMPOTENCY-CONFLICT")
+        return cast(dict[str, Any], row[1])
+
+    def record_admin_change(
+        self,
+        transaction: PostgreSQLAdminTransaction,
+        *,
+        change_id: UUID,
+        operator_id: str,
+        operation: str,
+        key: str,
+        request_digest: str,
+        execution_mode: str,
+        reason: str,
+        result: dict[str, Any],
+    ) -> None:
+        transaction.execute(
+            "INSERT INTO armi.admin_data_changes "
+            "(admin_change_id,environment_id,environment_incarnation,operator_id,"
+            "operation_name,idempotency_key,request_digest,execution_mode,reason,result) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)",
+            (
+                change_id,
+                self._environment_id,
+                self._incarnation,
+                operator_id,
+                operation,
+                key,
+                request_digest,
+                execution_mode,
+                reason,
+                json.dumps(result, ensure_ascii=False, allow_nan=False),
+            ),
         )
 
     def subject_work_ids(

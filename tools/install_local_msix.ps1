@@ -94,6 +94,10 @@ try {
     # Validate the signed build's database contract before disturbing a running instance.
     $indexPath = Join-Path $dataRoot 'control/environments.yaml'
     $environments = @()
+    $payloadPython = Join-Path $output 'staging/runtime/python/python.exe'
+    $supportedSourceJson = & $payloadPython -I -B -c 'import json; from armi_postgresql_contract.upgrades import upgrade_plan,verify_upgrade_resources; verify_upgrade_resources(); print(json.dumps(upgrade_plan()["source"]))'
+    if ($LASTEXITCODE -ne 0) { throw 'LOCAL-MSIX-UPGRADE-RESOURCE' }
+    $supportedSource = $supportedSourceJson | ConvertFrom-Json
     if (Test-Path -LiteralPath $indexPath) {
         $registration = Get-Content -LiteralPath $indexPath -Raw -Encoding utf8 | ConvertFrom-Json
         if ($registration.schema_version -ne 'armi.installation-environments.v2' -or [IO.Path]::GetFullPath($registration.installation_root) -ne $dataRoot) {
@@ -104,16 +108,33 @@ try {
             $resolved = [IO.Path]::GetFullPath($environment)
             if ([IO.Path]::GetDirectoryName($resolved) -ne (Join-Path $dataRoot 'environments')) { throw 'LOCAL-MSIX-ENVIRONMENT-BOUNDARY' }
             $binding = Get-Content -LiteralPath (Join-Path $resolved '.setup/program.json') -Raw -Encoding utf8 | ConvertFrom-Json
+            $sameContract = $true
+            $supportedUpgrade = $true
             foreach ($field in @('postgresql', 'vector', 'pg_trgm', 'baseline', 'schema_digest', 'role_policy_digest')) {
-                if ($binding.database.$field -ne $bundle.database.$field) {
-                    throw "LOCAL-MSIX-DATABASE-INCOMPATIBLE: package built at $package; retained data requires a matching database contract."
-                }
+                if ($binding.database.$field -ne $bundle.database.$field) { $sameContract = $false }
+                if ($binding.database.$field -ne $supportedSource.$field) { $supportedUpgrade = $false }
+            }
+            if (-not $sameContract -and -not $supportedUpgrade) {
+                throw "LOCAL-MSIX-DATABASE-INCOMPATIBLE: package built at $package; no signed upgrade path matches the retained database contract."
             }
         }
     }
     $alias = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Microsoft/WindowsApps/ARMI.Acceptance.exe'
     if ($installed) {
+        $currentBundle = Get-Content -LiteralPath (Join-Path $installed.InstallLocation 'bundle.json') -Raw -Encoding utf8 | ConvertFrom-Json
         foreach ($environment in $environments) {
+            $currentBinding = Get-Content -LiteralPath (Join-Path $environment '.setup/program.json') -Raw -Encoding utf8 | ConvertFrom-Json
+            $pendingDatabaseUpgrade = $false
+            foreach ($field in @('postgresql', 'vector', 'pg_trgm', 'baseline', 'schema_digest', 'role_policy_digest')) {
+                if ($currentBinding.database.$field -ne $currentBundle.database.$field) { $pendingDatabaseUpgrade = $true }
+            }
+            if ($pendingDatabaseUpgrade) {
+                # Reconcile a previous deployment/DB-commit gap using that installed package's own resources.
+                $resume = '{"action":"database_upgrade","upgrade_action":"apply"}' | & $alias cli setup --environment-root $environment | ConvertFrom-Json
+                if ($LASTEXITCODE -ne 0 -or $resume.status -ne 'succeeded') {
+                    throw 'LOCAL-MSIX-PREVIOUS-DATABASE-UPGRADE-NOT-CONFIRMED: current installed package requires database reconciliation before another deployment.'
+                }
+            }
             $request = @{action='admin'; operation='environment_stop'; arguments=@{idempotency_key=[Guid]::NewGuid().ToString()}} | ConvertTo-Json -Compress
             $result = $request | & $alias cli setup --environment-root $environment | ConvertFrom-Json
             if ($LASTEXITCODE -ne 0 -or $result.status -ne 'succeeded') {
@@ -125,6 +146,13 @@ try {
     Add-AppxPackage -Path $package -ForceTargetApplicationShutdown
     $actual = Get-AppxPackage -Name $packageName
     if (-not $actual -or [version]$actual.Version -ne [version]$version) { throw 'LOCAL-MSIX-DEPLOYMENT-NOT-CONFIRMED' }
+    foreach ($environment in $environments) {
+        $upgradeRequest = '{"action":"database_upgrade","upgrade_action":"apply"}'
+        $upgrade = $upgradeRequest | & $alias cli setup --environment-root $environment | ConvertFrom-Json
+        if ($LASTEXITCODE -ne 0 -or $upgrade.status -ne 'succeeded') {
+            throw "LOCAL-MSIX-DATABASE-UPGRADE-NOT-CONFIRMED: program $version is deployed; database upgrade failed or its outcome needs checking. Data was retained. Use setup database_upgrade status/apply to reconcile."
+        }
+    }
     # Local development does not contact GitHub. Preserve this preference across updates.
     $setting = '{"action":"update","update":{"action":"automatic","enabled":false}}' | & $alias cli setup | ConvertFrom-Json
     if ($LASTEXITCODE -ne 0 -or $setting.automatic -ne $false) { throw 'LOCAL-MSIX-AUTOMATIC-SETTING-FAILED' }

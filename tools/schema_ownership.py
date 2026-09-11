@@ -6,10 +6,11 @@ import argparse
 import ast
 import re
 import sys
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
+from armi_postgresql_contract.table_policy import TABLE_OWNERSHIP, TableOwnership
 from armi_runtime.adapters.persistence.database_capabilities import (
     CURRENT_DML_CAPABILITIES,
 )
@@ -24,12 +25,6 @@ _SQL_TABLE_REFERENCE = re.compile(
     r"\s+(?:ONLY\s+)?armi\.(?P<table>[a-z][a-z0-9_]*)",
     re.IGNORECASE,
 )
-
-
-@dataclass(frozen=True, slots=True)
-class TableOwnership:
-    owner: str
-    pending_removal: bool = False
 
 
 @dataclass(frozen=True, order=True, slots=True)
@@ -49,123 +44,6 @@ class DatabaseDmlAccess:
     role: str
     table: str
     operation: str
-
-
-TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
-    # Runtime/Foundation facts.
-    "audit_events": TableOwnership("runtime"),
-    "deployment_environments": TableOwnership("runtime"),
-    "durable_work": TableOwnership("runtime"),
-    "life_generations": TableOwnership("runtime"),
-    "runtime_bundle_activations": TableOwnership("runtime"),
-    "runtime_instances": TableOwnership("runtime"),
-    "runtime_recovery_metrics": TableOwnership("runtime"),
-    "runtime_recovery_runs": TableOwnership("runtime"),
-    "schema_baseline_identity": TableOwnership("runtime"),
-    "subject_commits": TableOwnership("runtime"),
-    "subjects": TableOwnership("runtime"),
-    # Technical artifact catalog.
-    "artifact_object_deletion_attempts": TableOwnership("artifact-store"),
-    "artifact_object_deletions": TableOwnership("artifact-store"),
-    "artifact_objects": TableOwnership("artifact-store"),
-    "artifact_publications": TableOwnership("artifact-store"),
-    "artifacts": TableOwnership("artifact-store"),
-    # Interaction.
-    "external_channel_bindings": TableOwnership("interaction"),
-    "external_message_parts": TableOwnership("interaction"),
-    "interaction_scenes": TableOwnership("interaction"),
-    "parties": TableOwnership("interaction"),
-    "party_input_interactions": TableOwnership("interaction"),
-    "scene_participants": TableOwnership("interaction"),
-    "scene_timeline_items": TableOwnership("interaction"),
-    # Local real-time voice custody.
-    "live_voice_sessions": TableOwnership("live-voice"),
-    "live_voice_turns": TableOwnership("live-voice"),
-    "live_voice_text_fragments": TableOwnership("live-voice"),
-    "live_voice_provider_attempts": TableOwnership("live-voice"),
-    "live_voice_playback_attempts": TableOwnership("live-voice"),
-    # Persistent local camera observation custody.
-    "live_vision_sessions": TableOwnership("live-vision"),
-    "live_vision_observations": TableOwnership("live-vision"),
-    "live_vision_observation_frames": TableOwnership("live-vision"),
-    # Perception and evidence.
-    "external_content_recognition_attempts": TableOwnership("perception"),
-    "visual_recognition_attempts": TableOwnership("perception"),
-    "experience_evidence_links": TableOwnership("evidence"),
-    "external_evidence": TableOwnership("evidence"),
-    # Attention and context.
-    "opportunities": TableOwnership("attention"),
-    "cognitive_context_dependencies": TableOwnership("context"),
-    "cognitive_context_items": TableOwnership("context"),
-    "context_embedding_attempts": TableOwnership("context"),
-    "context_embedding_coverage": TableOwnership("context"),
-    "context_embedding_failures": TableOwnership("context"),
-    "context_embedding_projections": TableOwnership("context"),
-    "context_embedding_source_sets": TableOwnership("context"),
-    # Experience and cognition.
-    "accepted_experiences": TableOwnership("experience"),
-    "cognitive_attempts": TableOwnership("cognition"),
-    "cognitive_candidate_applications": TableOwnership("cognition"),
-    "cognitive_candidate_basis_links": TableOwnership("cognition"),
-    "cognitive_candidate_validation_items": TableOwnership("cognition"),
-    "cognitive_candidate_validations": TableOwnership("cognition"),
-    "cognitive_episodes": TableOwnership("cognition"),
-    "cognition_maintenance_batch_sources": TableOwnership("cognition"),
-    "cognition_maintenance_batches": TableOwnership("cognition"),
-    "cognition_maintenance_cursors": TableOwnership("cognition"),
-    "exact_life_query_intents": TableOwnership("cognition"),
-    # Subject-owned components.
-    "subject_component_heads": TableOwnership("subject-state"),
-    "subject_component_revisions": TableOwnership("subject-state"),
-    "prompt_documents": TableOwnership("prompt"),
-    "prompt_revisions": TableOwnership("prompt"),
-    "mood_heads": TableOwnership("mood"),
-    "mood_revisions": TableOwnership("mood"),
-    "mood_appraisal_events": TableOwnership("mood"),
-    # Life facts.
-    "memory_relations": TableOwnership("memory"),
-    "subjective_memories": TableOwnership("memory"),
-    "subjective_memory_revisions": TableOwnership("memory"),
-    "relationship_experience_links": TableOwnership("relationship"),
-    "relationship_revisions": TableOwnership("relationship"),
-    "relationships": TableOwnership("relationship"),
-    "life_material_revisions": TableOwnership("material"),
-    "life_materials": TableOwnership("material"),
-    "activities": TableOwnership("activity"),
-    "activity_decisions": TableOwnership("activity"),
-    "activity_revisions": TableOwnership("activity"),
-    "maintenance_phase_results": TableOwnership("sleep"),
-    "maintenance_session_revisions": TableOwnership("sleep"),
-    "maintenance_sessions": TableOwnership("sleep"),
-    "sleep_decisions": TableOwnership("sleep"),
-    # Expression, capability, and effect lifecycle.
-    "action_intent_revisions": TableOwnership("expression"),
-    "action_intents": TableOwnership("expression"),
-    "dialogue_decisions": TableOwnership("expression"),
-    "capabilities": TableOwnership("capability"),
-    "effect_attempts": TableOwnership("effect"),
-    "effect_observations": TableOwnership("effect"),
-    "effect_outbox_items": TableOwnership("effect"),
-    "effects": TableOwnership("effect"),
-    "local_inbox_deliveries": TableOwnership("effect"),
-    # Web, Codex, and Data Rights.
-    "observation_attempts": TableOwnership("web-observation"),
-    "observation_tool_calls": TableOwnership("web-observation"),
-    "web_evidence_sources": TableOwnership("web-observation"),
-    "web_observation_requests": TableOwnership("web-observation"),
-    "web_research_intents": TableOwnership("web-observation"),
-    "codex_result_sources": TableOwnership("codex"),
-    "codex_task_sources": TableOwnership("codex"),
-    "codex_verification_results": TableOwnership("codex"),
-    "creator_exports": TableOwnership("data-rights"),
-    "managed_data_snapshot_parties": TableOwnership("data-rights"),
-    "managed_data_snapshots": TableOwnership("data-rights"),
-    "data_rights_party_fences": TableOwnership("data-rights"),
-    "data_rights_identity_keys": TableOwnership("data-rights"),
-    "data_rights_order_items": TableOwnership("data-rights"),
-    "data_rights_order_retry_attempts": TableOwnership("data-rights"),
-    "data_rights_orders": TableOwnership("data-rights"),
-}
 
 
 def schema_tables_at_head(schema_root: Path) -> frozenset[str]:
@@ -321,10 +199,12 @@ def scan_repository_dml_accesses(root: Path) -> tuple[DatabaseDmlAccess, ...]:
     for area in ("apps", "modules", "packages"):
         for path in (root / area).glob("*/src/**/*.py"):
             relative = path.relative_to(root)
-            if relative.as_posix() == (
-                "packages/armi-postgresql-contract/src/armi_postgresql_contract/"
-                "alembic_support.py"
-            ):
+            # Installation and signed forward upgrades execute as armi_owner,
+            # never as Runtime or the ordinary Admin data role.
+            if relative.as_posix() in {
+                "packages/armi-postgresql-contract/src/armi_postgresql_contract/alembic_support.py",
+                "packages/armi-postgresql-contract/src/armi_postgresql_contract/upgrades.py",
+            }:
                 continue
             role = execution_role_for_path(relative)
             if role is None:

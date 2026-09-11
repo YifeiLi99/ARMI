@@ -1,4 +1,4 @@
-"""Structured installer CLI and stdio MCP over the same application service."""
+"""Structured setup CLI over transport-independent application operations."""
 
 from __future__ import annotations
 
@@ -6,143 +6,17 @@ import argparse
 import json
 import os
 import sys
-import traceback
 from pathlib import Path
-from typing import Any, Literal
 
-from armi_kernel.application import PersonalityAnchor
 from armi_local_control import program_installation_root
-from armi_local_control.runtime_errors import RuntimeViolation
-from armi_local_control.windows_package import WindowsPackageError
-from mcp.server import MCPServer
-from pydantic import BaseModel, ConfigDict, Field
 
 from armi_admin.application.installation import (
     SetupApplication,
-    SetupCredentialRequest,
     SetupError,
-    SetupNapcatRequest,
     SetupPaths,
 )
-from armi_admin.application.updates import UpdateAction
+from armi_admin.application.setup_operations import SetupRequest, dispatch
 from armi_admin.composition import bootstrap_setup
-
-
-class SetupUpdateRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-    action: UpdateAction
-    enabled: bool | None = None
-
-
-class SetupAnchor(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-    schema_version: Literal["armi.personality-anchor.v1"]
-    voice_style: str
-    traits: list[str] = Field(min_length=1, max_length=8)
-
-    def domain(self) -> PersonalityAnchor:
-        return PersonalityAnchor(
-            self.schema_version, self.voice_style, tuple(self.traits)
-        )
-
-
-class SetupRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-    action: Literal[
-        "status",
-        "check",
-        "prepare",
-        "birth",
-        "credential",
-        "login_startup",
-        "admin",
-        "update",
-        "uninstall",
-        "napcat",
-    ]
-    enabled: bool | None = None
-    delete_data: bool = False
-    update: SetupUpdateRequest | None = None
-    napcat: SetupNapcatRequest | None = None
-    credential: SetupCredentialRequest | None = None
-    personality_anchor: SetupAnchor | None = None
-    operation_id: str | None = None
-    operation: str | None = None
-    arguments: dict[str, Any] = Field(default_factory=dict)
-
-
-def _diagnostic(error: Exception) -> dict[str, Any]:
-    """Code locations and OS numbers are safe; messages and locals are not."""
-    cause = error.__context__
-    return {
-        "type": type(error).__name__,
-        "winerror": getattr(cause if cause is not None else error, "winerror", None),
-        "frames": [
-            {
-                "file": Path(frame.filename).name,
-                "line": frame.lineno,
-                "function": frame.name,
-            }
-            for frame in traceback.extract_tb(
-                (cause if cause is not None else error).__traceback__
-            )
-        ],
-    }
-
-
-def dispatch(application: SetupApplication, request: SetupRequest) -> dict[str, Any]:
-    try:
-        if request.action == "status":
-            return application.status()
-        if request.action == "check":
-            return application.check()
-        if request.action == "prepare":
-            if request.operation_id is None:
-                raise SetupError("SETUP-OPERATION-ID-REQUIRED")
-            return application.prepare(operation_id=request.operation_id)
-        if request.action == "birth":
-            if request.personality_anchor is None:
-                raise SetupError("SETUP-PERSONALITY-ANCHOR-REQUIRED")
-            return application.birth(request.personality_anchor.domain())
-        if request.action == "credential":
-            if request.credential is None:
-                raise SetupError("SETUP-CREDENTIAL-REQUEST-REQUIRED")
-            return application.credential(request.credential)
-        if request.action == "login_startup":
-            return application.login_startup(request.enabled)
-        if request.action == "update":
-            if request.update is None:
-                raise SetupError("UPDATE-REQUEST-REQUIRED")
-            return application.update(request.update.action, request.update.enabled)
-        if request.action == "uninstall":
-            return application.uninstall(delete_data=request.delete_data)
-        if request.action == "napcat":
-            if request.napcat is None:
-                raise SetupError("NAPCAT-REQUEST-REQUIRED")
-            return application.napcat(request.napcat)
-        if request.operation is None:
-            raise SetupError("SETUP-ADMIN-OPERATION-REQUIRED")
-        return application.invoke(request.operation, request.arguments)
-    except SetupError as error:
-        return {"status": "failed", "error_code": str(error)}
-    except WindowsPackageError as error:
-        return {"status": "failed", "error_code": str(error)}
-    except RuntimeViolation as error:
-        return {
-            "status": "failed",
-            "error_code": error.code,
-            "diagnostic": _diagnostic(error),
-        }
-    except Exception as error:
-        # Pydantic and provider exceptions can contain submitted credentials.
-        # Report code locations only, never exception messages or local values.
-        return {
-            "status": "failed",
-            "error_code": "SETUP-OPERATION-FAILED",
-            "diagnostic": _diagnostic(error),
-        }
 
 
 def application_from_arguments(argv: list[str] | None = None) -> SetupApplication:
@@ -166,6 +40,7 @@ def application_from_arguments(argv: list[str] | None = None) -> SetupApplicatio
 
 
 def main(argv: list[str] | None = None) -> int:
+    application: SetupApplication | None = None
     try:
         application = application_from_arguments(argv)
         payload = sys.stdin.buffer.read(65_537)
@@ -174,29 +49,13 @@ def main(argv: list[str] | None = None) -> int:
         result = dispatch(application, SetupRequest.model_validate_json(payload))
     except Exception:
         result = {"status": "failed", "error_code": "SETUP-INPUT-INVALID"}
+    finally:
+        if application is not None:
+            application.close()
     print(json.dumps(result, ensure_ascii=False))
     return (
         1 if result["status"] in {"failed", "incomplete", "reconcile_required"} else 0
     )
-
-
-def mcp_main(argv: list[str] | None = None) -> None:
-    application = application_from_arguments(argv)
-    server = MCPServer(
-        name="armi_setup",
-        version="1.0.0",
-        instructions="Configure one explicit local ARMI environment. Use status to recover its operation identity. Never replay an uncertain database installation.",
-        tools=[],
-        resources=[],
-        extensions=[],
-        log_level="ERROR",
-    )
-
-    def setup(request: SetupRequest) -> dict[str, Any]:
-        return dispatch(application, request)
-
-    server.add_tool(setup, name="setup", structured_output=True)
-    server.run("stdio")
 
 
 if __name__ == "__main__":

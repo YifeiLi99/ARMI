@@ -12,7 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CODEX = ROOT / "tools/toolchain-node/node_modules/@openai/codex/bin/codex.js"
-TEMPLATE = ROOT / "configs/codex/armi-admin-mcp.toml"
+TEMPLATE = ROOT / "configs/codex/armi-mcp.toml"
 
 
 def _run(
@@ -53,13 +53,10 @@ def main() -> int:
             [
                 "mcp",
                 "add",
-                "armi_admin",
-                "--env",
-                "ARMI_ADMIN_CONFIG=isolated-placeholder",
+                "armi",
                 "--",
                 "C:/Users/<USER>/AppData/Local/Microsoft/WindowsApps/ARMI.exe",
                 "mcp",
-                "admin",
             ],
             environment,
         )
@@ -67,32 +64,32 @@ def main() -> int:
             raise SystemExit("ADMIN-CODEX-ADD")
 
         config_path = isolated_home / "config.toml"
-        if not config_path.is_file() or "armi_admin" not in config_path.read_text(
+        if not config_path.is_file() or "armi" not in config_path.read_text(
             encoding="utf-8"
         ):
             raise SystemExit("ADMIN-CODEX-ADD")
         config_path.write_bytes(TEMPLATE.read_bytes())
 
         listed = _run(node, ["mcp", "list", "--json"], environment)
-        fetched = _run(node, ["mcp", "get", "armi_admin", "--json"], environment)
+        fetched = _run(node, ["mcp", "get", "armi", "--json"], environment)
         if listed.returncode != 0 or fetched.returncode != 0:
             raise SystemExit("ADMIN-CODEX-CONFIG")
         entries = json.loads(listed.stdout)
         detail = json.loads(fetched.stdout)
-        if len(entries) != 1 or entries[0]["name"] != "armi_admin":
+        if len(entries) != 1 or entries[0]["name"] != "armi":
             raise SystemExit("ADMIN-CODEX-ALLOWLIST")
         if detail["transport"] != {
             "type": "stdio",
             "command": "C:/Users/<USER>/AppData/Local/Microsoft/WindowsApps/ARMI.exe",
-            "args": ["mcp", "admin"],
+            "args": ["mcp"],
             "env": None,
-            "env_vars": ["ARMI_ADMIN_CONFIG"],
+            "env_vars": [],
             "cwd": None,
         }:
             raise SystemExit("ADMIN-CODEX-TRANSPORT")
         expected_tools = tomllib.loads(TEMPLATE.read_text(encoding="utf-8"))[
             "mcp_servers"
-        ]["armi_admin"]["enabled_tools"]
+        ]["armi"].get("enabled_tools")
         if detail["enabled_tools"] != expected_tools:
             raise SystemExit("ADMIN-CODEX-ALLOWLIST")
         if detail["startup_timeout_sec"] != 10.0 or detail["tool_timeout_sec"] != 660.0:

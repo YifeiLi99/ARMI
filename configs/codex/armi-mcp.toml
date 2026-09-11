@@ -1,10 +1,10 @@
-# Local Creator-delegate interaction. Keep this separate from ARMI's Codex runner.
+# Codex itself requires TOML for MCP server registration.
 [mcp_servers.armi]
 # Replace <USER> with the current user's profile name; TOML does not expand %LOCALAPPDATA%.
 command = "C:/Users/<USER>/AppData/Local/Microsoft/WindowsApps/ARMI.exe"
-args = ["mcp", "interaction"]
-env_vars = ["ARMI_CLIENT_CONFIG"]
+args = ["mcp"]
+# The server advertises the operations authorized by its local binding.
 required = true
 default_tools_approval_mode = "auto"
 startup_timeout_sec = 10
-tool_timeout_sec = 30
+tool_timeout_sec = 660

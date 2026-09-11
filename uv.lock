@@ -177,7 +177,6 @@ dependencies = [
     { name = "armi-subject-state" },
     { name = "armi-web-observation" },
     { name = "cryptography" },
-    { name = "mcp" },
     { name = "packaging" },
     { name = "psycopg", extra = ["binary"] },
     { name = "psycopg-pool" },
@@ -208,7 +207,6 @@ requires-dist = [
     { name = "armi-subject-state", editable = "modules/subject-state" },
     { name = "armi-web-observation", editable = "modules/web-observation" },
     { name = "cryptography", specifier = "==49.0.0" },
-    { name = "mcp", specifier = "==2.0.0" },
     { name = "packaging", specifier = "==26.2" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
     { name = "psycopg-pool", specifier = "==3.3.1" },
@@ -223,13 +221,23 @@ version = "0.0.0"
 source = { editable = "apps/armi-app" }
 dependencies = [
     { name = "armi-admin" },
+    { name = "armi-local-control" },
     { name = "armi-runtime" },
+    { name = "httpx" },
+    { name = "jsonschema" },
+    { name = "mcp" },
+    { name = "pydantic" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "armi-admin", editable = "apps/armi-admin" },
+    { name = "armi-local-control", editable = "packages/armi-local-control" },
     { name = "armi-runtime", editable = "apps/armi-runtime" },
+    { name = "httpx", specifier = "==0.28.1" },
+    { name = "jsonschema", specifier = "==4.26.0" },
+    { name = "mcp", specifier = "==2.0.0" },
+    { name = "pydantic", specifier = "==2.13.4" },
 ]
 
 [[package]]
@@ -858,7 +866,6 @@ dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
     { name = "jsonschema" },
-    { name = "mcp" },
     { name = "openai" },
     { name = "openai-codex" },
     { name = "opencv-python-headless" },
@@ -910,7 +917,6 @@ requires-dist = [
     { name = "fastapi", specifier = "==0.140.13" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "jsonschema", specifier = "==4.26.0" },
-    { name = "mcp", specifier = "==2.0.0" },
     { name = "openai", specifier = "==2.49.0" },
     { name = "openai-codex", specifier = "==0.144.4" },
     { name = "opencv-python-headless", specifier = "==4.14.0.94" },

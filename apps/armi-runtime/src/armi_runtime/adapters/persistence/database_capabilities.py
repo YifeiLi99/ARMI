@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Final, Literal
 
+from armi_postgresql_contract.table_policy import TABLE_OWNERSHIP
+
 DatabaseOperation = Literal["DELETE", "INSERT", "UPDATE"]
 DatabaseDmlCapability = tuple[str, str, DatabaseOperation]
 
@@ -76,6 +78,7 @@ visual_recognition_attempts web_observation_requests web_research_intents
 """
 
 _ADMIN_INSERT = """
+admin_data_changes
 deployment_environments durable_work effect_observations mood_revisions
 subject_component_revisions artifact_object_deletion_attempts
 artifact_object_deletions artifact_objects artifact_publications artifacts
@@ -102,6 +105,12 @@ CURRENT_DML_CAPABILITIES: Final[frozenset[DatabaseDmlCapability]] = frozenset[
     _capabilities("armi_admin", "INSERT", _ADMIN_INSERT),
     _capabilities("armi_admin", "UPDATE", _ADMIN_UPDATE),
     _capabilities("armi_admin", "DELETE", _ADMIN_DELETE),
+    frozenset(
+        ("armi_admin", table, operation)
+        for table, policy in TABLE_OWNERSHIP.items()
+        if policy.maintenance_writable
+        for operation in ("INSERT", "UPDATE", "DELETE")
+    ),
 )
 
 __all__ = (

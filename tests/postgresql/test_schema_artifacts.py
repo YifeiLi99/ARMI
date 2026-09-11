@@ -24,6 +24,7 @@ BASELINE_DOCUMENTS = [
     "50_activities_and_maintenance.sql",
     "60_actions_work_and_effects.sql",
     "70_web_codex_audit_data_rights.sql",
+    "75_admin_management.sql",
     "80_cross_domain_constraints_and_indexes.sql",
     "90_static_catalog.sql",
     "99_privileges.sql",
@@ -126,7 +127,7 @@ def test_gateway_exposes_install_and_status_only() -> None:
     assert callable(PostgreSQLSchemaGateway.install)
     assert callable(PostgreSQLSchemaGateway.status)
     assert not hasattr(PostgreSQLSchemaGateway, "migrate")
-    assert "armi.schema-baseline.v16" in (
+    assert "armi.schema-baseline.v17" in (
         RESOURCE / "baseline" / "10_runtime_and_subject.sql"
     ).read_text(encoding="utf-8")
 
@@ -149,7 +150,7 @@ def test_gateway_rejects_multiple_alembic_heads(tmp_path: Path) -> None:
 
 
 def test_admin_package_has_no_second_schema_governance_manifest() -> None:
-    resources = Path("apps/armi-admin/src/armi_admin/mcp/resources")
+    resources = Path("apps/armi-admin/src/armi_admin/application/resources")
     assert sorted(path.name for path in resources.glob("*.json")) == [
         "admin-config.schema.json"
     ]

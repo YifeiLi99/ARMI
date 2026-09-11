@@ -176,12 +176,14 @@ class SetupApplication:
         update: Callable[[UpdateAction, bool | None], dict[str, Any]] | None = None,
         uninstall: Callable[[bool], dict[str, Any]] | None = None,
         verify_credential: Callable[[str, bytes], dict[str, Any]] | None = None,
+        close: Callable[[], None] | None = None,
     ) -> None:
         self._admin_operation = admin_operation
         self._login_startup = login_startup
         self._update = update
         self._uninstall = uninstall
         self._verify_credential = verify_credential
+        self._close = close
         self.paths = paths
         self.root = paths.environment_root
         if has_reparse_point(self.root, root=Path(self.root.anchor)):
@@ -538,6 +540,10 @@ class SetupApplication:
 
     def invoke(self, operation_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         return self._admin_operation(operation_name, arguments)
+
+    def close(self) -> None:
+        if self._close is not None:
+            self._close()
 
     def status(self) -> dict[str, object]:
         if not self.state_path.exists():

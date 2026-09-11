@@ -13,6 +13,7 @@ from uuid import uuid7
 
 import httpx
 import pytest
+from armi_app.interaction_tools import InteractionTools
 from armi_evidence.api import EvidenceId
 from armi_interaction.api import (
     CreatorInputAcceptance,
@@ -29,7 +30,6 @@ from armi_runtime.interaction_client import InteractionClient
 from armi_runtime.interfaces.browser_sessions import BrowserSessionStore
 from armi_runtime.interfaces.creator_app import create_runtime_app
 from armi_runtime.interfaces.static_assets import StaticAssetStore
-from armi_runtime.mcp import InteractionMCPServer
 
 
 async def unused() -> None:
@@ -151,7 +151,7 @@ async def test_vision_observation_arguments_reach_shared_application(
 ) -> None:
     app, binding, _ = machine(tmp_path, writable=True)
     client = InteractionClient(binding, transport=httpx.ASGITransport(app=app))
-    result = await InteractionMCPServer(client).call_tool(
+    result = await InteractionTools(lambda: client).call_tool(
         "vision_observe",
         {"source_kind": "camera", "idempotency_key": "vision-contract"},
     )
@@ -207,7 +207,7 @@ async def test_artifact_chunks_and_cli_output_preserve_governed_content(
     app, binding, _ = machine(tmp_path, effect_ledger=Ledger())
     client = InteractionClient(binding, transport=httpx.ASGITransport(app=app))
     arguments = {"effect_id": str(uuid7()), "artifact_kind": "patch"}
-    first = await InteractionMCPServer(client).call_tool("artifact_read", arguments)
+    first = await InteractionTools(lambda: client).call_tool("artifact_read", arguments)
     assert first.structured_content is not None
     assert first.structured_content["result"]["byte_count"] == 65536
     assert first.structured_content["result"]["next_offset"] == 65536
@@ -294,7 +294,7 @@ async def test_web_and_machine_return_the_same_projected_final_result(tmp_path):
         "effect_id": str(uuid7()),
         "artifact_kind": EffectArtifactKind.FINAL_RESULT.value,
     }
-    result = await InteractionMCPServer(client).call_tool("artifact_read", args)
+    result = await InteractionTools(lambda: client).call_tool("artifact_read", args)
     wire = result.structured_content
     assert wire is not None
     assert base64.b64decode(wire["artifact"]["content"]) == content
@@ -449,7 +449,7 @@ async def test_cli_and_mcp_send_same_bound_creator_command(
         ]
     )
     direct = await cli._execute(args)
-    mcp = await InteractionMCPServer(client).call_tool(
+    mcp = await InteractionTools(lambda: client).call_tool(
         "message_send",
         {
             "scene_key": "default",
@@ -494,7 +494,7 @@ async def test_cli_and_mcp_return_identical_transport_failures(
         cli.main, ["--config", str(config), "health", "live"]
     )
     result = json.loads(capsys.readouterr().out)
-    called = await InteractionMCPServer(client).call_tool("health_live", {})
+    called = await InteractionTools(lambda: client).call_tool("health_live", {})
     assert exit_code != 0 and called.is_error
     assert called.structured_content == result
     assert result["status"] == "unavailable"
@@ -508,7 +508,7 @@ async def test_machine_health_and_mcp_share_client_without_browser_session(
     client = InteractionClient(binding, transport=httpx.ASGITransport(app=app))
     result = await client.invoke("health_live", {})
     assert result["result"] == {"status": "alive"}
-    server = InteractionMCPServer(client)
+    server = InteractionTools(lambda: client)
     called = await server.call_tool("health_live", {})
     assert called.structured_content["result"] == result["result"]
     assert not called.is_error

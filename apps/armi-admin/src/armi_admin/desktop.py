@@ -29,9 +29,13 @@ from armi_local_control import (
 from armi_local_control.runtime_process import LocalProcessLock
 
 from armi_admin.application.installation import SetupNapcatRequest, SetupPaths
+from armi_admin.application.setup_operations import (
+    SetupRequest,
+    SetupUpdateRequest,
+    dispatch,
+)
 from armi_admin.application.updates import UpdateAction
 from armi_admin.composition import bootstrap_setup
-from armi_admin.setup_cli import SetupRequest, SetupUpdateRequest, dispatch
 from armi_admin.windows_tray import WindowsTray
 
 _CREDENTIAL_NAMES = {
@@ -1157,6 +1161,7 @@ class Desktop:
         self.closed = True
         self.tray.close()
         self.executor.shutdown(wait=False)
+        self.application.close()
         self.root.destroy()
 
     def hide(self) -> None:

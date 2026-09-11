@@ -320,7 +320,26 @@ def database_catalog_digest(connection: Any) -> str:
     return f"sha256:{hashlib.sha256(database_catalog_payload(connection)).hexdigest()}"
 
 
+def database_structure_digest(connection: Any) -> str:
+    """Compare package schema and ACLs independently of cluster-local login roles.
+
+    Full contract checks still include those roles. A signed upgrade uses this
+    second fingerprint to compare its final structure with a fresh baseline.
+    """
+    payload = json.loads(database_catalog_payload(connection))
+    structure = [
+        item
+        for item in payload
+        if item["kind"] not in {"roles", "role_memberships", "default_acl"}
+    ]
+    encoded = json.dumps(
+        structure, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
 __all__ = (
     "database_catalog_digest",
     "database_catalog_payload",
+    "database_structure_digest",
 )

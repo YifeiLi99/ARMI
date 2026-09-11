@@ -971,6 +971,9 @@ class InvocationPayload(Payload):
 
 
 RESULT_PAYLOADS: dict[str, type[BaseModel]] = {
+    "database_catalog": RootModel[dict[str, JsonValue]],
+    "database_query": RootModel[dict[str, JsonValue]],
+    "database_batch": RootModel[dict[str, JsonValue]],
     "invocation_get": InvocationPayload,
     "invocation_wait": InvocationPayload,
     "invocation_reconcile": InvocationPayload,

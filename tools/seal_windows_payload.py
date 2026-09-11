@@ -69,6 +69,9 @@ def seal(root: Path) -> None:
     site = root / "runtime/python/Lib/site-packages"
     if not (site / "armi_admin").is_dir():
         raise ValueError("INSTALLER-NOT-A-PAYLOAD")
+    from armi_postgresql_contract.upgrades import verify_upgrade_resources
+
+    verify_upgrade_resources()
     if {path.name for path in root.glob("*.exe")} != {"ARMI.exe"}:
         raise ValueError("INSTALLER-ENTRYPOINT-INVENTORY")
     normalize_stripped_certificates(root)

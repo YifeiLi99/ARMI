@@ -26,6 +26,10 @@ _ARTIFACT_OWNER = DataRightsOwnerIdentity("artifact-store")
 _VERSION = DataRightsContributionVersion(1)
 _RUNTIME_SEGMENTS: tuple[tuple[str, LiteralString], ...] = (
     (
+        "admin_data_changes",
+        """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8') FROM armi.admin_data_changes AS source ORDER BY to_jsonb(source)::text""",
+    ),
+    (
         "audit_events",
         """SELECT convert_to(to_jsonb(source)::text || chr(10), 'UTF8') FROM armi.audit_events AS source ORDER BY to_jsonb(source)::text""",
     ),

@@ -18,20 +18,37 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 async def admin_stdio(
     binding: Path, environment: dict[str, str], name: str, request: dict[str, Any]
 ) -> dict[str, Any]:
+    mcp_binding = binding.parent / "mcp-admin.yaml"
+    mcp_binding.write_text(
+        json.dumps(
+            {
+                "schema_version": "armi.mcp-binding.v1",
+                "admin_config": str(binding),
+            }
+        ),
+        encoding="utf-8",
+    )
     async with Client(
         stdio_client(
             StdioServerParameters(
                 command=os.environ.get(
                     "ARMI_CREATOR_SYSTEM_ENTRY_POINT", sys.executable
                 ),
-                args=["-m", "armi_admin.mcp.entrypoint"],
+                args=["-m", "armi_app", "mcp", "--config", str(mcp_binding)],
                 cwd=Path.cwd(),
                 env={**environment, "ARMI_ADMIN_CONFIG": str(binding)},
             )
         ),
         read_timeout_seconds=60,
     ) as client:
-        result = await client.call_tool(name, {"request": request})
+        result = await client.call_tool(
+            "admin_" + name,
+            {
+                key: value
+                for key, value in request.items()
+                if key not in {"environment_id", "environment_incarnation", "purpose"}
+            },
+        )
         assert not result.is_error, (name, result)
         assert result.structured_content is not None, name
         return cast(dict[str, Any], result.structured_content)

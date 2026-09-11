@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .application.installation import SetupApplication, SetupPaths
+    from .machine import AdminSession
 
 from armi_artifact_store.bootstrap import bootstrap_artifact_admin
 from armi_attention.bootstrap import bootstrap_opportunity_admin
@@ -53,8 +54,22 @@ class AdminComposition:
 
 
 def bootstrap_admin(
-    config: AdminConfig, credentials: AdminCredentialPort
+    config: AdminConfig, credentials: AdminCredentialPort, *, local_owner: bool = False
 ) -> AdminComposition:
+    if local_owner:
+        from .application.catalog import ADMIN_OPERATIONS
+
+        scopes = {item.name for item in ADMIN_OPERATIONS}
+        scopes.update(
+            variant["required_scope"]
+            for item in ADMIN_OPERATIONS
+            for variant in item.suboperations()
+        )
+        scopes.add("subject_snapshot.private")
+        config = config.model_copy(
+            update={"authorized_operations": tuple(sorted(scopes))}
+        )
+
     def conninfo() -> str:
         with credentials.resolve(
             config.locator, CredentialPurpose("database.admin")
@@ -127,6 +142,7 @@ def bootstrap_admin(
             corrections=corrections,
             observation=observation,
             pool=pool,
+            local_owner=local_owner,
         )
         return AdminComposition(service, pool)
     except BaseException:
@@ -134,53 +150,20 @@ def bootstrap_admin(
         raise
 
 
-def bootstrap_setup(paths: SetupPaths) -> SetupApplication:
+def bootstrap_setup(
+    paths: SetupPaths, *, admin_session: AdminSession | None = None
+) -> SetupApplication:
     """Compose installer transports over the existing Admin application."""
     import json
     from typing import Any
 
-    from .application.configuration import load_admin_config
-    from .application.credentials import AdminCredentialPort
     from .application.installation import SetupApplication, SetupError, SetupPaths
-    from .application.package_identity import verify_admin_package_set
+    from .machine import AdminSession
 
-    def invoke(operation_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        from .application.catalog import ADMIN_OPERATIONS
-
-        config, path = load_admin_config(
-            {"ARMI_ADMIN_CONFIG": str(paths.environment_root / "admin.yaml")}
-        )
-        verify_admin_package_set(config.expected.resolved_digest())
-        operation = next(
-            (item for item in ADMIN_OPERATIONS if item.name == operation_name), None
-        )
-        if operation is None:
-            raise SetupError("SETUP-OPERATION-UNAVAILABLE")
-        payload = dict(arguments)
-        fields = operation.request.model_fields
-        for name, value in {
-            "environment_id": config.environment_id,
-            "environment_incarnation": config.environment_incarnation,
-            "purpose": "admin." + operation_name,
-        }.items():
-            if name in fields:
-                if name in payload and payload[name] != value:
-                    raise SetupError("SETUP-BINDING-MISMATCH")
-                payload[name] = value
-        request = operation.request.model_validate_json(json.dumps(payload))
-        credentials = AdminCredentialPort(
-            locator=config.locator,
-            migrator_locator=config.migrator_locator,
-            preview_locator=config.preview_locator,
-            config_root=path.parent,
-        )
-        composition = bootstrap_admin(config, credentials)
-        try:
-            return operation.invoke(composition.service, request).model_dump(
-                mode="json"
-            )
-        finally:
-            composition.close()
+    session = admin_session or AdminSession(
+        paths.environment_root / "admin.yaml", local_owner=True
+    )
+    invoke = session.invoke
 
     from .windows_startup import login_startup
 
@@ -204,9 +187,12 @@ def bootstrap_setup(paths: SetupPaths) -> SetupApplication:
                     installation_root=paths.installation_root,
                 )
             )
-            result = service.invoke(
-                "environment_stop", {"idempotency_key": str(uuid7())}
-            )
+            try:
+                result = service.invoke(
+                    "environment_stop", {"idempotency_key": str(uuid7())}
+                )
+            finally:
+                service.close()
             if result.get("status") != "succeeded":
                 raise SetupError(operation + "-ENVIRONMENT-STOP-UNCONFIRMED")
 
@@ -262,6 +248,7 @@ def bootstrap_setup(paths: SetupPaths) -> SetupApplication:
         UpdateApplication(stop_environments).execute,
         uninstall,
         verify_credential,
+        close=session.close,
     )
 
 

@@ -48,7 +48,11 @@ from armi_admin.persistence import (
     AdminSchemaGateway,
     AdminSchemaSnapshot,
 )
-from armi_admin.persistence.role_session import AdminRoleBoundPool
+from armi_admin.persistence.database_tables import DatabaseTableError
+from armi_admin.persistence.role_session import (
+    AdminCommitUnknownError,
+    AdminRoleBoundPool,
+)
 
 from .authorization import AuthorizationError, AuthorizationStore
 from .configuration_activation import asset_activation, runtime_activation
@@ -88,6 +92,12 @@ from .contracts import (
     TraceFlowRequest,
 )
 from .credentials import AdminSecretError
+from .database_contracts import (
+    DatabaseBatchRequest,
+    DatabaseCatalogRequest,
+    DatabaseQueryRequest,
+)
+from .database_management import DatabaseManagement
 from .invocations import (
     InvocationEvidence,
     InvocationJournal,
@@ -143,6 +153,7 @@ class AdminToolService:
         "_corrections",
         "_credentials",
         "_identity",
+        "_local_owner",
         "_observation",
         "_pool",
         "_requires_reload",
@@ -157,6 +168,7 @@ class AdminToolService:
         corrections: AdminCorrectionCoordinator,
         observation: AdminObservationGateway,
         pool: AdminRoleBoundPool,
+        local_owner: bool = False,
     ) -> None:
         self._config = config
         self._credentials = credentials
@@ -165,11 +177,35 @@ class AdminToolService:
         self._observation = observation
         self._pool = pool
         self._requires_reload = False
+        self._local_owner = local_owner
         self._identity = AdminIdentity()
 
     @property
     def config(self) -> AdminConfig:
         return self._config
+
+    @property
+    def requires_reload(self) -> bool:
+        return self._requires_reload
+
+    def _consume_authorization(
+        self,
+        authorization_id: str | None,
+        *,
+        operation: str,
+        arguments: dict[str, Any],
+        invocation_key: str,
+    ) -> None:
+        if self._local_owner:
+            return
+        if authorization_id is None:
+            raise AuthorizationError("ADMIN-SPECIFIC-AUTHORIZATION-REQUIRED")
+        AuthorizationStore(self._config, self._credentials).consume(
+            authorization_id,
+            operation=operation,
+            arguments=arguments,
+            invocation_key=invocation_key,
+        )
 
     def capabilities(self) -> AdminToolResult[dict[str, Any]]:
         from .catalog import ADMIN_OPERATIONS
@@ -210,6 +246,7 @@ class AdminToolService:
                 return "runtime_" + str(runtime_status)
             if (
                 name == "data_deletion_apply"
+                and not self._local_owner
                 and self._config.authorization_public_key is None
             ):
                 return "authorization_not_configured"
@@ -319,6 +356,72 @@ class AdminToolService:
                 lambda: self._configuration_once(request),
             )
         return self._configuration_once(request)
+
+    def database(
+        self,
+        name: str,
+        request: DatabaseBatchRequest | DatabaseCatalogRequest | DatabaseQueryRequest,
+    ) -> AdminToolResult[dict[str, Any]]:
+        started = datetime.now(UTC)
+        if name not in self._config.authorized_operations:
+            return self._tool_failure(started, "rejected", "ADMIN-SCOPE-REQUIRED")
+        if request.environment_id != self._config.environment_id:
+            return self._tool_failure(started, "rejected", "ADMIN-ENVIRONMENT-MISMATCH")
+        if self._requires_reload:
+            return self._tool_failure(
+                started, "conflict", "ADMIN-CONFIG-RELOAD-REQUIRED"
+            )
+
+        def execute() -> AdminToolResult[dict[str, Any]]:
+            try:
+                self._validate_database_identity(self._read_snapshot())
+                manager = DatabaseManagement(self._config, self._pool)
+                if isinstance(request, DatabaseBatchRequest):
+                    mutation = request
+                    payload = self._environment_controller().maintain_database(
+                        lambda: manager.mutate(mutation)
+                    )
+                else:
+                    payload = manager.read(request)
+                return self._tool_success(started, payload)
+            except AdminCommitUnknownError:
+                return self._tool_failure(
+                    started, "unknown", "ADMIN-DATABASE-COMMIT-UNKNOWN"
+                )
+            except DatabaseTableError as error:
+                status = (
+                    "conflict"
+                    if error.code.endswith(("CONFLICT", "BUSY"))
+                    else "rejected"
+                )
+                return self._tool_failure(started, status, error.code)
+            except PostgreSQLError as error:
+                return self._tool_failure(
+                    started,
+                    "conflict"
+                    if error.sqlstate in {"40001", "40P01", "55P03"}
+                    else "failed",
+                    "ADMIN-DATABASE-" + (error.sqlstate or "UNAVAILABLE"),
+                )
+            except RuntimeViolation as error:
+                return self._tool_failure(started, "conflict", error.code)
+            except ValueError as error:
+                code = str(error)
+                return self._tool_failure(
+                    started,
+                    "rejected",
+                    code if code.startswith("ADMIN-") else "ADMIN-DATABASE-INVALID",
+                )
+            except OSError, AdminRoleSessionError:
+                return self._tool_failure(
+                    started, "failed", "ADMIN-DATABASE-UNAVAILABLE"
+                )
+
+        return (
+            self._write(name, request, name, execute)
+            if isinstance(request, DatabaseBatchRequest)
+            else execute()
+        )
 
     def _configuration_once(
         self, request: ConfigurationRequest
@@ -762,6 +865,20 @@ class AdminToolService:
         self, evidence: InvocationEvidence
     ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
         refs = evidence.references
+        if evidence.operation == "database_batch":
+            payload = DatabaseManagement(self._config, self._pool).reconcile(
+                operation=evidence.operation,
+                key=evidence.idempotency_key,
+                request_digest=evidence.request_digest,
+            )
+            return (
+                None
+                if payload is None
+                else self._tool_success(datetime.now(UTC), payload).model_dump(
+                    mode="json"
+                ),
+                {"basis": "transactional_admin_receipt", "found": payload is not None},
+            )
         if evidence.operation == "data_deletion_apply":
             observed = self._control.send_control(
                 "data_deletion",
@@ -1277,7 +1394,7 @@ class AdminToolService:
                 arguments: dict[str, JsonValue] = {"party_key": deletion.party_key}
                 if isinstance(deletion, DataDeletionApplyRequest):
                     arguments["scope_digest"] = deletion.scope_digest
-                    AuthorizationStore(self._config, self._credentials).consume(
+                    self._consume_authorization(
                         deletion.authorization_id,
                         operation=name,
                         arguments=arguments,
@@ -1296,7 +1413,8 @@ class AdminToolService:
                 if isinstance(deletion, DataDeletionPreviewRequest):
                     result["authorization_request"] = (
                         None
-                        if self._config.authorization_public_key is None
+                        if self._local_owner
+                        or self._config.authorization_public_key is None
                         else AuthorizationStore(
                             self._config, self._credentials
                         ).prepare(
@@ -1308,7 +1426,7 @@ class AdminToolService:
                             result,
                         )
                     )
-                    result["authorization_required"] = True
+                    result["authorization_required"] = not self._local_owner
             elif name == "other_human":
                 typed_other = cast(OtherHumanRequest, request)
                 action = typed_other.command.action
@@ -1354,9 +1472,7 @@ class AdminToolService:
                 typed_reset = cast(EnvironmentResetRequest, request)
                 result = self._control.apply_reset(
                     typed_reset.preview_token,
-                    authorize=lambda: AuthorizationStore(
-                        self._config, self._credentials
-                    ).consume(
+                    authorize=lambda: self._consume_authorization(
                         typed_reset.authorization_id,
                         operation=name,
                         arguments={"preview_token": typed_reset.preview_token},
@@ -1414,8 +1530,16 @@ class AdminToolService:
                 with environment_control_lock(
                     self._config.environment_root, self._config.environment_id
                 ):
-                    if typed_apply.authorization_id is not None:
-                        AuthorizationStore(self._config, self._credentials).consume(
+                    if (
+                        typed_apply.authorization_id is not None
+                        or typed_apply.spec.correction_kind
+                        in {
+                            "replace_subject_component",
+                            "repair_subject_component_head",
+                            "delete_uncommitted_creator_input",
+                        }
+                    ):
+                        self._consume_authorization(
                             typed_apply.authorization_id,
                             operation=name,
                             arguments={
@@ -1457,17 +1581,18 @@ class AdminToolService:
                 )
                 authorization = (
                     None
-                    if self._config.authorization_public_key is None
+                    if self._local_owner
+                    or self._config.authorization_public_key is None
                     else AuthorizationStore(self._config, self._credentials).prepare(
                         required_operation, arguments, result
                     )
                 )
                 result = {
                     **result,
-                    "authorization_required": True,
+                    "authorization_required": not self._local_owner,
                     "authorization_request": authorization,
                     "authorization_unavailable_reason": "signing_authority_not_configured"
-                    if authorization is None
+                    if authorization is None and not self._local_owner
                     else None,
                 }
             outcome = (
@@ -1745,7 +1870,7 @@ class AdminToolService:
             or snapshot.encoding != "UTF8"
             or snapshot.timezone != "UTC"
             or snapshot.revision != "0000"
-            or snapshot.baseline_identity != "armi.schema-baseline.v16"
+            or snapshot.baseline_identity != "armi.schema-baseline.v17"
         ):
             raise ValueError("ADMIN-DB-IDENTITY")
 

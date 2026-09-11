@@ -22,16 +22,20 @@ def _uuid7(value: str) -> str:
     return value
 
 
+def _optional_uuid7(value: str | None) -> str | None:
+    return None if value is None else _uuid7(value)
+
+
 class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
 
 class HealthRequest(_StrictModel):
-    contract_version: Literal["5.0"] = "5.0"
+    contract_version: Literal["6.0"] = "6.0"
 
 
 class EnvironmentRequest(_StrictModel):
-    contract_version: Literal["5.0"] = "5.0"
+    contract_version: Literal["6.0"] = "6.0"
     environment_id: str
 
     _environment_id = field_validator("environment_id")(_uuid7)
@@ -271,15 +275,15 @@ class DataDeletionPreviewRequest(OperationRequest):
 class DataDeletionApplyRequest(MutationRequest):
     party_key: str | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9._-]{0,63}$")
     scope_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
-    authorization_id: str
-    _authorization_id = field_validator("authorization_id")(_uuid7)
+    authorization_id: str | None = None
+    _authorization_id = field_validator("authorization_id")(_optional_uuid7)
 
 
 class EnvironmentResetRequest(MutationRequest):
     preview_token: str = Field(min_length=32, max_length=4096)
-    authorization_id: str
+    authorization_id: str | None = None
     authorization_ref: str | None = Field(default=None, min_length=1, max_length=256)
-    _authorization_id = field_validator("authorization_id")(_uuid7)
+    _authorization_id = field_validator("authorization_id")(_optional_uuid7)
 
 
 class RuntimeControlRequest(MutationRequest):
@@ -436,20 +440,6 @@ class ApplyCorrectionRequest(MutationRequest):
     def _authorization_id(cls, value: str | None) -> str | None:
         return None if value is None else _uuid7(value)
 
-    @model_validator(mode="after")
-    def _specific_authorization(self) -> Self:
-        if (
-            self.spec.correction_kind
-            in {
-                "replace_subject_component",
-                "repair_subject_component_head",
-                "delete_uncommitted_creator_input",
-            }
-            and self.authorization_id is None
-        ):
-            raise ValueError("ADMIN-SPECIFIC-AUTHORIZATION-REQUIRED")
-        return self
-
 
 class CorrectionStatusRequest(EnvironmentRequest):
     preview_token: str = Field(min_length=64, max_length=8192)
@@ -490,7 +480,7 @@ class SchemaStatusPayload(_StrictModel):
 
 class AdminToolResult[PayloadT](_StrictModel):
     operator_id: str | None = None
-    contract_version: Literal["5.0"] = "5.0"
+    contract_version: Literal["6.0"] = "6.0"
     operation_id: str
     status: Literal["succeeded", "rejected", "conflict", "failed", "unknown"]
     result: PayloadT | None = None

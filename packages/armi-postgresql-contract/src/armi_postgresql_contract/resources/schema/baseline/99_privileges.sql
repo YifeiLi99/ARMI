@@ -226,3 +226,433 @@ GRANT SELECT ON TABLE armi.context_embedding_failures TO armi_admin;
 GRANT SELECT, INSERT ON TABLE armi.context_embedding_failures TO armi_runtime;
 GRANT INSERT ON TABLE armi.accepted_experiences, armi.action_intent_revisions, armi.action_intents, armi.activities, armi.activity_decisions, armi.activity_revisions, armi.artifacts, armi.audit_events, armi.codex_result_sources, armi.codex_task_sources, armi.codex_verification_results, armi.cognition_maintenance_batch_sources, armi.cognition_maintenance_batches, armi.cognition_maintenance_cursors, armi.cognitive_attempts, armi.cognitive_candidate_applications, armi.cognitive_candidate_basis_links, armi.cognitive_candidate_validation_items, armi.cognitive_candidate_validations, armi.cognitive_context_dependencies, armi.cognitive_context_items, armi.cognitive_episodes, armi.context_embedding_attempts, armi.context_embedding_coverage, armi.context_embedding_projections, armi.creator_exports, armi.data_rights_order_items, armi.data_rights_orders, armi.data_rights_party_fences, armi.dialogue_decisions, armi.durable_work, armi.effect_attempts, armi.effect_observations, armi.effect_outbox_items, armi.effects, armi.exact_life_query_intents, armi.experience_evidence_links, armi.external_channel_bindings, armi.external_content_recognition_attempts, armi.external_evidence, armi.external_message_parts, armi.interaction_scenes, armi.life_generations, armi.life_material_revisions, armi.life_materials, armi.live_vision_observation_frames, armi.live_vision_observations, armi.live_vision_sessions, armi.live_voice_playback_attempts, armi.live_voice_provider_attempts, armi.live_voice_sessions, armi.live_voice_text_fragments, armi.live_voice_turns, armi.local_inbox_deliveries, armi.maintenance_phase_results, armi.maintenance_session_revisions, armi.maintenance_sessions, armi.memory_relations, armi.mood_appraisal_events, armi.mood_heads, armi.mood_revisions, armi.observation_attempts, armi.observation_tool_calls, armi.opportunities, armi.parties, armi.party_input_interactions, armi.prompt_documents, armi.prompt_revisions, armi.relationship_experience_links, armi.relationship_revisions, armi.relationships, armi.runtime_bundle_activations, armi.runtime_instances, armi.runtime_recovery_metrics, armi.runtime_recovery_runs, armi.scene_participants, armi.scene_timeline_items, armi.sleep_decisions, armi.subject_commits, armi.subject_component_heads, armi.subject_component_revisions, armi.subjective_memories, armi.subjective_memory_revisions, armi.subjects, armi.visual_recognition_attempts, armi.web_evidence_sources, armi.web_observation_requests, armi.web_research_intents TO armi_runtime;
 GRANT UPDATE ON TABLE armi.action_intent_revisions, armi.action_intents, armi.activities, armi.activity_decisions, armi.artifacts, armi.cognition_maintenance_batch_sources, armi.cognition_maintenance_batches, armi.cognition_maintenance_cursors, armi.cognitive_attempts, armi.cognitive_episodes, armi.context_embedding_attempts, armi.context_embedding_coverage, armi.creator_exports, armi.data_rights_order_items, armi.data_rights_orders, armi.dialogue_decisions, armi.durable_work, armi.effect_attempts, armi.effect_outbox_items, armi.effects, armi.exact_life_query_intents, armi.external_channel_bindings, armi.external_content_recognition_attempts, armi.external_evidence, armi.external_message_parts, armi.interaction_scenes, armi.life_materials, armi.live_vision_observation_frames, armi.live_vision_observations, armi.live_vision_sessions, armi.live_voice_playback_attempts, armi.live_voice_provider_attempts, armi.live_voice_sessions, armi.live_voice_text_fragments, armi.live_voice_turns, armi.local_inbox_deliveries, armi.maintenance_sessions, armi.mood_heads, armi.observation_attempts, armi.opportunities, armi.parties, armi.party_input_interactions, armi.prompt_documents, armi.relationships, armi.runtime_instances, armi.runtime_recovery_metrics, armi.runtime_recovery_runs, armi.scene_participants, armi.subject_component_heads, armi.subjective_memories, armi.subjects, armi.visual_recognition_attempts, armi.web_observation_requests, armi.web_research_intents TO armi_runtime;
+
+GRANT DELETE ON TABLE armi.accepted_experiences TO armi_admin;
+
+GRANT INSERT ON TABLE armi.accepted_experiences TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.accepted_experiences TO armi_admin;
+
+GRANT DELETE ON TABLE armi.action_intent_revisions TO armi_admin;
+
+GRANT INSERT ON TABLE armi.action_intent_revisions TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.action_intent_revisions TO armi_admin;
+
+GRANT DELETE ON TABLE armi.action_intents TO armi_admin;
+
+GRANT INSERT ON TABLE armi.action_intents TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.action_intents TO armi_admin;
+
+GRANT DELETE ON TABLE armi.activities TO armi_admin;
+
+GRANT INSERT ON TABLE armi.activities TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.activities TO armi_admin;
+
+GRANT DELETE ON TABLE armi.activity_decisions TO armi_admin;
+
+GRANT INSERT ON TABLE armi.activity_decisions TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.activity_decisions TO armi_admin;
+
+GRANT DELETE ON TABLE armi.activity_revisions TO armi_admin;
+
+GRANT INSERT ON TABLE armi.activity_revisions TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.activity_revisions TO armi_admin;
+
+GRANT INSERT ON TABLE armi.admin_data_changes TO armi_admin;
+
+GRANT SELECT ON TABLE armi.admin_data_changes TO armi_admin;
+
+GRANT DELETE ON TABLE armi.codex_result_sources TO armi_admin;
+
+GRANT INSERT ON TABLE armi.codex_result_sources TO armi_admin;
+
+GRANT SELECT ON TABLE armi.codex_result_sources TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.codex_result_sources TO armi_admin;
+
+GRANT DELETE ON TABLE armi.codex_task_sources TO armi_admin;
+
+GRANT INSERT ON TABLE armi.codex_task_sources TO armi_admin;
+
+GRANT SELECT ON TABLE armi.codex_task_sources TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.codex_task_sources TO armi_admin;
+
+GRANT DELETE ON TABLE armi.cognition_maintenance_batch_sources TO armi_admin;
+
+GRANT INSERT ON TABLE armi.cognition_maintenance_batch_sources TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.cognition_maintenance_batch_sources TO armi_admin;
+
+GRANT DELETE ON TABLE armi.cognition_maintenance_batches TO armi_admin;
+
+GRANT INSERT ON TABLE armi.cognition_maintenance_batches TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.cognition_maintenance_batches TO armi_admin;
+
+GRANT DELETE ON TABLE armi.cognition_maintenance_cursors TO armi_admin;
+
+GRANT INSERT ON TABLE armi.cognition_maintenance_cursors TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.cognition_maintenance_cursors TO armi_admin;
+
+GRANT DELETE ON TABLE armi.cognitive_attempts TO armi_admin;
+
+GRANT INSERT ON TABLE armi.cognitive_attempts TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.cognitive_attempts TO armi_admin;
+
+GRANT DELETE ON TABLE armi.cognitive_candidate_applications TO armi_admin;
+
+GRANT INSERT ON TABLE armi.cognitive_candidate_applications TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.cognitive_candidate_applications TO armi_admin;
+
+GRANT DELETE ON TABLE armi.cognitive_candidate_basis_links TO armi_admin;
+
+GRANT INSERT ON TABLE armi.cognitive_candidate_basis_links TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.cognitive_candidate_basis_links TO armi_admin;
+
+GRANT DELETE ON TABLE armi.cognitive_candidate_validation_items TO armi_admin;
+
+GRANT INSERT ON TABLE armi.cognitive_candidate_validation_items TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.cognitive_candidate_validation_items TO armi_admin;
+
+GRANT DELETE ON TABLE armi.cognitive_candidate_validations TO armi_admin;
+
+GRANT INSERT ON TABLE armi.cognitive_candidate_validations TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.cognitive_candidate_validations TO armi_admin;
+
+GRANT DELETE ON TABLE armi.cognitive_context_dependencies TO armi_admin;
+
+GRANT INSERT ON TABLE armi.cognitive_context_dependencies TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.cognitive_context_dependencies TO armi_admin;
+
+GRANT DELETE ON TABLE armi.cognitive_context_items TO armi_admin;
+
+GRANT INSERT ON TABLE armi.cognitive_context_items TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.cognitive_context_items TO armi_admin;
+
+GRANT DELETE ON TABLE armi.cognitive_episodes TO armi_admin;
+
+GRANT INSERT ON TABLE armi.cognitive_episodes TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.cognitive_episodes TO armi_admin;
+
+GRANT DELETE ON TABLE armi.context_embedding_attempts TO armi_admin;
+
+GRANT INSERT ON TABLE armi.context_embedding_attempts TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.context_embedding_attempts TO armi_admin;
+
+GRANT DELETE ON TABLE armi.context_embedding_coverage TO armi_admin;
+
+GRANT INSERT ON TABLE armi.context_embedding_coverage TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.context_embedding_coverage TO armi_admin;
+
+GRANT DELETE ON TABLE armi.context_embedding_failures TO armi_admin;
+
+GRANT INSERT ON TABLE armi.context_embedding_failures TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.context_embedding_failures TO armi_admin;
+
+GRANT DELETE ON TABLE armi.context_embedding_projections TO armi_admin;
+
+GRANT INSERT ON TABLE armi.context_embedding_projections TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.context_embedding_projections TO armi_admin;
+
+GRANT DELETE ON TABLE armi.context_embedding_source_sets TO armi_admin;
+
+GRANT INSERT ON TABLE armi.context_embedding_source_sets TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.context_embedding_source_sets TO armi_admin;
+
+GRANT SELECT ON TABLE armi.creator_exports TO armi_admin;
+
+GRANT SELECT ON TABLE armi.data_rights_identity_keys TO armi_admin;
+
+GRANT SELECT ON TABLE armi.data_rights_order_items TO armi_admin;
+
+GRANT SELECT ON TABLE armi.data_rights_orders TO armi_admin;
+
+GRANT INSERT ON TABLE armi.dialogue_decisions TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.dialogue_decisions TO armi_admin;
+
+GRANT DELETE ON TABLE armi.durable_work TO armi_admin;
+
+GRANT DELETE ON TABLE armi.exact_life_query_intents TO armi_admin;
+
+GRANT INSERT ON TABLE armi.exact_life_query_intents TO armi_admin;
+
+GRANT SELECT ON TABLE armi.exact_life_query_intents TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.exact_life_query_intents TO armi_admin;
+
+GRANT DELETE ON TABLE armi.experience_evidence_links TO armi_admin;
+
+GRANT INSERT ON TABLE armi.experience_evidence_links TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.experience_evidence_links TO armi_admin;
+
+GRANT INSERT ON TABLE armi.external_content_recognition_attempts TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.external_content_recognition_attempts TO armi_admin;
+
+GRANT INSERT ON TABLE armi.external_evidence TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.external_evidence TO armi_admin;
+
+GRANT INSERT ON TABLE armi.external_message_parts TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.external_message_parts TO armi_admin;
+
+GRANT DELETE ON TABLE armi.interaction_scenes TO armi_admin;
+
+GRANT INSERT ON TABLE armi.interaction_scenes TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.interaction_scenes TO armi_admin;
+
+GRANT DELETE ON TABLE armi.life_material_revisions TO armi_admin;
+
+GRANT INSERT ON TABLE armi.life_material_revisions TO armi_admin;
+
+GRANT SELECT ON TABLE armi.life_material_revisions TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.life_material_revisions TO armi_admin;
+
+GRANT DELETE ON TABLE armi.life_materials TO armi_admin;
+
+GRANT INSERT ON TABLE armi.life_materials TO armi_admin;
+
+GRANT SELECT ON TABLE armi.life_materials TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.life_materials TO armi_admin;
+
+GRANT DELETE ON TABLE armi.live_vision_observation_frames TO armi_admin;
+
+GRANT INSERT ON TABLE armi.live_vision_observation_frames TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.live_vision_observation_frames TO armi_admin;
+
+GRANT DELETE ON TABLE armi.live_vision_observations TO armi_admin;
+
+GRANT INSERT ON TABLE armi.live_vision_observations TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.live_vision_observations TO armi_admin;
+
+GRANT DELETE ON TABLE armi.live_vision_sessions TO armi_admin;
+
+GRANT INSERT ON TABLE armi.live_vision_sessions TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.live_vision_sessions TO armi_admin;
+
+GRANT DELETE ON TABLE armi.live_voice_playback_attempts TO armi_admin;
+
+GRANT INSERT ON TABLE armi.live_voice_playback_attempts TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.live_voice_playback_attempts TO armi_admin;
+
+GRANT DELETE ON TABLE armi.live_voice_provider_attempts TO armi_admin;
+
+GRANT INSERT ON TABLE armi.live_voice_provider_attempts TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.live_voice_provider_attempts TO armi_admin;
+
+GRANT DELETE ON TABLE armi.live_voice_sessions TO armi_admin;
+
+GRANT INSERT ON TABLE armi.live_voice_sessions TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.live_voice_sessions TO armi_admin;
+
+GRANT DELETE ON TABLE armi.live_voice_text_fragments TO armi_admin;
+
+GRANT INSERT ON TABLE armi.live_voice_text_fragments TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.live_voice_text_fragments TO armi_admin;
+
+GRANT DELETE ON TABLE armi.live_voice_turns TO armi_admin;
+
+GRANT INSERT ON TABLE armi.live_voice_turns TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.live_voice_turns TO armi_admin;
+
+GRANT DELETE ON TABLE armi.maintenance_phase_results TO armi_admin;
+
+GRANT INSERT ON TABLE armi.maintenance_phase_results TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.maintenance_phase_results TO armi_admin;
+
+GRANT DELETE ON TABLE armi.maintenance_session_revisions TO armi_admin;
+
+GRANT INSERT ON TABLE armi.maintenance_session_revisions TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.maintenance_session_revisions TO armi_admin;
+
+GRANT DELETE ON TABLE armi.maintenance_sessions TO armi_admin;
+
+GRANT INSERT ON TABLE armi.maintenance_sessions TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.maintenance_sessions TO armi_admin;
+
+GRANT DELETE ON TABLE armi.memory_relations TO armi_admin;
+
+GRANT INSERT ON TABLE armi.memory_relations TO armi_admin;
+
+GRANT SELECT ON TABLE armi.memory_relations TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.memory_relations TO armi_admin;
+
+GRANT DELETE ON TABLE armi.mood_appraisal_events TO armi_admin;
+
+GRANT INSERT ON TABLE armi.mood_appraisal_events TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.mood_appraisal_events TO armi_admin;
+
+GRANT DELETE ON TABLE armi.mood_heads TO armi_admin;
+
+GRANT INSERT ON TABLE armi.mood_heads TO armi_admin;
+
+GRANT DELETE ON TABLE armi.mood_revisions TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.mood_revisions TO armi_admin;
+
+GRANT DELETE ON TABLE armi.observation_attempts TO armi_admin;
+
+GRANT INSERT ON TABLE armi.observation_attempts TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.observation_attempts TO armi_admin;
+
+GRANT DELETE ON TABLE armi.observation_tool_calls TO armi_admin;
+
+GRANT INSERT ON TABLE armi.observation_tool_calls TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.observation_tool_calls TO armi_admin;
+
+GRANT INSERT ON TABLE armi.opportunities TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.opportunities TO armi_admin;
+
+GRANT INSERT ON TABLE armi.party_input_interactions TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.party_input_interactions TO armi_admin;
+
+GRANT DELETE ON TABLE armi.prompt_documents TO armi_admin;
+
+GRANT INSERT ON TABLE armi.prompt_documents TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.prompt_documents TO armi_admin;
+
+GRANT DELETE ON TABLE armi.prompt_revisions TO armi_admin;
+
+GRANT INSERT ON TABLE armi.prompt_revisions TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.prompt_revisions TO armi_admin;
+
+GRANT DELETE ON TABLE armi.relationship_experience_links TO armi_admin;
+
+GRANT INSERT ON TABLE armi.relationship_experience_links TO armi_admin;
+
+GRANT SELECT ON TABLE armi.relationship_experience_links TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.relationship_experience_links TO armi_admin;
+
+GRANT DELETE ON TABLE armi.relationship_revisions TO armi_admin;
+
+GRANT INSERT ON TABLE armi.relationship_revisions TO armi_admin;
+
+GRANT SELECT ON TABLE armi.relationship_revisions TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.relationship_revisions TO armi_admin;
+
+GRANT DELETE ON TABLE armi.relationships TO armi_admin;
+
+GRANT INSERT ON TABLE armi.relationships TO armi_admin;
+
+GRANT SELECT ON TABLE armi.relationships TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.relationships TO armi_admin;
+
+GRANT DELETE ON TABLE armi.runtime_recovery_metrics TO armi_admin;
+
+GRANT INSERT ON TABLE armi.runtime_recovery_metrics TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.runtime_recovery_metrics TO armi_admin;
+
+GRANT DELETE ON TABLE armi.runtime_recovery_runs TO armi_admin;
+
+GRANT INSERT ON TABLE armi.runtime_recovery_runs TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.runtime_recovery_runs TO armi_admin;
+
+GRANT INSERT ON TABLE armi.scene_timeline_items TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.scene_timeline_items TO armi_admin;
+
+GRANT DELETE ON TABLE armi.sleep_decisions TO armi_admin;
+
+GRANT INSERT ON TABLE armi.sleep_decisions TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.sleep_decisions TO armi_admin;
+
+GRANT DELETE ON TABLE armi.subject_component_heads TO armi_admin;
+
+GRANT INSERT ON TABLE armi.subject_component_heads TO armi_admin;
+
+GRANT DELETE ON TABLE armi.subject_component_revisions TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.subject_component_revisions TO armi_admin;
+
+GRANT DELETE ON TABLE armi.subjective_memories TO armi_admin;
+
+GRANT INSERT ON TABLE armi.subjective_memories TO armi_admin;
+
+GRANT SELECT ON TABLE armi.subjective_memories TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.subjective_memories TO armi_admin;
+
+GRANT DELETE ON TABLE armi.subjective_memory_revisions TO armi_admin;
+
+GRANT INSERT ON TABLE armi.subjective_memory_revisions TO armi_admin;
+
+GRANT SELECT ON TABLE armi.subjective_memory_revisions TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.subjective_memory_revisions TO armi_admin;
+
+GRANT DELETE ON TABLE armi.visual_recognition_attempts TO armi_admin;
+
+GRANT INSERT ON TABLE armi.visual_recognition_attempts TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.visual_recognition_attempts TO armi_admin;
+
+GRANT DELETE ON TABLE armi.web_evidence_sources TO armi_admin;
+
+GRANT INSERT ON TABLE armi.web_evidence_sources TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.web_evidence_sources TO armi_admin;
+
+GRANT DELETE ON TABLE armi.web_observation_requests TO armi_admin;
+
+GRANT INSERT ON TABLE armi.web_observation_requests TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.web_observation_requests TO armi_admin;
+
+GRANT DELETE ON TABLE armi.web_research_intents TO armi_admin;
+
+GRANT INSERT ON TABLE armi.web_research_intents TO armi_admin;
+
+GRANT UPDATE ON TABLE armi.web_research_intents TO armi_admin;
+
+GRANT SELECT ON TABLE armi.admin_data_changes TO armi_runtime;

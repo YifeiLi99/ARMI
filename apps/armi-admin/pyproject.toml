@@ -22,7 +22,6 @@ dependencies = [
     "armi-web-observation==0.0.0",
     "armi-runtime-foundation==0.0.0",
     "armi-postgresql-contract==0.0.0",
-    "mcp==2.0.0",
     "packaging==26.2",
     "pywin32==312",
     "cryptography==49.0.0",

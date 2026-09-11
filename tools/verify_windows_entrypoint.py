@@ -29,16 +29,20 @@ async def check(program: Path, *, installed: bool = False) -> None:
         ProgramBundle.read(program).verify(program)
     environment = {k: v for k, v in os.environ.items() if not k.startswith("ARMI_")}
     environment["PATH"] = str(Path(os.environ["SYSTEMROOT"]) / "System32")
-    for mode in ("cli", "mcp"):
-        for scope in ("interaction", "admin", "setup"):
-            result = subprocess.run(
-                [str(executable), mode, scope, "--help"],
-                capture_output=True,
-                env=environment,
-                timeout=30,
-                check=False,
-            )
-            assert result.returncode == 0 and b"usage:" in result.stdout, result.stderr
+    for arguments in (
+        ["cli", "interaction"],
+        ["cli", "admin"],
+        ["cli", "setup"],
+        ["mcp"],
+    ):
+        result = subprocess.run(
+            [str(executable), *arguments, "--help"],
+            capture_output=True,
+            env=environment,
+            timeout=30,
+            check=False,
+        )
+        assert result.returncode == 0 and b"usage:" in result.stdout, result.stderr
     result = subprocess.run(
         [str(executable), "cli", "setup"],
         input=b'{"action":"status"}',
@@ -86,15 +90,31 @@ async def check(program: Path, *, installed: bool = False) -> None:
             ),
             encoding="utf-8",
         )
+        mcp_binding = root / "interaction-mcp.yaml"
+        mcp_binding.write_text(
+            json.dumps(
+                {
+                    "schema_version": "armi.mcp-binding.v1",
+                    "interaction_config": str(binding),
+                }
+            ),
+            encoding="utf-8",
+        )
+        owner_arguments = [
+            "--environment-root",
+            str(root / "environments" / "active"),
+            "--installation-root",
+            str(root),
+        ]
         for scope, extra in (
-            ("interaction", ["--config", str(binding)]),
-            ("setup", []),
+            ("interaction", ["--config", str(mcp_binding)]),
+            ("owner", owner_arguments),
         ):
             async with Client(
                 stdio_client(
                     StdioServerParameters(
                         command=str(executable),
-                        args=["mcp", scope, *extra],
+                        args=["mcp", *extra],
                         env=environment,
                     )
                 ),
@@ -102,11 +122,17 @@ async def check(program: Path, *, installed: bool = False) -> None:
             ) as client:
                 listed = await client.list_tools()
                 names = {tool.name for tool in listed.tools}
-                assert names and "authorization_approve" not in names
-                if scope == "setup":
-                    assert names == {"setup"}
+                assert names
+                if scope == "interaction":
+                    assert all(name.startswith("interaction_") for name in names)
+                else:
+                    assert {
+                        "setup_status",
+                        "admin_health",
+                        "interaction_message_send",
+                    } <= names
         process = subprocess.Popen(
-            [str(executable), "mcp", "setup"],
+            [str(executable), "mcp", *owner_arguments],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -131,7 +157,7 @@ async def check(program: Path, *, installed: bool = False) -> None:
                 process.terminate()
             process.communicate(timeout=10)
     print(
-        "windows-entrypoint: six modes, native pipes, isolated MCP scopes, EOF and cancellation passed"
+        "windows-entrypoint: unified MCP, native pipes, restricted bindings, EOF and cancellation passed"
     )
 
 
