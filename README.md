@@ -107,6 +107,16 @@ Windows 11 x64 安装版包含原生 PostgreSQL、扩展、私有 Python 和已�
 
 本机验收可为构建命令增加 `-Development`，自动使用独立验收包身份；`tools/test_msix_platform.ps1 -CertificateThumbprint <测试证书指纹>` 执行最小平台验收。自签名测试证书须先在测试电脑建立信任：将公开 `.cer` 导入 `LocalMachine\TrustedPeople` 需要管理员权限，这是一次性的本机信任配置，不是微软审核或每次打包授权。正式构建不接受自签名证书，未配置正式 Publisher 或可用签名私钥时明确失败。
 
+日常开发可直接从当前源码构建并安装本机 MSIX 验收版，全程无需 GitHub Releases：
+
+```powershell
+.\tools\install_local_msix.ps1
+```
+
+该命令重新构建网页、wheels 和完整 payload，自动选择高于已安装版本与本地构建记录的四段版本，再签名并调用 Windows 安装。它仅使用 `YifeiLi99.ARMI.Acceptance` 身份和独立验收数据；已有环境先检查数据库合同，再通过 Admin 正常停机，停机失败则不请求更新。部署后核对 Windows 实际版本，关闭验收版的 GitHub 自动更新，保持环境停止，随后从开始菜单打开“ARMI 验收”即可测试。构建默认使用已准备的离线依赖缓存；缺少依赖时失败，不自动联网补齐。
+
+默认选择证书库中唯一有效且匹配验收 Publisher 的私钥证书；多个候选时显式传 `-CertificateThumbprint <指纹>`。签名和信任需预先配置，脚本不导入证书。只打包、不安装时增加 `-BuildOnly`；产物位于 `dist/msix-local/<版本>/`，可把 `.msix` 复制到另一台已信任同一测试证书的电脑后双击安装或更新。数据库合同改变时本机更新明确拒绝复用旧数据，生成的包仍保留；不会重装数据库或自动出生。
+
 上述构建默认使用已经准备好的精确 wheel 缓存；缺失时显式失败。原生 PG 制品由 `tools/build_native_postgresql.ps1` 构建，开发与系统测试共用它。正式管理入口核对 wheel package set；可用 `ARMI cli admin identity` 离线取得当前安装摘要。已经完成环境配置和出生后，托盘或显式 Admin 绑定按依赖顺序启动 PostgreSQL、语义召回与 Runtime，并等待核心 readiness：
 
 ```powershell
