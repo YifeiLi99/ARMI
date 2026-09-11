@@ -53,3 +53,21 @@ def test_credential_diagnostics_resolve_only_runtime_grants_without_exposing_val
         )["status"]
         == "unavailable"
     )
+
+
+def test_existing_credential_port_reads_new_file_without_restart(tmp_path):
+    from armi_kernel.application import CredentialLocator, CredentialPurpose
+    from armi_local_control.configuration.secrets import EnvironmentFileCredentialPort
+
+    secret = tmp_path / "key"
+    secret.write_bytes(b"first-test-key")
+    port = EnvironmentFileCredentialPort(environment={}, secret_roots=(tmp_path,))
+    locator = CredentialLocator.parse("file:" + secret.as_posix())
+    purpose = CredentialPurpose("model.request")
+    with port.resolve(locator, purpose) as first:
+        replacement = tmp_path / "replacement"
+        replacement.write_bytes(b"second-test-key")
+        replacement.replace(secret)
+        assert first.consume(bytes) == b"first-test-key"
+        with port.resolve(locator, purpose) as second:
+            assert second.consume(bytes) == b"second-test-key"

@@ -15,7 +15,7 @@ import webbrowser
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 from typing import Any, cast
 from uuid import uuid7
 
@@ -33,6 +33,12 @@ from armi_admin.application.updates import UpdateAction
 from armi_admin.composition import bootstrap_setup
 from armi_admin.setup_cli import SetupRequest, SetupUpdateRequest, dispatch
 from armi_admin.windows_tray import WindowsTray
+
+_CREDENTIAL_NAMES = {
+    "火山方舟 API Key（模型与网页搜索）": "model.ark_api_key",
+    "火山引擎语音凭据": "speech.volc_credentials",
+    "Codex 登录凭据": "codex.auth_json",
+}
 
 
 class Desktop:
@@ -343,28 +349,38 @@ class Desktop:
     def _credential_tab(self) -> None:
         frame = ttk.Frame(self.tabs, padding=20)
         self.tabs.add(frame, text="账号凭据")
-        self.credential_name = tk.StringVar(value="model.ark_api_key")
-        ttk.Combobox(
+        self.credential_name = tk.StringVar(value=next(iter(_CREDENTIAL_NAMES)))
+        selector = ttk.Combobox(
             frame,
             textvariable=self.credential_name,
             state="readonly",
-            width=45,
-            values=(
-                "model.ark_api_key",
-                "speech.volc_credentials",
-                "codex.auth_json",
-                "channel.qq.napcat_access_token",
-                "channel.qq.napcat_event_secret",
-            ),
-        ).pack(anchor="w")
+            width=48,
+            values=tuple(_CREDENTIAL_NAMES),
+        )
+        selector.pack(anchor="w")
+        selector.bind("<<ComboboxSelected>>", self._credential_selected)
+        self.credential_help = tk.StringVar()
         ttk.Label(
             frame,
-            text="凭据只保存到本环境受限文件，不显示已保存内容。语音与 Codex 使用各自正式 JSON 凭据。",
+            textvariable=self.credential_help,
             wraplength=760,
         ).pack(anchor="w", pady=14)
         self.secret = ttk.Entry(frame, show="●", width=70)
         self.secret.pack(fill="x")
+        self.speech_fields = ttk.Frame(frame)
+        ttk.Label(self.speech_fields, text="应用 ID（App ID）").pack(anchor="w")
+        self.speech_app_id = ttk.Entry(self.speech_fields, width=60)
+        self.speech_app_id.pack(fill="x", pady=(4, 10))
+        ttk.Label(self.speech_fields, text="访问令牌（Access Token）").pack(anchor="w")
+        self.speech_token = ttk.Entry(self.speech_fields, show="●", width=60)
+        self.speech_token.pack(fill="x", pady=4)
+        self.codex_import = ttk.Button(
+            frame,
+            text="选择并导入 Codex 登录文件…",
+            command=self._import_codex_credential,
+        )
         actions = ttk.Frame(frame)
+        self.credential_actions = actions
         actions.pack(anchor="w", pady=12)
         for label, action in (
             ("保存", "put"),
@@ -376,6 +392,73 @@ class Desktop:
                 text=label,
                 command=lambda action=action: self.credential(action),
             ).pack(side="left", padx=4)
+        self.credential_status = tk.StringVar(value="请选择凭据并检查保存状态。")
+        ttk.Label(frame, textvariable=self.credential_status, wraplength=760).pack(
+            anchor="w", pady=10
+        )
+        ttk.Label(
+            frame,
+            text="QQ 通信凭据由“QQ 接入”自动生成，无需在这里填写。\n凭据只保存在本环境的受限文件中，不回显已保存内容。",
+            wraplength=760,
+        ).pack(anchor="w", pady=10)
+        self._credential_selected()
+
+    def _credential_selected(self, _event: object = None) -> None:
+        self.secret.delete(0, "end")
+        self.speech_app_id.delete(0, "end")
+        self.speech_token.delete(0, "end")
+        self.secret.pack_forget()
+        self.speech_fields.pack_forget()
+        self.codex_import.pack_forget()
+        name = _CREDENTIAL_NAMES[self.credential_name.get()]
+        if name == "model.ark_api_key":
+            self.credential_help.set(
+                "填写火山方舟控制台创建的 API Key，用于模型调用及已启用的网页搜索。\n保存后后续请求读取新 Key，无需为更换 Key 重启；保存不代表服务商验证通过。"
+            )
+            self.secret.pack(fill="x", before=self.credential_actions)
+        elif name == "speech.volc_credentials":
+            self.credential_help.set(
+                "填写火山引擎语音服务提供的应用 ID 和访问令牌，不是火山方舟 API Key。\n分别填写下面两项，程序会自动保存所需格式。新语音会话读取新凭据，当前会话不切换。"
+            )
+            self.speech_fields.pack(fill="x", before=self.credential_actions)
+        else:
+            self.credential_help.set(
+                "先在本机 Codex 完成登录，再选择其 auth.json 登录文件导入，无需手写 JSON。\n通常位于用户目录的 .codex 文件夹；也可选择你自定义 Codex 目录中的文件。后续委托读取，当前任务不切换。"
+            )
+            self.codex_import.pack(anchor="w", before=self.credential_actions)
+        self.credential_status.set("尚未检查当前项；点击“检查是否已保存”查看。")
+        self.root.after(200, lambda: self._refresh_credential_selection(name))
+
+    def _refresh_credential_selection(self, name: str) -> None:
+        if self.closed or _CREDENTIAL_NAMES[self.credential_name.get()] != name:
+            return
+        if self.busy:
+            self.root.after(500, lambda: self._refresh_credential_selection(name))
+            return
+        self._save_credential(name, "status", None)
+
+    def _import_codex_credential(self) -> None:
+        if self.busy:
+            return
+        path = filedialog.askopenfilename(
+            title="选择 Codex 登录文件 auth.json",
+            filetypes=[("JSON 登录文件", "*.json")],
+        )
+        if not path:
+            return
+        try:
+            source = Path(path)
+            if source.stat().st_size > 16_384:
+                raise ValueError
+            value = source.read_text(encoding="utf-8")
+            if not isinstance(json.loads(value), dict):
+                raise ValueError
+        except OSError, ValueError:
+            messagebox.showerror(
+                "无法导入", "请选择有效的 Codex JSON 登录文件（不超过 16 KB）。"
+            )
+            return
+        self._save_credential("codex.auth_json", "put", value)
 
     def _devices_tab(self) -> None:
         frame = ttk.Frame(self.tabs, padding=20)
@@ -784,13 +867,59 @@ class Desktop:
         self.request(request)
 
     def credential(self, action: str) -> None:
-        payload = {"name": self.credential_name.get(), "action": action}
+        if self.busy:
+            return
+        name = _CREDENTIAL_NAMES[self.credential_name.get()]
+        value = None
         if action == "put":
-            payload["value"] = self.secret.get()
+            if name == "codex.auth_json":
+                self._import_codex_credential()
+                return
+            if name == "speech.volc_credentials":
+                app_id = self.speech_app_id.get().strip()
+                token = self.speech_token.get().strip()
+                if not app_id or not token:
+                    messagebox.showerror(
+                        "请补充语音凭据", "应用 ID 和访问令牌都需要填写。"
+                    )
+                    return
+                value = json.dumps({"app_id": app_id, "access_token": token})
+            else:
+                value = self.secret.get().strip()
+                if not value:
+                    messagebox.showerror(
+                        "请填写 API Key", "请粘贴火山方舟控制台创建的 API Key。"
+                    )
+                    return
         self.secret.delete(0, "end")
+        self.speech_app_id.delete(0, "end")
+        self.speech_token.delete(0, "end")
+        self._save_credential(name, action, value)
+
+    def _save_credential(self, name: str, action: str, value: str | None) -> None:
+        payload = {"name": name, "action": action}
+        if value is not None:
+            payload["value"] = value
         self.request(
-            SetupRequest.model_validate({"action": "credential", "credential": payload})
+            SetupRequest.model_validate(
+                {"action": "credential", "credential": payload}
+            ),
+            lambda result: self._credential_result(name, result),
         )
+
+    def _credential_result(self, name: str, result: dict[str, Any]) -> None:
+        if _CREDENTIAL_NAMES[self.credential_name.get()] != name:
+            return
+        status = result.get("status")
+        text = (
+            "未配置。请按上方说明填写。"
+            if status == "missing"
+            else "已保存；尚未验证服务商连接。后续请求或新会话使用所保存的凭据。"
+            if status == "configured"
+            else "操作失败：" + str(result.get("error_code", "未知原因"))
+        )
+        self.credential_status.set(text)
+        self.status.set(text)
 
     def _target_changed(self, _event: object = None) -> None:
         self.tree.delete(*self.tree.get_children())

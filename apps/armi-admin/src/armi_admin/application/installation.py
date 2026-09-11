@@ -9,7 +9,7 @@ import socket
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Literal, Self
+from typing import Any, Literal, Self, cast
 from uuid import UUID, uuid7
 
 import psycopg
@@ -559,6 +559,22 @@ class SetupApplication:
                 raw = request.value.get_secret_value().encode("utf-8")
                 if not raw or len(raw) > 16_384 or b"\x00" in raw:
                     raise SetupError("SETUP-CREDENTIAL-VALUE-INVALID")
+                if request.name in {"speech.volc_credentials", "codex.auth_json"}:
+                    try:
+                        decoded: object = json.loads(raw)
+                        if not isinstance(decoded, dict):
+                            raise ValueError
+                        document = cast(dict[str, Any], decoded)
+                        if request.name == "speech.volc_credentials" and (
+                            set(document) != {"app_id", "access_token"}
+                            or any(
+                                type(value) is not str or not value.strip()
+                                for value in document.values()
+                            )
+                        ):
+                            raise ValueError
+                    except ValueError:
+                        raise SetupError("SETUP-CREDENTIAL-FORMAT-INVALID") from None
                 temporary = path.with_suffix(path.suffix + ".pending")
                 try:
                     with temporary.open("wb") as output:
@@ -573,7 +589,8 @@ class SetupApplication:
             return {
                 "status": "configured" if path.is_file() else "missing",
                 "name": request.name,
-                "restart_required": request.action != "status",
+                "restart_required": request.action != "status"
+                and request.name.startswith("channel.qq."),
             }
 
     def login_startup(self, enabled: bool | None) -> dict[str, object]:
