@@ -116,7 +116,6 @@ def validate_contract_single_version(root: Path) -> list[Violation]:
                 # neither select a parser nor authorize execution of an old result.
                 if _relative(path, root) in {
                     "packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema/baseline/30_cognition_and_provenance.sql",
-                    "packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/upgrades/v17-to-v18.sql",
                 } and any(
                     name in line
                     for name in (

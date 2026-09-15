@@ -1133,7 +1133,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "CREATE TABLE armi.alembic_version (version_num varchar(32) NOT NULL, CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))"
             )
             connection.execute("INSERT INTO armi.alembic_version VALUES ('0000')")
-            with ZipFile(resource / "v17-source.zip") as archive:
+            with ZipFile(resource / "v18-source.zip") as archive:
                 for name in sorted(archive.namelist()):
                     if name.startswith("baseline/") and name.endswith(".sql"):
                         connection.execute(
@@ -3820,6 +3820,75 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     pipelines[1].admit_once(),
                 )
                 restarted = await pipelines[0].admit_once()
+                previous_id = restarted.opportunity_id
+                for number, reason in enumerate(
+                    (
+                        "REC-COGNITION-INTERRUPTED",
+                        "REC-OPPORTUNITY-COGNITION-CANCELLED",
+                    ),
+                    start=1,
+                ):
+                    async with factories[0].unit_of_work() as uow:
+                        await uow.transaction.execute(
+                            """UPDATE armi.opportunities
+                               SET current_disposition='cancelled',
+                                   resolved_at=statement_timestamp(), resolution_reason_code=%s
+                               WHERE opportunity_id=%s""",
+                            (reason, previous_id),
+                        )
+                    fresh, concurrent = await asyncio.gather(
+                        pipelines[0].admit_once(),
+                        pipelines[1].admit_once(),
+                    )
+                    self.assertEqual(
+                        {fresh.status, concurrent.status},
+                        {
+                            OpportunityAdmissionStatus.ADMITTED,
+                            OpportunityAdmissionStatus.DUPLICATE,
+                        },
+                    )
+                    self.assertEqual(fresh.opportunity_id, concurrent.opportunity_id)
+                    self.assertNotEqual(fresh.opportunity_id, previous_id)
+                    async with factories[0].unit_of_work(read_only=True) as uow:
+                        rows = await (
+                            await uow.transaction.execute(
+                                """SELECT opportunity_id,current_disposition,resolution_reason_code,
+                                      predecessor_opportunity_id,reconsideration_no
+                               FROM armi.opportunities WHERE source_kind='life_generation_available'
+                               ORDER BY reconsideration_no"""
+                            )
+                        ).fetchall()
+                        self.assertEqual(
+                            rows[-2][0:3], (previous_id, "cancelled", reason)
+                        )
+                        self.assertEqual(
+                            rows[-1],
+                            (fresh.opportunity_id, "open", None, previous_id, number),
+                        )
+                        # New admission carries no old episode or frozen Context.
+                        count = await (
+                            await uow.transaction.execute(
+                                "SELECT count(*) FROM armi.cognitive_episodes WHERE opportunity_id=%s",
+                                (fresh.opportunity_id,),
+                            )
+                        ).fetchone()
+                        self.assertEqual(count, (0,))
+                    previous_id = fresh.opportunity_id
+                assert previous_id is not None
+                async with factories[0].unit_of_work() as uow:
+                    self.assertTrue(
+                        await bootstrap_opportunity_cognition().select_for_cognition(
+                            uow.transaction,
+                            opportunity_id=previous_id,
+                        )
+                    )
+                    await bootstrap_opportunity_transition().resolve_subject_commit(
+                        uow.transaction,
+                        opportunity_id=previous_id,
+                    )
+                settled = await pipelines[0].admit_once()
+                self.assertEqual(settled.status, OpportunityAdmissionStatus.DUPLICATE)
+                self.assertEqual(settled.opportunity_id, previous_id)
                 attention = await pipelines[0].admit_attention_once()
                 await asyncio.sleep(1)
                 sleep_window = await pipelines[0].maintain_sleep_once()
@@ -3869,7 +3938,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             ).fetchone()
         self.assertIsNotNone(row)
         assert row is not None
-        self.assertEqual(row, (1, 1, 1, 1, 1))
+        self.assertEqual(row, (3, 1, 1, 1, 1))
 
     def test_creator_read_queries_and_maintenance_share_runtime_state(
         self,

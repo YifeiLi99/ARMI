@@ -278,6 +278,36 @@ class _Audit:
         self.events.append(event)
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "disposition,reason",
+    [
+        ("open", None),
+        ("selected", None),
+        ("resolved", "SUBJECT-COMMIT-RESOLVED"),
+        ("resolved", "COGNITION-FAILED"),
+        ("superseded", "SUBJECT-COMMIT-SUPERSEDED"),
+        ("cancelled", "DATA-RIGHTS-BLOCKED"),
+    ],
+)
+async def test_generation_admission_does_not_repeat_noninterrupted_decisions(
+    disposition: str,
+    reason: str | None,
+) -> None:
+    opportunity_id = uuid7()
+
+    class Connection:
+        async def execute(self, statement, parameters):
+            assert "SELECT opportunity_id, root_opportunity_id" in statement
+            return _Cursor((opportunity_id, uuid7(), 2, disposition, reason))
+
+    uow = _UnitOfWork(cast(Any, Connection()))
+    result = await _repository().admit_generation_available(cast(Any, uow))
+    assert result.status is OpportunityAdmissionStatus.DUPLICATE
+    assert result.opportunity_id == opportunity_id
+    assert not uow.audit.events
+
+
 class _UnitOfWork:
     def __init__(self, connection: _Connection) -> None:
         self.environment_id = uuid7()

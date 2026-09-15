@@ -363,7 +363,7 @@ def _derive_phase(
     if (
         disposition == "resolved"
         and application_resolution == "stale"
-        and reconsideration_no == 1
+        and reconsideration_no >= 1
     ):
         return CreatorOperationPhase.STALE_CONFLICT, "CONFLICT_SUBJECT_STATE_STALE"
     if disposition in {"selected", "resolved", "cancelled"} and episode_status in {

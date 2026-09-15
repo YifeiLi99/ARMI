@@ -93,6 +93,33 @@ class PostgreSQLLifeOpportunityRepository:
             raise LifeViolation("LIFE-FENCE-REQUIRED")
         connection = unit_of_work.transaction
         generation = await self._facts.generation(unit_of_work)
+        latest = await (
+            await connection.execute(
+                """
+                SELECT opportunity_id, root_opportunity_id, reconsideration_no,
+                       current_disposition, resolution_reason_code
+                FROM armi.opportunities
+                WHERE subject_id = %s AND source_kind = 'life_generation_available'
+                  AND source_ref = %s AND source_version = %s
+                  AND purpose = 'consider_autonomous_life'
+                ORDER BY reconsideration_no DESC LIMIT 1
+                """,
+                (fence.subject_id, fence.life_generation_id, generation.generation_no),
+            )
+        ).fetchone()
+        if latest is not None and not (
+            latest[3] == "cancelled"
+            and latest[4]
+            in {
+                "REC-COGNITION-INTERRUPTED",
+                "REC-OPPORTUNITY-COGNITION-CANCELLED",
+            }
+        ):
+            return OpportunityAdmissionOutcome(
+                OpportunityAdmissionStatus.DUPLICATE, latest[0]
+            )
+        # A new opportunity freezes a new Context; the interrupted round stays terminal.
+        reconsideration_no = 0 if latest is None else int(latest[2]) + 1
         opportunity_id = uuid7()
         inserted = await (
             await connection.execute(
@@ -101,11 +128,11 @@ class PostgreSQLLifeOpportunityRepository:
                     opportunity_id, evidence_id, subject_id, scene_id,
                     context_party_id, purpose, eligibility_status,
                     current_disposition, root_opportunity_id,
-                    reconsideration_no, source_kind, source_ref,
+                    reconsideration_no, predecessor_opportunity_id, source_kind, source_ref,
                     source_version)
                 VALUES (
                     %s, NULL, %s, NULL, NULL, 'consider_autonomous_life',
-                    'eligible', 'open', %s, 0,
+                    'eligible', 'open', %s, %s, %s,
                     'life_generation_available', %s, %s)
                 ON CONFLICT (
                     subject_id, source_kind, source_ref, source_version,
@@ -116,7 +143,9 @@ class PostgreSQLLifeOpportunityRepository:
                 (
                     opportunity_id,
                     fence.subject_id,
-                    opportunity_id,
+                    opportunity_id if latest is None else latest[1],
+                    reconsideration_no,
+                    None if latest is None else latest[0],
                     fence.life_generation_id,
                     generation.generation_no,
                 ),
@@ -133,12 +162,13 @@ class PostgreSQLLifeOpportunityRepository:
                       AND source_ref = %s
                       AND source_version = %s
                       AND purpose = 'consider_autonomous_life'
-                      AND reconsideration_no = 0
+                      AND reconsideration_no = %s
                     """,
                     (
                         fence.subject_id,
                         fence.life_generation_id,
                         generation.generation_no,
+                        reconsideration_no,
                     ),
                 )
             ).fetchone()
