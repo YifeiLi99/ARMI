@@ -319,7 +319,7 @@ class RuntimeCognitionCycleSelector:
                 transaction, verification_id=evidence.codex_verification_id
             )
             effect = await self._effects.by_effect_id(transaction, effect_id=effect_id)
-            if effect is None:
+            if effect is None or effect.action_intent_revision_id is None:
                 raise ContextViolation("CTX-CODEX-EFFECT-MISSING")
             intent = await self._expression.revision_snapshot(
                 transaction,

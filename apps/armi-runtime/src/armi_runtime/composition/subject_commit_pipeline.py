@@ -9,7 +9,6 @@ from pathlib import Path
 from uuid import uuid7
 
 from armi_activity.api import (
-    ActivityCognitionPort,
     ActivityCommitPort,
     CandidateActivityDecisionDraft,
     CandidateActivityDraft,
@@ -65,31 +64,26 @@ from armi_live_vision.api import VisualObservationCommitPort
 from armi_live_voice.api import LiveVoiceViolation, VoiceCognitionResultPort
 from armi_material.api import (
     CandidateLifeMaterialDraft,
-    MaterialCognitionPort,
     MaterialCommitPort,
 )
 from armi_memory.api import (
     CandidateMemoryDraft,
     CandidateMemoryRevisionDraft,
-    MemoryCognitionPort,
     MemoryCommitPort,
 )
-from armi_mood.api import CandidateMoodDraft, MoodCognitionPort, MoodCommitPort
-from armi_prompt.api import CandidatePromptDraft, PromptCognitionPort, PromptCommitPort
+from armi_mood.api import CandidateMoodDraft, MoodCommitPort
+from armi_prompt.api import CandidatePromptDraft, PromptCommitPort
 from armi_relationship.api import (
     CandidateRelationshipDraft,
-    RelationshipCognitionPort,
     RelationshipCommitPort,
 )
 from armi_sleep.api import (
     CandidateMaintenanceDecisionDraft,
     CandidateSleepDecisionDraft,
-    SleepCognitionPort,
     SleepCommitPort,
 )
 from armi_subject_state.api import (
     CandidateSubjectStateDraft,
-    SubjectStateCognitionPort,
     SubjectStateCommitPort,
 )
 from armi_web_observation.api import WebResearchCommitPort, WebResearchRequestDraft
@@ -125,21 +119,13 @@ class SubjectCommitPipeline:
     """Apply validated ChangeSets through the sole T-03 coordinator."""
 
     __slots__ = (
-        "_activity_cognition",
         "_catalog",
         "_diagnostic",
         "_factory",
         "_fault_injector",
-        "_material_cognition",
-        "_memory_cognition",
-        "_mood_cognition",
         "_notifier",
-        "_prompt_cognition",
-        "_relationship_cognition",
         "_repository",
-        "_sleep_cognition",
         "_storage",
-        "_subject_state_cognition",
         "_voice_results",
         "_wakeups",
     )
@@ -150,7 +136,6 @@ class SubjectCommitPipeline:
         factory: PostgreSQLUnitOfWorkFactory,
         storage: ContentAddressedArtifactStore,
         catalog: ArtifactCatalogPort,
-        activity_cognition: ActivityCognitionPort,
         activity_commit: ActivityCommitPort,
         codex_commit: CodexCommitPort,
         cognition_commit: CognitionSubjectCommitPort,
@@ -162,19 +147,12 @@ class SubjectCommitPipeline:
         expression_commit: ExpressionCommitPort,
         interaction_commit: InteractionSubjectCommitPort,
         memory_commit: MemoryCommitPort,
-        memory_cognition: MemoryCognitionPort,
         mood_commit: MoodCommitPort,
         opportunity_transition: OpportunityTransitionPort,
-        mood_cognition: MoodCognitionPort,
-        prompt_cognition: PromptCognitionPort,
         prompt_commit: PromptCommitPort,
-        material_cognition: MaterialCognitionPort,
         material_commit: MaterialCommitPort,
-        relationship_cognition: RelationshipCognitionPort,
         relationship_commit: RelationshipCommitPort,
-        sleep_cognition: SleepCognitionPort,
         sleep_commit: SleepCommitPort,
-        subject_state_cognition: SubjectStateCognitionPort,
         subject_state_commit: SubjectStateCommitPort,
         web_research_commit: WebResearchCommitPort,
         visual_observation_commit: VisualObservationCommitPort,
@@ -185,18 +163,10 @@ class SubjectCommitPipeline:
         fault_injector: FaultInjector | None = None,
     ) -> None:
         self._factory = factory
-        self._activity_cognition = activity_cognition
         self._catalog = catalog
         self._storage = storage
         self._notifier = notifier
         self._voice_results = voice_results
-        self._memory_cognition = memory_cognition
-        self._mood_cognition = mood_cognition
-        self._prompt_cognition = prompt_cognition
-        self._material_cognition = material_cognition
-        self._relationship_cognition = relationship_cognition
-        self._sleep_cognition = sleep_cognition
-        self._subject_state_cognition = subject_state_cognition
         self._repository = PostgreSQLSubjectCommitRepository(
             activity_commit,
             codex_commit,
@@ -238,7 +208,7 @@ class SubjectCommitPipeline:
                     await candidate.record(unit_of_work, lease)
                 self._wake_downstream()
                 return
-            owner_drafts = self._decode_owner_drafts(change_set)
+            owner_drafts = self.collect_owner_drafts(change_set)
             replies = tuple(
                 item
                 for item in change_set.action_choices
@@ -442,9 +412,8 @@ class SubjectCommitPipeline:
         except LiveVoiceViolation:
             self._diagnostic("subject_commit.voice_result.failed")
 
-    def _decode_owner_drafts(
-        self, change_set: SubjectChangeSet
-    ) -> SubjectCommitOwnerDrafts:
+    @staticmethod
+    def collect_owner_drafts(change_set: SubjectChangeSet) -> SubjectCommitOwnerDrafts:
         activity: list[CandidateActivityDraft | CandidateActivityDecisionDraft] = []
         material: list[CandidateLifeMaterialDraft] = []
         memory: list[CandidateMemoryDraft | CandidateMemoryRevisionDraft] = []
@@ -456,28 +425,35 @@ class SubjectCommitPipeline:
         ] = []
         subject_state: list[CandidateSubjectStateDraft] = []
         for item in change_set.owner_drafts:
-            if item.owner == "activity":
-                activity.append(self._activity_cognition.decode(item.canonical_payload))
-            elif item.owner == "material":
-                material.append(self._material_cognition.decode(item.canonical_payload))
-            elif item.owner == "memory":
-                memory.append(self._memory_cognition.decode(item.canonical_payload))
-            elif item.owner == "mood":
-                mood.append(self._mood_cognition.decode(item.canonical_payload))
-            elif item.owner == "prompt":
-                prompt.append(self._prompt_cognition.decode(item.canonical_payload))
-            elif item.owner == "relationship":
-                relationship.append(
-                    self._relationship_cognition.decode_change_set(
-                        item.canonical_payload
-                    )
-                )
-            elif item.owner == "sleep":
-                sleep.append(self._sleep_cognition.decode(item.canonical_payload))
-            elif item.owner in {"self", "mind", "life_mode"}:
-                subject_state.append(
-                    self._subject_state_cognition.decode(item.canonical_payload)
-                )
+            value = item.candidate
+            if item.owner == "activity" and isinstance(
+                value, (CandidateActivityDraft, CandidateActivityDecisionDraft)
+            ):
+                activity.append(value)
+            elif item.owner == "material" and isinstance(
+                value, CandidateLifeMaterialDraft
+            ):
+                material.append(value)
+            elif item.owner == "memory" and isinstance(
+                value, (CandidateMemoryDraft, CandidateMemoryRevisionDraft)
+            ):
+                memory.append(value)
+            elif item.owner == "mood" and isinstance(value, CandidateMoodDraft):
+                mood.append(value)
+            elif item.owner == "prompt" and isinstance(value, CandidatePromptDraft):
+                prompt.append(value)
+            elif item.owner == "relationship" and isinstance(
+                value, CandidateRelationshipDraft
+            ):
+                relationship.append(value)
+            elif item.owner == "sleep" and isinstance(
+                value, (CandidateSleepDecisionDraft, CandidateMaintenanceDecisionDraft)
+            ):
+                sleep.append(value)
+            elif item.owner in {"self", "mind", "life_mode"} and isinstance(
+                value, CandidateSubjectStateDraft
+            ):
+                subject_state.append(value)
             else:
                 raise SubjectCommitViolation("SUBJECT-CANDIDATE-OWNER")
         return SubjectCommitOwnerDrafts(
@@ -751,7 +727,6 @@ def build_subject_commit_pipeline(
     max_object_bytes: int,
     orphan_grace_seconds: int,
     catalog: ArtifactCatalogPort,
-    activity_cognition: ActivityCognitionPort,
     activity_commit: ActivityCommitPort,
     codex_commit: CodexCommitPort,
     cognition_commit: CognitionSubjectCommitPort,
@@ -763,19 +738,12 @@ def build_subject_commit_pipeline(
     expression_commit: ExpressionCommitPort,
     interaction_commit: InteractionSubjectCommitPort,
     memory_commit: MemoryCommitPort,
-    memory_cognition: MemoryCognitionPort,
     mood_commit: MoodCommitPort,
     opportunity_transition: OpportunityTransitionPort,
-    mood_cognition: MoodCognitionPort,
-    prompt_cognition: PromptCognitionPort,
     prompt_commit: PromptCommitPort,
-    material_cognition: MaterialCognitionPort,
     material_commit: MaterialCommitPort,
-    relationship_cognition: RelationshipCognitionPort,
     relationship_commit: RelationshipCommitPort,
-    sleep_cognition: SleepCognitionPort,
     sleep_commit: SleepCommitPort,
-    subject_state_cognition: SubjectStateCognitionPort,
     subject_state_commit: SubjectStateCommitPort,
     web_research_commit: WebResearchCommitPort,
     visual_observation_commit: VisualObservationCommitPort,
@@ -795,7 +763,6 @@ def build_subject_commit_pipeline(
             orphan_grace_seconds=orphan_grace_seconds,
         ),
         catalog=catalog,
-        activity_cognition=activity_cognition,
         activity_commit=activity_commit,
         codex_commit=codex_commit,
         cognition_commit=cognition_commit,
@@ -807,19 +774,12 @@ def build_subject_commit_pipeline(
         expression_commit=expression_commit,
         interaction_commit=interaction_commit,
         memory_commit=memory_commit,
-        memory_cognition=memory_cognition,
         mood_commit=mood_commit,
         opportunity_transition=opportunity_transition,
-        mood_cognition=mood_cognition,
-        prompt_cognition=prompt_cognition,
         prompt_commit=prompt_commit,
-        material_cognition=material_cognition,
         material_commit=material_commit,
-        relationship_cognition=relationship_cognition,
         relationship_commit=relationship_commit,
-        sleep_cognition=sleep_cognition,
         sleep_commit=sleep_commit,
-        subject_state_cognition=subject_state_cognition,
         subject_state_commit=subject_state_commit,
         web_research_commit=web_research_commit,
         visual_observation_commit=visual_observation_commit,

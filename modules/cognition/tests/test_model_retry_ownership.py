@@ -178,6 +178,7 @@ def test_retryable_preparation_failure_settles_on_final_work_attempt() -> None:
     repository = SimpleNamespace(fail_before_attempt=AsyncMock())
     repository.fail_episode = AsyncMock()
     pipeline = object.__new__(ModelPipeline)
+    pipeline._failure_notification = None
     pipeline._factory = cast(Any, SimpleNamespace(unit_of_work=unit_of_work_context))
     pipeline._repository = cast(Any, repository)
     pipeline._diagnostic = cast(Any, lambda _event: None)

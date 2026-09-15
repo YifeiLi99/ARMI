@@ -5,11 +5,48 @@ from uuid import UUID
 
 from armi_runtime_foundation import PostgreSQLAdminTransaction
 
-from .api import InteractionAdminInputSnapshot
+from .api import InteractionAdminInputSnapshot, InteractionAdminNotificationSnapshot
 
 
 class PostgreSQLInteractionAdmin:
     __slots__ = ()
+
+    def notification(
+        self,
+        transaction: PostgreSQLAdminTransaction,
+        *,
+        notification_id: UUID,
+    ) -> InteractionAdminNotificationSnapshot | None:
+        row = transaction.execute(
+            """SELECT notification_id,interaction_id,operation_id,payload_artifact_id,
+                      failure_code,send_unknown FROM armi.system_notifications
+               WHERE notification_id=%s""",
+            (notification_id,),
+        ).fetchone()
+        return (
+            None
+            if row is None
+            else InteractionAdminNotificationSnapshot(
+                cast(UUID, row[0]),
+                cast(UUID, row[1]),
+                cast(UUID | None, row[2]),
+                cast(UUID, row[3]),
+                str(row[4]),
+                bool(row[5]),
+            )
+        )
+
+    def notification_for_input(
+        self,
+        transaction: PostgreSQLAdminTransaction,
+        *,
+        interaction_id: UUID,
+    ) -> UUID | None:
+        row = transaction.execute(
+            "SELECT notification_id FROM armi.system_notifications WHERE interaction_id=%s",
+            (interaction_id,),
+        ).fetchone()
+        return None if row is None else cast(UUID, row[0])
 
     def content_parties(
         self, transaction: PostgreSQLAdminTransaction, *, subject_id: UUID
@@ -96,9 +133,10 @@ class PostgreSQLInteractionAdmin:
         self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
     ) -> int:
         row = transaction.execute(
-            "SELECT count(*) FROM armi.external_message_parts "
-            "WHERE raw_artifact_id=%s OR interpretation_artifact_id=%s",
-            (artifact_id, artifact_id),
+            "SELECT (SELECT count(*) FROM armi.external_message_parts "
+            "WHERE raw_artifact_id=%s OR interpretation_artifact_id=%s) + "
+            "(SELECT count(*) FROM armi.system_notifications WHERE payload_artifact_id=%s)",
+            (artifact_id, artifact_id, artifact_id),
         ).fetchone()
         return 0 if row is None else int(cast(int, row[0]))
 

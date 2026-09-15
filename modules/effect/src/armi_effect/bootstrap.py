@@ -13,7 +13,11 @@ from armi_expression.api import (
     ExpressionEffectRegistrationPort,
     ExpressionIntentReadPort,
 )
-from armi_interaction.api import InteractionEffectRoutePort
+from armi_interaction.api import (
+    InteractionEffectRoutePort,
+    InteractionFailureNotificationPort,
+    SystemNotificationEffectPort,
+)
 from armi_kernel.application import (
     CreatorProjectionNotifier,
     ExecutionCustodyPort,
@@ -52,6 +56,10 @@ def bootstrap_effect_admin() -> EffectAdminPort:
     return PostgreSQLEffectAdmin()
 
 
+def bootstrap_system_notification_effects() -> SystemNotificationEffectPort:
+    return PostgreSQLDeclaredResponseEffectRegistration()
+
+
 Diagnostic = Callable[[str], None]
 FaultInjector = Callable[[str], None]
 
@@ -88,8 +96,10 @@ def bootstrap_effect_runtime(
     adapter: ActionAdapterPort | None = None,
     external_message_adapter: ActionAdapterPort | None = None,
     live_voice_adapter: ActionAdapterPort | None = None,
+    failure_notifications: InteractionFailureNotificationPort | None = None,
 ) -> EffectRuntimePort:
     return EffectPipeline(
+        failure_notifications=failure_notifications,
         factory=factory,
         storage=storage,
         intents=intents,
@@ -129,6 +139,7 @@ __all__ = (
     "bootstrap_effect_recovery",
     "bootstrap_effect_runtime",
     "bootstrap_expression_effect_registration",
+    "bootstrap_system_notification_effects",
     "compose_effect_dispatch_repository",
     "compose_effect_ledger_repository",
     "compose_local_inbox",

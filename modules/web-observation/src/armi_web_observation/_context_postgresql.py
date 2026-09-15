@@ -11,6 +11,20 @@ from .api import WebObservationViolation
 
 
 class PostgreSQLWebContextRead:
+    async def request_opportunity(
+        self, transaction: PostgreSQLTransaction, *, request_id: UUID
+    ) -> UUID:
+        row = await (
+            await transaction.execute(
+                """SELECT source_opportunity_id FROM armi.web_research_intents
+                   WHERE web_observation_request_id=%s""",
+                (request_id,),
+            )
+        ).fetchone()
+        if row is None:
+            raise WebObservationViolation("WEB-REQUEST-STATE")
+        return row[0]
+
     async def request_trace(
         self,
         transaction: PostgreSQLTransaction,

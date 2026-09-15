@@ -216,7 +216,10 @@ class SceneTimelineItem:
         if self.source_kind == "creator_input":
             if self.message is None:
                 raise SceneQueryViolation("CON-SCENE-MESSAGE")
-        elif self.source_kind != "creator_response" and self.message is not None:
+        elif (
+            self.source_kind not in {"creator_response", "system_notification"}
+            and self.message is not None
+        ):
             raise SceneQueryViolation("CON-SCENE-MESSAGE")
         if self.message is not None:
             try:

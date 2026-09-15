@@ -35,7 +35,7 @@ class EffectRecoveryParticipant:
                SET dispatch_state='settled',result_status='cancelled',
                    settled_at=statement_timestamp()
                FROM armi.effects AS effect
-               WHERE effect.subject_id=%s AND effect.effect_kind IN ('creator_response','codex_delegation')
+               WHERE effect.subject_id=%s AND effect.effect_kind IN ('creator_response','codex_delegation','system_notification')
                  AND effect.current_attempt_id=attempt.effect_attempt_id
                  AND attempt.dispatch_state='prepared'""",
             (scope.subject_id,),
@@ -45,7 +45,7 @@ class EffectRecoveryParticipant:
                 """UPDATE armi.effects AS effect
                    SET status='cancelled',verification_status='verified',
                        cancelled_at=statement_timestamp(),settled_at=statement_timestamp()
-                   WHERE subject_id=%s AND effect_kind IN ('creator_response','codex_delegation')
+                   WHERE subject_id=%s AND effect_kind IN ('creator_response','codex_delegation','system_notification')
                      AND (status='registered' OR (status='dispatching' AND EXISTS (
                        SELECT 1 FROM armi.effect_attempts AS attempt
                        WHERE attempt.effect_attempt_id=effect.current_attempt_id
@@ -75,7 +75,7 @@ class EffectRecoveryParticipant:
                   ON outbox.effect_id = effect.effect_id
                 WHERE effect.subject_id = %s
                   AND effect.status = 'dispatching'
-                  AND (NOT %s OR effect.effect_kind IN ('creator_response','codex_delegation'))
+                  AND (NOT %s OR effect.effect_kind IN ('creator_response','codex_delegation','system_notification'))
                   AND attempt.dispatch_state = 'dispatching'
                   AND outbox.status = 'claimed'
                 ORDER BY effect.effect_id
@@ -88,7 +88,8 @@ class EffectRecoveryParticipant:
         for effect_id, attempt_id, outbox_id, claim_token, effect_kind in dispatched:
             reason = (
                 "EFFECT-RUNTIME-INTERRUPTED"
-                if effect_kind in {"creator_response", "codex_delegation"}
+                if effect_kind
+                in {"creator_response", "codex_delegation", "system_notification"}
                 else "EFFECT-RESULT-UNKNOWN"
             )
             observation_id = uuid7()
@@ -160,7 +161,7 @@ class EffectRecoveryParticipant:
                SET last_error_code='EFFECT-RUNTIME-INTERRUPTED'
                FROM armi.effects AS effect
                WHERE outbox.effect_id=effect.effect_id AND effect.subject_id=%s
-                 AND effect.effect_kind IN ('creator_response','codex_delegation') AND effect.status='unknown'""",
+                 AND effect.effect_kind IN ('creator_response','codex_delegation','system_notification') AND effect.status='unknown'""",
             (scope.subject_id,),
         )
         row = await (
@@ -169,7 +170,7 @@ class EffectRecoveryParticipant:
             SELECT
                 count(*) FILTER (
                     WHERE effect.status IN ('registered', 'dispatching', 'unknown')
-                      AND effect.effect_kind NOT IN ('creator_response','codex_delegation')
+                      AND effect.effect_kind NOT IN ('creator_response','codex_delegation','system_notification')
                 ),
                 count(*) FILTER (
                     WHERE (effect.status = 'registered' AND outbox.status <> 'ready')
@@ -201,7 +202,8 @@ class EffectRecoveryParticipant:
         uncertain_external_work = [
             row
             for row in dispatched
-            if row[4] not in {"creator_response", "codex_delegation"}
+            if row[4]
+            not in {"creator_response", "codex_delegation", "system_notification"}
         ]
         return RecoveryContribution(
             self.owner_identity,

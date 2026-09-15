@@ -54,7 +54,6 @@ _RESULT_CODE = re.compile(r"^(?:CON|CANDIDATE)-[A-Z0-9-]+$", re.ASCII)
 
 class CandidateValidationStatus(StrEnum):
     ACCEPTED = "accepted"
-    PARTIALLY_ACCEPTED = "partially_accepted"
     REJECTED = "rejected"
 
 

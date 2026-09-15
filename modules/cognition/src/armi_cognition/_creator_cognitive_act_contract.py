@@ -12,7 +12,8 @@ from ._creator_appraisal_contract import (
     AppraisalEventSignalV2,
     CreatorAppraisalExperience,
 )
-from ._dialogue_contract import ContextRef, DialogueCompactChange
+from ._creator_changes import CreatorChange, change_context_refs
+from ._dialogue_contract import ContextRef
 from ._strict_model_json import strict_model_value
 
 CREATOR_COGNITIVE_ACT_VERSION = "armi.creator-cognitive-act-candidate.v4"
@@ -51,6 +52,9 @@ class TerminalDecision(_StrictModel, frozen=True):
 class ExactLifeQueryDecision(_StrictModel, frozen=True):
     kind: Literal["exact_life_query"]
     record_kind: RecordKind
+    query: Annotated[str, StringConstraints(min_length=1, max_length=1024)] | None = (
+        None
+    )
 
 
 class WebResearchDecision(_StrictModel, frozen=True):
@@ -71,25 +75,6 @@ Decision = Annotated[
     | VisualObservationDecision,
     Field(discriminator="kind"),
 ]
-
-
-class CreatorChange(DialogueCompactChange, frozen=True):
-    op: Literal[
-        "material.create",
-        "material.update",
-        "material.visibility",
-        "material.delete",
-        "relationship.interpret",
-        "relationship.fact",
-        "relationship.boundary",
-        "commitment.establish",
-        "commitment.modify",
-        "commitment.fulfill",
-        "commitment.withdraw",
-        "commitment.forget",
-        "commitment.violate",
-        "commitment.conflict",
-    ]
 
 
 class CreatorCognitiveActCandidate(_StrictModel, frozen=True):
@@ -201,9 +186,7 @@ def _check_refs(
         if candidate.appraisal.episode_ref is not None:
             refs.add(candidate.appraisal.episode_ref)
     for change in candidate.changes:
-        refs.update(
-            ref for ref in (change.target_ref, change.related_ref) if ref is not None
-        )
+        refs.update(change_context_refs(change))
     if not refs.issubset(allowed):
         raise ValueError("creator act references unavailable context")
 

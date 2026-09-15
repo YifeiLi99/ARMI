@@ -18,8 +18,8 @@ from ._strict_model_json import strict_model_value
 DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v25"
 DIALOGUE_MODEL_OUTPUT_VERSION = "armi.creator-dialogue-model-output.v3"
 
-Summary = Annotated[str, StringConstraints(min_length=1, max_length=512)]
-ContextRef = Annotated[
+type Summary = Annotated[str, StringConstraints(min_length=1, max_length=512)]
+type ContextRef = Annotated[
     str,
     StringConstraints(pattern=r"^ctx:[1-9][0-9]{0,2}$", max_length=7),
 ]

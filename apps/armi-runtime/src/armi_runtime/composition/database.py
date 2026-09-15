@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Final
 from uuid import UUID
@@ -31,6 +31,7 @@ from armi_attention.api import (
 from armi_attention.bootstrap import (
     bootstrap_opportunity,
     bootstrap_opportunity_admission,
+    bootstrap_opportunity_cognition,
 )
 from armi_capability.api import (
     CapabilityReadPort,
@@ -38,6 +39,7 @@ from armi_capability.api import (
 from armi_codex.api import (
     CodexCommitPort,
     CodexContextReadPort,
+    CodexDelegationViolation,
     CodexExecutionReadPort,
     CodexRuntimePort,
     CodexTaskSourceReadPort,
@@ -64,6 +66,7 @@ from armi_cognition.bootstrap import (
     bootstrap_cognition_candidate,
     bootstrap_cognition_exact_life_query,
     bootstrap_cognition_model,
+    bootstrap_cognition_operation,
 )
 from armi_context.api import (
     ContextCognitionReadPort,
@@ -108,10 +111,12 @@ from armi_effect.api import (
 )
 from armi_effect.bootstrap import (
     bootstrap_effect_codex_lifecycle,
+    bootstrap_effect_operation_read,
     bootstrap_effect_runtime,
     bootstrap_expression_effect_registration,
+    bootstrap_system_notification_effects,
 )
-from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
+from armi_evidence.api import EvidenceReadPort, EvidenceSnapshot, EvidenceWritePort
 from armi_evidence.bootstrap import (
     EvidenceModule,
     bootstrap_evidence,
@@ -120,10 +125,12 @@ from armi_experience.api import ExperienceCommitPort, ExperienceLifeRecordPort
 from armi_expression.api import (
     ExpressionCommitPort,
     ExpressionIntentReadPort,
+    ResponseViolation,
 )
 from armi_expression.bootstrap import (
     ExpressionModule,
     bootstrap_expression,
+    bootstrap_expression_action_ports,
 )
 from armi_interaction.api import (
     CreatorIdentityContext,
@@ -135,6 +142,7 @@ from armi_interaction.api import (
     InteractionCreatorTimelineProjectionPort,
     InteractionEffectDeliveryPort,
     InteractionEffectRoutePort,
+    InteractionFailureNotificationPort,
     InteractionIdentityPort,
     InteractionIdentityTokenPort,
     InteractionOtherHumanReadPort,
@@ -147,7 +155,9 @@ from armi_interaction.api import (
 from armi_interaction.bootstrap import (
     InteractionModule,
     bootstrap_interaction,
+    bootstrap_interaction_action_ports,
     bootstrap_interaction_birth,
+    bootstrap_interaction_failure_notifications,
     bootstrap_interaction_identity,
 )
 from armi_kernel import read_configuration_bytes
@@ -161,8 +171,11 @@ from armi_kernel.application import (
     ModelViolation,
     RuntimeFence,
 )
-from armi_live_vision.bootstrap import bootstrap_live_vision_commit
-from armi_live_voice.api import VoiceCognitionResultPort
+from armi_live_vision.bootstrap import (
+    bootstrap_live_vision_commit,
+    bootstrap_visual_origin_read,
+)
+from armi_live_voice.api import LiveVoiceRuntimePort, VoiceCognitionResultPort
 from armi_live_voice.bootstrap import bootstrap_live_voice_context_read
 from armi_local_control.configuration import ConfigurationViolation
 from armi_local_control.runtime_errors import RuntimeViolation
@@ -215,7 +228,11 @@ from armi_relationship.bootstrap import (
     RelationshipModule,
     bootstrap_relationship,
 )
-from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork
+from armi_runtime_foundation import (
+    PostgreSQLRuntimeUnitOfWork,
+    PostgreSQLTransaction,
+    RuntimeTransactionFailure,
+)
 from armi_sleep.api import (
     SleepCognitionPort,
     SleepCommitPort,
@@ -241,6 +258,7 @@ from armi_web_observation.api import (
     WebResearchRuntimePort,
 )
 from armi_web_observation.bootstrap import (
+    bootstrap_web_context_read,
     bootstrap_web_observation,
     bootstrap_web_research,
     bootstrap_web_research_commit,
@@ -828,6 +846,7 @@ def compose_exact_life_query_pipeline(
     catalog: ArtifactCatalogPort,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
+    voice: LiveVoiceRuntimePort | None = None,
 ) -> ExactLifeQueryPipeline:
     config = prepared.effective.config
     return build_exact_life_query_pipeline(
@@ -841,6 +860,9 @@ def compose_exact_life_query_pipeline(
         opportunity=opportunity,
         wakeups=wakeups,
         diagnostic=diagnostic,
+        failure_notification=_opportunity_failure_notification(
+            prepared, unit_of_work_factory, catalog, diagnostic, voice
+        ),
     )
 
 
@@ -1084,6 +1106,9 @@ def compose_perception_module(
             runtime_config_path("model-bindings.yaml", environment_root=prepared.root)
         )
         return bootstrap_perception(
+            failure_notifications=_interaction_failure_notifications(
+                prepared, unit_of_work_factory, catalog, diagnostic
+            ),
             unit_of_work_factory=unit_of_work_factory,
             storage=_artifact_storage(prepared, unit_of_work_factory, catalog),
             catalog=catalog,
@@ -1263,6 +1288,7 @@ def compose_context_pipeline(
     catalog: ArtifactCatalogPort,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
+    voice: LiveVoiceRuntimePort | None = None,
 ) -> ContextRuntimePort:
     """Resolve the Runtime credential for the active S023 selector and worker."""
 
@@ -1283,6 +1309,9 @@ def compose_context_pipeline(
     )
     storage = _artifact_storage(prepared, unit_of_work_factory, catalog)
     return bootstrap_context(
+        failure_notification=_cognition_failure_notification(
+            prepared, unit_of_work_factory, catalog, diagnostic, voice
+        ),
         factory=unit_of_work_factory,
         storage=storage,
         catalog=catalog,
@@ -1363,6 +1392,157 @@ def compose_context_embedding_pipeline(
     )
 
 
+def _interaction_failure_notifications(
+    prepared: PreparedEnvironment,
+    factory: PostgreSQLUnitOfWorkFactory,
+    catalog: ArtifactCatalogPort,
+    diagnostic: Callable[[str], None] | None,
+    voice: LiveVoiceRuntimePort | None = None,
+) -> InteractionFailureNotificationPort:
+    async def derived_origin(
+        transaction: PostgreSQLTransaction, evidence: EvidenceSnapshot
+    ) -> UUID | None:
+        if evidence.web_observation_request_id is not None:
+            return await bootstrap_web_context_read().request_opportunity(
+                transaction, request_id=evidence.web_observation_request_id
+            )
+        if evidence.visual_observation_id is not None:
+            episode_id = await bootstrap_visual_origin_read().origin_episode(
+                transaction, observation_id=evidence.visual_observation_id
+            )
+            if episode_id is None:
+                return None
+            return await bootstrap_cognition_operation().opportunity_for_episode(
+                transaction, episode_id=episode_id
+            )
+        if evidence.codex_verification_id is not None:
+            effect_id = (
+                await bootstrap_codex_read_ports().context.verification_effect_id(
+                    transaction, verification_id=evidence.codex_verification_id
+                )
+            )
+            effect = await bootstrap_effect_operation_read().by_effect_id(
+                transaction, effect_id=effect_id
+            )
+            if effect is None or effect.action_intent_id is None:
+                return None
+            intent = await bootstrap_expression_action_ports().intents.intent_snapshot(
+                transaction, action_intent_id=effect.action_intent_id
+            )
+            return intent.root_opportunity_id
+        return None
+
+    async def guarded_derived_origin(
+        transaction: PostgreSQLTransaction, evidence: EvidenceSnapshot
+    ) -> UUID | None:
+        try:
+            return await derived_origin(transaction, evidence)
+        except CodexDelegationViolation, ResponseViolation, WebObservationViolation:
+            if diagnostic is not None:
+                diagnostic("interaction.notification.origin_unavailable")
+            return None
+
+    async def voice_failure(opportunity_id: UUID) -> None:
+        if voice is None:
+            return
+        async with factory.unit_of_work(read_only=True) as uow:
+            turn_id = await bootstrap_live_voice_context_read().turn_for_opportunity(
+                uow.transaction,
+                opportunity_id=opportunity_id,
+            )
+        if turn_id is not None:
+            await voice.fail_cognition(turn_id=turn_id)
+
+    return bootstrap_interaction_failure_notifications(
+        derived_origin=guarded_derived_origin,
+        voice_failure=voice_failure if voice is not None else None,
+        factory=factory,
+        opportunities=bootstrap_opportunity_cognition(),
+        evidence=bootstrap_evidence().read,
+        routes=bootstrap_interaction_action_ports().routes,
+        catalog=catalog,
+        storage=_artifact_storage(prepared, factory, catalog),
+        effects=bootstrap_system_notification_effects(),
+        diagnostic=diagnostic or (lambda _event: None),
+    )
+
+
+def compose_visual_failure_notification(
+    prepared: PreparedEnvironment,
+    factory: PostgreSQLUnitOfWorkFactory,
+    catalog: ArtifactCatalogPort,
+    diagnostic: Callable[[str], None] | None = None,
+    voice: LiveVoiceRuntimePort | None = None,
+) -> Callable[[UUID, str], Awaitable[None]]:
+    notify_episode = _cognition_failure_notification(
+        prepared, factory, catalog, diagnostic, voice
+    )
+
+    async def notify(observation_id: UUID, code: str) -> None:
+        try:
+            async with factory.unit_of_work(read_only=True) as unit:
+                episode_id = await bootstrap_visual_origin_read().origin_episode(
+                    unit.transaction, observation_id=observation_id
+                )
+            if episode_id is not None:
+                await notify_episode(episode_id, code)
+        except RuntimeTransactionFailure:
+            if diagnostic is not None:
+                diagnostic("vision.notification.source_unavailable")
+
+    return notify
+
+
+def _opportunity_failure_notification(
+    prepared: PreparedEnvironment,
+    factory: PostgreSQLUnitOfWorkFactory,
+    catalog: ArtifactCatalogPort,
+    diagnostic: Callable[[str], None] | None,
+    voice: LiveVoiceRuntimePort | None = None,
+) -> Callable[[UUID, str], Awaitable[None]]:
+    notifications = _interaction_failure_notifications(
+        prepared, factory, catalog, diagnostic, voice
+    )
+
+    async def notify(opportunity_id: UUID, code: str) -> None:
+        await notifications.notify_failure(
+            opportunity_id=opportunity_id, failure_code=code
+        )
+
+    return notify
+
+
+def _cognition_failure_notification(
+    prepared: PreparedEnvironment,
+    factory: PostgreSQLUnitOfWorkFactory,
+    catalog: ArtifactCatalogPort,
+    diagnostic: Callable[[str], None] | None,
+    voice: LiveVoiceRuntimePort | None = None,
+) -> Callable[[UUID, str], Awaitable[None]]:
+    notifications = _interaction_failure_notifications(
+        prepared, factory, catalog, diagnostic, voice
+    )
+    cognition = bootstrap_cognition_operation()
+
+    async def notify(episode_id: UUID, code: str) -> None:
+        try:
+            async with factory.unit_of_work(read_only=True) as uow:
+                opportunity_id = await cognition.opportunity_for_episode(
+                    uow.transaction,
+                    episode_id=episode_id,
+                )
+        except RuntimeTransactionFailure:
+            if diagnostic is not None:
+                diagnostic("cognition.notification.source_unavailable")
+            return
+        if opportunity_id is not None:
+            await notifications.notify_failure(
+                opportunity_id=opportunity_id, failure_code=code
+            )
+
+    return notify
+
+
 def compose_model_pipeline(
     prepared: PreparedEnvironment,
     *,
@@ -1374,6 +1554,7 @@ def compose_model_pipeline(
     finalization: CognitionFinalizationPort,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
+    voice: LiveVoiceRuntimePort | None = None,
 ) -> CognitionWorkerPort:
     """Resolve the Runtime and model credentials for the active S024 worker."""
 
@@ -1399,6 +1580,9 @@ def compose_model_pipeline(
         )
 
     return bootstrap_cognition_model(
+        failure_notification=_cognition_failure_notification(
+            prepared, unit_of_work_factory, catalog, diagnostic, voice
+        ),
         factory=unit_of_work_factory,
         storage=_artifact_storage(prepared, unit_of_work_factory, catalog),
         catalog=catalog,
@@ -1426,6 +1610,7 @@ def compose_web_search_pipeline(
     catalog: ArtifactCatalogPort,
     custody: ExecutionCustodyPort,
     diagnostic: Callable[[str], None] | None = None,
+    voice: LiveVoiceRuntimePort | None = None,
 ) -> WebObservationRuntimePort:
     """Resolve the fixed database and Ark credentials for S033 custody."""
 
@@ -1439,6 +1624,9 @@ def compose_web_search_pipeline(
     except OSError:
         raise WebObservationViolation("WEB-MANIFEST") from None
     return bootstrap_web_observation(
+        failure_notifications=_opportunity_failure_notification(
+            prepared, unit_of_work_factory, catalog, diagnostic, voice
+        ),
         factory=unit_of_work_factory,
         storage=_artifact_storage(prepared, unit_of_work_factory, catalog),
         catalog=catalog,
@@ -1462,10 +1650,14 @@ def compose_web_research_admission_pipeline(
     opportunity: OpportunityAdmissionPort,
     catalog: ArtifactCatalogPort,
     diagnostic: Callable[[str], None] | None = None,
+    voice: LiveVoiceRuntimePort | None = None,
 ) -> WebResearchRuntimePort:
     """Resolve the active S034 intent-to-custody worker."""
 
     return bootstrap_web_research(
+        failure_notifications=_opportunity_failure_notification(
+            prepared, unit_of_work_factory, catalog, diagnostic, voice
+        ),
         factory=unit_of_work_factory,
         storage=_artifact_storage(prepared, unit_of_work_factory, catalog),
         catalog=catalog,
@@ -1511,11 +1703,15 @@ def compose_candidate_validation_pipeline(
     catalog: ArtifactCatalogPort,
     visual_sources_active: frozenset[str] = frozenset(),
     diagnostic: Callable[[str], None] | None = None,
+    voice: LiveVoiceRuntimePort | None = None,
 ) -> CognitionFinalizationPort:
     """Resolve the Runtime credential for the active S025 validator."""
 
     config = prepared.effective.config
     return bootstrap_cognition_candidate(
+        failure_notification=_cognition_failure_notification(
+            prepared, unit_of_work_factory, catalog, diagnostic, voice
+        ),
         factory=unit_of_work_factory,
         storage=_artifact_storage(prepared, unit_of_work_factory, catalog),
         catalog=catalog,
@@ -1556,7 +1752,6 @@ def compose_subject_commit_pipeline(
     prepared: PreparedEnvironment,
     *,
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
-    activity_cognition: ActivityCognitionPort,
     activity_commit: ActivityCommitPort,
     codex_commit: CodexCommitPort,
     cognition_commit: CognitionSubjectCommitPort,
@@ -1568,19 +1763,12 @@ def compose_subject_commit_pipeline(
     expression_commit: ExpressionCommitPort,
     interaction_commit: InteractionSubjectCommitPort,
     memory_commit: MemoryCommitPort,
-    memory_cognition: MemoryCognitionPort,
     mood_commit: MoodCommitPort,
-    mood_cognition: MoodCognitionPort,
     opportunity_transition: OpportunityTransitionPort,
-    prompt_cognition: PromptCognitionPort,
     prompt_commit: PromptCommitPort,
-    material_cognition: MaterialCognitionPort,
     material_commit: MaterialCommitPort,
-    relationship_cognition: RelationshipCognitionPort,
     relationship_commit: RelationshipCommitPort,
-    sleep_cognition: SleepCognitionPort,
     sleep_commit: SleepCommitPort,
-    subject_state_cognition: SubjectStateCognitionPort,
     subject_state_commit: SubjectStateCommitPort,
     catalog: ArtifactCatalogPort,
     notifier: CreatorProjectionNotifier | None,
@@ -1598,7 +1786,6 @@ def compose_subject_commit_pipeline(
         max_object_bytes=config.artifacts.max_object_bytes,
         orphan_grace_seconds=config.artifacts.orphan_grace_seconds,
         catalog=catalog,
-        activity_cognition=activity_cognition,
         activity_commit=activity_commit,
         codex_commit=codex_commit,
         cognition_commit=cognition_commit,
@@ -1610,19 +1797,12 @@ def compose_subject_commit_pipeline(
         expression_commit=expression_commit,
         interaction_commit=interaction_commit,
         memory_commit=memory_commit,
-        memory_cognition=memory_cognition,
         mood_commit=mood_commit,
-        mood_cognition=mood_cognition,
         opportunity_transition=opportunity_transition,
-        prompt_cognition=prompt_cognition,
         prompt_commit=prompt_commit,
-        material_cognition=material_cognition,
         material_commit=material_commit,
-        relationship_cognition=relationship_cognition,
         relationship_commit=relationship_commit,
-        sleep_cognition=sleep_cognition,
         sleep_commit=sleep_commit,
-        subject_state_cognition=subject_state_cognition,
         subject_state_commit=subject_state_commit,
         web_research_commit=bootstrap_web_research_commit(),
         visual_observation_commit=bootstrap_live_vision_commit(),
@@ -1678,6 +1858,7 @@ def compose_effect_pipeline(
     prepared: PreparedEnvironment,
     *,
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
+    catalog: ArtifactCatalogPort,
     intents: ExpressionIntentReadPort,
     codex_artifacts: EffectCodexArtifactPort,
     routes: InteractionEffectRoutePort,
@@ -1689,6 +1870,7 @@ def compose_effect_pipeline(
     notifier: CreatorProjectionNotifier | None = None,
     wakeups: WorkWakeupBus,
     diagnostic: Callable[[str], None] | None = None,
+    voice: LiveVoiceRuntimePort | None = None,
     fault_injector: Callable[[str], None] | None = None,
     external_message_adapter: ActionAdapterPort | None = None,
     live_voice_adapter: ActionAdapterPort | None = None,
@@ -1696,6 +1878,9 @@ def compose_effect_pipeline(
     """Resolve the Runtime credential for the S029 T-05 worker."""
 
     return bootstrap_effect_runtime(
+        failure_notifications=_interaction_failure_notifications(
+            prepared, unit_of_work_factory, catalog, diagnostic, voice
+        ),
         factory=unit_of_work_factory,
         storage=ContentAddressedArtifactStore(
             prepared.data_root / "artifacts",
@@ -1750,11 +1935,15 @@ def compose_codex_pipeline(
     catalog: ArtifactCatalogPort,
     notifier: CreatorProjectionNotifier | None = None,
     diagnostic: Callable[[str], None] | None = None,
+    voice: LiveVoiceRuntimePort | None = None,
 ) -> CodexRuntimePort:
     """Compose the one active S039 Codex dispatcher without exposing auth."""
 
     run_root = prepared.data_root / "codex-runner"
     return bootstrap_codex(
+        failure_notification=_opportunity_failure_notification(
+            prepared, unit_of_work_factory, catalog, diagnostic, voice
+        ),
         factory=unit_of_work_factory,
         storage=_artifact_storage(prepared, unit_of_work_factory, catalog),
         catalog=catalog,

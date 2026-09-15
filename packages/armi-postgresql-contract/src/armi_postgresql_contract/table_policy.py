@@ -53,6 +53,7 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     ),
     "scene_participants": TableOwnership("interaction", maintenance_writable=False),
     "scene_timeline_items": TableOwnership("interaction", maintenance_writable=True),
+    "system_notifications": TableOwnership("interaction", maintenance_writable=False),
     # Local real-time voice custody.
     "live_voice_sessions": TableOwnership("live-voice", maintenance_writable=True),
     "live_voice_turns": TableOwnership("live-voice", maintenance_writable=True),

@@ -502,6 +502,10 @@ class AdminCorrectionGateway:
             raise AdminCorrectionGatewayError("ADMIN-CORRECTION-INPUT-NOT-FOUND")
         if (
             opportunity.disposition != "open"
+            or self._interaction.notification_for_input(
+                connection, interaction_id=interaction.interaction_id
+            )
+            is not None
             or self._cognition.opportunity_consumed(
                 connection, opportunity_id=opportunity.opportunity_id
             )
@@ -626,10 +630,21 @@ class AdminCorrectionGateway:
             raise AdminCorrectionGatewayError("ADMIN-CORRECTION-EFFECT-NOT-FOUND")
         if effect.status != "unknown" or effect.attempt_id is None:
             raise AdminCorrectionGatewayError("ADMIN-CORRECTION-EFFECT-NOT-UNKNOWN")
-        intent = self._expression.intent(
-            connection, action_intent_id=effect.action_intent_id
+        intent = (
+            None
+            if effect.action_intent_id is None
+            else self._expression.intent(
+                connection, action_intent_id=effect.action_intent_id
+            )
         )
-        if intent is None:
+        notice = (
+            None
+            if effect.system_notification_id is None
+            else self._interaction.notification(
+                connection, notification_id=effect.system_notification_id
+            )
+        )
+        if intent is None and notice is None:
             raise AdminCorrectionGatewayError("ADMIN-CORRECTION-EFFECT-NOT-FOUND")
         conclusion = str(spec["conclusion"])
         result_status = {
@@ -713,7 +728,11 @@ class AdminCorrectionGateway:
             "handler": {
                 "effect_id": str(effect.effect_id),
                 "attempt_id": str(effect.attempt_id),
-                "operation_ref": str(intent.operation_ref),
+                "operation_ref": str(
+                    intent.operation_ref
+                    if intent is not None
+                    else cast(Any, notice).interaction_id
+                ),
                 "outbox_id": str(effect.outbox_id),
                 "delivery_id": None
                 if effect.delivery_id is None

@@ -607,7 +607,7 @@ class PostgreSQLExpressionOwner:
                 candidate_validation_id, subject_commit_id, subject_id, scene_id,
                 context_party_id, proposal_ref, decision_kind, action_intent_id,
                 operation_ref)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'reply', %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 decision_id,
@@ -619,6 +619,7 @@ class PostgreSQLExpressionOwner:
                 context.scene_id,
                 context.creator_party_id,
                 reply.proposal_ref,
+                reply.decision_kind,
                 action_id,
                 context.root_opportunity_id,
             ),

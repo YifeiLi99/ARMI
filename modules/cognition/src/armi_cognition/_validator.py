@@ -129,7 +129,7 @@ from armi_subject_state.api import (
     SubjectStateKind,
 )
 from armi_web_observation.api import WebResearchRequestDraft
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from . import _creator_cognitive_act_contract as creator_act
 from ._activity_attention_contract import (
@@ -157,6 +157,7 @@ from ._autonomous_activity_contract import (
 from ._creator_appraisal_contract import (
     AppraisalEventSignalV2,
 )
+from ._creator_changes import translate_creator_changes
 from ._creator_cognitive_act_contract import CreatorCognitiveActCandidate
 from ._dialogue_contract import (
     CreatorDialogueCandidate,
@@ -171,8 +172,6 @@ from ._dialogue_contract import (
     DialogueTerminalDecision,
     DialogueVisualObservationDecision,
     DialogueWebResearchDecision,
-    parse_dialogue_candidate,
-    translate_compact_change_set,
 )
 from ._maintenance_contract import (
     MAINTENANCE_WORK_CANDIDATE_VERSION,
@@ -184,18 +183,25 @@ from ._maintenance_contract import (
 )
 from ._model_contract import (
     ActionChoiceProposal,
+    CandidateBase,
+    CandidateUnderstanding,
     CodexDelegationPayload,
     CognitionCandidate,
+    ComponentChangePayload,
     ComponentChangeProposal,
+    ExperiencePayload,
     ExperienceProposal,
     FormalNoActionPayload,
+    MemoryChangePayload,
     MemoryChangeProposal,
     MindState,
     MoodSemanticAppraisalCommand,
     MoodState,
     RuntimeBoundCreatorReplyPayload,
     SelfState,
+    VisualObservationRequestPayload,
     VisualObservationRequestProposal,
+    WebResearchRequestPayload,
     WebResearchRequestProposal,
     parse_candidate,
 )
@@ -232,7 +238,7 @@ from .api import (
 
 CANDIDATE_POLICY_VERSION = "armi.cognition-candidate-policy.v4"
 CANDIDATE_VALIDATOR_IDENTITY = "armi.candidate-validator.deterministic-v1"
-ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v33"
+ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v34"
 _CODEX_CAPABILITY_ID = UUID("01985d00-0000-7000-8000-000000000038")
 
 
@@ -329,7 +335,6 @@ class DialogueBoundChanges:
     material: CandidateLifeMaterialDraft | None = None
     prompt: CandidatePromptDraft | None = None
     exact_life_query: CandidateExactLifeQueryDraft | None = None
-    rejections: tuple[CandidateRejection, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -694,16 +699,6 @@ class DeterministicCandidateValidator:
                     context=self._context,
                 )
             )
-            if candidate is None and isinstance(
-                parsed_candidate,
-                DialogueReplyDecision,
-            ):
-                candidate, dialogue_bound_changes = _recover_dialogue_expression(
-                    parsed_candidate,
-                    error_code=expansion_error,
-                    bases=bases,
-                    context=self._context,
-                )
             if candidate is None:
                 return _rejected(expansion_error or "CANDIDATE-CONTRACT")
         else:
@@ -784,10 +779,6 @@ class DeterministicCandidateValidator:
             | CodexDelegationDraft,
         ] = {}
         rejected: dict[str, CandidateRejection] = {}
-        if dialogue_bound_changes is not None:
-            rejected.update(
-                (item.proposal_ref, item) for item in dialogue_bound_changes.rejections
-            )
         group_members: dict[str, list[str]] = defaultdict(list)
         group_experiences: set[str] = set()
 
@@ -914,6 +905,18 @@ class DeterministicCandidateValidator:
                         self._context.scene_id,
                         self._context.creator_party_id,
                         content,
+                        decision_kind=cast(
+                            Any,
+                            (
+                                "silence"
+                                if parsed_candidate.kind == "no_action"
+                                else parsed_candidate.kind
+                            )
+                            if isinstance(
+                                parsed_candidate, CreatorCognitiveActCandidate
+                            )
+                            else "reply",
+                        ),
                     )
                     continue
                 if failure is None and isinstance(
@@ -1071,7 +1074,7 @@ class DeterministicCandidateValidator:
                         "CANDIDATE-ATOMIC-GROUP",
                     )
 
-        if candidate.disposition == "change" and not accepted:
+        if rejected or (candidate.disposition == "change" and not accepted):
             return CandidateValidationResult(
                 CandidateValidationId(uuid7()),
                 CandidateValidationStatus.REJECTED,
@@ -1079,6 +1082,15 @@ class DeterministicCandidateValidator:
                 0,
                 len(rejected),
                 _primary_rejection(rejected),
+                tuple(
+                    CandidateDiagnostic(
+                        "owner_validation",
+                        item.code,
+                        _proposal_path(parsed_candidate, item),
+                        item.owner.value,
+                    )
+                    for _, item in sorted(rejected.items())
+                ),
             )
 
         experiences = tuple(
@@ -1208,14 +1220,9 @@ class DeterministicCandidateValidator:
             owner_drafts=owner_drafts,
             exact_life_queries=exact_life_queries,
         )
-        status = (
-            CandidateValidationStatus.PARTIALLY_ACCEPTED
-            if rejections
-            else CandidateValidationStatus.ACCEPTED
-        )
         return CandidateValidationResult(
             CandidateValidationId(uuid7()),
-            status,
+            CandidateValidationStatus.ACCEPTED,
             change_set,
             len(accepted),
             len(rejected),
@@ -2401,84 +2408,6 @@ class DeterministicCandidateValidator:
         )
 
 
-def _recover_dialogue_expression(
-    source: CreatorDialogueCandidate,
-    *,
-    error_code: str | None,
-    bases: tuple[CandidateBasis, ...],
-    context: CandidateValidationContext,
-) -> tuple[CognitionCandidate | None, DialogueBoundChanges | None]:
-    owner = _optional_dialogue_failure_owner(source, error_code)
-    content = getattr(source, "content", None)
-    if owner is None or type(content) is not str:
-        return None, None
-    try:
-        expression = parse_dialogue_candidate(
-            {"kind": "reply", "content": content},
-            version=source.schema_version,
-        )
-    except ValidationError, ValueError:
-        return None, None
-    candidate, bound, expression_error = _expand_dialogue_candidate(
-        expression,
-        bases=bases,
-        context=context,
-    )
-    evidence = next(
-        (item for item in bases if item.item_kind == "current_evidence"),
-        None,
-    )
-    if (
-        candidate is None
-        or bound is None
-        or expression_error is not None
-        or evidence is None
-    ):
-        return None, None
-    rejection = CandidateRejection(
-        "proposal:3",
-        "group:2",
-        (evidence.ordinal,),
-        CandidateFactClass.INFERENCE,
-        CandidateOwnerIdentity(owner.value),
-        cast(str, error_code),
-    )
-    return candidate, replace(bound, rejections=(rejection,))
-
-
-def _optional_dialogue_failure_owner(
-    source: CreatorDialogueCandidate,
-    error_code: str | None,
-) -> CandidateOwner | None:
-    if error_code is None:
-        return None
-    if error_code.startswith("CANDIDATE-COMPONENT-"):
-        if getattr(source, "self_change", None) is not None:
-            return CandidateOwner.SELF
-        mind_change = getattr(source, "mind_change", None)
-        if mind_change is not None and all(
-            getattr(mind_change, field, None) is None
-            for field in (
-                "understanding",
-                "attention",
-                "thoughts",
-                "wishes",
-                "motivations",
-            )
-        ):
-            return CandidateOwner.MOOD
-        return CandidateOwner.MIND
-    for prefix, owner in (
-        ("CANDIDATE-MEMORY-", CandidateOwner.MEMORY),
-        ("CANDIDATE-RELATIONSHIP-", CandidateOwner.RELATIONSHIP),
-        ("CANDIDATE-MATERIAL-", CandidateOwner.MATERIAL),
-        ("CANDIDATE-SUBJECT-PROMPT-", CandidateOwner.PROMPT),
-    ):
-        if error_code.startswith(prefix):
-            return owner
-    return None
-
-
 def _expand_creator_cognitive_act(
     source: CreatorCognitiveActCandidate,
     *,
@@ -2495,7 +2424,9 @@ def _expand_creator_cognitive_act(
         response = DialogueReplyDecision(kind="reply", content=decision.content)
     elif isinstance(decision, creator_act.ExactLifeQueryDecision):
         response = DialogueExactLifeQueryDecision(
-            kind=decision.kind, record_kind=decision.record_kind
+            kind=decision.kind,
+            record_kind=decision.record_kind,
+            query_text=decision.query,
         )
     elif isinstance(decision, creator_act.WebResearchDecision):
         response = DialogueWebResearchDecision(kind=decision.kind, query=decision.query)
@@ -2566,7 +2497,7 @@ def _expand_creator_cognitive_act(
     proposal_no = max((int(ref.partition(":")[2]) for ref in used_refs), default=0) + 1
     if material_events:
         try:
-            translated_material = translate_compact_change_set(material_events)
+            translated_material = translate_creator_changes(material_events)
         except ValidationError, ValueError:
             return None, None, "CANDIDATE-MATERIAL-CONTRACT"
         material, material_error = _bind_dialogue_material(
@@ -2587,7 +2518,9 @@ def _expand_creator_cognitive_act(
     if source.experience is not None:
         experience_ref = f"proposal:{proposal_no}"
         experiences.append(
-            ExperienceProposal.model_validate(
+            _translated_proposal(
+                ExperienceProposal,
+                ExperiencePayload,
                 {
                     "proposal_ref": experience_ref,
                     "atomic_group_ref": "group:4",
@@ -2601,13 +2534,14 @@ def _expand_creator_cognitive_act(
                         "privacy_scope": "private",
                     },
                 },
-                strict=True,
             )
         )
         proposal_no += 1
         if source.experience.remember:
             memory_changes.append(
-                MemoryChangeProposal.model_validate(
+                _translated_proposal(
+                    MemoryChangeProposal,
+                    MemoryChangePayload,
                     {
                         "proposal_ref": f"proposal:{proposal_no}",
                         "atomic_group_ref": "group:4",
@@ -2618,7 +2552,6 @@ def _expand_creator_cognitive_act(
                             "summary": source.experience.memory_summary,
                         },
                     },
-                    strict=True,
                 )
             )
             proposal_no += 1
@@ -2634,7 +2567,9 @@ def _expand_creator_cognitive_act(
         if mood_change is not None:
             mood_change["atomic_group_ref"] = "group:4"
             component_changes.append(
-                ComponentChangeProposal.model_validate(mood_change, strict=True)
+                _translated_proposal(
+                    ComponentChangeProposal, ComponentChangePayload, mood_change
+                )
             )
             proposal_no += 1
     relationship = None
@@ -2642,7 +2577,7 @@ def _expand_creator_cognitive_act(
         if source.experience is None or experience_ref is None:
             return None, None, "CANDIDATE-RELATIONSHIP-EXPERIENCE"
         try:
-            translated = translate_compact_change_set(relationship_events)
+            translated = translate_creator_changes(relationship_events)
             relationship_change = cast(
                 DialogueRelationshipChange, translated["relationship_change"]
             )
@@ -2782,7 +2717,9 @@ def _bind_appraisal_event(
             ),
             None,
         )
-        if episode_basis is None:
+        if episode_basis is None or episode_basis.source_ref is None:
+            return None, "CANDIDATE-MOOD-EPISODE"
+        if episode_basis.source_ref.version != 7:
             return None, "CANDIDATE-MOOD-EPISODE"
     basis_refs = tuple(
         dict.fromkeys(
@@ -2800,17 +2737,17 @@ def _bind_appraisal_event(
         MoodState.model_validate_json(current[1], strict=True)
     except ValidationError:
         return None, "CANDIDATE-MOOD-STATE"
-    event_command = {
-        "schema_version": "armi.mood-appraisal.v2",
-        "transition": signal.transition,
-        "previous_episode_id": (
+    event_command = MoodSemanticAppraisalCommand.model_construct(
+        schema_version="armi.mood-appraisal.v2",
+        transition=signal.transition,
+        previous_episode_id=(
             None if episode_basis is None else str(episode_basis.source_ref)
         ),
-        "event_phase": signal.event_phase,
-        "gist": signal.gist,
-        "appraisal": signal.appraisal.model_dump(mode="python"),
-    }
-    event_command["change_from_previous"] = signal.change_from_previous
+        event_phase=signal.event_phase,
+        gist=signal.gist,
+        appraisal=signal.appraisal,
+        change_from_previous=signal.change_from_previous,
+    )
     return (
         {
             "proposal_ref": proposal_ref,
@@ -2846,10 +2783,7 @@ def _bind_appraisal_draft(
         return None, error or "CANDIDATE-MOOD-COMMAND"
     try:
         payload = cast(dict[str, object], proposal["payload"])
-        command_value = payload["next_state"]
-        command = MoodSemanticAppraisalCommand.model_validate(
-            command_value, strict=True
-        )
+        command = cast(MoodSemanticAppraisalCommand, payload["next_state"])
         basis_refs = cast(tuple[str, ...], proposal["basis_refs"])
         ordinals = tuple(int(ref.partition(":")[2]) for ref in basis_refs)
         return (
@@ -2977,6 +2911,9 @@ def _expand_dialogue_candidate(
     component_changes: list[dict[str, Any]] = []
     memory_changes: list[dict[str, Any]] = []
     action_choices: list[dict[str, Any]] = []
+    web_requests: list[dict[str, Any]] = []
+    visual_requests: list[dict[str, Any]] = []
+    exact_query: CandidateExactLifeQueryDraft | None = None
     memory_revision: CandidateMemoryRevisionDraft | None = None
     relationship: CandidateRelationshipDraft | None = None
     material: CandidateLifeMaterialDraft | None = None
@@ -3191,39 +3128,7 @@ def _expand_dialogue_candidate(
             decision.query_text,
         )
         understanding_basis_refs = tuple(f"ctx:{ordinal}" for ordinal in query_bases)
-        try:
-            return (
-                CognitionCandidate.model_validate(
-                    {
-                        "schema_version": "armi.cognition-candidate.v13",
-                        "base": {
-                            "subject_version": context.base_subject_version,
-                            "state_epoch": context.base_state_epoch,
-                            "bundle_activation_id": str(context.bundle_activation_id),
-                            "context_digest": context.context_digest.value,
-                        },
-                        "disposition": "change",
-                        "understanding": {
-                            "text": summary,
-                            "fact_class": "inference",
-                            "basis_refs": understanding_basis_refs,
-                        },
-                        "experiences": (),
-                        "component_changes": (),
-                        "memory_changes": (),
-                        "relationship_changes": (),
-                        "activity_changes": (),
-                        "action_choices": (),
-                        "uncertainties": (),
-                        "reason_summary": summary,
-                    },
-                    strict=True,
-                ),
-                DialogueBoundChanges(exact_life_query=exact_query),
-                None,
-            )
-        except ValidationError:
-            return None, None, "CANDIDATE-CONTRACT"
+        disposition = "change"
     elif isinstance(decision, DialogueWebResearchDecision):
         purpose = next(
             (
@@ -3251,53 +3156,21 @@ def _expand_dialogue_candidate(
             f"ctx:{purpose.ordinal}",
             f"ctx:{availability.ordinal}",
         )
-        try:
-            return (
-                CognitionCandidate.model_validate(
-                    {
-                        "schema_version": "armi.cognition-candidate.v13",
-                        "base": {
-                            "subject_version": context.base_subject_version,
-                            "state_epoch": context.base_state_epoch,
-                            "bundle_activation_id": str(context.bundle_activation_id),
-                            "context_digest": context.context_digest.value,
-                        },
-                        "disposition": "change",
-                        "understanding": {
-                            "text": summary,
-                            "fact_class": "inference",
-                            "basis_refs": understanding_basis_refs,
-                        },
-                        "experiences": (),
-                        "component_changes": (),
-                        "memory_changes": (),
-                        "relationship_changes": (),
-                        "activity_changes": (),
-                        "action_choices": (),
-                        "web_research_requests": (
-                            {
-                                "proposal_ref": "proposal:1",
-                                "atomic_group_ref": "group:1",
-                                "basis_refs": understanding_basis_refs,
-                                "payload": {
-                                    "proposal_kind": "web_research_requests",
-                                    "fact_class": "subjective_understanding",
-                                    "purpose": "public_web_research",
-                                    "operation_class": "search_read_public",
-                                    "query": decision.query,
-                                },
-                            },
-                        ),
-                        "uncertainties": (),
-                        "reason_summary": summary,
-                    },
-                    strict=True,
-                ),
-                DialogueBoundChanges(),
-                None,
-            )
-        except ValidationError:
-            return None, None, "CANDIDATE-CONTRACT"
+        disposition = "change"
+        web_requests.append(
+            {
+                "proposal_ref": "proposal:1",
+                "atomic_group_ref": "group:1",
+                "basis_refs": understanding_basis_refs,
+                "payload": {
+                    "proposal_kind": "web_research_requests",
+                    "fact_class": "subjective_understanding",
+                    "purpose": "public_web_research",
+                    "operation_class": "search_read_public",
+                    "query": decision.query,
+                },
+            }
+        )
     elif isinstance(decision, DialogueVisualObservationDecision):
         purpose = next(
             (
@@ -3310,85 +3183,98 @@ def _expand_dialogue_candidate(
         if purpose is None:
             return None, None, "CANDIDATE-VISION-PURPOSE-BASIS"
         basis_refs = (evidence_ref, f"ctx:{purpose.ordinal}")
-        try:
-            return (
-                CognitionCandidate.model_validate(
-                    {
-                        "schema_version": "armi.cognition-candidate.v13",
-                        "base": {
-                            "subject_version": context.base_subject_version,
-                            "state_epoch": context.base_state_epoch,
-                            "bundle_activation_id": str(context.bundle_activation_id),
-                            "context_digest": context.context_digest.value,
-                        },
-                        "disposition": "change",
-                        "understanding": {
-                            "text": summary,
-                            "fact_class": "inference",
-                            "basis_refs": basis_refs,
-                        },
-                        "experiences": (),
-                        "component_changes": (),
-                        "memory_changes": (),
-                        "relationship_changes": (),
-                        "activity_changes": (),
-                        "action_choices": (),
-                        "web_research_requests": (),
-                        "visual_observation_requests": (
-                            {
-                                "proposal_ref": "proposal:1",
-                                "atomic_group_ref": "group:1",
-                                "basis_refs": basis_refs,
-                                "payload": {
-                                    "proposal_kind": "visual_observation_requests",
-                                    "fact_class": "inference",
-                                    "source_kind": decision.source_kind,
-                                },
-                            },
-                        ),
-                        "uncertainties": (),
-                        "reason_summary": summary,
-                    },
-                    strict=True,
-                ),
-                DialogueBoundChanges(),
-                None,
-            )
-        except ValidationError:
-            return None, None, "CANDIDATE-CONTRACT"
-    try:
-        return (
-            CognitionCandidate.model_validate(
-                {
-                    "schema_version": "armi.cognition-candidate.v13",
-                    "base": {
-                        "subject_version": context.base_subject_version,
-                        "state_epoch": context.base_state_epoch,
-                        "bundle_activation_id": str(context.bundle_activation_id),
-                        "context_digest": context.context_digest.value,
-                    },
-                    "disposition": disposition,
-                    "understanding": {
-                        "text": summary,
-                        "fact_class": "inference",
-                        "basis_refs": understanding_basis_refs,
-                    },
-                    "experiences": tuple(experiences),
-                    "component_changes": tuple(component_changes),
-                    "memory_changes": tuple(memory_changes),
-                    "relationship_changes": (),
-                    "activity_changes": (),
-                    "action_choices": tuple(action_choices),
-                    "uncertainties": (),
-                    "reason_summary": summary,
+        disposition = "change"
+        understanding_basis_refs = basis_refs
+        visual_requests.append(
+            {
+                "proposal_ref": "proposal:1",
+                "atomic_group_ref": "group:1",
+                "basis_refs": basis_refs,
+                "payload": {
+                    "proposal_kind": "visual_observation_requests",
+                    "fact_class": "inference",
+                    "source_kind": decision.source_kind,
                 },
-                strict=True,
-            ),
-            DialogueBoundChanges(memory_revision, relationship, material, prompt),
-            None,
+            }
         )
-    except ValidationError:
-        return None, None, "CANDIDATE-CONTRACT"
+    return (
+        CognitionCandidate.model_construct(
+            schema_version="armi.cognition-candidate.v13",
+            base=CandidateBase.model_construct(
+                subject_version=context.base_subject_version,
+                state_epoch=context.base_state_epoch,
+                bundle_activation_id=str(context.bundle_activation_id),
+                context_digest=context.context_digest.value,
+            ),
+            disposition=disposition,
+            understanding=CandidateUnderstanding.model_construct(
+                text=summary,
+                fact_class="inference",
+                basis_refs=understanding_basis_refs,
+            ),
+            experiences=tuple(
+                _translated_proposal(ExperienceProposal, ExperiencePayload, item)
+                for item in experiences
+            ),
+            component_changes=tuple(
+                _translated_proposal(
+                    ComponentChangeProposal, ComponentChangePayload, item
+                )
+                for item in component_changes
+            ),
+            memory_changes=tuple(
+                _translated_proposal(MemoryChangeProposal, MemoryChangePayload, item)
+                for item in memory_changes
+            ),
+            relationship_changes=(),
+            activity_changes=(),
+            action_choices=tuple(
+                _translated_proposal(
+                    ActionChoiceProposal,
+                    RuntimeBoundCreatorReplyPayload
+                    if item["payload"]["action_kind"] == "creator_reply"
+                    else FormalNoActionPayload,
+                    item,
+                )
+                for item in action_choices
+            ),
+            web_research_requests=tuple(
+                _translated_proposal(
+                    WebResearchRequestProposal, WebResearchRequestPayload, item
+                )
+                for item in web_requests
+            ),
+            visual_observation_requests=tuple(
+                _translated_proposal(
+                    VisualObservationRequestProposal,
+                    VisualObservationRequestPayload,
+                    item,
+                )
+                for item in visual_requests
+            ),
+            uncertainties=(),
+            reason_summary=summary,
+        ),
+        DialogueBoundChanges(
+            memory_revision, relationship, material, prompt, exact_query
+        ),
+        None,
+    )
+
+
+def _translated_proposal[P: BaseModel](
+    proposal_type: type[P], payload_type: type[BaseModel], value: dict[str, Any]
+) -> P:
+    """Build internal proposals from parsed decisions and Owner-validated state.
+
+    Only the deterministic translation above supplies these dictionaries; raw model
+    output never enters here. Domain references and commit fences are checked later.
+    """
+    translated: dict[str, Any] = {
+        **value,
+        "payload": payload_type.model_construct(**value["payload"]),
+    }
+    return proposal_type.model_construct(**translated)
 
 
 def _bind_dialogue_component_change(
@@ -3469,7 +3355,7 @@ def _bind_dialogue_component_change(
                 "fact_class": "subjective_understanding",
                 "owner": owner.value,
                 "expected_version": current[0],
-                "next_state": validated.model_dump(mode="python"),
+                "next_state": validated,
             },
         },
         None,
@@ -4733,6 +4619,44 @@ def _primary_rejection(rejected: dict[str, CandidateRejection]) -> str:
     )
 
 
+def _proposal_path(
+    candidate: object, rejection: CandidateRejection
+) -> tuple[str | int, ...]:
+    if isinstance(candidate, CognitionCandidate):
+        for field in (
+            "experiences",
+            "component_changes",
+            "memory_changes",
+            "relationship_changes",
+            "activity_changes",
+            "action_choices",
+            "web_research_requests",
+            "visual_observation_requests",
+        ):
+            for index, proposal in enumerate(getattr(candidate, field)):
+                if proposal.proposal_ref == rejection.proposal_ref:
+                    return (field, index)
+    if isinstance(candidate, CreatorCognitiveActCandidate):
+        owner = rejection.owner.value
+        field = {
+            "experience": "experience",
+            "memory": "experience",
+            "mood": "appraisal",
+            "action": "decision",
+            "web_research": "decision",
+            "visual_observation": "decision",
+        }.get(owner, "changes")
+        if candidate.schema_version == creator_act.CREATOR_VOICE_ACT_VERSION:
+            field = {
+                "experience": "exp",
+                "appraisal": "app",
+                "decision": "d",
+                "changes": "ops",
+            }[field]
+        return (field, "memory_summary") if owner == "memory" else (field,)
+    return ()
+
+
 def _draft_owner(
     draft: CandidateExperienceDraft
     | CandidateMemoryDraft
@@ -4919,6 +4843,7 @@ def _action_wire(
         return {
             **common,
             "action_kind": "creator_reply",
+            "decision_kind": value.decision_kind,
             "subject_id": str(value.subject_id),
             "scene_id": str(value.scene_id),
             "creator_party_id": str(value.creator_party_id),

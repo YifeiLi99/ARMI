@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import asdict, dataclass
 from typing import Any, cast
 from uuid import UUID, uuid7
@@ -177,6 +177,7 @@ class CandidateValidationService:
         "_codex_available",
         "_diagnostic",
         "_factory",
+        "_failure_notification",
         "_material_cognition",
         "_memory_cognition",
         "_mood_cognition",
@@ -227,8 +228,10 @@ class CandidateValidationService:
         web_search_active: bool = False,
         visual_sources_active: frozenset[str] = frozenset(),
         diagnostic: Callable[[str], None] | None = None,
+        failure_notification: Callable[[UUID, str], Awaitable[None]] | None = None,
     ) -> None:
         self._factory = factory
+        self._failure_notification = failure_notification
         self._submission = submission
         self._activity_cognition = activity_cognition
         self._storage = storage
@@ -437,6 +440,8 @@ class CandidateValidationService:
                 diagnostic_publication,
             ),
         )
+        if result.error_code is not None and self._failure_notification is not None:
+            await self._failure_notification(snapshot.episode_id, result.error_code)
 
     async def _read_material_contexts(
         self,

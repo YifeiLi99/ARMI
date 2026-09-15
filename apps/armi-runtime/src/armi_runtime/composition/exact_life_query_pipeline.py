@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 from typing import Any, cast
 from uuid import UUID, uuid7
@@ -76,6 +76,7 @@ class ExactLifeQueryPipeline:
         "_cognition",
         "_diagnostic",
         "_factory",
+        "_failure_notification",
         "_lease_owner",
         "_opportunity",
         "_query",
@@ -96,6 +97,7 @@ class ExactLifeQueryPipeline:
         opportunity: OpportunityAdmissionPort,
         wakeups: WorkWakeupBus | None = None,
         diagnostic: Diagnostic | None = None,
+        failure_notification: Callable[[UUID, str], Awaitable[None]] | None = None,
     ) -> None:
         self._factory = factory
         self._storage = storage
@@ -108,6 +110,7 @@ class ExactLifeQueryPipeline:
         self._lease_owner = uuid7()
         self._stop = asyncio.Event()
         self._diagnostic = diagnostic or _ignore_diagnostic
+        self._failure_notification = failure_notification
 
     async def open(self) -> None:
         try:
@@ -144,6 +147,7 @@ class ExactLifeQueryPipeline:
             )
             return True
         intent_id = record.draft.owner.reference
+        snapshot = None
         try:
             async with self._factory.unit_of_work() as unit:
                 fence = unit.runtime_fence
@@ -178,21 +182,30 @@ class ExactLifeQueryPipeline:
                     failure_code=failure_code,
                 )
             self._wakeups.notify(OPPORTUNITY_AVAILABLE)
+            if status == "failed" and failure_code is not None:
+                await self._notify_failure(snapshot, failure_code)
             return True
         except LifeRecordQueryViolation as error:
             if error.code == "LIFE-QUERY-WORK-STALE":
                 self._diagnostic("life.query.work.stale")
                 return True
-            await self._fail(lease, intent_id, error.code)
+            await self._fail(lease, intent_id, error.code, snapshot=snapshot)
             return True
         except ArtifactViolation:
-            await self._fail(lease, intent_id, "LIFE-QUERY-ARTIFACT")
+            await self._fail(lease, intent_id, "LIFE-QUERY-ARTIFACT", snapshot=snapshot)
             return True
         except DatabaseTransactionError, WorkViolation:
             self._diagnostic("life.query.worker.transient_failure")
             return True
 
-    async def _fail(self, lease: WorkLease, intent_id: UUID, code: str) -> None:
+    async def _fail(
+        self,
+        lease: WorkLease,
+        intent_id: UUID,
+        code: str,
+        *,
+        snapshot: CognitionExactLifeQuerySnapshot | None = None,
+    ) -> None:
         try:
             async with self._factory.unit_of_work() as unit:
                 await self._cognition.fail(
@@ -203,6 +216,15 @@ class ExactLifeQueryPipeline:
                 await unit.work.fail(lease, error_code=code)
         except DatabaseTransactionError, LifeRecordQueryViolation, WorkViolation:
             self._diagnostic("life.query.settlement.deferred")
+            return
+        if snapshot is not None:
+            await self._notify_failure(snapshot, code)
+
+    async def _notify_failure(
+        self, snapshot: CognitionExactLifeQuerySnapshot, code: str
+    ) -> None:
+        if self._failure_notification is not None and not self._stop.is_set():
+            await self._failure_notification(snapshot.source_opportunity_id, code)
 
     async def _settle(
         self,
@@ -387,6 +409,7 @@ def build_exact_life_query_pipeline(
     opportunity: OpportunityAdmissionPort,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Diagnostic | None = None,
+    failure_notification: Callable[[UUID, str], Awaitable[None]] | None = None,
 ) -> ExactLifeQueryPipeline:
     return ExactLifeQueryPipeline(
         factory=factory,
@@ -403,6 +426,7 @@ def build_exact_life_query_pipeline(
         opportunity=opportunity,
         wakeups=wakeups,
         diagnostic=diagnostic,
+        failure_notification=failure_notification,
     )
 
 

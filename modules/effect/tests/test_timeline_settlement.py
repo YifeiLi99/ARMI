@@ -32,6 +32,7 @@ class _UnitOfWork:
 
 def _pipeline(*, receipt: EffectAdapterReceipt | None) -> Any:
     pipeline = cast(Any, object.__new__(EffectPipeline))
+    pipeline._failure_notifications = None
     pipeline._factory = SimpleNamespace(unit_of_work=lambda **_kwargs: _UnitOfWork())
     pipeline._dispatcher = AsyncMock()
     pipeline._adapter = AsyncMock()
@@ -77,6 +78,28 @@ def _receipt() -> EffectAdapterReceipt:
         Digest.from_bytes(b"receipt"),
         Instant(datetime.now(UTC)),
     )
+
+
+@pytest.mark.asyncio
+async def test_verified_system_notice_has_system_timeline_origin_and_never_recurses():
+    snapshot = _snapshot()
+    notification_id = uuid7()
+    snapshot = replace(
+        snapshot,
+        request=replace(snapshot.request, system_notification_id=notification_id),
+    )
+    pipeline = _pipeline(receipt=_receipt())
+    pipeline._failure_notifications = AsyncMock()
+    assert await pipeline._reconcile(snapshot)
+    pipeline._interaction_delivery.record_party_response.assert_not_awaited()
+    pipeline._interaction_delivery.record_system_notification.assert_awaited_once()
+    assert (
+        pipeline._interaction_delivery.record_system_notification.call_args.kwargs[
+            "notification_id"
+        ]
+        == notification_id
+    )
+    pipeline._failure_notifications.notify_failure.assert_not_awaited()
 
 
 @pytest.mark.asyncio

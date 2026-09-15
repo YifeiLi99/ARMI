@@ -9,7 +9,7 @@ import io
 import json
 import threading
 import zipfile
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -403,6 +403,7 @@ class CodexEffectPipeline:
         "_diagnostic",
         "_environment_root",
         "_factory",
+        "_failure_notification",
         "_lease_owner",
         "_repository",
         "_run_root",
@@ -440,8 +441,10 @@ class CodexEffectPipeline:
         runner_entry_module: str,
         notifier: CreatorProjectionNotifier | None,
         diagnostic: Diagnostic | None = None,
+        failure_notification: Callable[[UUID, str], Awaitable[None]] | None = None,
     ) -> None:
         self._factory = factory
+        self._failure_notification = failure_notification
         self._storage = storage
         self._environment_root = environment_root
         self._run_root = run_root
@@ -693,6 +696,7 @@ class CodexEffectPipeline:
                         await self._repository.fail_dispatch(
                             uow, snapshot, reason_code=error.code, started=dispatched
                         )
+                    await self._notify_failure(snapshot, error.code)
                 except RuntimeTransactionFailure, EffectViolation:
                     self._diagnostic("codex.dispatch.settlement_deferred")
             else:
@@ -903,6 +907,21 @@ class CodexEffectPipeline:
             if error.code != "EFFECT-SETTLEMENT-STALE":
                 raise
             self._diagnostic("codex.dispatch.result_superseded")
+            return
+        if status in {CodexVerificationStatus.FAILED, CodexVerificationStatus.UNKNOWN}:
+            await self._notify_failure(
+                snapshot, execution_error_code or cleanup_error_code or "CODEX-FAILED"
+            )
+
+    async def _notify_failure(self, snapshot: CodexDispatchSnapshot, code: str) -> None:
+        if code in {
+            "CODEX-DELEGATION-STALE",
+            "CODEX-DATA-RIGHTS-STALE",
+            "CODEX-CANCELLED",
+        }:
+            return
+        if self._failure_notification is not None and not self._stop.is_set():
+            await self._failure_notification(snapshot.root_operation_id, code)
 
 
 def _creator_task_bundle(task_source_id: CodexTaskSourceId) -> tuple[bytes, Digest]:

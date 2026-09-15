@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from uuid import UUID
 
 from armi_activity.api import ActivityReadPort
 from armi_artifact_store import ContentAddressedArtifactStore
@@ -92,9 +93,11 @@ def bootstrap_context(
     web_search_active: bool = False,
     wakeups: ContextWakeupPort | None = None,
     diagnostic: Diagnostic | None = None,
+    failure_notification: Callable[[UUID, str], Awaitable[None]] | None = None,
     embedding: EmbeddingPort | None = None,
 ) -> ContextRuntimePort:
     return ContextPipeline(
+        failure_notification=failure_notification,
         factory=factory,
         storage=storage,
         catalog=catalog,

@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Protocol, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
 from uuid import UUID
 
 from armi_kernel.application import ArtifactRef
@@ -149,6 +149,9 @@ class CreatorReplyDraft:
     data_scope: str = "creator_visible_response"
     purpose: str = "respond_to_creator"
     media_type: str = "text/plain"
+    decision_kind: Literal[
+        "reply", "decline", "silence", "no_change", "defer", "need_information"
+    ] = "reply"
 
     def __post_init__(self) -> None:
         _proposal(self.proposal_ref, self.atomic_group_ref, self.basis_ordinals)
@@ -164,6 +167,15 @@ class CreatorReplyDraft:
             or self.data_scope != "creator_visible_response"
             or self.purpose != "respond_to_creator"
             or self.media_type != "text/plain"
+            or self.decision_kind
+            not in {
+                "reply",
+                "decline",
+                "silence",
+                "no_change",
+                "defer",
+                "need_information",
+            }
         ):
             raise ResponseViolation("CON-RESPONSE-REPLY")
         try:

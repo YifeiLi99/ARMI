@@ -22,7 +22,7 @@ from contextlib import redirect_stdout
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, LiteralString, cast
+from typing import Any, Literal, LiteralString, cast
 from uuid import UUID, uuid7
 
 import psycopg
@@ -170,7 +170,6 @@ from armi_runtime.adapters.persistence.schema_gateway import (
 )
 from armi_runtime.adapters.persistence.subject_commit import (
     PostgreSQLSubjectCommitRepository,
-    SubjectCommitOwnerDrafts,
 )
 from armi_runtime.adapters.persistence.unit_of_work import (
     PostgreSQLUnitOfWorkFactory,
@@ -250,6 +249,7 @@ from armi_runtime.composition.postgresql_test import (
     load_active_binding,
     normalize_full_response,
 )
+from armi_runtime.composition.subject_commit_pipeline import SubjectCommitPipeline
 from armi_runtime.composition.work_wakeup import WorkWakeupBus
 from armi_sleep.api import CreatorMaintenanceViolation
 from armi_web_observation.api import (
@@ -1114,6 +1114,18 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
         old = self.create_database()
         source = upgrade_plan()["source"]
+        # Synthetic historical provider bytes: no installed environment is read.
+        historical = (
+            Path(__file__).parent / "fixtures/v17-model-response.json"
+        ).read_bytes()
+        historical_digest = hashlib.sha256(historical).hexdigest()
+        historical_object, historical_artifact = uuid7(), uuid7()
+        artifact_directory = tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp")
+        self.addCleanup(artifact_directory.cleanup)
+        locator = f"objects/sha256/{historical_digest[:2]}/{historical_digest[2:4]}/{historical_digest}"
+        historical_path = Path(artifact_directory.name) / locator
+        historical_path.parent.mkdir(parents=True)
+        historical_path.write_bytes(historical)
         with psycopg.connect(old.migrator_dsn) as connection:
             connection.execute("SET ROLE armi_owner")
             connection.execute("CREATE SCHEMA armi AUTHORIZATION armi_owner")
@@ -1140,6 +1152,19 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "INSERT INTO armi.deployment_environments (environment_id,environment_kind,incarnation,resettable,test_controls_enabled) VALUES (%s,'acceptance',1,true,false)",
                 (old.environment_id,),
             )
+            connection.execute(
+                "INSERT INTO armi.artifact_objects (artifact_object_id,content_digest,byte_size,storage_locator) VALUES (%s,%s,%s,%s)",
+                (
+                    historical_object,
+                    "sha256:" + historical_digest,
+                    len(historical),
+                    locator,
+                ),
+            )
+            connection.execute(
+                "INSERT INTO armi.artifacts (artifact_id,artifact_object_id,object_generation,media_type,logical_kind,producer_kind,producer_trace_id,privacy_scope) VALUES (%s,%s,1,'application/json','cognition.model_response','cognition',%s,'private')",
+                (historical_artifact, historical_object, "a" * 32),
+            )
         with psycopg.connect(old.migrator_dsn) as connection:
             connection.execute("SET ROLE armi_owner")
             self.assertEqual(check_upgrade(connection)["state"], "upgrade_required")
@@ -1164,6 +1189,19 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             self.assertEqual(
                 database_structure_digest(connection), evidence["structure_digest"]
             )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT a.artifact_id,o.content_digest,o.byte_size,o.storage_locator FROM armi.artifacts a JOIN armi.artifact_objects o USING(artifact_object_id) WHERE artifact_id=%s",
+                    (historical_artifact,),
+                ).fetchone(),
+                (
+                    historical_artifact,
+                    "sha256:" + historical_digest,
+                    len(historical),
+                    locator,
+                ),
+            )
+            self.assertEqual(historical_path.read_bytes(), historical)
 
     def test_online_content_owner_revisions_receipts_and_busy_fences(self) -> None:
         from armi_admin.application.content_contracts import ContentWriteRequest
@@ -6635,6 +6673,18 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
     def test_t03_subject_commit_is_atomic_and_private(self) -> None:
         self._exercise_creator_reply()
 
+    def test_system_notifications_are_atomic_deduplicated_and_not_replayed(
+        self,
+    ) -> None:
+        for stage in ("delivered", "registered", "unknown", "input"):
+            with self.subTest(stage=stage):
+                self._exercise_creator_reply(system_notification=stage)
+
+    def test_explained_decision_retains_its_kind_and_delivers(self) -> None:
+        for kind in ("decline", "need_information"):
+            with self.subTest(kind=kind):
+                self._exercise_creator_reply(reply_decision_kind=kind)
+
     def test_creator_reply_interruption_never_replays_an_old_turn(self) -> None:
         for stage in (
             "cognition_unfinished",
@@ -6667,6 +6717,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         interruption_stage: str | None = None,
         codex: bool = False,
         purpose: str | None = None,
+        system_notification: str | None = None,
+        reply_decision_kind: Literal["reply", "decline", "need_information"] = "reply",
     ) -> None:
         fixture = self.create_database()
         self._install_current(
@@ -6838,7 +6890,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         live_evidence: dict[str, object] | None = None
         if live_environment_root is None:
             change_set_document = {
-                "schema_version": "armi.subject-change-set.v33",
+                "schema_version": "armi.subject-change-set.v34",
                 "subject_id": str(born.subject_id),
                 "generation_id": str(born.life_generation_id),
                 "episode_id": str(ids["episode"]),
@@ -6934,6 +6986,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         scene_id,
                         creator_party_id,
                         payloads["reply"],
+                        decision_kind=reply_decision_kind,
                     ),
                 ),
                 codex_delegations=(
@@ -7632,6 +7685,178 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             1,
         )
 
+        if system_notification is not None:
+            from types import SimpleNamespace
+
+            from armi_runtime.composition.postgresql_test import (
+                bootstrap_effect_recovery,
+                bootstrap_interaction_failure_notifications,
+                bootstrap_system_notification_effects,
+            )
+
+            async def exercise_notice(root: Path) -> None:
+                factory = PostgreSQLUnitOfWorkFactory(
+                    fixture.runtime_dsn,
+                    environment_id=fixture.environment_id,
+                    pool_min=1,
+                    pool_max=1,
+                    acquire_timeout_seconds=2,
+                    statement_timeout_seconds=5,
+                    authority_admission=lambda: fence,
+                )
+                storage = ContentAddressedArtifactStore(
+                    root,
+                    max_object_bytes=1024 * 1024,
+                    publication_catalog=ArtifactCatalogRepository(),
+                    publication_uow_factory=factory,
+                )
+                diagnostics: list[str] = []
+                notices = bootstrap_interaction_failure_notifications(
+                    factory=factory,
+                    opportunities=bootstrap_opportunity_cognition(),
+                    evidence=bootstrap_evidence().read,
+                    routes=bootstrap_interaction_action_ports().routes,
+                    catalog=ArtifactCatalogRepository(),
+                    storage=storage,
+                    effects=bootstrap_system_notification_effects(),
+                    diagnostic=diagnostics.append,
+                )
+                await factory.open()
+                try:
+                    if system_notification == "input":
+                        await notices.notify_input_failure(
+                            interaction_id=ids["interaction"],
+                            failure_code="EXTERNAL-CONTENT-RECOGNITION",
+                        )
+                    await notices.notify_failure(
+                        opportunity_id=ids["opportunity"],
+                        failure_code="CANDIDATE-CONTRACT",
+                    )
+                    await notices.notify_failure(
+                        opportunity_id=ids["opportunity"],
+                        failure_code="MODEL-PROVIDER-FAILED",
+                    )
+                    self.assertEqual(diagnostics, [])
+                    async with factory.unit_of_work(read_only=True) as uow:
+                        row = await (
+                            await uow.transaction.execute(
+                                """SELECT notice.notification_id,effect.effect_id,effect.action_intent_id,
+                                      effect.action_intent_revision_id,outbox.max_attempts
+                               FROM armi.system_notifications AS notice JOIN armi.effects AS effect
+                                 ON effect.system_notification_id=notice.notification_id
+                               JOIN armi.effect_outbox_items AS outbox ON outbox.effect_id=effect.effect_id""",
+                            )
+                        ).fetchall()
+                    self.assertEqual(len(row), 1)
+                    self.assertEqual(row[0][2:], (None, None, 1))
+                    notification_id, effect_id = row[0][0], row[0][1]
+                    dispatcher = PostgreSQLEffectDispatchRepository(
+                        bootstrap_interaction_action_ports().routes
+                    )
+                    if system_notification != "registered":
+                        async with factory.unit_of_work() as uow:
+                            snapshot = await dispatcher.claim(
+                                uow, claim_owner=ids["runtime"]
+                            )
+                        assert snapshot is not None
+                        self.assertEqual(
+                            snapshot.request.system_notification_id, notification_id
+                        )
+                        async with factory.unit_of_work() as uow:
+                            await dispatcher.mark_dispatching(
+                                uow,
+                                snapshot,
+                                runtime_fence=fence,
+                                data_rights_fence=DataRightsFence(
+                                    creator_party_id, 1, 1
+                                ),
+                            )
+                        if system_notification == "unknown":
+                            async with factory.unit_of_work() as uow:
+                                await dispatcher.settle_unknown(uow, snapshot)
+                            async with factory.unit_of_work() as uow:
+                                self.assertIsNone(await dispatcher.unknown(uow))
+                                self.assertIsNone(
+                                    await dispatcher.claim(
+                                        uow, claim_owner=ids["runtime"]
+                                    )
+                                )
+                        else:
+                            async with factory.unit_of_work(read_only=True) as uow:
+                                ref = await ArtifactCatalogRepository().get(
+                                    uow, ArtifactId(snapshot.artifact_id)
+                                )
+                            payload = b""
+                            async with await storage.open_verified(ref) as stream:
+                                payload = await stream.read()
+                            self.assertTrue(
+                                payload.decode().startswith("ARMI 系统提示")
+                            )
+                            receipt = await PostgreSQLLocalInbox(factory).dispatch(
+                                snapshot.request, payload
+                            )
+                            async with factory.unit_of_work() as uow:
+                                await dispatcher.settle_receipt(uow, snapshot, receipt)
+                                await PostgreSQLInteractionPerception().record_system_notification(
+                                    uow.transaction,
+                                    scene_id=scene_id,
+                                    notification_id=notification_id,
+                                    occurred_at=receipt.received_at,
+                                )
+                    async with factory.unit_of_work() as uow:
+                        await bootstrap_effect_recovery().recover(
+                            uow.transaction,
+                            cast(Any, SimpleNamespace(subject_id=born.subject_id)),
+                            (),
+                        )
+                    async with factory.unit_of_work(read_only=True) as uow:
+                        status = await (
+                            await uow.transaction.execute(
+                                "SELECT status FROM armi.effects WHERE effect_id=%s",
+                                (effect_id,),
+                            )
+                        ).fetchone()
+                        self.assertEqual(
+                            status,
+                            (
+                                {
+                                    "registered": "cancelled",
+                                    "unknown": "unknown",
+                                    "delivered": "completed",
+                                    "input": "completed",
+                                }[system_notification],
+                            ),
+                        )
+                        self.assertEqual(
+                            await (
+                                await uow.transaction.execute(
+                                    "SELECT count(*) FROM armi.action_intents"
+                                )
+                            ).fetchone(),
+                            (0,),
+                        )
+                        self.assertEqual(
+                            await (
+                                await uow.transaction.execute(
+                                    "SELECT count(*) FROM armi.subject_commits"
+                                )
+                            ).fetchone(),
+                            (0,),
+                        )
+                finally:
+                    await factory.close()
+
+            with tempfile.TemporaryDirectory(
+                prefix="armi-notification-test-"
+            ) as directory:
+                asyncio.run(
+                    exercise_notice(Path(directory)),
+                    loop_factory=lambda: asyncio.SelectorEventLoop(
+                        selectors.SelectSelector()
+                    ),
+                )
+            return
+
         async def settle(
             *, rollback: bool = False
         ) -> tuple[CandidateApplicationStatus, int]:
@@ -7739,51 +7964,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     snapshot = await repository.snapshot(
                         unit_of_work, lease, ids["episode"]
                     )
-                    owner_drafts = SubjectCommitOwnerDrafts(
-                        tuple(
-                            activity_module.cognition.decode(item.canonical_payload)
-                            for item in change_set.owner_drafts
-                            if item.owner == "activity"
-                        ),
-                        tuple(
-                            material_module.cognition.decode(item.canonical_payload)
-                            for item in change_set.owner_drafts
-                            if item.owner == "material"
-                        ),
-                        tuple(
-                            memory_module.cognition.decode(item.canonical_payload)
-                            for item in change_set.owner_drafts
-                            if item.owner == "memory"
-                        ),
-                        tuple(
-                            mood_module.cognition.decode(item.canonical_payload)
-                            for item in change_set.owner_drafts
-                            if item.owner == "mood"
-                        ),
-                        tuple(
-                            prompt_module.cognition.decode(item.canonical_payload)
-                            for item in change_set.owner_drafts
-                            if item.owner == "prompt"
-                        ),
-                        tuple(
-                            relationship_module.cognition.decode_change_set(
-                                item.canonical_payload
-                            )
-                            for item in change_set.owner_drafts
-                            if item.owner == "relationship"
-                        ),
-                        tuple(
-                            sleep_module.cognition.decode(item.canonical_payload)
-                            for item in change_set.owner_drafts
-                            if item.owner == "sleep"
-                        ),
-                        tuple(
-                            subject_state_module.cognition.decode(
-                                item.canonical_payload
-                            )
-                            for item in change_set.owner_drafts
-                            if item.owner in {"self", "mind", "life_mode"}
-                        ),
+                    owner_drafts = SubjectCommitPipeline.collect_owner_drafts(
+                        change_set
                     )
                     result = await repository.settle(
                         unit_of_work,
@@ -7805,6 +7987,16 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             else None
                         ),
                     )
+                    if reply_decision_kind != "reply":
+                        self.assertEqual(
+                            await (
+                                await unit_of_work.transaction.execute(
+                                    "SELECT decision_kind FROM armi.dialogue_decisions WHERE cognitive_episode_id=%s",
+                                    (ids["episode"],),
+                                )
+                            ).fetchone(),
+                            (reply_decision_kind,),
+                        )
                     if rollback:
                         raise RuntimeError("injected after subject and effect writes")
                 return result.status, result.subject_version or -1

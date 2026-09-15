@@ -236,6 +236,32 @@ async def test_silence_completes_without_fabricated_audio() -> None:
 
 
 @pytest.mark.asyncio
+async def test_technical_cognition_failure_ends_wait_and_exposes_session_error():
+    log: list[str] = []
+    inputs = FakeInputs()
+    journal = FakeJournal()
+    service = LiveVoiceService(
+        audio=FakeAudio(log),
+        asr=FakeAsr(),
+        model=FakeModelCompatibility(log),
+        tts=FakeTts(log),
+        inputs=inputs,
+        expression=FakeExpression(log),
+        journal=journal,
+        binding=_binding(),
+    )
+    await service.start()
+    await asyncio.wait_for(inputs.accepted.wait(), timeout=1)
+    assert journal.turn_id is not None
+    await service.fail_cognition(turn_id=journal.turn_id)
+    assert service._task is not None
+    await asyncio.wait_for(asyncio.shield(service._task), timeout=1)
+    assert service.last_error == "VOICE-COGNITION-FAILED"
+    assert "registered" not in log and "played" not in log
+    await service.stop()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("write_first_frame", "expected_code"),
     (

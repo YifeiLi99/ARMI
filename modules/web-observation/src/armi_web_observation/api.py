@@ -113,6 +113,10 @@ class WebResearchRuntimePort(WebResearchIntentPort, Protocol):
 
 @runtime_checkable
 class WebContextReadPort(Protocol):
+    async def request_opportunity(
+        self, transaction: PostgreSQLTransaction, *, request_id: UUID
+    ) -> UUID: ...
+
     async def request_trace(
         self,
         transaction: PostgreSQLTransaction,

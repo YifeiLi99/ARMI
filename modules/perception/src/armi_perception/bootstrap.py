@@ -9,7 +9,11 @@ from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_attention.api import OpportunityAdmissionPort
 from armi_data_rights.api import DataRightsFencePort, DataRightsParticipant
 from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
-from armi_interaction.api import ExternalMessagePartKind, InteractionPerceptionPort
+from armi_interaction.api import (
+    ExternalMessagePartKind,
+    InteractionFailureNotificationPort,
+    InteractionPerceptionPort,
+)
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
     RecoveryParticipant,
@@ -70,12 +74,14 @@ def bootstrap_perception(
     target_for: Callable[[ExternalMessagePartKind], tuple[str, str]],
     wakeups: PerceptionWakeupPort,
     diagnostic: Diagnostic | None = None,
+    failure_notifications: InteractionFailureNotificationPort | None = None,
 ) -> PerceptionModule:
     recognizer = ExternalContentRecognizer(
         ark=ark_recognizer,
         speech=speech_recognizer,
     )
     worker = ExternalContentPipeline(
+        failure_notifications=failure_notifications,
         factory=unit_of_work_factory,
         storage=storage,
         catalog=catalog,

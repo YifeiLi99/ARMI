@@ -10,7 +10,7 @@ import os
 import selectors
 import signal
 import threading
-from collections.abc import Callable, Generator
+from collections.abc import Awaitable, Callable, Generator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -218,6 +218,7 @@ from .database import (
     compose_sleep_module,
     compose_subject_commit_pipeline,
     compose_subject_state_module,
+    compose_visual_failure_notification,
     compose_web_research_admission_pipeline,
     compose_web_search_pipeline,
     inspect_creator_context,
@@ -293,6 +294,7 @@ async def _compose_live_vision_sources(
     opportunity: Any,
     subject_id: UUID,
     model_locator: Any,
+    failure_notification: Callable[[UUID, str], Awaitable[None]],
 ) -> tuple[
     dict[VisualSourceKind, LiveVisionRuntimePort],
     dict[VisualSourceKind, Any],
@@ -351,6 +353,7 @@ async def _compose_live_vision_sources(
                 else source_config.fps
             )
             sink = compose_visual_observation_sink(
+                failure_notification=failure_notification,
                 factory=factory,
                 storage=ContentAddressedArtifactStore(
                     prepared.data_root / "artifacts",
@@ -786,20 +789,6 @@ async def _serve(
                 catalog=artifact_catalog,
                 codex=codex_reads.task_sources,
             )
-            exact_life_query_pipeline = compose_exact_life_query_pipeline(
-                prepared,
-                unit_of_work_factory=runtime_unit_of_work_factory,
-                query=life_record_query,
-                cognition=compose_cognition_exact_life_query(),
-                opportunity=opportunity_admission,
-                catalog=artifact_catalog,
-                wakeups=work_wakeups,
-                diagnostic=lambda event: diagnostic.emit(
-                    event,
-                    result_code="EXACT_LIFE_QUERY",
-                ),
-            )
-            await exact_life_query_pipeline.open()
             sleep_module = compose_sleep_module(
                 runtime_unit_of_work_factory,
                 subject_id=authority.require_writable().subject_id,
@@ -911,6 +900,21 @@ async def _serve(
                         level=logging.WARNING,
                         result_code="LIVE_VOICE_UNAVAILABLE",
                     )
+            exact_life_query_pipeline = compose_exact_life_query_pipeline(
+                prepared,
+                unit_of_work_factory=runtime_unit_of_work_factory,
+                query=life_record_query,
+                cognition=compose_cognition_exact_life_query(),
+                opportunity=opportunity_admission,
+                catalog=artifact_catalog,
+                wakeups=work_wakeups,
+                voice=live_voice_service,
+                diagnostic=lambda event: diagnostic.emit(
+                    event,
+                    result_code="EXACT_LIFE_QUERY",
+                ),
+            )
+            await exact_life_query_pipeline.open()
             subject_summary_provider = RuntimeSubjectSummaryAssembler(
                 runtime_unit_of_work_factory,
                 subject_id=authority.require_writable().subject_id,
@@ -967,6 +971,15 @@ async def _serve(
                         live_vision_services,
                         vision_sinks,
                     ) = await _compose_live_vision_sources(
+                        failure_notification=compose_visual_failure_notification(
+                            prepared,
+                            runtime_unit_of_work_factory,
+                            artifact_catalog,
+                            lambda event: diagnostic.emit(
+                                event, result_code="VISION_NOTIFICATION"
+                            ),
+                            live_voice_service,
+                        ),
                         prepared=prepared,
                         config=config,
                         factory=runtime_unit_of_work_factory,
@@ -977,6 +990,15 @@ async def _serve(
                         model_locator=model_locator,
                     )
             vision_capture_router = compose_visual_capture_router(
+                failure_notification=compose_visual_failure_notification(
+                    prepared,
+                    runtime_unit_of_work_factory,
+                    artifact_catalog,
+                    lambda event: diagnostic.emit(
+                        event, result_code="VISION_NOTIFICATION"
+                    ),
+                    live_voice_service,
+                ),
                 factory=runtime_unit_of_work_factory,
                 work=PostgreSQLDurableWorkGateway(runtime_unit_of_work_factory),
                 coordinators=vision_sinks,
@@ -1006,6 +1028,7 @@ async def _serve(
             runtime_cognition_state = RuntimeCognitionState()
             context_pipeline = compose_context_pipeline(
                 prepared,
+                voice=live_voice_service,
                 unit_of_work_factory=runtime_unit_of_work_factory,
                 activity_read=activity_module.read,
                 capability_read=capability_read,
@@ -1043,7 +1066,6 @@ async def _serve(
             subject_commit_pipeline = compose_subject_commit_pipeline(
                 prepared,
                 unit_of_work_factory=runtime_unit_of_work_factory,
-                activity_cognition=activity_module.cognition,
                 activity_commit=activity_module.commit,
                 codex_commit=bootstrap_codex_commit(
                     codex_reads.task_sources,
@@ -1060,19 +1082,12 @@ async def _serve(
                 expression_commit=expression_module.commit,
                 interaction_commit=interaction_module.subject_commit,
                 memory_commit=memory_module.commit,
-                memory_cognition=memory_module.cognition,
                 mood_commit=mood_module.commit,
-                mood_cognition=mood_module.cognition,
                 opportunity_transition=opportunity_owner,
-                prompt_cognition=prompt_module.cognition,
                 prompt_commit=prompt_module.commit,
-                material_cognition=material_module.cognition,
                 material_commit=material_module.commit,
-                relationship_cognition=relationship_module.cognition,
                 relationship_commit=relationship_module.commit,
-                sleep_cognition=sleep_module.cognition,
                 sleep_commit=sleep_module.commit,
-                subject_state_cognition=subject_state_module.cognition,
                 subject_state_commit=subject_state_module.commit,
                 catalog=artifact_catalog,
                 notifier=creator_events,
@@ -1094,6 +1109,7 @@ async def _serve(
             )
             candidate_pipeline = compose_candidate_validation_pipeline(
                 prepared,
+                voice=live_voice_service,
                 unit_of_work_factory=runtime_unit_of_work_factory,
                 submission=subject_commit_pipeline,
                 activity_cognition=activity_module.cognition,
@@ -1133,6 +1149,8 @@ async def _serve(
             )
             effect_pipeline = compose_effect_pipeline(
                 prepared,
+                voice=live_voice_service,
+                catalog=artifact_catalog,
                 unit_of_work_factory=runtime_unit_of_work_factory,
                 intents=expression_module.intents,
                 codex_artifacts=codex_artifacts,
@@ -1165,6 +1183,7 @@ async def _serve(
             codex_availability = codex_local_availability(prepared)
             codex_pipeline = compose_codex_pipeline(
                 prepared,
+                voice=live_voice_service,
                 unit_of_work_factory=runtime_unit_of_work_factory,
                 creator_party_id=creator_context.party_id,
                 creator_input=interaction_module.creator_transaction,
@@ -1222,6 +1241,7 @@ async def _serve(
                     with configuration_consumption.consumer("cognition"):
                         model_pipeline = compose_model_pipeline(
                             prepared,
+                            voice=live_voice_service,
                             finalization=candidate_pipeline,
                             unit_of_work_factory=runtime_unit_of_work_factory,
                             context=candidate_context.cognition,
@@ -1250,6 +1270,7 @@ async def _serve(
                         with configuration_consumption.consumer("web-search"):
                             web_search_pipeline = compose_web_search_pipeline(
                                 prepared,
+                                voice=live_voice_service,
                                 unit_of_work_factory=runtime_unit_of_work_factory,
                                 evidence=evidence_module.write,
                                 opportunity=opportunity_admission,
@@ -1265,6 +1286,7 @@ async def _serve(
                             web_research_pipeline = (
                                 compose_web_research_admission_pipeline(
                                     prepared,
+                                    voice=live_voice_service,
                                     unit_of_work_factory=runtime_unit_of_work_factory,
                                     custody=web_search_pipeline,
                                     evidence=evidence_module.write,

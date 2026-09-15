@@ -79,8 +79,10 @@ class DurableVisualObservationCoordinator:
         height: int,
         fps: float,
         retention: timedelta = timedelta(hours=24),
+        failure_notification: Callable[[UUID, str], Awaitable[None]] | None = None,
     ) -> None:
         self._factory = factory
+        self._failure_notification = failure_notification
         self._storage = storage
         self._catalog = catalog
         self._work = work
@@ -534,7 +536,10 @@ class DurableVisualObservationCoordinator:
                     lease, WorkResultRef("live_vision_observation", observation_id)
                 )
                 return
-            if str(row[0]) != self._source_kind.value or self._capture is None:
+            unavailable = (
+                str(row[0]) != self._source_kind.value or self._capture is None
+            )
+            if unavailable:
                 await unit.transaction.execute(
                     "UPDATE armi.live_vision_observations SET status='failed',error_code='VISION-SOURCE-UNAVAILABLE',settled_at=statement_timestamp() WHERE observation_id=%s",
                     (observation_id,),
@@ -542,11 +547,15 @@ class DurableVisualObservationCoordinator:
                 await unit.work.complete(
                     lease, WorkResultRef("live_vision_observation", observation_id)
                 )
-                return
-            await unit.transaction.execute(
-                "UPDATE armi.live_vision_observations SET status='capturing' WHERE observation_id=%s",
-                (observation_id,),
-            )
+            else:
+                await unit.transaction.execute(
+                    "UPDATE armi.live_vision_observations SET status='capturing' WHERE observation_id=%s",
+                    (observation_id,),
+                )
+        if unavailable:
+            await self._notify_failure(observation_id, "VISION-SOURCE-UNAVAILABLE")
+            return
+        assert self._capture is not None
         try:
             frames = await self._capture()
             await self._attach_captured_frames(
@@ -572,6 +581,12 @@ class DurableVisualObservationCoordinator:
                 await unit.work.complete(
                     lease, WorkResultRef("live_vision_observation", observation_id)
                 )
+
+            await self._notify_failure(observation_id, code)
+
+    async def _notify_failure(self, observation_id: UUID, code: str) -> None:
+        if self._failure_notification is not None and not self._stop.is_set():
+            await self._failure_notification(observation_id, code)
 
     async def run_recognition_worker(self) -> None:
         while not self._stop.is_set():
@@ -763,6 +778,8 @@ class DurableVisualObservationCoordinator:
                 lease, WorkResultRef("live_vision_observation", observation_id)
             )
 
+        await self._notify_failure(observation_id, code)
+
     async def _publish(
         self, value: bytes, media_type: str, logical_kind: str, trace_id: TraceId
     ):
@@ -788,10 +805,12 @@ class VisualCaptureRouter:
         factory: PostgreSQLRuntimeUnitOfWorkFactory,
         work: DurableWorkPort,
         coordinators: Mapping[VisualSourceKind, DurableVisualObservationCoordinator],
+        failure_notification: Callable[[UUID, str], Awaitable[None]] | None = None,
     ) -> None:
         self._factory = factory
         self._work = work
         self._coordinators = dict(coordinators)
+        self._failure_notification = failure_notification
         self._worker_id = uuid7()
         self._stop = asyncio.Event()
 
@@ -835,6 +854,10 @@ class VisualCaptureRouter:
             )
             await unit.work.complete(
                 lease, WorkResultRef("live_vision_observation", observation_id)
+            )
+        if self._failure_notification is not None and not self._stop.is_set():
+            await self._failure_notification(
+                observation_id, "VISION-SOURCE-UNAVAILABLE"
             )
         return True
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, replace
 from typing import Any, cast
 from uuid import UUID, uuid7
@@ -173,6 +173,7 @@ class ContextPipeline:
         "_embedding",
         "_embedding_repository",
         "_factory",
+        "_failure_notification",
         "_lease_owner",
         "_policy_version",
         "_repository",
@@ -214,9 +215,11 @@ class ContextPipeline:
         web_search_active: bool = False,
         wakeups: ContextWakeupPort | None = None,
         diagnostic: Diagnostic | None = None,
+        failure_notification: Callable[[UUID, str], Awaitable[None]] | None = None,
         embedding: EmbeddingPort | None = None,
     ) -> None:
         self._factory = factory
+        self._failure_notification = failure_notification
         self._custody = custody
         self._dialogue_read = dialogue_read
         self._storage = storage
@@ -639,6 +642,9 @@ class ContextPipeline:
                 )
         except ContextViolation, RuntimeTransactionFailure, WorkViolation:
             self._diagnostic("context.prepare.failure_settlement_deferred")
+            return
+        if self._failure_notification is not None and not self._stop.is_set():
+            await self._failure_notification(episode_id, code)
 
 
 def _recent_turns(

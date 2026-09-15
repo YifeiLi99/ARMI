@@ -114,8 +114,32 @@ class InteractionAdminInputSnapshot:
     subject_id: UUID
 
 
+@dataclass(frozen=True, slots=True)
+class InteractionAdminNotificationSnapshot:
+    notification_id: UUID
+    interaction_id: UUID
+    operation_id: UUID | None
+    artifact_id: UUID
+    failure_code: str
+    send_unknown: bool
+
+
 @runtime_checkable
 class InteractionAdminPort(Protocol):
+    def notification(
+        self,
+        transaction: PostgreSQLAdminTransaction,
+        *,
+        notification_id: UUID,
+    ) -> InteractionAdminNotificationSnapshot | None: ...
+
+    def notification_for_input(
+        self,
+        transaction: PostgreSQLAdminTransaction,
+        *,
+        interaction_id: UUID,
+    ) -> UUID | None: ...
+
     def content_parties(
         self, transaction: PostgreSQLAdminTransaction, *, subject_id: UUID
     ) -> tuple[UUID, UUID]: ...
@@ -690,6 +714,15 @@ class InteractionPerceptionPort(Protocol):
 
 @runtime_checkable
 class InteractionEffectDeliveryPort(Protocol):
+    async def record_system_notification(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        scene_id: UUID,
+        notification_id: UUID,
+        occurred_at: Instant,
+    ) -> None: ...
+
     async def record_party_response(
         self,
         transaction: PostgreSQLTransaction,
@@ -739,6 +772,33 @@ class InteractionEffectRoutePort(Protocol):
         context_party_id: UUID,
         intended_destination_kind: str | None = None,
     ) -> InteractionEffectRoute: ...
+
+
+@dataclass(frozen=True, slots=True)
+class SystemNotificationEffectDraft:
+    notification_id: UUID
+    subject_id: UUID
+    route: InteractionEffectRoute
+    artifact: ArtifactRef
+    trace_id: TraceId
+
+
+@runtime_checkable
+class SystemNotificationEffectPort(Protocol):
+    async def register_system_notification(
+        self, transaction: PostgreSQLTransaction, draft: SystemNotificationEffectDraft
+    ) -> UUID: ...
+
+
+@runtime_checkable
+class InteractionFailureNotificationPort(Protocol):
+    async def notify_input_failure(
+        self, *, interaction_id: UUID, failure_code: str
+    ) -> None: ...
+
+    async def notify_failure(
+        self, *, opportunity_id: UUID, failure_code: str, send_unknown: bool = False
+    ) -> None: ...
 
 
 @runtime_checkable
@@ -809,6 +869,7 @@ __all__ = (
     "ExternalRecognitionSnapshot",
     "ExternalVisualRole",
     "InteractionAdminInputSnapshot",
+    "InteractionAdminNotificationSnapshot",
     "InteractionAdminPort",
     "InteractionArtifactCatalogPort",
     "InteractionBirthContinuity",
@@ -824,6 +885,7 @@ __all__ = (
     "InteractionEffectDeliveryPort",
     "InteractionEffectRoute",
     "InteractionEffectRoutePort",
+    "InteractionFailureNotificationPort",
     "InteractionIdentityPort",
     "InteractionIdentityTokenPort",
     "InteractionOtherHumanPartySnapshot",
@@ -858,5 +920,7 @@ __all__ = (
     "SceneTimelinePage",
     "SceneTimelineQuery",
     "SceneTimelineQueryPort",
+    "SystemNotificationEffectDraft",
+    "SystemNotificationEffectPort",
     "TimelineItemId",
 )

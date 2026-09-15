@@ -142,6 +142,7 @@ class CandidateMemoryDraft:
             self.fact_class,
             "memory",
             canonical_payload,
+            self,
         )
 
 
@@ -219,6 +220,7 @@ class CandidateMemoryRevisionDraft:
             self.fact_class,
             "memory",
             canonical_payload,
+            self,
         )
 
 

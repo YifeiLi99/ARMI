@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from uuid import UUID
 
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
-from armi_attention.api import OpportunityAdmissionPort
+from armi_attention.api import OpportunityAdmissionPort, OpportunityContextReadPort
 from armi_data_rights.api import DataRightsParticipant, DataRightsVisibilityPort
-from armi_evidence.api import EvidenceReadPort, EvidenceWritePort
+from armi_evidence.api import EvidenceReadPort, EvidenceSnapshot, EvidenceWritePort
 from armi_kernel.application import CreatorProjectionNotifier, ExecutionCustodyPort
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
+    PostgreSQLTransaction,
     RecoveryParticipant,
 )
 from armi_subject_state.api import SubjectStateReadPort
@@ -26,6 +27,7 @@ from ._creator_postgresql import CreatorInputRepository
 from ._data_rights import PostgreSQLInteractionDataRightsParticipant
 from ._external import ExternalMessageInputService
 from ._external_postgresql import ExternalMessageInputRepository
+from ._failure_notifications import InteractionFailureNotifications
 from ._identity_postgresql import PostgreSQLInteractionIdentity
 from ._other_human import OtherHumanInputService
 from ._other_human_postgresql import OtherHumanInputRepository
@@ -52,6 +54,7 @@ from .api import (
     InteractionDataRightsGate,
     InteractionEffectDeliveryPort,
     InteractionEffectRoutePort,
+    InteractionFailureNotificationPort,
     InteractionIdentityPort,
     InteractionIdentityTokenPort,
     InteractionOtherHumanReadPort,
@@ -64,11 +67,42 @@ from .api import (
     OtherHumanInputPort,
     SceneTimelineCodexTaskProjectionPort,
     SceneTimelineQueryPort,
+    SystemNotificationEffectPort,
 )
 
 
 def bootstrap_interaction_admin() -> InteractionAdminPort:
     return PostgreSQLInteractionAdmin()
+
+
+def bootstrap_interaction_failure_notifications(
+    *,
+    factory: PostgreSQLRuntimeUnitOfWorkFactory,
+    opportunities: OpportunityContextReadPort,
+    evidence: EvidenceReadPort,
+    routes: InteractionEffectRoutePort,
+    catalog: InteractionArtifactCatalogPort,
+    storage: ContentAddressedArtifactStore,
+    effects: SystemNotificationEffectPort,
+    diagnostic: Callable[[str], None],
+    voice_failure: Callable[[UUID], Awaitable[None]] | None = None,
+    derived_origin: Callable[
+        [PostgreSQLTransaction, EvidenceSnapshot], Awaitable[UUID | None]
+    ]
+    | None = None,
+) -> InteractionFailureNotificationPort:
+    return InteractionFailureNotifications(
+        derived_origin=derived_origin,
+        voice_failure=voice_failure,
+        factory=factory,
+        opportunities=opportunities,
+        evidence=evidence,
+        routes=routes,
+        catalog=catalog,
+        storage=storage,
+        effects=effects,
+        diagnostic=diagnostic,
+    )
 
 
 def bootstrap_interaction_identity(
@@ -265,6 +299,7 @@ __all__ = (
     "bootstrap_interaction_admin",
     "bootstrap_interaction_birth",
     "bootstrap_interaction_data_rights",
+    "bootstrap_interaction_failure_notifications",
     "bootstrap_interaction_identity",
     "bootstrap_interaction_party_catalog",
     "bootstrap_interaction_recovery",

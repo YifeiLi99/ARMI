@@ -2994,6 +2994,16 @@ ALTER TABLE ONLY armi.effect_outbox_items
 ALTER TABLE ONLY armi.effects
     ADD CONSTRAINT effects_action_intent_owner_fkey FOREIGN KEY (action_intent_id, subject_id, scene_id, context_party_id) REFERENCES armi.action_intents(action_intent_id, subject_id, scene_id, context_party_id);
 
+ALTER TABLE ONLY armi.system_notifications
+    ADD CONSTRAINT system_notifications_input_fkey FOREIGN KEY (interaction_id) REFERENCES armi.party_input_interactions(interaction_id),
+    ADD CONSTRAINT system_notifications_operation_fkey FOREIGN KEY (operation_id) REFERENCES armi.opportunities(opportunity_id),
+    ADD CONSTRAINT system_notifications_subject_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id),
+    ADD CONSTRAINT system_notifications_scene_fkey FOREIGN KEY (scene_id) REFERENCES armi.interaction_scenes(scene_id),
+    ADD CONSTRAINT system_notifications_party_fkey FOREIGN KEY (destination_party_id) REFERENCES armi.parties(party_id),
+    ADD CONSTRAINT system_notifications_artifact_fkey FOREIGN KEY (payload_artifact_id) REFERENCES armi.artifacts(artifact_id);
+ALTER TABLE ONLY armi.effects
+    ADD CONSTRAINT effects_system_notification_fkey FOREIGN KEY (system_notification_id,subject_id,scene_id) REFERENCES armi.system_notifications(notification_id,subject_id,scene_id);
+
 --
 -- Name: effects effects_current_attempt_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --

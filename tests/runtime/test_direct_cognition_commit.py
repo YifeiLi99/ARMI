@@ -1,13 +1,18 @@
 """Validation facts and Subject Commit share the final transaction."""
 
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock
 from uuid import uuid7
 
 import pytest
-from armi_kernel.application import SubjectCommitViolation
+from armi_kernel.application import CandidateFactClass, SubjectCommitViolation
+from armi_memory.api import MemoryFormationRequest, MemorySourceKind
+from armi_runtime.composition.candidate_validation_tool import (
+    bootstrap_memory_cognition,
+)
 from armi_runtime.composition.subject_commit_pipeline import SubjectCommitPipeline
 
 
@@ -15,6 +20,28 @@ class _Submission(SubjectCommitPipeline):
     @staticmethod
     def _bind_accepted_owner_payloads(snapshot, change_set):
         return snapshot
+
+
+def test_commit_reuses_owner_object_without_decoding_its_archive():
+    memory = bootstrap_memory_cognition()
+    draft = memory.bind_formation(
+        MemoryFormationRequest(
+            "proposal:2",
+            "group:1",
+            (1,),
+            CandidateFactClass.EXTERNAL_CLAIM,
+            "proposal:1",
+            MemorySourceKind.REPORTED,
+            "创造者说今天会下雨。",
+        )
+    )
+    changes = cast(Any, SimpleNamespace(owner_drafts=(draft,)))
+    result = SubjectCommitPipeline.collect_owner_drafts(changes)
+    assert result.memory[0] is draft.candidate
+    with pytest.raises(SubjectCommitViolation, match="SUBJECT-CANDIDATE-OWNER"):
+        SubjectCommitPipeline.collect_owner_drafts(
+            cast(Any, SimpleNamespace(owner_drafts=(replace(draft, owner="mood"),)))
+        )
 
 
 @pytest.mark.asyncio

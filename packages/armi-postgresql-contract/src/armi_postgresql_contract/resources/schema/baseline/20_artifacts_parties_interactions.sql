@@ -557,6 +557,25 @@ CREATE TABLE armi.data_rights_party_fences (
 -- Name: party_input_interactions; Type: TABLE; Schema: armi; Owner: -
 --
 
+CREATE TABLE armi.system_notifications (
+    notification_id uuid NOT NULL PRIMARY KEY,
+    interaction_id uuid NOT NULL UNIQUE,
+    operation_id uuid,
+    subject_id uuid NOT NULL,
+    scene_id uuid NOT NULL,
+    destination_party_id uuid NOT NULL,
+    category text NOT NULL CHECK (category = 'technical_failure'),
+    failure_code text NOT NULL CHECK (failure_code ~ '^[A-Z][A-Z0-9_-]{0,127}$'),
+    send_unknown boolean NOT NULL,
+    payload_artifact_id uuid NOT NULL,
+    delivery_status text NOT NULL CHECK (delivery_status IN ('registered','unavailable')),
+    trace_id text NOT NULL CHECK (trace_id ~ '^[0-9a-f]{32}$'),
+    registered_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
+    UNIQUE (operation_id, category),
+    UNIQUE (notification_id, subject_id, scene_id),
+    CHECK (uuid_extract_version(notification_id) = 7)
+);
+
 CREATE TABLE armi.party_input_interactions (
     interaction_id uuid NOT NULL,
     delegate_id uuid,

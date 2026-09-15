@@ -42,6 +42,7 @@ def test_invalid_saved_response_cannot_reach_subject_commit():
 
 class _Execution(model.ModelPipeline):
     def __init__(self, finalization: AsyncMock) -> None:
+        self._failure_notification = AsyncMock()
         self._stop = asyncio.Event()
         self._diagnostic = lambda _event: None
         self._factory = cast(

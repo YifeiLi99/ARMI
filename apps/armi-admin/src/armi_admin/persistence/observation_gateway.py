@@ -46,6 +46,7 @@ _OWNER_BY_KIND = {
     "operation": "expression",
     "opportunity": "attention",
     "input": "interaction",
+    "system_notification": "interaction",
     "evidence": "evidence",
     "subject_commit": "runtime-foundation",
     "outbox": "effect",
@@ -449,7 +450,7 @@ class AdminObservationGateway:
         page = ordered[offset : offset + limit]
         next_offset = offset + len(page)
         return {
-            "schema_version": "armi.admin-flow-graph.v1",
+            "schema_version": "armi.admin-flow-graph.v2",
             "selector": {"kind": kind, "id": value},
             "expansion_limit": 200,
             "expansion_truncated": len(nodes) >= 200,
@@ -645,8 +646,20 @@ class AdminObservationGateway:
             elif kind == "effect":
                 effect = self._effects.snapshot(tx, effect_id=identity)
                 if effect is not None:
-                    intent = self._expression.intent(
-                        tx, action_intent_id=effect.action_intent_id
+                    intent = (
+                        None
+                        if effect.action_intent_id is None
+                        else self._expression.intent(
+                            tx, action_intent_id=effect.action_intent_id
+                        )
+                    )
+                    link(
+                        kind,
+                        identity,
+                        "system_notice",
+                        "system_notification",
+                        effect.system_notification_id,
+                        "interaction",
                     )
                     link(
                         kind,
@@ -672,6 +685,37 @@ class AdminObservationGateway:
                         effect.delivery_id,
                         "effect",
                         receipt_digest=effect.receipt_digest,
+                    )
+            elif kind == "system_notification":
+                notice = self._interaction.notification(tx, notification_id=identity)
+                if notice is not None:
+                    node["attributes"] = {
+                        "failure_code": notice.failure_code,
+                        "send_unknown": notice.send_unknown,
+                    }
+                    link(
+                        kind,
+                        identity,
+                        "notifies_input",
+                        "input",
+                        notice.interaction_id,
+                        "interaction",
+                    )
+                    link(
+                        kind,
+                        identity,
+                        "originates_from",
+                        "opportunity",
+                        notice.operation_id,
+                        "interaction",
+                    )
+                    link(
+                        kind,
+                        identity,
+                        "notice_text",
+                        "artifact",
+                        notice.artifact_id,
+                        "interaction",
                     )
             elif kind == "opportunity":
                 opportunity = self._opportunity.snapshot(tx, opportunity_id=identity)
@@ -784,6 +828,16 @@ class AdminObservationGateway:
                         "evidence",
                     )
             elif kind == "input":
+                link(
+                    kind,
+                    identity,
+                    "failure_notice",
+                    "system_notification",
+                    self._interaction.notification_for_input(
+                        tx, interaction_id=identity
+                    ),
+                    "interaction",
+                )
                 evidence = self._evidence.snapshot_for_interaction(
                     tx, interaction_id=identity
                 )

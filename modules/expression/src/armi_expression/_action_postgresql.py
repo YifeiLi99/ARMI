@@ -165,7 +165,7 @@ class PostgreSQLExpressionActionOwner:
             """
             UPDATE armi.dialogue_decisions
             SET effect_id=%s
-            WHERE action_intent_id=%s AND decision_kind='reply'
+            WHERE action_intent_id=%s
               AND (effect_id IS NULL OR effect_id=%s)
             """,
             (effect_id, action_intent_id, effect_id),

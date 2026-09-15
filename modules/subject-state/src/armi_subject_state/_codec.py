@@ -83,6 +83,7 @@ def bind(value: CandidateSubjectStateDraft) -> CandidateOwnerDraft:
         value.fact_class,
         value.kind.value,
         encode(value),
+        value,
     )
 
 

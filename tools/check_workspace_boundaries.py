@@ -94,6 +94,13 @@ def validate_contract_single_version(root: Path) -> list[Violation]:
             except OSError, UnicodeError:
                 continue
             upgrade_source = None
+            # Read-only upgrade evidence is never an executable candidate contract.
+            # Keep this exact fixture visible; do not exempt general test sources.
+            if (
+                _relative(path, root)
+                == "tests/postgresql/fixtures/v17-model-response.json"
+            ):
+                continue
             if (
                 path.parent
                 == root

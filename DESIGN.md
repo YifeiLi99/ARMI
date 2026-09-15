@@ -150,13 +150,42 @@ frozen Context + expected subject/owner versions
 
 模型响应制品使用 `armi.model-response-artifact.v3`，只保存供应商身份、原始输出文本和 usage，不重复保存候选正文。适配器不解析业务候选；Cognition 解开 candidate 封装并按冻结合同解析一次，随后将类型化内容绑定到 Owner 命令。独立的 `cognition.diagnostic` 制品保存阶段、错误码、字段路径、责任 Owner 和原始响应引用；管理端因果链关联两类制品，数据权利发现与引用计数同时覆盖它们。结构错误不改写已发生的模型成功事实，也不提交、重试或补发候选。
 
+Owner draft 在进程内携带已绑定的不可变领域对象。Subject Commit 直接按 Owner 收集这些对象，不从存档 JSON 重建命令，也不再注入八个仅供重复解码使用的 Cognition ports。canonical payload 用于已接纳提议的留证与摘要，不作为恢复或执行入口。
+
+任一提议或 Owner 拒绝即拒绝本轮全部提议，不跨 atomic group 保留其余变化，也不剥离内部变化后单独发送回复。当前执行状态仅 accepted/rejected；历史 partially_accepted 记录保留为事实，提交入口不再接纳该状态。拒绝诊断保留各失败提议的 Owner、代码及提议路径。
+
 分词和实际调用使用由类型生成的同一 Schema，不再复制整份对象手工拼接动作分支。自省 no_change 可以携带依据；更新按目标类型要求对应状态和版本。记忆维护将保留操作与重解释分开，重解释的关联引用与关系种类组成一个可选对象。Owner 继续核验有效引用和业务语义，提交继续核验异步期间可能变化的权限、版本、Runtime 和租约。
 
 数据库当前基线保留历史候选版本，不将旧制品改写成新输出。精确前向升级保留已发生事实；旧候选没有执行解析器，也不参与中断恢复。
 
+Creator 文本与语音的资料、关系和承诺变化使用同一按操作区分的类型。资料创建与更新共享内容结构；承诺修改区分范围更新与内容更新，关系边界区分限制与结束联系，不再通过通用 metadata 字段隐藏依赖。
+
+拒绝、需要信息等决定附带表达时，Expression 同时保留原决定类型与表达意图；是否有表达意图决定发送，不能把原决定改记为 reply。资料、经历和评价不因是否表达而丢弃。
+
+当前 purpose 与合同能力对应如下。数值为 2026-09-15 固定唯一引用 `ctx:1`、包含供应商 candidate 封装的紧凑 UTF-8 JSON Schema 字节数；用于体积比较，不代表 token 数或真实模型成功率。配置用途的完整性及 Schema 到解析器的正常无变化分支由 `apps/armi-runtime/tests/test_cognition_response_validation.py` 检查；具体 Owner 变化由 Cognition 的候选验证测试和数据库提交测试覆盖。
+
+| purpose／入口 | 合法工作及责任 Owner | Schema 字节 |
+|---|---|---:|
+| `consider_creator_input`、`consider_life_query_result`、`consider_requested_visual_observation` | 表达／沉默、精确查询、Web 搜索、视觉请求；Experience、Memory、Mood、Relationship、Material 与 Expression | 12151 |
+| Creator 实时语音 | 与 Creator 文本相同的业务动作，Expression 保留 60 字表达上限 | 12117 |
+| `consider_creator_outreach` | 主动表达或暂不表达，Expression；不能借主动问候改写主体状态 | 2780 |
+| `consider_other_human_input` | 回复、沉默、延期、结束联系；当前对方的 Experience、Mood、Relationship 与 Expression | 7933 |
+| `consider_autonomous_life` | 创建活动、暂不活动、延期、缺少信息、视觉请求；Activity、Mood、Live Vision | 5749 |
+| `consider_activity_attention` | 投入、恢复、暂不行动、延期、缺少信息；Activity、Mood | 4855 |
+| `consider_activity_internal_work` | 推进、完成、缺少信息、放弃、暂时无结果；Activity、Material、Mood | 8158 |
+| `consider_sleep` | 入睡、保持清醒、延期、缺少信息；Sleep | 273 |
+| `consider_web_evidence`、`consider_codex_result`、`consider_codex_task` | 证据理解及用途允许的 Owner 提议；Codex 委托只从显式任务用途进入 | 19863 |
+| `consider_visual_observation` | 忽略或形成视觉经历及评价；Experience、Mood | 5617 |
+| `maintain_subjective_memory`、`perform_subject_self_check` | 记忆保持、巩固、淡化、遗忘、重解释，或发现内部问题；Memory、Sleep | 2307 |
+| `reflect_self`、`reflect_mind`、`reflect_mood`、`reflect_prompt` | 保持或更新对应 Owner；Mood 的长期反思参数由 Owner 计算 | 5267 |
+
+技术失败通知由 Interaction 拥有，以原始外部输入及通知类别去重。Context、模型、候选、Web、Codex、视觉及发送失败在结算后登记通知；派生结果沿各 Owner 的来源记录定位最初输入，并核对主体、场景和接收方。没有外部输入祖先的自主活动只保留管理诊断。正常沉默、拒绝和延期不触发通知。
+
+`system_notifications` 只记录系统事实。独立的 `system_notification` Effect 引用它，action intent 为空，复用 outbox、发送适配器、数据权利检查和核验；不创建 Subject Commit、主体意图或经历。正文明确标记“ARMI 系统提示”，发送 unknown 与普通失败使用不同措辞。每轮最多一次，通知失败不递归、渠道不可用不换渠道、Runtime 更换不补发，unknown 不重放。实时语音使用当前会话失败状态，不伪造主体语音。管理端 flow graph v2 关联输入、通知、制品和发送事实。
+
 任一 owner 失败不留下半个主体变化。并发版本已推进时旧候选 stale，不能最后写入者覆盖。模型明确失败可按同一 work 预算安全重试；Provider 已受理但结果 unknown 时不再调用。
 
-精确生命查询和网页研究是后续耐久 work：结果成为同一 root opportunity 下的新证据和新 episode，不在原 episode 偷加第二次模型调用。
+精确生命查询和网页研究是后续耐久 work：结果形成新证据和新 episode，并通过 Owner 的来源引用关联原操作，不在原 episode 偷加第二次模型调用。
 
 ## 7. 数据模型与读取
 
@@ -164,7 +193,7 @@ frozen Context + expected subject/owner versions
 
 PostgreSQL 保存 subject、life、work、effect 与治理事实。多数可变事实使用 append-only revision/event + current head；写入携带 expected revision/subject version。数据库 statement time 提供权威时序，UUIDv7 提供稳定身份。
 
-当前 101 张表、1269 个字段、owner、关系、约束、索引与 ACL 的实现派生目录见[数据设计](docs/03-数据设计/)。该目录是 baseline 的只读说明，不替代 packaged SQL、owner registry 或测试。
+当前 103 张表、1303 个字段、owner、关系、约束、索引与 ACL 的实现派生目录见[数据设计](docs/03-数据设计/)。该目录是 baseline 的只读说明，不替代 packaged SQL、owner registry 或测试。
 
 ### 7.2 Artifact
 

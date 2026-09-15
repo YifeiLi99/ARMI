@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import cast
-from uuid import uuid7
+from uuid import UUID, uuid7
 
 from armi_attention.api import OpportunityAdmissionPort
 from armi_evidence.api import EvidenceWritePort
@@ -48,6 +48,7 @@ class WebResearchAdmissionPipeline(WebResearchIntentPort):
         "_custody",
         "_diagnostic",
         "_factory",
+        "_failure_notifications",
         "_lease_owner",
         "_repository",
         "_stop",
@@ -66,8 +67,10 @@ class WebResearchAdmissionPipeline(WebResearchIntentPort):
         evidence: EvidenceWritePort,
         opportunity: OpportunityAdmissionPort,
         diagnostic: Diagnostic | None = None,
+        failure_notifications: Callable[[UUID, str], Awaitable[None]] | None = None,
     ) -> None:
         self._factory = factory
+        self._failure_notifications = failure_notifications
         self._storage = storage
         self._custody = custody
         self._repository = PostgreSQLWebEvidenceRepository(
@@ -140,11 +143,14 @@ class WebResearchAdmissionPipeline(WebResearchIntentPort):
     async def _fail(self, lease: WorkLease, code: str) -> None:
         try:
             async with self._factory.unit_of_work() as unit:
+                snapshot = await self._repository.intent_snapshot(unit, lease)
                 await self._repository.fail_admission(
                     unit,
                     lease=lease,
                     code=code,
                 )
+            if self._failure_notifications is not None and not self._stop.is_set():
+                await self._failure_notifications(snapshot.source_opportunity_id, code)
         except RuntimeTransactionFailure, WebResearchViolation, WorkViolation:
             self._diagnostic("web.research.admission.settlement_deferred")
 

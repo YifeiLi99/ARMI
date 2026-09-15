@@ -14,9 +14,11 @@ from armi_codex import _application as application
 from armi_codex._application import CodexEffectPipeline, _cleanup_abandoned_runs
 from armi_codex._postgresql import PostgreSQLCodexDelegationRepository
 from armi_codex.api import (
+    CodexCleanupStatus,
     CodexDelegationViolation,
     CodexExecutionId,
     CodexRunnerViolation,
+    CodexVerificationStatus,
 )
 from armi_kernel.contracts import Digest
 
@@ -83,6 +85,7 @@ async def test_lost_lease_cancels_runner_and_preserves_unknown(
     pipeline._environment_root = tmp_path
     pipeline._runner_entry_module = "controlled_runner"
     pipeline._diagnostic = lambda _message: None
+    pipeline._failure_notification = AsyncMock()
     monkeypatch.setattr(CodexEffectPipeline, "_read", AsyncMock(return_value=b"bundle"))
     monkeypatch.setattr(CodexEffectPipeline, "_heartbeat", heartbeat)
     monkeypatch.setattr(application, "_task_manifest", lambda *_args: task)
@@ -91,10 +94,58 @@ async def test_lost_lease_cancels_runner_and_preserves_unknown(
     assert await asyncio.wait_for(pipeline.dispatch_once(), timeout=10)
     assert stopped.is_set()
     assert pipeline._repository.fail_dispatch.await_args.kwargs["started"] is True
+    pipeline._failure_notification.assert_not_awaited()
     assert not (tmp_path / "intake" / task.execution_id.value.hex).exists()
     pipeline.stop()
     assert await pipeline.dispatch_once() is False
     assert pipeline._repository.claim.await_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", list(CodexVerificationStatus))
+@pytest.mark.parametrize("stopped", [False, True])
+async def test_codex_notifies_only_committed_technical_failures(status, stopped):
+    settled = False
+
+    @asynccontextmanager
+    async def unit_of_work():
+        nonlocal settled
+        yield SimpleNamespace()
+        settled = True
+
+    async def notify(_origin, _code):
+        assert settled
+
+    pipeline = cast(Any, object.__new__(CodexEffectPipeline))
+    pipeline._factory = SimpleNamespace(unit_of_work=unit_of_work)
+    pipeline._repository = SimpleNamespace(settle=AsyncMock())
+    pipeline._failure_notification = AsyncMock(side_effect=notify)
+    pipeline._stop = asyncio.Event()
+    if stopped:
+        pipeline._stop.set()
+    origin = uuid7()
+    await pipeline._settle(
+        SimpleNamespace(
+            root_operation_id=origin, source_tree_digest=Digest.from_bytes(b"source")
+        ),
+        status=status,
+        cleanup_status=CodexCleanupStatus.CLEAN,
+        published={},
+        final_tree_digest=None,
+        patch_digest=None,
+        changed_path_count=0,
+        execution_error_code="CODEX-EXECUTION-FAILED",
+        cleanup_error_code=None,
+    )
+    if not stopped and status in {
+        CodexVerificationStatus.FAILED,
+        CodexVerificationStatus.UNKNOWN,
+    }:
+        pipeline._failure_notification.assert_awaited_once_with(
+            origin, "CODEX-EXECUTION-FAILED"
+        )
+    else:
+        pipeline._failure_notification.assert_not_awaited()
 
 
 def test_startup_discards_temporary_runs_without_reading_results(

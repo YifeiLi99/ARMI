@@ -411,6 +411,7 @@ class CandidateRelationshipDraft:
             self.fact_class,
             "relationship",
             canonical_payload,
+            self,
         )
 
 

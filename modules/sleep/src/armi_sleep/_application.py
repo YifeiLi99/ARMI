@@ -44,6 +44,7 @@ def _owner(
         CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
         "sleep",
         payload,
+        value,
     )
 
 

@@ -134,7 +134,7 @@ class PostgreSQLCognitionSubjectCommit:
                   ON validation.cognitive_episode_id = episode.cognitive_episode_id
                 WHERE episode.cognitive_episode_id = %s
                   AND episode.status = 'finalizing'
-                  AND validation.validation_status IN ('accepted', 'partially_accepted')
+                  AND validation.validation_status = 'accepted'
                   AND validation.change_set_artifact_id IS NOT NULL
                   AND NOT EXISTS (
                       SELECT 1

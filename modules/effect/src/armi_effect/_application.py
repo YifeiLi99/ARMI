@@ -11,7 +11,10 @@ from uuid import UUID, uuid7
 
 from armi_data_rights.api import DataRightsEffectGate, DataRightsFencePort
 from armi_expression.api import ExpressionIntentReadPort
-from armi_interaction.api import InteractionEffectRoutePort
+from armi_interaction.api import (
+    InteractionEffectRoutePort,
+    InteractionFailureNotificationPort,
+)
 from armi_kernel.application import (
     ArtifactIntegrityStatus,
     ArtifactViolation,
@@ -76,6 +79,7 @@ class EffectPipeline:
         "_diagnostic",
         "_dispatcher",
         "_factory",
+        "_failure_notifications",
         "_fault_injector",
         "_intents",
         "_interaction_delivery",
@@ -106,8 +110,10 @@ class EffectPipeline:
         live_voice_adapter: ActionAdapterPort | None = None,
         diagnostic: Diagnostic | None = None,
         fault_injector: FaultInjector | None = None,
+        failure_notifications: InteractionFailureNotificationPort | None = None,
     ) -> None:
         self._factory = factory
+        self._failure_notifications = failure_notifications
         self._storage = storage
         self._artifact_reader = CreatorArtifactReader(storage)
         self._repository = PostgreSQLEffectLedgerRepository()
@@ -291,6 +297,7 @@ class EffectPipeline:
                 snapshot.artifact_id,
                 snapshot.request.payload_digest.value,
                 snapshot.request.payload_bytes,
+                system_notification=snapshot.request.system_notification_id is not None,
             )
             if payload is None:
                 async with self._factory.unit_of_work() as uow:
@@ -444,6 +451,14 @@ class EffectPipeline:
         snapshot: EffectDispatchSnapshot,
         receipt: EffectAdapterReceipt,
     ) -> None:
+        if snapshot.request.system_notification_id is not None:
+            await self._interaction_delivery.record_system_notification(
+                uow.transaction,
+                scene_id=snapshot.request.scene_id,
+                notification_id=snapshot.request.system_notification_id,
+                occurred_at=receipt.received_at,
+            )
+            return
         await self._interaction_delivery.record_party_response(
             uow.transaction,
             scene_id=snapshot.request.scene_id,
@@ -471,7 +486,46 @@ class EffectPipeline:
     async def _notify_dispatch(
         self, snapshot: EffectDispatchSnapshot, *, include_scene: bool
     ) -> None:
+        if (
+            self._failure_notifications is not None
+            and snapshot.request.system_notification_id is None
+        ):
+            async with self._factory.unit_of_work(read_only=True) as uow:
+                ledger = await self._repository.by_effect_id(
+                    uow.transaction,
+                    effect_id=snapshot.request.effect_id.value,
+                )
+                if (
+                    ledger is not None
+                    and ledger.status.value in {"failed", "unknown"}
+                    and ledger.action_intent_id is not None
+                    and ledger.observation_reason != "EFFECT-RUNTIME-INTERRUPTED"
+                ):
+                    intent = await self._intents.intent_snapshot(
+                        uow.transaction,
+                        action_intent_id=ledger.action_intent_id,
+                    )
+                else:
+                    intent = None
+            if intent is not None and ledger is not None:
+                await self._failure_notifications.notify_failure(
+                    opportunity_id=intent.root_opportunity_id,
+                    failure_code=ledger.observation_reason or "EFFECT-FAILED",
+                    send_unknown=ledger.status.value == "unknown",
+                )
         if snapshot.request.destination_kind != "creator_inbox":
+            return
+        if snapshot.request.system_notification_id is not None:
+            if include_scene:
+                await self._notify(
+                    [
+                        (
+                            CreatorResourceKind("scene_timeline"),
+                            snapshot.scene_key,
+                            "scene-timeline.v6",
+                        )
+                    ]
+                )
             return
         try:
             async with self._factory.unit_of_work(read_only=True) as unit_of_work:
@@ -533,7 +587,12 @@ class EffectPipeline:
                 self._diagnostic("effect.projection_notification.failed")
 
     async def _read_payload(
-        self, artifact_id: UUID, digest: str, size: int
+        self,
+        artifact_id: UUID,
+        digest: str,
+        size: int,
+        *,
+        system_notification: bool = False,
     ) -> bytes | None:
         try:
             from armi_kernel.application import (
@@ -549,7 +608,9 @@ class EffectPipeline:
                 Digest(digest),
                 size,
                 "text/plain",
-                "creator.reply.text",
+                "interaction.system_notification"
+                if system_notification
+                else "creator.reply.text",
                 ArtifactPrivacyScope.CREATOR_VISIBLE,
                 ArtifactIntegrityStatus.VERIFIED,
             )

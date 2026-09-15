@@ -32,7 +32,7 @@ ARMI 不把人格提示词、模型会话或任务 Agent 当成“她”。当�
 | 业务 | 23 个独立 Python distribution；Capability 仅保留静态目录，其余按 owner 承担事实、恢复和数据权利责任 |
 | 底座/适配器 | Kernel、Runtime Foundation、Local Control、Artifact Store、PostgreSQL contract、NapCat、QQ、ESP32 display 共 8 个包 |
 | 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；baseline `armi.schema-baseline.v18` |
-| 物理 schema | 当前 baseline 101 张表、1269 个字段、1 个只读 view、62 个显式索引；表和生产 DML 都受 owner registry 检查 |
+| 物理 schema | 当前 baseline 103 张表、1303 个字段；表和生产 DML 都受 owner registry 检查 |
 | Creator API | 52 个 OpenAPI path；同源 bearer session、签名分页、SSE 投影失效刷新 |
 | 管理面 | CLI/MCP 共用 Admin 应用服务；支持绑定的 `active` / `development` / `system_test` / `acceptance`，具体操作受配置授权约束 |
 | 工具链 | Python 3.14.6、Node 24.18.0、uv 0.11.33；精确版本以 lock/manifest 为准 |
@@ -78,7 +78,7 @@ tests/                          架构、合同、Runtime、PostgreSQL 与系统
 docs/                           私有设计和外部研究，Git 忽略
 ```
 
-Schema 实际打包在 `packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema/`。内部数据库没有迁移链：结构变化直接更新唯一 `0000` 和 baseline identity，目标数据库显式重装。
+Schema 实际打包在 `packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema/`。结构变化更新唯一 `0000` 和 baseline identity；已有数据库只接受包内声明的精确前向升级路径，当前支持 v17 → v18，不通过重装替代升级。
 
 ## 日常启动
 

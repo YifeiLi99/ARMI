@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
@@ -126,10 +126,12 @@ def bootstrap_codex(
     runner_entry_module: str,
     notifier: CreatorProjectionNotifier | None = None,
     diagnostic: Diagnostic | None = None,
+    failure_notification: Callable[[UUID, str], Awaitable[None]] | None = None,
 ) -> CodexRuntimePort:
     if not runner_entry_module or "\x00" in runner_entry_module:
         raise ValueError("runner_entry_module must be a Python module name")
     return CodexEffectPipeline(
+        failure_notification=failure_notification,
         factory=factory,
         storage=storage,
         catalog=catalog,

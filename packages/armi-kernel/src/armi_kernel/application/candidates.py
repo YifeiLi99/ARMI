@@ -147,6 +147,7 @@ class CandidateOwnerDraft:
     fact_class: CandidateFactClass
     owner: str
     canonical_payload: bytes
+    candidate: object
 
     def __post_init__(self) -> None:
         _validate_proposal(

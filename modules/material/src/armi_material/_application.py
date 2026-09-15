@@ -21,6 +21,7 @@ class MaterialApplication:
             CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
             "material",
             encode(value),
+            value,
         )
 
     def decode(self, payload: bytes) -> CandidateLifeMaterialDraft:

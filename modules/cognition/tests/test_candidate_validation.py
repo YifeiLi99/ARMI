@@ -382,6 +382,13 @@ def test_creator_decision_with_expression_reaches_expression_owner(kind, purpose
     reply = result.change_set.action_choices[0]
     assert isinstance(reply, CreatorReplyDraft)
     assert reply.content_bytes == b"An explicit explanation"
+    assert reply.decision_kind == kind
+    assert (
+        json.loads(result.change_set.canonical_bytes)["action_choices"][0][
+            "decision_kind"
+        ]
+        == kind
+    )
     assert result.change_set.experiences == ()
     if kind != "reply":
         parsed = parse_creator_cognitive_act(
@@ -579,7 +586,7 @@ def test_other_human_dialogue_uses_party_scoped_v22_change_set(
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None
     assert result.change_set.disposition.value == disposition
-    assert b"armi.subject-change-set.v33" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v34" in result.change_set.canonical_bytes
     validated = result.change_set
     assert validated.disposition.value == disposition
     if draft_type is not None:
@@ -976,7 +983,7 @@ def test_sleep_decision_binds_window_authority(kind: str, disposition: str) -> N
     assert result.change_set is not None
     assert _sleep(result.change_set)[0].cycle_anchor_ref == ids[6]
     assert result.change_set.disposition.value == disposition
-    assert b"armi.subject-change-set.v33" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v34" in result.change_set.canonical_bytes
 
 
 def _maintenance_fixture(
@@ -1067,7 +1074,7 @@ def test_memory_maintenance_commits_change_or_explicit_no_change() -> None:
     decision = _sleep(changed.change_set)[0]
     assert decision.outcome is MaintenanceWorkOutcome.MEMORY_CHANGED
     assert decision.memory_proposal_ref == "proposal:1"
-    assert b"armi.subject-change-set.v33" in changed.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v34" in changed.change_set.canonical_bytes
 
     unchanged = DeterministicCandidateValidator(context).validate(
         _bytes({"kind": "memory_unchanged", "summary": "当前无需改变。"}),
@@ -1410,7 +1417,7 @@ def test_autonomous_start_binds_activity_authority_without_scene() -> None:
     assert (
         bootstrap_mood_cognition().decode(mood.canonical_payload).appraisal is not None
     )
-    assert b"armi.subject-change-set.v33" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v34" in result.change_set.canonical_bytes
     assert str(opportunity_id).encode() not in result.change_set.canonical_bytes
 
 
@@ -1505,7 +1512,7 @@ def test_attention_engagement_binds_authority() -> None:
     )
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None
-    assert b"armi.subject-change-set.v33" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v34" in result.change_set.canonical_bytes
     decision = _activities(result.change_set)[0]
     assert decision.activity_id == activity_id
     assert decision.current_revision_id == revision_id
@@ -1641,7 +1648,7 @@ def test_internal_activity_work_maps_real_outcomes_into_atomic_change_set_v18(
 
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None
-    assert b"armi.subject-change-set.v33" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v34" in result.change_set.canonical_bytes
     assert _activities(result.change_set)[0].decision_kind.value == decision_kind
     if decision_kind == "complete":
         assert len(_materials(result.change_set)) == 1
@@ -1924,11 +1931,13 @@ def test_memory_without_a_source_experience_is_rejected() -> None:
         _bytes(candidate),
         bases=bases,
     )
-    assert result.status is CandidateValidationStatus.PARTIALLY_ACCEPTED
-    assert result.change_set is not None
-    rejection = result.change_set.rejections[0]
+    assert result.status is CandidateValidationStatus.REJECTED
+    assert result.change_set is None
+    rejection = result.diagnostics[0]
     assert rejection.code == "CANDIDATE-MEMORY-EXPERIENCE"
-    assert b"database access" not in result.change_set.canonical_bytes
+    assert rejection.owner == "memory"
+    assert rejection.field_path == ("memory_changes", 0)
+    assert "database access" not in repr(result.diagnostics)
 
 
 def test_wrong_base_and_unsupported_contract_are_rejected() -> None:
@@ -2017,7 +2026,7 @@ def test_candidate_v5_web_research_is_typed_deterministic_and_inactive_by_defaul
     assert first.change_set is not None and second.change_set is not None
     assert first.change_set.canonical_bytes == second.change_set.canonical_bytes
     assert len(first.change_set.web_research_requests) == 1
-    assert b"armi.subject-change-set.v33" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v34" in first.change_set.canonical_bytes
 
     candidate["web_research_requests"][0]["payload"]["query"] = (  # type: ignore[index]
         "https://example.com/"
@@ -2066,7 +2075,7 @@ def test_compact_dialogue_v4_web_research_binds_authority_deterministically() ->
     assert first.status is CandidateValidationStatus.ACCEPTED
     assert first.change_set is not None and second.change_set is not None
     assert first.change_set.canonical_bytes == second.change_set.canonical_bytes
-    assert b"armi.subject-change-set.v33" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v34" in first.change_set.canonical_bytes
     assert (
         first.change_set.web_research_requests[0].query_bytes.decode("utf-8")
         == candidate["query"]
@@ -2102,7 +2111,7 @@ def test_compact_dialogue_exact_life_query_is_typed_and_rejects_audit_scope() ->
     assert first.status is CandidateValidationStatus.ACCEPTED
     assert first.change_set is not None and second.change_set is not None
     assert first.change_set.canonical_bytes == second.change_set.canonical_bytes
-    assert b"armi.subject-change-set.v33" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v34" in first.change_set.canonical_bytes
     assert len(first.change_set.exact_life_queries) == 1
     query = first.change_set.exact_life_queries[0]
     assert query.record_kind == LifeRecordKind("memory")
@@ -2356,7 +2365,7 @@ def test_codex_delegation_requires_available_executor_and_exact_task() -> None:
     assert {item.proposal_ref for item in persisted_drafts} == {
         item.proposal_ref for item in (*first.change_set.codex_delegations,)
     }
-    assert b"armi.subject-change-set.v33" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v34" in first.change_set.canonical_bytes
 
     mismatched = replace(active_context, codex_task_sources=())
     rejected = DeterministicCandidateValidator(mismatched).validate(
@@ -2477,7 +2486,7 @@ def test_creator_reply_binds_authority_scope_and_forbids_model_owned_ids() -> No
     assert reply.subject_id == context.subject_id
     assert reply.scene_id == context.scene_id
     assert reply.creator_party_id == context.creator_party_id
-    assert b"armi.subject-change-set.v33" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v34" in result.change_set.canonical_bytes
 
     candidate["action_choices"][0]["basis_refs"] = ["ctx:2", "ctx:4"]  # type: ignore[index]
     missing_capability_basis = DeterministicCandidateValidator(context).validate(
@@ -2539,7 +2548,7 @@ def test_compact_dialogue_reply_is_bound_to_authority_deterministically() -> Non
     assert reply.subject_id == context.subject_id
     assert reply.scene_id == context.scene_id
     assert reply.creator_party_id == context.creator_party_id
-    assert b"armi.subject-change-set.v33" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v34" in first.change_set.canonical_bytes
 
 
 def test_compact_dialogue_binds_grounded_self_and_mind_growth() -> None:
@@ -2662,7 +2671,7 @@ def test_compact_dialogue_creates_and_revises_subject_prompt_from_experience() -
     )
     assert created.status is CandidateValidationStatus.ACCEPTED
     assert created.change_set is not None
-    assert b"armi.subject-change-set.v33" in created.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v34" in created.change_set.canonical_bytes
     prompt = _prompts(created.change_set)[0]
     assert prompt.prompt_document_id == document_id
     assert prompt.current_revision_id is None
@@ -2780,10 +2789,9 @@ def test_subject_prompt_rejects_self_content_and_requires_current_revision_basis
     duplicate = DeterministicCandidateValidator(context).validate(
         _bytes(candidate), bases=bases
     )
-    assert duplicate.status is CandidateValidationStatus.PARTIALLY_ACCEPTED
-    assert duplicate.change_set is not None
-    assert duplicate.change_set.action_choices
-    assert {item.code for item in duplicate.change_set.rejections} == {
+    assert duplicate.status is CandidateValidationStatus.REJECTED
+    assert duplicate.change_set is None
+    assert {item.code for item in duplicate.diagnostics} == {
         "CANDIDATE-SUBJECT-PROMPT-CONTEXT"
     }
 
@@ -2801,9 +2809,9 @@ def test_subject_prompt_rejects_self_content_and_requires_current_revision_basis
     duplicate = DeterministicCandidateValidator(context).validate(
         _bytes(candidate), bases=(*bases, prompt_basis)
     )
-    assert duplicate.status is CandidateValidationStatus.PARTIALLY_ACCEPTED
-    assert duplicate.change_set is not None
-    assert {item.code for item in duplicate.change_set.rejections} == {
+    assert duplicate.status is CandidateValidationStatus.REJECTED
+    assert duplicate.change_set is None
+    assert {item.code for item in duplicate.diagnostics} == {
         "CANDIDATE-SUBJECT-PROMPT-SELF-DUPLICATE"
     }
 
@@ -2840,9 +2848,9 @@ def test_compact_dialogue_growth_rejects_noop_or_stale_component_context() -> No
     noop = DeterministicCandidateValidator(context).validate(
         _bytes(candidate), bases=extended
     )
-    assert noop.status is CandidateValidationStatus.PARTIALLY_ACCEPTED
-    assert noop.change_set is not None and noop.change_set.action_choices
-    assert {item.code for item in noop.change_set.rejections} == {
+    assert noop.status is CandidateValidationStatus.REJECTED
+    assert noop.change_set is None
+    assert {item.code for item in noop.diagnostics} == {
         "CANDIDATE-ATOMIC-GROUP",
         "CANDIDATE-NO-OP",
     }
@@ -2863,11 +2871,9 @@ def test_compact_dialogue_growth_rejects_noop_or_stale_component_context() -> No
         ),
         bases=extended,
     )
-    assert stale.status is CandidateValidationStatus.PARTIALLY_ACCEPTED
-    assert stale.change_set is not None and stale.change_set.action_choices
-    assert {item.code for item in stale.change_set.rejections} == {
-        "CANDIDATE-COMPONENT-CONTEXT"
-    }
+    assert stale.status is CandidateValidationStatus.REJECTED
+    assert stale.change_set is None
+    assert {item.code for item in stale.diagnostics} == {"CANDIDATE-COMPONENT-CONTEXT"}
 
 
 def test_compact_dialogue_no_change_does_not_create_component_revision() -> None:
@@ -2947,7 +2953,7 @@ def test_compact_dialogue_creates_runtime_owned_life_material_deterministically(
     assert first.status is CandidateValidationStatus.ACCEPTED
     assert first.change_set is not None and repeated.change_set is not None
     assert first.change_set.canonical_bytes == repeated.change_set.canonical_bytes
-    assert b"armi.subject-change-set.v33" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v34" in first.change_set.canonical_bytes
     assert len(_materials(first.change_set)) == 1
     material = _materials(first.change_set)[0]
     assert isinstance(material, CandidateLifeMaterialDraft)
@@ -3059,11 +3065,9 @@ def test_compact_dialogue_material_update_requires_frozen_current_head() -> None
     rejected = DeterministicCandidateValidator(context).validate(
         _bytes(no_op), bases=extended
     )
-    assert rejected.status is CandidateValidationStatus.PARTIALLY_ACCEPTED
-    assert rejected.change_set is not None and rejected.change_set.action_choices
-    assert {item.code for item in rejected.change_set.rejections} == {
-        "CANDIDATE-MATERIAL-NO-OP"
-    }
+    assert rejected.status is CandidateValidationStatus.REJECTED
+    assert rejected.change_set is None
+    assert {item.code for item in rejected.diagnostics} == {"CANDIDATE-MATERIAL-NO-OP"}
 
     stale_context = replace(
         context,
@@ -3072,11 +3076,9 @@ def test_compact_dialogue_material_update_requires_frozen_current_head() -> None
     stale = DeterministicCandidateValidator(stale_context).validate(
         _bytes(candidate), bases=extended
     )
-    assert stale.status is CandidateValidationStatus.PARTIALLY_ACCEPTED
-    assert stale.change_set is not None and stale.change_set.action_choices
-    assert {item.code for item in stale.change_set.rejections} == {
-        "CANDIDATE-MATERIAL-STALE"
-    }
+    assert stale.status is CandidateValidationStatus.REJECTED
+    assert stale.change_set is None
+    assert {item.code for item in stale.diagnostics} == {"CANDIDATE-MATERIAL-STALE"}
 
 
 @pytest.mark.parametrize(
@@ -3211,9 +3213,9 @@ def test_compact_dialogue_material_state_changes_reuse_current_content(
         ),
         bases=extended,
     )
-    assert wrong_owner.status is CandidateValidationStatus.PARTIALLY_ACCEPTED
-    assert wrong_owner.change_set is not None and wrong_owner.change_set.action_choices
-    assert {item.code for item in wrong_owner.change_set.rejections} == {
+    assert wrong_owner.status is CandidateValidationStatus.REJECTED
+    assert wrong_owner.change_set is None
+    assert {item.code for item in wrong_owner.diagnostics} == {
         "CANDIDATE-MATERIAL-OWNER"
     }
 
@@ -3276,7 +3278,7 @@ def test_compact_dialogue_establishes_relationship_from_same_experience() -> Non
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None and repeated.change_set is not None
     assert result.change_set.canonical_bytes == repeated.change_set.canonical_bytes
-    assert b"armi.subject-change-set.v33" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v34" in result.change_set.canonical_bytes
     assert len(result.change_set.experiences) == 1
     assert len(_relationships(result.change_set)) == 1
     assert {item.atomic_group_ref for item in result.change_set.action_choices} == {
@@ -3847,7 +3849,7 @@ def test_compact_dialogue_forms_grounded_reported_memory_in_same_change_set() ->
     assert memory.source_experience_ref == result.change_set.experiences[0].proposal_ref
     assert memory.source_kind is MemorySourceKind.REPORTED
     assert memory.mechanism_identity == "armi.memory-formation.contextual-v1"
-    assert b"armi.subject-change-set.v33" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v34" in result.change_set.canonical_bytes
     assert any(
         isinstance(item, CandidateOwnerDraft) and item.owner == "memory"
         for item in _validation_drafts(result.change_set)
@@ -3958,7 +3960,7 @@ def test_compact_dialogue_reinterprets_current_memory_without_overwriting_histor
     assert revision.accessibility is MemoryAccessibility.AVAILABLE
     assert revision.related_memory_id == related_id
     assert revision.relation_kind is MemoryRelationKind.CONTRADICTS
-    assert b"armi.subject-change-set.v33" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v34" in result.change_set.canonical_bytes
     assert _memories(result.change_set) == (revision,)
 
     stale_context = replace(
@@ -3978,11 +3980,9 @@ def test_compact_dialogue_reinterprets_current_memory_without_overwriting_histor
         ),
         bases=extended,
     )
-    assert stale.status is CandidateValidationStatus.PARTIALLY_ACCEPTED
-    assert stale.change_set is not None and stale.change_set.action_choices
-    assert {item.code for item in stale.change_set.rejections} == {
-        "CANDIDATE-MEMORY-STALE"
-    }
+    assert stale.status is CandidateValidationStatus.REJECTED
+    assert stale.change_set is None
+    assert {item.code for item in stale.diagnostics} == {"CANDIDATE-MEMORY-STALE"}
 
 
 def test_compact_dialogue_fades_and_forgets_without_changing_memory_summary() -> None:
@@ -4075,11 +4075,9 @@ def test_memory_fact_class_cannot_drift_from_its_source_experience() -> None:
     result = DeterministicCandidateValidator(context).validate(
         _bytes(candidate), bases=bases
     )
-    assert result.status is CandidateValidationStatus.PARTIALLY_ACCEPTED
-    assert result.change_set is not None
-    assert {item.code for item in result.change_set.rejections} >= {
-        "CANDIDATE-MEMORY-SOURCE"
-    }
+    assert result.status is CandidateValidationStatus.REJECTED
+    assert result.change_set is None
+    assert {item.code for item in result.diagnostics} >= {"CANDIDATE-MEMORY-SOURCE"}
 
 
 @pytest.mark.parametrize(

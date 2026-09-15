@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, cast
-from uuid import uuid7
+from uuid import UUID, uuid7
 
 import rfc8785
 from armi_artifact_store.content_store import (
@@ -236,6 +236,7 @@ class ModelPipeline:
         "_diagnostic",
         "_dialogue_version",
         "_factory",
+        "_failure_notification",
         "_finalization",
         "_lease_owner",
         "_repository",
@@ -261,6 +262,7 @@ class ModelPipeline:
         web_search_active: bool = False,
         wakeups: CognitionWakeupPort | None = None,
         diagnostic: Diagnostic | None = None,
+        failure_notification: Callable[[UUID, str], Awaitable[None]] | None = None,
     ) -> None:
         dialogue_version = DIALOGUE_CANDIDATE_VERSION
         load_active_binding(
@@ -370,6 +372,7 @@ class ModelPipeline:
 
         self._finalization = finalization
         self._factory = factory
+        self._failure_notification = failure_notification
         self._storage = storage
         self._adapters = {
             "consider_creator_input": build_adapter(
@@ -832,6 +835,8 @@ class ModelPipeline:
             await self._repository.fail_episode(
                 unit_of_work, lease=lease, snapshot=snapshot, code=code
             )
+        if self._failure_notification is not None and not self._stop.is_set():
+            await self._failure_notification(snapshot.episode_id, code)
 
     async def _execute_with_renewal(self, record: WorkRecord) -> None:
         lease = cast(WorkLease, record.lease)
@@ -917,6 +922,10 @@ class ModelPipeline:
                 snapshot=snapshot,
                 code=result.error_code or "MODEL-PROVIDER-FAILED",
             )
+        if self._failure_notification is not None and not self._stop.is_set():
+            await self._failure_notification(
+                snapshot.episode_id, result.error_code or "MODEL-PROVIDER-FAILED"
+            )
 
     async def _settle_before_attempt(
         self,
@@ -960,6 +969,13 @@ class ModelPipeline:
                     )
         except RuntimeTransactionFailure, ModelViolation, WorkViolation:
             self._diagnostic("model.preparation.settlement_deferred")
+            return
+        if (
+            not (error.retryable and record.attempt_count < record.draft.max_attempts)
+            and self._failure_notification is not None
+            and not self._stop.is_set()
+        ):
+            await self._failure_notification(snapshot.episode_id, error.code)
 
 
 def _artifact_audit(

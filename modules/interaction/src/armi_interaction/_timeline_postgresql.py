@@ -26,6 +26,7 @@ from armi_runtime_foundation import (
     RuntimeTransactionFailure,
 )
 
+from ._failure_notifications import failure_notification_text
 from ._scene_contract import (
     PROJECTION_VERSION,
     SceneQueryViolation,
@@ -307,6 +308,21 @@ class PostgreSQLSceneTimelineQuery:
                         messages[item_id] = await self._read_message(
                             projection.artifact, projection.purpose, str(row[7])
                         )
+                    elif source_kind == "system_notification":
+                        notice = await (
+                            await connection.execute(
+                                """SELECT notice.send_unknown FROM armi.system_notifications AS notice
+                               JOIN armi.party_input_interactions AS input
+                                 ON input.interaction_id=notice.interaction_id
+                               WHERE notice.notification_id=%s AND notice.scene_id=%s
+                                 AND input.data_rights_hidden_at IS NULL""",
+                                (source_ref, scene_id),
+                            )
+                        ).fetchone()
+                        if notice is not None:
+                            messages[item_id] = failure_notification_text(
+                                send_unknown=bool(notice[0])
+                            )
                     elif source_kind == "subject_commit":
                         operations[item_id] = await self._projections.subject_commit(
                             connection,

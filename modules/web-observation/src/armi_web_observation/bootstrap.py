@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
+from uuid import UUID
 
 from armi_attention.api import OpportunityAdmissionPort
 from armi_data_rights.api import DataRightsParticipant
@@ -81,8 +82,10 @@ def bootstrap_web_observation(
     evidence: EvidenceWritePort,
     opportunity: OpportunityAdmissionPort,
     diagnostic: Diagnostic | None = None,
+    failure_notifications: Callable[[UUID, str], Awaitable[None]] | None = None,
 ) -> WebObservationRuntimePort:
     return WebSearchPipeline(
+        failure_notifications=failure_notifications,
         factory=factory,
         storage=storage,
         catalog=catalog,
@@ -107,8 +110,10 @@ def bootstrap_web_research(
     evidence: EvidenceWritePort,
     opportunity: OpportunityAdmissionPort,
     diagnostic: Diagnostic | None = None,
+    failure_notifications: Callable[[UUID, str], Awaitable[None]] | None = None,
 ) -> WebResearchRuntimePort:
     return WebResearchAdmissionPipeline(
+        failure_notifications=failure_notifications,
         factory=factory,
         storage=storage,
         catalog=catalog,

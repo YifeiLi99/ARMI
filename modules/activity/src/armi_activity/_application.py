@@ -19,6 +19,7 @@ class ActivityApplication:
             value.fact_class,
             "activity",
             encode(value),
+            value,
         )
 
     def bind_decision(
@@ -31,6 +32,7 @@ class ActivityApplication:
             CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
             "activity",
             encode(value),
+            value,
         )
 
     def decode(self, payload: bytes):

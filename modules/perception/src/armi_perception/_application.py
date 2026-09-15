@@ -20,6 +20,7 @@ from armi_interaction.api import (
     ExternalChannel,
     ExternalMessagePartKind,
     ExternalMessageViolation,
+    InteractionFailureNotificationPort,
     InteractionPerceptionPort,
 )
 from armi_kernel.application import (
@@ -84,6 +85,7 @@ class ExternalContentPipeline:
         "_catalog",
         "_diagnostic",
         "_factory",
+        "_failure_notifications",
         "_fetch",
         "_lease_owner",
         "_recognizer",
@@ -112,8 +114,10 @@ class ExternalContentPipeline:
         target_for: Callable[[ExternalMessagePartKind], tuple[str, str]],
         wakeups: PerceptionWakeupPort,
         diagnostic: Diagnostic | None = None,
+        failure_notifications: InteractionFailureNotificationPort | None = None,
     ) -> None:
         self._factory = factory
+        self._failure_notifications = failure_notifications
         self._storage = storage
         self._fetch = fetch
         self._recognizer = recognizer
@@ -475,6 +479,14 @@ class ExternalContentPipeline:
                 result=result,
             )
 
+        await self._notify_failure(lease, code)
+
+    async def _notify_failure(self, lease: WorkLease, code: str) -> None:
+        if self._failure_notifications is not None and not self._stop.is_set():
+            await self._failure_notifications.notify_input_failure(
+                interaction_id=lease.work_owner.reference, failure_code=code
+            )
+
     async def _await_with_lease(
         self, lease: WorkLease, operation: Awaitable[_T]
     ) -> tuple[_T, WorkLease]:
@@ -546,12 +558,15 @@ class ExternalContentPipeline:
                 )
                 if record.status.value == "ready":
                     self._wakeups.notify(EXTERNAL_CONTENT)
+                elif record.status.value == "failed":
+                    await self._notify_failure(lease, "EXTERNAL-CONTENT-FINALIZATION")
             except RuntimeTransactionFailure, WorkViolation:
                 self._diagnostic("external.content.finalization.settlement_deferred")
 
     async def _fail_work(self, lease: WorkLease, code: str) -> None:
         try:
             await self._work.fail(lease, error_code=code)
+            await self._notify_failure(lease, code)
         except WorkViolation:
             self._diagnostic("external.content.settlement.deferred")
 

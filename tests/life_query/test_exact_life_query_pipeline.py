@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from types import SimpleNamespace
+from typing import Any, cast
+from unittest.mock import AsyncMock
 from uuid import uuid7
 
 import pytest
@@ -15,6 +20,7 @@ from armi_kernel.application import (
     LifeRecordQuery,
     LifeRecordQueryViolation,
     LifeRecordRetrievalKind,
+    WorkViolation,
 )
 from armi_kernel.contracts import Digest, Instant, TraceId
 from armi_runtime.composition.exact_life_query_pipeline import (
@@ -62,6 +68,47 @@ def _pipeline(port: _QueryPort) -> ExactLifeQueryPipeline:
     pipeline = object.__new__(ExactLifeQueryPipeline)
     pipeline._query = port  # pyright: ignore[reportPrivateUsage]
     return pipeline
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["failed", "lease_lost", "stopped"])
+async def test_query_failure_notifies_only_after_settlement(outcome: str) -> None:
+    events: list[str] = []
+
+    @asynccontextmanager
+    async def transaction():
+        work = SimpleNamespace(fail=AsyncMock())
+        if outcome == "lease_lost":
+            work.fail.side_effect = WorkViolation("WORK-LEASE-STALE")
+        yield SimpleNamespace(transaction=object(), work=work)
+        events.append("committed")
+
+    async def notified(*_args):
+        events.append("notified")
+
+    pipeline = _pipeline(_QueryPort())
+    pipeline._factory = cast(Any, SimpleNamespace(unit_of_work=transaction))
+    pipeline._cognition = cast(Any, SimpleNamespace(fail=AsyncMock()))
+    pipeline._diagnostic = lambda _event: None
+    pipeline._failure_notification = notified
+    pipeline._stop = asyncio.Event()
+    if outcome == "stopped":
+        pipeline.stop()
+    snapshot = _snapshot()
+    await pipeline._fail(
+        cast(Any, object()),
+        snapshot.intent_id,
+        "LIFE-QUERY-ARTIFACT",
+        snapshot=snapshot,
+    )
+    assert (
+        events
+        == {
+            "failed": ["committed", "notified"],
+            "lease_lost": [],
+            "stopped": ["committed"],
+        }[outcome]
+    )
 
 
 @pytest.mark.asyncio

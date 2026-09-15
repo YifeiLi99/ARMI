@@ -91,6 +91,7 @@ def bind(value: CandidatePromptDraft) -> CandidateOwnerDraft:
         value.fact_class,
         "prompt",
         encode(value),
+        value,
     )
 
 

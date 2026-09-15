@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import timedelta
 from typing import cast
-from uuid import uuid7
+from uuid import UUID, uuid7
 
 from armi_attention.api import OpportunityAdmissionPort
 from armi_evidence.api import EvidenceWritePort
@@ -53,6 +53,7 @@ from armi_runtime_foundation import (
     RuntimeTransactionFailure,
 )
 
+from ._context_postgresql import PostgreSQLWebContextRead
 from ._custody import (
     ArkWebSearchAdapter,
     build_request_bytes,
@@ -102,6 +103,7 @@ class WebSearchPipeline:
         "_diagnostic",
         "_evidence_repository",
         "_factory",
+        "_failure_notifications",
         "_lease_owner",
         "_policy",
         "_repository",
@@ -124,8 +126,10 @@ class WebSearchPipeline:
         evidence: EvidenceWritePort,
         opportunity: OpportunityAdmissionPort,
         diagnostic: Diagnostic | None = None,
+        failure_notifications: Callable[[UUID, str], Awaitable[None]] | None = None,
     ) -> None:
         self._factory = factory
+        self._failure_notifications = failure_notifications
         self._storage = storage
         self._adapter = ArkWebSearchAdapter(credential_port, credential_locator)
         self._policy = load_custody_policy(manifest_bytes)
@@ -348,6 +352,7 @@ class WebSearchPipeline:
                                 snapshot=snapshot_value,
                                 code=error.code,
                             )
+                        await self._notify_failure(snapshot_value, error.code)
                     except (
                         RuntimeTransactionFailure,
                         WebObservationViolation,
@@ -379,6 +384,7 @@ class WebSearchPipeline:
                             snapshot=snapshot_value,
                             code=error.code,
                         )
+                    await self._notify_failure(snapshot_value, error.code)
                 except (
                     RuntimeTransactionFailure,
                     WebObservationViolation,
@@ -596,6 +602,22 @@ class WebSearchPipeline:
                     else AuditResultStatus.FAILED,
                 )
             )
+
+        await self._notify_failure(snapshot, result.error_code or "WEB-PROVIDER-FAILED")
+
+    async def _notify_failure(
+        self, snapshot: WebObservationSnapshot, code: str
+    ) -> None:
+        if self._failure_notifications is None or self._stop.is_set():
+            return
+        try:
+            async with self._factory.unit_of_work(read_only=True) as unit:
+                opportunity_id = await PostgreSQLWebContextRead().request_opportunity(
+                    unit.transaction, request_id=snapshot.request_id.value
+                )
+            await self._failure_notifications(opportunity_id, code)
+        except RuntimeTransactionFailure, WebObservationViolation:
+            self._diagnostic("web.observation.notification_failed")
 
     async def _publish(
         self,

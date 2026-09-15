@@ -14,7 +14,14 @@ from armi_kernel.contracts import TraceId
 from armi_runtime_foundation import (
     PostgreSQLAdminTransaction,
     PostgreSQLRuntimeUnitOfWork,
+    PostgreSQLTransaction,
 )
+
+
+class VisualOriginReadPort(Protocol):
+    async def origin_episode(
+        self, transaction: PostgreSQLTransaction, *, observation_id: UUID
+    ) -> UUID | None: ...
 
 
 class LiveVisionViolation(ValueError):
@@ -402,6 +409,7 @@ __all__ = (
     "VisualObservationCommitPort",
     "VisualObservationRequestDraft",
     "VisualObservationSinkPort",
+    "VisualOriginReadPort",
     "VisualSourceIdentity",
     "VisualSourceKind",
     "VisualSourcePort",

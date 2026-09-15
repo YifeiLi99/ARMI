@@ -57,6 +57,8 @@ class GraphReference(Payload):
 
 
 class GraphAttributes(Payload):
+    failure_code: str | None = None
+    send_unknown: bool | None = None
     target_kind: str | None = None
     target_ref: str | None = None
     operation: str | None = None
@@ -92,7 +94,7 @@ class GraphPage(Payload):
 
 
 class FlowGraphPayload(GraphPage):
-    schema_version: Literal["armi.admin-flow-graph.v1"]
+    schema_version: Literal["armi.admin-flow-graph.v2"]
     selector: GraphReference
     expansion_limit: int
     expansion_truncated: bool

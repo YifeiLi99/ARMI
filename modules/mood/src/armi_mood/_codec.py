@@ -115,6 +115,7 @@ def bind(value: CandidateMoodDraft) -> CandidateOwnerDraft:
         value.fact_class,
         "mood",
         encode(value),
+        value,
     )
 
 

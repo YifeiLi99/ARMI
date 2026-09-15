@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
+from uuid import UUID
 
 from armi_activity.api import ActivityCognitionPort, ActivityReadPort
 from armi_artifact_store import ContentAddressedArtifactStore
@@ -155,6 +156,7 @@ def bootstrap_cognition_model(
     web_search_active: bool = False,
     wakeups: CognitionWakeupPort | None = None,
     diagnostic: Callable[[str], None] | None = None,
+    failure_notification: Callable[[UUID, str], Awaitable[None]] | None = None,
 ) -> CognitionWorkerPort:
     return ModelPipeline(
         factory=factory,
@@ -166,6 +168,7 @@ def bootstrap_cognition_model(
         custody=custody,
         finalization=finalization,
         adapter_factory=adapter_factory,
+        failure_notification=failure_notification,
         binding_path=binding_path,
         web_search_active=web_search_active,
         wakeups=wakeups,
@@ -208,8 +211,10 @@ def bootstrap_cognition_candidate(
     web_search_active: bool = False,
     visual_sources_active: frozenset[str] = frozenset(),
     diagnostic: Callable[[str], None] | None = None,
+    failure_notification: Callable[[UUID, str], Awaitable[None]] | None = None,
 ) -> CognitionFinalizationPort:
     return CandidateValidationService(
+        failure_notification=failure_notification,
         factory=factory,
         storage=storage,
         catalog=catalog,

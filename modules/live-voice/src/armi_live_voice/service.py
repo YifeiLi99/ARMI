@@ -293,6 +293,16 @@ class LiveVoiceService:
         if completion is not None and not completion.done():
             completion.set_result((AttemptOutcome.COMPLETED, "", True))
 
+    async def fail_cognition(self, *, turn_id: UUID) -> None:
+        completion = self._pending_effects.get(turn_id)
+        if completion is not None and not completion.done() and not self._stop.is_set():
+            completion.set_exception(
+                LiveVoiceViolation(
+                    "VOICE-COGNITION-FAILED",
+                    "the accepted voice turn could not be completed",
+                )
+            )
+
     async def _speak(self, turn_id: UUID, fragments: AsyncIterator[str]) -> str:
         spoken: list[str] = []
         tts_attempt = await self._journal.begin_provider_attempt(

@@ -80,6 +80,7 @@ DATA_RIGHTS_OWNER_CONTRACTS = (
         (
             ("external_message_parts", "interpretation_artifact_id", "party"),
             ("external_message_parts", "raw_artifact_id", "party"),
+            ("system_notifications", "payload_artifact_id", "party"),
         ),
     ),
     _contract("experience", ("experience",), ()),
