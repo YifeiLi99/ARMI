@@ -38,22 +38,8 @@ if ($LASTEXITCODE -ne 0) { throw 'MSIX-RELEASE-CONFIGURATION' }
 $release = $release | ConvertFrom-Json
 $assets = Join-Path $staging 'Assets'
 New-Item -ItemType Directory -Path $assets -Force | Out-Null
-Add-Type -AssemblyName System.Drawing
-foreach ($asset in @(@('StoreLogo', 50), @('Square44x44Logo', 44), @('Square150x150Logo', 150))) {
-    $size = [int]$asset[1]
-    $bitmap = [Drawing.Bitmap]::new($size, $size)
-    $graphics = [Drawing.Graphics]::FromImage($bitmap)
-    $graphics.Clear([Drawing.Color]::FromArgb(32, 72, 96))
-    $font = [Drawing.Font]::new('Segoe UI', [single]($size * 0.48), [Drawing.FontStyle]::Bold, [Drawing.GraphicsUnit]::Pixel)
-    $format = [Drawing.StringFormat]::new()
-    $format.Alignment = [Drawing.StringAlignment]::Center
-    $format.LineAlignment = [Drawing.StringAlignment]::Center
-    $graphics.DrawString('A', $font, [Drawing.Brushes]::White, [Drawing.RectangleF]::new(0, 0, $size, $size), $format)
-    $bitmap.Save((Join-Path $assets ($asset[0] + '.png')), [Drawing.Imaging.ImageFormat]::Png)
-    $format.Dispose()
-    $font.Dispose()
-    $graphics.Dispose()
-    $bitmap.Dispose()
+foreach ($asset in @('StoreLogo', 'Square44x44Logo', 'Square150x150Logo')) {
+    Copy-Item -LiteralPath (Join-Path $staging ('runtime/python/Lib/site-packages/armi_admin/icon_resources/' + $asset + '.png')) -Destination $assets
 }
 & $python -I -B (Join-Path $PSScriptRoot 'seal_windows_payload.py') $staging
 if ($LASTEXITCODE -ne 0) { throw 'MSIX-SEAL' }

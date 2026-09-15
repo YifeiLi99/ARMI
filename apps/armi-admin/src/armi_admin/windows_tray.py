@@ -59,7 +59,6 @@ class WindowsTray:
         self.window: int | None = None
         self.ready = threading.Event()
         self.tip = "ARMI：正在读取后台状态"
-        self.icon_kind = win32con.IDI_QUESTION
         self.taskbar_created = win32gui.RegisterWindowMessage("TaskbarCreated")
         self.thread = threading.Thread(target=self._run, name="armi-tray", daemon=True)
         self.thread.start()
@@ -84,16 +83,24 @@ class WindowsTray:
             instance,
             None,
         )
+        self.icon = win32gui.LoadImage(
+            0,
+            str(Path(__file__).parent / "icon_resources/armi.ico"),
+            win32con.IMAGE_ICON,
+            win32api.GetSystemMetrics(win32con.SM_CXSMICON),
+            win32api.GetSystemMetrics(win32con.SM_CYSMICON),
+            win32con.LR_LOADFROMFILE,
+        )
         self._notify(win32gui.NIM_ADD)
         self.ready.set()
         try:
             win32gui.PumpMessages()
         finally:
             win32gui.Shell_NotifyIcon(win32gui.NIM_DELETE, (self.window, 0))
+            win32gui.DestroyIcon(self.icon)
             win32gui.UnregisterClass(window_class.lpszClassName, instance)
 
     def _notify(self, operation: int) -> None:
-        icon = win32gui.LoadIcon(0, self.icon_kind)
         win32gui.Shell_NotifyIcon(
             operation,
             (
@@ -101,7 +108,7 @@ class WindowsTray:
                 0,
                 win32gui.NIF_ICON | win32gui.NIF_MESSAGE | win32gui.NIF_TIP,
                 win32con.WM_USER + 20,
-                icon,
+                self.icon,
                 self.tip[:127],
             ),
         )
@@ -109,14 +116,8 @@ class WindowsTray:
     def set_status(
         self, text: str, *, running: bool = False, error: bool = False
     ) -> None:
-        self.tip = "ARMI：" + text
-        self.icon_kind = (
-            win32con.IDI_WARNING
-            if error
-            else win32con.IDI_INFORMATION
-            if running
-            else win32con.IDI_APPLICATION
-        )
+        state = "异常" if error else "运行" if running else "待机"
+        self.tip = f"ARMI · {state}：{text}"
         if self.window is not None:
             win32gui.PostMessage(self.window, win32con.WM_USER + 23, 0, 0)
 

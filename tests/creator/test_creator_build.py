@@ -64,6 +64,15 @@ class CreatorBuildTests(unittest.TestCase):
             self.assertEqual(manifest["base_path"], "/ui/")
             self.assertEqual(manifest["entrypoint"], "static/index.html")
             self.assertFalse(manifest["runtime_discovery"])
+            avatars = [
+                item for item in manifest["assets"] if item["path"].endswith(".png")
+            ]
+            self.assertEqual(len(avatars), 1)
+            self.assertEqual(avatars[0]["media_type"], "image/png")
+            self.assertIn(
+                avatars[0]["path"].removeprefix("static/"),
+                (first_resources / "static/index.html").read_text(encoding="utf-8"),
+            )
             self.assertNotIn("timestamp", manifest)
             self.assertTrue(
                 all(not Path(item["path"]).is_absolute() for item in manifest["assets"])

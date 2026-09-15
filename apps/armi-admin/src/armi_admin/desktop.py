@@ -48,6 +48,9 @@ _CREDENTIAL_NAMES = {
 class Desktop:
     def __init__(self, root: tk.Tk, installation: Path, environment: Path) -> None:
         self.root = root
+        cast(Any, self.root).iconbitmap(
+            str(Path(__file__).parent / "icon_resources/armi.ico")
+        )
         self.installation = installation
         self.environment = environment
         self.application = bootstrap_setup(

@@ -82,6 +82,8 @@ Schema 实际打包在 `packages/armi-postgresql-contract/src/armi_postgresql_co
 
 ## 日常启动
 
+统一头像原图保存在 `assets/armi-avatar-pixel.png`。运行 `tools/generate_app_icons.ps1` 可生成保留透明背景的多尺寸 ICO、MSIX 图标和网页头像；桌面与托盘从随包资源读取，EXE 嵌入同一 ICO，不依赖开发机器路径。
+
 **Windows 安装版使用 MSIX，程序由 Windows 管理，永久数据保存在 `%LOCALAPPDATA%\ARMI`。** 其中 `environments/active/` 保存数据库、配置、凭据、模型和生活数据，`control/` 保存设置、环境登记、管理回执和更新状态，`cache/`、`tmp/` 保存缓存与临时文件。程序目录保持只读；数据目录通过 Known Folder API 定位，使用 MSIX 目录虚拟化排除声明，普通卸载后仍保留。
 
 桌面入口使用上述默认环境，安装版 CLI/MCP 的显式环境也必须位于数据目录的 `environments/` 下。测试包使用独立的 `YifeiLi99.ARMI.Acceptance` 包身份、`ARMI.Acceptance.exe` 别名和 `%LOCALAPPDATA%\ARMI.Acceptance` 数据目录。本次不迁移、修改或删除旧 Inno 安装与数据；源码构建目录和 `.armi/reusable/` 仍是开发资源区域。

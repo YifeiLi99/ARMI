@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+const avatar = new URL("./armi-avatar.png", import.meta.url).href;
+
 export type WorkspacePage =
   | "conversation"
   | "activities"
@@ -248,7 +250,7 @@ export function WorkspaceNavigation({
       >
         <div className="sidebar-brand">
           <div className="brand-mark" aria-hidden="true">
-            A
+            <img src={avatar} alt="" width="36" height="36" />
           </div>
           <div className="brand-copy">
             <strong>ARMI</strong>
