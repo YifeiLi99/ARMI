@@ -1,5 +1,8 @@
 生成方式：内置 image_gen
 用途：ARMI 统一图标原图；tools/generate_app_icons.ps1 派生桌面、托盘、EXE、MSIX 和网页资源。
-参考：用户提供的人物形象图（银白侧马尾、青绿色发饰、灰蓝眼睛）。
+当前形象：银白侧马尾、青绿色花饰、紫宝石色眼睛、闭嘴微笑；仅头部，透明背景。下文保留最初提示，后续调整覆盖眼睛与构图要求。
+
+当前调整提示：Create a refined pixel-art avatar with rich purple gemstone/amethyst irises, deep violet and lilac facets with crisp highlights, layered silver-white hair, teal flower ornament, gentle closed-mouth smile and subtle warm pink cheeks. Moderate detail, clean pixel clusters, head only, transparent background. Preserve the approved character design and expression; center the complete head and ponytail on a square canvas with balanced transparent margins. No text, border or mockup.
+导出：tools/generate_app_icons.ps1 按可见轮廓裁切、居中，四周保留约 4%（至少 1 像素）安全边距。
 
 为 ARMI 创作一个单独的正方形像素风头像应用图标，使用参考图的人物形象。保留银白略带淡紫的头发、向画面右上方扎起的侧高马尾、青绿色小花发饰、灰蓝色眼睛、白皙肤色和温柔微笑。仅画头部和少量肩部，正面略微歪头，去掉托腮的双手，让脸和标志性的侧马尾在小图标尺寸下清晰可辨。精致的真正 pixel art，近似 64×64 原生像素网格放大显示，边缘清晰方正，无抗锯齿或柔焦，有限而协调的颜色，整洁的深灰紫轮廓，简洁的成块明暗，适当可爱的头身比例。头发与马尾完整置于画布内，头像居中并尽量填满画面，四周留少量透明安全边距。实际透明背景，不画棋盘格、不画边框、不加文字或字母、不加水印、不做展示样机，只交付一张头像图标。

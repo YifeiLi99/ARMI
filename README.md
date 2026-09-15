@@ -82,7 +82,7 @@ Schema 实际打包在 `packages/armi-postgresql-contract/src/armi_postgresql_co
 
 ## 日常启动
 
-统一头像原图保存在 `assets/armi-avatar-pixel.png`。运行 `tools/generate_app_icons.ps1` 可生成保留透明背景的多尺寸 ICO、MSIX 图标和网页头像；桌面与托盘从随包资源读取，EXE 嵌入同一 ICO，不依赖开发机器路径。
+统一头像原图保存在 `assets/armi-avatar-pixel.png`，采用银白侧马尾、青绿发饰和紫宝石色眼睛。运行 `tools/generate_app_icons.ps1` 按可见轮廓裁切、居中，保留透明安全边距，生成多尺寸 ICO、MSIX 图标和网页头像；桌面与托盘从随包资源读取，EXE 嵌入同一 ICO，不依赖开发机器路径。
 
 **Windows 安装版使用 MSIX，程序由 Windows 管理，永久数据保存在 `%LOCALAPPDATA%\ARMI`。** 其中 `environments/active/` 保存数据库、配置、凭据、模型和生活数据，`control/` 保存设置、环境登记、管理回执和更新状态，`cache/`、`tmp/` 保存缓存与临时文件。程序目录保持只读；数据目录通过 Known Folder API 定位，使用 MSIX 目录虚拟化排除声明，普通卸载后仍保留。
 
