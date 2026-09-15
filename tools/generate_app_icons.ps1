@@ -6,20 +6,10 @@ $destination = Join-Path $root 'apps/armi-admin/src/armi_admin/icon_resources'
 $web = Join-Path $root 'apps/armi-creator-web/src/app'
 New-Item -ItemType Directory -Path $destination, $web -Force | Out-Null
 Add-Type -AssemblyName System.Drawing
-$source = [Drawing.Bitmap]::new((Join-Path $root 'assets/armi-avatar-pixel.png'))
+$source = [Drawing.Bitmap]::new((Join-Path $root 'assets/avatar-grid/avatar-32.png'))
 try {
-    # Fit the visible silhouette, rather than the generator's uneven canvas margins.
-    $left = $source.Width; $top = $source.Height; $right = -1; $bottom = -1
-    for ($y = 0; $y -lt $source.Height; $y++) {
-        for ($x = 0; $x -lt $source.Width; $x++) {
-            if ($source.GetPixel($x, $y).A -ge 128) {
-                $left = [Math]::Min($left, $x); $right = [Math]::Max($right, $x)
-                $top = [Math]::Min($top, $y); $bottom = [Math]::Max($bottom, $y)
-            }
-        }
-    }
-    if ($right -lt $left) { throw 'Avatar has no visible pixels.' }
-    $bounds = [Drawing.Rectangle]::new($left, $top, $right - $left + 1, $bottom - $top + 1)
+    # Preserve the authored grid and its margins; cropping would change the pixel scale.
+    if ($source.Width -ne 32 -or $source.Height -ne 32) { throw 'Avatar must be 32x32 pixels.' }
     $frames = @{}
     foreach ($size in @(16, 20, 24, 32, 40, 44, 48, 50, 64, 128, 150, 256)) {
         $bitmap = [Drawing.Bitmap]::new($size, $size, [Drawing.Imaging.PixelFormat]::Format32bppArgb)
@@ -29,14 +19,7 @@ try {
             $graphics.Clear([Drawing.Color]::Transparent)
             $graphics.InterpolationMode = [Drawing.Drawing2D.InterpolationMode]::NearestNeighbor
             $graphics.PixelOffsetMode = [Drawing.Drawing2D.PixelOffsetMode]::Half
-            $inset = [Math]::Max(1, [int][Math]::Round($size * 0.04))
-            $scale = ($size - 2 * $inset) / [Math]::Max($bounds.Width, $bounds.Height)
-            $width = [int][Math]::Round($bounds.Width * $scale)
-            $height = [int][Math]::Round($bounds.Height * $scale)
-            $target = [Drawing.Rectangle]::new(
-                [int][Math]::Floor(($size - $width) / 2),
-                [int][Math]::Floor(($size - $height) / 2), $width, $height)
-            $graphics.DrawImage($source, $target, $bounds, [Drawing.GraphicsUnit]::Pixel)
+            $graphics.DrawImage($source, [Drawing.Rectangle]::new(0, 0, $size, $size))
             $bitmap.Save($stream, [Drawing.Imaging.ImageFormat]::Png)
             $frames[$size] = $stream.ToArray()
         } finally { $stream.Dispose(); $graphics.Dispose(); $bitmap.Dispose() }
