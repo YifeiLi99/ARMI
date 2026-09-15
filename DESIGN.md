@@ -160,6 +160,10 @@ Owner draft 在进程内携带已绑定的不可变领域对象。Subject Commit
 
 Creator 文本与语音的资料、关系和承诺变化使用同一按操作区分的类型。资料创建与更新共享内容结构；承诺修改区分范围更新与内容更新，关系边界区分限制与结束联系，不再通过通用 metadata 字段隐藏依赖。
 
+其他人对话 v8 将决定与 social 经历组成部分分开：关系变化必须附着经历，非空关系变化及承诺字段依赖由类型表达。沉默、延期可以附带说明，Expression 保存原决定种类并独立登记表达。空白、NUL 和 UTF-8 字节容量由 Expression Owner 拒绝，诊断定位 `decision.content`。主动表达 v26 复用 Creator 的回复和终止决定类型，其模型合同不再提供查询及主体变化字段的可执行组合。
+
+通用认知 v14 按 Owner 区分状态载荷，评价的新建与已有轨迹由不同类型表达。自主活动 v6、内部工作 v5、维护 v3 删除了比 Owner 字符边界更严的 UTF-8 字节限制；文本结构约束进入同源 Schema，资料正文的实际字节容量仍由 Material Owner 保留。反思 v3 和维护 v3 在生成 Schema 与解析时选择当前 Owner／阶段类型。旧 compact metadata 翻译及根据顶层 kind 猜测合同的执行入口已经删除。
+
 拒绝、需要信息等决定附带表达时，Expression 同时保留原决定类型与表达意图；是否有表达意图决定发送，不能把原决定改记为 reply。资料、经历和评价不因是否表达而丢弃。
 
 当前 purpose 与合同能力对应如下。数值为 2026-09-15 固定唯一引用 `ctx:1`、包含供应商 candidate 封装的紧凑 UTF-8 JSON Schema 字节数；用于体积比较，不代表 token 数或真实模型成功率。配置用途的完整性及 Schema 到解析器的正常无变化分支由 `apps/armi-runtime/tests/test_cognition_response_validation.py` 检查；具体 Owner 变化由 Cognition 的候选验证测试和数据库提交测试覆盖。
@@ -168,16 +172,20 @@ Creator 文本与语音的资料、关系和承诺变化使用同一按操作区
 |---|---|---:|
 | `consider_creator_input`、`consider_life_query_result`、`consider_requested_visual_observation` | 表达／沉默、精确查询、Web 搜索、视觉请求；Experience、Memory、Mood、Relationship、Material 与 Expression | 12151 |
 | Creator 实时语音 | 与 Creator 文本相同的业务动作，Expression 保留 60 字表达上限 | 12117 |
-| `consider_creator_outreach` | 主动表达或暂不表达，Expression；不能借主动问候改写主体状态 | 2780 |
-| `consider_other_human_input` | 回复、沉默、延期、结束联系；当前对方的 Experience、Mood、Relationship 与 Expression | 7933 |
-| `consider_autonomous_life` | 创建活动、暂不活动、延期、缺少信息、视觉请求；Activity、Mood、Live Vision | 5749 |
+| `consider_creator_outreach` | 主动表达或暂不表达，Expression；不能借主动问候改写主体状态 | 1028 |
+| `consider_other_human_input` | 回复、沉默、延期、结束联系；当前对方的 Experience、Mood、Relationship 与 Expression；沉默和延期可附带说明 | 12062 |
+| `consider_autonomous_life` | 创建活动、暂不活动、延期、缺少信息、视觉请求；Activity、Mood、Live Vision | 5915 |
 | `consider_activity_attention` | 投入、恢复、暂不行动、延期、缺少信息；Activity、Mood | 4855 |
-| `consider_activity_internal_work` | 推进、完成、缺少信息、放弃、暂时无结果；Activity、Material、Mood | 8158 |
+| `consider_activity_internal_work` | 推进、完成、缺少信息、放弃、暂时无结果；Activity、Material、Mood | 8840 |
 | `consider_sleep` | 入睡、保持清醒、延期、缺少信息；Sleep | 273 |
-| `consider_web_evidence`、`consider_codex_result`、`consider_codex_task` | 证据理解及用途允许的 Owner 提议；Codex 委托只从显式任务用途进入 | 19863 |
+| `consider_web_evidence`、`consider_codex_result`、`consider_codex_task` | 证据理解及用途允许的 Owner 提议；Codex 委托只从显式任务用途进入 | 22164 |
 | `consider_visual_observation` | 忽略或形成视觉经历及评价；Experience、Mood | 5617 |
-| `maintain_subjective_memory`、`perform_subject_self_check` | 记忆保持、巩固、淡化、遗忘、重解释，或发现内部问题；Memory、Sleep | 2307 |
-| `reflect_self`、`reflect_mind`、`reflect_mood`、`reflect_prompt` | 保持或更新对应 Owner；Mood 的长期反思参数由 Owner 计算 | 5267 |
+| `maintain_subjective_memory` | 记忆保持、巩固、淡化、遗忘、重解释；Memory、Sleep | 1733 |
+| `perform_subject_self_check` | 保持或发现内部问题；Sleep | 1046 |
+| `reflect_self` | 保持或更新 Self | 2388 |
+| `reflect_mind` | 保持或更新 Mind | 1909 |
+| `reflect_mood` | 保持或请求 Mood 长期反思，参数由 Owner 计算 | 1301 |
+| `reflect_prompt` | 保持或更新 Prompt | 1580 |
 
 技术失败通知由 Interaction 拥有，以原始外部输入及通知类别去重。Context、模型、候选、Web、Codex、视觉及发送失败在结算后登记通知；派生结果沿各 Owner 的来源记录定位最初输入，并核对主体、场景和接收方。没有外部输入祖先的自主活动只保留管理诊断。正常沉默、拒绝和延期不触发通知。
 

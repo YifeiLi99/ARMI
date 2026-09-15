@@ -8,15 +8,14 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    StringConstraints,
     TypeAdapter,
-    field_validator,
 )
 
 from ._creator_appraisal_contract import AppraisalEventSignalV2
 from ._strict_model_json import strict_model_value
+from ._text_contract import Text1024, Text2048
 
-AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION = "armi.autonomous-activity-candidate.v5"
+AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION = "armi.autonomous-activity-candidate.v6"
 
 
 class _StrictModel(BaseModel):
@@ -29,19 +28,9 @@ class _StrictModel(BaseModel):
 
 class StartActivityDecision(_StrictModel):
     kind: Literal["start_activity"]
-    goal: Annotated[str, StringConstraints(min_length=1, max_length=2048)]
-    next_step: Annotated[str, StringConstraints(min_length=1, max_length=1024)]
+    goal: Text2048
+    next_step: Text1024
     appraisal: AppraisalEventSignalV2 | None = None
-
-    @field_validator("goal")
-    @classmethod
-    def _validate_goal_bytes(cls, value: str) -> str:
-        return _bounded_utf8(value, 2048)
-
-    @field_validator("next_step")
-    @classmethod
-    def _validate_next_step_bytes(cls, value: str) -> str:
-        return _bounded_utf8(value, 1024)
 
 
 class AutonomousTerminalDecision(_StrictModel):
@@ -64,16 +53,6 @@ AutonomousActivityCandidate = Annotated[
 _ADAPTER: TypeAdapter[AutonomousActivityCandidate] = TypeAdapter(
     AutonomousActivityCandidate
 )
-
-
-def _bounded_utf8(value: str, maximum: int) -> str:
-    try:
-        encoded = value.encode("utf-8", errors="strict")
-    except UnicodeEncodeError as exc:
-        raise ValueError("text must be strict UTF-8") from exc
-    if not 1 <= len(encoded) <= maximum:
-        raise ValueError("text exceeds UTF-8 byte boundary")
-    return value
 
 
 def autonomous_activity_candidate_schema() -> dict[str, Any]:

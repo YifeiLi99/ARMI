@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from ._dialogue_contract import ContextRef, Summary
 
@@ -110,12 +110,6 @@ class AppraisalSemanticSignal(_StrictModel):
     causality: AppraisalCausalitySignal | None = None
     coping: AppraisalCopingSignal | None = None
     standards: AppraisalStandardsSignal | None = None
-
-    @model_validator(mode="after")
-    def validate_concerns(self) -> AppraisalSemanticSignal:
-        if len({item.target for item in self.concerns}) != len(self.concerns):
-            raise ValueError("appraisal concern targets must be unique")
-        return self
 
 
 class NewAppraisal(_StrictModel):

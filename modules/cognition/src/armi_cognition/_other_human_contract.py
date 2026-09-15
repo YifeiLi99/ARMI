@@ -13,22 +13,20 @@ from pydantic import (
     StringConstraints,
     TypeAdapter,
     ValidationError,
-    model_validator,
 )
 
 from ._creator_appraisal_contract import AppraisalEventSignalV2
+from ._dialogue_contract import ContextRef, Summary
 from ._strict_model_json import strict_model_value
 
-OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION = "armi.other-human-dialogue-candidate.v7"
+OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION = "armi.other-human-dialogue-candidate.v8"
 
-Summary = Annotated[str, StringConstraints(min_length=1, max_length=512)]
-ContextRef = Annotated[
-    str,
-    StringConstraints(pattern=r"^ctx:[1-9][0-9]{0,2}$", max_length=7),
+type CommitmentContent = Annotated[
+    str, StringConstraints(min_length=1, max_length=1024)
 ]
 
 
-class _StrictModel(BaseModel):
+class _StrictModel(BaseModel, frozen=True):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
     @property
@@ -36,7 +34,7 @@ class _StrictModel(BaseModel):
         return OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION
 
 
-class OtherHumanExperience(_StrictModel):
+class OtherHumanExperience(_StrictModel, frozen=True):
     first_person_gist: Annotated[
         str,
         StringConstraints(min_length=1, max_length=1024),
@@ -44,25 +42,34 @@ class OtherHumanExperience(_StrictModel):
     uncertainty: Summary | None = None
 
 
-class OtherHumanRelationshipFact(_StrictModel):
+class OtherHumanRelationshipFact(_StrictModel, frozen=True):
     kind: Literal["party_expression"]
     summary: Summary
 
 
-class OtherHumanRelationshipBoundary(_StrictModel):
+class _RelationshipBoundary(_StrictModel, frozen=True):
     party: Literal["armi", "other"]
     kind: Literal["contact", "address", "privacy", "disclosure", "exit"]
     action: Literal["refuse", "restrict", "end_contact"]
     summary: Summary
 
-    @model_validator(mode="after")
-    def validate_shape(self) -> OtherHumanRelationshipBoundary:
-        if (self.action == "end_contact") != (self.kind == "exit"):
-            raise ValueError("only an exit boundary can end contact")
-        return self
+
+class _RestrictedBoundary(_RelationshipBoundary, frozen=True):
+    kind: Literal["contact", "address", "privacy", "disclosure"]
+    action: Literal["refuse", "restrict"]
 
 
-class OtherHumanCommitmentChange(_StrictModel):
+class _ExitBoundary(_RelationshipBoundary, frozen=True):
+    kind: Literal["exit"]
+    action: Literal["end_contact"]
+
+
+OtherHumanRelationshipBoundary = Annotated[
+    _RestrictedBoundary | _ExitBoundary, Field(discriminator="kind")
+]
+
+
+class _CommitmentChange(_StrictModel, frozen=True):
     action: Literal[
         "establish",
         "modify",
@@ -72,93 +79,163 @@ class OtherHumanCommitmentChange(_StrictModel):
         "violate",
         "note_conflict",
     ]
-    commitment_ref: ContextRef | None = None
-    party: Literal["armi", "other"] | None = None
-    scope: Summary | None = None
-    content: Annotated[str, StringConstraints(min_length=1, max_length=1024)] | None = (
-        None
-    )
-    conflicts_with_ref: ContextRef | None = None
+    commitment_ref: ContextRef | None
+    party: Literal["armi", "other"] | None
+    scope: Summary | None
+    content: CommitmentContent | None
+    conflicts_with_ref: ContextRef | None
     event_summary: Summary
 
-    @model_validator(mode="after")
-    def validate_shape(self) -> OtherHumanCommitmentChange:
-        if self.action == "establish":
-            if (
-                self.commitment_ref is not None
-                or self.party is None
-                or self.scope is None
-                or self.content is None
-                or self.conflicts_with_ref is not None
-            ):
-                raise ValueError("establish commitment shape is invalid")
-        elif self.action == "modify":
-            if (
-                self.commitment_ref is None
-                or self.party is not None
-                or (self.scope is None and self.content is None)
-                or self.conflicts_with_ref is not None
-            ):
-                raise ValueError("modify commitment shape is invalid")
-        elif self.action == "note_conflict":
-            if (
-                self.commitment_ref is None
-                or self.conflicts_with_ref is None
-                or self.commitment_ref == self.conflicts_with_ref
-                or self.party is not None
-                or self.scope is not None
-                or self.content is not None
-            ):
-                raise ValueError("commitment conflict shape is invalid")
-        elif (
-            self.commitment_ref is None
-            or self.party is not None
-            or self.scope is not None
-            or self.content is not None
-            or self.conflicts_with_ref is not None
-        ):
-            raise ValueError("commitment event shape is invalid")
-        return self
+
+class _CommitmentEstablish(_CommitmentChange, frozen=True):
+    action: Literal["establish"]
+    commitment_ref: None = None
+    party: Literal["armi", "other"] = Field(...)
+    scope: Summary = Field(...)
+    content: CommitmentContent = Field(...)
+    conflicts_with_ref: None = None
 
 
-class OtherHumanRelationshipChange(_StrictModel):
-    interpretation: Summary | None = None
+class _CommitmentEvent(_CommitmentChange, frozen=True):
+    action: Literal["fulfill", "withdraw", "forget", "violate"]
+    commitment_ref: ContextRef = Field(...)
+    party: None = None
+    scope: None = None
+    content: None = None
+    conflicts_with_ref: None = None
+
+
+class _CommitmentScopeUpdate(_CommitmentChange, frozen=True):
+    action: Literal["modify"]
+    commitment_ref: ContextRef = Field(...)
+    party: None = None
+    scope: Summary = Field(...)
+    content: CommitmentContent | None = None
+    conflicts_with_ref: None = None
+
+
+class _CommitmentContentUpdate(_CommitmentChange, frozen=True):
+    action: Literal["modify"]
+    commitment_ref: ContextRef = Field(...)
+    party: None = None
+    scope: None = None
+    content: CommitmentContent = Field(...)
+    conflicts_with_ref: None = None
+
+
+class _CommitmentConflict(_CommitmentChange, frozen=True):
+    action: Literal["note_conflict"]
+    commitment_ref: ContextRef = Field(...)
+    party: None = None
+    scope: None = None
+    content: None = None
+    conflicts_with_ref: ContextRef = Field(...)
+
+
+OtherHumanCommitmentChange = (
+    _CommitmentEstablish
+    | _CommitmentEvent
+    | _CommitmentScopeUpdate
+    | _CommitmentContentUpdate
+    | _CommitmentConflict
+)
+
+
+class _RelationshipChange(_StrictModel, frozen=True):
+    interpretation: Summary | None
+    fact: OtherHumanRelationshipFact | None
+    boundary: OtherHumanRelationshipBoundary | None
+    commitment_change: OtherHumanCommitmentChange | None
+
+
+class _InterpretedRelationship(_RelationshipChange, frozen=True):
+    interpretation: Summary
     fact: OtherHumanRelationshipFact | None = None
     boundary: OtherHumanRelationshipBoundary | None = None
     commitment_change: OtherHumanCommitmentChange | None = None
 
-    @model_validator(mode="after")
-    def validate_shape(self) -> OtherHumanRelationshipChange:
-        if all(getattr(self, field) is None for field in type(self).model_fields):
-            raise ValueError("relationship change is empty")
-        return self
+
+class _FactRelationship(_RelationshipChange, frozen=True):
+    interpretation: None = None
+    fact: OtherHumanRelationshipFact = Field(...)
+    boundary: OtherHumanRelationshipBoundary | None = None
+    commitment_change: OtherHumanCommitmentChange | None = None
 
 
-class _OtherHumanSocialDecision(_StrictModel):
-    experience: OtherHumanExperience | None = None
+class _BoundaryRelationship(_RelationshipChange, frozen=True):
+    interpretation: None = None
+    fact: None = None
+    boundary: OtherHumanRelationshipBoundary = Field(...)
+    commitment_change: OtherHumanCommitmentChange | None = None
+
+
+class _CommitmentRelationship(_RelationshipChange, frozen=True):
+    interpretation: None = None
+    fact: None = None
+    boundary: None = None
+    commitment_change: OtherHumanCommitmentChange = Field(...)
+
+
+type OtherHumanRelationshipChange = (
+    _InterpretedRelationship
+    | _FactRelationship
+    | _BoundaryRelationship
+    | _CommitmentRelationship
+)
+
+
+class OtherHumanSocialExperience(_StrictModel, frozen=True):
+    experience: OtherHumanExperience
     relationship_change: OtherHumanRelationshipChange | None = None
-    appraisal: AppraisalEventSignalV2 | None = None
-
-    @model_validator(mode="after")
-    def validate_relationship_basis(self) -> _OtherHumanSocialDecision:
-        if self.relationship_change is not None and self.experience is None:
-            raise ValueError("relationship change requires an experience")
-        return self
 
 
-class OtherHumanReplyDecision(_OtherHumanSocialDecision):
+class OtherHumanReplyDecision(_StrictModel, frozen=True):
     kind: Literal["reply"]
     content: Annotated[str, StringConstraints(min_length=1, max_length=65536)]
 
 
-class OtherHumanTerminalDecision(_OtherHumanSocialDecision):
-    kind: Literal["silence", "defer", "end_conversation"]
+class OtherHumanTerminalDecision(_StrictModel, frozen=True):
+    kind: Literal["silence", "defer"]
+    content: (
+        Annotated[str, StringConstraints(min_length=1, max_length=65536)] | None
+    ) = None
 
 
-OtherHumanDialogueCandidate = Annotated[
-    OtherHumanReplyDecision | OtherHumanTerminalDecision,
-    Field(discriminator="kind"),
-]
+class OtherHumanEndConversationDecision(_StrictModel, frozen=True):
+    kind: Literal["end_conversation"]
+
+
+class OtherHumanDialogueCandidate(_StrictModel, frozen=True):
+    decision: Annotated[
+        OtherHumanReplyDecision
+        | OtherHumanTerminalDecision
+        | OtherHumanEndConversationDecision,
+        Field(discriminator="kind"),
+    ]
+    social: OtherHumanSocialExperience | None = None
+    appraisal: AppraisalEventSignalV2 | None = None
+
+    @property
+    def kind(self):
+        return self.decision.kind
+
+    @property
+    def content(self) -> str | None:
+        return (
+            None
+            if isinstance(self.decision, OtherHumanEndConversationDecision)
+            else self.decision.content
+        )
+
+    @property
+    def experience(self) -> OtherHumanExperience | None:
+        return None if self.social is None else self.social.experience
+
+    @property
+    def relationship_change(self) -> OtherHumanRelationshipChange | None:
+        return None if self.social is None else self.social.relationship_change
+
+
 _ADAPTER: TypeAdapter[OtherHumanDialogueCandidate] = TypeAdapter(
     OtherHumanDialogueCandidate
 )
@@ -203,12 +280,8 @@ def parse_other_human_dialogue_candidate_value(
         if expected_version != OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION:
             raise ValueError("unsupported other-human candidate version")
         candidate = _ADAPTER.validate_python(raw, strict=True)
-    except ValidationError, ValueError:
-        raise ModelViolation("MODEL-RESPONSE-CONTRACT") from None
-    if isinstance(candidate, OtherHumanReplyDecision) and (
-        not candidate.content.strip() or "\x00" in candidate.content
-    ):
-        raise ModelViolation("MODEL-RESPONSE-CONTRACT")
+    except (ValidationError, ValueError) as error:
+        raise ModelViolation("MODEL-RESPONSE-CONTRACT") from error
     referenced = {
         value
         for value in (

@@ -17,7 +17,7 @@ from ._dialogue_contract import ContextRef, DialogueSubjectPromptChange
 from ._model_contract import MindState, SelfState
 from ._strict_model_json import strict_model_value
 
-OWNER_REFLECTION_CANDIDATE_VERSION = "armi.owner-reflection-candidate.v2"
+OWNER_REFLECTION_CANDIDATE_VERSION = "armi.owner-reflection-candidate.v3"
 
 REFLECT_SELF_INSTRUCTIONS = """\
 你只负责 Self Owner 的专项反思。可报告无需变化，或基于冻结资料提交一个完整 SelfState 候选及其当前 expected_version。不得修改 Mind、Mood、Prompt、记忆、关系、活动或对外表达。只输出给定 JSON Schema。"""
@@ -104,16 +104,51 @@ ReflectionWire = Annotated[
 _ADAPTER: TypeAdapter[OwnerReflectionCandidate] = TypeAdapter(ReflectionWire)
 
 
-def owner_reflection_schema() -> dict[str, object]:
-    return cast(dict[str, object], _ADAPTER.json_schema())
+class NoSelfChange(NoReflectionChange, frozen=True):
+    target: Literal["self"]
+
+
+class NoMindChange(NoReflectionChange, frozen=True):
+    target: Literal["mind"]
+
+
+class NoMoodChange(NoReflectionChange, frozen=True):
+    target: Literal["mood"]
+
+
+class NoPromptChange(NoReflectionChange, frozen=True):
+    target: Literal["prompt"]
+
+
+_TARGET_ADAPTERS: dict[str, TypeAdapter[OwnerReflectionCandidate]] = {
+    "self": TypeAdapter(
+        Annotated[NoSelfChange | SelfReflectionUpdate, Field(discriminator="kind")]
+    ),
+    "mind": TypeAdapter(
+        Annotated[NoMindChange | MindReflectionUpdate, Field(discriminator="kind")]
+    ),
+    "mood": TypeAdapter(
+        Annotated[NoMoodChange | MoodReflectionUpdate, Field(discriminator="kind")]
+    ),
+    "prompt": TypeAdapter(
+        Annotated[NoPromptChange | PromptReflectionUpdate, Field(discriminator="kind")]
+    ),
+}
+
+
+def owner_reflection_schema(*, target: str | None = None) -> dict[str, object]:
+    adapter = _ADAPTER if target is None else _TARGET_ADAPTERS[target]
+    return cast(dict[str, object], adapter.json_schema())
 
 
 def parse_owner_reflection(
     value: object,
     *,
     allowed_context_refs: frozenset[str],
+    target: str | None = None,
 ) -> OwnerReflectionCandidate:
-    candidate = _ADAPTER.validate_python(strict_model_value(value), strict=True)
+    adapter = _ADAPTER if target is None else _TARGET_ADAPTERS[target]
+    candidate = adapter.validate_python(strict_model_value(value), strict=True)
     if not set(candidate.basis_refs).issubset(allowed_context_refs):
         raise ValueError("reflection references unavailable context")
     return candidate

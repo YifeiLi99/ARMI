@@ -201,6 +201,7 @@ class OtherHumanReplyDraft:
     data_scope: str = "declared_party_response"
     purpose: str = "respond_to_other_human"
     media_type: str = "text/plain"
+    decision_kind: Literal["reply", "silence", "defer"] = "reply"
 
     def __post_init__(self) -> None:
         _proposal(self.proposal_ref, self.atomic_group_ref, self.basis_ordinals)
@@ -214,6 +215,7 @@ class OtherHumanReplyDraft:
             or self.operation != "send"
             or self.audience_scope != "other_human"
             or self.data_scope != "declared_party_response"
+            or self.decision_kind not in {"reply", "silence", "defer"}
             or self.purpose != "respond_to_other_human"
             or self.media_type != "text/plain"
         ):

@@ -25,8 +25,10 @@ from armi_runtime.composition.model_verification import (
 )
 
 
-def _schema(version):
-    return _provider_output_schema(candidate_schema(version), available_refs=("ctx:1",))
+def _schema(version, purpose=None):
+    return _provider_output_schema(
+        candidate_schema(version, purpose=purpose), available_refs=("ctx:1",)
+    )
 
 
 _PURPOSE_KINDS = {
@@ -89,23 +91,25 @@ def test_each_purpose_schema_and_parser_accept_its_unchanged_decision(purpose):
             appraisal=None,
         )
     elif purpose == "consider_creator_outreach":
-        value.update(
-            content=None,
-            record_kind=None,
-            query=None,
-            source_kind=None,
-            experience=None,
-            changes=[],
-        )
+        value = {
+            "decision": {**value, "content": None},
+            "experience": None,
+            "appraisal": None,
+            "changes": [],
+        }
     elif purpose == "consider_other_human_input":
-        value.update(experience=None, relationship_change=None, appraisal=None)
+        value = {
+            "decision": {**value, "content": None},
+            "social": None,
+            "appraisal": None,
+        }
     elif purpose in {
         "consider_autonomous_life",
         "consider_activity_attention",
         "consider_visual_observation",
     }:
         value["appraisal"] = None
-    elif version == "armi.cognition-candidate.v13":
+    elif version == "armi.cognition-candidate.v14":
         value = {
             "schema_version": version,
             "base": {
@@ -136,14 +140,110 @@ def test_each_purpose_schema_and_parser_accept_its_unchanged_decision(purpose):
             },
             "reason_summary": "无需变化",
         }
-    schema = _schema(version)
+    schema = _schema(version, purpose)
     jsonschema.validate({"candidate": value}, schema)
     parsed = parse_candidate(
         json.dumps(value, ensure_ascii=False).encode(),
         expected_version=version,
+        purpose=purpose,
         allowed_context_refs=frozenset({"ctx:1"}),
     )
     assert parsed.schema_version == version
+
+
+@pytest.mark.parametrize("missing_experience", [True, False])
+def test_other_human_social_dependencies_are_structural(missing_experience):
+    version = "armi.other-human-dialogue-candidate.v8"
+    social = {
+        "experience": {
+            "first_person_gist": "We discussed our relationship.",
+            "uncertainty": None,
+        },
+        "relationship_change": {
+            "interpretation": None,
+            "fact": None,
+            "boundary": None,
+            "commitment_change": None,
+        },
+    }
+    if missing_experience:
+        social["experience"] = None
+        social["relationship_change"]["interpretation"] = "We are getting acquainted."
+    value = {
+        "decision": {"kind": "silence", "content": None},
+        "social": social,
+        "appraisal": None,
+    }
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate({"candidate": value}, _schema(version))
+    with pytest.raises(ModelViolation):
+        parse_candidate(
+            json.dumps(value).encode(),
+            expected_version=version,
+            allowed_context_refs=frozenset(),
+        )
+
+
+@pytest.mark.parametrize(
+    "purpose", ["reflect_self", "reflect_mind", "reflect_mood", "reflect_prompt"]
+)
+def test_reflection_schema_excludes_other_owner_targets(purpose):
+    version = "armi.owner-reflection-candidate.v3"
+    target = purpose.removeprefix("reflect_")
+    value = {
+        "kind": "no_change",
+        "target": "mind" if target != "mind" else "self",
+        "summary": "unchanged",
+        "basis_refs": [],
+        "expected_version": None,
+        "next_state": None,
+    }
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate({"candidate": value}, _schema(version, purpose))
+    with pytest.raises(ModelViolation):
+        parse_candidate(
+            json.dumps(value).encode(),
+            expected_version=version,
+            purpose=purpose,
+            allowed_context_refs=frozenset(),
+        )
+
+
+@pytest.mark.parametrize(
+    "purpose,kind",
+    [
+        ("maintain_subjective_memory", "no_issue"),
+        ("perform_subject_self_check", "memory_unchanged"),
+    ],
+)
+def test_maintenance_schema_excludes_the_other_phase(purpose, kind):
+    version = "armi.maintenance-work-candidate.v3"
+    value = {"kind": kind, "summary": "unchanged"}
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate({"candidate": value}, _schema(version, purpose))
+    with pytest.raises(ModelViolation):
+        parse_candidate(
+            json.dumps(value).encode(),
+            expected_version=version,
+            purpose=purpose,
+            allowed_context_refs=frozenset(),
+        )
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"kind": "reply", "content": "legacy"},
+        {
+            "schema_version": "armi.creator-dialogue-candidate.v26",
+            "kind": "reply",
+            "content": "legacy",
+        },
+    ],
+)
+def test_old_dialogue_wire_cannot_select_an_execution_parser(value):
+    with pytest.raises(ModelViolation):
+        parse_candidate(json.dumps(value).encode(), allowed_context_refs=frozenset())
 
 
 def test_creator_schema_is_smaller_without_repeating_the_complete_object():
@@ -153,6 +253,70 @@ def test_creator_schema_is_smaller_without_repeating_the_complete_object():
     assert schema["properties"]["candidate"]["type"] == "object"
     assert "decision" in schema["properties"]["candidate"]["properties"]
     assert "experience" in schema["properties"]["candidate"]["properties"]
+
+
+@pytest.mark.parametrize(
+    "action",
+    [
+        "establish",
+        "modify",
+        "fulfill",
+        "withdraw",
+        "forget",
+        "violate",
+        "note_conflict",
+    ],
+)
+@pytest.mark.parametrize("valid", [True, False])
+def test_other_human_commitment_dependencies_are_visible_in_schema(action, valid):
+    version = "armi.other-human-dialogue-candidate.v8"
+    commitment = {
+        "action": action,
+        "commitment_ref": None if action == "establish" else "ctx:1",
+        "party": "armi" if action == "establish" else None,
+        "scope": "沟通" if action in {"establish", "modify"} else None,
+        "content": "我会说明进度" if action == "establish" else None,
+        "conflicts_with_ref": "ctx:1" if action == "note_conflict" else None,
+        "event_summary": "承诺发生变化",
+    }
+    if not valid:
+        if action == "establish":
+            commitment["party"] = None
+        elif action == "modify":
+            commitment["scope"] = None
+        elif action == "note_conflict":
+            commitment["conflicts_with_ref"] = None
+        else:
+            commitment["party"] = "armi"
+    value = {
+        "decision": {"kind": "reply", "content": "我会认真对待"},
+        "appraisal": None,
+        "social": {
+            "experience": {"first_person_gist": "我们谈到了承诺", "uncertainty": None},
+            "relationship_change": {
+                "interpretation": None,
+                "fact": None,
+                "boundary": None,
+                "commitment_change": commitment,
+            },
+        },
+    }
+    if valid:
+        jsonschema.validate({"candidate": value}, _schema(version))
+        parse_candidate(
+            json.dumps(value).encode(),
+            expected_version=version,
+            allowed_context_refs=frozenset({"ctx:1"}),
+        )
+    else:
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate({"candidate": value}, _schema(version))
+        with pytest.raises(ModelViolation):
+            parse_candidate(
+                json.dumps(value).encode(),
+                expected_version=version,
+                allowed_context_refs=frozenset({"ctx:1"}),
+            )
 
 
 @pytest.mark.parametrize("kind", ["no_change", "update"])
@@ -165,7 +329,7 @@ def test_reflection_keeps_evidence_without_requiring_a_change(kind):
         "expected_version": 1 if kind == "update" else None,
         "next_state": {} if kind == "update" else None,
     }
-    version = "armi.owner-reflection-candidate.v2"
+    version = "armi.owner-reflection-candidate.v3"
     jsonschema.validate({"candidate": value}, _schema(version))
     parsed = parse_candidate(
         json.dumps(value).encode(),
@@ -205,7 +369,7 @@ def test_maintenance_summary_matches_operation(kind):
         "uncertainty": None,
         "relation": None,
     }
-    schema = _schema("armi.maintenance-work-candidate.v2")
+    schema = _schema("armi.maintenance-work-candidate.v3")
     jsonschema.validate({"candidate": value}, schema)
     value["summary"] = None if kind == "reinterpret" else "Unexpected replacement"
     with pytest.raises(jsonschema.ValidationError):

@@ -6890,7 +6890,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         live_evidence: dict[str, object] | None = None
         if live_environment_root is None:
             change_set_document = {
-                "schema_version": "armi.subject-change-set.v34",
+                "schema_version": "armi.subject-change-set.v35",
                 "subject_id": str(born.subject_id),
                 "generation_id": str(born.life_generation_id),
                 "episode_id": str(ids["episode"]),
@@ -7194,7 +7194,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             if live_evidence is not None
             else 1
         )
-        candidate_contract_version = "armi.cognition-candidate.v13"
+        candidate_contract_version = "armi.cognition-candidate.v14"
 
         def locator(digest: Digest) -> str:
             value = digest.value.removeprefix("sha256:")

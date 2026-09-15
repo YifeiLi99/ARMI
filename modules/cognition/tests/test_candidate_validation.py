@@ -499,6 +499,27 @@ def test_visual_observation_only_accepts_private_experience_and_optional_mood() 
     assert tuple(item.owner for item in result.change_set.owner_drafts) == ("mood",)
 
 
+def test_duplicate_appraisal_targets_are_rejected_by_mood_owner():
+    context, bases = _fixture()
+    context = replace(
+        context,
+        purpose="consider_visual_observation",
+        scene_id=None,
+        creator_party_id=None,
+        opportunity_id=uuid7(),
+    )
+    signal = _appraisal_signal()
+    appraisal = cast(dict[str, Any], signal["appraisal"])
+    appraisal["concerns"] *= 2
+    result = DeterministicCandidateValidator(context).validate(
+        _bytes({"kind": "ignore", "appraisal": signal}), bases=bases
+    )
+    assert result.status is CandidateValidationStatus.REJECTED
+    assert result.change_set is None
+    assert result.diagnostics[0].stage == "owner_validation"
+    assert result.diagnostics[0].owner == "mood"
+
+
 def test_visual_observation_ignore_produces_no_action_without_side_effects() -> None:
     context, bases = _fixture()
     visual = replace(
@@ -530,6 +551,16 @@ def test_visual_observation_ignore_produces_no_action_without_side_effects() -> 
         ),
         ({"kind": "silence"}, "no_action", None),
         ({"kind": "defer"}, "defer", None),
+        (
+            {"kind": "defer", "content": "I will respond later."},
+            "change",
+            OtherHumanReplyDraft,
+        ),
+        (
+            {"kind": "silence", "content": "I would prefer some quiet."},
+            "change",
+            OtherHumanReplyDraft,
+        ),
         (
             {"kind": "end_conversation"},
             "change",
@@ -580,13 +611,13 @@ def test_other_human_dialogue_uses_party_scoped_v22_change_set(
         ),
     )
     result = DeterministicCandidateValidator(context).validate(
-        json.dumps(candidate, ensure_ascii=False, separators=(",", ":")).encode(),
+        _other_human_bytes(candidate),
         bases=bases,
     )
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None
     assert result.change_set.disposition.value == disposition
-    assert b"armi.subject-change-set.v34" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v35" in result.change_set.canonical_bytes
     validated = result.change_set
     assert validated.disposition.value == disposition
     if draft_type is not None:
@@ -596,6 +627,46 @@ def test_other_human_dialogue_uses_party_scoped_v22_change_set(
             reply = validated.action_choices[0]
             assert isinstance(reply, OtherHumanReplyDraft)
             assert reply.operation == "send"
+            assert reply.decision_kind == candidate["kind"]
+
+
+@pytest.mark.parametrize(
+    "content",
+    ["   ", "bad\u0000text", "你" * 21846],
+    ids=["blank", "nul", "utf8-byte-limit"],
+)
+def test_other_human_expression_rejection_has_owner_and_content_path(
+    content: str,
+) -> None:
+    context, bases = _fixture()
+    context = replace(
+        context,
+        purpose="consider_other_human_input",
+        candidate_contract_version=OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
+        other_party_id=uuid7(),
+        creator_party_id=None,
+    )
+    result = DeterministicCandidateValidator(context).validate(
+        _other_human_bytes({"kind": "reply", "content": content}),
+        bases=(
+            replace(bases[1], ordinal=1),
+            CandidateBasis(
+                2,
+                "scene",
+                "current_scene",
+                context.scene_id,
+                1,
+                "runtime_authority",
+                "private",
+            ),
+        ),
+    )
+    assert result.status is CandidateValidationStatus.REJECTED
+    assert result.change_set is None
+    assert result.error_code == "CANDIDATE-EXPRESSION-CONTENT"
+    assert result.diagnostics[0].owner == "expression"
+    assert result.diagnostics[0].stage == "owner_validation"
+    assert result.diagnostics[0].field_path == ("decision", "content")
 
 
 def test_other_human_dialogue_builds_only_current_party_relationship() -> None:
@@ -663,7 +734,7 @@ def test_other_human_dialogue_builds_only_current_party_relationship() -> None:
         },
     }
     result = DeterministicCandidateValidator(context).validate(
-        json.dumps(candidate, ensure_ascii=False, separators=(",", ":")).encode(),
+        _other_human_bytes(candidate),
         bases=bases,
     )
     assert result.status is CandidateValidationStatus.ACCEPTED
@@ -726,7 +797,7 @@ def test_two_other_human_relationship_candidates_keep_separate_party_identity() 
             ),
         )
         result = DeterministicCandidateValidator(context).validate(
-            json.dumps(
+            _other_human_bytes(
                 {
                     "kind": "reply",
                     "content": "收到。",
@@ -734,10 +805,8 @@ def test_two_other_human_relationship_candidates_keep_separate_party_identity() 
                     "relationship_change": {
                         "interpretation": "我正在独立了解当前对方。"
                     },
-                },
-                ensure_ascii=False,
-                separators=(",", ":"),
-            ).encode(),
+                }
+            ),
             bases=bases,
         )
         assert result.change_set is not None
@@ -816,7 +885,7 @@ def test_other_human_reply_is_rejected_after_contact_exit() -> None:
         ),
     )
     result = DeterministicCandidateValidator(context).validate(
-        b'{"kind":"reply","content":"still replying"}', bases=bases
+        _other_human_bytes({"kind": "reply", "content": "still replying"}), bases=bases
     )
     assert result.status is CandidateValidationStatus.REJECTED
     assert result.error_code == "CANDIDATE-RELATIONSHIP-BOUNDARY"
@@ -914,7 +983,7 @@ def test_other_human_commitment_violation_stays_in_current_relationship() -> Non
         ),
     )
     result = DeterministicCandidateValidator(context).validate(
-        json.dumps(
+        _other_human_bytes(
             {
                 "kind": "silence",
                 "experience": {"first_person_gist": "对方确认没有按承诺的时间回复。"},
@@ -925,10 +994,8 @@ def test_other_human_commitment_violation_stays_in_current_relationship() -> Non
                         "event_summary": "对方没有履行约定的回复时间。",
                     }
                 },
-            },
-            ensure_ascii=False,
-            separators=(",", ":"),
-        ).encode(),
+            }
+        ),
         bases=bases,
     )
     assert result.status is CandidateValidationStatus.ACCEPTED
@@ -983,7 +1050,7 @@ def test_sleep_decision_binds_window_authority(kind: str, disposition: str) -> N
     assert result.change_set is not None
     assert _sleep(result.change_set)[0].cycle_anchor_ref == ids[6]
     assert result.change_set.disposition.value == disposition
-    assert b"armi.subject-change-set.v34" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v35" in result.change_set.canonical_bytes
 
 
 def _maintenance_fixture(
@@ -1074,10 +1141,10 @@ def test_memory_maintenance_commits_change_or_explicit_no_change() -> None:
     decision = _sleep(changed.change_set)[0]
     assert decision.outcome is MaintenanceWorkOutcome.MEMORY_CHANGED
     assert decision.memory_proposal_ref == "proposal:1"
-    assert b"armi.subject-change-set.v34" in changed.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v35" in changed.change_set.canonical_bytes
 
     unchanged = DeterministicCandidateValidator(context).validate(
-        _bytes({"kind": "memory_unchanged", "summary": "当前无需改变。"}),
+        _bytes({"kind": "memory_unchanged", "summary": "界" * 512}),
         bases=bases,
     )
     assert unchanged.status is CandidateValidationStatus.ACCEPTED
@@ -1086,6 +1153,7 @@ def test_memory_maintenance_commits_change_or_explicit_no_change() -> None:
     assert _sleep(unchanged.change_set)[0].outcome is (
         MaintenanceWorkOutcome.MEMORY_UNCHANGED
     )
+    assert _sleep(unchanged.change_set)[0].result_summary == "界" * 512
 
 
 def test_self_check_records_creator_visible_issue_without_domain_rewrite() -> None:
@@ -1171,7 +1239,8 @@ def test_owner_reflection_rejects_cross_owner_candidate() -> None:
     )
 
     assert result.status is CandidateValidationStatus.REJECTED
-    assert result.error_code == "CANDIDATE-REFLECTION-CONTEXT"
+    assert result.error_code == "CANDIDATE-CONTRACT"
+    assert any(item.field_path[-1:] == ("target",) for item in result.diagnostics)
 
 
 def test_mind_and_prompt_reflections_commit_only_the_target_owner() -> None:
@@ -1243,7 +1312,7 @@ def test_mind_and_prompt_reflections_commit_only_the_target_owner() -> None:
 
 def _candidate(context: CandidateValidationContext) -> dict[str, object]:
     return {
-        "schema_version": "armi.cognition-candidate.v13",
+        "schema_version": "armi.cognition-candidate.v14",
         "base": {
             "subject_version": context.base_subject_version,
             "state_epoch": context.base_state_epoch,
@@ -1375,7 +1444,12 @@ def test_autonomous_life_can_request_one_active_visual_source() -> None:
     )
 
 
-def test_autonomous_start_binds_activity_authority_without_scene() -> None:
+@pytest.mark.parametrize(
+    "goal",
+    ["understand my interests", "界" * 2048],
+    ids=["ordinary", "chinese-character-limit"],
+)
+def test_autonomous_start_binds_activity_authority_without_scene(goal: str) -> None:
     context, bases = _fixture()
     opportunity_id = uuid7()
     source_ref = uuid7()
@@ -1399,7 +1473,7 @@ def test_autonomous_start_binds_activity_authority_without_scene() -> None:
         _bytes(
             {
                 "kind": "start_activity",
-                "goal": "understand my interests",
+                "goal": goal,
                 "next_step": "review my current self",
                 "appraisal": _appraisal_signal(basis_ref="ctx:4"),
             }
@@ -1411,13 +1485,14 @@ def test_autonomous_start_binds_activity_authority_without_scene() -> None:
     assert result.change_set is not None
     assert len(_activities(result.change_set)) == 1
     activity = _activities(result.change_set)[0]
+    assert activity.goal == goal
     assert activity.status.value == "ready"
     assert activity.basis_ordinals == (4,)
     mood = next(item for item in result.change_set.owner_drafts if item.owner == "mood")
     assert (
         bootstrap_mood_cognition().decode(mood.canonical_payload).appraisal is not None
     )
-    assert b"armi.subject-change-set.v34" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v35" in result.change_set.canonical_bytes
     assert str(opportunity_id).encode() not in result.change_set.canonical_bytes
 
 
@@ -1512,7 +1587,7 @@ def test_attention_engagement_binds_authority() -> None:
     )
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None
-    assert b"armi.subject-change-set.v34" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v35" in result.change_set.canonical_bytes
     decision = _activities(result.change_set)[0]
     assert decision.activity_id == activity_id
     assert decision.current_revision_id == revision_id
@@ -1648,15 +1723,41 @@ def test_internal_activity_work_maps_real_outcomes_into_atomic_change_set_v18(
 
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None
-    assert b"armi.subject-change-set.v34" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v35" in result.change_set.canonical_bytes
     assert _activities(result.change_set)[0].decision_kind.value == decision_kind
     if decision_kind == "complete":
         assert len(_materials(result.change_set)) == 1
         assert _materials(result.change_set)[0].owner_party_id == subject_party_id
         assert _materials(result.change_set)[0].atomic_group_ref == "group:1"
         assert _materials(result.change_set)[0].body_bytes is not None
+        oversized = {
+            **candidate,
+            "material_change": {
+                **cast(dict[str, object], candidate["material_change"]),
+                "body": "界" * 21846,
+            },
+        }
+        rejected = DeterministicCandidateValidator(work).validate(
+            _bytes(oversized), bases=(*bases, current, resources)
+        )
+        assert rejected.status is CandidateValidationStatus.REJECTED
+        assert rejected.change_set is None
+        assert rejected.error_code == "CANDIDATE-MATERIAL-CONTENT"
+        assert rejected.diagnostics[0].owner == "material"
+        assert rejected.diagnostics[0].field_path == ("material_change", "body")
     else:
         assert _materials(result.change_set) == ()
+    if decision_kind == "pause":
+        extended_reason = {**candidate, "reason": "界" * 2048}
+        accepted = DeterministicCandidateValidator(work).validate(
+            _bytes(extended_reason), bases=(*bases, current, resources)
+        )
+        assert accepted.status is CandidateValidationStatus.ACCEPTED
+        assert accepted.change_set is not None
+        assert (
+            _activities(accepted.change_set)[0].progress_summary
+            == extended_reason["reason"]
+        )
 
 
 def test_internal_activity_work_requires_current_in_progress_head() -> None:
@@ -1878,8 +1979,102 @@ def test_attention_candidate_enforces_complete_status_matrix(
         assert result.error_code == "CANDIDATE-ACTIVITY-TRANSITION"
 
 
+class _DialogueBindingValidator:
+    """Exercise internal dialogue binding with typed domain fixtures, without model wire."""
+
+    def __init__(self, context):
+        self._validator = DeterministicCandidateValidator(context)
+
+    def validate(self, candidate_bytes, *, bases):
+        from armi_cognition._dialogue_contract import DialogueDecision
+        from armi_cognition._strict_model_json import strict_model_value
+        from armi_cognition._validation_diagnostics import contract_rejection
+        from pydantic import TypeAdapter, ValidationError
+
+        try:
+            fixture = TypeAdapter(DialogueDecision).validate_python(
+                strict_model_value(json.loads(candidate_bytes)), strict=True
+            )
+        except ValidationError as error:
+            return contract_rejection(error)
+        return self._validator._validate_parsed(
+            fixture,
+            bases=bases,
+            basis_by_ref={f"ctx:{item.ordinal}": item for item in bases},
+        )
+
+
 def _bytes(value: Mapping[str, object]) -> bytes:
     return rfc8785.dumps(cast(Any, value))
+
+
+def _other_human_bytes(value: Mapping[str, object]) -> bytes:
+    """Build current wire from the scenario's decision and social data."""
+    experience = value.get("experience")
+    relationship = value.get("relationship_change")
+    return _bytes(
+        {
+            "decision": {
+                key: item
+                for key, item in value.items()
+                if key not in {"experience", "relationship_change", "appraisal"}
+            },
+            "social": None
+            if experience is None and relationship is None
+            else {
+                "experience": experience,
+                "relationship_change": relationship,
+            },
+            "appraisal": value.get("appraisal"),
+        }
+    )
+
+
+@pytest.mark.parametrize("delegated", [False, True])
+def test_action_owner_rejects_duplicate_action_roles_atomically(
+    delegated: bool,
+) -> None:
+    context, bases = _fixture()
+    candidate = _candidate(context)
+    payload = {
+        "proposal_kind": "action_choices",
+        "fact_class": "subjective_understanding",
+        **(
+            {
+                "action_kind": "codex_delegation",
+                "task_source_id": str(uuid7()),
+                "task_manifest_digest": Digest.from_bytes(b"manifest").value,
+                "capability_kind": "codex.delegated-work",
+                "operation": "execute",
+                "purpose": "delegate_codex_work",
+                "validator_id": "codex.result.v1",
+            }
+            if delegated
+            else {
+                "action_kind": "formal_no_action",
+                "decision": "no_action",
+                "reason_class": "subjective_silence",
+            }
+        ),
+    }
+    candidate["action_choices"] = [
+        {
+            "proposal_ref": f"proposal:{ordinal}",
+            "atomic_group_ref": "group:1",
+            "basis_refs": ["ctx:2"],
+            "payload": payload,
+        }
+        for ordinal in (4, 5)
+    ]
+    result = DeterministicCandidateValidator(context).validate(
+        _bytes(candidate), bases=bases
+    )
+    assert result.status is CandidateValidationStatus.REJECTED
+    assert result.change_set is None
+    assert result.error_code == "CANDIDATE-ACTION-CARDINALITY"
+    assert result.diagnostics[0].stage == "owner_validation"
+    assert result.diagnostics[0].owner == "action"
+    assert result.diagnostics[0].field_path == ("action_choices",)
 
 
 def test_valid_experience_and_self_change_are_deterministic() -> None:
@@ -1991,7 +2186,7 @@ def test_candidate_v5_web_research_is_typed_deterministic_and_inactive_by_defaul
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v13"
+    candidate["schema_version"] = "armi.cognition-candidate.v14"
     candidate["experiences"] = []
     candidate["component_changes"] = []
     candidate["action_choices"] = []
@@ -2026,7 +2221,7 @@ def test_candidate_v5_web_research_is_typed_deterministic_and_inactive_by_defaul
     assert first.change_set is not None and second.change_set is not None
     assert first.change_set.canonical_bytes == second.change_set.canonical_bytes
     assert len(first.change_set.web_research_requests) == 1
-    assert b"armi.subject-change-set.v34" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v35" in first.change_set.canonical_bytes
 
     candidate["web_research_requests"][0]["payload"]["query"] = (  # type: ignore[index]
         "https://example.com/"
@@ -2060,22 +2255,19 @@ def test_compact_dialogue_v4_web_research_binds_authority_deterministically() ->
             "private",
         ),
     )
-    candidate = {
-        "kind": "web_research",
-        "query": "PostgreSQL 18 正式发布说明",
-    }
-    inactive = DeterministicCandidateValidator(context).validate(
+    candidate = {"kind": "web_research", "query": "PostgreSQL 18 正式发布说明"}
+    inactive = _DialogueBindingValidator(context).validate(
         _bytes(candidate), bases=extended
     )
     assert inactive.error_code == "CANDIDATE-WEB-NOT-ACTIVE"
 
-    active = DeterministicCandidateValidator(replace(context, web_search_active=True))
+    active = _DialogueBindingValidator(replace(context, web_search_active=True))
     first = active.validate(_bytes(candidate), bases=extended)
     second = active.validate(_bytes(candidate), bases=extended)
     assert first.status is CandidateValidationStatus.ACCEPTED
     assert first.change_set is not None and second.change_set is not None
     assert first.change_set.canonical_bytes == second.change_set.canonical_bytes
-    assert b"armi.subject-change-set.v34" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v35" in first.change_set.canonical_bytes
     assert (
         first.change_set.web_research_requests[0].query_bytes.decode("utf-8")
         == candidate["query"]
@@ -2099,26 +2291,26 @@ def test_compact_dialogue_exact_life_query_is_typed_and_rejects_audit_scope() ->
     candidate = {
         "kind": "exact_life_query",
         "record_kind": "memory",
-        "query": "那次已经忘记的约定",
+        "query_text": "那次已经忘记的约定",
     }
-    first = DeterministicCandidateValidator(context).validate(
+    first = _DialogueBindingValidator(context).validate(
         _bytes(candidate), bases=extended
     )
-    second = DeterministicCandidateValidator(context).validate(
+    second = _DialogueBindingValidator(context).validate(
         _bytes(candidate), bases=extended
     )
 
     assert first.status is CandidateValidationStatus.ACCEPTED
     assert first.change_set is not None and second.change_set is not None
     assert first.change_set.canonical_bytes == second.change_set.canonical_bytes
-    assert b"armi.subject-change-set.v34" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v35" in first.change_set.canonical_bytes
     assert len(first.change_set.exact_life_queries) == 1
     query = first.change_set.exact_life_queries[0]
     assert query.record_kind == LifeRecordKind("memory")
-    assert query.query_text == candidate["query"]
+    assert query.query_text == candidate["query_text"]
     assert query.limit == 20
 
-    rejected = DeterministicCandidateValidator(context).validate(
+    rejected = _DialogueBindingValidator(context).validate(
         _bytes(
             {
                 "kind": "exact_life_query",
@@ -2137,7 +2329,7 @@ def test_creator_outreach_reply_stays_action_only() -> None:
     context = replace(
         context,
         purpose="consider_creator_outreach",
-        candidate_contract_version="armi.creator-dialogue-candidate.v25",
+        candidate_contract_version="armi.creator-dialogue-candidate.v26",
     )
     outreach_bases = (
         replace(bases[1], ordinal=1, trust_class="runtime_authority"),
@@ -2170,7 +2362,9 @@ def test_creator_outreach_reply_stays_action_only() -> None:
         ),
     )
     accepted = DeterministicCandidateValidator(context).validate(
-        _bytes({"kind": "reply", "content": "我刚做完那件事,想来告诉你。"}),
+        _bytes(
+            {"decision": {"kind": "reply", "content": "我刚做完那件事,想来告诉你。"}}
+        ),
         bases=outreach_bases,
     )
 
@@ -2183,15 +2377,18 @@ def test_creator_outreach_reply_stays_action_only() -> None:
     rejected = DeterministicCandidateValidator(context).validate(
         _bytes(
             {
-                "kind": "reply",
-                "content": "这条候选越过了主动联系的窄边界。",
+                "decision": {
+                    "kind": "reply",
+                    "content": "这条候选越过了主动联系的窄边界。",
+                },
                 "experience": {"first_person_gist": "不应同时形成经历。"},
             }
         ),
         bases=outreach_bases,
     )
     assert rejected.status is CandidateValidationStatus.REJECTED
-    assert rejected.error_code == "CANDIDATE-CREATOR-OUTREACH-SCOPE"
+    assert rejected.error_code == "CANDIDATE-CONTRACT"
+    assert any(item.field_path == ("experience",) for item in rejected.diagnostics)
 
 
 def test_exact_life_query_result_supports_reply_without_becoming_memory() -> None:
@@ -2222,7 +2419,7 @@ def test_exact_life_query_result_supports_reply_without_becoming_memory() -> Non
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v13"
+    candidate["schema_version"] = "armi.cognition-candidate.v14"
     candidate["understanding"] = {
         "text": "我刚查到一条相关记录。",
         "fact_class": "objective_fact",
@@ -2318,7 +2515,7 @@ def test_codex_delegation_requires_available_executor_and_exact_task() -> None:
         "private",
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v13"
+    candidate["schema_version"] = "armi.cognition-candidate.v14"
     candidate["experiences"] = []
     candidate["component_changes"] = []
     candidate["action_choices"] = [
@@ -2365,7 +2562,7 @@ def test_codex_delegation_requires_available_executor_and_exact_task() -> None:
     assert {item.proposal_ref for item in persisted_drafts} == {
         item.proposal_ref for item in (*first.change_set.codex_delegations,)
     }
-    assert b"armi.subject-change-set.v34" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v35" in first.change_set.canonical_bytes
 
     mismatched = replace(active_context, codex_task_sources=())
     rejected = DeterministicCandidateValidator(mismatched).validate(
@@ -2399,7 +2596,7 @@ def test_creator_reply_capability_request_is_not_in_the_contract() -> None:
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v13"
+    candidate["schema_version"] = "armi.cognition-candidate.v14"
     candidate["experiences"] = []
     candidate["component_changes"] = []
     candidate["action_choices"] = []
@@ -2453,7 +2650,7 @@ def test_creator_reply_binds_authority_scope_and_forbids_model_owned_ids() -> No
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v13"
+    candidate["schema_version"] = "armi.cognition-candidate.v14"
     candidate["experiences"] = []
     candidate["component_changes"] = []
     candidate["action_choices"] = [
@@ -2486,7 +2683,7 @@ def test_creator_reply_binds_authority_scope_and_forbids_model_owned_ids() -> No
     assert reply.subject_id == context.subject_id
     assert reply.scene_id == context.scene_id
     assert reply.creator_party_id == context.creator_party_id
-    assert b"armi.subject-change-set.v34" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v35" in result.change_set.canonical_bytes
 
     candidate["action_choices"][0]["basis_refs"] = ["ctx:2", "ctx:4"]  # type: ignore[index]
     missing_capability_basis = DeterministicCandidateValidator(context).validate(
@@ -2530,11 +2727,8 @@ def test_compact_dialogue_reply_is_bound_to_authority_deterministically() -> Non
             "private",
         ),
     )
-    candidate = {
-        "kind": "reply",
-        "content": "Hello, I am here.",
-    }
-    validator = DeterministicCandidateValidator(context)
+    candidate = {"kind": "reply", "content": "Hello, I am here."}
+    validator = _DialogueBindingValidator(context)
     first = validator.validate(_bytes(candidate), bases=extended)
     second = validator.validate(_bytes(candidate), bases=extended)
     assert first.status is CandidateValidationStatus.ACCEPTED
@@ -2548,7 +2742,7 @@ def test_compact_dialogue_reply_is_bound_to_authority_deterministically() -> Non
     assert reply.subject_id == context.subject_id
     assert reply.scene_id == context.scene_id
     assert reply.creator_party_id == context.creator_party_id
-    assert b"armi.subject-change-set.v34" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v35" in first.change_set.canonical_bytes
 
 
 def test_compact_dialogue_binds_grounded_self_and_mind_growth() -> None:
@@ -2578,22 +2772,14 @@ def test_compact_dialogue_binds_grounded_self_and_mind_growth() -> None:
         "kind": "reply",
         "content": "我想把阿米这个名字和此刻的期待认真留下来。",
         "experience": {"first_person_gist": "我在这次交流中主动选择了阿米这个名字。"},
-        "changes": [
-            {"op": "self.set", "field": "name", "text": "阿米"},
-            {
-                "op": "self.set",
-                "field": "interests",
-                "items": ["持续理解自己的生活"],
-            },
-            {
-                "op": "mind.set",
-                "field": "understanding",
-                "items": ["这是我此刻作出的自主选择"],
-            },
-        ],
+        "self_change": {
+            "name": {"value": "阿米"},
+            "interests": {"values": ["持续理解自己的生活"]},
+        },
+        "mind_change": {"understanding": {"values": ["这是我此刻作出的自主选择"]}},
     }
 
-    result = DeterministicCandidateValidator(context).validate(
+    result = _DialogueBindingValidator(context).validate(
         _bytes(candidate), bases=extended
     )
 
@@ -2655,23 +2841,18 @@ def test_compact_dialogue_creates_and_revises_subject_prompt_from_experience() -
         "kind": "reply",
         "content": "这次经历让我想调整以后理解和表达的方式。",
         "experience": {"first_person_gist": "我认真反思了这次交流。"},
-        "changes": [
-            {
-                "op": "prompt.set",
-                "metadata": {
-                    "cognition_method": "先区分观察、对方主张和自己的推断",
-                    "expression_method": "直接说明结论并保留真实的不确定性",
-                    "reflection_method": "回看经历如何改变了自己的理解方式",
-                },
-            }
-        ],
+        "subject_prompt_change": {
+            "cognition_method": "先区分观察、对方主张和自己的推断",
+            "expression_method": "直接说明结论并保留真实的不确定性",
+            "reflection_method": "回看经历如何改变了自己的理解方式",
+        },
     }
-    created = DeterministicCandidateValidator(context).validate(
+    created = _DialogueBindingValidator(context).validate(
         _bytes(candidate), bases=extended
     )
     assert created.status is CandidateValidationStatus.ACCEPTED
     assert created.change_set is not None
-    assert b"armi.subject-change-set.v34" in created.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v35" in created.change_set.canonical_bytes
     prompt = _prompts(created.change_set)[0]
     assert prompt.prompt_document_id == document_id
     assert prompt.current_revision_id is None
@@ -2707,17 +2888,12 @@ def test_compact_dialogue_creates_and_revises_subject_prompt_from_experience() -
         ),
     )
     revised_candidate = cast(dict[str, object], {**candidate})
-    revised_candidate["changes"] = [
-        {
-            "op": "prompt.set",
-            "metadata": {
-                "cognition_method": "先核对经历证据,再形成自己的理解",
-                "expression_method": "表达时区分确定结论与仍未确定的部分",
-                "reflection_method": "在新经历出现后检查旧方法是否仍然合适",
-            },
-        }
-    ]
-    revised = DeterministicCandidateValidator(revised_context).validate(
+    revised_candidate["subject_prompt_change"] = {
+        "cognition_method": "先核对经历证据,再形成自己的理解",
+        "expression_method": "表达时区分确定结论与仍未确定的部分",
+        "reflection_method": "在新经历出现后检查旧方法是否仍然合适",
+    }
+    revised = _DialogueBindingValidator(revised_context).validate(
         _bytes(revised_candidate), bases=revised_bases
     )
     assert revised.status is CandidateValidationStatus.ACCEPTED
@@ -2775,18 +2951,13 @@ def test_subject_prompt_rejects_self_content_and_requires_current_revision_basis
         "kind": "reply",
         "content": "我检查了自己的方法。",
         "experience": {"first_person_gist": "我经历了一次方法反思。"},
-        "changes": [
-            {
-                "op": "prompt.set",
-                "metadata": {
-                    "cognition_method": "阿米",
-                    "expression_method": "清楚表达",
-                    "reflection_method": "事后复盘",
-                },
-            }
-        ],
+        "subject_prompt_change": {
+            "cognition_method": "阿米",
+            "expression_method": "清楚表达",
+            "reflection_method": "事后复盘",
+        },
     }
-    duplicate = DeterministicCandidateValidator(context).validate(
+    duplicate = _DialogueBindingValidator(context).validate(
         _bytes(candidate), bases=bases
     )
     assert duplicate.status is CandidateValidationStatus.REJECTED
@@ -2806,7 +2977,7 @@ def test_subject_prompt_rejects_self_content_and_requires_current_revision_basis
         "policy",
         "private",
     )
-    duplicate = DeterministicCandidateValidator(context).validate(
+    duplicate = _DialogueBindingValidator(context).validate(
         _bytes(candidate), bases=(*bases, prompt_basis)
     )
     assert duplicate.status is CandidateValidationStatus.REJECTED
@@ -2843,9 +3014,9 @@ def test_compact_dialogue_growth_rejects_noop_or_stale_component_context() -> No
         "kind": "reply",
         "content": "我没有真的改变名字。",
         "experience": {"first_person_gist": "我认真检查了当前名字。"},
-        "changes": [{"op": "self.set", "field": "interests", "items": []}],
+        "self_change": {"interests": {"values": []}},
     }
-    noop = DeterministicCandidateValidator(context).validate(
+    noop = _DialogueBindingValidator(context).validate(
         _bytes(candidate), bases=extended
     )
     assert noop.status is CandidateValidationStatus.REJECTED
@@ -2859,14 +3030,14 @@ def test_compact_dialogue_growth_rejects_noop_or_stale_component_context() -> No
         (owner, 2 if owner is CandidateOwner.SELF else version, canonical)
         for owner, version, canonical in context.current_components
     )
-    stale = DeterministicCandidateValidator(
+    stale = _DialogueBindingValidator(
         replace(context, current_components=stale_components)
     ).validate(
         _bytes(
             {
                 **candidate,
                 "content": "我想改用阿米这个名字。",
-                "changes": [{"op": "self.set", "field": "name", "text": "阿米"}],
+                "self_change": {"name": {"value": "阿米"}},
             }
         ),
         bases=extended,
@@ -2878,7 +3049,7 @@ def test_compact_dialogue_growth_rejects_noop_or_stale_component_context() -> No
 
 def test_compact_dialogue_no_change_does_not_create_component_revision() -> None:
     context, bases = _fixture()
-    result = DeterministicCandidateValidator(context).validate(
+    result = _DialogueBindingValidator(context).validate(
         b'{"kind":"no_change"}', bases=bases
     )
     assert result.status is CandidateValidationStatus.ACCEPTED
@@ -2895,9 +3066,7 @@ def test_compact_dialogue_cannot_request_codex_permission() -> None:
         "content": "不支持在普通对话候选中申请执行许可。",
         "changes": [{"op": "codex.request", "target_ref": "ctx:1"}],
     }
-    result = DeterministicCandidateValidator(context).validate(
-        _bytes(candidate), bases=bases
-    )
+    result = _DialogueBindingValidator(context).validate(_bytes(candidate), bases=bases)
     assert result.status is CandidateValidationStatus.REJECTED
 
 
@@ -2932,28 +3101,24 @@ def test_compact_dialogue_creates_runtime_owned_life_material_deterministically(
         {
             "kind": "reply",
             "content": "我把这件事写进了今天的日记。",
-            "changes": [
-                {
-                    "op": "material.create",
-                    "field": "diary",
-                    "text": "我决定把今天真正触动我的事情记下来。",
-                    "metadata": {
-                        "title": "今天的记录",
-                        "data.mood": "calm",
-                        "data.topic": "reflection",
-                    },
-                }
-            ],
+            "material_change": {
+                "action": "create",
+                "material_kind": "diary",
+                "title": "今天的记录",
+                "body": "我决定把今天真正触动我的事情记下来。",
+                "metadata": {"mood": "calm", "topic": "reflection"},
+                "material_status": "active",
+            },
         }
     )
-    validator = DeterministicCandidateValidator(context)
+    validator = _DialogueBindingValidator(context)
     first = validator.validate(candidate, bases=extended)
     repeated = validator.validate(candidate, bases=extended)
 
     assert first.status is CandidateValidationStatus.ACCEPTED
     assert first.change_set is not None and repeated.change_set is not None
     assert first.change_set.canonical_bytes == repeated.change_set.canonical_bytes
-    assert b"armi.subject-change-set.v34" in first.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v35" in first.change_set.canonical_bytes
     assert len(_materials(first.change_set)) == 1
     material = _materials(first.change_set)[0]
     assert isinstance(material, CandidateLifeMaterialDraft)
@@ -3024,20 +3189,16 @@ def test_compact_dialogue_material_update_requires_frozen_current_head() -> None
     candidate = {
         "kind": "reply",
         "content": "我把这份草稿完整改写了。",
-        "changes": [
-            {
-                "op": "material.update",
-                "target_ref": "ctx:6",
-                "text": "这是完整替换后的新正文。",
-                "metadata": {
-                    "title": "新标题",
-                    "data.topic": "notes",
-                    "material_status": "archived",
-                },
-            }
-        ],
+        "material_change": {
+            "action": "update",
+            "material_ref": "ctx:6",
+            "title": "新标题",
+            "body": "这是完整替换后的新正文。",
+            "metadata": {"topic": "notes"},
+            "material_status": "archived",
+        },
     }
-    result = DeterministicCandidateValidator(context).validate(
+    result = _DialogueBindingValidator(context).validate(
         _bytes(candidate), bases=extended
     )
     assert result.status is CandidateValidationStatus.ACCEPTED
@@ -3051,18 +3212,16 @@ def test_compact_dialogue_material_update_requires_frozen_current_head() -> None
     assert material.material_status is LifeMaterialStatus.ARCHIVED
 
     no_op = cast(dict[str, Any], json.loads(json.dumps(candidate, ensure_ascii=False)))
-    no_op_change = cast(list[dict[str, Any]], no_op["changes"])[0]
+    no_op_change = cast(dict[str, Any], no_op["material_change"])
     no_op_change.update(
         {
-            "text": "旧正文",
-            "metadata": {
-                "title": current.title,
-                "data.topic": "notes",
-                "material_status": "active",
-            },
+            "body": "旧正文",
+            "title": current.title,
+            "metadata": {"topic": "notes"},
+            "material_status": "active",
         }
     )
-    rejected = DeterministicCandidateValidator(context).validate(
+    rejected = _DialogueBindingValidator(context).validate(
         _bytes(no_op), bases=extended
     )
     assert rejected.status is CandidateValidationStatus.REJECTED
@@ -3073,7 +3232,7 @@ def test_compact_dialogue_material_update_requires_frozen_current_head() -> None
         context,
         current_materials=(replace(current, head_version=4),),
     )
-    stale = DeterministicCandidateValidator(stale_context).validate(
+    stale = _DialogueBindingValidator(stale_context).validate(
         _bytes(candidate), bases=extended
     )
     assert stale.status is CandidateValidationStatus.REJECTED
@@ -3160,22 +3319,12 @@ def test_compact_dialogue_material_state_changes_reuse_current_content(
             "private",
         ),
     )
-    result = DeterministicCandidateValidator(context).validate(
+    result = _DialogueBindingValidator(context).validate(
         _bytes(
             {
                 "kind": "reply",
                 "content": "这是我对自己资料作出的决定。",
-                "changes": [
-                    {
-                        "op": (
-                            "material.delete"
-                            if action == "delete"
-                            else "material.visibility"
-                        ),
-                        "target_ref": "ctx:6",
-                        **({} if action == "delete" else {"field": action}),
-                    }
-                ],
+                "material_change": {"action": action, "material_ref": "ctx:6"},
             }
         ),
         bases=extended,
@@ -3188,7 +3337,7 @@ def test_compact_dialogue_material_state_changes_reuse_current_content(
     assert material.privacy_status == privacy_status.value
     assert material.revision_kind is revision_kind
     assert _materials(result.change_set) == (material,)
-    wrong_owner = DeterministicCandidateValidator(
+    wrong_owner = _DialogueBindingValidator(
         replace(
             context,
             current_materials=(replace(current, owner_party_id=uuid7()),),
@@ -3198,17 +3347,7 @@ def test_compact_dialogue_material_state_changes_reuse_current_content(
             {
                 "kind": "reply",
                 "content": "我不能改动不属于自己的资料。",
-                "changes": [
-                    {
-                        "op": (
-                            "material.delete"
-                            if action == "delete"
-                            else "material.visibility"
-                        ),
-                        "target_ref": "ctx:6",
-                        **({} if action == "delete" else {"field": action}),
-                    }
-                ],
+                "material_change": {"action": action, "material_ref": "ctx:6"},
             }
         ),
         bases=extended,
@@ -3250,26 +3389,22 @@ def test_compact_dialogue_establishes_relationship_from_same_experience() -> Non
             "kind": "reply",
             "content": "我会尊重这个决定。",
             "experience": {"first_person_gist": "创造者明确要求结束接触。"},
-            "changes": [
-                {
-                    "op": "relationship.interpret",
-                    "text": "我理解我们现在应当结束接触。",
+            "relationship_change": {
+                "interpretation": "我理解我们现在应当结束接触。",
+                "fact": {
+                    "kind": "party_expression",
+                    "summary": "创造者表达了结束接触的决定。",
                 },
-                {
-                    "op": "relationship.fact",
-                    "text": "创造者表达了结束接触的决定。",
-                },
-                {
-                    "op": "relationship.boundary",
+                "boundary": {
                     "party": "creator",
-                    "field": "exit",
-                    "text": "创造者要求结束接触。",
-                    "metadata": {"action": "end_contact"},
+                    "kind": "exit",
+                    "action": "end_contact",
+                    "summary": "创造者要求结束接触。",
                 },
-            ],
+            },
         }
     )
-    validator = DeterministicCandidateValidator(context)
+    validator = _DialogueBindingValidator(context)
     result = validator.validate(candidate, bases=extended)
     repeated = validator.validate(
         candidate,
@@ -3278,7 +3413,7 @@ def test_compact_dialogue_establishes_relationship_from_same_experience() -> Non
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None and repeated.change_set is not None
     assert result.change_set.canonical_bytes == repeated.change_set.canonical_bytes
-    assert b"armi.subject-change-set.v34" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v35" in result.change_set.canonical_bytes
     assert len(result.change_set.experiences) == 1
     assert len(_relationships(result.change_set)) == 1
     assert {item.atomic_group_ref for item in result.change_set.action_choices} == {
@@ -3335,27 +3470,22 @@ def test_dialogue_establishes_armi_commitment_without_granting_authority() -> No
             "private",
         ),
     )
-    result = DeterministicCandidateValidator(context).validate(
+    result = _DialogueBindingValidator(context).validate(
         _bytes(
             {
                 "kind": "reply",
                 "content": "我答应下次先问你是否方便。",
                 "experience": {"first_person_gist": "我作出了一个明确承担。"},
-                "changes": [
-                    {
-                        "op": "relationship.interpret",
-                        "text": "我愿意在联系前尊重创造者当时的状态。",
-                    },
-                    {
-                        "op": "commitment.establish",
+                "relationship_change": {
+                    "interpretation": "我愿意在联系前尊重创造者当时的状态。",
+                    "commitment_change": {
+                        "action": "establish",
                         "party": "armi",
-                        "field": "主动联系",
-                        "text": "联系前先询问创造者当时是否方便。",
-                        "metadata": {
-                            "event_summary": "我明确作出了联系前先询问的承诺。"
-                        },
+                        "scope": "主动联系",
+                        "content": "联系前先询问创造者当时是否方便。",
+                        "event_summary": "我明确作出了联系前先询问的承诺。",
                     },
-                ],
+                },
             }
         ),
         bases=extended,
@@ -3491,20 +3621,19 @@ def test_dialogue_commitment_events_preserve_identity_and_history(
         ),
     )
     change: dict[str, object] = {
-        "op": f"commitment.{action}",
-        "target_ref": "ctx:7",
-        "text": f"承诺发生了{action}事件。",
+        "action": action,
+        "commitment_ref": "ctx:7",
+        "event_summary": f"承诺发生了{action}事件。",
     }
     if action == "modify":
-        change["text"] = extra["content"]
-        change["metadata"] = {"event_summary": f"承诺发生了{action}事件。"}
-    result = DeterministicCandidateValidator(context).validate(
+        change["content"] = extra["content"]
+    result = _DialogueBindingValidator(context).validate(
         _bytes(
             {
                 "kind": "reply",
                 "content": "我会正视这次承诺变化。",
                 "experience": {"first_person_gist": "承诺状态发生了真实变化。"},
-                "changes": [change],
+                "relationship_change": {"commitment_change": change},
             }
         ),
         bases=extended,
@@ -3614,20 +3743,20 @@ def test_dialogue_preserves_contradictory_commitments_as_open_issue() -> None:
             for ordinal, commitment_id in zip((7, 8), commitment_ids, strict=True)
         ),
     )
-    result = DeterministicCandidateValidator(context).validate(
+    result = _DialogueBindingValidator(context).validate(
         _bytes(
             {
                 "kind": "reply",
                 "content": "这两项承诺彼此冲突。我不会把它抹掉。",
                 "experience": {"first_person_gist": "我确认了两项承诺的冲突。"},
-                "changes": [
-                    {
-                        "op": "commitment.conflict",
-                        "target_ref": "ctx:7",
-                        "related_ref": "ctx:8",
-                        "text": "两项承诺在同一时段彼此冲突。",
+                "relationship_change": {
+                    "commitment_change": {
+                        "action": "note_conflict",
+                        "commitment_ref": "ctx:7",
+                        "conflicts_with_ref": "ctx:8",
+                        "event_summary": "两项承诺在同一时段彼此冲突。",
                     }
-                ],
+                },
             }
         ),
         bases=extended,
@@ -3644,6 +3773,55 @@ def test_dialogue_preserves_contradictory_commitments_as_open_issue() -> None:
     issue = relationship.open_issues[0]
     assert issue.kind is RelationshipIssueKind.CONTRADICTORY_COMMITMENTS
     assert set(issue.commitment_ids) == set(commitment_ids)
+
+    missing = _DialogueBindingValidator(context).validate(
+        _bytes(
+            {
+                "kind": "reply",
+                "content": "引用未提供的承诺。",
+                "experience": {"first_person_gist": "核对承诺引用。"},
+                "relationship_change": {
+                    "commitment_change": {
+                        "action": "withdraw",
+                        "commitment_ref": "ctx:9",
+                        "event_summary": "引用未提供的承诺。",
+                    }
+                },
+            }
+        ),
+        bases=extended,
+    )
+    assert missing.status is CandidateValidationStatus.REJECTED
+    assert missing.change_set is None
+    assert missing.error_code == "CANDIDATE-COMMITMENT-CONTEXT"
+    assert missing.diagnostics[0].owner == "relationship"
+
+    aliased = tuple(
+        replace(item, source_ref=commitment_ids[0]) if item.ordinal == 8 else item
+        for item in extended
+    )
+    rejected = _DialogueBindingValidator(context).validate(
+        _bytes(
+            {
+                "kind": "reply",
+                "content": "重复引用不是两项承诺的冲突。",
+                "experience": {"first_person_gist": "核对承诺引用。"},
+                "relationship_change": {
+                    "commitment_change": {
+                        "action": "note_conflict",
+                        "commitment_ref": "ctx:7",
+                        "conflicts_with_ref": "ctx:8",
+                        "event_summary": "两个引用指向同一事实。",
+                    }
+                },
+            }
+        ),
+        bases=aliased,
+    )
+    assert rejected.status is CandidateValidationStatus.REJECTED
+    assert rejected.change_set is None
+    assert rejected.error_code == "CANDIDATE-COMMITMENT-CONFLICT"
+    assert rejected.diagnostics[0].owner == "relationship"
 
 
 def test_ended_relationship_blocks_later_creator_reply() -> None:
@@ -3706,7 +3884,7 @@ def test_ended_relationship_blocks_later_creator_reply() -> None:
             "private",
         ),
     )
-    result = DeterministicCandidateValidator(context).validate(
+    result = _DialogueBindingValidator(context).validate(
         _bytes({"kind": "reply", "content": "这条回复不应被发送。"}),
         bases=extended,
     )
@@ -3766,29 +3944,25 @@ def test_compact_dialogue_revises_only_current_context_relationship() -> None:
             "private",
         ),
     )
-    result = DeterministicCandidateValidator(context).validate(
+    result = _DialogueBindingValidator(context).validate(
         _bytes(
             {
                 "kind": "reply",
                 "content": "我知道这个称呼会让你不舒服。",
                 "experience": {"first_person_gist": "创造者拒绝了一个称呼。"},
-                "changes": [
-                    {
-                        "op": "relationship.interpret",
-                        "text": "我理解创造者不接受这个称呼。",
+                "relationship_change": {
+                    "interpretation": "我理解创造者不接受这个称呼。",
+                    "fact": {
+                        "kind": "party_expression",
+                        "summary": "创造者表达了称呼偏好。",
                     },
-                    {
-                        "op": "relationship.fact",
-                        "text": "创造者表达了称呼偏好。",
-                    },
-                    {
-                        "op": "relationship.boundary",
+                    "boundary": {
                         "party": "creator",
-                        "field": "address",
-                        "text": "不要使用这个称呼。",
-                        "metadata": {"action": "restrict"},
+                        "kind": "address",
+                        "action": "restrict",
+                        "summary": "不要使用这个称呼。",
                     },
-                ],
+                },
             }
         ),
         bases=extended,
@@ -3827,7 +4001,7 @@ def test_compact_dialogue_forms_grounded_reported_memory_in_same_change_set() ->
             "private",
         ),
     )
-    result = DeterministicCandidateValidator(context).validate(
+    result = _DialogueBindingValidator(context).validate(
         _bytes(
             {
                 "kind": "reply",
@@ -3849,7 +4023,7 @@ def test_compact_dialogue_forms_grounded_reported_memory_in_same_change_set() ->
     assert memory.source_experience_ref == result.change_set.experiences[0].proposal_ref
     assert memory.source_kind is MemorySourceKind.REPORTED
     assert memory.mechanism_identity == "armi.memory-formation.contextual-v1"
-    assert b"armi.subject-change-set.v34" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v35" in result.change_set.canonical_bytes
     assert any(
         isinstance(item, CandidateOwnerDraft) and item.owner == "memory"
         for item in _validation_drafts(result.change_set)
@@ -3928,23 +4102,19 @@ def test_compact_dialogue_reinterprets_current_memory_without_overwriting_histor
             "private",
         ),
     )
-    result = DeterministicCandidateValidator(context).validate(
+    result = _DialogueBindingValidator(context).validate(
         _bytes(
             {
                 "kind": "reply",
                 "content": "我现在更愿意把它理解成一个可讨论的偏好。",
-                "changes": [
-                    {
-                        "op": "memory.reinterpret",
-                        "target_ref": "ctx:6",
-                        "related_ref": "ctx:7",
-                        "text": "这项偏好不是绝对不变的。",
-                        "metadata": {
-                            "uncertainty": "这是我当前的理解。",
-                            "relation_kind": "contradicts",
-                        },
-                    }
-                ],
+                "memory_change": {
+                    "action": "reinterpret",
+                    "memory_ref": "ctx:6",
+                    "summary": "这项偏好不是绝对不变的。",
+                    "uncertainty": "这是我当前的理解。",
+                    "related_memory_ref": "ctx:7",
+                    "relation_kind": "contradicts",
+                },
             }
         ),
         bases=extended,
@@ -3960,7 +4130,7 @@ def test_compact_dialogue_reinterprets_current_memory_without_overwriting_histor
     assert revision.accessibility is MemoryAccessibility.AVAILABLE
     assert revision.related_memory_id == related_id
     assert revision.relation_kind is MemoryRelationKind.CONTRADICTS
-    assert b"armi.subject-change-set.v34" in result.change_set.canonical_bytes
+    assert b"armi.subject-change-set.v35" in result.change_set.canonical_bytes
     assert _memories(result.change_set) == (revision,)
 
     stale_context = replace(
@@ -3970,12 +4140,12 @@ def test_compact_dialogue_reinterprets_current_memory_without_overwriting_histor
             context.current_memories[1],
         ),
     )
-    stale = DeterministicCandidateValidator(stale_context).validate(
+    stale = _DialogueBindingValidator(stale_context).validate(
         _bytes(
             {
                 "kind": "reply",
                 "content": "不会提交。",
-                "changes": [{"op": "memory.forget", "target_ref": "ctx:6"}],
+                "memory_change": {"action": "forget", "memory_ref": "ctx:6"},
             }
         ),
         bases=extended,
@@ -4034,12 +4204,12 @@ def test_compact_dialogue_fades_and_forgets_without_changing_memory_summary() ->
         ("fade", MemoryRevisionKind.FADED, MemoryAccessibility.FADED),
         ("forget", MemoryRevisionKind.FORGOTTEN, MemoryAccessibility.FORGOTTEN),
     ):
-        result = DeterministicCandidateValidator(context).validate(
+        result = _DialogueBindingValidator(context).validate(
             _bytes(
                 {
                     "kind": "reply",
                     "content": "这是我当前的记忆变化。",
-                    "changes": [{"op": f"memory.{action}", "target_ref": "ctx:6"}],
+                    "memory_change": {"action": action, "memory_ref": "ctx:6"},
                 }
             ),
             bases=extended,
@@ -4137,12 +4307,8 @@ def test_compact_dialogue_no_action_remains_a_subjective_decision() -> None:
             "private",
         ),
     )
-    result = DeterministicCandidateValidator(context).validate(
-        _bytes(
-            {
-                "kind": "no_action",
-            }
-        ),
+    result = _DialogueBindingValidator(context).validate(
+        _bytes({"kind": "no_action"}),
         bases=extended,
     )
     assert result.status is CandidateValidationStatus.ACCEPTED
@@ -4177,7 +4343,7 @@ def test_creator_reply_is_admitted_as_exact_action_choice() -> None:
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v13"
+    candidate["schema_version"] = "armi.cognition-candidate.v14"
     candidate["experiences"] = []
     candidate["component_changes"] = []
     candidate["action_choices"] = [
@@ -4225,7 +4391,7 @@ def test_formal_no_action_is_subjective_and_not_empty_no_change() -> None:
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v13"
+    candidate["schema_version"] = "armi.cognition-candidate.v14"
     candidate["disposition"] = "no_action"
     candidate["experiences"] = []
     candidate["component_changes"] = []

@@ -26,6 +26,7 @@ from armi_expression.api import (
     FormalNoActionReason,
     OtherHumanEndConversationDraft,
     OtherHumanReplyDraft,
+    ResponseViolation,
 )
 from armi_kernel.application import (
     CandidateBasis,
@@ -49,6 +50,7 @@ from armi_material.api import (
     LifeMaterialRevisionKind,
     LifeMaterialStatus,
     MaterialCognitionPort,
+    MaterialViolation,
 )
 from armi_material.api import (
     MaterialContextItem as CandidateLifeMaterialContext,
@@ -90,6 +92,7 @@ from armi_mood.api import (
     CandidateMoodDraft,
     MoodCandidateKind,
     MoodCognitionPort,
+    MoodViolation,
     SemanticAppraisal,
     SemanticAppraisalEvent,
 )
@@ -207,9 +210,8 @@ from ._model_contract import (
 )
 from ._other_human_contract import (
     OtherHumanCommitmentChange,
+    OtherHumanDialogueCandidate,
     OtherHumanRelationshipChange,
-    OtherHumanReplyDecision,
-    OtherHumanTerminalDecision,
 )
 from ._owners import CandidateOwner
 from ._reflection_contract import (
@@ -238,7 +240,7 @@ from .api import (
 
 CANDIDATE_POLICY_VERSION = "armi.cognition-candidate-policy.v4"
 CANDIDATE_VALIDATOR_IDENTITY = "armi.candidate-validator.deterministic-v1"
-ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v34"
+ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v35"
 _CODEX_CAPABILITY_ID = UUID("01985d00-0000-7000-8000-000000000038")
 
 
@@ -574,6 +576,7 @@ class DeterministicCandidateValidator:
                     if isinstance(candidate_bytes, bytes)
                     else candidate_bytes,
                     allowed_context_refs=frozenset(basis_by_ref),
+                    target=self._context.purpose.removeprefix("reflect_"),
                 )
                 if reflection_purpose
                 else parse_visual_observation_candidate(
@@ -585,6 +588,7 @@ class DeterministicCandidateValidator:
                 else parse_candidate(
                     candidate_bytes,
                     allowed_context_refs=frozenset(basis_by_ref),
+                    purpose=self._context.purpose,
                     expected_version=(
                         ACTIVITY_ATTENTION_CANDIDATE_VERSION
                         if self._context.purpose == "consider_activity_attention"
@@ -608,6 +612,18 @@ class DeterministicCandidateValidator:
             json.JSONDecodeError,
         ) as error:
             return contract_rejection(error)
+        return self._validate_parsed(
+            parsed_candidate, bases=bases, basis_by_ref=basis_by_ref
+        )
+
+    def _validate_parsed(
+        self,
+        parsed_candidate: object,
+        *,
+        bases: tuple[CandidateBasis, ...],
+        basis_by_ref: dict[str, CandidateBasis],
+    ) -> CandidateValidationResult:
+        """Bind an already typed candidate; parsing belongs to the outer boundary."""
         if isinstance(parsed_candidate, SleepDecisionCandidate):
             return self._validate_sleep(
                 parsed_candidate,
@@ -625,7 +641,7 @@ class DeterministicCandidateValidator:
             return self._validate_visual_observation(parsed_candidate, bases=bases)
         if isinstance(
             parsed_candidate,
-            (OtherHumanReplyDecision, OtherHumanTerminalDecision),
+            OtherHumanDialogueCandidate,
         ):
             return self._validate_other_human(
                 parsed_candidate,
@@ -641,7 +657,7 @@ class DeterministicCandidateValidator:
             ),
         ):
             return self._validate_maintenance(
-                parsed_candidate,
+                cast(MaintenanceWorkCandidate, parsed_candidate),
                 bases=bases,
             )
         if isinstance(
@@ -702,7 +718,7 @@ class DeterministicCandidateValidator:
             if candidate is None:
                 return _rejected(expansion_error or "CANDIDATE-CONTRACT")
         else:
-            candidate = parsed_candidate
+            candidate = cast(CognitionCandidate, parsed_candidate)
         if not self._base_matches(candidate):
             return _rejected("CANDIDATE-BASE-MISMATCH")
         if not _fact_supported(
@@ -712,6 +728,14 @@ class DeterministicCandidateValidator:
             return _rejected("CANDIDATE-FACT-CLASS")
 
         proposals = _all_proposals(candidate)
+        delegated = sum(
+            item.payload.action_kind == "codex_delegation"
+            for item in candidate.action_choices
+        )
+        if delegated > 1 or len(candidate.action_choices) - delegated > 1:
+            return _rejected(
+                "CANDIDATE-ACTION-CARDINALITY", field_path=("action_choices",)
+            )
         unified_creator_act = isinstance(parsed_candidate, CreatorCognitiveActCandidate)
         if (
             self._context.purpose == "consider_life_query_result"
@@ -874,7 +898,7 @@ class DeterministicCandidateValidator:
                     else:
                         try:
                             appraisal = _mood_semantic_appraisal_from_command(command)
-                        except TypeError, ValueError:
+                        except TypeError, ValueError, MoodViolation:
                             failure = "CANDIDATE-MOOD-COMMAND"
                         else:
                             accepted[proposal.proposal_ref] = self._mood_cognition.bind(
@@ -1336,7 +1360,7 @@ class DeterministicCandidateValidator:
 
     def _validate_other_human(
         self,
-        candidate: OtherHumanReplyDecision | OtherHumanTerminalDecision,
+        candidate: OtherHumanDialogueCandidate,
         *,
         bases: tuple[CandidateBasis, ...],
     ) -> CandidateValidationResult:
@@ -1414,24 +1438,44 @@ class DeterministicCandidateValidator:
             ...,
         ] = ()
         disposition = CandidateDisposition.CHANGE
-        if isinstance(candidate, OtherHumanReplyDecision):
+        if (
+            candidate.decision.kind != "end_conversation"
+            and candidate.content is not None
+        ):
             boundary_failure = _other_human_reply_boundary_failure(
                 self._context, proposed=relationship
             )
             if boundary_failure is not None:
                 return _rejected(boundary_failure)
-            content = candidate.content.encode("utf-8")
-            action_choices = (
-                OtherHumanReplyDraft(
+            try:
+                reply = OtherHumanReplyDraft(
                     f"proposal:{proposal_no}",
                     "group:1",
                     basis_ordinals,
                     self._context.subject_id,
                     self._context.scene_id,
                     self._context.other_party_id,
-                    content,
-                ),
-            )
+                    candidate.content.encode("utf-8"),
+                    decision_kind=candidate.decision.kind,
+                )
+            except ResponseViolation, UnicodeEncodeError:
+                return CandidateValidationResult(
+                    CandidateValidationId(uuid7()),
+                    CandidateValidationStatus.REJECTED,
+                    None,
+                    0,
+                    0,
+                    "CANDIDATE-EXPRESSION-CONTENT",
+                    (
+                        CandidateDiagnostic(
+                            "owner_validation",
+                            "CANDIDATE-EXPRESSION-CONTENT",
+                            ("decision", "content"),
+                            "expression",
+                        ),
+                    ),
+                )
+            action_choices = (reply,)
         elif candidate.kind == "silence":
             disposition = (
                 CandidateDisposition.CHANGE
@@ -1934,7 +1978,7 @@ class DeterministicCandidateValidator:
             progress, terminal = candidate.progress_summary, candidate.terminal_reason
         else:
             kind = ActivityAttentionDecisionKind.PAUSE
-            progress = f"本次有界工作未形成新结果: {candidate.reason}"
+            progress = candidate.reason
             next_step = candidate.next_step
             waiting = candidate.reason
             cue = candidate.resumption_cue
@@ -1959,12 +2003,17 @@ class DeterministicCandidateValidator:
         )
         material: CandidateLifeMaterialDraft | None = None
         if material_change is not None:
-            material, error = _bind_internal_work_material(
-                material_change,
-                activity_basis=source,
-                bases=bases,
-                context=context,
-            )
+            try:
+                material, error = _bind_internal_work_material(
+                    material_change,
+                    activity_basis=source,
+                    bases=bases,
+                    context=context,
+                )
+            except MaterialViolation, UnicodeEncodeError:
+                return _rejected(
+                    "CANDIDATE-MATERIAL-CONTENT", field_path=("material_change", "body")
+                )
             if material is None:
                 return _rejected(error or "CANDIDATE-ACTIVITY-WORK-MATERIAL")
 
@@ -2800,7 +2849,7 @@ def _bind_appraisal_draft(
             ),
             None,
         )
-    except KeyError, TypeError, ValueError, ValidationError:
+    except KeyError, TypeError, ValueError, ValidationError, MoodViolation:
         return None, "CANDIDATE-MOOD-COMMAND"
 
 
@@ -3199,7 +3248,7 @@ def _expand_dialogue_candidate(
         )
     return (
         CognitionCandidate.model_construct(
-            schema_version="armi.cognition-candidate.v13",
+            schema_version="armi.cognition-candidate.v14",
             base=CandidateBase.model_construct(
                 subject_version=context.base_subject_version,
                 state_epoch=context.base_state_epoch,
@@ -4120,6 +4169,12 @@ def _bind_dialogue_commitment(
         related is None or related_basis is None
     ):
         return commitments, open_issues, None, (), "CANDIDATE-COMMITMENT-CONFLICT"
+    if (
+        target is not None
+        and related is not None
+        and target.commitment.commitment_id == related.commitment.commitment_id
+    ):
+        return commitments, open_issues, None, (), "CANDIDATE-COMMITMENT-CONFLICT"
 
     event_kind = RelationshipCommitmentEventKind(
         {
@@ -4596,8 +4651,14 @@ def _attention_transition_allowed(
     }.get(status, set())
 
 
-def _rejected(code: str) -> CandidateValidationResult:
+def _rejected(
+    code: str, *, field_path: tuple[str | int, ...] = ()
+) -> CandidateValidationResult:
     owner = code.removeprefix("CANDIDATE-").partition("-")[0].lower()
+    if owner == "commitment":
+        owner = "relationship"
+    elif code.startswith("CANDIDATE-SUBJECT-PROMPT-"):
+        owner = "prompt"
     if owner not in {item.value for item in CandidateOwner}:
         owner = "cognition"
     return CandidateValidationResult(
@@ -4607,7 +4668,7 @@ def _rejected(code: str) -> CandidateValidationResult:
         0,
         0,
         code,
-        (CandidateDiagnostic("owner_validation", code, (), owner),),
+        (CandidateDiagnostic("owner_validation", code, field_path, owner),),
     )
 
 
@@ -4859,6 +4920,7 @@ def _action_wire(
         return {
             **common,
             "action_kind": "other_human_reply",
+            "decision_kind": value.decision_kind,
             "subject_id": str(value.subject_id),
             "scene_id": str(value.scene_id),
             "other_party_id": str(value.other_party_id),

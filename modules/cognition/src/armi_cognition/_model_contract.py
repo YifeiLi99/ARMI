@@ -20,7 +20,6 @@ from pydantic import (
     StringConstraints,
     TypeAdapter,
     ValidationError,
-    model_validator,
 )
 
 from ._activity_attention_contract import (
@@ -56,22 +55,17 @@ from ._creator_cognitive_act_contract import (
     CREATOR_VOICE_ACT_VERSION,
     CreatorCognitiveActCandidate,
     creator_cognitive_act_schema,
+    creator_outreach_schema,
     creator_voice_act_schema,
     parse_creator_cognitive_act,
+    parse_creator_outreach,
     parse_creator_voice_act,
 )
 
 if TYPE_CHECKING:
     from ._reflection_contract import OwnerReflectionCandidate
-from ._action_cardinality import validate_action_kinds
 from ._dialogue_contract import (
     DIALOGUE_CANDIDATE_VERSION,
-    CreatorDialogueCandidate,
-    DialogueExactLifeQueryDecision,
-    DialogueReplyDecision,
-    DialogueWebResearchDecision,
-    dialogue_candidate_schema,
-    parse_dialogue_candidate,
 )
 from ._maintenance_contract import (
     MAINTENANCE_WORK_CANDIDATE_VERSION,
@@ -86,8 +80,6 @@ from ._maintenance_contract import (
 from ._other_human_contract import (
     OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
     OtherHumanDialogueCandidate,
-    OtherHumanReplyDecision,
-    OtherHumanTerminalDecision,
     parse_other_human_dialogue_candidate_value,
 )
 from ._other_human_contract import (
@@ -129,7 +121,7 @@ MODEL_REQUEST_VERSION = "armi.model-request.v1"
 DIALOGUE_MODEL_INPUT_VERSION = "armi.creator-dialogue-input.v6"
 CREATOR_BRANCH_MODEL_INPUT_VERSION = DIALOGUE_MODEL_INPUT_VERSION
 DialoguePromptVersion = Literal["armi.dialogue-prompt.v4"]
-CANDIDATE_VERSION = "armi.cognition-candidate.v13"
+CANDIDATE_VERSION = "armi.cognition-candidate.v14"
 ACTIVE_MODEL_ID = "doubao-seed-evolving"
 ACTIVE_MODEL_ADAPTER = "armi.model-adapter.volcengine-ark-responses-v1"
 ACTIVE_VERSION_POLICY = "provider_evolving_alias"
@@ -269,24 +261,24 @@ FactClass = Literal[
 ]
 
 
-class _StrictModel(BaseModel):
+class _StrictModel(BaseModel, frozen=True):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
 
-class CandidateBase(_StrictModel):
+class CandidateBase(_StrictModel, frozen=True):
     subject_version: Annotated[int, Field(ge=0)]
     state_epoch: Annotated[int, Field(ge=0)]
     bundle_activation_id: Uuid7Value
     context_digest: DigestValue
 
 
-class CandidateUnderstanding(_StrictModel):
+class CandidateUnderstanding(_StrictModel, frozen=True):
     text: Annotated[str, StringConstraints(min_length=1, max_length=1024)]
     fact_class: FactClass
     basis_refs: tuple[ContextRef, ...] = Field(min_length=1, max_length=8)
 
 
-class SelfState(_StrictModel):
+class SelfState(_StrictModel, frozen=True):
     schema_version: Literal["armi.self.v1"]
     identity_kind: Literal["electronic_person"]
     creator_role_awareness: Literal["unique_primary_creator"]
@@ -304,7 +296,7 @@ class SelfState(_StrictModel):
     tensions: tuple[Summary, ...] = Field(max_length=16)
 
 
-class MindState(_StrictModel):
+class MindState(_StrictModel, frozen=True):
     schema_version: Literal["armi.mind.v2"]
     understanding: tuple[Summary, ...] = Field(max_length=16)
     attention: tuple[Summary, ...] = Field(max_length=16)
@@ -313,51 +305,58 @@ class MindState(_StrictModel):
     motivations: tuple[Summary, ...] = Field(max_length=16)
 
 
-class MoodVAD(_StrictModel):
+class MoodVAD(_StrictModel, frozen=True):
     valence: Annotated[int, Field(ge=-100, le=100)]
     arousal: Annotated[int, Field(ge=-100, le=100)]
     dominance: Annotated[int, Field(ge=-100, le=100)]
 
 
-class MoodState(_StrictModel):
+class MoodState(_StrictModel, frozen=True):
     schema_version: Literal["armi.mood.v3"]
     dynamics_version: Literal["recency-reappraisal.v1"]
     derivation_version: Literal["cpm-fuzzy.v2"]
     home_base: MoodVAD
 
 
-class MoodSemanticAppraisalCommand(_StrictModel):
+class MoodSemanticAppraisalCommand(_StrictModel, frozen=True):
     schema_version: Literal["armi.mood-appraisal.v2"]
     transition: Literal["new", "reinforce", "reappraise", "resolve"]
-    previous_episode_id: str | None = None
+    previous_episode_id: str | None
     event_phase: Literal["anticipated", "ongoing", "realized", "averted"]
     gist: Annotated[str, StringConstraints(min_length=1, max_length=64)]
     change_from_previous: (
         Literal["improved", "unchanged", "worsened", "mixed", "unknown"] | None
-    ) = None
+    )
     appraisal: AppraisalSemanticSignal
 
-    @model_validator(mode="after")
-    def validate_episode(self) -> MoodSemanticAppraisalCommand:
-        is_new = self.transition == "new"
-        if is_new != (self.previous_episode_id is None):
-            raise ValueError("appraisal episode id is invalid")
-        if is_new != (self.change_from_previous is None):
-            raise ValueError("appraisal trajectory is invalid")
-        if self.previous_episode_id is not None:
-            episode_id = UUID(self.previous_episode_id)
-            if episode_id.version != 7:
-                raise ValueError("appraisal episode id is invalid")
-        return self
+
+class NewMoodAppraisalCommand(MoodSemanticAppraisalCommand, frozen=True):
+    transition: Literal["new"]
+    previous_episode_id: None = None
+    change_from_previous: None = None
 
 
-class LifeModeState(_StrictModel):
+class ExistingMoodAppraisalCommand(MoodSemanticAppraisalCommand, frozen=True):
+    transition: Literal["reinforce", "reappraise", "resolve"]
+    previous_episode_id: Uuid7Value = Field(...)
+    change_from_previous: Literal[
+        "improved", "unchanged", "worsened", "mixed", "unknown"
+    ] = Field(...)
+
+
+type MoodAppraisalCommandWire = Annotated[
+    NewMoodAppraisalCommand | ExistingMoodAppraisalCommand,
+    Field(discriminator="transition"),
+]
+
+
+class LifeModeState(_StrictModel, frozen=True):
     schema_version: Literal["armi.life-mode.v1"]
     mode: Literal["awake"]
     active_activities: tuple[str, ...] = Field(max_length=0)
 
 
-class ExperiencePayload(_StrictModel):
+class ExperiencePayload(_StrictModel, frozen=True):
     proposal_kind: Literal["experiences"]
     fact_class: FactClass
     first_person_gist: Annotated[str, StringConstraints(min_length=1, max_length=1024)]
@@ -366,35 +365,61 @@ class ExperiencePayload(_StrictModel):
     privacy_scope: Literal["private"]
 
 
-class ComponentChangePayload(_StrictModel):
+class ComponentChangePayload(_StrictModel, frozen=True):
     proposal_kind: Literal["component_changes"]
     fact_class: FactClass
     owner: Literal["self", "mind", "mood", "life_mode"]
     expected_version: Annotated[int, Field(gt=0)]
     next_state: (
-        SelfState | MindState | MoodState | MoodSemanticAppraisalCommand | LifeModeState
+        SelfState | MindState | MoodState | MoodAppraisalCommandWire | LifeModeState
     )
 
 
-class MemoryChangePayload(_StrictModel):
+class SelfChangePayload(ComponentChangePayload, frozen=True):
+    owner: Literal["self"]
+    next_state: SelfState
+
+
+class MindChangePayload(ComponentChangePayload, frozen=True):
+    owner: Literal["mind"]
+    next_state: MindState
+
+
+class MoodChangePayload(ComponentChangePayload, frozen=True):
+    owner: Literal["mood"]
+    next_state: MoodState | MoodAppraisalCommandWire
+
+
+class LifeModeChangePayload(ComponentChangePayload, frozen=True):
+    owner: Literal["life_mode"]
+    next_state: LifeModeState
+
+
+type ComponentChangeWire = Annotated[
+    SelfChangePayload | MindChangePayload | MoodChangePayload | LifeModeChangePayload,
+    Field(discriminator="owner"),
+]
+
+
+class MemoryChangePayload(_StrictModel, frozen=True):
     proposal_kind: Literal["memory_changes"]
     fact_class: FactClass
     summary: Summary
 
 
-class RelationshipChangePayload(_StrictModel):
+class RelationshipChangePayload(_StrictModel, frozen=True):
     proposal_kind: Literal["relationship_changes"]
     fact_class: FactClass
     summary: Summary
 
 
-class ActivityChangePayload(_StrictModel):
+class ActivityChangePayload(_StrictModel, frozen=True):
     proposal_kind: Literal["activity_changes"]
     fact_class: FactClass
     summary: Summary
 
 
-class RuntimeBoundCreatorReplyPayload(_StrictModel):
+class RuntimeBoundCreatorReplyPayload(_StrictModel, frozen=True):
     """Reply choice carrying content but no authority-owned identities."""
 
     proposal_kind: Literal["action_choices"]
@@ -409,7 +434,7 @@ class RuntimeBoundCreatorReplyPayload(_StrictModel):
     content: Annotated[str, StringConstraints(min_length=1, max_length=65536)]
 
 
-class FormalNoActionPayload(_StrictModel):
+class FormalNoActionPayload(_StrictModel, frozen=True):
     proposal_kind: Literal["action_choices"]
     action_kind: Literal["formal_no_action"]
     fact_class: FactClass
@@ -417,7 +442,7 @@ class FormalNoActionPayload(_StrictModel):
     reason_class: Literal["subjective_refusal", "subjective_silence"]
 
 
-class CodexDelegationPayload(_StrictModel):
+class CodexDelegationPayload(_StrictModel, frozen=True):
     proposal_kind: Literal["action_choices"]
     action_kind: Literal["codex_delegation"]
     fact_class: Literal["subjective_understanding", "inference"]
@@ -438,49 +463,49 @@ type ActionChoicePayload = Annotated[
 ]
 
 
-class ExperienceProposal(_StrictModel):
+class ExperienceProposal(_StrictModel, frozen=True):
     proposal_ref: ProposalRef
     atomic_group_ref: AtomicGroupRef
     basis_refs: tuple[ContextRef, ...] = Field(min_length=1, max_length=8)
     payload: ExperiencePayload
 
 
-class ComponentChangeProposal(_StrictModel):
+class ComponentChangeProposal(_StrictModel, frozen=True):
     proposal_ref: ProposalRef
     atomic_group_ref: AtomicGroupRef
     basis_refs: tuple[ContextRef, ...] = Field(min_length=1, max_length=8)
-    payload: ComponentChangePayload
+    payload: ComponentChangeWire
 
 
-class MemoryChangeProposal(_StrictModel):
+class MemoryChangeProposal(_StrictModel, frozen=True):
     proposal_ref: ProposalRef
     atomic_group_ref: AtomicGroupRef
     basis_refs: tuple[ContextRef, ...] = Field(min_length=1, max_length=8)
     payload: MemoryChangePayload
 
 
-class RelationshipChangeProposal(_StrictModel):
+class RelationshipChangeProposal(_StrictModel, frozen=True):
     proposal_ref: ProposalRef
     atomic_group_ref: AtomicGroupRef
     basis_refs: tuple[ContextRef, ...] = Field(min_length=1, max_length=8)
     payload: RelationshipChangePayload
 
 
-class ActivityChangeProposal(_StrictModel):
+class ActivityChangeProposal(_StrictModel, frozen=True):
     proposal_ref: ProposalRef
     atomic_group_ref: AtomicGroupRef
     basis_refs: tuple[ContextRef, ...] = Field(min_length=1, max_length=8)
     payload: ActivityChangePayload
 
 
-class ActionChoiceProposal(_StrictModel):
+class ActionChoiceProposal(_StrictModel, frozen=True):
     proposal_ref: ProposalRef
     atomic_group_ref: AtomicGroupRef
     basis_refs: tuple[ContextRef, ...] = Field(min_length=1, max_length=8)
     payload: ActionChoicePayload
 
 
-class WebResearchRequestPayload(_StrictModel):
+class WebResearchRequestPayload(_StrictModel, frozen=True):
     proposal_kind: Literal["web_research_requests"]
     fact_class: Literal["subjective_understanding", "inference"]
     purpose: Literal["public_web_research"]
@@ -488,35 +513,35 @@ class WebResearchRequestPayload(_StrictModel):
     query: Annotated[str, StringConstraints(min_length=1, max_length=16384)]
 
 
-class WebResearchRequestProposal(_StrictModel):
+class WebResearchRequestProposal(_StrictModel, frozen=True):
     proposal_ref: ProposalRef
     atomic_group_ref: AtomicGroupRef
     basis_refs: tuple[ContextRef, ...] = Field(min_length=1, max_length=8)
     payload: WebResearchRequestPayload
 
 
-class VisualObservationRequestPayload(_StrictModel):
+class VisualObservationRequestPayload(_StrictModel, frozen=True):
     proposal_kind: Literal["visual_observation_requests"]
     fact_class: Literal["inference"]
     source_kind: Literal["camera", "screen"]
 
 
-class VisualObservationRequestProposal(_StrictModel):
+class VisualObservationRequestProposal(_StrictModel, frozen=True):
     proposal_ref: ProposalRef
     atomic_group_ref: AtomicGroupRef
     basis_refs: tuple[ContextRef, ...] = Field(min_length=1, max_length=8)
     payload: VisualObservationRequestPayload
 
 
-class CandidateUncertainty(_StrictModel):
+class CandidateUncertainty(_StrictModel, frozen=True):
     uncertainty_ref: UncertaintyRef
     basis_refs: tuple[ContextRef, ...] = Field(max_length=8)
     fact_class: Literal["unknown"]
     summary: Summary
 
 
-class CognitionCandidate(_StrictModel):
-    schema_version: Literal["armi.cognition-candidate.v13"]
+class CognitionCandidate(_StrictModel, frozen=True):
+    schema_version: Literal["armi.cognition-candidate.v14"]
     base: CandidateBase
     disposition: Literal[
         "change",
@@ -542,22 +567,24 @@ class CognitionCandidate(_StrictModel):
     uncertainties: tuple[CandidateUncertainty, ...] = Field(max_length=8)
     reason_summary: Summary
 
-    @model_validator(mode="after")
-    def validate_action_cardinality(self) -> CognitionCandidate:
-        validate_action_kinds(item.payload.action_kind for item in self.action_choices)
-        return self
-
 
 _CANDIDATE_ADAPTER = TypeAdapter(CognitionCandidate)
 
 
 def candidate_schema(
     version: str = CANDIDATE_VERSION,
+    *,
+    purpose: str | None = None,
 ) -> dict[str, Any]:
-    if version == "armi.owner-reflection-candidate.v2":
+    if version == "armi.owner-reflection-candidate.v3":
         from ._reflection_contract import owner_reflection_schema
 
-        return cast(dict[str, Any], owner_reflection_schema())
+        return cast(
+            dict[str, Any],
+            owner_reflection_schema(
+                target=None if purpose is None else purpose.removeprefix("reflect_")
+            ),
+        )
     if version == CREATOR_COGNITIVE_ACT_VERSION:
         return cast(dict[str, Any], creator_cognitive_act_schema())
     if version == CREATOR_VOICE_ACT_VERSION:
@@ -567,7 +594,7 @@ def candidate_schema(
     if version == ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION:
         return activity_internal_work_candidate_schema()
     if version == MAINTENANCE_WORK_CANDIDATE_VERSION:
-        return maintenance_work_candidate_schema()
+        return maintenance_work_candidate_schema(purpose=purpose)
     if version == SLEEP_DECISION_CANDIDATE_VERSION:
         return sleep_decision_candidate_schema()
     if version == AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION:
@@ -577,7 +604,7 @@ def candidate_schema(
     if version == OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION:
         return other_human_candidate_schema(version)
     if version == DIALOGUE_CANDIDATE_VERSION:
-        return dialogue_candidate_schema(version)
+        return creator_outreach_schema()
     if version == CANDIDATE_VERSION:
         return _CANDIDATE_ADAPTER.json_schema()
     raise ModelViolation("MODEL-BINDING")
@@ -588,6 +615,7 @@ def parse_candidate(
     *,
     allowed_context_refs: frozenset[str],
     expected_version: str | None = None,
+    purpose: str | None = None,
 ) -> (
     ActivityAttentionCandidate
     | ActivityInternalWorkCandidate
@@ -596,7 +624,6 @@ def parse_candidate(
     | SleepDecisionCandidate
     | CreatorCognitiveActCandidate
     | OwnerReflectionCandidate
-    | CreatorDialogueCandidate
     | OtherHumanDialogueCandidate
     | VisualObservationCandidate
     | CognitionCandidate
@@ -604,11 +631,6 @@ def parse_candidate(
     try:
         raw: object = json.loads(value) if isinstance(value, bytes) else value
         candidate_object = cast(dict[str, Any], raw) if isinstance(raw, dict) else None
-        version = (
-            candidate_object.get("schema_version")
-            if candidate_object is not None
-            else None
-        )
         if (
             candidate_object is not None
             and expected_version == CREATOR_COGNITIVE_ACT_VERSION
@@ -627,13 +649,14 @@ def parse_candidate(
             )
         elif (
             candidate_object is not None
-            and expected_version == "armi.owner-reflection-candidate.v2"
+            and expected_version == "armi.owner-reflection-candidate.v3"
         ):
             from ._reflection_contract import parse_owner_reflection
 
             return parse_owner_reflection(
                 candidate_object,
                 allowed_context_refs=allowed_context_refs,
+                target=None if purpose is None else purpose.removeprefix("reflect_"),
             )
         elif (
             candidate_object is not None
@@ -655,7 +678,9 @@ def parse_candidate(
         ):
             maintenance_value = dict(candidate_object)
             maintenance_value.pop("schema_version", None)
-            candidate = parse_maintenance_work_candidate(maintenance_value)
+            candidate = parse_maintenance_work_candidate(
+                maintenance_value, purpose=purpose
+            )
         elif (
             candidate_object is not None
             and expected_version == SLEEP_DECISION_CANDIDATE_VERSION
@@ -688,17 +713,11 @@ def parse_candidate(
                 allowed_context_refs=allowed_context_refs,
                 expected_version=expected_version,
             )
-        elif candidate_object is not None and (
-            expected_version == DIALOGUE_CANDIDATE_VERSION
-            or version == DIALOGUE_CANDIDATE_VERSION
-            or (version is None and "kind" in candidate_object)
+        elif (
+            candidate_object is not None
+            and expected_version == DIALOGUE_CANDIDATE_VERSION
         ):
-            dialogue_value = dict(candidate_object)
-            dialogue_value.pop("schema_version", None)
-            candidate = parse_dialogue_candidate(
-                dialogue_value,
-                version=DIALOGUE_CANDIDATE_VERSION,
-            )
+            candidate = parse_creator_outreach(candidate_object)
         else:
             candidate = _CANDIDATE_ADAPTER.validate_python(
                 strict_model_value(cast(object, raw)), strict=True
@@ -711,7 +730,9 @@ def parse_candidate(
         ValueError,
     ) as error:
         raise ModelViolation("MODEL-RESPONSE-SCHEMA") from error
-    if isinstance(candidate, CreatorCognitiveActCandidate):
+    if isinstance(
+        candidate, (CreatorCognitiveActCandidate, OtherHumanDialogueCandidate)
+    ):
         return candidate
     appraisal = getattr(candidate, "appraisal", None)
     if appraisal is not None:
@@ -723,11 +744,6 @@ def parse_candidate(
     if isinstance(
         candidate,
         AttentionSimpleDecision,
-    ):
-        return candidate
-    if isinstance(
-        candidate,
-        (OtherHumanReplyDecision, OtherHumanTerminalDecision),
     ):
         return candidate
     if isinstance(
@@ -779,86 +795,6 @@ def parse_candidate(
     if isinstance(
         candidate, (AutonomousTerminalDecision, AutonomousVisualObservationDecision)
     ):
-        return candidate
-    if isinstance(candidate, CreatorDialogueCandidate):
-        if isinstance(candidate, DialogueReplyDecision):
-            try:
-                encoded = candidate.content.encode("utf-8", errors="strict")
-            except UnicodeEncodeError:
-                raise ModelViolation("MODEL-RESPONSE-SCHEMA") from None
-            if (
-                not encoded
-                or len(encoded) > 65536
-                or b"\x00" in encoded
-                or not candidate.content.strip()
-            ):
-                raise ModelViolation("MODEL-RESPONSE-LIMIT")
-            dialogue_refs: set[str] = set()
-            if candidate.memory_change is not None:
-                dialogue_refs.add(candidate.memory_change.memory_ref)
-                if candidate.memory_change.related_memory_ref is not None:
-                    dialogue_refs.add(candidate.memory_change.related_memory_ref)
-            relationship_change = candidate.relationship_change
-            if (
-                relationship_change is not None
-                and relationship_change.commitment_change is not None
-            ):
-                commitment_change = relationship_change.commitment_change
-                if commitment_change.commitment_ref is not None:
-                    dialogue_refs.add(commitment_change.commitment_ref)
-                if commitment_change.conflicts_with_ref is not None:
-                    dialogue_refs.add(commitment_change.conflicts_with_ref)
-            material_change = getattr(candidate, "material_change", None)
-            if material_change is not None:
-                material_body_text = getattr(material_change, "body", None)
-                if material_body_text is not None:
-                    try:
-                        material_body = material_body_text.encode(
-                            "utf-8", errors="strict"
-                        )
-                    except UnicodeEncodeError:
-                        raise ModelViolation("MODEL-RESPONSE-SCHEMA") from None
-                    if (
-                        not material_body
-                        or len(material_body) > 65_536
-                        or b"\x00" in material_body
-                        or not material_body_text.strip()
-                    ):
-                        raise ModelViolation("MODEL-RESPONSE-LIMIT")
-                material_ref = getattr(material_change, "material_ref", None)
-                if material_ref is not None:
-                    dialogue_refs.add(material_ref)
-            if not dialogue_refs.issubset(allowed_context_refs):
-                raise ModelViolation("MODEL-RESPONSE-REFERENCE")
-        if isinstance(candidate, DialogueWebResearchDecision):
-            try:
-                encoded_query = candidate.query.encode("utf-8", errors="strict")
-            except UnicodeEncodeError:
-                raise ModelViolation("MODEL-RESPONSE-SCHEMA") from None
-            if (
-                not encoded_query
-                or len(encoded_query) > 16 * 1024
-                or b"\x00" in encoded_query
-                or not candidate.query.strip()
-                or "http://" in candidate.query.casefold()
-                or "https://" in candidate.query.casefold()
-            ):
-                raise ModelViolation("MODEL-RESPONSE-LIMIT")
-        if (
-            isinstance(candidate, DialogueExactLifeQueryDecision)
-            and candidate.query_text is not None
-        ):
-            try:
-                encoded_query = candidate.query_text.encode("utf-8", errors="strict")
-            except UnicodeEncodeError:
-                raise ModelViolation("MODEL-RESPONSE-SCHEMA") from None
-            if (
-                not encoded_query
-                or len(encoded_query) > 1024
-                or b"\x00" in encoded_query
-                or not candidate.query_text.strip()
-            ):
-                raise ModelViolation("MODEL-RESPONSE-LIMIT")
         return candidate
     proposals = (
         *candidate.experiences,
@@ -1014,22 +950,22 @@ def load_active_binding(
             },
             "reflect_self": {
                 "profile": "reflect_self",
-                "response_contract_version": "armi.owner-reflection-candidate.v2",
+                "response_contract_version": "armi.owner-reflection-candidate.v3",
                 "output_token_limit": 2048,
             },
             "reflect_mind": {
                 "profile": "reflect_mind",
-                "response_contract_version": "armi.owner-reflection-candidate.v2",
+                "response_contract_version": "armi.owner-reflection-candidate.v3",
                 "output_token_limit": 2048,
             },
             "reflect_mood": {
                 "profile": "reflect_mood",
-                "response_contract_version": "armi.owner-reflection-candidate.v2",
+                "response_contract_version": "armi.owner-reflection-candidate.v3",
                 "output_token_limit": 1024,
             },
             "reflect_prompt": {
                 "profile": "reflect_prompt",
-                "response_contract_version": "armi.owner-reflection-candidate.v2",
+                "response_contract_version": "armi.owner-reflection-candidate.v3",
                 "output_token_limit": 1024,
             },
         }
@@ -1821,7 +1757,6 @@ __all__ = (
     "WEB_DIALOGUE_INSTRUCTIONS",
     "CodexDelegationPayload",
     "CognitionCandidate",
-    "CreatorDialogueCandidate",
     "RuntimeBoundCreatorReplyPayload",
     "WebResearchRequestPayload",
     "WebResearchRequestProposal",

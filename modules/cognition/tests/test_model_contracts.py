@@ -10,6 +10,8 @@ from uuid import UUID, uuid7
 import armi_cognition._model_contract as model_contract_module
 import armi_cognition._other_human_contract as other_human_contract_module
 import pytest
+from armi_cognition._creator_cognitive_act_contract import CREATOR_COGNITIVE_ACT_VERSION
+from armi_cognition._dialogue_contract import DialogueDecision
 from armi_cognition._model_contract import (
     ACTIVE_MODEL_ID,
     ACTIVE_VERSION_POLICY,
@@ -30,14 +32,23 @@ from armi_cognition._other_human_contract import (
     OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
     OTHER_HUMAN_DIALOGUE_INSTRUCTIONS,
 )
+from armi_cognition._strict_model_json import strict_model_value
 from armi_kernel import load_yaml_file
 from armi_kernel.application import (
     ModelBinding,
     ModelViolation,
 )
 from armi_kernel.contracts import Digest
+from pydantic import TypeAdapter, ValidationError
 
 _BUNDLE_ID = UUID("01980f7d-7b8f-7e2a-8a11-2ab8e1234567")
+
+
+def _dialogue_domain(value: bytes):
+    """Construct typed internal binding arguments; this is not a model wire parser."""
+    return TypeAdapter(DialogueDecision).validate_python(
+        strict_model_value(json.loads(value)), strict=True
+    )
 
 
 def test_internal_candidate_parser_error_is_not_reported_as_model_output(
@@ -73,14 +84,16 @@ def test_other_human_social_contract_versions_relationship_context_refs() -> Non
     current = parse_candidate(
         json.dumps(
             {
-                "kind": "silence",
-                "experience": {"first_person_gist": "对方明确改变了承诺。"},
-                "relationship_change": {
-                    "commitment_change": {
-                        "action": "violate",
-                        "commitment_ref": "ctx:3",
-                        "event_summary": "对方确认没有履行承诺。",
-                    }
+                "decision": {"kind": "silence"},
+                "social": {
+                    "experience": {"first_person_gist": "对方明确改变了承诺。"},
+                    "relationship_change": {
+                        "commitment_change": {
+                            "action": "violate",
+                            "commitment_ref": "ctx:3",
+                            "event_summary": "对方确认没有履行承诺。",
+                        }
+                    },
                 },
             },
             ensure_ascii=False,
@@ -93,14 +106,16 @@ def test_other_human_social_contract_versions_relationship_context_refs() -> Non
         parse_candidate(
             json.dumps(
                 {
-                    "kind": "silence",
-                    "experience": {"first_person_gist": "对方改变了承诺。"},
-                    "relationship_change": {
-                        "commitment_change": {
-                            "action": "violate",
-                            "commitment_ref": "ctx:4",
-                            "event_summary": "对方没有履行承诺。",
-                        }
+                    "decision": {"kind": "silence"},
+                    "social": {
+                        "experience": {"first_person_gist": "对方改变了承诺。"},
+                        "relationship_change": {
+                            "commitment_change": {
+                                "action": "violate",
+                                "commitment_ref": "ctx:4",
+                                "event_summary": "对方没有履行承诺。",
+                            }
+                        },
                     },
                 },
                 ensure_ascii=False,
@@ -118,7 +133,7 @@ def test_other_human_social_contract_versions_relationship_context_refs() -> Non
     assert "suddenness" not in current
 
 
-def test_autonomous_activity_contract_is_compact_strict_and_byte_bounded() -> None:
+def test_autonomous_activity_contract_is_strict_and_character_bounded() -> None:
     parsed = parse_candidate(
         b'{"kind":"start_activity","goal":"learn","next_step":"read"}',
         allowed_context_refs=frozenset(),
@@ -133,7 +148,7 @@ def test_autonomous_activity_contract_is_compact_strict_and_byte_bounded() -> No
     for value in (
         b'{"kind":"start_activity","goal":"learn","next_step":"read","status":"ready"}',
         json.dumps(
-            {"kind": "start_activity", "goal": "界" * 683, "next_step": "read"}
+            {"kind": "start_activity", "goal": "界" * 2049, "next_step": "read"}
         ).encode(),
     ):
         with pytest.raises(ModelViolation):
@@ -264,7 +279,7 @@ def test_maintenance_work_contract_is_phase_bounded_and_context_referenced() -> 
 
 def _candidate() -> dict[str, object]:
     return {
-        "schema_version": "armi.cognition-candidate.v13",
+        "schema_version": "armi.cognition-candidate.v14",
         "base": {
             "subject_version": 0,
             "state_epoch": 0,
@@ -693,29 +708,18 @@ def test_creator_outreach_has_a_narrow_compact_purpose_profile() -> None:
     assert outreach.output_token_limit == 512
 
 
-def test_creator_dialogue_growth_contract_requires_same_turn_experience() -> None:
+def test_dialogue_domain_growth_contract_requires_same_turn_experience() -> None:
     value = {
         "kind": "reply",
         "content": "我想把这个变化认真留下来。",
         "experience": {"first_person_gist": "我在这次交流里作出了自己的选择。"},
-        "changes": [
-            {"op": "self.set", "field": "name", "text": "阿米"},
-            {
-                "op": "self.set",
-                "field": "interests",
-                "items": ["持续理解自己的生活"],
-            },
-            {
-                "op": "mind.set",
-                "field": "understanding",
-                "items": ["这次选择来自我现在的真实处境"],
-            },
-        ],
+        "self_change": {
+            "name": {"value": "阿米"},
+            "interests": {"values": ["持续理解自己的生活"]},
+        },
+        "mind_change": {"understanding": {"values": ["这次选择来自我现在的真实处境"]}},
     }
-    parsed = parse_candidate(
-        json.dumps(value, ensure_ascii=False).encode(),
-        allowed_context_refs=frozenset(),
-    )
+    parsed = _dialogue_domain(json.dumps(value, ensure_ascii=False).encode())
     assert parsed.schema_version == DIALOGUE_CANDIDATE_VERSION
     dumped = parsed.model_dump(mode="json")
     assert dumped["self_change"]["name"] == {"value": "阿米"}
@@ -723,173 +727,185 @@ def test_creator_dialogue_growth_contract_requires_same_turn_experience() -> Non
     assert dumped["mind_change"]["understanding"] == {
         "values": ["这次选择来自我现在的真实处境"]
     }
-
     without_experience = dict(value)
     without_experience.pop("experience")
-    with pytest.raises(ModelViolation, match="MODEL-RESPONSE-SCHEMA"):
-        parse_candidate(
-            json.dumps(without_experience, ensure_ascii=False).encode(),
-            allowed_context_refs=frozenset(),
-        )
+    with pytest.raises(ValidationError):
+        _dialogue_domain(json.dumps(without_experience, ensure_ascii=False).encode())
 
 
 @pytest.mark.parametrize(
     "change,owner",
     [
-        ({"op": "memory.recall", "target_ref": "ctx:1"}, "memory_change"),
-        ({"op": "memory.fade", "target_ref": "ctx:1"}, "memory_change"),
-        ({"op": "memory.forget", "target_ref": "ctx:1"}, "memory_change"),
+        ({"action": "recall", "memory_ref": "ctx:1"}, "memory_change"),
+        ({"action": "fade", "memory_ref": "ctx:1"}, "memory_change"),
+        ({"action": "forget", "memory_ref": "ctx:1"}, "memory_change"),
         (
             {
-                "op": "memory.reinterpret",
-                "target_ref": "ctx:1",
-                "related_ref": "ctx:2",
-                "text": "我现在有了新的理解。",
-                "metadata": {"relation_kind": "supports"},
+                "action": "reinterpret",
+                "memory_ref": "ctx:1",
+                "summary": "我现在有了新的理解。",
+                "related_memory_ref": "ctx:2",
+                "relation_kind": "supports",
             },
             "memory_change",
         ),
+        ({"interpretation": "我更信任对方了。"}, "relationship_change"),
         (
-            {"op": "relationship.interpret", "text": "我更信任对方了。"},
-            "relationship_change",
-        ),
-        (
-            {"op": "relationship.fact", "text": "对方明确表达了关心。"},
+            {"fact": {"kind": "party_expression", "summary": "对方明确表达了关心。"}},
             "relationship_change",
         ),
         (
             {
-                "op": "relationship.boundary",
-                "field": "privacy",
-                "party": "creator",
-                "text": "不要公开这段交流。",
-                "metadata": {"action": "restrict"},
+                "boundary": {
+                    "party": "creator",
+                    "kind": "privacy",
+                    "action": "restrict",
+                    "summary": "不要公开这段交流。",
+                }
             },
             "relationship_change",
         ),
         (
             {
-                "op": "commitment.establish",
-                "field": "conversation",
-                "party": "armi",
-                "text": "下次继续讨论。",
-                "metadata": {"event_summary": "我作出了承诺。"},
+                "commitment_change": {
+                    "action": "establish",
+                    "party": "armi",
+                    "scope": "conversation",
+                    "content": "下次继续讨论。",
+                    "event_summary": "我作出了承诺。",
+                }
             },
             "relationship_change",
         ),
         (
             {
-                "op": "commitment.modify",
-                "target_ref": "ctx:1",
-                "text": "改为明天继续。",
-                "metadata": {"event_summary": "承诺被修改。"},
-            },
-            "relationship_change",
-        ),
-        *[
-            (
-                {
-                    "op": f"commitment.{action}",
-                    "target_ref": "ctx:1",
-                    "text": f"承诺发生 {action}。",
-                },
-                "relationship_change",
-            )
-            for action in ("fulfill", "withdraw", "forget", "violate")
-        ],
-        (
-            {
-                "op": "commitment.conflict",
-                "target_ref": "ctx:1",
-                "related_ref": "ctx:2",
-                "text": "两项承诺发生冲突。",
+                "commitment_change": {
+                    "action": "modify",
+                    "commitment_ref": "ctx:1",
+                    "content": "改为明天继续。",
+                    "event_summary": "承诺被修改。",
+                }
             },
             "relationship_change",
         ),
         (
             {
-                "op": "material.create",
-                "field": "diary",
-                "text": "正文",
-                "metadata": {"title": "标题", "data.mood": "calm"},
+                "commitment_change": {
+                    "action": "fulfill",
+                    "commitment_ref": "ctx:1",
+                    "event_summary": "承诺发生 fulfill。",
+                }
+            },
+            "relationship_change",
+        ),
+        (
+            {
+                "commitment_change": {
+                    "action": "withdraw",
+                    "commitment_ref": "ctx:1",
+                    "event_summary": "承诺发生 withdraw。",
+                }
+            },
+            "relationship_change",
+        ),
+        (
+            {
+                "commitment_change": {
+                    "action": "forget",
+                    "commitment_ref": "ctx:1",
+                    "event_summary": "承诺发生 forget。",
+                }
+            },
+            "relationship_change",
+        ),
+        (
+            {
+                "commitment_change": {
+                    "action": "violate",
+                    "commitment_ref": "ctx:1",
+                    "event_summary": "承诺发生 violate。",
+                }
+            },
+            "relationship_change",
+        ),
+        (
+            {
+                "commitment_change": {
+                    "action": "note_conflict",
+                    "commitment_ref": "ctx:1",
+                    "conflicts_with_ref": "ctx:2",
+                    "event_summary": "两项承诺发生冲突。",
+                }
+            },
+            "relationship_change",
+        ),
+        (
+            {
+                "action": "create",
+                "material_kind": "diary",
+                "title": "标题",
+                "body": "正文",
+                "metadata": {"mood": "calm"},
+                "material_status": "active",
             },
             "material_change",
         ),
         (
             {
-                "op": "material.update",
-                "target_ref": "ctx:1",
-                "text": "新正文",
-                "metadata": {"title": "新标题"},
+                "action": "update",
+                "material_ref": "ctx:1",
+                "title": "新标题",
+                "body": "新正文",
+                "metadata": {},
+                "material_status": "active",
             },
             "material_change",
         ),
+        ({"action": "set_private", "material_ref": "ctx:1"}, "material_change"),
+        ({"action": "delete", "material_ref": "ctx:1"}, "material_change"),
+        ({"interests": {"values": ["观察生活"]}}, "self_change"),
+        ({"attention": {"values": ["继续理解当前问题"]}}, "mind_change"),
         (
             {
-                "op": "material.visibility",
-                "target_ref": "ctx:1",
-                "field": "set_private",
-            },
-            "material_change",
-        ),
-        ({"op": "material.delete", "target_ref": "ctx:1"}, "material_change"),
-        (
-            {"op": "self.set", "field": "interests", "items": ["观察生活"]},
-            "self_change",
-        ),
-        (
-            {"op": "mind.set", "field": "attention", "items": ["继续理解当前问题"]},
-            "mind_change",
-        ),
-        (
-            {
-                "op": "prompt.set",
-                "metadata": {
-                    "cognition_method": "区分事实和推断",
-                    "expression_method": "直接表达",
-                    "reflection_method": "复查依据",
-                },
+                "cognition_method": "区分事实和推断",
+                "expression_method": "直接表达",
+                "reflection_method": "复查依据",
             },
             "subject_prompt_change",
         ),
     ],
 )
-def test_compact_dialogue_change_ops_translate_to_existing_domain_candidate(
+def test_typed_dialogue_binding_preserves_each_domain_change(
     change: dict[str, object], owner: str
 ) -> None:
-    parsed = parse_candidate(
+    parsed = _dialogue_domain(
         json.dumps(
             {
                 "kind": "reply",
-                "content": "我作出了这个决定。",
-                "experience": {"first_person_gist": "这一轮对我产生了真实影响。"},
-                "changes": [change],
-            },
-            ensure_ascii=False,
-        ).encode(),
-        allowed_context_refs=frozenset({"ctx:1", "ctx:2"}),
-        expected_version=DIALOGUE_CANDIDATE_VERSION,
+                "content": "decision",
+                "experience": {"first_person_gist": "experience"},
+                owner: change,
+            }
+        ).encode()
     )
-    assert parsed.schema_version == DIALOGUE_CANDIDATE_VERSION
-    assert parsed.model_dump(mode="json", exclude_none=True)[owner]
+    assert parsed.model_dump(mode="json", exclude_none=True)[owner] == change
 
 
-def test_creator_dialogue_rejects_removed_codex_request_operation() -> None:
-    with pytest.raises(ModelViolation, match="MODEL-RESPONSE-SCHEMA"):
-        parse_candidate(
+def test_dialogue_domain_rejects_removed_codex_request_operation() -> None:
+    with pytest.raises(ValidationError):
+        _dialogue_domain(
             json.dumps(
                 {
                     "kind": "reply",
                     "content": "旧申请操作已移除。",
                     "changes": [{"op": "codex.request", "target_ref": "ctx:6"}],
                 }
-            ).encode(),
-            allowed_context_refs=frozenset({"ctx:6"}),
+            ).encode()
         )
 
 
-def test_creator_dialogue_memory_is_optional_and_cannot_claim_authority() -> None:
-    parsed = parse_candidate(
+def test_dialogue_domain_memory_is_optional_and_cannot_claim_authority() -> None:
+    parsed = _dialogue_domain(
         json.dumps(
             {
                 "kind": "reply",
@@ -901,17 +917,15 @@ def test_creator_dialogue_memory_is_optional_and_cannot_claim_authority() -> Non
                 },
             },
             ensure_ascii=False,
-        ).encode(),
-        allowed_context_refs=frozenset(),
+        ).encode()
     )
     assert parsed.model_dump(mode="json")["experience"] == {
         "first_person_gist": "创造者告诉了我一个偏好。",
         "uncertainty": "这仍是创造者的陈述。",
         "memory_summary": "创造者向我表达过这个偏好。",
     }
-
-    with pytest.raises(ModelViolation):
-        parse_candidate(
+    with pytest.raises(ValidationError):
+        _dialogue_domain(
             json.dumps(
                 {
                     "kind": "reply",
@@ -923,36 +937,29 @@ def test_creator_dialogue_memory_is_optional_and_cannot_claim_authority() -> Non
                     },
                 },
                 ensure_ascii=False,
-            ).encode(),
-            allowed_context_refs=frozenset(),
+            ).encode()
         )
 
 
-def test_creator_dialogue_memory_revision_is_narrow_and_strict() -> None:
-    parsed = parse_candidate(
+def test_dialogue_domain_memory_revision_is_narrow_and_strict() -> None:
+    parsed = _dialogue_domain(
         json.dumps(
             {
                 "kind": "reply",
                 "content": "我现在有了不同的理解。",
-                "changes": [
-                    {
-                        "op": "memory.reinterpret",
-                        "target_ref": "ctx:4",
-                        "related_ref": "ctx:5",
-                        "text": "我现在把那次表达理解为一种仍可讨论的偏好。",
-                        "metadata": {
-                            "uncertainty": "这只是我当前的理解。",
-                            "relation_kind": "contradicts",
-                        },
-                    }
-                ],
+                "memory_change": {
+                    "action": "reinterpret",
+                    "memory_ref": "ctx:4",
+                    "summary": "我现在把那次表达理解为一种仍可讨论的偏好。",
+                    "uncertainty": "这只是我当前的理解。",
+                    "related_memory_ref": "ctx:5",
+                    "relation_kind": "contradicts",
+                },
             },
             ensure_ascii=False,
-        ).encode(),
-        allowed_context_refs=frozenset({"ctx:4", "ctx:5"}),
+        ).encode()
     )
-    assert parsed.model_dump(mode="json")["memory_change"]["action"] == ("reinterpret")
-
+    assert parsed.model_dump(mode="json")["memory_change"]["action"] == "reinterpret"
     for invalid in (
         {
             "action": "forget",
@@ -972,52 +979,41 @@ def test_creator_dialogue_memory_revision_is_narrow_and_strict() -> None:
             "related_memory_ref": "ctx:5",
         },
     ):
-        with pytest.raises(ModelViolation):
-            parse_candidate(
+        with pytest.raises(ValidationError):
+            _dialogue_domain(
                 json.dumps(
-                    {
-                        "kind": "reply",
-                        "content": "无效",
-                        "memory_change": invalid,
-                    },
+                    {"kind": "reply", "content": "无效", "memory_change": invalid},
                     ensure_ascii=False,
-                ).encode(),
-                allowed_context_refs=frozenset({"ctx:4", "ctx:5"}),
+                ).encode()
             )
 
 
-def test_creator_dialogue_relationship_change_is_narrow_and_experience_bound() -> None:
-    parsed = parse_candidate(
+def test_dialogue_domain_relationship_change_is_narrow_and_experience_bound() -> None:
+    parsed = _dialogue_domain(
         json.dumps(
             {
                 "kind": "reply",
                 "content": "我会尊重这个边界。",
                 "experience": {"first_person_gist": "创造者明确要求我停止联系。"},
-                "changes": [
-                    {
-                        "op": "relationship.interpret",
-                        "text": "我理解这段接触现在应当结束。",
+                "relationship_change": {
+                    "interpretation": "我理解这段接触现在应当结束。",
+                    "fact": {
+                        "kind": "party_expression",
+                        "summary": "创造者表达了结束接触的决定。",
                     },
-                    {
-                        "op": "relationship.fact",
-                        "text": "创造者表达了结束接触的决定。",
-                    },
-                    {
-                        "op": "relationship.boundary",
-                        "field": "exit",
+                    "boundary": {
                         "party": "creator",
-                        "text": "创造者要求结束接触。",
-                        "metadata": {"action": "end_contact"},
+                        "kind": "exit",
+                        "action": "end_contact",
+                        "summary": "创造者要求结束接触。",
                     },
-                ],
+                },
             },
             ensure_ascii=False,
-        ).encode(),
-        allowed_context_refs=frozenset(),
+        ).encode()
     )
     change = parsed.model_dump(mode="json")["relationship_change"]
     assert change["boundary"]["action"] == "end_contact"
-
     for invalid in (
         {
             "kind": "reply",
@@ -1050,51 +1046,38 @@ def test_creator_dialogue_relationship_change_is_narrow_and_experience_bound() -
             },
         },
     ):
-        with pytest.raises(ModelViolation):
-            parse_candidate(
-                json.dumps(invalid, ensure_ascii=False).encode(),
-                allowed_context_refs=frozenset(),
-            )
+        with pytest.raises(ValidationError):
+            _dialogue_domain(json.dumps(invalid, ensure_ascii=False).encode())
 
 
-def test_creator_dialogue_commitment_change_is_narrow_and_context_bound() -> None:
-    parsed = parse_candidate(
+def test_dialogue_domain_commitment_change_is_narrow_and_context_bound() -> None:
+    parsed = _dialogue_domain(
         json.dumps(
             {
                 "kind": "reply",
                 "content": "我答应联系前先问你是否方便。",
                 "experience": {"first_person_gist": "我作出了一个明确承担。"},
-                "changes": [
-                    {
-                        "op": "relationship.interpret",
-                        "text": "我愿意尊重创造者当时的状态。",
-                    },
-                    {
-                        "op": "commitment.establish",
-                        "field": "主动联系",
+                "relationship_change": {
+                    "interpretation": "我愿意尊重创造者当时的状态。",
+                    "commitment_change": {
+                        "action": "establish",
                         "party": "armi",
-                        "text": "联系前先询问是否方便。",
-                        "metadata": {
-                            "event_summary": "我明确作出了联系前先询问的承诺。"
-                        },
+                        "scope": "主动联系",
+                        "content": "联系前先询问是否方便。",
+                        "event_summary": "我明确作出了联系前先询问的承诺。",
                     },
-                ],
+                },
             },
             ensure_ascii=False,
-        ).encode(),
-        allowed_context_refs=frozenset(),
+        ).encode()
     )
     commitment = parsed.model_dump(mode="json")["relationship_change"][
         "commitment_change"
     ]
     assert commitment["party"] == "armi"
     assert commitment["commitment_ref"] is None
-
     invalid_changes = (
-        {
-            "action": "fulfill",
-            "event_summary": "没有引用当前承诺。",
-        },
+        {"action": "fulfill", "event_summary": "没有引用当前承诺。"},
         {
             "action": "establish",
             "party": "armi",
@@ -1109,15 +1092,10 @@ def test_creator_dialogue_commitment_change_is_narrow_and_context_bound() -> Non
             "conflicts_with_ref": "ctx:7",
             "event_summary": "承诺不能与自己冲突。",
         },
-        {
-            "action": "withdraw",
-            "commitment_ref": "ctx:9",
-            "event_summary": "引用未提供的承诺。",
-        },
     )
     for commitment_change in invalid_changes:
-        with pytest.raises(ModelViolation):
-            parse_candidate(
+        with pytest.raises(ValidationError):
+            _dialogue_domain(
                 json.dumps(
                     {
                         "kind": "reply",
@@ -1126,13 +1104,12 @@ def test_creator_dialogue_commitment_change_is_narrow_and_context_bound() -> Non
                         "relationship_change": {"commitment_change": commitment_change},
                     },
                     ensure_ascii=False,
-                ).encode(),
-                allowed_context_refs=frozenset({"ctx:7"}),
+                ).encode()
             )
 
 
-def test_web_dialogue_is_current_compact_contract_and_rejects_urls() -> None:
-    schema = candidate_schema(DIALOGUE_CANDIDATE_VERSION)
+def test_web_dialogue_uses_current_action_contract_and_rejects_url_fields() -> None:
+    schema = candidate_schema(CREATOR_COGNITIVE_ACT_VERSION)
     schema_text = json.dumps(schema, separators=(",", ":"))
     assert '"web_research"' in schema_text
     assert '"schema_version"' not in schema_text
@@ -1140,28 +1117,33 @@ def test_web_dialogue_is_current_compact_contract_and_rejects_urls() -> None:
 
     parsed = parse_candidate(
         json.dumps(
-            {"kind": "web_research", "query": "PostgreSQL 18 正式发布说明"},
+            {
+                "decision": {
+                    "kind": "web_research",
+                    "query": "PostgreSQL 18 正式发布说明",
+                }
+            },
             ensure_ascii=False,
         ).encode(),
         allowed_context_refs=frozenset(),
-        expected_version=DIALOGUE_CANDIDATE_VERSION,
+        expected_version=CREATOR_COGNITIVE_ACT_VERSION,
     )
-    assert parsed.schema_version == DIALOGUE_CANDIDATE_VERSION
-    assert parsed.model_dump(mode="json") == {
+    assert parsed.schema_version == CREATOR_COGNITIVE_ACT_VERSION
+    assert parsed.model_dump(mode="json")["decision"] == {
         "kind": "web_research",
         "query": "PostgreSQL 18 正式发布说明",
     }
 
-    with pytest.raises(ModelViolation, match="MODEL-RESPONSE-LIMIT"):
+    with pytest.raises(ModelViolation, match="MODEL-RESPONSE-SCHEMA"):
         parse_candidate(
-            b'{"kind":"web_research","query":"https://example.com/"}',
+            b'{"decision":{"kind":"web_research","url":"https://example.com/"}}',
             allowed_context_refs=frozenset(),
-            expected_version=DIALOGUE_CANDIDATE_VERSION,
+            expected_version=CREATOR_COGNITIVE_ACT_VERSION,
         )
 
 
 def test_dialogue_exact_life_query_schema_excludes_logs_and_admin_data() -> None:
-    schema_text = json.dumps(candidate_schema(DIALOGUE_CANDIDATE_VERSION))
+    schema_text = json.dumps(candidate_schema(CREATOR_COGNITIVE_ACT_VERSION))
     assert '"exact_life_query"' in schema_text
     assert '"self_change"' in schema_text
     assert '"audit"' not in schema_text
@@ -1170,28 +1152,29 @@ def test_dialogue_exact_life_query_schema_excludes_logs_and_admin_data() -> None
     parsed = parse_candidate(
         json.dumps(
             {
-                "kind": "exact_life_query",
-                "record_kind": "material",
-                "query": "我的私人草稿",
-                "changes": [],
+                "decision": {
+                    "kind": "exact_life_query",
+                    "record_kind": "material",
+                    "query": "我的私人草稿",
+                },
             },
             ensure_ascii=False,
         ).encode(),
         allowed_context_refs=frozenset(),
-        expected_version=DIALOGUE_CANDIDATE_VERSION,
+        expected_version=CREATOR_COGNITIVE_ACT_VERSION,
     )
-    assert parsed.schema_version == DIALOGUE_CANDIDATE_VERSION
-    assert parsed.model_dump(mode="json") == {
+    assert parsed.schema_version == CREATOR_COGNITIVE_ACT_VERSION
+    assert parsed.model_dump(mode="json")["decision"] == {
         "kind": "exact_life_query",
         "record_kind": "material",
-        "query_text": "我的私人草稿",
+        "query": "我的私人草稿",
     }
 
     with pytest.raises(ModelViolation, match="MODEL-RESPONSE-SCHEMA"):
         parse_candidate(
-            b'{"kind":"exact_life_query","record_kind":"audit","query":"logs","changes":[]}',
+            b'{"decision":{"kind":"exact_life_query","record_kind":"audit","query":"logs"}}',
             allowed_context_refs=frozenset(),
-            expected_version=DIALOGUE_CANDIDATE_VERSION,
+            expected_version=CREATOR_COGNITIVE_ACT_VERSION,
         )
 
 

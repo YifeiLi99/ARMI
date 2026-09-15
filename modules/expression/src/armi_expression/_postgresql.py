@@ -514,7 +514,7 @@ class PostgreSQLExpressionOwner:
                 subject_commit_id, subject_id, scene_id, context_party_id,
                 proposal_ref, decision_kind, action_intent_id, effect_id,
                 operation_ref) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, 'reply', %s, NULL, %s)
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NULL, %s)
             """,
             (
                 decision_id,
@@ -526,6 +526,7 @@ class PostgreSQLExpressionOwner:
                 context.scene_id,
                 context.other_party_id,
                 reply.proposal_ref,
+                reply.decision_kind,
                 action_id,
                 operation_ref,
             ),

@@ -470,7 +470,8 @@ class ModelPipeline:
             "maintain_subjective_memory": build_adapter(
                 binding=memory_maintenance_binding,
                 candidate_schema=candidate_schema(
-                    memory_maintenance_binding.response_contract_version
+                    memory_maintenance_binding.response_contract_version,
+                    purpose="maintain_subjective_memory",
                 ),
                 instructions=MEMORY_MAINTENANCE_INSTRUCTIONS,
                 schema_name="armi_maintenance_work_candidate_v1",
@@ -478,27 +479,28 @@ class ModelPipeline:
             "perform_subject_self_check": build_adapter(
                 binding=self_check_binding,
                 candidate_schema=candidate_schema(
-                    self_check_binding.response_contract_version
+                    self_check_binding.response_contract_version,
+                    purpose="perform_subject_self_check",
                 ),
                 instructions=SUBJECT_SELF_CHECK_INSTRUCTIONS,
                 schema_name="armi_maintenance_work_candidate_v1",
             ),
             "reflect_self": build_adapter(
                 binding=reflect_self_binding,
-                candidate_schema=owner_reflection_schema(),
+                candidate_schema=owner_reflection_schema(target="self"),
                 instructions=REFLECT_SELF_INSTRUCTIONS,
                 schema_name="armi_owner_reflection_candidate_v1",
             ),
             "reflect_mind": build_adapter(
                 binding=reflect_mind_binding,
-                candidate_schema=owner_reflection_schema(),
+                candidate_schema=owner_reflection_schema(target="mind"),
                 instructions=REFLECT_MIND_INSTRUCTIONS,
                 schema_name="armi_owner_reflection_candidate_v1",
             ),
             "reflect_mood": _DeterministicMoodReflectionAdapter(reflect_mood_binding),
             "reflect_prompt": build_adapter(
                 binding=reflect_prompt_binding,
-                candidate_schema=owner_reflection_schema(),
+                candidate_schema=owner_reflection_schema(target="prompt"),
                 instructions=REFLECT_PROMPT_INSTRUCTIONS,
                 schema_name="armi_owner_reflection_candidate_v1",
             ),

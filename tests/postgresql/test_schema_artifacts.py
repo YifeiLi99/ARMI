@@ -98,8 +98,8 @@ def test_active_cognition_contracts_are_in_the_current_baseline() -> None:
         for name in BASELINE_DOCUMENTS
     )
     for contract in (
-        "armi.creator-dialogue-candidate.v25",
-        "armi.other-human-dialogue-candidate.v7",
+        "armi.creator-dialogue-candidate.v26",
+        "armi.other-human-dialogue-candidate.v8",
     ):
         assert contract in baseline
     assert "cognitive_attempts_candidate_schema_version_check" in baseline
@@ -112,10 +112,10 @@ def test_active_cognition_contracts_are_in_the_current_baseline() -> None:
     assert "late_response_artifact_id" not in baseline
     assert "reflect_mood" in baseline
     for contract in (
-        "armi.other-human-dialogue-candidate.v7",
-        "armi.autonomous-activity-candidate.v5",
+        "armi.other-human-dialogue-candidate.v8",
+        "armi.autonomous-activity-candidate.v6",
         "armi.activity-attention-candidate.v5",
-        "armi.activity-internal-work-candidate.v4",
+        "armi.activity-internal-work-candidate.v5",
     ):
         assert contract in baseline
     assert "CREATE TABLE armi.mood_appraisal_events" in baseline

@@ -33,7 +33,7 @@ async def test_generic_transport_sends_current_prompt_and_schema(
         responses=SimpleNamespace(create=create), close=AsyncMock()
     )
     monkeypatch.setattr(ark, "_client", lambda *_args: client)
-    schema = candidate_schema("armi.cognition-candidate.v13")
+    schema = candidate_schema("armi.cognition-candidate.v14")
     transport = ark.OpenAIArkTransport(
         schema,
         instructions=GENERIC_COGNITION_INSTRUCTIONS,
