@@ -7,6 +7,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
 
+from ._schema_branches import non_null, object_branches
+
 MAINTENANCE_WORK_CANDIDATE_VERSION = "armi.maintenance-work-candidate.v1"
 
 _CONTEXT_REF = re.compile(r"^ctx:[1-9][0-9]{0,2}$", re.ASCII)
@@ -116,7 +118,33 @@ def _text(value: str, maximum: int) -> str:
 
 
 def maintenance_work_candidate_schema() -> dict[str, Any]:
-    return _ADAPTER.json_schema()
+    schema = _ADAPTER.json_schema()
+    change = schema["$defs"]["MemoryMaintenanceChange"]
+    properties = change["properties"]
+    schema["$defs"]["MemoryMaintenanceChange"] = object_branches(
+        change,
+        [
+            {
+                "kind": {"type": "string", "enum": ["consolidate", "fade", "forget"]},
+                "summary": {"type": "null"},
+                "related_memory_ref": {"type": "null"},
+                "relation_kind": {"type": "null"},
+            },
+            {
+                "kind": {"type": "string", "const": "reinterpret"},
+                "summary": non_null(properties["summary"]),
+                "related_memory_ref": {"type": "null"},
+                "relation_kind": {"type": "null"},
+            },
+            {
+                "kind": {"type": "string", "const": "reinterpret"},
+                "summary": non_null(properties["summary"]),
+                "related_memory_ref": non_null(properties["related_memory_ref"]),
+                "relation_kind": non_null(properties["relation_kind"]),
+            },
+        ],
+    )
+    return schema
 
 
 def parse_maintenance_work_candidate(value: object) -> MaintenanceWorkCandidate:

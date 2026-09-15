@@ -40,6 +40,7 @@ from armi_kernel.application import (
     CandidateFactClass,
     CandidateViolation,
     ModelAttemptId,
+    ModelViolation,
     TransactionIsolation,
     WorkLease,
     WorkRecord,
@@ -460,10 +461,14 @@ def _candidate_bytes(response_bytes: bytes) -> bytes:
             raise CandidateViolation("CANDIDATE-CONTRACT")
         response = cast(dict[str, Any], raw_response)
         if (
-            response.get("schema_version") != "armi.model-response-artifact.v1"
+            response.get("schema_version") != "armi.model-response-artifact.v2"
             or "candidate" not in response
+            or "validation_error" not in response
+            or not isinstance(response.get("output_text"), str)
         ):
             raise CandidateViolation("CANDIDATE-CONTRACT")
+        if response["validation_error"] is not None:
+            raise ModelViolation(response["validation_error"]["code"])
         return rfc8785.dumps(response["candidate"])
     except UnicodeDecodeError, json.JSONDecodeError, TypeError:
         raise CandidateViolation("CANDIDATE-CONTRACT") from None

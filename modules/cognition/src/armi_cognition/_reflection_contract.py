@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 # ruff: noqa: RUF001
-from typing import Annotated, Literal, cast
+from typing import Annotated, Any, Literal, cast
 
 from pydantic import (
     BaseModel,
@@ -16,6 +16,7 @@ from pydantic import (
 
 from ._dialogue_contract import ContextRef, DialogueSubjectPromptChange
 from ._model_contract import MindState, SelfState
+from ._schema_branches import object_branches
 from ._strict_model_json import strict_model_value
 
 OWNER_REFLECTION_CANDIDATE_VERSION = "armi.owner-reflection-candidate.v1"
@@ -61,7 +62,7 @@ class OwnerReflectionCandidate(_StrictModel):
         update = self.kind == "update"
         if update != (self.expected_version is not None):
             raise ValueError("reflection expected version shape is invalid")
-        if update != (self.next_state is not None) or update != bool(self.basis_refs):
+        if update != (self.next_state is not None) or (update and not self.basis_refs):
             raise ValueError("reflection update shape is invalid")
         if not update:
             return self
@@ -82,7 +83,33 @@ _ADAPTER = TypeAdapter(OwnerReflectionCandidate)
 
 
 def owner_reflection_schema() -> dict[str, object]:
-    return cast(dict[str, object], _ADAPTER.json_schema())
+    schema = _ADAPTER.json_schema()
+    branches: list[dict[str, Any]] = [
+        {
+            "kind": {"const": "no_change", "type": "string"},
+            "expected_version": {"type": "null"},
+            "next_state": {"type": "null"},
+        }
+    ]
+    for target, state in (
+        ("self", "SelfState"),
+        ("mind", "MindState"),
+        ("mood", "MoodReflectionRequest"),
+        ("prompt", "DialogueSubjectPromptChange"),
+    ):
+        branches.append(
+            {
+                "kind": {"const": "update", "type": "string"},
+                "target": {"const": target, "type": "string"},
+                "expected_version": {
+                    "type": "integer",
+                    "minimum": 0 if target == "prompt" else 1,
+                },
+                "basis_refs": {**schema["properties"]["basis_refs"], "minItems": 1},
+                "next_state": {"$ref": f"#/$defs/{state}"},
+            }
+        )
+    return cast(dict[str, object], object_branches(schema, branches))
 
 
 def parse_owner_reflection(

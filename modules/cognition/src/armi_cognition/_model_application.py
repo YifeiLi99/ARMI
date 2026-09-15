@@ -192,10 +192,12 @@ class _DeterministicMoodReflectionAdapter:
             self._binding.model_id,
             rfc8785.dumps(
                 {
-                    "schema_version": "armi.model-response-artifact.v1",
+                    "schema_version": "armi.model-response-artifact.v2",
                     "provider_request_id": "local-mood-reflection",
                     "provider_model_id": self._binding.model_id,
                     "candidate": json.loads(response),
+                    "output_text": response.decode("utf-8"),
+                    "validation_error": None,
                     "usage": {
                         "input_tokens": max(1, len(request.canonical_bytes) // 4),
                         "output_tokens": 1,
@@ -375,8 +377,8 @@ class ModelPipeline:
                     allowed_context_refs=allowed_context_refs,
                     web_search=web_search_active,
                 )
-            except json.JSONDecodeError, UnicodeDecodeError, ValueError:
-                raise ModelViolation("MODEL-RESPONSE-SCHEMA") from None
+            except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as error:
+                raise ModelViolation("MODEL-RESPONSE-SCHEMA") from error
 
         def parse_voice_act(
             value: bytes, *, allowed_context_refs: frozenset[str]
@@ -385,8 +387,8 @@ class ModelPipeline:
                 return parse_creator_voice_act(
                     json.loads(value), allowed_context_refs=allowed_context_refs
                 )
-            except json.JSONDecodeError, UnicodeDecodeError, ValueError:
-                raise ModelViolation("MODEL-RESPONSE-SCHEMA") from None
+            except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as error:
+                raise ModelViolation("MODEL-RESPONSE-SCHEMA") from error
 
         def parse_autonomous(
             value: bytes,
@@ -485,8 +487,8 @@ class ModelPipeline:
                     json.loads(value),
                     allowed_context_refs=allowed_context_refs,
                 )
-            except json.JSONDecodeError, UnicodeDecodeError, ValueError:
-                raise ModelViolation("MODEL-RESPONSE-SCHEMA") from None
+            except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as error:
+                raise ModelViolation("MODEL-RESPONSE-SCHEMA") from error
 
         def build_adapter(
             *,

@@ -28,6 +28,7 @@ from openai import (
     APITimeoutError,
     AsyncOpenAI,
 )
+from pydantic import ValidationError
 
 _PURPOSE = CredentialPurpose("model.request")
 _FINGERPRINT_DOMAIN = b"armi.model.credential-fingerprint.v1\0"
@@ -88,7 +89,10 @@ class OpenAIArkTransport:
         schema_name: str,
     ) -> None:
         self._candidate_schema = candidate_schema
-        self._instructions = instructions
+        self._instructions = (
+            instructions
+            + "\nReturn the candidate inside the required candidate object property."
+        )
         self._schema_name = schema_name
 
     async def tokenize(
@@ -108,7 +112,7 @@ class OpenAIArkTransport:
                     provider_input, ensure_ascii=False, separators=(",", ":")
                 )
             )
-            provider_schema = _strict_provider_schema(
+            provider_schema = _provider_output_schema(
                 self._candidate_schema,
                 available_refs=_available_refs(request_bytes),
             )
@@ -171,7 +175,7 @@ class OpenAIArkTransport:
     ) -> dict[str, Any]:
         client = _client(api_key, binding)
         try:
-            provider_schema = _strict_provider_schema(
+            provider_schema = _provider_output_schema(
                 self._candidate_schema,
                 available_refs=_available_refs(request.canonical_bytes),
             )
@@ -419,54 +423,46 @@ class VolcengineArkModelAdapter(ModelPort):
                 output_tokens=output_tokens,
             ),
         )
+        validation_error = None
+        candidate = None
         try:
             allowed_refs = _candidate_allowed_refs(request.canonical_bytes)
+            envelope = json.loads(output_text)
+            if not isinstance(envelope, dict):
+                raise ModelViolation("MODEL-RESPONSE-SCHEMA")
+            envelope = cast(dict[str, Any], envelope)
+            if set(envelope) != {"candidate"}:
+                raise ModelViolation("MODEL-RESPONSE-SCHEMA")
             candidate = self._parse_candidate(
-                output_text.encode("utf-8"),
+                rfc8785.dumps(envelope["candidate"]),
                 allowed_context_refs=allowed_refs,
             )
-        except json.JSONDecodeError, KeyError, TypeError, UnicodeEncodeError:
-            return _failure(
-                ModelResultStatus.REJECTED,
-                "MODEL-RESPONSE-SCHEMA",
-                provider_request_id=provider_request_id,
-                provider_model_id=model_id,
-                usage=usage,
-            )
+        except (json.JSONDecodeError, KeyError, TypeError, UnicodeEncodeError) as error:
+            validation_error = _validation_error("MODEL-RESPONSE-SCHEMA", error)
         except ModelViolation as error:
-            return _failure(
-                ModelResultStatus.REJECTED,
-                (
-                    error.code
-                    if error.code
-                    in {"MODEL-RESPONSE-LIMIT", "MODEL-RESPONSE-REFERENCE"}
-                    else "MODEL-RESPONSE-SCHEMA"
-                ),
-                provider_request_id=provider_request_id,
-                provider_model_id=model_id,
-                usage=usage,
-            )
-        if candidate.schema_version != self._binding.response_contract_version:
-            return _failure(
-                ModelResultStatus.REJECTED,
-                "MODEL-RESPONSE-SCHEMA",
-                provider_request_id=provider_request_id,
-                provider_model_id=model_id,
-                usage=usage,
-            )
+            validation_error = _validation_error(error.code, error)
+        if (
+            candidate is not None
+            and candidate.schema_version != self._binding.response_contract_version
+        ):
+            validation_error = {
+                "code": "MODEL-RESPONSE-SCHEMA",
+                "details": [{"type": "contract_version"}],
+            }
         if _contains_forbidden_output(raw_value):
-            return _failure(
-                ModelResultStatus.REJECTED,
-                "MODEL-RESPONSE-FORBIDDEN",
-                provider_request_id=provider_request_id,
-                provider_model_id=model_id,
-                usage=usage,
-            )
+            validation_error = {
+                "code": "MODEL-RESPONSE-FORBIDDEN",
+                "details": [{"type": "forbidden_output"}],
+            }
         safe_response = {
-            "schema_version": "armi.model-response-artifact.v1",
+            "schema_version": "armi.model-response-artifact.v2",
             "provider_request_id": provider_request_id,
             "provider_model_id": model_id,
-            "candidate": json.loads(candidate.model_dump_json(exclude_none=True)),
+            "candidate": None
+            if candidate is None
+            else json.loads(candidate.model_dump_json(exclude_none=True)),
+            "output_text": output_text,
+            "validation_error": validation_error,
             "usage": usage_value,
         }
         response_bytes = rfc8785.dumps(cast(Any, safe_response)) + b"\n"
@@ -477,6 +473,18 @@ class VolcengineArkModelAdapter(ModelPort):
             response_bytes,
             usage,
         )
+
+
+def _validation_error(code: str, error: BaseException) -> dict[str, Any]:
+    cause = error.__cause__ or error
+    details = (
+        cause.errors(include_url=False, include_context=False, include_input=False)
+        if isinstance(cause, ValidationError)
+        else [{"type": type(cause).__name__, "message": str(cause)}]
+    )
+    # Details and the original output stay in the governed response artifact,
+    # never in public errors or diagnostic logs.
+    return {"code": code, "details": details}
 
 
 def _client(api_key: memoryview, binding: ModelBinding) -> AsyncOpenAI:
@@ -529,6 +537,22 @@ def _candidate_allowed_refs(request_bytes: bytes) -> frozenset[str]:
             raise KeyError("ref")
         refs.add(str(ref))
     return frozenset(refs)
+
+
+def _provider_output_schema(
+    value: object, *, available_refs: tuple[str, ...]
+) -> dict[str, Any]:
+    schema = cast(
+        dict[str, Any], _strict_provider_schema(value, available_refs=available_refs)
+    )
+    definitions = schema.pop("$defs", {})
+    return {
+        "type": "object",
+        "properties": {"candidate": schema},
+        "required": ["candidate"],
+        "additionalProperties": False,
+        "$defs": definitions,
+    }
 
 
 def _strict_provider_schema(

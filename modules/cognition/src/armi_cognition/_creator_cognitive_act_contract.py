@@ -9,7 +9,7 @@ provider response is received.
 
 from __future__ import annotations
 
-from typing import Annotated, Literal, cast
+from typing import Annotated, Any, Literal, cast
 
 from pydantic import (
     BaseModel,
@@ -30,6 +30,7 @@ from ._dialogue_contract import (
     DialogueCompactChange,
     Summary,
 )
+from ._schema_branches import non_null, object_branches
 from ._strict_model_json import strict_model_value
 
 CREATOR_COGNITIVE_ACT_VERSION = "armi.creator-cognitive-act-candidate.v3"
@@ -347,11 +348,93 @@ def creator_cognitive_act_schema(*, web_search: bool = True) -> dict[str, object
         kind["enum"] = [
             item for item in cast(list[str], kind["enum"]) if item != "web_research"
         ]
-    return schema
+    properties = cast(dict[str, dict[str, object]], schema["properties"])
+    branches: list[dict[str, Any]] = []
+    fields = {
+        "reply": "content",
+        "exact_life_query": "record_kind",
+        "web_research": "query",
+        "visual_observation": "source_kind",
+    }
+    for kind in cast(list[str], properties["kind"]["enum"]):
+        required_field = fields.get(kind)
+        branch = {"kind": {"type": "string", "const": kind}}
+        for name in fields.values():
+            branch[name] = (
+                non_null(properties[name])
+                if name == required_field
+                else {"type": "null"}
+            )
+        branches.append(branch)
+    definitions = cast(dict[str, dict[str, object]], schema["$defs"])
+    _appraisal_schema_branches(definitions)
+    change = cast(
+        dict[str, dict[str, object]], definitions["DialogueCompactChange"]["properties"]
+    )
+    change["op"] = {"type": "string", "enum": sorted(_OPS)}
+    experience = definitions["CreatorAppraisalExperience"]
+    experience_properties = cast(dict[str, dict[str, object]], experience["properties"])
+    definitions["CreatorAppraisalExperience"] = object_branches(
+        experience,
+        [
+            {
+                "remember": {"type": "boolean", "const": False},
+                "memory_summary": {"type": "null"},
+            },
+            {
+                "remember": {"type": "boolean", "const": True},
+                "memory_summary": non_null(experience_properties["memory_summary"]),
+            },
+        ],
+    )
+    return object_branches(schema, branches)
 
 
 def creator_voice_act_schema() -> dict[str, object]:
     return cast(dict[str, object], _VOICE.json_schema())
+
+
+def _appraisal_schema_branches(definitions: dict[str, dict[str, object]]) -> None:
+    event = definitions["AppraisalEventSignalV2"]
+    properties = cast(dict[str, dict[str, object]], event["properties"])
+    definitions["AppraisalEventSignalV2"] = object_branches(
+        event,
+        [
+            {
+                "transition": {"type": "string", "const": "new"},
+                "episode_ref": {"type": "null"},
+                "change_from_previous": {"type": "null"},
+            },
+            {
+                "transition": {
+                    "type": "string",
+                    "enum": ["reinforce", "reappraise", "resolve"],
+                },
+                "episode_ref": non_null(properties["episode_ref"]),
+                "change_from_previous": non_null(properties["change_from_previous"]),
+            },
+        ],
+    )
+    standards = definitions["AppraisalStandardsSignal"]
+    definitions["AppraisalStandardsSignal"] = object_branches(
+        standards,
+        [
+            {
+                "self_compatibility": {
+                    "type": "string",
+                    "enum": ["violation", "tension", "mixed"],
+                },
+                "self_scope": {"type": "string", "enum": ["action", "global"]},
+            },
+            {
+                "self_compatibility": {
+                    "type": "string",
+                    "enum": ["aligned", "not_applicable", "unknown"],
+                },
+                "self_scope": {"type": "string", "const": "none"},
+            },
+        ],
+    )
 
 
 def _check_refs(

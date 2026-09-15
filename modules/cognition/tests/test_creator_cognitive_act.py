@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any, cast
 
 import pytest
 from armi_cognition._creator_cognitive_act_contract import (
@@ -36,7 +37,12 @@ def test_text_contract_is_strict_and_single() -> None:
     )
     assert isinstance(candidate, CreatorCognitiveActCandidate)
     assert candidate.schema_version == CREATOR_COGNITIVE_ACT_VERSION
-    assert creator_cognitive_act_schema()["additionalProperties"] is False
+    assert all(
+        branch["additionalProperties"] is False
+        for branch in cast(
+            list[dict[str, Any]], creator_cognitive_act_schema()["anyOf"]
+        )
+    )
 
 
 def test_extra_fields_reject_the_whole_act() -> None:

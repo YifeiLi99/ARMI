@@ -52,7 +52,9 @@ async def test_generic_transport_sends_current_prompt_and_schema(
     )
     assert create.await_args is not None
     payload = create.await_args.kwargs
-    assert payload["instructions"] == GENERIC_COGNITION_INSTRUCTIONS
+    assert payload["instructions"].startswith(GENERIC_COGNITION_INSTRUCTIONS)
+    assert "candidate object property" in payload["instructions"]
+    assert payload["text"]["format"]["schema"]["required"] == ["candidate"]
     assert purpose in payload["input"]
     assert payload["text"]["format"]["name"] == "armi_cognition_candidate_v12"
     wire = json.dumps(payload["text"]["format"]["schema"])

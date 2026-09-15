@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from typing import Any, cast
@@ -11,12 +12,14 @@ from uuid import uuid7
 
 import pytest
 from armi_cognition import _model_application as model
+from armi_cognition._candidate_application import _candidate_bytes
 from armi_cognition._model_postgresql import ModelEpisodeSnapshot
 from armi_kernel.application import (
     CandidateViolation,
     ModelInvocationResult,
     ModelResultStatus,
     ModelUsage,
+    ModelViolation,
 )
 from armi_kernel.contracts import Digest, TraceId
 
@@ -24,6 +27,19 @@ from armi_kernel.contracts import Digest, TraceId
 @asynccontextmanager
 async def _unit():
     yield SimpleNamespace()
+
+
+def test_saved_validation_failure_cannot_reach_subject_commit():
+    response = json.dumps(
+        {
+            "schema_version": "armi.model-response-artifact.v2",
+            "output_text": "invalid output",
+            "candidate": None,
+            "validation_error": {"code": "MODEL-RESPONSE-SCHEMA", "details": []},
+        }
+    ).encode()
+    with pytest.raises(ModelViolation, match="MODEL-RESPONSE-SCHEMA"):
+        _candidate_bytes(response)
 
 
 class _Execution(model.ModelPipeline):
@@ -54,9 +70,7 @@ class _Execution(model.ModelPipeline):
             ),
         )
         self._finalization = cast(Any, SimpleNamespace(finalize=finalization))
-        self.result_bytes = (
-            b'{"schema_version":"armi.model-response-artifact.v1","candidate":{}}'
-        )
+        self.result_bytes = b'{"schema_version":"armi.model-response-artifact.v2","candidate":{},"output_text":"{}","validation_error":null}'
         self.adapter = SimpleNamespace(
             binding=object(),
             tokenize=AsyncMock(return_value=1),
@@ -100,10 +114,16 @@ class _Execution(model.ModelPipeline):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("reject", [False, True])
+@pytest.mark.parametrize("reject", [False, True, "schema"])
 async def test_model_success_survives_finalization_failure(monkeypatch, reject) -> None:
     finalization = AsyncMock(
-        side_effect=CandidateViolation("CANDIDATE-CONTRACT") if reject else None
+        side_effect=(
+            ModelViolation("MODEL-RESPONSE-SCHEMA")
+            if reject == "schema"
+            else CandidateViolation("CANDIDATE-CONTRACT")
+            if reject
+            else None
+        )
     )
     pipeline = _Execution(finalization)
     monkeypatch.setattr(model, "build_request_bytes", lambda **_kwargs: b"{}")
@@ -126,7 +146,7 @@ async def test_model_success_survives_finalization_failure(monkeypatch, reject) 
     assert finalization.await_args.args[0] is record
     assert finalization.await_args.args[2] is pipeline.result_bytes
     pipeline._repository.settle_failure.assert_not_awaited()
-    assert pipeline._repository.fail_episode.await_count == int(reject)
+    assert pipeline._repository.fail_episode.await_count == int(bool(reject))
 
 
 class _Renewal(model.ModelPipeline):

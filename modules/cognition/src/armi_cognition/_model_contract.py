@@ -709,8 +709,8 @@ def parse_candidate(
         ValidationError,
         ModelViolation,
         ValueError,
-    ):
-        raise ModelViolation("MODEL-RESPONSE-SCHEMA") from None
+    ) as error:
+        raise ModelViolation("MODEL-RESPONSE-SCHEMA") from error
     appraisal = getattr(candidate, "appraisal", None)
     if appraisal is not None:
         appraisal_refs = set(appraisal.basis_refs)
