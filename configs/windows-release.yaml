@@ -4,8 +4,9 @@ schema_version: armi.windows-release.v1
 name: YifeiLi99.ARMI
 publisher: null
 publisher_display_name: YifeiLi99
-version: 0.1.0.0
+# 年.月.日.序号；0 是未发布的基准，本地首包从 1 开始。
+version: 2026.9.15.0
 data_directory: ARMI
 execution_alias: ARMI.exe
 repository: YifeiLi99/ARMI
-release_tag: v0.1.0
+release_tag: v2026.9.15.0

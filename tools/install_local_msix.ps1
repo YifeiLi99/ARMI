@@ -15,6 +15,7 @@ $dataRoot = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'AR
 $outputRoot = Join-Path $workspace 'dist/msix-local'
 $scratchRoot = Join-Path $workspace '.tmp'
 . (Join-Path $PSScriptRoot 'local_msix_outputs.ps1')
+. (Join-Path $PSScriptRoot 'local_msix_version.ps1')
 $work = Join-Path $scratchRoot 'local-msix-build'
 $output = $null
 $packageReady = $false
@@ -63,17 +64,11 @@ try {
             }
         }
     }
-    $parts = @($highest.Major, $highest.Minor, $highest.Build, $highest.Revision)
-    for ($index = 3; $index -ge 0; $index--) {
-        if ($parts[$index] -lt 65535) { $parts[$index]++; break }
-        $parts[$index] = 0
-    }
-    if ($index -lt 0) { throw 'LOCAL-MSIX-VERSION-EXHAUSTED' }
-    $version = $parts -join '.'
+    $version = Get-LocalMsixVersion -Highest $highest
     Remove-LocalMsixDirectory -Path $work -Root $scratchRoot
     New-Item -ItemType Directory -Path $work | Out-Null
     $localRelease = Join-Path $work 'windows-release.yaml'
-    & $python -I -B -c 'import sys,yaml; from pathlib import Path; v=yaml.safe_load(Path(sys.argv[1]).read_text(encoding="utf-8")); v["version"]=sys.argv[3]; Path(sys.argv[2]).write_text(yaml.safe_dump(v,allow_unicode=True,sort_keys=False),encoding="utf-8")' $releasePath $localRelease $version
+    & $python -I -B -c 'import sys,yaml; from pathlib import Path; v=yaml.safe_load(Path(sys.argv[1]).read_text(encoding="utf-8")); v["version"]=sys.argv[3]; v["release_tag"]="v"+sys.argv[3]; Path(sys.argv[2]).write_text(yaml.safe_dump(v,allow_unicode=True,sort_keys=False),encoding="utf-8")' $releasePath $localRelease $version
     if ($LASTEXITCODE -ne 0) { throw 'LOCAL-MSIX-RELEASE-CONFIGURATION' }
     $payload = Join-Path $work 'payload'
     $output = Join-Path $outputRoot $version
