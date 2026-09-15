@@ -148,7 +148,12 @@ async def test_direct_reply_checks_send_boundary_without_permissions(
     await pipeline._dispatch_claimed(snapshot, _UnitOfWork.runtime_fence)
     read.assert_awaited_once()
     if boundary == "send":
-        send.assert_awaited_once_with(snapshot, b"reply")
+        send.assert_awaited_once_with(
+            snapshot,
+            b"reply",
+            _UnitOfWork.runtime_fence,
+            pipeline._data_rights_fence.capture.return_value,
+        )
         pipeline._dispatcher.settle_receipt.assert_awaited_once()
     else:
         send.assert_not_awaited()

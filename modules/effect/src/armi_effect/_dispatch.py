@@ -705,6 +705,60 @@ class PostgreSQLEffectDispatchRepository:
         if row is None:
             raise EffectViolation("EFFECT-CLAIM-STALE")
 
+    async def validate_message_route(
+        self,
+        uow: PostgreSQLRuntimeUnitOfWork,
+        snapshot: EffectDispatchSnapshot,
+    ) -> None:
+        request = snapshot.request
+        try:
+            route = await self._routes.effect_route(
+                uow.transaction,
+                scene_id=request.scene_id,
+                context_party_id=request.destination_party_id,
+                intended_destination_kind=request.destination_kind,
+            )
+        except OtherHumanInputViolation:
+            raise EffectViolation("EFFECT-DESTINATION-UNAVAILABLE") from None
+        if (
+            route.external_channel,
+            route.external_account_key,
+            route.external_conversation_key,
+        ) != (
+            request.external_channel,
+            request.external_account_key,
+            request.external_conversation_key,
+        ):
+            raise EffectViolation("EFFECT-DESTINATION-UNAVAILABLE")
+
+    async def record_message_part(
+        self,
+        uow: PostgreSQLRuntimeUnitOfWork,
+        snapshot: EffectDispatchSnapshot,
+        receipt: EffectAdapterReceipt,
+        *,
+        index: int,
+        total: int,
+    ) -> None:
+        # A platform receipt confirms this part; the whole effect is still pending.
+        await self._insert_observation(
+            uow.transaction,
+            snapshot,
+            uuid7(),
+            "receipt",
+            "inconclusive",
+            receipt.receipt_digest,
+            receipt.delivery_id.value,
+            receiver_external_ref=receipt.external_receiver_ref,
+            reason_code="EFFECT-MESSAGE-PART-DELIVERED",
+            evidence_kind=(
+                "platform_receipt"
+                if receipt.external_receiver_ref is not None
+                else "adapter_receipt"
+            ),
+            evidence_ref=f"message-part:{index + 1}:{total}",
+        )
+
     async def settle_receipt(
         self,
         uow: PostgreSQLRuntimeUnitOfWork,
@@ -1201,6 +1255,7 @@ class PostgreSQLEffectDispatchRepository:
         conclusion: str = "unknown",
         reason_code: str = "EFFECT-RESULT-UNKNOWN",
         evidence_kind: str = "inconclusive",
+        evidence_ref: str | None = None,
     ) -> None:
         await connection.execute(
             """
@@ -1224,7 +1279,7 @@ class PostgreSQLEffectDispatchRepository:
                 conclusion,
                 reason_code,
                 evidence_kind,
-                receiver_external_ref,
+                evidence_ref if evidence_ref is not None else receiver_external_ref,
                 digest.value,
                 _adapter_binding(snapshot.request.destination_kind),
             ),

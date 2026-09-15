@@ -243,6 +243,8 @@ Creator export 使用 `armi.creator-export.v5`，由 Data Rights 管理导出路
 
 普通 Creator 文本、实时语音、QQ 私聊及共用回复链的主动表达，由代码、harness 与渠道配置直接执行，不建立申请、批准、grant、policy、有效期或使用次数。
 
+普通闲聊的提示词引导自然表达 1–3 句短话，语气词可以单独成句，不强制凑数，也不以句数拒绝候选。QQ 的 `content` 用空行明确选择消息分界；适配器最多拆成三条，额外段落完整保留在第三条，不按标点切割。其他文本渠道与实时语音仍消费完整正文，语音保留原长度约束。一次表达仍只有一次主体提交、一个意图和一个 Effect；Effect 顺序发送各条，继续前保存上一条回执并重验 Runtime、claim、渠道目标和数据权利。中间回执在 `effect_observations` 以 `EFFECT-MESSAGE-PART-DELIVERED` 和 `message-part:序号:总数` 留证，此时整体结果仍未知；最后一条成功才完成整体结算。失败、中断或 unknown 不继续或重放剩余消息，系统通知保持单条。
+
 ```text
 Cognition decision
   → Subject Commit: 主体变化 + Expression intent/decision + Effect/outbox（同一事务）

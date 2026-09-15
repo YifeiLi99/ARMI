@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Literal
@@ -361,6 +362,42 @@ class QQAdapterTests(unittest.IsolatedAsyncioTestCase):
             receipt = await adapter.dispatch(request, content)
             self.assertEqual(receipt.external_receiver_ref, "991")
         self.assertEqual([item[0] for item in gateway.sent], ["group", "private"])
+
+    async def test_model_selected_message_boundaries(self) -> None:
+        adapter = QQEffectAdapter(QQEgressAdapter(config=_config(), gateway=_Gateway()))
+        request = FrozenEffectRequest(
+            EffectId(uuid7()),
+            EffectAttemptId(uuid7()),
+            uuid7(),
+            uuid7(),
+            uuid7(),
+            "external_private",
+            "qq",
+            "10001",
+            "30003",
+            Digest.from_bytes(b"reply"),
+            5,
+            TraceId(uuid7().hex),
+        )
+        cases = (
+            ("嗯", ("嗯",)),
+            ("嗯\n\n我在呀", ("嗯", "我在呀")),
+            ("嗯\n\n我在呀\n\n怎么啦？", ("嗯", "我在呀", "怎么啦？")),  # noqa: RUF001
+            ("一句。第二句！\n同一条", ("一句。第二句！\n同一条",)),  # noqa: RUF001
+            ("嗯\r\n \r\n\r\n我在呀", ("嗯", "我在呀")),
+            ("一\n\n二\n\n三\n\n四", ("一", "二", "三\n\n四")),
+        )
+        for content, expected in cases:
+            with self.subTest(content=content):
+                self.assertEqual(
+                    tuple(
+                        part.decode()
+                        for part in adapter.payload_parts(request, content.encode())
+                    ),
+                    expected,
+                )
+        notice = replace(request, system_notification_id=uuid7())
+        self.assertEqual(adapter.payload_parts(notice, b"one\n\ntwo"), (b"one\n\ntwo",))
 
     async def test_send_failure_mapping_does_not_retry(self) -> None:
         content = b"hello"

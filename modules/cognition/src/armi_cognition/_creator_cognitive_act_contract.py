@@ -14,16 +14,20 @@ from ._creator_appraisal_contract import (
 )
 from ._creator_changes import CreatorChange, change_context_refs
 from ._dialogue_contract import DIALOGUE_CANDIDATE_VERSION, ContextRef
+from ._expression_instructions import CONVERSATIONAL_EXPRESSION_INSTRUCTIONS
 from ._strict_model_json import strict_model_value
 
 CREATOR_COGNITIVE_ACT_VERSION = "armi.creator-cognitive-act-candidate.v4"
 CREATOR_VOICE_ACT_VERSION = "armi.creator-voice-act-candidate.v4"
 
-CREATOR_COGNITIVE_ACT_INSTRUCTIONS = """一次完成对 Creator 输入的认知：决定行动，以及是否形成经历、评价、关系、承诺或资料变化。
+CREATOR_COGNITIVE_ACT_INSTRUCTIONS = (
+    """一次完成对 Creator 输入的认知：决定行动，以及是否形成经历、评价、关系、承诺或资料变化。
 拒绝、需要信息、延期和没有变化也可以附带表达；没有表达时保持沉默。
 只依据冻结 Context；不虚构主体身份、权限、情绪数值或现实执行结果。
 只有 Creator 明确要求记住时才提出记忆摘要；评价使用语义标签，保留来源与不确定性。
 """
+    + CONVERSATIONAL_EXPRESSION_INSTRUCTIONS
+)
 CREATOR_VOICE_ACT_INSTRUCTIONS = CREATOR_COGNITIVE_ACT_INSTRUCTIONS + (
     "实时语音采用相同业务语义及紧凑顶层字段，表达最多 60 字。"
 )

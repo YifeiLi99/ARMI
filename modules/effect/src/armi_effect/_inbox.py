@@ -37,6 +37,11 @@ class PostgreSQLLocalInbox(ActionAdapterPort):
         if request.destination_kind not in {"creator_inbox", "other_human_inbox"}:
             raise EffectViolation("EFFECT-ADAPTER-UNAVAILABLE")
 
+    def payload_parts(
+        self, request: FrozenEffectRequest, payload: bytes
+    ) -> tuple[bytes, ...]:
+        return (payload,)
+
     async def dispatch(
         self, request: FrozenEffectRequest, payload: bytes
     ) -> EffectAdapterReceipt:

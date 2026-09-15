@@ -82,6 +82,11 @@ class RuntimeLiveVoiceEffectAdapter(ActionAdapterPort):
         ):
             raise EffectViolation("EFFECT-VOICE-ROUTE")
 
+    def payload_parts(
+        self, request: FrozenEffectRequest, payload: bytes
+    ) -> tuple[bytes, ...]:
+        return (payload,)
+
     async def dispatch(
         self, request: FrozenEffectRequest, payload: bytes
     ) -> EffectAdapterReceipt:

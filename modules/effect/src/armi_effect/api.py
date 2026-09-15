@@ -569,6 +569,10 @@ class EffectWakeupPort(Protocol):
 class ActionAdapterPort(Protocol):
     def validate(self, request: FrozenEffectRequest) -> None: ...
 
+    def payload_parts(
+        self, request: FrozenEffectRequest, payload: bytes
+    ) -> tuple[bytes, ...]: ...
+
     async def dispatch(
         self, request: FrozenEffectRequest, payload: bytes
     ) -> EffectAdapterReceipt: ...

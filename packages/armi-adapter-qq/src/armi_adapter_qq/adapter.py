@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -344,6 +345,18 @@ class QQEffectAdapter(ActionAdapterPort):
             self._egress.validate_route(_send_request(request, b"validation"))
         except ExternalMessageViolation as error:
             raise _effect_violation(error) from None
+
+    def payload_parts(
+        self, request: FrozenEffectRequest, payload: bytes
+    ) -> tuple[bytes, ...]:
+        if request.system_notification_id is not None:
+            return (payload,)
+        text = payload.decode("utf-8", errors="strict").strip()
+        # Blank lines are model-selected message boundaries, not punctuation.
+        parts = re.split(r"\r?\n[ \t]*\r?\n(?:[ \t]*\r?\n)*", text, maxsplit=2)
+        if len(parts) == 1:
+            return (payload,)
+        return tuple(part.encode("utf-8") for part in parts)
 
     async def dispatch(
         self, request: FrozenEffectRequest, payload: bytes

@@ -8232,6 +8232,38 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     receipt.delivery_id,
                 )
                 async with response_factory.unit_of_work() as unit_of_work:
+                    await dispatch_repository.record_message_part(
+                        unit_of_work,
+                        dispatch_snapshot,
+                        replace(
+                            receipt, receipt_digest=Digest.from_bytes(b"first-part")
+                        ),
+                        index=0,
+                        total=2,
+                    )
+                async with response_factory.unit_of_work(
+                    read_only=True
+                ) as unit_of_work:
+                    partial = await (
+                        await unit_of_work.transaction.execute(
+                            """SELECT effect.status, observation.conclusion,
+                                      observation.reason_code, observation.evidence_ref
+                               FROM armi.effects AS effect
+                               JOIN armi.effect_observations AS observation USING (effect_id)
+                               WHERE effect.effect_id=%s""",
+                            (dispatch_snapshot.request.effect_id.value,),
+                        )
+                    ).fetchone()
+                    self.assertEqual(
+                        partial,
+                        (
+                            "dispatching",
+                            "unknown",
+                            "EFFECT-MESSAGE-PART-DELIVERED",
+                            "message-part:1:2",
+                        ),
+                    )
+                async with response_factory.unit_of_work() as unit_of_work:
                     await dispatch_repository.settle_receipt(
                         unit_of_work,
                         dispatch_snapshot,
@@ -8381,7 +8413,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 None,
                 1,
                 1,
-                1,
+                2,
                 1,
             ),
         )

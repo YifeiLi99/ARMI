@@ -25,6 +25,11 @@ class RoutedActionAdapter(ActionAdapterPort):
     def validate(self, request: FrozenEffectRequest) -> None:
         self._adapter(request).validate(request)
 
+    def payload_parts(
+        self, request: FrozenEffectRequest, payload: bytes
+    ) -> tuple[bytes, ...]:
+        return self._adapter(request).payload_parts(request, payload)
+
     async def dispatch(
         self, request: FrozenEffectRequest, payload: bytes
     ) -> EffectAdapterReceipt:

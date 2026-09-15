@@ -9,7 +9,11 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import UUID, uuid7
 
-from armi_data_rights.api import DataRightsEffectGate, DataRightsFencePort
+from armi_data_rights.api import (
+    DataRightsEffectGate,
+    DataRightsFence,
+    DataRightsFencePort,
+)
 from armi_expression.api import ExpressionIntentReadPort
 from armi_interaction.api import (
     InteractionEffectRoutePort,
@@ -348,7 +352,9 @@ class EffectPipeline:
                 return True
             await self._notify_dispatch(snapshot, include_scene=False)
             try:
-                receipt = await self._dispatch_with_heartbeat(snapshot, payload)
+                receipt = await self._dispatch_with_heartbeat(
+                    snapshot, payload, runtime_fence, data_fence
+                )
             except EffectViolation as error:
                 if error.code == "EFFECT-RECEIVER-CONFLICT":
                     async with self._factory.unit_of_work() as uow:
@@ -467,9 +473,15 @@ class EffectPipeline:
         )
 
     async def _dispatch_with_heartbeat(
-        self, snapshot: EffectDispatchSnapshot, payload: bytes
+        self,
+        snapshot: EffectDispatchSnapshot,
+        payload: bytes,
+        runtime_fence: RuntimeFence,
+        data_fence: DataRightsFence,
     ) -> EffectAdapterReceipt:
-        task = asyncio.create_task(self._adapter.dispatch(snapshot.request, payload))
+        task = asyncio.create_task(
+            self._dispatch_parts(snapshot, payload, runtime_fence, data_fence)
+        )
         try:
             while True:
                 done, _ = await asyncio.wait((task,), timeout=20)
@@ -482,6 +494,41 @@ class EffectPipeline:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
+
+    async def _dispatch_parts(
+        self,
+        snapshot: EffectDispatchSnapshot,
+        payload: bytes,
+        runtime_fence: RuntimeFence,
+        data_fence: DataRightsFence,
+    ) -> EffectAdapterReceipt:
+        parts = self._adapter.payload_parts(snapshot.request, payload)
+        if not parts:
+            raise EffectViolation("EFFECT-ADAPTER-UNAVAILABLE")
+        for index, part in enumerate(parts):
+            if self._stop.is_set():
+                raise asyncio.CancelledError
+            if index:
+                async with self._factory.unit_of_work() as uow:
+                    if uow.runtime_fence != runtime_fence:
+                        raise EffectViolation("EFFECT-RUNTIME-STALE")
+                    await self._dispatcher.renew_claim(uow, snapshot)
+                    await self._data_rights_fence.validate(
+                        uow.transaction,
+                        data_fence,
+                        require_contact=True,
+                        require_use=True,
+                    )
+                    await self._dispatcher.validate_message_route(uow, snapshot)
+                    self._adapter.validate(snapshot.request)
+            receipt = await self._adapter.dispatch(snapshot.request, part)
+            if index == len(parts) - 1:
+                return receipt
+            async with self._factory.unit_of_work() as uow:
+                await self._dispatcher.record_message_part(
+                    uow, snapshot, receipt, index=index, total=len(parts)
+                )
+        raise AssertionError("nonempty message parts must return a receipt")
 
     async def _notify_dispatch(
         self, snapshot: EffectDispatchSnapshot, *, include_scene: bool
