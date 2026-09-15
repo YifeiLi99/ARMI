@@ -129,7 +129,7 @@ MODEL_REQUEST_VERSION = "armi.model-request.v1"
 DIALOGUE_MODEL_INPUT_VERSION = "armi.creator-dialogue-input.v6"
 CREATOR_BRANCH_MODEL_INPUT_VERSION = DIALOGUE_MODEL_INPUT_VERSION
 DialoguePromptVersion = Literal["armi.dialogue-prompt.v4"]
-CANDIDATE_VERSION = "armi.cognition-candidate.v12"
+CANDIDATE_VERSION = "armi.cognition-candidate.v13"
 ACTIVE_MODEL_ID = "doubao-seed-evolving"
 ACTIVE_MODEL_ADAPTER = "armi.model-adapter.volcengine-ark-responses-v1"
 ACTIVE_VERSION_POLICY = "provider_evolving_alias"
@@ -516,7 +516,7 @@ class CandidateUncertainty(_StrictModel):
 
 
 class CognitionCandidate(_StrictModel):
-    schema_version: Literal["armi.cognition-candidate.v12"]
+    schema_version: Literal["armi.cognition-candidate.v13"]
     base: CandidateBase
     disposition: Literal[
         "change",
@@ -554,7 +554,7 @@ _CANDIDATE_ADAPTER = TypeAdapter(CognitionCandidate)
 def candidate_schema(
     version: str = CANDIDATE_VERSION,
 ) -> dict[str, Any]:
-    if version == "armi.owner-reflection-candidate.v1":
+    if version == "armi.owner-reflection-candidate.v2":
         from ._reflection_contract import owner_reflection_schema
 
         return cast(dict[str, Any], owner_reflection_schema())
@@ -584,7 +584,7 @@ def candidate_schema(
 
 
 def parse_candidate(
-    value: bytes,
+    value: bytes | dict[str, Any],
     *,
     allowed_context_refs: frozenset[str],
     expected_version: str | None = None,
@@ -602,7 +602,7 @@ def parse_candidate(
     | CognitionCandidate
 ):
     try:
-        raw: object = json.loads(value)
+        raw: object = json.loads(value) if isinstance(value, bytes) else value
         candidate_object = cast(dict[str, Any], raw) if isinstance(raw, dict) else None
         version = (
             candidate_object.get("schema_version")
@@ -627,7 +627,7 @@ def parse_candidate(
             )
         elif (
             candidate_object is not None
-            and expected_version == "armi.owner-reflection-candidate.v1"
+            and expected_version == "armi.owner-reflection-candidate.v2"
         ):
             from ._reflection_contract import parse_owner_reflection
 
@@ -711,6 +711,8 @@ def parse_candidate(
         ValueError,
     ) as error:
         raise ModelViolation("MODEL-RESPONSE-SCHEMA") from error
+    if isinstance(candidate, CreatorCognitiveActCandidate):
+        return candidate
     appraisal = getattr(candidate, "appraisal", None)
     if appraisal is not None:
         appraisal_refs = set(appraisal.basis_refs)
@@ -718,8 +720,6 @@ def parse_candidate(
             appraisal_refs.add(appraisal.episode_ref)
         if not appraisal_refs.issubset(allowed_context_refs):
             raise ModelViolation("MODEL-RESPONSE-REFERENCE")
-    if isinstance(candidate, CreatorCognitiveActCandidate):
-        return candidate
     if isinstance(
         candidate,
         AttentionSimpleDecision,
@@ -1014,22 +1014,22 @@ def load_active_binding(
             },
             "reflect_self": {
                 "profile": "reflect_self",
-                "response_contract_version": "armi.owner-reflection-candidate.v1",
+                "response_contract_version": "armi.owner-reflection-candidate.v2",
                 "output_token_limit": 2048,
             },
             "reflect_mind": {
                 "profile": "reflect_mind",
-                "response_contract_version": "armi.owner-reflection-candidate.v1",
+                "response_contract_version": "armi.owner-reflection-candidate.v2",
                 "output_token_limit": 2048,
             },
             "reflect_mood": {
                 "profile": "reflect_mood",
-                "response_contract_version": "armi.owner-reflection-candidate.v1",
+                "response_contract_version": "armi.owner-reflection-candidate.v2",
                 "output_token_limit": 1024,
             },
             "reflect_prompt": {
                 "profile": "reflect_prompt",
-                "response_contract_version": "armi.owner-reflection-candidate.v1",
+                "response_contract_version": "armi.owner-reflection-candidate.v2",
                 "output_token_limit": 1024,
             },
         }

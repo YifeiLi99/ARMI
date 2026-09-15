@@ -16,7 +16,7 @@ from pydantic import (
 from ._creator_appraisal_contract import AppraisalEventSignalV2
 from ._strict_model_json import strict_model_value
 
-AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION = "armi.autonomous-activity-candidate.v4"
+AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION = "armi.autonomous-activity-candidate.v5"
 
 
 class _StrictModel(BaseModel):

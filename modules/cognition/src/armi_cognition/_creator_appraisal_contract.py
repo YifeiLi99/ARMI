@@ -16,14 +16,11 @@ class _StrictModel(BaseModel):
 class CreatorAppraisalExperience(_StrictModel):
     first_person_gist: Annotated[str, StringConstraints(min_length=1, max_length=1024)]
     uncertainty: Summary | None = None
-    remember: bool
     memory_summary: Summary | None = None
 
-    @model_validator(mode="after")
-    def validate_memory(self) -> CreatorAppraisalExperience:
-        if self.remember != (self.memory_summary is not None):
-            raise ValueError("explicit memory shape is invalid")
-        return self
+    @property
+    def remember(self) -> bool:
+        return self.memory_summary is not None
 
 
 class AppraisalConcernSignal(_StrictModel):
@@ -60,21 +57,35 @@ class AppraisalCopingSignal(_StrictModel):
     adjustment: Literal["blocked", "difficult", "manageable", "easy", "unknown"]
 
 
+class ConflictingSelfStandard(_StrictModel):
+    compatibility: Literal["violation", "tension", "mixed"]
+    scope: Literal["action", "global"]
+
+
+class NonConflictingSelfStandard(_StrictModel):
+    compatibility: Literal["aligned", "not_applicable", "unknown"]
+
+
 class AppraisalStandardsSignal(_StrictModel):
-    self_compatibility: Literal[
-        "violation", "tension", "aligned", "mixed", "not_applicable", "unknown"
+    self_evaluation: Annotated[
+        ConflictingSelfStandard | NonConflictingSelfStandard,
+        Field(discriminator="compatibility"),
     ]
     norm_compatibility: Literal[
         "violation", "tension", "aligned", "mixed", "not_applicable", "unknown"
     ]
-    self_scope: Literal["none", "action", "global"]
 
-    @model_validator(mode="after")
-    def validate_scope(self) -> AppraisalStandardsSignal:
-        conflict = self.self_compatibility in {"violation", "tension", "mixed"}
-        if conflict != (self.self_scope != "none"):
-            raise ValueError("self compatibility and scope do not match")
-        return self
+    @property
+    def self_compatibility(self):
+        return self.self_evaluation.compatibility
+
+    @property
+    def self_scope(self) -> Literal["none", "action", "global"]:
+        return (
+            self.self_evaluation.scope
+            if isinstance(self.self_evaluation, ConflictingSelfStandard)
+            else "none"
+        )
 
 
 class AppraisalSemanticSignal(_StrictModel):
@@ -107,25 +118,46 @@ class AppraisalSemanticSignal(_StrictModel):
         return self
 
 
+class NewAppraisal(_StrictModel):
+    transition: Literal["new"]
+
+
+class ExistingAppraisal(_StrictModel):
+    transition: Literal["reinforce", "reappraise", "resolve"]
+    episode_ref: ContextRef
+    change_from_previous: Literal[
+        "improved", "unchanged", "worsened", "mixed", "unknown"
+    ]
+
+
 class AppraisalEventSignalV2(_StrictModel):
-    transition: Literal["new", "reinforce", "reappraise", "resolve"]
-    episode_ref: ContextRef | None = None
+    trajectory: Annotated[
+        NewAppraisal | ExistingAppraisal, Field(discriminator="transition")
+    ]
     event_phase: Literal["anticipated", "ongoing", "realized", "averted"]
     gist: Annotated[str, StringConstraints(min_length=1, max_length=64)]
-    change_from_previous: (
-        Literal["improved", "unchanged", "worsened", "mixed", "unknown"] | None
-    ) = None
     appraisal: AppraisalSemanticSignal
     basis_refs: tuple[ContextRef, ...] = Field(min_length=1, max_length=8)
 
-    @model_validator(mode="after")
-    def validate_signal(self) -> AppraisalEventSignalV2:
-        is_new = self.transition == "new"
-        if is_new != (self.episode_ref is None):
-            raise ValueError("appraisal transition and episode reference do not match")
-        if is_new != (self.change_from_previous is None):
-            raise ValueError("appraisal transition and trajectory do not match")
-        return self
+    @property
+    def transition(self):
+        return self.trajectory.transition
+
+    @property
+    def episode_ref(self) -> ContextRef | None:
+        return (
+            self.trajectory.episode_ref
+            if isinstance(self.trajectory, ExistingAppraisal)
+            else None
+        )
+
+    @property
+    def change_from_previous(self):
+        return (
+            self.trajectory.change_from_previous
+            if isinstance(self.trajectory, ExistingAppraisal)
+            else None
+        )
 
 
 __all__ = (

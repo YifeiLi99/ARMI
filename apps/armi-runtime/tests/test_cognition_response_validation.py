@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
-from functools import partial
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import Mock
@@ -28,6 +27,15 @@ def _schema(version):
     return _provider_output_schema(candidate_schema(version), available_refs=("ctx:1",))
 
 
+def test_creator_schema_is_smaller_without_repeating_the_complete_object():
+    schema = _schema("armi.creator-cognitive-act-candidate.v4")
+    encoded = json.dumps(schema, ensure_ascii=False, separators=(",", ":")).encode()
+    assert len(encoded) < 12251
+    assert schema["properties"]["candidate"]["type"] == "object"
+    assert "decision" in schema["properties"]["candidate"]["properties"]
+    assert "experience" in schema["properties"]["candidate"]["properties"]
+
+
 @pytest.mark.parametrize("kind", ["no_change", "update"])
 def test_reflection_keeps_evidence_without_requiring_a_change(kind):
     value = {
@@ -38,7 +46,7 @@ def test_reflection_keeps_evidence_without_requiring_a_change(kind):
         "expected_version": 1 if kind == "update" else None,
         "next_state": {} if kind == "update" else None,
     }
-    version = "armi.owner-reflection-candidate.v1"
+    version = "armi.owner-reflection-candidate.v2"
     jsonschema.validate({"candidate": value}, _schema(version))
     parsed = parse_candidate(
         json.dumps(value).encode(),
@@ -51,21 +59,16 @@ def test_reflection_keeps_evidence_without_requiring_a_change(kind):
 @pytest.mark.parametrize("invalid", [False, True])
 def test_reply_memory_shape_is_visible_to_provider(invalid):
     value = {
-        "kind": "reply",
-        "content": "Hello",
-        "record_kind": None,
-        "query": None,
-        "source_kind": None,
+        "decision": {"kind": "reply", "content": "Hello"},
         "experience": {
             "first_person_gist": "A greeting",
             "uncertainty": None,
-            "remember": False,
-            "memory_summary": "Unrequested memory" if invalid else None,
+            "memory_summary": 42 if invalid else None,
         },
         "appraisal": None,
         "changes": [],
     }
-    schema = _schema("armi.creator-cognitive-act-candidate.v3")
+    schema = _schema("armi.creator-cognitive-act-candidate.v4")
     if invalid:
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate({"candidate": value}, schema)
@@ -81,10 +84,9 @@ def test_maintenance_summary_matches_operation(kind):
         "reason": "Changed relevance",
         "summary": "Replacement" if kind == "reinterpret" else None,
         "uncertainty": None,
-        "related_memory_ref": None,
-        "relation_kind": None,
+        "relation": None,
     }
-    schema = _schema("armi.maintenance-work-candidate.v1")
+    schema = _schema("armi.maintenance-work-candidate.v2")
     jsonschema.validate({"candidate": value}, schema)
     value["summary"] = None if kind == "reinterpret" else "Unexpected replacement"
     with pytest.raises(jsonschema.ValidationError):
@@ -94,11 +96,15 @@ def test_maintenance_summary_matches_operation(kind):
 @pytest.mark.parametrize("transition", ["new", "reinforce", "reappraise", "resolve"])
 def test_appraisal_reference_and_trajectory_are_part_of_schema(transition):
     appraisal = {
-        "transition": transition,
-        "episode_ref": None if transition == "new" else "ctx:1",
+        "trajectory": {"transition": "new"}
+        if transition == "new"
+        else {
+            "transition": transition,
+            "episode_ref": "ctx:1",
+            "change_from_previous": "improved",
+        },
         "event_phase": "realized",
         "gist": "Greeting",
-        "change_from_previous": None if transition == "new" else "improved",
         "basis_refs": ["ctx:1"],
         "appraisal": {
             "concerns": [
@@ -116,23 +122,18 @@ def test_appraisal_reference_and_trajectory_are_part_of_schema(transition):
             "causality": None,
             "coping": None,
             "standards": {
-                "self_compatibility": "aligned",
+                "self_evaluation": {"compatibility": "aligned"},
                 "norm_compatibility": "aligned",
-                "self_scope": "none",
             },
         },
     }
     value = {
-        "kind": "reply",
-        "content": "Hello",
-        "record_kind": None,
-        "query": None,
-        "source_kind": None,
+        "decision": {"kind": "reply", "content": "Hello"},
         "experience": None,
         "appraisal": appraisal,
         "changes": [],
     }
-    version = "armi.creator-cognitive-act-candidate.v3"
+    version = "armi.creator-cognitive-act-candidate.v4"
     schema = _schema(version)
     jsonschema.validate({"candidate": value}, schema)
     parse_candidate(
@@ -140,7 +141,7 @@ def test_appraisal_reference_and_trajectory_are_part_of_schema(transition):
         expected_version=version,
         allowed_context_refs=frozenset({"ctx:1"}),
     )
-    appraisal["episode_ref"] = "ctx:1" if transition == "new" else None
+    appraisal["trajectory"]["episode_ref"] = "ctx:1" if transition == "new" else None
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate({"candidate": value}, schema)
     with pytest.raises(ModelViolation):
@@ -162,7 +163,7 @@ def test_appraisal_reference_and_trajectory_are_part_of_schema(transition):
 def test_returned_output_is_saved_before_local_rejection(output):
     binding = replace(
         load_active_binding(),
-        response_contract_version="armi.creator-cognitive-act-candidate.v3",
+        response_contract_version="armi.creator-cognitive-act-candidate.v4",
     )
     adapter = VolcengineArkModelAdapter(
         binding=binding,
@@ -170,9 +171,6 @@ def test_returned_output_is_saved_before_local_rejection(output):
         locator=Mock(),
         candidate_schema=CognitionSchemaDocument(
             json.dumps(candidate_schema(binding.response_contract_version)).encode()
-        ),
-        candidate_parser=partial(
-            parse_candidate, expected_version=binding.response_contract_version
         ),
         instructions="",
         schema_name="test",
@@ -192,11 +190,6 @@ def test_returned_output_is_saved_before_local_rejection(output):
     assert result.response_bytes is not None
     saved = json.loads(result.response_bytes)
     assert saved["output_text"] == output
-    if '"Hello"' in output:
-        assert saved["validation_error"] is None
-        assert saved["candidate"]["content"] == "Hello"
-    else:
-        assert saved["validation_error"]["code"] == "MODEL-RESPONSE-SCHEMA"
-        if "42" in output:
-            assert saved["validation_error"]["details"][0]["loc"] == ["content"]
-            assert "input" not in saved["validation_error"]["details"][0]
+    assert saved["schema_version"] == "armi.model-response-artifact.v3"
+    assert "candidate" not in saved
+    assert "validation_error" not in saved

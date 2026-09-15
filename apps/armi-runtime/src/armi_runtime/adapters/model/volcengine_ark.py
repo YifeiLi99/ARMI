@@ -28,7 +28,6 @@ from openai import (
     APITimeoutError,
     AsyncOpenAI,
 )
-from pydantic import ValidationError
 
 _PURPOSE = CredentialPurpose("model.request")
 _FINGERPRINT_DOMAIN = b"armi.model.credential-fingerprint.v1\0"
@@ -54,26 +53,6 @@ class ArkTransport(Protocol):
         binding: ModelBinding,
         request: ModelRequest,
     ) -> dict[str, Any]: ...
-
-
-class CandidateValue(Protocol):
-    @property
-    def schema_version(self) -> str: ...
-
-    def model_dump_json(
-        self,
-        *,
-        exclude_none: bool = False,
-    ) -> str: ...
-
-
-class CandidateParser(Protocol):
-    def __call__(
-        self,
-        value: bytes,
-        *,
-        allowed_context_refs: frozenset[str],
-    ) -> CandidateValue: ...
 
 
 class OpenAIArkTransport:
@@ -259,7 +238,6 @@ class VolcengineArkModelAdapter(ModelPort):
         "_binding",
         "_credential_port",
         "_locator",
-        "_parse_candidate",
         "_transport",
     )
 
@@ -270,7 +248,6 @@ class VolcengineArkModelAdapter(ModelPort):
         credential_port: CredentialPort,
         locator: CredentialLocator,
         candidate_schema: CognitionSchemaDocument,
-        candidate_parser: CandidateParser,
         instructions: str,
         schema_name: str,
         transport: ArkTransport | None = None,
@@ -294,7 +271,6 @@ class VolcengineArkModelAdapter(ModelPort):
         self._binding = binding
         self._credential_port = credential_port
         self._locator = locator
-        self._parse_candidate = candidate_parser
         provider_schema = cast(
             dict[str, Any], json.loads(candidate_schema.canonical_bytes)
         )
@@ -389,7 +365,6 @@ class VolcengineArkModelAdapter(ModelPort):
             model_id = response["model_id"]
             output_text = response["output_text"]
             usage_value = response["usage"]
-            raw_value = response["raw"]
             input_tokens = usage_value["input_tokens"]
             output_tokens = usage_value["output_tokens"]
             cached_tokens = usage_value["cached_input_tokens"]
@@ -405,7 +380,6 @@ class VolcengineArkModelAdapter(ModelPort):
                 and model_id != self._binding.model_id
             )
             or type(output_text) is not str
-            or not output_text
             or type(input_tokens) is not int
             or input_tokens < 0
             or type(output_tokens) is not int
@@ -423,46 +397,11 @@ class VolcengineArkModelAdapter(ModelPort):
                 output_tokens=output_tokens,
             ),
         )
-        validation_error = None
-        candidate = None
-        try:
-            allowed_refs = _candidate_allowed_refs(request.canonical_bytes)
-            envelope = json.loads(output_text)
-            if not isinstance(envelope, dict):
-                raise ModelViolation("MODEL-RESPONSE-SCHEMA")
-            envelope = cast(dict[str, Any], envelope)
-            if set(envelope) != {"candidate"}:
-                raise ModelViolation("MODEL-RESPONSE-SCHEMA")
-            candidate = self._parse_candidate(
-                rfc8785.dumps(envelope["candidate"]),
-                allowed_context_refs=allowed_refs,
-            )
-        except (json.JSONDecodeError, KeyError, TypeError, UnicodeEncodeError) as error:
-            validation_error = _validation_error("MODEL-RESPONSE-SCHEMA", error)
-        except ModelViolation as error:
-            validation_error = _validation_error(error.code, error)
-        if (
-            candidate is not None
-            and candidate.schema_version != self._binding.response_contract_version
-        ):
-            validation_error = {
-                "code": "MODEL-RESPONSE-SCHEMA",
-                "details": [{"type": "contract_version"}],
-            }
-        if _contains_forbidden_output(raw_value):
-            validation_error = {
-                "code": "MODEL-RESPONSE-FORBIDDEN",
-                "details": [{"type": "forbidden_output"}],
-            }
         safe_response = {
-            "schema_version": "armi.model-response-artifact.v2",
+            "schema_version": "armi.model-response-artifact.v3",
             "provider_request_id": provider_request_id,
             "provider_model_id": model_id,
-            "candidate": None
-            if candidate is None
-            else json.loads(candidate.model_dump_json(exclude_none=True)),
             "output_text": output_text,
-            "validation_error": validation_error,
             "usage": usage_value,
         }
         response_bytes = rfc8785.dumps(cast(Any, safe_response)) + b"\n"
@@ -473,18 +412,6 @@ class VolcengineArkModelAdapter(ModelPort):
             response_bytes,
             usage,
         )
-
-
-def _validation_error(code: str, error: BaseException) -> dict[str, Any]:
-    cause = error.__cause__ or error
-    details = (
-        cause.errors(include_url=False, include_context=False, include_input=False)
-        if isinstance(cause, ValidationError)
-        else [{"type": type(cause).__name__, "message": str(cause)}]
-    )
-    # Details and the original output stay in the governed response artifact,
-    # never in public errors or diagnostic logs.
-    return {"code": code, "details": details}
 
 
 def _client(api_key: memoryview, binding: ModelBinding) -> AsyncOpenAI:
@@ -515,28 +442,6 @@ def _available_refs(request_bytes: bytes) -> tuple[str, ...]:
     if any(type(item) is not str for item in ref_values):
         return ()
     return tuple(sorted(set(cast(list[str], ref_values))))
-
-
-def _candidate_allowed_refs(request_bytes: bytes) -> frozenset[str]:
-    value: object = json.loads(request_bytes)
-    if not isinstance(value, dict):
-        raise TypeError("model request must be an object")
-    document = cast(dict[object, object], value)
-    available_refs = document.get("available_refs")
-    if isinstance(available_refs, list):
-        return frozenset(str(item) for item in cast(list[object], available_refs))
-    included_context_refs = document.get("included_context_refs", ())
-    if not isinstance(included_context_refs, (list, tuple)):
-        raise TypeError("included context refs must be a sequence")
-    refs: set[str] = set()
-    for item in cast(list[object] | tuple[object, ...], included_context_refs):
-        if not isinstance(item, dict):
-            raise TypeError("included context ref must be an object")
-        ref = cast(dict[object, object], item).get("ref")
-        if ref is None:
-            raise KeyError("ref")
-        refs.add(str(ref))
-    return frozenset(refs)
 
 
 def _provider_output_schema(
@@ -575,7 +480,9 @@ def _strict_provider_schema(
             key == "title" and isinstance(item, str)
         ):
             continue
-        result[key] = _strict_provider_schema(item, available_refs=available_refs)
+        result["anyOf" if key == "oneOf" else key] = _strict_provider_schema(
+            item, available_refs=available_refs
+        )
     if (
         available_refs
         and result.get("type") == "string"
@@ -600,20 +507,6 @@ def _cached_tokens(usage: object) -> int:
     details = getattr(usage, "input_tokens_details", None)
     cached = getattr(details, "cached_tokens", 0)
     return cached if type(cached) is int and cached >= 0 else 0
-
-
-def _contains_forbidden_output(value: object) -> bool:
-    if not isinstance(value, dict):
-        return True
-    output_value = cast(dict[str, object], value).get("output")
-    if not isinstance(output_value, list):
-        return True
-    output = cast(list[object], output_value)
-    return any(
-        not isinstance(item, dict)
-        or cast(dict[str, object], item).get("type") != "message"
-        for item in output
-    )
 
 
 def _failure(
@@ -655,7 +548,6 @@ def _wipe(value: bytearray) -> None:
 
 __all__ = (
     "ArkTransport",
-    "CandidateParser",
     "OpenAIArkTransport",
     "VolcengineArkModelAdapter",
 )

@@ -162,6 +162,11 @@ class PostgreSQLCognitionDataRightsParticipant:
                      JOIN armi.cognitive_episodes AS episode
                        ON episode.cognitive_episode_id = validation.cognitive_episode_id
                      WHERE validation.change_set_artifact_id IS NOT NULL
+                     UNION ALL SELECT validation.diagnostic_artifact_id, episode.context_party_id
+                     FROM armi.cognitive_candidate_validations AS validation
+                     JOIN armi.cognitive_episodes AS episode
+                       ON episode.cognitive_episode_id = validation.cognitive_episode_id
+                     WHERE validation.diagnostic_artifact_id IS NOT NULL
                    ) SELECT artifact_id, count(*),
                        count(*) FILTER (WHERE context_party_id = %s)
                      FROM refs GROUP BY artifact_id ORDER BY artifact_id""",

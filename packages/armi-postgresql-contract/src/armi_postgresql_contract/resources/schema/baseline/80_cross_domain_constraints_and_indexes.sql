@@ -2671,6 +2671,9 @@ ALTER TABLE ONLY armi.cognitive_candidate_validations
 ALTER TABLE ONLY armi.cognitive_candidate_validations
     ADD CONSTRAINT cognitive_candidate_validations_change_set_artifact_id_fkey FOREIGN KEY (change_set_artifact_id) REFERENCES armi.artifacts(artifact_id);
 
+ALTER TABLE ONLY armi.cognitive_candidate_validations
+    ADD CONSTRAINT cognitive_candidate_validations_diagnostic_artifact_id_fkey FOREIGN KEY (diagnostic_artifact_id) REFERENCES armi.artifacts(artifact_id);
+
 --
 -- Name: cognitive_candidate_validations cognitive_candidate_validations_cognitive_episode_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --

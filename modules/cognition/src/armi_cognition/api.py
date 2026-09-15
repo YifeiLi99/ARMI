@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Protocol, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
 from uuid import UUID
 
 from armi_codex.api import CodexDelegationDraft
@@ -146,6 +146,14 @@ class SubjectChangeSet:
 
 
 @dataclass(frozen=True, slots=True)
+class CandidateDiagnostic:
+    stage: Literal["parse", "structure", "owner_validation"]
+    code: str
+    field_path: tuple[str | int, ...]
+    owner: str
+
+
+@dataclass(frozen=True, slots=True)
 class CandidateValidationResult:
     validation_id: CandidateValidationId
     status: CandidateValidationStatus
@@ -153,6 +161,7 @@ class CandidateValidationResult:
     accepted_count: int
     rejected_count: int
     error_code: str | None
+    diagnostics: tuple[CandidateDiagnostic, ...] = ()
 
     def __post_init__(self) -> None:
         rejected = self.status is CandidateValidationStatus.REJECTED
@@ -179,7 +188,10 @@ class CandidateValidationResult:
 @runtime_checkable
 class CandidateValidator(Protocol):
     def validate(
-        self, candidate_bytes: bytes, *, bases: tuple[CandidateBasis, ...]
+        self,
+        candidate_bytes: bytes | dict[str, object],
+        *,
+        bases: tuple[CandidateBasis, ...],
     ) -> CandidateValidationResult: ...
 
 
@@ -312,17 +324,6 @@ class CognitionContextLifecyclePort(Protocol):
     ) -> CognitionContextEpisodeSnapshot: ...
 
 
-class CognitionCandidateValue(Protocol):
-    @property
-    def schema_version(self) -> str: ...
-
-    def model_dump_json(
-        self,
-        *,
-        exclude_none: bool = False,
-    ) -> str: ...
-
-
 @dataclass(frozen=True, slots=True)
 class CognitionSchemaDocument:
     canonical_bytes: bytes
@@ -330,15 +331,6 @@ class CognitionSchemaDocument:
     def __post_init__(self) -> None:
         if not self.canonical_bytes or len(self.canonical_bytes) > 1_048_576:
             raise ValueError("cognition schema document is invalid")
-
-
-class CognitionCandidateParser(Protocol):
-    def __call__(
-        self,
-        value: bytes,
-        *,
-        allowed_context_refs: frozenset[str],
-    ) -> CognitionCandidateValue: ...
 
 
 @runtime_checkable
@@ -357,7 +349,6 @@ class CognitionModelAdapterFactory(Protocol):
         *,
         binding: ModelBinding,
         candidate_schema: CognitionSchemaDocument,
-        candidate_parser: CognitionCandidateParser,
         instructions: str,
         schema_name: str,
     ) -> CognitionModelPort: ...
@@ -700,6 +691,8 @@ class CognitionAdminEpisodeSnapshot:
     prepared_at: datetime | None
     context_manifest_artifact_id: UUID | None = None
     compiled_context_artifact_id: UUID | None = None
+    response_artifact_ids: tuple[UUID, ...] = ()
+    diagnostic_artifact_ids: tuple[UUID, ...] = ()
 
 
 @runtime_checkable
@@ -733,6 +726,7 @@ class CognitionAdminPort(Protocol):
 
 
 __all__ = (
+    "CandidateDiagnostic",
     "CandidateExactLifeQueryDraft",
     "CandidateValidationResult",
     "CandidateValidationStatus",
@@ -743,8 +737,6 @@ __all__ = (
     "CognitionApplicationDraft",
     "CognitionApplicationSnapshot",
     "CognitionArtifactCatalogPort",
-    "CognitionCandidateParser",
-    "CognitionCandidateValue",
     "CognitionCommitSnapshot",
     "CognitionContextEpisodeDraft",
     "CognitionContextEpisodeSnapshot",

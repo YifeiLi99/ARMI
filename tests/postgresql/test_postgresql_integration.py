@@ -249,7 +249,6 @@ from armi_runtime.composition.postgresql_test import (
     checked_model_request,
     load_active_binding,
     normalize_full_response,
-    parse_candidate,
 )
 from armi_runtime.composition.work_wakeup import WorkWakeupBus
 from armi_sleep.api import CreatorMaintenanceViolation
@@ -1122,7 +1121,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "CREATE TABLE armi.alembic_version (version_num varchar(32) NOT NULL, CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))"
             )
             connection.execute("INSERT INTO armi.alembic_version VALUES ('0000')")
-            with ZipFile(resource / "v16-source.zip") as archive:
+            with ZipFile(resource / "v17-source.zip") as archive:
                 for name in sorted(archive.namelist()):
                     if name.startswith("baseline/") and name.endswith(".sql"):
                         connection.execute(
@@ -6994,7 +6993,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     candidate_schema=CognitionSchemaDocument(
                         canonical_bytes=rfc8785.dumps(candidate_schema())
                     ),
-                    candidate_parser=parse_candidate,
                     instructions=GENERIC_COGNITION_INSTRUCTIONS,
                     schema_name="armi_cognition_candidate_v12",
                 )
@@ -7019,7 +7017,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 if invocation.usage.estimated_cost_microyuan > 1_000_000:
                     self.fail("MODEL-LIVE-BUDGET")
                 response = cast(dict[str, Any], json.loads(invocation.response_bytes))
-                candidate_bytes = rfc8785.dumps(response["candidate"])
+                candidate_bytes = rfc8785.dumps(
+                    json.loads(response["output_text"])["candidate"]
+                )
                 validation = DeterministicCandidateValidator(
                     CandidateValidationContext(
                         born.subject_id,
@@ -7141,7 +7141,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             if live_evidence is not None
             else 1
         )
-        candidate_contract_version = "armi.cognition-candidate.v12"
+        candidate_contract_version = "armi.cognition-candidate.v13"
 
         def locator(digest: Digest) -> str:
             value = digest.value.removeprefix("sha256:")

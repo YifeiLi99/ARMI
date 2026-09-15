@@ -33,11 +33,11 @@ async def test_generic_transport_sends_current_prompt_and_schema(
         responses=SimpleNamespace(create=create), close=AsyncMock()
     )
     monkeypatch.setattr(ark, "_client", lambda *_args: client)
-    schema = candidate_schema("armi.cognition-candidate.v12")
+    schema = candidate_schema("armi.cognition-candidate.v13")
     transport = ark.OpenAIArkTransport(
         schema,
         instructions=GENERIC_COGNITION_INSTRUCTIONS,
-        schema_name="armi_cognition_candidate_v12",
+        schema_name="armi_cognition_candidate_v13",
     )
     request = SimpleNamespace(
         canonical_bytes=json.dumps(
@@ -56,7 +56,7 @@ async def test_generic_transport_sends_current_prompt_and_schema(
     assert "candidate object property" in payload["instructions"]
     assert payload["text"]["format"]["schema"]["required"] == ["candidate"]
     assert purpose in payload["input"]
-    assert payload["text"]["format"]["name"] == "armi_cognition_candidate_v12"
+    assert payload["text"]["format"]["name"] == "armi_cognition_candidate_v13"
     wire = json.dumps(payload["text"]["format"]["schema"])
     assert "capability_request" not in wire
     assert "permission_grant" not in wire

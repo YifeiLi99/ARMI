@@ -131,6 +131,7 @@ from armi_subject_state.api import (
 from armi_web_observation.api import WebResearchRequestDraft
 from pydantic import ValidationError
 
+from . import _creator_cognitive_act_contract as creator_act
 from ._activity_attention_contract import (
     ACTIVITY_ATTENTION_CANDIDATE_VERSION,
     ActivityAttentionCandidate,
@@ -158,7 +159,6 @@ from ._creator_appraisal_contract import (
 )
 from ._creator_cognitive_act_contract import CreatorCognitiveActCandidate
 from ._dialogue_contract import (
-    DIALOGUE_CANDIDATE_VERSION,
     CreatorDialogueCandidate,
     DialogueCommitmentChange,
     DialogueExactLifeQueryDecision,
@@ -215,12 +215,14 @@ from ._sleep_contract import (
     SLEEP_DECISION_CANDIDATE_VERSION,
     SleepDecisionCandidate,
 )
+from ._validation_diagnostics import contract_rejection
 from ._visual_observation_contract import (
     AcceptVisualExperience,
     IgnoreVisualObservation,
     parse_visual_observation_candidate,
 )
 from .api import (
+    CandidateDiagnostic,
     CandidateExactLifeQueryDraft,
     CandidateValidationResult,
     CandidateValidationStatus,
@@ -545,11 +547,11 @@ class DeterministicCandidateValidator:
 
     def validate(
         self,
-        candidate_bytes: bytes,
+        candidate_bytes: bytes | dict[str, Any],
         *,
         bases: tuple[CandidateBasis, ...],
     ) -> CandidateValidationResult:
-        if type(candidate_bytes) is not bytes or not candidate_bytes:
+        if type(candidate_bytes) not in (bytes, dict) or not candidate_bytes:
             raise CandidateViolation("CANDIDATE-INPUT")
         basis_by_ref = {f"ctx:{basis.ordinal}": basis for basis in bases}
         if len(basis_by_ref) != len(bases):
@@ -563,11 +565,17 @@ class DeterministicCandidateValidator:
         try:
             parsed_candidate = (
                 parse_owner_reflection(
-                    json.loads(candidate_bytes),
+                    json.loads(candidate_bytes)
+                    if isinstance(candidate_bytes, bytes)
+                    else candidate_bytes,
                     allowed_context_refs=frozenset(basis_by_ref),
                 )
                 if reflection_purpose
-                else parse_visual_observation_candidate(json.loads(candidate_bytes))
+                else parse_visual_observation_candidate(
+                    json.loads(candidate_bytes)
+                    if isinstance(candidate_bytes, bytes)
+                    else candidate_bytes
+                )
                 if self._context.purpose == "consider_visual_observation"
                 else parse_candidate(
                     candidate_bytes,
@@ -585,19 +593,16 @@ class DeterministicCandidateValidator:
                         if self._context.purpose
                         in {"maintain_subjective_memory", "perform_subject_self_check"}
                         else self._context.candidate_contract_version
-                        if self._context.purpose
-                        in {
-                            "consider_creator_input",
-                            "consider_creator_voice_input",
-                            "consider_creator_outreach",
-                            "consider_other_human_input",
-                        }
-                        else None
                     ),
                 )
             )
-        except ModelViolation, ValidationError, ValueError, json.JSONDecodeError:
-            return _rejected("CANDIDATE-CONTRACT")
+        except (
+            ModelViolation,
+            ValidationError,
+            ValueError,
+            json.JSONDecodeError,
+        ) as error:
+            return contract_rejection(error)
         if isinstance(parsed_candidate, SleepDecisionCandidate):
             return self._validate_sleep(
                 parsed_candidate,
@@ -2484,22 +2489,24 @@ def _expand_creator_cognitive_act(
     DialogueBoundChanges | None,
     str | None,
 ]:
-    try:
-        response = parse_dialogue_candidate(
-            {
-                "kind": source.kind,
-                "content": source.content,
-                "record_kind": source.record_kind,
-                "query": source.query,
-                "source_kind": source.source_kind,
-                "changes": tuple(
-                    item for item in source.changes if item.op.startswith("material.")
-                ),
-            },
-            version=DIALOGUE_CANDIDATE_VERSION,
+    response: CreatorDialogueCandidate
+    decision = source.decision
+    if isinstance(decision, creator_act.ReplyDecision):
+        response = DialogueReplyDecision(kind="reply", content=decision.content)
+    elif isinstance(decision, creator_act.ExactLifeQueryDecision):
+        response = DialogueExactLifeQueryDecision(
+            kind=decision.kind, record_kind=decision.record_kind
         )
-    except ValidationError, ValueError:
-        return None, None, "CANDIDATE-RESPONSE-BRANCH"
+    elif isinstance(decision, creator_act.WebResearchDecision):
+        response = DialogueWebResearchDecision(kind=decision.kind, query=decision.query)
+    elif isinstance(decision, creator_act.VisualObservationDecision):
+        response = DialogueVisualObservationDecision(
+            kind=decision.kind, source_kind=decision.source_kind
+        )
+    elif decision.content is not None:
+        response = DialogueReplyDecision(kind="reply", content=decision.content)
+    else:
+        response = DialogueTerminalDecision(kind=decision.kind)
     candidate, bound, error = _expand_dialogue_candidate(
         response,
         bases=bases,
@@ -2507,6 +2514,19 @@ def _expand_creator_cognitive_act(
     )
     if candidate is None or bound is None or error is not None:
         return candidate, bound, error
+    if source.content is not None and source.kind != "reply":
+        summary = f"Creator dialogue {source.kind} selected with an explanation."
+        candidate = candidate.model_copy(
+            update={
+                "reason_summary": summary,
+                "understanding": candidate.understanding.model_copy(
+                    update={"text": summary}
+                ),
+            }
+        )
+    material_events = tuple(
+        item for item in source.changes if item.op.startswith("material.")
+    )
     relationship_events = tuple(
         item
         for item in source.changes
@@ -2516,6 +2536,7 @@ def _expand_creator_cognitive_act(
         source.experience is None
         and source.appraisal is None
         and not relationship_events
+        and not material_events
     ):
         return candidate, bound, None
     evidence = next(
@@ -2543,41 +2564,62 @@ def _expand_creator_cognitive_act(
         if item is not None
     )
     proposal_no = max((int(ref.partition(":")[2]) for ref in used_refs), default=0) + 1
-    candidate_value = candidate.model_dump(mode="python")
-    experiences = list(candidate_value["experiences"])
-    component_changes = list(candidate_value["component_changes"])
-    memory_changes = list(candidate_value["memory_changes"])
+    if material_events:
+        try:
+            translated_material = translate_compact_change_set(material_events)
+        except ValidationError, ValueError:
+            return None, None, "CANDIDATE-MATERIAL-CONTRACT"
+        material, material_error = _bind_dialogue_material(
+            cast(DialogueMaterialChange, translated_material["material_change"]),
+            proposal_ref=f"proposal:{proposal_no}",
+            evidence=evidence,
+            bases=bases,
+            context=context,
+        )
+        if material is None:
+            return None, None, material_error or "CANDIDATE-MATERIAL-CONTEXT"
+        bound = replace(bound, material=replace(material, atomic_group_ref="group:4"))
+        proposal_no += 1
+    experiences = list(candidate.experiences)
+    component_changes = list(candidate.component_changes)
+    memory_changes = list(candidate.memory_changes)
     experience_ref: str | None = None
     if source.experience is not None:
         experience_ref = f"proposal:{proposal_no}"
         experiences.append(
-            {
-                "proposal_ref": experience_ref,
-                "atomic_group_ref": "group:4",
-                "basis_refs": (evidence_ref,),
-                "payload": {
-                    "proposal_kind": "experiences",
-                    "fact_class": "external_claim",
-                    "first_person_gist": source.experience.first_person_gist,
-                    "source_perspective": "creator_claim",
-                    "uncertainty": source.experience.uncertainty,
-                    "privacy_scope": "private",
+            ExperienceProposal.model_validate(
+                {
+                    "proposal_ref": experience_ref,
+                    "atomic_group_ref": "group:4",
+                    "basis_refs": (evidence_ref,),
+                    "payload": {
+                        "proposal_kind": "experiences",
+                        "fact_class": "external_claim",
+                        "first_person_gist": source.experience.first_person_gist,
+                        "source_perspective": "creator_claim",
+                        "uncertainty": source.experience.uncertainty,
+                        "privacy_scope": "private",
+                    },
                 },
-            }
+                strict=True,
+            )
         )
         proposal_no += 1
         if source.experience.remember:
             memory_changes.append(
-                {
-                    "proposal_ref": f"proposal:{proposal_no}",
-                    "atomic_group_ref": "group:4",
-                    "basis_refs": (evidence_ref,),
-                    "payload": {
-                        "proposal_kind": "memory_changes",
-                        "fact_class": "external_claim",
-                        "summary": source.experience.memory_summary,
+                MemoryChangeProposal.model_validate(
+                    {
+                        "proposal_ref": f"proposal:{proposal_no}",
+                        "atomic_group_ref": "group:4",
+                        "basis_refs": (evidence_ref,),
+                        "payload": {
+                            "proposal_kind": "memory_changes",
+                            "fact_class": "external_claim",
+                            "summary": source.experience.memory_summary,
+                        },
                     },
-                }
+                    strict=True,
+                )
             )
             proposal_no += 1
     if source.appraisal is not None:
@@ -2591,7 +2633,9 @@ def _expand_creator_cognitive_act(
             return None, None, mood_error
         if mood_change is not None:
             mood_change["atomic_group_ref"] = "group:4"
-            component_changes.append(mood_change)
+            component_changes.append(
+                ComponentChangeProposal.model_validate(mood_change, strict=True)
+            )
             proposal_no += 1
     relationship = None
     if relationship_events:
@@ -2620,18 +2664,21 @@ def _expand_creator_cognitive_act(
         if relationship is None:
             return None, None, relationship_error or "CANDIDATE-RELATIONSHIP-CONTEXT"
         relationship = replace(relationship, atomic_group_ref="group:4")
-    candidate_value["experiences"] = tuple(experiences)
-    candidate_value["component_changes"] = tuple(component_changes)
-    candidate_value["memory_changes"] = tuple(memory_changes)
     has_internal_change = bool(
-        experiences or component_changes or memory_changes or relationship is not None
+        experiences
+        or component_changes
+        or memory_changes
+        or relationship is not None
+        or material_events
     )
-    if has_internal_change:
-        candidate_value["disposition"] = "change"
-    try:
-        candidate = type(candidate).model_validate(candidate_value, strict=True)
-    except ValidationError:
-        return None, None, "CANDIDATE-CONTRACT"
+    candidate = candidate.model_copy(
+        update={
+            "experiences": tuple(experiences),
+            "component_changes": tuple(component_changes),
+            "memory_changes": tuple(memory_changes),
+            "disposition": "change" if has_internal_change else candidate.disposition,
+        }
+    )
     return candidate, replace(bound, relationship=relationship), None
 
 
@@ -2871,6 +2918,7 @@ def _expand_dialogue_candidate(
             DialogueTerminalDecision,
             DialogueExactLifeQueryDecision,
             DialogueWebResearchDecision,
+            DialogueVisualObservationDecision,
         ),
     ):
         return None, None, "CANDIDATE-CONTRACT"
@@ -2922,6 +2970,7 @@ def _expand_dialogue_candidate(
         "need_information": "Creator dialogue needs information.",
         "web_research": "Creator dialogue selected public Web research.",
         "exact_life_query": "ARMI selected an exact life-record query.",
+        "visual_observation": "ARMI selected a visual observation.",
     }[decision.kind]
     disposition = decision.kind
     experiences: list[dict[str, Any]] = []
@@ -3146,7 +3195,7 @@ def _expand_dialogue_candidate(
             return (
                 CognitionCandidate.model_validate(
                     {
-                        "schema_version": "armi.cognition-candidate.v12",
+                        "schema_version": "armi.cognition-candidate.v13",
                         "base": {
                             "subject_version": context.base_subject_version,
                             "state_epoch": context.base_state_epoch,
@@ -3206,7 +3255,7 @@ def _expand_dialogue_candidate(
             return (
                 CognitionCandidate.model_validate(
                     {
-                        "schema_version": "armi.cognition-candidate.v12",
+                        "schema_version": "armi.cognition-candidate.v13",
                         "base": {
                             "subject_version": context.base_subject_version,
                             "state_epoch": context.base_state_epoch,
@@ -3265,7 +3314,7 @@ def _expand_dialogue_candidate(
             return (
                 CognitionCandidate.model_validate(
                     {
-                        "schema_version": "armi.cognition-candidate.v12",
+                        "schema_version": "armi.cognition-candidate.v13",
                         "base": {
                             "subject_version": context.base_subject_version,
                             "state_epoch": context.base_state_epoch,
@@ -3311,7 +3360,7 @@ def _expand_dialogue_candidate(
         return (
             CognitionCandidate.model_validate(
                 {
-                    "schema_version": "armi.cognition-candidate.v12",
+                    "schema_version": "armi.cognition-candidate.v13",
                     "base": {
                         "subject_version": context.base_subject_version,
                         "state_epoch": context.base_state_epoch,
@@ -4662,6 +4711,9 @@ def _attention_transition_allowed(
 
 
 def _rejected(code: str) -> CandidateValidationResult:
+    owner = code.removeprefix("CANDIDATE-").partition("-")[0].lower()
+    if owner not in {item.value for item in CandidateOwner}:
+        owner = "cognition"
     return CandidateValidationResult(
         CandidateValidationId(uuid7()),
         CandidateValidationStatus.REJECTED,
@@ -4669,6 +4721,7 @@ def _rejected(code: str) -> CandidateValidationResult:
         0,
         0,
         code,
+        (CandidateDiagnostic("owner_validation", code, (), owner),),
     )
 
 

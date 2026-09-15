@@ -27,7 +27,6 @@ from armi_runtime.composition.model_verification import (
     candidate_schema,
     checked_model_request,
     load_active_binding,
-    parse_candidate,
 )
 from live_ark_credential import load_live_ark_credential
 
@@ -67,7 +66,6 @@ async def _verify(environment_root: Path) -> dict[str, object]:
         candidate_schema=CognitionSchemaDocument(
             canonical_bytes=rfc8785.dumps(candidate_schema())
         ),
-        candidate_parser=parse_candidate,
     )
     input_tokens = await adapter.tokenize(request_bytes)
     request = checked_model_request(

@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapte
 from ._creator_appraisal_contract import AppraisalEventSignalV2
 from ._strict_model_json import strict_model_value
 
-VISUAL_OBSERVATION_CANDIDATE_VERSION = "armi.visual-observation-candidate.v1"
+VISUAL_OBSERVATION_CANDIDATE_VERSION = "armi.visual-observation-candidate.v2"
 
 
 class _StrictModel(BaseModel):

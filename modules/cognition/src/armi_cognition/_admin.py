@@ -44,7 +44,10 @@ class PostgreSQLCognitionAdmin:
         self, transaction: PostgreSQLAdminTransaction, *, episode_id: UUID
     ) -> CognitionAdminEpisodeSnapshot | None:
         row = transaction.execute(
-            "SELECT cognitive_episode_id,opportunity_id,status,trace_id,prepared_at,context_manifest_artifact_id,compiled_context_artifact_id FROM armi.cognitive_episodes WHERE cognitive_episode_id=%s",
+            "SELECT cognitive_episode_id,opportunity_id,status,trace_id,prepared_at,context_manifest_artifact_id,compiled_context_artifact_id, "
+            "ARRAY(SELECT response_artifact_id FROM armi.cognitive_attempts a WHERE a.cognitive_episode_id=e.cognitive_episode_id AND response_artifact_id IS NOT NULL ORDER BY attempt_no), "
+            "ARRAY(SELECT diagnostic_artifact_id FROM armi.cognitive_candidate_validations v WHERE v.cognitive_episode_id=e.cognitive_episode_id AND diagnostic_artifact_id IS NOT NULL ORDER BY validated_at) "
+            "FROM armi.cognitive_episodes e WHERE cognitive_episode_id=%s",
             (episode_id,),
         ).fetchone()
         return (
@@ -58,6 +61,8 @@ class PostgreSQLCognitionAdmin:
                 cast(datetime | None, row[4]),
                 cast(UUID | None, row[5]),
                 cast(UUID | None, row[6]),
+                tuple(cast(list[UUID], row[7])),
+                tuple(cast(list[UUID], row[8])),
             )
         )
 
@@ -89,8 +94,9 @@ class PostgreSQLCognitionAdmin:
         row = transaction.execute(
             "SELECT (SELECT count(*) FROM armi.cognitive_episodes WHERE context_manifest_artifact_id=%s OR compiled_context_artifact_id=%s)+"
             "(SELECT count(*) FROM armi.cognitive_attempts WHERE request_artifact_id=%s OR response_artifact_id=%s)+"
-            "(SELECT count(*) FROM armi.cognitive_candidate_validations WHERE change_set_artifact_id=%s)",
+            "(SELECT count(*) FROM armi.cognitive_candidate_validations WHERE change_set_artifact_id=%s OR diagnostic_artifact_id=%s)",
             (
+                artifact_id,
                 artifact_id,
                 artifact_id,
                 artifact_id,

@@ -264,7 +264,7 @@ def test_maintenance_work_contract_is_phase_bounded_and_context_referenced() -> 
 
 def _candidate() -> dict[str, object]:
     return {
-        "schema_version": "armi.cognition-candidate.v12",
+        "schema_version": "armi.cognition-candidate.v13",
         "base": {
             "subject_version": 0,
             "state_epoch": 0,
@@ -411,7 +411,7 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     assert dialogue.model_id == active.model_id == ACTIVE_MODEL_ID
     assert dialogue.profile == "creator_cognitive_act"
     assert (
-        dialogue.response_contract_version == "armi.creator-cognitive-act-candidate.v3"
+        dialogue.response_contract_version == "armi.creator-cognitive-act-candidate.v4"
     )
     assert dialogue.output_token_limit == 2048
 
@@ -419,7 +419,7 @@ def test_creator_dialogue_uses_compact_purpose_contract() -> None:
     assert request["schema_version"] == "armi.model-request.v1"
     assert (
         request["output_contract"]["schema_version"]
-        == "armi.creator-cognitive-act-candidate.v3"
+        == "armi.creator-cognitive-act-candidate.v4"
     )
     assert request["candidate_base"]["bundle_activation_id"] == str(_BUNDLE_ID)
 
@@ -570,7 +570,7 @@ def test_creator_dialogue_request_prioritizes_exact_recent_turns_and_local_refs(
     assert request["context_digest"] == Digest.from_bytes(compiled).value
     assert request["candidate_base"]["subject_version"] == 9
     assert request["output_contract"]["schema_version"] == (
-        "armi.creator-cognitive-act-candidate.v3"
+        "armi.creator-cognitive-act-candidate.v4"
     )
 
 

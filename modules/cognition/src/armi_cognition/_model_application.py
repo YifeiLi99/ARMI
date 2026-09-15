@@ -62,25 +62,17 @@ from ._creator_cognitive_act_contract import (
     CREATOR_COGNITIVE_ACT_INSTRUCTIONS,
     CREATOR_COGNITIVE_ACT_VERSION,
     CREATOR_VOICE_ACT_INSTRUCTIONS,
-    CreatorCognitiveActCandidate,
     creator_cognitive_act_schema,
     creator_voice_act_schema,
-    parse_creator_cognitive_act,
-    parse_creator_voice_act,
 )
 from ._model_contract import (
-    ACTIVITY_ATTENTION_CANDIDATE_VERSION,
     ACTIVITY_ATTENTION_INSTRUCTIONS,
-    ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION,
     ACTIVITY_INTERNAL_WORK_INSTRUCTIONS,
-    AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
     AUTONOMOUS_ACTIVITY_INSTRUCTIONS,
     CREATOR_OUTREACH_INSTRUCTIONS,
     DIALOGUE_CANDIDATE_VERSION,
     GENERIC_COGNITION_INSTRUCTIONS,
-    MAINTENANCE_WORK_CANDIDATE_VERSION,
     MEMORY_MAINTENANCE_INSTRUCTIONS,
-    SLEEP_DECISION_CANDIDATE_VERSION,
     SLEEP_DECISION_INSTRUCTIONS,
     SUBJECT_SELF_CHECK_INSTRUCTIONS,
     VISUAL_OBSERVATION_CANDIDATE_VERSION,
@@ -91,24 +83,20 @@ from ._model_contract import (
     load_active_binding,
     load_purpose_binding,
     load_voice_binding,
-    parse_candidate,
 )
 from ._model_postgresql import ModelEpisodeSnapshot, PostgreSQLCognitiveModelRepository
 from ._other_human_contract import (
     OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
     OTHER_HUMAN_DIALOGUE_INSTRUCTIONS,
-    parse_other_human_dialogue_candidate,
 )
 from ._reflection_contract import (
     REFLECT_MIND_INSTRUCTIONS,
     REFLECT_PROMPT_INSTRUCTIONS,
     REFLECT_SELF_INSTRUCTIONS,
     owner_reflection_schema,
-    parse_owner_reflection,
 )
 from .api import (
     CognitionArtifactCatalogPort,
-    CognitionCandidateParser,
     CognitionFinalizationPort,
     CognitionModelAdapterFactory,
     CognitionModelPort,
@@ -192,12 +180,10 @@ class _DeterministicMoodReflectionAdapter:
             self._binding.model_id,
             rfc8785.dumps(
                 {
-                    "schema_version": "armi.model-response-artifact.v2",
+                    "schema_version": "armi.model-response-artifact.v3",
                     "provider_request_id": "local-mood-reflection",
                     "provider_model_id": self._binding.model_id,
-                    "candidate": json.loads(response),
-                    "output_text": response.decode("utf-8"),
-                    "validation_error": None,
+                    "output_text": '{"candidate":' + response.decode("utf-8") + "}",
                     "usage": {
                         "input_tokens": max(1, len(request.canonical_bytes) // 4),
                         "output_tokens": 1,
@@ -366,135 +352,10 @@ class ModelPipeline:
         )
         self._dialogue_version = dialogue_version
 
-        def parse_creator_act(
-            value: bytes,
-            *,
-            allowed_context_refs: frozenset[str],
-        ) -> CreatorCognitiveActCandidate:
-            try:
-                return parse_creator_cognitive_act(
-                    json.loads(value),
-                    allowed_context_refs=allowed_context_refs,
-                    web_search=web_search_active,
-                )
-            except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as error:
-                raise ModelViolation("MODEL-RESPONSE-SCHEMA") from error
-
-        def parse_voice_act(
-            value: bytes, *, allowed_context_refs: frozenset[str]
-        ) -> CreatorCognitiveActCandidate:
-            try:
-                return parse_creator_voice_act(
-                    json.loads(value), allowed_context_refs=allowed_context_refs
-                )
-            except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as error:
-                raise ModelViolation("MODEL-RESPONSE-SCHEMA") from error
-
-        def parse_autonomous(
-            value: bytes,
-            *,
-            allowed_context_refs: frozenset[str],
-        ):
-            return parse_candidate(
-                value,
-                allowed_context_refs=allowed_context_refs,
-                expected_version=AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
-            )
-
-        def parse_outreach(
-            value: bytes,
-            *,
-            allowed_context_refs: frozenset[str],
-        ):
-            return parse_candidate(
-                value,
-                allowed_context_refs=allowed_context_refs,
-                expected_version=DIALOGUE_CANDIDATE_VERSION,
-            )
-
-        def parse_other_human(
-            value: bytes,
-            *,
-            allowed_context_refs: frozenset[str],
-        ):
-            return parse_other_human_dialogue_candidate(
-                value,
-                allowed_context_refs=allowed_context_refs,
-            )
-
-        def parse_attention(
-            value: bytes,
-            *,
-            allowed_context_refs: frozenset[str],
-        ):
-            return parse_candidate(
-                value,
-                allowed_context_refs=allowed_context_refs,
-                expected_version=ACTIVITY_ATTENTION_CANDIDATE_VERSION,
-            )
-
-        def parse_internal_work(
-            value: bytes,
-            *,
-            allowed_context_refs: frozenset[str],
-        ):
-            return parse_candidate(
-                value,
-                allowed_context_refs=allowed_context_refs,
-                expected_version=ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION,
-            )
-
-        def parse_sleep(
-            value: bytes,
-            *,
-            allowed_context_refs: frozenset[str],
-        ):
-            return parse_candidate(
-                value,
-                allowed_context_refs=allowed_context_refs,
-                expected_version=SLEEP_DECISION_CANDIDATE_VERSION,
-            )
-
-        def parse_maintenance_work(
-            value: bytes,
-            *,
-            allowed_context_refs: frozenset[str],
-        ):
-            return parse_candidate(
-                value,
-                allowed_context_refs=allowed_context_refs,
-                expected_version=MAINTENANCE_WORK_CANDIDATE_VERSION,
-            )
-
-        def parse_visual_observation(
-            value: bytes,
-            *,
-            allowed_context_refs: frozenset[str],
-        ):
-            return parse_candidate(
-                value,
-                allowed_context_refs=allowed_context_refs,
-                expected_version=VISUAL_OBSERVATION_CANDIDATE_VERSION,
-            )
-
-        def parse_reflection(
-            value: bytes,
-            *,
-            allowed_context_refs: frozenset[str],
-        ):
-            try:
-                return parse_owner_reflection(
-                    json.loads(value),
-                    allowed_context_refs=allowed_context_refs,
-                )
-            except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as error:
-                raise ModelViolation("MODEL-RESPONSE-SCHEMA") from error
-
         def build_adapter(
             *,
             binding: ModelBinding,
             candidate_schema: dict[str, Any],
-            candidate_parser: CognitionCandidateParser,
             instructions: str = GENERIC_COGNITION_INSTRUCTIONS,
             schema_name: str = "armi_cognition_candidate_v12",
         ) -> CognitionModelPort:
@@ -503,7 +364,6 @@ class ModelPipeline:
                 candidate_schema=CognitionSchemaDocument(
                     rfc8785.dumps(cast(Any, candidate_schema))
                 ),
-                candidate_parser=candidate_parser,
                 instructions=instructions,
                 schema_name=schema_name,
             )
@@ -517,14 +377,12 @@ class ModelPipeline:
                 candidate_schema=creator_cognitive_act_schema(
                     web_search=web_search_active
                 ),
-                candidate_parser=parse_creator_act,
                 instructions=CREATOR_COGNITIVE_ACT_INSTRUCTIONS,
                 schema_name="armi_creator_cognitive_act_candidate_v1",
             ),
             "consider_creator_voice_input": build_adapter(
                 binding=creator_voice_binding,
                 candidate_schema=creator_voice_act_schema(),
-                candidate_parser=parse_voice_act,
                 instructions=CREATOR_VOICE_ACT_INSTRUCTIONS,
                 schema_name="armi_creator_voice_act_candidate_v1",
             ),
@@ -533,7 +391,6 @@ class ModelPipeline:
                 candidate_schema=creator_cognitive_act_schema(
                     web_search=web_search_active
                 ),
-                candidate_parser=parse_creator_act,
                 instructions=CREATOR_COGNITIVE_ACT_INSTRUCTIONS,
                 schema_name="armi_creator_cognitive_act_candidate_v1",
             ),
@@ -542,12 +399,10 @@ class ModelPipeline:
                 candidate_schema=candidate_schema(
                     web_evidence_binding.response_contract_version
                 ),
-                candidate_parser=parse_candidate,
             ),
             "consider_visual_observation": build_adapter(
                 binding=visual_observation_binding,
                 candidate_schema=candidate_schema(VISUAL_OBSERVATION_CANDIDATE_VERSION),
-                candidate_parser=parse_visual_observation,
                 instructions=VISUAL_OBSERVATION_INSTRUCTIONS,
                 schema_name="armi_visual_observation_candidate_v1",
             ),
@@ -556,19 +411,16 @@ class ModelPipeline:
                 candidate_schema=candidate_schema(
                     codex_task_binding.response_contract_version
                 ),
-                candidate_parser=parse_candidate,
             ),
             "consider_codex_result": build_adapter(
                 binding=codex_result_binding,
                 candidate_schema=candidate_schema(
                     codex_result_binding.response_contract_version
                 ),
-                candidate_parser=parse_candidate,
             ),
             "consider_creator_outreach": build_adapter(
                 binding=outreach_binding,
                 candidate_schema=candidate_schema(DIALOGUE_CANDIDATE_VERSION),
-                candidate_parser=parse_outreach,
                 instructions=CREATOR_OUTREACH_INSTRUCTIONS,
                 schema_name="armi_creator_outreach_candidate_v1",
             ),
@@ -577,7 +429,6 @@ class ModelPipeline:
                 candidate_schema=candidate_schema(
                     OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION
                 ),
-                candidate_parser=parse_other_human,
                 instructions=OTHER_HUMAN_DIALOGUE_INSTRUCTIONS,
                 schema_name="armi_other_human_dialogue_candidate_v1",
             ),
@@ -586,7 +437,6 @@ class ModelPipeline:
                 candidate_schema=candidate_schema(
                     autonomous_binding.response_contract_version
                 ),
-                candidate_parser=parse_autonomous,
                 instructions=AUTONOMOUS_ACTIVITY_INSTRUCTIONS,
                 schema_name="armi_autonomous_activity_candidate_v1",
             ),
@@ -595,7 +445,6 @@ class ModelPipeline:
                 candidate_schema=candidate_schema(
                     attention_binding.response_contract_version
                 ),
-                candidate_parser=parse_attention,
                 instructions=ACTIVITY_ATTENTION_INSTRUCTIONS,
                 schema_name="armi_activity_attention_candidate_v2",
             ),
@@ -604,7 +453,6 @@ class ModelPipeline:
                 candidate_schema=candidate_schema(
                     internal_work_binding.response_contract_version
                 ),
-                candidate_parser=parse_internal_work,
                 instructions=ACTIVITY_INTERNAL_WORK_INSTRUCTIONS,
                 schema_name="armi_activity_internal_work_candidate_v1",
             ),
@@ -613,7 +461,6 @@ class ModelPipeline:
                 candidate_schema=candidate_schema(
                     sleep_binding.response_contract_version
                 ),
-                candidate_parser=parse_sleep,
                 instructions=SLEEP_DECISION_INSTRUCTIONS,
                 schema_name="armi_sleep_decision_candidate_v1",
             ),
@@ -622,7 +469,6 @@ class ModelPipeline:
                 candidate_schema=candidate_schema(
                     memory_maintenance_binding.response_contract_version
                 ),
-                candidate_parser=parse_maintenance_work,
                 instructions=MEMORY_MAINTENANCE_INSTRUCTIONS,
                 schema_name="armi_maintenance_work_candidate_v1",
             ),
@@ -631,21 +477,18 @@ class ModelPipeline:
                 candidate_schema=candidate_schema(
                     self_check_binding.response_contract_version
                 ),
-                candidate_parser=parse_maintenance_work,
                 instructions=SUBJECT_SELF_CHECK_INSTRUCTIONS,
                 schema_name="armi_maintenance_work_candidate_v1",
             ),
             "reflect_self": build_adapter(
                 binding=reflect_self_binding,
                 candidate_schema=owner_reflection_schema(),
-                candidate_parser=parse_reflection,
                 instructions=REFLECT_SELF_INSTRUCTIONS,
                 schema_name="armi_owner_reflection_candidate_v1",
             ),
             "reflect_mind": build_adapter(
                 binding=reflect_mind_binding,
                 candidate_schema=owner_reflection_schema(),
-                candidate_parser=parse_reflection,
                 instructions=REFLECT_MIND_INSTRUCTIONS,
                 schema_name="armi_owner_reflection_candidate_v1",
             ),
@@ -653,7 +496,6 @@ class ModelPipeline:
             "reflect_prompt": build_adapter(
                 binding=reflect_prompt_binding,
                 candidate_schema=owner_reflection_schema(),
-                candidate_parser=parse_reflection,
                 instructions=REFLECT_PROMPT_INSTRUCTIONS,
                 schema_name="armi_owner_reflection_candidate_v1",
             ),
@@ -1037,7 +879,7 @@ class ModelPipeline:
         if (
             purpose == "consider_creator_voice_input"
             and adapter.binding.response_contract_version
-            != "armi.creator-voice-act-candidate.v3"
+            != "armi.creator-voice-act-candidate.v4"
         ):
             raise ModelViolation("MODEL-BINDING")
         if (

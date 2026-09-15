@@ -1,10 +1,10 @@
-# ruff: noqa: RUF001
+"""Behavioral equivalence of Creator text and voice contracts."""
 
 from __future__ import annotations
 
 import json
-from typing import Any, cast
 
+import jsonschema
 import pytest
 from armi_cognition._creator_cognitive_act_contract import (
     CREATOR_COGNITIVE_ACT_VERSION,
@@ -17,134 +17,129 @@ from armi_cognition._creator_cognitive_act_contract import (
 from pydantic import ValidationError
 
 
-def test_text_contract_is_strict_and_single() -> None:
-    candidate = parse_creator_cognitive_act(
+@pytest.mark.parametrize(
+    "decision",
+    [
+        {"kind": "reply", "content": "Hello"},
+        {"kind": "decline", "content": "I decline"},
+        {"kind": "need_information", "content": "Which document?"},
+        {"kind": "no_change", "content": "The current value is correct"},
+        {"kind": "defer", "content": "I will consider this later"},
+        {"kind": "no_action"},
+        {"kind": "exact_life_query", "record_kind": "memory"},
+        {"kind": "web_research", "query": "public facts"},
+        {"kind": "visual_observation", "source_kind": "camera"},
+        {"kind": "visual_observation", "source_kind": "screen"},
+    ],
+)
+def test_all_actions_have_the_same_text_and_voice_semantics(decision):
+    text_value = {"decision": decision}
+    voice_value = {"d": decision}
+    jsonschema.validate(text_value, creator_cognitive_act_schema())
+    jsonschema.validate(voice_value, creator_voice_act_schema())
+    text = parse_creator_cognitive_act(text_value, allowed_context_refs=frozenset())
+    voice = parse_creator_voice_act(voice_value, allowed_context_refs=frozenset())
+    assert isinstance(text, CreatorCognitiveActCandidate)
+    assert text.schema_version == CREATOR_COGNITIVE_ACT_VERSION
+    assert text.model_dump() == voice.model_dump()
+
+
+def test_memory_is_explicit_by_summary_presence():
+    for summary in (None, "Remember this fact"):
+        experience = {"first_person_gist": "Creator told me", "memory_summary": summary}
+        text = parse_creator_cognitive_act(
+            {"decision": {"kind": "no_change"}, "experience": experience},
+            allowed_context_refs=frozenset(),
+        )
+        voice = parse_creator_voice_act(
+            {"d": {"kind": "no_change"}, "exp": experience},
+            allowed_context_refs=frozenset(),
+        )
+        assert text.experience == voice.experience
+        assert text.experience is not None
+        assert text.experience.remember is (summary is not None)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"decision": {"kind": "reply", "content": "ok", "query": "unrelated"}},
         {
-            "kind": "reply",
-            "content": "好，我知道了。",
-            "record_kind": None,
-            "query": None,
+            "decision": {
+                "kind": "exact_life_query",
+                "record_kind": "memory",
+                "content": "ok",
+            }
+        },
+        {"decision": {"kind": "no_action"}, "mood_score": 0.5},
+        {
+            "decision": {"kind": "no_action"},
             "experience": {
-                "first_person_gist": "Creator 告诉了我一件事",
-                "uncertainty": None,
+                "first_person_gist": "fact",
                 "remember": False,
-                "memory_summary": None,
+                "memory_summary": "contradiction",
             },
-            "appraisal": None,
-            "changes": [],
         },
-        allowed_context_refs=frozenset(),
-    )
-    assert isinstance(candidate, CreatorCognitiveActCandidate)
-    assert candidate.schema_version == CREATOR_COGNITIVE_ACT_VERSION
-    assert all(
-        branch["additionalProperties"] is False
-        for branch in cast(
-            list[dict[str, Any]], creator_cognitive_act_schema()["anyOf"]
-        )
-    )
-
-
-def test_extra_fields_reject_the_whole_act() -> None:
+    ],
+)
+def test_invalid_fields_reject_the_whole_act(value):
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(value, creator_cognitive_act_schema())
     with pytest.raises(ValidationError):
-        CreatorCognitiveActCandidate.model_validate(
-            {
-                "kind": "no_action",
-                "content": None,
-                "record_kind": None,
-                "query": None,
-                "experience": None,
-                "appraisal": None,
-                "changes": [],
-                "mood_score": 0.5,
-            },
-            strict=True,
-        )
+        parse_creator_cognitive_act(value, allowed_context_refs=frozenset())
 
 
-def test_voice_wire_expands_to_the_same_semantics() -> None:
-    candidate = parse_creator_voice_act(
-        {
-            "k": "reply",
-            "text": "我听见了。",
-            "record": None,
-            "query": None,
-            "exp": {"g": "Creator 正在和我说话", "u": None, "m": None},
-            "app": None,
-            "ops": [],
-        },
-        allowed_context_refs=frozenset(),
-    )
-    assert candidate.kind == "reply"
-    assert candidate.content == "我听见了。"
-    assert candidate.experience is not None
-    assert candidate.experience.remember is False
+def test_voice_expression_limit_is_shared_by_reply_and_terminal():
+    for kind in ("reply", "decline", "need_information"):
+        value = {"d": {"kind": kind, "content": "x" * 61}}
+        with pytest.raises(ValidationError):
+            parse_creator_voice_act(value, allowed_context_refs=frozenset())
 
 
-def test_voice_memory_is_explicit_by_presence() -> None:
-    candidate = parse_creator_voice_act(
-        {
-            "k": "no_change",
-            "text": None,
-            "record": None,
-            "query": None,
-            "exp": {"g": "Creator 明确让我记住", "u": None, "m": "需要记住的事"},
-            "app": None,
-            "ops": [],
-        },
-        allowed_context_refs=frozenset(),
-    )
-    assert candidate.experience is not None
-    assert candidate.experience.remember is True
-
-
-def test_voice_appraisal_and_operations_use_short_wire_fields_without_losing_meaning() -> (
-    None
-):
-    candidate = parse_creator_voice_act(
-        {
-            "k": "reply",
-            "text": "我明白。",
-            "record": None,
-            "query": None,
-            "exp": {"g": "Creator 肯定了我的选择", "u": None, "m": None},
-            "app": {
-                "t": "new",
-                "r": None,
-                "p": "realized",
-                "g": "受到肯定",
-                "d": None,
-                "a": {
-                    "c": [{"t": "relationship", "s": "direct", "d": "progress"}],
-                    "e": "somewhat_unexpected",
-                    "o": "settled",
-                    "q": "pleasant",
-                    "i": "important",
-                    "d": None,
-                    "a": None,
-                    "p": None,
-                    "s": None,
-                },
-                "b": ["ctx:1"],
-            },
-            "ops": [
+def test_voice_appraisal_and_operations_share_business_types():
+    appraisal = {
+        "trajectory": {"transition": "new"},
+        "event_phase": "realized",
+        "gist": "Recognition",
+        "appraisal": {
+            "concerns": [
                 {
-                    "o": "relationship.fact",
-                    "r": None,
-                    "l": None,
-                    "f": None,
-                    "p": None,
-                    "t": "Creator 表达了肯定",
-                    "i": None,
-                    "m": {},
+                    "target": "relationship",
+                    "significance": "direct",
+                    "direction": "progress",
                 }
             ],
+            "expectedness": "somewhat_unexpected",
+            "outcome_certainty": "settled",
+            "intrinsic_quality": "pleasant",
+            "self_involvement": "important",
+        },
+        "basis_refs": ["ctx:1"],
+    }
+    changes = [{"op": "relationship.fact", "text": "Creator acknowledged my choice"}]
+    experience = {"first_person_gist": "Creator acknowledged my choice"}
+    candidate = parse_creator_voice_act(
+        {
+            "d": {"kind": "reply", "content": "Understood"},
+            "exp": experience,
+            "app": appraisal,
+            "ops": changes,
         },
         allowed_context_refs=frozenset({"ctx:1"}),
     )
+    text = parse_creator_cognitive_act(
+        {
+            "decision": {"kind": "reply", "content": "Understood"},
+            "experience": experience,
+            "appraisal": appraisal,
+            "changes": changes,
+        },
+        allowed_context_refs=frozenset({"ctx:1"}),
+    )
+    assert candidate.model_dump() == text.model_dump()
     assert candidate.appraisal is not None
     assert candidate.appraisal.appraisal.expectedness == "somewhat_unexpected"
     assert candidate.changes[0].op == "relationship.fact"
-    schema = json.dumps(creator_voice_act_schema(), ensure_ascii=False)
-    assert '"expectedness"' not in schema
-    assert '"target_ref"' not in schema
+    schema = json.dumps(creator_voice_act_schema())
+    assert "VoiceSemanticAppraisal" not in schema
+    assert "AppraisalSemanticSignal" in schema

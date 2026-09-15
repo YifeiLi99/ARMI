@@ -1,0 +1,13 @@
+{
+  "format": "armi.database-upgrade.v1",
+  "source": {
+    "baseline": "armi.schema-baseline.v17",
+    "schema_digest": "sha256:1e3edef706f12af238162ae322c8334b876fdd4d6301b8c324c8dcc2f1d8eaf0",
+    "role_policy_digest": "sha256:6d56fc4a9a7911c9c018c3e5aa6ccded4947ddae3073ad7bc856bfabae1a999c",
+    "postgresql": "18.4",
+    "vector": "0.8.6",
+    "pg_trgm": "1.6"
+  },
+  "target_baseline": "armi.schema-baseline.v18",
+  "steps": ["../upgrades/v17-to-v18.sql", "baseline/99_privileges.sql"]
+}

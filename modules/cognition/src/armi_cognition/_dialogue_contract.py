@@ -25,11 +25,11 @@ ContextRef = Annotated[
 ]
 
 
-class _StrictModel(BaseModel):
+class _StrictModel(BaseModel, frozen=True):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
 
-class DialogueNameReplacement(_StrictModel):
+class DialogueNameReplacement(_StrictModel, frozen=True):
     value: Annotated[str, StringConstraints(min_length=1, max_length=128)] | None
 
     @model_validator(mode="after")
@@ -39,7 +39,7 @@ class DialogueNameReplacement(_StrictModel):
         return self
 
 
-class DialogueLongTextReplacement(_StrictModel):
+class DialogueLongTextReplacement(_StrictModel, frozen=True):
     value: Annotated[str, StringConstraints(min_length=1, max_length=2048)] | None
 
     @model_validator(mode="after")
@@ -49,7 +49,7 @@ class DialogueLongTextReplacement(_StrictModel):
         return self
 
 
-class DialogueSummaryListReplacement(_StrictModel):
+class DialogueSummaryListReplacement(_StrictModel, frozen=True):
     values: tuple[Summary, ...] = Field(max_length=16)
 
     @model_validator(mode="after")
@@ -61,7 +61,7 @@ class DialogueSummaryListReplacement(_StrictModel):
         return self
 
 
-class DialogueSelfChange(_StrictModel):
+class DialogueSelfChange(_StrictModel, frozen=True):
     name: DialogueNameReplacement | None = None
     self_description: DialogueLongTextReplacement | None = None
     interests: DialogueSummaryListReplacement | None = None
@@ -77,7 +77,7 @@ class DialogueSelfChange(_StrictModel):
         return self
 
 
-class DialogueMindChange(_StrictModel):
+class DialogueMindChange(_StrictModel, frozen=True):
     understanding: DialogueSummaryListReplacement | None = None
     attention: DialogueSummaryListReplacement | None = None
     thoughts: DialogueSummaryListReplacement | None = None
@@ -91,7 +91,7 @@ class DialogueMindChange(_StrictModel):
         return self
 
 
-class DialogueSubjectPromptChange(_StrictModel):
+class DialogueSubjectPromptChange(_StrictModel, frozen=True):
     cognition_method: Summary
     expression_method: Summary
     reflection_method: Summary
@@ -108,7 +108,7 @@ class DialogueSubjectPromptChange(_StrictModel):
         return self
 
 
-class DialogueExperience(_StrictModel):
+class DialogueExperience(_StrictModel, frozen=True):
     first_person_gist: Annotated[
         str,
         StringConstraints(min_length=1, max_length=1024),
@@ -117,7 +117,7 @@ class DialogueExperience(_StrictModel):
     memory_summary: Summary | None = None
 
 
-class DialogueMemoryChange(_StrictModel):
+class DialogueMemoryChange(_StrictModel, frozen=True):
     action: Literal["recall", "fade", "forget", "reinterpret"]
     memory_ref: ContextRef
     summary: Summary | None = None
@@ -147,12 +147,12 @@ class DialogueMemoryChange(_StrictModel):
         return self
 
 
-class DialogueRelationshipFact(_StrictModel):
+class DialogueRelationshipFact(_StrictModel, frozen=True):
     kind: Literal["party_expression"]
     summary: Summary
 
 
-class DialogueRelationshipBoundary(_StrictModel):
+class DialogueRelationshipBoundary(_StrictModel, frozen=True):
     party: Literal["armi", "creator"]
     kind: Literal["contact", "address", "privacy", "disclosure", "exit"]
     action: Literal["refuse", "restrict", "end_contact"]
@@ -165,7 +165,7 @@ class DialogueRelationshipBoundary(_StrictModel):
         return self
 
 
-class DialogueCommitmentChange(_StrictModel):
+class DialogueCommitmentChange(_StrictModel, frozen=True):
     action: Literal[
         "establish",
         "modify",
@@ -232,7 +232,7 @@ class DialogueCommitmentChange(_StrictModel):
         return self
 
 
-class DialogueRelationshipChange(_StrictModel):
+class DialogueRelationshipChange(_StrictModel, frozen=True):
     interpretation: Summary | None = None
     fact: DialogueRelationshipFact | None = None
     boundary: DialogueRelationshipBoundary | None = None
@@ -250,7 +250,7 @@ class DialogueRelationshipChange(_StrictModel):
         return self
 
 
-class DialogueMaterialContentChange(_StrictModel):
+class DialogueMaterialContentChange(_StrictModel, frozen=True):
     action: Literal["create", "update"]
     material_ref: ContextRef | None = None
     material_kind: Literal["diary", "work", "collection", "draft"] | None = None
@@ -280,7 +280,7 @@ class DialogueMaterialContentChange(_StrictModel):
         return self
 
 
-class DialogueMaterialStateChange(_StrictModel):
+class DialogueMaterialStateChange(_StrictModel, frozen=True):
     action: Literal["set_private", "set_creator_visible", "delete"]
     material_ref: ContextRef
 
@@ -291,7 +291,7 @@ DialogueMaterialChange = Annotated[
 ]
 
 
-class CreatorDialogueCandidate(_StrictModel):
+class CreatorDialogueCandidate(_StrictModel, frozen=True):
     """A subjective dialogue choice; wire metadata belongs to the adapter."""
 
     @property
@@ -299,7 +299,7 @@ class CreatorDialogueCandidate(_StrictModel):
         return DIALOGUE_CANDIDATE_VERSION
 
 
-class DialogueReplyDecision(CreatorDialogueCandidate):
+class DialogueReplyDecision(CreatorDialogueCandidate, frozen=True):
     kind: Literal["reply"]
     content: Annotated[str, StringConstraints(min_length=1, max_length=65536)]
     experience: DialogueExperience | None = None
@@ -323,7 +323,7 @@ class DialogueReplyDecision(CreatorDialogueCandidate):
         return self
 
 
-class DialogueTerminalDecision(CreatorDialogueCandidate):
+class DialogueTerminalDecision(CreatorDialogueCandidate, frozen=True):
     kind: Literal[
         "decline",
         "no_action",
@@ -333,17 +333,17 @@ class DialogueTerminalDecision(CreatorDialogueCandidate):
     ]
 
 
-class DialogueWebResearchDecision(CreatorDialogueCandidate):
+class DialogueWebResearchDecision(CreatorDialogueCandidate, frozen=True):
     kind: Literal["web_research"]
     query: Annotated[str, StringConstraints(min_length=1, max_length=16384)]
 
 
-class DialogueVisualObservationDecision(CreatorDialogueCandidate):
+class DialogueVisualObservationDecision(CreatorDialogueCandidate, frozen=True):
     kind: Literal["visual_observation"]
     source_kind: Literal["camera", "screen"]
 
 
-class DialogueExactLifeQueryDecision(CreatorDialogueCandidate):
+class DialogueExactLifeQueryDecision(CreatorDialogueCandidate, frozen=True):
     kind: Literal["exact_life_query"]
     record_kind: Literal[
         "activity",
@@ -401,7 +401,7 @@ CompactChangeOp = Literal[
 ]
 
 
-class DialogueCompactChange(_StrictModel):
+class DialogueCompactChange(_StrictModel, frozen=True):
     """Stable, shallow model wire; domain-specific shape is checked after parsing."""
 
     op: CompactChangeOp
@@ -419,7 +419,7 @@ class DialogueCompactChange(_StrictModel):
     ] = Field(default_factory=dict, max_length=32)
 
 
-class _CompactDialogueEnvelope(_StrictModel):
+class _CompactDialogueEnvelope(_StrictModel, frozen=True):
     kind: Literal[
         "reply",
         "decline",

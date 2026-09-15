@@ -29,7 +29,6 @@ from armi_runtime.composition.model_verification import (
     candidate_schema,
     checked_model_request,
     load_active_binding,
-    parse_candidate,
 )
 from live_ark_credential import load_live_ark_credential
 
@@ -97,7 +96,6 @@ async def _verify(environment_root: Path) -> dict[str, object]:
         candidate_schema=CognitionSchemaDocument(
             canonical_bytes=rfc8785.dumps(candidate_schema())
         ),
-        candidate_parser=parse_candidate,
     )
     input_tokens = await adapter.tokenize(request_bytes)
     request = checked_model_request(
@@ -121,7 +119,7 @@ async def _verify(environment_root: Path) -> dict[str, object]:
     if invocation.usage.estimated_cost_microyuan > 1_000_000:
         raise RuntimeError("MODEL-LIVE-BUDGET")
     response = cast(dict[str, Any], json.loads(invocation.response_bytes))
-    candidate_bytes = rfc8785.dumps(response["candidate"])
+    candidate_bytes = json.loads(response["output_text"])["candidate"]
     validator = build_candidate_validator(
         CandidateValidationContext(
             subject_id,
@@ -177,7 +175,7 @@ async def _verify(environment_root: Path) -> dict[str, object]:
         if choice_scene != scene_id or choice_creator != creator_party_id:
             raise RuntimeError("CANDIDATE-LIVE-SCENE-PREDICATE")
     return {
-        "candidate_contract": "armi.cognition-candidate.v12",
+        "candidate_contract": "armi.cognition-candidate.v13",
         "requested_model_id": binding.model_id,
         "provider_model_id": invocation.provider_model_id,
         "validation_status": validation.status.value,

@@ -19,7 +19,7 @@ from pydantic import (
 from ._creator_appraisal_contract import AppraisalEventSignalV2
 from ._strict_model_json import strict_model_value
 
-OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION = "armi.other-human-dialogue-candidate.v6"
+OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION = "armi.other-human-dialogue-candidate.v7"
 
 Summary = Annotated[str, StringConstraints(min_length=1, max_length=512)]
 ContextRef = Annotated[

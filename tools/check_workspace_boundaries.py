@@ -104,6 +104,20 @@ def validate_contract_single_version(root: Path) -> list[Violation]:
                 if document.get("format") == "armi.database-upgrade.v1":
                     upgrade_source = document["source"]["baseline"]
             for line_no, line in enumerate(source.splitlines(), start=1):
+                # These two append-only history columns retain the version actually
+                # returned, including before an explicit database upgrade. They
+                # neither select a parser nor authorize execution of an old result.
+                if _relative(path, root) in {
+                    "packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema/baseline/30_cognition_and_provenance.sql",
+                    "packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/upgrades/v17-to-v18.sql",
+                } and any(
+                    name in line
+                    for name in (
+                        "CONSTRAINT cognitive_attempts_candidate_schema_version_check CHECK",
+                        "CONSTRAINT cognitive_candidate_validation_candidate_contract_version_check CHECK",
+                    )
+                ):
+                    continue
                 for match in _INTERNAL_CONTRACT_VERSION.finditer(line):
                     # An exact supported source is upgrade input, not a parallel Runtime contract.
                     if match.group(0) == upgrade_source:

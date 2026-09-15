@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Final, cast
+from typing import Final
 from uuid import UUID
 
 from armi_activity.api import (
@@ -49,7 +49,6 @@ from armi_codex.bootstrap import (
     bootstrap_codex_timeline_projection,
 )
 from armi_cognition.api import (
-    CognitionCandidateParser,
     CognitionContextLifecyclePort,
     CognitionExactLifeQueryPort,
     CognitionFinalizationPort,
@@ -256,7 +255,6 @@ from armi_runtime.adapters.model.local_embedding import (
     LocalLlamaCppEmbeddingAdapter,
 )
 from armi_runtime.adapters.model.volcengine_ark import (
-    CandidateParser,
     VolcengineArkModelAdapter,
 )
 from armi_runtime.adapters.persistence.birth import (
@@ -1388,17 +1386,14 @@ def compose_model_pipeline(
         *,
         binding: ModelBinding,
         candidate_schema: CognitionSchemaDocument,
-        candidate_parser: CognitionCandidateParser,
         instructions: str,
         schema_name: str,
     ) -> CognitionModelPort:
-        parser = cast(CandidateParser, candidate_parser)
         return VolcengineArkModelAdapter(
             binding=binding,
             credential_port=prepared.credential_port,
             locator=model_locator,
             candidate_schema=candidate_schema,
-            candidate_parser=parser,
             instructions=instructions,
             schema_name=schema_name,
         )

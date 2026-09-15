@@ -527,6 +527,7 @@ class PostgreSQLCandidateValidationRepository:
         result: CandidateValidationResult,
         validator_identity: str,
         change_set_artifact: ArtifactRef | None,
+        diagnostic_artifact: ArtifactRef | None = None,
     ) -> None:
         connection = unit_of_work.transaction
         await unit_of_work.work.validate_lease(lease)
@@ -544,10 +545,11 @@ class PostgreSQLCandidateValidationRepository:
                 candidate_contract_version, validator_identity, validation_status,
                 final_disposition, change_set_artifact_id,
                 accepted_count, rejected_count, error_code,
-                validated_by_runtime_instance_id, validation_fence_token)
+                validated_by_runtime_instance_id, validation_fence_token,
+                diagnostic_artifact_id)
             VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 result.validation_id.value,
@@ -574,6 +576,7 @@ class PostgreSQLCandidateValidationRepository:
                 result.error_code,
                 fence.runtime_instance_id.value,
                 fence.fence_token,
+                diagnostic_artifact.artifact_id.value if diagnostic_artifact else None,
             ),
         )
         if change_set is not None:

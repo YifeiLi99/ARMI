@@ -31,7 +31,7 @@ ARMI 不把人格提示词、模型会话或任务 Agent 当成“她”。当�
 | 应用 | 统一入口 `armi-app`、权威 `armi-runtime`、隔离 `armi-admin`、React Creator Web |
 | 业务 | 23 个独立 Python distribution；Capability 仅保留静态目录，其余按 owner 承担事实、恢复和数据权利责任 |
 | 底座/适配器 | Kernel、Runtime Foundation、Local Control、Artifact Store、PostgreSQL contract、NapCat、QQ、ESP32 display 共 8 个包 |
-| 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；baseline `armi.schema-baseline.v17` |
+| 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；baseline `armi.schema-baseline.v18` |
 | 物理 schema | 当前 baseline 101 张表、1269 个字段、1 个只读 view、62 个显式索引；表和生产 DML 都受 owner registry 检查 |
 | Creator API | 52 个 OpenAPI path；同源 bearer session、签名分页、SSE 投影失效刷新 |
 | 管理面 | CLI/MCP 共用 Admin 应用服务；支持绑定的 `active` / `development` / `system_test` / `acceptance`，具体操作受配置授权约束 |
@@ -121,7 +121,7 @@ Windows 11 x64 安装版包含原生 PostgreSQL、扩展、私有 Python 和已�
 
 该命令重新构建网页、wheels 和完整 payload，自动选择高于已安装版本与本地构建记录的四段版本，再签名并调用 Windows 安装。它仅使用 `YifeiLi99.ARMI.Acceptance` 身份和独立验收数据；已有环境先检查数据库合同，再通过 Admin 正常停机，停机失败则不请求更新。部署后核对 Windows 实际版本，关闭验收版的 GitHub 自动更新，保持环境停止，随后从开始菜单打开“ARMI 验收”即可测试。构建默认使用已准备的离线依赖缓存；缺少依赖时失败，不自动联网补齐。
 
-默认选择证书库中唯一有效且匹配验收 Publisher 的私钥证书；多个候选时显式传 `-CertificateThumbprint <指纹>`。签名和信任需预先配置，脚本不导入证书。只打包、不安装时增加 `-BuildOnly`；产物位于 `dist/msix-local/<版本>/`，可把 `.msix` 复制到另一台已信任同一测试证书的电脑后双击安装或更新。数据库合同改变时，只有签名包声明了精确的受支持升级路径才继续：先正常停机、部署程序，再显式事务升级数据库。无匹配路径时在部署前拒绝；升级失败保留数据并报告程序已部署、数据库尚未升级，不重装数据库或重复出生。独立签名测试包已验证 v16 到当前合同的原位升级、身份与凭据保留、部署与数据库升级之间的中断状态，以及重复升级查询。当前日常使用的安装实例只在用户明确要求“更新本机”时更新。
+默认选择证书库中唯一有效且匹配验收 Publisher 的私钥证书；多个候选时显式传 `-CertificateThumbprint <指纹>`。签名和信任需预先配置，脚本不导入证书。只打包、不安装时增加 `-BuildOnly`；产物位于 `dist/msix-local/<版本>/`，可把 `.msix` 复制到另一台已信任同一测试证书的电脑后双击安装或更新。数据库合同改变时，只有签名包声明了精确的受支持升级路径才继续：先正常停机、部署程序，再显式事务升级数据库。无匹配路径时在部署前拒绝；升级失败保留数据并报告程序已部署、数据库尚未升级，不重装数据库或重复出生。此前独立签名测试包验证了 v16 到 v17 的升级、身份与凭据保留及中断状态。当前 v17 到 v18 的路径已通过源码隔离数据库验证，本轮没有安装包或日常实例验收。当前日常使用的安装实例只在用户明确要求“更新本机”时更新。
 
 版本格式为 `年.月.日.当日序号`，例如 `2026.9.15.1`，日期取构建电脑的本地日期。同日序号高于发布配置、已安装版本及本地构建记录，换日从 1 开始。日期早于已知最高版本或同日序号达到 65535 时明确失败；旧 `0.1.0.x` 可直接升级到日期版本。本地生成的 release tag 同步为 `v<完整版本>`，不上传 GitHub。发布配置中的 `.0` 是未发布基准，正式发布需填写实际日期及序号并同步 tag。
 

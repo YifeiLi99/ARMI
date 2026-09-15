@@ -54,7 +54,7 @@ def test_mood_reflection_adapter_uses_no_provider_and_authors_no_vad() -> None:
     )
     result = asyncio.run(adapter.invoke(cast(Any, request)))
     assert result.response_bytes is not None
-    response = json.loads(result.response_bytes)["candidate"]
+    response = json.loads(json.loads(result.response_bytes)["output_text"])["candidate"]
     assert response["expected_version"] == 7
     assert response["next_state"] == {}
     assert "valence" not in result.response_bytes.decode("utf-8")

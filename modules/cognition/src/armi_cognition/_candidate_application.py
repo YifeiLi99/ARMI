@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator, Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any, cast
 from uuid import UUID, uuid7
 
@@ -40,7 +40,6 @@ from armi_kernel.application import (
     CandidateFactClass,
     CandidateViolation,
     ModelAttemptId,
-    ModelViolation,
     TransactionIsolation,
     WorkLease,
     WorkRecord,
@@ -92,6 +91,7 @@ from ._candidate_postgresql import (
     CandidateEpisodeSnapshot,
     PostgreSQLCandidateValidationRepository,
 )
+from ._validation_diagnostics import contract_rejection
 from ._validator import (
     CANDIDATE_VALIDATOR_IDENTITY,
     CandidateMemoryContext,
@@ -124,6 +124,7 @@ class _PreparedCandidate:
     publication: ArtifactPublication | None
     catalog: CognitionArtifactCatalogPort
     repository: PostgreSQLCandidateValidationRepository
+    diagnostic_publication: ArtifactPublication | None = None
 
     @property
     def episode_id(self) -> UUID:
@@ -146,6 +147,16 @@ class _PreparedCandidate:
                 await unit_of_work.audit.append(
                     _artifact_audit(unit_of_work, artifact, self.snapshot)
                 )
+        diagnostic_artifact = None
+        if self.diagnostic_publication is not None:
+            registration = await self.catalog.register(
+                unit_of_work, ArtifactId(uuid7()), self.diagnostic_publication
+            )
+            diagnostic_artifact = registration.ref
+            if registration.inserted:
+                await unit_of_work.audit.append(
+                    _artifact_audit(unit_of_work, diagnostic_artifact, self.snapshot)
+                )
         await self.repository.settle(
             unit_of_work,
             lease=lease,
@@ -153,6 +164,7 @@ class _PreparedCandidate:
             result=self.result,
             validator_identity=CANDIDATE_VALIDATOR_IDENTITY,
             change_set_artifact=artifact,
+            diagnostic_artifact=diagnostic_artifact,
         )
 
 
@@ -263,7 +275,6 @@ class CandidateValidationService:
         material_contexts = await self._read_material_contexts(
             snapshot.current_materials
         )
-        candidate_bytes = _candidate_bytes(response_bytes)
         validator = DeterministicCandidateValidator(
             CandidateValidationContext(
                 snapshot.subject_id,
@@ -387,16 +398,43 @@ class CandidateValidationService:
             sleep_cognition=self._sleep_cognition,
             subject_state_cognition=self._subject_state_cognition,
         )
-        result = validator.validate(candidate_bytes, bases=snapshot.bases)
+        try:
+            candidate_value = _candidate_value(response_bytes)
+        except CandidateViolation as error:
+            result = contract_rejection(error)
+        else:
+            result = validator.validate(candidate_value, bases=snapshot.bases)
         published = (
             await self._publish(result.change_set.canonical_bytes, snapshot)
             if result.change_set is not None
             else None
         )
+        diagnostic_publication = (
+            await self._publish(
+                rfc8785.dumps(
+                    {
+                        "schema_version": "armi.cognition-diagnostic.v1",
+                        "response_artifact_id": str(
+                            snapshot.response_artifact.artifact_id.value
+                        ),
+                        "details": [asdict(item) for item in result.diagnostics],
+                    }
+                ),
+                snapshot,
+                logical_kind="cognition.diagnostic",
+            )
+            if result.diagnostics
+            else None
+        )
         await self._submission.submit(
             cast(WorkLease, work.lease),
             _PreparedCandidate(
-                result, snapshot, published, self._catalog, self._repository
+                result,
+                snapshot,
+                published,
+                self._catalog,
+                self._repository,
+                diagnostic_publication,
             ),
         )
 
@@ -440,12 +478,14 @@ class CandidateValidationService:
         self,
         value: bytes,
         snapshot: CandidateEpisodeSnapshot,
+        *,
+        logical_kind: str = "cognition.change_set",
     ):
         staged = await self._storage.stage(
             _one_chunk(value),
             ArtifactPolicy(
                 "application/json",
-                "cognition.change_set",
+                logical_kind,
                 "candidate.validator",
                 snapshot.trace_id,
                 ArtifactPrivacyScope.RESTRICTED,
@@ -454,24 +494,28 @@ class CandidateValidationService:
         return await self._storage.publish(staged)
 
 
-def _candidate_bytes(response_bytes: bytes) -> bytes:
+def _candidate_value(response_bytes: bytes) -> dict[str, Any]:
     try:
         raw_response = json.loads(response_bytes)
         if not isinstance(raw_response, dict):
             raise CandidateViolation("CANDIDATE-CONTRACT")
         response = cast(dict[str, Any], raw_response)
-        if (
-            response.get("schema_version") != "armi.model-response-artifact.v2"
-            or "candidate" not in response
-            or "validation_error" not in response
-            or not isinstance(response.get("output_text"), str)
+        if response.get(
+            "schema_version"
+        ) != "armi.model-response-artifact.v3" or not isinstance(
+            response.get("output_text"), str
         ):
             raise CandidateViolation("CANDIDATE-CONTRACT")
-        if response["validation_error"] is not None:
-            raise ModelViolation(response["validation_error"]["code"])
-        return rfc8785.dumps(response["candidate"])
-    except UnicodeDecodeError, json.JSONDecodeError, TypeError:
-        raise CandidateViolation("CANDIDATE-CONTRACT") from None
+        envelope = json.loads(response["output_text"])
+        if (
+            not isinstance(envelope, dict)
+            or set(cast(dict[str, Any], envelope)) != {"candidate"}
+            or not isinstance(envelope["candidate"], dict)
+        ):
+            raise CandidateViolation("CANDIDATE-CONTRACT")
+        return cast(dict[str, Any], envelope["candidate"])
+    except (UnicodeDecodeError, json.JSONDecodeError, TypeError) as error:
+        raise CandidateViolation("CANDIDATE-CONTRACT") from error
 
 
 def _artifact_audit(

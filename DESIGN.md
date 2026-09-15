@@ -130,9 +130,9 @@ Profile 同时声明 required、optional、retrieval、forbidden：Creator 文�
 
 ### 6.3 Creator 单次认知
 
-标准 Creator 文本、语音和精确生命查询结果各只进行一次主认知调用。当前 `armi.creator-cognitive-act-candidate.v3` 允许：reply、decline、no_action、no_change、defer、need_information、exact_life_query、web_research；并可带一项 experience、语义 appraisal、受限 owner changes。
+标准 Creator 文本、语音和精确生命查询结果各只进行一次主认知调用。当前 Creator 合同将 `decision` 与共同的 experience、appraisal、changes 分开；decision 支持 reply、decline、no_action、no_change、defer、need_information、exact_life_query、web_research、visual_observation。回复只携带 content，查询、搜索和视觉观察各自携带参数。终止决定可以有 content，也可以自主沉默。
 
-模型只提出业务决定，不能生成 subject/scene ID、revision/version、权限结果、Emotion/VAD 数字、usage/model identity 或现实结果。关系/承诺变化必须有 experience；记忆只在当前 Creator 明确要求 remember 时形成。Voice compact wire 会确定性还原为同一语义，不是旁路合同。
+模型只提出业务决定，不能生成 subject/scene ID、revision/version、权限结果、Emotion/VAD 数字、usage/model identity 或现实结果。关系/承诺变化必须有 experience；记忆只在当前 Creator 明确要求记住时形成，memory_summary 的存在代表记忆提议，不再另传 remember。评价轨迹将新事件与既有事件的引用、变化分开建模。语音复用相同业务类型，仅顶层字段别名和 60 字表达上限不同。
 
 ### 6.4 Subject Commit
 
@@ -148,7 +148,11 @@ frozen Context + expected subject/owner versions
 
 执行器将实际模型响应、usage 与模型成功以短事务保存，此时认知仍处于 `finalizing`。本次响应直接传入校验器，类型化变更集直接传入提交服务；受治理存档保留，正常执行不重读存档接续工作。制品在事务外准备，最终事务原子登记校验、应用事实、主体变化、意图、Effect/outbox 并结算工作；全程共享同一租约、续租和取消信号。后续失败不改写已成功的模型调用。
 
-模型响应制品使用 `armi.model-response-artifact.v2`，保存原始输出文本、解析后的候选及本地校验错误（含字段位置和类型，排除输入值副本）；错误详情仅存于受治理制品，不进入公共报错或诊断日志。Provider 返回正文后，本地格式拒绝仍先保存模型调用结果，再使本轮认知失败，不提交候选、不重试或补发。Provider 输出以单一 `candidate` 属性封装，分词和实际调用使用同一输出 Schema；回复类型、显式记忆、评价轨迹、自省目标及记忆维护操作的字段组合以分支结构描述，Owner 仍校验实际引用、版本及业务约束。自省的 `no_change` 可以携带有效依据，不要求为了说明依据而制造状态更新。
+模型响应制品使用 `armi.model-response-artifact.v3`，只保存供应商身份、原始输出文本和 usage，不重复保存候选正文。适配器不解析业务候选；Cognition 解开 candidate 封装并按冻结合同解析一次，随后将类型化内容绑定到 Owner 命令。独立的 `cognition.diagnostic` 制品保存阶段、错误码、字段路径、责任 Owner 和原始响应引用；管理端因果链关联两类制品，数据权利发现与引用计数同时覆盖它们。结构错误不改写已发生的模型成功事实，也不提交、重试或补发候选。
+
+分词和实际调用使用由类型生成的同一 Schema，不再复制整份对象手工拼接动作分支。自省 no_change 可以携带依据；更新按目标类型要求对应状态和版本。记忆维护将保留操作与重解释分开，重解释的关联引用与关系种类组成一个可选对象。Owner 继续核验有效引用和业务语义，提交继续核验异步期间可能变化的权限、版本、Runtime 和租约。
+
+数据库当前基线保留历史候选版本，不将旧制品改写成新输出。精确前向升级保留已发生事实；旧候选没有执行解析器，也不参与中断恢复。
 
 任一 owner 失败不留下半个主体变化。并发版本已推进时旧候选 stale，不能最后写入者覆盖。模型明确失败可按同一 work 预算安全重试；Provider 已受理但结果 unknown 时不再调用。
 
@@ -283,7 +287,7 @@ Admin 的业务结果模型由操作目录统一生成 CLI/MCP 合同并校验�
 
 ## 13. 数据库与配置
 
-当前数据库要求 PostgreSQL 18.4、UTF-8/UTC/builtin `C.UTF-8`、vector 0.8.6、pg_trgm 1.6、唯一 `0000`、baseline `armi.schema-baseline.v17` 和精确 role policy。Schema 是 package resource，有序 baseline SQL、表策略和 ACL 由 `armi-postgresql-contract` 随包交付；精确目录以当前资源为准。安装只接受无用户 relation 且无现存 `armi` namespace 的目标库：namespace 先在独立短事务建立，随后 `0000` 在一个事务组内写入表、约束、ACL、revision、identity 与 digests；中段失败可以留下空 namespace，但不会留下业务表或前移 revision。Runtime 只验证，不安装或升级。显式 setup 升级仅接受签名资源声明的精确来源；结构转换、ACL、与新建 baseline 一致的结构核验及身份更新同事务提交。程序部署后数据库失败时保留数据，不自动降级；绑定只在数据库确认后刷新。
+当前数据库要求 PostgreSQL 18.4、UTF-8/UTC/builtin `C.UTF-8`、vector 0.8.6、pg_trgm 1.6、唯一 `0000`、baseline `armi.schema-baseline.v18` 和精确 role policy。Schema 是 package resource，有序 baseline SQL、表策略和 ACL 由 `armi-postgresql-contract` 随包交付；精确目录以当前资源为准。安装只接受无用户 relation 且无现存 `armi` namespace 的目标库：namespace 先在独立短事务建立，随后 `0000` 在一个事务组内写入表、约束、ACL、revision、identity 与 digests；中段失败可以留下空 namespace，但不会留下业务表或前移 revision。Runtime 只验证，不安装或升级。显式 setup 升级仅接受签名资源声明的精确来源；结构转换、ACL、与新建 baseline 一致的结构核验及身份更新同事务提交。程序部署后数据库失败时保留数据，不自动降级；绑定只在数据库确认后刷新。
 
 配置合并顺序：仓库 `configs/runtime.yaml` → 环境根 `environment.yaml` → 登记的 `ARMI_*` 覆盖。当前 schema v3，strict/frozen/extra-forbid。环境根必须有普通 `environment.yaml`、`data/`、`secrets/`；data root 精确相等，禁止 reparse。Secret 只用 `env:ARMI_SECRET_*` 或位于 `secrets/` 的 `file:` locator，最大 64KiB，经 scoped handle 消费后清零。
 

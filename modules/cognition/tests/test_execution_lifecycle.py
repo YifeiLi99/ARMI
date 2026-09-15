@@ -12,7 +12,7 @@ from uuid import uuid7
 
 import pytest
 from armi_cognition import _model_application as model
-from armi_cognition._candidate_application import _candidate_bytes
+from armi_cognition._candidate_application import _candidate_value
 from armi_cognition._model_postgresql import ModelEpisodeSnapshot
 from armi_kernel.application import (
     CandidateViolation,
@@ -29,17 +29,15 @@ async def _unit():
     yield SimpleNamespace()
 
 
-def test_saved_validation_failure_cannot_reach_subject_commit():
+def test_invalid_saved_response_cannot_reach_subject_commit():
     response = json.dumps(
         {
-            "schema_version": "armi.model-response-artifact.v2",
+            "schema_version": "armi.model-response-artifact.v3",
             "output_text": "invalid output",
-            "candidate": None,
-            "validation_error": {"code": "MODEL-RESPONSE-SCHEMA", "details": []},
         }
     ).encode()
-    with pytest.raises(ModelViolation, match="MODEL-RESPONSE-SCHEMA"):
-        _candidate_bytes(response)
+    with pytest.raises(CandidateViolation, match="CANDIDATE-CONTRACT"):
+        _candidate_value(response)
 
 
 class _Execution(model.ModelPipeline):
@@ -70,7 +68,12 @@ class _Execution(model.ModelPipeline):
             ),
         )
         self._finalization = cast(Any, SimpleNamespace(finalize=finalization))
-        self.result_bytes = b'{"schema_version":"armi.model-response-artifact.v2","candidate":{},"output_text":"{}","validation_error":null}'
+        self.result_bytes = json.dumps(
+            {
+                "schema_version": "armi.model-response-artifact.v3",
+                "output_text": '{"candidate":{}}',
+            }
+        ).encode()
         self.adapter = SimpleNamespace(
             binding=object(),
             tokenize=AsyncMock(return_value=1),

@@ -16,7 +16,6 @@ def test_actual_voice_binding_initializes_responses_adapter():
         credential_port=Mock(),
         locator=Mock(),
         candidate_schema=CognitionSchemaDocument(b'{"type":"object"}'),
-        candidate_parser=Mock(),
         instructions="",
         schema_name="test",
         transport=Mock(),

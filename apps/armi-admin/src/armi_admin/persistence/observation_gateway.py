@@ -734,6 +734,24 @@ class AdminObservationGateway:
                         episode.compiled_context_artifact_id,
                         "cognition",
                     )
+                    for artifact_id in episode.response_artifact_ids:
+                        link(
+                            kind,
+                            identity,
+                            "model_response",
+                            "artifact",
+                            artifact_id,
+                            "cognition",
+                        )
+                    for artifact_id in episode.diagnostic_artifact_ids:
+                        link(
+                            kind,
+                            identity,
+                            "validation_diagnostic",
+                            "artifact",
+                            artifact_id,
+                            "cognition",
+                        )
                     for commit_id, version in self._runtime.commits_for_episode(
                         tx, episode_id=identity
                     ):

@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
 from ._creator_appraisal_contract import AppraisalEventSignalV2
 from ._strict_model_json import strict_model_value
 
-ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION = "armi.activity-internal-work-candidate.v3"
+ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION = "armi.activity-internal-work-candidate.v4"
 
 _METADATA_KEY = re.compile(r"^[a-z][a-z0-9._-]{0,63}$", re.ASCII)
 _CONTEXT_REF = re.compile(r"^ctx:[1-9][0-9]{0,2}$", re.ASCII)
