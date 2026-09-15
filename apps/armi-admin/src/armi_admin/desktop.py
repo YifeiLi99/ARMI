@@ -76,6 +76,10 @@ class Desktop:
             anchor="w", padx=24, pady=(20, 4)
         )
         ttk.Label(root, text=str(environment), wraplength=830).pack(anchor="w", padx=24)
+        self.runtime_status = tk.StringVar(value="后台状态：正在读取")
+        ttk.Label(root, textvariable=self.runtime_status, wraplength=830).pack(
+            anchor="w", padx=24
+        )
         ttk.Label(root, textvariable=self.status, wraplength=830).pack(
             anchor="w", padx=24, pady=10
         )
@@ -97,7 +101,8 @@ class Desktop:
             ("启动", "start"),
             ("停止", "stop"),
             ("状态", "status"),
-            ("退出 ARMI", "quit"),
+            ("退出托盘", "quit"),
+            ("停止并退出", "stop_quit"),
         ):
             ttk.Button(
                 controls, text=label, command=lambda action=action: self.action(action)
@@ -106,6 +111,7 @@ class Desktop:
         self.tray = WindowsTray(identity, self.events.put)
         self.root.after(100, self._poll)
         self.root.after(5000, self._automatic_update)
+        self.root.after(1000, self._refresh_runtime_status)
 
     def _update_tab(self) -> None:
         frame = ttk.Frame(self.tabs, padding=20)
@@ -302,7 +308,7 @@ class Desktop:
         ttk.Button(frame, text="确认出生", command=self.birth).pack(anchor="w")
         ttk.Label(
             frame,
-            text="关闭窗口后继续在托盘运行。退出 ARMI 会先结束 Runtime，再停止本环境的数据库。",
+            text="关闭窗口只隐藏设置；退出托盘不停止后台。停止并退出会先结束 Runtime，再停止本环境的数据库。",
             wraplength=760,
         ).pack(anchor="w", pady=24)
 
@@ -828,6 +834,10 @@ class Desktop:
             return
         self.busy = True
         self.status.set("处理中…")
+        if request.operation in {"environment_start", "environment_stop"}:
+            self._set_runtime_status(
+                "正在启动" if request.operation == "environment_start" else "正在停止"
+            )
         future = self.executor.submit(dispatch, self.application, request)
         future.add_done_callback(
             lambda completed: self.events.put((completed.result(), callback))
@@ -1137,18 +1147,26 @@ class Desktop:
             cast(Any, self.root).lift()
         elif action == "open":
             self.start_on_launch(False)
+        elif action == "quit":
+            if self.busy:
+                self.status.set("正在处理操作，请完成后再退出托盘；后台状态不会改变。")
+                self.root.deiconify()
+                return
+            self._close()
         elif (
-            action == "quit"
+            action == "stop_quit"
             and not (self.environment / "postgresql/cluster.json").exists()
         ):
             self._close()
         else:
             operation = (
-                "environment_stop" if action == "quit" else "environment_" + action
+                "environment_stop" if action == "stop_quit" else "environment_" + action
             )
             arguments = {} if action == "status" else {"idempotency_key": str(uuid7())}
             self.admin(
-                operation, arguments, self._quit_result if action == "quit" else None
+                operation,
+                arguments,
+                self._quit_result if action == "stop_quit" else None,
             )
 
     def _quit_result(self, result: dict[str, Any]) -> None:
@@ -1164,6 +1182,49 @@ class Desktop:
         self.application.close()
         self.root.destroy()
 
+    def _refresh_runtime_status(self) -> None:
+        if self.closed:
+            return
+        if not self.busy:
+            if not (self.environment / "admin.yaml").exists():
+                self._set_runtime_status("尚未准备环境")
+            else:
+                self.busy = True
+                future = self.executor.submit(
+                    dispatch,
+                    self.application,
+                    SetupRequest(action="admin", operation="environment_status"),
+                )
+                future.add_done_callback(
+                    lambda completed: self.events.put(
+                        (completed.result(), self._runtime_status_result)
+                    )
+                )
+        self.root.after(5000, self._refresh_runtime_status)
+
+    def _set_runtime_status(
+        self, text: str, *, running: bool = False, error: bool = False
+    ) -> None:
+        self.runtime_status.set("后台状态：" + text)
+        self.tray.set_status(text, running=running, error=error)
+
+    def _runtime_status_result(self, result: dict[str, Any]) -> None:
+        if result.get("status") != "succeeded":
+            self._set_runtime_status(
+                "无法确认 / " + str(result.get("error_code") or result.get("status")),
+                error=True,
+            )
+            return
+        payload: dict[str, Any] = result.get("result") or {}
+        runtime_info: dict[str, Any] = payload.get("runtime") or {}
+        runtime = str(runtime_info.get("status"))
+        labels = {"ready": "运行中", "running": "运行中", "stopped": "已停止"}
+        self._set_runtime_status(
+            labels.get(runtime, "异常 / " + str(runtime)),
+            running=runtime in {"ready", "running"},
+            error=runtime not in labels,
+        )
+
     def hide(self) -> None:
         if self.tray.ready.is_set():
             self.root.withdraw()
@@ -1178,6 +1239,9 @@ class Desktop:
             else:
                 result, callback = event
                 self.busy = False
+                if callback == self._runtime_status_result:
+                    callback(result)
+                    continue
                 payload: dict[str, Any] = result.get("result") or {}
                 status = str(
                     result.get("error_code")

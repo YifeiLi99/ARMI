@@ -88,7 +88,7 @@ Schema 实际打包在 `packages/armi-postgresql-contract/src/armi_postgresql_co
 
 Windows 11 x64 安装版包含原生 PostgreSQL、扩展、私有 Python 和已构建网页；用户不需要 Docker、全局 Python/Node、PowerShell 7 或编译器。通过开始菜单或执行别名打开 ARMI。环境准备与出生分开，未显式出生不会进入正常生活；普通启动只检查和启动已有环境。可选能力默认关闭，登录自启使用默认关闭的 Windows StartupTask，并尊重用户在系统中的禁用状态。
 
-`ARMI.exe` 是唯一对外主入口。未配置时进入设置；正常启动成功后打开 Creator Web，托盘提供设置与退出。重复启动复用同环境实例。AI 使用同一程序的 `cli interaction/admin/setup` 或 统一 `mcp` 模式，MCP 通过同一连接提供 interaction_、admin_、setup_ 工具。`ARMI.exe settings` 直接打开设置。卸载使用 Windows 的应用管理，不交付独立卸载 EXE。长期进程由系统激活的私有环境宿主监督，CLI/MCP 退出不会误停环境；宿主或包被终止时，所属进程随 Job 结束。
+`ARMI.exe` 是唯一对外主入口。未配置时进入设置；正常启动成功后打开 Creator Web，重复启动复用同环境实例。托盘与用户级环境宿主独立：CLI/MCP 可以静默启动后台，双击入口接回已有后台并打开托盘。关闭设置窗口只隐藏窗口；“退出托盘”保留后台当前状态；“停止”停止所属环境并保留托盘；“停止并退出”经 Admin 正常停机成功后才关闭托盘。托盘悬停、右键菜单和设置窗口每 5 秒刷新真实 Runtime 状态；图标存在不代表 Runtime 就绪，图标不存在也不代表后台停止。AI 使用同一程序的 `cli interaction/admin/setup` 或统一 `mcp` 模式，MCP 通过同一连接提供 interaction_、admin_、setup_ 工具。`ARMI.exe settings` 直接打开设置。卸载使用 Windows 的应用管理，不交付独立卸载 EXE。长期进程由系统激活的私有环境宿主监督，CLI/MCP 和托盘退出不会误停环境；宿主或包被终止时，所属进程随 Job 结束。
 
 下文 `ARMI` 代表执行别名 `ARMI.exe`。机器接入使用稳定的绝对路径 `%LOCALAPPDATA%\Microsoft\WindowsApps\ARMI.exe` 和参数数组，不绑定含版本号的 WindowsApps 包目录。PowerShell 可用 `& "$env:LOCALAPPDATA\Microsoft\WindowsApps\ARMI.exe" cli admin identity | Out-String` 等管道命令。源码开发使用受管 Python 的 `python -m armi_app …`。
 

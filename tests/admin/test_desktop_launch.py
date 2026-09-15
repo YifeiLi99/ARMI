@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import cast
 from unittest.mock import Mock, patch
 
@@ -45,3 +46,57 @@ def test_login_start_does_not_open_browser():
         instance.start_on_launch(True)
     open_browser.assert_not_called()
     cast(Mock, instance.hide).assert_called_once()
+
+
+def test_exit_tray_does_not_stop_environment():
+    instance = desktop()
+    instance._close = Mock()
+    instance.action("quit")
+    cast(Mock, instance._close).assert_called_once()
+    cast(Mock, instance.admin).assert_not_called()
+
+
+def test_stop_and_exit_waits_for_confirmed_stop(tmp_path):
+    for status in ("succeeded", "failed"):
+        instance = desktop(result={"status": status})
+        instance.environment = Path(tmp_path)
+        (tmp_path / "postgresql").mkdir(exist_ok=True)
+        (tmp_path / "postgresql/cluster.json").touch()
+        instance._close = Mock()
+        instance.action("stop_quit")
+        assert cast(Mock, instance.admin).call_args.args[0] == "environment_stop"
+        assert cast(Mock, instance._close).call_count == int(status == "succeeded")
+        assert cast(Mock, instance.root.deiconify).call_count == int(status == "failed")
+
+
+def test_exit_during_operation_keeps_desktop_alive():
+    instance = desktop()
+    instance.busy = True
+    instance.status = Mock()
+    instance._close = Mock()
+    instance.action("quit")
+    cast(Mock, instance._close).assert_not_called()
+    cast(Mock, instance.admin).assert_not_called()
+
+
+def test_runtime_status_is_not_inferred_from_database_or_old_success():
+    instance = desktop()
+    instance.runtime_status = Mock()
+    instance.tray = Mock()
+    for state, expected in (("ready", "运行中"), ("stopped", "已停止")):
+        instance._runtime_status_result(
+            {
+                "status": "succeeded",
+                "result": {
+                    "runtime": {"status": state},
+                    "postgresql": {"status": "ready"},
+                },
+            }
+        )
+        instance.tray.set_status.assert_called_with(
+            expected, running=state == "ready", error=False
+        )
+    instance._runtime_status_result({"status": "failed", "error_code": "UNREACHABLE"})
+    instance.tray.set_status.assert_called_with(
+        "无法确认 / UNREACHABLE", running=False, error=True
+    )

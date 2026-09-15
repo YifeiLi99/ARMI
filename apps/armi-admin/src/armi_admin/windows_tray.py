@@ -1,5 +1,7 @@
 """Windows notification-area adapter; application work stays on the UI queue."""
 
+# ruff: noqa: RUF001
+
 from __future__ import annotations
 
 import hashlib
@@ -56,6 +58,9 @@ class WindowsTray:
         self.emit = emit
         self.window: int | None = None
         self.ready = threading.Event()
+        self.tip = "ARMI：正在读取后台状态"
+        self.icon_kind = win32con.IDI_QUESTION
+        self.taskbar_created = win32gui.RegisterWindowMessage("TaskbarCreated")
         self.thread = threading.Thread(target=self._run, name="armi-tray", daemon=True)
         self.thread.start()
 
@@ -79,18 +84,7 @@ class WindowsTray:
             instance,
             None,
         )
-        icon = win32gui.LoadIcon(0, win32con.IDI_APPLICATION)
-        win32gui.Shell_NotifyIcon(
-            win32gui.NIM_ADD,
-            (
-                self.window,
-                0,
-                win32gui.NIF_ICON | win32gui.NIF_MESSAGE | win32gui.NIF_TIP,
-                win32con.WM_USER + 20,
-                icon,
-                "ARMI",
-            ),
-        )
+        self._notify(win32gui.NIM_ADD)
         self.ready.set()
         try:
             win32gui.PumpMessages()
@@ -98,19 +92,51 @@ class WindowsTray:
             win32gui.Shell_NotifyIcon(win32gui.NIM_DELETE, (self.window, 0))
             win32gui.UnregisterClass(window_class.lpszClassName, instance)
 
+    def _notify(self, operation: int) -> None:
+        icon = win32gui.LoadIcon(0, self.icon_kind)
+        win32gui.Shell_NotifyIcon(
+            operation,
+            (
+                self.window,
+                0,
+                win32gui.NIF_ICON | win32gui.NIF_MESSAGE | win32gui.NIF_TIP,
+                win32con.WM_USER + 20,
+                icon,
+                self.tip[:127],
+            ),
+        )
+
+    def set_status(
+        self, text: str, *, running: bool = False, error: bool = False
+    ) -> None:
+        self.tip = "ARMI：" + text
+        self.icon_kind = (
+            win32con.IDI_WARNING
+            if error
+            else win32con.IDI_INFORMATION
+            if running
+            else win32con.IDI_APPLICATION
+        )
+        if self.window is not None:
+            win32gui.PostMessage(self.window, win32con.WM_USER + 23, 0, 0)
+
     def _message(self, window: int, message: int, wparam: int, lparam: int) -> int:
         if message == win32con.WM_USER + 20:
             if lparam == win32con.WM_LBUTTONDBLCLK:
                 self.emit("open")
             elif lparam == win32con.WM_RBUTTONUP:
                 menu = win32gui.CreatePopupMenu()
+                win32gui.AppendMenu(
+                    menu, win32con.MF_STRING | win32con.MF_GRAYED, 0, self.tip
+                )
                 items = (
                     ("open", "打开对话"),
                     ("settings", "设置"),
                     ("status", "状态"),
                     ("start", "启动"),
                     ("stop", "停止"),
-                    ("quit", "退出 ARMI"),
+                    ("quit", "退出托盘（后台保持原状）"),
+                    ("stop_quit", "停止并退出 ARMI"),
                 )
                 for index, (_, label) in enumerate(items, 1):
                     win32gui.AppendMenu(menu, win32con.MF_STRING, index, label)
@@ -134,8 +160,14 @@ class WindowsTray:
         if message == win32con.WM_USER + 22:
             self.emit("quit")
             return 0
+        if message == win32con.WM_USER + 23:
+            self._notify(win32gui.NIM_MODIFY)
+            return 0
+        if message == self.taskbar_created:
+            self._notify(win32gui.NIM_ADD)
+            return 0
         if message == win32con.WM_QUERYENDSESSION:
-            self.emit("quit")
+            self.emit("stop_quit")
             return 1
         if message == win32con.WM_CLOSE:
             win32gui.DestroyWindow(window)
