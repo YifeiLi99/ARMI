@@ -6,11 +6,37 @@ from uuid import UUID
 
 from armi_runtime_foundation import PostgreSQLAdminTransaction
 
-from .api import CognitionAdminEpisodeSnapshot
+from .api import CognitionAdminAttempt, CognitionAdminEpisodeSnapshot
 
 
 class PostgreSQLCognitionAdmin:
     __slots__ = ()
+
+    def attempts(
+        self, transaction: PostgreSQLAdminTransaction, *, episode_id: UUID
+    ) -> tuple[CognitionAdminAttempt, ...]:
+        rows = transaction.execute(
+            "SELECT model_attempt_id,attempt_no,model_id,request_schema_version,"
+            "candidate_schema_version,request_artifact_id,response_artifact_id,"
+            "dispatch_status,result_status,error_code FROM armi.cognitive_attempts "
+            "WHERE cognitive_episode_id=%s ORDER BY attempt_no",
+            (episode_id,),
+        ).fetchall()
+        return tuple(
+            CognitionAdminAttempt(
+                cast(UUID, row[0]),
+                int(cast(int, row[1])),
+                str(row[2]),
+                str(row[3]),
+                str(row[4]),
+                cast(UUID, row[5]),
+                cast(UUID | None, row[6]),
+                str(row[7]),
+                cast(str | None, row[8]),
+                cast(str | None, row[9]),
+            )
+            for row in rows
+        )
 
     def content_busy(
         self, transaction: PostgreSQLAdminTransaction, *, subject_id: UUID

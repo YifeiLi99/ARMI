@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 from typing import cast
 from unittest.mock import Mock, patch
+from uuid import uuid7
 
 from armi_admin.application import (
     AdminConfig,
@@ -116,6 +117,69 @@ def test_private_snapshot_requires_separate_scope_before_owner_read() -> None:
     )
     assert result.status == "rejected"
     assert result.error_code == "ADMIN-PRIVATE-SCOPE-REQUIRED"
+
+
+def test_cognition_read_requires_its_scope_before_owner_read() -> None:
+    from armi_admin.application.contracts import CognitionReadRequest
+
+    service = _service()
+    service._config = service.config.model_copy(
+        update={
+            "authorized_operations": tuple(
+                name
+                for name in service.config.authorized_operations
+                if name != "cognition_read"
+            )
+        }
+    )
+    result = service.observe(
+        "cognition_read",
+        CognitionReadRequest(environment_id=ENVIRONMENT_ID, episode_id=str(uuid7())),
+    )
+    assert result.status == "rejected"
+    assert result.error_code == "ADMIN-SCOPE-REQUIRED"
+
+
+def test_mcp_cognition_read_returns_text_and_pagination():
+    async def exercise():
+        service = _service()
+        gateway = Mock(spec=AdminObservationGateway)
+        artifact_id = str(uuid7())
+        gateway.cognition_read.return_value = {
+            "episode_id": ENVIRONMENT_ID,
+            "status": "completed",
+            "trace_id": "a" * 32,
+            "attempts": [],
+            "artifacts": [],
+            "text": {
+                "artifact_id": artifact_id,
+                "content": "上下文",
+                "offset": 0,
+                "next_offset": 3,
+                "total_characters": 6,
+                "offset_unit": "unicode_characters",
+            },
+        }
+        service._observation = gateway
+        async with Client(_server(service)) as client:
+            result = await client.call_tool(
+                "admin_cognition_read",
+                {
+                    "episode_id": ENVIRONMENT_ID,
+                    "artifact_id": artifact_id,
+                    "length": 3,
+                },
+            )
+            assert not result.is_error and result.structured_content is not None
+            assert result.structured_content["result"]["text"]["content"] == "上下文"
+            gateway.cognition_read.assert_called_once_with(
+                episode_id=ENVIRONMENT_ID,
+                artifact_id=artifact_id,
+                offset=0,
+                length=3,
+            )
+
+    asyncio.run(exercise())
 
 
 def _server(service: AdminToolService) -> ARMIMCPServer:

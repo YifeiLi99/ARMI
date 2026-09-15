@@ -6,6 +6,7 @@ import base64
 import hashlib
 import json
 from collections.abc import Mapping, Sequence
+from dataclasses import asdict
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import cast
@@ -19,6 +20,7 @@ from armi_evidence.api import EvidenceAdminPort
 from armi_expression.api import ExpressionAdminPort
 from armi_interaction.api import InteractionAdminPort
 from armi_kernel.application import RESPONSIBILITY_BINDINGS, ArtifactViolation
+from armi_local_control.runtime_errors import RuntimeViolation
 from armi_material.api import MaterialAdminItem, MaterialAdminReadPort
 from armi_mood.api import MoodAdminReadPort
 from armi_runtime_foundation import (
@@ -201,6 +203,108 @@ class AdminObservationGateway:
             "resettable": row.resettable,
             "test_controls_enabled": row.test_controls_enabled,
             "registered_at": _safe(row.registered_at),
+        }
+
+    def cognition_read(
+        self, *, episode_id: str, artifact_id: str | None, offset: int, length: int
+    ) -> dict[str, object]:
+        with self._factory.repeatable_read() as uow:
+            episode = self._cognition.episode(
+                uow.transaction, episode_id=UUID(episode_id)
+            )
+            if episode is None:
+                raise RuntimeViolation(
+                    "ADMIN-COGNITION-NOT-FOUND", "Episode not found."
+                )
+            attempts = self._cognition.attempts(
+                uow.transaction, episode_id=episode.episode_id
+            )
+            refs: dict[UUID, str] = {}
+            for role, identity in (
+                ("context_manifest", episode.context_manifest_artifact_id),
+                ("compiled_context", episode.compiled_context_artifact_id),
+            ):
+                if identity is not None:
+                    refs[identity] = role
+            for attempt in attempts:
+                refs[attempt.request_artifact_id] = "request"
+                if attempt.response_artifact_id is not None:
+                    refs[attempt.response_artifact_id] = "response"
+            refs.update(
+                (identity, "diagnostic") for identity in episode.diagnostic_artifact_ids
+            )
+            selected = None if artifact_id is None else UUID(artifact_id)
+            if selected is not None and selected not in refs:
+                raise RuntimeViolation(
+                    "ADMIN-COGNITION-ARTIFACT-MISMATCH",
+                    "Artifact does not belong to this episode.",
+                )
+            snapshots = {
+                identity: self._artifacts.snapshot(
+                    uow.transaction, artifact_id=identity, retained_only=True
+                )
+                for identity in refs
+            }
+        text = None
+        if selected is not None:
+            snapshot = snapshots[selected]
+            if snapshot is None:
+                raise RuntimeViolation(
+                    "ADMIN-COGNITION-ARTIFACT-UNAVAILABLE",
+                    "Artifact is missing or retired.",
+                )
+            try:
+                # Verified storage I/O stays outside the database transaction.
+                content = self._artifacts.read_verified_bytes(snapshot).decode("utf-8")
+            except ArtifactViolation as exc:
+                raise RuntimeViolation(
+                    exc.code, "Artifact verification failed."
+                ) from None
+            except UnicodeDecodeError:
+                raise RuntimeViolation(
+                    "ADMIN-COGNITION-ARTIFACT-ENCODING", "Artifact is not UTF-8 text."
+                ) from None
+            with self._factory.repeatable_read() as uow:
+                current = self._artifacts.snapshot(
+                    uow.transaction, artifact_id=selected, retained_only=True
+                )
+            if current != snapshot:
+                raise RuntimeViolation(
+                    "ADMIN-COGNITION-ARTIFACT-UNAVAILABLE",
+                    "Artifact changed or was retired during reading.",
+                )
+            if offset > len(content):
+                raise RuntimeViolation(
+                    "ADMIN-COGNITION-OFFSET", "Offset exceeds the retained text length."
+                )
+            end = min(len(content), offset + length)
+            text = {
+                "artifact_id": str(selected),
+                "content": content[offset:end],
+                "offset": offset,
+                "next_offset": end if end < len(content) else None,
+                "total_characters": len(content),
+                "offset_unit": "unicode_characters",
+            }
+        return {
+            "episode_id": episode_id,
+            "status": episode.status,
+            "trace_id": episode.trace_id,
+            "attempts": [_safe(asdict(attempt)) for attempt in attempts],
+            "artifacts": [
+                {
+                    "artifact_id": str(identity),
+                    "role": role,
+                    "retained": snapshots[identity] is not None,
+                    "content_digest": snapshot.content_digest
+                    if (snapshot := snapshots[identity])
+                    else None,
+                    "byte_size": snapshot.byte_size if snapshot else None,
+                    "media_type": snapshot.media_type if snapshot else None,
+                }
+                for identity, role in refs.items()
+            ],
+            "text": text,
         }
 
     def register_environment(self, values: Mapping[str, object]) -> None:

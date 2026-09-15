@@ -28,6 +28,7 @@ from openai import (
     APITimeoutError,
     AsyncOpenAI,
 )
+from openai.types.responses import Response
 
 _PURPOSE = CredentialPurpose("model.request")
 _FINGERPRINT_DOMAIN = b"armi.model.credential-fingerprint.v1\0"
@@ -154,29 +155,11 @@ class OpenAIArkTransport:
     ) -> dict[str, Any]:
         client = _client(api_key, binding)
         try:
-            provider_schema = _provider_output_schema(
-                self._candidate_schema,
-                available_refs=_available_refs(request.canonical_bytes),
-            )
-            response = await client.responses.create(
-                model=binding.model_id,
-                instructions=self._instructions,
-                input=cast(Any, _provider_input(request.canonical_bytes)),
-                store=False,
-                max_output_tokens=request.max_output_tokens,
-                tools=[],
-                text=cast(
-                    Any,
-                    {
-                        "format": {
-                            "type": "json_schema",
-                            "name": self._schema_name,
-                            "strict": True,
-                            "schema": provider_schema,
-                        }
-                    },
+            response = cast(
+                Response,
+                await client.responses.create(
+                    **self.request_parameters(binding, request)
                 ),
-                extra_body={"thinking": {"type": "disabled"}},
             )
         finally:
             await client.close()
@@ -197,6 +180,30 @@ class OpenAIArkTransport:
                 "cached_input_tokens": _cached_tokens(usage),
             },
             "raw": response.model_dump(mode="json"),
+        }
+
+    def request_parameters(
+        self, binding: ModelBinding, request: ModelRequest
+    ) -> dict[str, Any]:
+        return {
+            "model": binding.model_id,
+            "instructions": self._instructions,
+            "input": _provider_input(request.canonical_bytes),
+            "store": False,
+            "max_output_tokens": request.max_output_tokens,
+            "tools": [],
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": self._schema_name,
+                    "strict": True,
+                    "schema": _provider_output_schema(
+                        self._candidate_schema,
+                        available_refs=_available_refs(request.canonical_bytes),
+                    ),
+                }
+            },
+            "extra_body": {"thinking": {"type": "disabled"}},
         }
 
 
@@ -238,6 +245,7 @@ class VolcengineArkModelAdapter(ModelPort):
         "_binding",
         "_credential_port",
         "_locator",
+        "_renderer",
         "_transport",
     )
 
@@ -274,10 +282,25 @@ class VolcengineArkModelAdapter(ModelPort):
         provider_schema = cast(
             dict[str, Any], json.loads(candidate_schema.canonical_bytes)
         )
-        self._transport = transport or OpenAIArkTransport(
+        self._renderer = OpenAIArkTransport(
             provider_schema,
             instructions=instructions,
             schema_name=schema_name,
+        )
+        self._transport = transport or self._renderer
+
+    def request_evidence(self, request: ModelRequest) -> bytes:
+        return (
+            rfc8785.dumps(
+                {
+                    "schema_version": "armi.model-input-evidence.v1",
+                    "execution": "provider",
+                    "provider_request": self._renderer.request_parameters(
+                        self._binding, request
+                    ),
+                }
+            )
+            + b"\n"
         )
 
     @property

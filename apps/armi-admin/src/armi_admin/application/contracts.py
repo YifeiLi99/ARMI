@@ -172,6 +172,20 @@ class TailDiagnosticsRequest(EnvironmentRequest):
     _runtime_instance_id = field_validator("runtime_instance_id")(_uuid7)
 
 
+class CognitionReadRequest(EnvironmentRequest):
+    episode_id: str
+    artifact_id: str | None = None
+    offset: int = Field(default=0, ge=0)
+    length: int = Field(default=16384, ge=1, le=65536)
+
+    _episode_id = field_validator("episode_id")(_uuid7)
+
+    @field_validator("artifact_id")
+    @classmethod
+    def _artifact_id(cls, value: str | None) -> str | None:
+        return None if value is None else _uuid7(value)
+
+
 class ScopedOperationRequest(EnvironmentRequest):
     environment_incarnation: int = Field(ge=1)
     purpose: str = Field(pattern=_TOKEN.pattern)
@@ -493,7 +507,8 @@ class AdminToolResult[PayloadT](_StrictModel):
 HealthResult = AdminToolResult[HealthPayload]
 SchemaStatusResult = AdminToolResult[SchemaStatusPayload]
 ObservationRequest = (
-    InvocationStatusRequest
+    CognitionReadRequest
+    | InvocationStatusRequest
     | DoctorRequest
     | RuntimeStatusRequest
     | SubjectSnapshotRequest
@@ -527,6 +542,7 @@ __all__ = (
     "ApplyCorrectionRequest",
     "ArmFaultRequest",
     "ClearFaultsRequest",
+    "CognitionReadRequest",
     "CorrectionSpec",
     "CorrectionStatusRequest",
     "DataDeletionApplyRequest",

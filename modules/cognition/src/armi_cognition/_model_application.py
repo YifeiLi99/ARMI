@@ -138,6 +138,19 @@ class _DeterministicMoodReflectionAdapter:
     async def tokenize(self, canonical_request: bytes) -> int:
         return max(1, len(canonical_request) // 4)
 
+    def request_evidence(self, request: ModelRequest) -> bytes:
+        return (
+            rfc8785.dumps(
+                {
+                    "schema_version": "armi.model-input-evidence.v1",
+                    "execution": "deterministic",
+                    "canonical_request": request.canonical_bytes.decode("utf-8"),
+                    "provider_request": None,
+                }
+            )
+            + b"\n"
+        )
+
     async def invoke(self, request: ModelRequest) -> ModelInvocationResult:
         try:
             raw = cast(dict[str, object], json.loads(request.canonical_bytes))
@@ -621,7 +634,7 @@ class ModelPipeline:
                 input_tokens=input_tokens,
             )
             published_request = await self._publish(
-                request.canonical_bytes,
+                adapter.request_evidence(request),
                 logical_kind="model.request",
                 snapshot=snapshot,
             )

@@ -67,6 +67,7 @@ from .contracts import (
     ArmFaultRequest,
     AuthorizationApproveRequest,
     AuthorizationGetRequest,
+    CognitionReadRequest,
     ConfigurationRequest,
     CorrectionStatusRequest,
     DataDeletionApplyRequest,
@@ -123,6 +124,7 @@ ObservationToolName = Literal[
     "subject_snapshot",
     "tail_diagnostics",
     "trace_flow",
+    "cognition_read",
 ]
 MutationToolName = Literal[
     "data_deletion_preview",
@@ -844,6 +846,14 @@ class AdminToolService:
                         selector,
                         limit=int(typed_trace.limit),
                         cursor=typed_trace.cursor,
+                    )
+                elif name == "cognition_read":
+                    typed_read = cast(CognitionReadRequest, request)
+                    result = gateway.cognition_read(
+                        episode_id=typed_read.episode_id,
+                        artifact_id=typed_read.artifact_id,
+                        offset=typed_read.offset,
+                        length=typed_read.length,
                     )
                 elif name == "inspect_scope":
                     typed_scope = cast(InspectScopeRequest, request)

@@ -24,13 +24,18 @@ class PostgreSQLArtifactAdmin:
         )
 
     def snapshot(
-        self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
+        self,
+        transaction: PostgreSQLAdminTransaction,
+        *,
+        artifact_id: UUID,
+        retained_only: bool = False,
     ) -> ArtifactAdminSnapshot | None:
         row = transaction.execute(
             "SELECT a.artifact_id,o.content_digest,o.byte_size,a.media_type,a.logical_kind,"
             "a.privacy_scope,o.integrity_status FROM armi.artifacts a "
-            "JOIN armi.artifact_objects o USING (artifact_object_id) WHERE a.artifact_id=%s",
-            (artifact_id,),
+            "JOIN armi.artifact_objects o USING (artifact_object_id) WHERE a.artifact_id=%s "
+            "AND (NOT %s OR a.retention_status='retained')",
+            (artifact_id, retained_only),
         ).fetchone()
         return (
             None

@@ -8256,6 +8256,76 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             dispatch_reply(),
             loop_factory=lambda: asyncio.SelectorEventLoop(selectors.SelectSelector()),
         )
+        from armi_admin.application.contracts import CognitionReadRequest
+
+        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
+            root = Path(temporary).resolve()
+            config = AdminConfig.model_validate(
+                {
+                    "schema_version": "armi.admin-config.v9",
+                    "operator_id": "isolated-cognition-reader",
+                    "authorized_operations": ("cognition_read",),
+                    "environment_kind": "acceptance",
+                    "environment_id": str(fixture.environment_id),
+                    "environment_incarnation": 1,
+                    "resettable": True,
+                    "test_controls_enabled": True,
+                    "environment_root": root,
+                    "experiment_root": root,
+                    "database_locator": "env:ARMI_SECRET_ADMIN_DATABASE",
+                    "migrator_database_locator": "env:ARMI_SECRET_MIGRATOR_DATABASE",
+                    "preview_key_locator": "env:ARMI_SECRET_ADMIN_PREVIEW_KEY",
+                    "expected": {"package_set_digest": _ADMIN_PACKAGE_DIGEST},
+                }
+            )
+            credentials = AdminCredentialPort(
+                locator=config.locator,
+                config_root=root,
+                environ={"ARMI_SECRET_ADMIN_DATABASE": fixture.admin_role_dsn},
+            )
+            composition = bootstrap_admin(config, credentials)
+            try:
+                result = composition.service.observe(
+                    "cognition_read",
+                    CognitionReadRequest(
+                        environment_id=str(fixture.environment_id),
+                        episode_id=str(ids["episode"]),
+                    ),
+                )
+                self.assertEqual(result.status, "succeeded", result)
+                assert result.result is not None
+                self.assertEqual(
+                    result.result["attempts"][0]["request_artifact_id"],
+                    str(artifact_ids["request"]),
+                )
+                self.assertEqual(
+                    result.result["attempts"][0]["response_artifact_id"],
+                    str(artifact_ids["response"]),
+                )
+                self.assertTrue(
+                    all(item["retained"] for item in result.result["artifacts"])
+                )
+                response_path = (
+                    root / "data" / "artifacts" / locator(digests["response"])
+                )
+                response_path.parent.mkdir(parents=True)
+                response_path.write_bytes(payloads["response"])
+                page = composition.service.observe(
+                    "cognition_read",
+                    CognitionReadRequest(
+                        environment_id=str(fixture.environment_id),
+                        episode_id=str(ids["episode"]),
+                        artifact_id=str(artifact_ids["response"]),
+                        length=65536,
+                    ),
+                )
+                self.assertEqual(page.status, "succeeded", page)
+                assert page.result is not None
+                self.assertEqual(
+                    page.result["text"]["content"], payloads["response"].decode("utf-8")
+                )
+            finally:
+                composition.close()
         with psycopg.connect(fixture.provisioner_dsn) as connection:
             action_owner = connection.execute(
                 """

@@ -219,6 +219,7 @@ interaction_config: C:/path/to/client.yaml
 ```
 
 - `admin_database_catalog` 列出表、视图、字段、主键、关系和读写限制。
+- `admin_cognition_read` 按 `episode_id` 列出该轮认知的 Context、模型请求、原始响应和诊断制品；再传入目录中的 `artifact_id`、`offset`、`length` 分段读取正文。CLI 为 `cli admin cognition-read`。先用 `admin_trace_flow` 从消息/操作定位 episode；分页按 Unicode 字符计，沿 `next_offset` 读取。新请求包含实际系统指令、输入和输出 Schema，旧请求只展示历史留存内容，不重新调用模型。
 - `admin_database_query` 接受 `table`、`fields`、`filters`、`order`、`limit`、`offset`。数值、数组、二进制和时间以 PostgreSQL 文本无损返回；JSON 使用 `{"postgresql_json":"<精确 JSON 文本>"}` 保留数字精度，也接受普通 JSON 输入。
 - `admin_database_batch` 接受 `idempotency_key`、`reason` 和 `changes`。每项选择 `insert/update/delete`；更新和删除必须给出完整 `key` 及查询返回的 `expected_version`。所有项同事务提交，失败全部回滚。执行前正常停止业务进程，保留 PostgreSQL 并持有环境控制锁；完成后保持停止。
 - 身份、权限、审计、管理回执及其他受保护记录不能通过表管理修改。事务内的 `admin_data_changes` 回执不伪装成认知；中断后通过 `admin_invocation_reconcile` 核对，不盲目重放。

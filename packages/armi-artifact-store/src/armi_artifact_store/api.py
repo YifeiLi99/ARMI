@@ -87,7 +87,11 @@ class ArtifactAdminPort(Protocol):
         self, transaction: PostgreSQLAdminTransaction, *, limit: int
     ) -> tuple[ArtifactAdminSnapshot, ...]: ...
     def snapshot(
-        self, transaction: PostgreSQLAdminTransaction, *, artifact_id: UUID
+        self,
+        transaction: PostgreSQLAdminTransaction,
+        *,
+        artifact_id: UUID,
+        retained_only: bool = False,
     ) -> ArtifactAdminSnapshot | None: ...
     def read_verified_bytes(self, snapshot: ArtifactAdminSnapshot) -> bytes: ...
     def delete(

@@ -339,6 +339,8 @@ class CognitionModelPort(Protocol):
 
     async def tokenize(self, canonical_request: bytes) -> int: ...
 
+    def request_evidence(self, request: ModelRequest) -> bytes: ...
+
     async def invoke(self, request: ModelRequest) -> ModelInvocationResult: ...
 
 
@@ -696,6 +698,10 @@ class CognitionAdminEpisodeSnapshot:
 
 @runtime_checkable
 class CognitionAdminPort(Protocol):
+    def attempts(
+        self, transaction: PostgreSQLAdminTransaction, *, episode_id: UUID
+    ) -> tuple[CognitionAdminAttempt, ...]: ...
+
     def content_busy(
         self, transaction: PostgreSQLAdminTransaction, *, subject_id: UUID
     ) -> bool: ...
@@ -724,6 +730,20 @@ class CognitionAdminPort(Protocol):
     ) -> int: ...
 
 
+@dataclass(frozen=True, slots=True)
+class CognitionAdminAttempt:
+    attempt_id: UUID
+    attempt_no: int
+    model_id: str
+    request_schema_version: str
+    candidate_schema_version: str
+    request_artifact_id: UUID
+    response_artifact_id: UUID | None
+    dispatch_status: str
+    result_status: str | None
+    error_code: str | None
+
+
 __all__ = (
     "CandidateDiagnostic",
     "CandidateExactLifeQueryDraft",
@@ -731,6 +751,7 @@ __all__ = (
     "CandidateValidationStatus",
     "CandidateValidator",
     "CognitionAcceptedCandidate",
+    "CognitionAdminAttempt",
     "CognitionAdminEpisodeSnapshot",
     "CognitionAdminPort",
     "CognitionApplicationDraft",

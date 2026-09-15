@@ -42,6 +42,48 @@ class Payload(BaseModel):
         }
 
 
+class CognitionAttemptPayload(Payload):
+    attempt_id: str
+    attempt_no: int
+    model_id: str
+    request_schema_version: str
+    candidate_schema_version: str
+    request_artifact_id: str
+    response_artifact_id: str | None
+    dispatch_status: str
+    result_status: str | None
+    error_code: str | None
+
+
+class CognitionArtifactPayload(Payload):
+    artifact_id: str
+    role: Literal[
+        "context_manifest", "compiled_context", "request", "response", "diagnostic"
+    ]
+    retained: bool
+    content_digest: str | None
+    byte_size: int | None
+    media_type: str | None
+
+
+class CognitionTextPayload(Payload):
+    artifact_id: str
+    content: str
+    offset: int
+    next_offset: int | None
+    total_characters: int
+    offset_unit: Literal["unicode_characters"]
+
+
+class CognitionReadPayload(Payload):
+    episode_id: str
+    status: str
+    trace_id: str
+    attempts: list[CognitionAttemptPayload]
+    artifacts: list[CognitionArtifactPayload]
+    text: CognitionTextPayload | None
+
+
 class AuthorizationPayload(Payload):
     intent: AuthorizationIntent
     status: Literal["pending", "approved", "revoked", "consumed"]
@@ -980,6 +1022,7 @@ RESULT_PAYLOADS: dict[str, type[BaseModel]] = {
     "authorization_approve": AuthorizationPayload,
     "authorization_revoke": AuthorizationPayload,
     "trace_flow": FlowGraphPayload,
+    "cognition_read": CognitionReadPayload,
     "inspect_scope": ScopeGraphPayload,
     "subject_snapshot": SubjectSnapshotPayload,
     "tail_diagnostics": DiagnosticPagePayload,

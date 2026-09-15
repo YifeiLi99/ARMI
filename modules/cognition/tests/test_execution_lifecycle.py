@@ -42,6 +42,8 @@ def test_invalid_saved_response_cannot_reach_subject_commit():
 
 class _Execution(model.ModelPipeline):
     def __init__(self, finalization: AsyncMock) -> None:
+        self.published: list[tuple[str, bytes]] = []
+        self.input_evidence = b'{"schema_version":"armi.model-input-evidence.v1","provider_request":{"instructions":"saved"}}'
         self._failure_notification = AsyncMock()
         self._stop = asyncio.Event()
         self._diagnostic = lambda _event: None
@@ -78,6 +80,7 @@ class _Execution(model.ModelPipeline):
         self.adapter = SimpleNamespace(
             binding=object(),
             tokenize=AsyncMock(return_value=1),
+            request_evidence=lambda request: self.input_evidence,
             invoke=AsyncMock(
                 return_value=ModelInvocationResult(
                     ModelResultStatus.SUCCEEDED,
@@ -114,6 +117,7 @@ class _Execution(model.ModelPipeline):
         return b"{}"
 
     async def _publish(self, value, *, logical_kind, snapshot) -> Any:
+        self.published.append((logical_kind, value))
         return object()
 
 
@@ -143,6 +147,10 @@ async def test_model_success_survives_finalization_failure(monkeypatch, reject) 
     await pipeline._execute(cast(Any, record))
 
     pipeline.adapter.invoke.assert_awaited_once()
+    assert pipeline.published == [
+        ("model.request", pipeline.input_evidence),
+        ("model.response", pipeline.result_bytes),
+    ]
     pipeline._repository.settle_success.assert_awaited_once()
     pipeline._repository.finalize_primary_success.assert_awaited_once()
     finalization.assert_awaited_once()

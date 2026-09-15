@@ -476,3 +476,33 @@ def test_returned_output_is_saved_before_local_rejection(output):
     assert saved["schema_version"] == "armi.model-response-artifact.v3"
     assert "candidate" not in saved
     assert "validation_error" not in saved
+
+
+def test_saved_request_contains_actual_provider_input_without_credentials():
+    binding = load_active_binding()
+    adapter = VolcengineArkModelAdapter(
+        binding=binding,
+        credential_port=Mock(),
+        locator=Mock(),
+        candidate_schema=CognitionSchemaDocument(
+            json.dumps(candidate_schema(binding.response_contract_version)).encode()
+        ),
+        instructions="本次系统指令",
+        schema_name="test",
+        transport=Mock(),
+    )
+    request = cast(
+        Any,
+        SimpleNamespace(
+            canonical_bytes=b'{"included_context_refs":[{"ref":"ctx:1"}]}',
+            max_output_tokens=512,
+        ),
+    )
+    saved = json.loads(adapter.request_evidence(request))
+    assert saved["schema_version"] == "armi.model-input-evidence.v1"
+    assert "canonical_request" not in saved
+    assert saved["provider_request"]["instructions"].startswith("本次系统指令")
+    assert saved["provider_request"]["input"] == request.canonical_bytes.decode()
+    assert saved["provider_request"]["text"]["format"]["strict"] is True
+    assert saved["provider_request"]["max_output_tokens"] == 512
+    assert cast(Mock, adapter._credential_port).mock_calls == []
