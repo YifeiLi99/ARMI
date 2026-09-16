@@ -31,9 +31,9 @@ ARMI 不把人格提示词、模型会话或任务 Agent 当成“她”。当�
 | 应用 | 统一入口 `armi-app`、权威 `armi-runtime`、隔离 `armi-admin`、React Creator Web |
 | 业务 | 23 个独立 Python distribution；Capability 仅保留静态目录，其余按 owner 承担事实、恢复和数据权利责任 |
 | 底座/适配器 | Kernel、Runtime Foundation、Local Control、Artifact Store、PostgreSQL contract、NapCat、QQ、ESP32 display 共 8 个包 |
-| 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；baseline `armi.schema-baseline.v20` |
-| 物理 schema | 当前 baseline 103 张表、1303 个字段；表和生产 DML 都受 owner registry 检查 |
-| Creator API | 52 个 OpenAPI path；同源 bearer session、签名分页、SSE 投影失效刷新 |
+| 数据库 | PostgreSQL 18.4、pgvector 0.8.6、pg_trgm 1.6；唯一 Alembic `0000`；baseline `armi.schema-baseline.v21`，支持精确 v20 → v21 保留数据升级 |
+| 物理 schema | 当前 baseline 105 张表；字段以 packaged SQL 为准，表和生产 DML 都受 owner registry 检查 |
+| Creator API | 55 个 OpenAPI path；同源 bearer session、签名分页、SSE 投影失效刷新 |
 | 管理面 | CLI/MCP 共用 Admin 应用服务；支持绑定的 `active` / `development` / `system_test` / `acceptance`，具体操作受配置授权约束 |
 | 工具链 | Python 3.14.6、Node 24.18.0、uv 0.11.33；精确版本以 lock/manifest 为准 |
 
@@ -59,6 +59,12 @@ ARMI 不把人格提示词、模型会话或任务 Agent 当成“她”。当�
 所有共用认知（包括其他人对话、自主活动、Codex 和睡眠整理）中断即结束本轮。模型响应成功先单独保存，后续校验或提交失败不改写模型调用结果；`finalizing` 表示正在校验、准备制品并提交。长期活动与维护进度保留，由原调度重新准备新 Context，不读取旧响应或候选续算。
 
 模型候选可表达回复、拒绝、不行动、不改变、延期、需要信息、精确生命查询、网页研究或对已启用 camera/screen 的一次视觉观察请求，并可携带有依据的 experience/appraisal/受限 owner changes。模型不能填写主体版本、权限结果、VAD、模型身份、usage 或现实执行结果。慢模型、网络、文件、设备和 Codex I/O 一律在数据库写事务外；回库时重新验证 Runtime fence、work lease、generation 和主体/owner 版本。
+
+## 持续自主生活
+
+自主生活由 Attention 持久计划驱动，首次启用一分钟后考虑，此后由一次认知共同决定行动、可选表达及下次考虑时间。默认范围一分钟至六小时，每个北京时间自然日最多登记 48 次自主收费 API 请求；用户输入及其直接处理链不占此额度。沉默和未收到回应都不终止计划，QQ 不可用时不切换渠道、不积攒旧消息。
+
+设置中的“自主生活”与正式配置 `autonomy` 共用启用、额度、时间上下限及出口选项。`ARMI cli admin autonomy status`、`ARMI cli admin autonomy history` 和 MCP 对应工具可查状态与分页历史；Creator HTTP 使用 `/v1/autonomy/status`、`/v1/autonomy/history`，活动页展示同一数据。详情通过原操作、认知及用量接口追踪，不把运行日志放进认知 Context。
 
 ## 仓库结构
 
@@ -261,7 +267,7 @@ uv run python tools/verify_live_creator_roundtrip.py `
 - [docs/README.md](docs/README.md)：私有设计资料总索引。
 - [产品定义](docs/01-产品定义/)：ARMI 是谁、生活与关系、真实性/隐私/自主性。
 - [系统设计](docs/02-系统设计/)：权威运行时、认知、权限/效果、恢复、Mood。
-- [数据设计](docs/03-数据设计/)：事实分层、全局关系、字段合同、102 张表/1288 字段、约束、索引与 ACL。
+- [数据设计](docs/03-数据设计/)：事实分层、全局关系、字段合同、约束、索引与 ACL。
 - [实现参考](docs/04-实现参考/)：模块、配置、接口、模型/Codex/渠道、设备。
 - [运行与验证](docs/05-运行与验证/)：运行手册、质量门禁和实测性能基线。
 - [外部研究参考](docs/00-外部研究参考/)：带来源的外部证据，不是 ARMI 事实源。

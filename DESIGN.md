@@ -164,9 +164,9 @@ Owner draft 在进程内携带已绑定的不可变领域对象。Subject Commit
 
 Creator 文本与语音的资料、关系和承诺变化使用同一按操作区分的类型。资料创建与更新共享内容结构；承诺修改区分范围更新与内容更新，关系边界区分限制与结束联系，不再通过通用 metadata 字段隐藏依赖。
 
-其他人对话 v8 将决定与 social 经历组成部分分开：关系变化必须附着经历，非空关系变化及承诺字段依赖由类型表达。沉默、延期可以附带说明，Expression 保存原决定种类并独立登记表达。空白、NUL 和 UTF-8 字节容量由 Expression Owner 拒绝，诊断定位 `decision.content`。主动表达 v26 复用 Creator 的回复和终止决定类型，其模型合同不再提供查询及主体变化字段的可执行组合。
+其他人对话 v8 将决定与 social 经历组成部分分开：关系变化必须附着经历，非空关系变化及承诺字段依赖由类型表达。沉默、延期可以附带说明，Expression 保存原决定种类并独立登记表达。空白、NUL 和 UTF-8 字节容量由 Expression Owner 拒绝，诊断定位 `decision.content`。主动表达并入自主生活的一次认知；旧主动联系合同不再有执行解析器。
 
-通用认知 v14 按 Owner 区分状态载荷，评价的新建与已有轨迹由不同类型表达。自主活动 v6、内部工作 v5、维护 v3 删除了比 Owner 字符边界更严的 UTF-8 字节限制；文本结构约束进入同源 Schema，资料正文的实际字节容量仍由 Material Owner 保留。反思 v3 和维护 v3 在生成 Schema 与解析时选择当前 Owner／阶段类型。旧 compact metadata 翻译及根据顶层 kind 猜测合同的执行入口已经删除。
+通用认知 v14 按 Owner 区分状态载荷，评价的新建与已有轨迹由不同类型表达。自主生活 v7 合并活动注意、内部推进及主动表达，共同提交有界行动、可选表达和下次考虑时间；资料及评价仍交原 Owner。文本结构约束进入同源 Schema，资料正文的实际字节容量仍由 Material Owner 保留。反思 v3 和维护 v3 在生成 Schema 与解析时选择当前 Owner／阶段类型。旧 compact metadata 翻译及根据顶层 kind 猜测合同的执行入口已经删除。
 
 拒绝、需要信息等决定附带表达时，Expression 同时保留原决定类型与表达意图；是否有表达意图决定发送，不能把原决定改记为 reply。资料、经历和评价不因是否表达而丢弃。
 
@@ -176,11 +176,8 @@ Creator 文本与语音的资料、关系和承诺变化使用同一按操作区
 |---|---|---:|
 | `consider_creator_input`、`consider_life_query_result`、`consider_requested_visual_observation` | 表达／沉默、精确查询、Web 搜索、视觉请求；Experience、Memory、Mood、Relationship、Material 与 Expression | 12151 |
 | Creator 实时语音 | 与 Creator 文本相同的业务动作，Expression 保留 60 字表达上限 | 12117 |
-| `consider_creator_outreach` | 主动表达或暂不表达，Expression；不能借主动问候改写主体状态 | 1028 |
 | `consider_other_human_input` | 回复、沉默、延期、结束联系；当前对方的 Experience、Mood、Relationship 与 Expression；沉默和延期可附带说明 | 12062 |
-| `consider_autonomous_life` | 创建活动、暂不活动、延期、缺少信息、视觉请求；Activity、Mood、Live Vision | 5915 |
-| `consider_activity_attention` | 投入、恢复、暂不行动、延期、缺少信息；Activity、Mood | 4855 |
-| `consider_activity_internal_work` | 推进、完成、缺少信息、放弃、暂时无结果；Activity、Material、Mood | 8840 |
+| `consider_autonomous_life` | 创建、推进、等待、完成或放弃活动，沉默／延期／需要信息，独立表达，以及已开启的查询、搜索、视觉和 Codex；Activity、Material、Mood、Expression 及工具 Owner | 按本轮能力与时间范围生成 |
 | `consider_sleep` | 入睡、保持清醒、延期、缺少信息；Sleep | 273 |
 | `consider_web_evidence`、`consider_codex_result`、`consider_codex_task` | 证据理解及用途允许的 Owner 提议；Codex 委托只从显式任务用途进入 | 22164 |
 | `consider_visual_observation` | 忽略或形成视觉经历及评价；Experience、Mood | 5617 |
@@ -258,7 +255,17 @@ Effect 保持 registered、dispatching、completed 等当前机器状态，并�
 
 回复正文在事务外保存，提交只登记引用；发送时核验实际读取的正文及当前接收目标、渠道配置、隐私和数据权利。普通回复 outbox 的发送截止时间为空；网络超时、worker 租约与并发 fence 只负责执行控制。普通回复不生成回复准入 work。Codex 也在 Subject Commit 同事务登记 Effect/outbox，`effect.register` 工作类型及后台登记流程已删除。
 
-所有 purpose 的未完成认知中断即结束，包括其他人对话、自主活动与睡眠整理；未调用 attempt 取消，调用结果不明保留 unknown，已保存响应和已提交主体变化保留，不读取旧响应或变更集续算。长期活动、维护阶段和进度由原 owner 保留，原调度按当前状态重新创建机会与 Context。生命代次的初始自主机会若因 Runtime 中断取消，下次启动登记新的后继机会，保留旧轮取消事实及因果链；并发启动检查只登记一条，后继再次中断仍可登记新机会。已完成的决定（包括不行动）、非中断失败和其他原因的取消不因此重新触发。该来源的中断次数不再受“最多重新考虑一次”限制，其他来源沿用原上限。独立效果的其他恢复语义不扩展。
+所有 purpose 的未完成认知中断即结束，包括其他人对话、自主活动与睡眠整理；未调用 attempt 取消，调用结果不明保留 unknown，已保存响应和已提交主体变化保留，不读取旧响应或变更集续算。长期活动、维护阶段和进度由原 owner 保留。Attention 保留未来自主计划；到期只合并为一次新机会，不追赶停机期间的多个时点。中断或失败的自主轮次保留终态，按最小考虑间隔重新安排新 Context；已经正常结算的沉默或延期使用本轮提交的下一次计划。旧主动联系、活动注意和活动内部工作不再作为单独 purpose 排队。独立效果的其他恢复语义不扩展。
+
+### 持续自主生活
+
+Attention 的 `autonomy_plans` 管理下一次考虑时间、版本、来源认知及当前机会，沿用 Opportunity 和 durable work，不建立另一套调度器。首次启用在一分钟后考虑；每个自主候选都必须提交下一次考虑间隔，默认一分钟至六小时。正常外部处理结束及管理员改变主体状态可提前下一次机会。自身提交只更新计划，不立即唤醒自身。用户输入优先，同一主体只允许一轮未完成的自主认知；单并发模型仍可在空闲时自主行动。等待中的活动不独占注意，历史 considering 活动也可以由新自主认知推进。
+
+`configs/runtime.yaml` 的 autonomy 配置管理启用状态、每日请求额度、考虑时间上下限及唯一主动出口。默认 48 次，按北京时间换日。每次自主收费请求的 Owner 记录和 Attention 额度登记共用一个事务，以调用 ID 幂等；失败、取消和 unknown 不退还已登记次数。回执和费用结算不经过额度拒绝。分词、轮询、Codex 订阅不计收费次数；Creator 输入及其工具结果沿真实来源排除。嵌套 Codex 结果通过各 Owner 的读取接口追溯，不由候选填写来源，也不因产生独立结果机会而失去归属。
+
+Context 使用同一能力快照生成目录和候选 Schema，关闭能力没有模型可执行分支；已开启但暂不可用时显示状态和原因，执行仍由责任 Owner 验证。主动表达与行动分离，沿用一至三条消息规则、Expression／Effect／outbox 和渠道核验。没有回应、近期联系和时间属于可供判断的事实，不能机械禁言。QQ 出口只能使用有效的 Creator 绑定，不自动回退网页；联系边界和数据权利保持有效，unknown 不重放。
+
+Creator 的 `/v1/autonomy/status`、`/v1/autonomy/history` 与 Admin CLI/MCP 的 autonomy status/history 共用查询口径。活动页显示下一次期望时间、额度、配置出口以及等待、睡眠、资源忙碌和额度耗尽状态，分页历史可进入现有操作、用量及 Effect 详情。自主操作没有 Creator 输入接纳回执，不能为了投影而伪造外部输入。
 
 普通对话中断即结束。停机和启动入口调用现有 owner 的收尾逻辑，终结这一轮未完成的机会、认知和派生 work；已提交的主体变化与完成的发送保留，尚未发送的回复取消，已开始发送但结果不确定的回复保留 unknown/部分完成，不重发，也不要求人为恢复这一轮。新输入和新的主动表达可以继续，旧动作不得重放。Codex 委托沿用相同的中断原则，管理端授权和真实完整性故障的检查保持各自语义；现有数据库不会自动迁移、重装或清空。
 
@@ -290,7 +297,7 @@ Creator operation 投影聚合 cognition、Codex 与 effect 阶段，但不把 o
 
 `codex.enabled` 默认关闭，由现有配置管理保存、重启生效。Context 和 Runtime 状态读取同一份实际可用性，包括开启状态、本地执行器与凭据是否就绪及失败原因。关闭或不可用时新任务明确失败；旧幂等键仍指向原任务，不重跑。
 
-主链为：Creator／代理提交任务 → ARMI 决定是否委托 → Subject Commit 原子登记主体变化、委托意图和 Effect/outbox → 执行与核验 → 结果进入认知。普通对话不自主生成 Codex 任务。申请、申请依据与决定、grant、policy decision、effect registration 六类表和审批接口均已删除。任务制品在事务外保存，提交登记引用，执行时验证实际内容；outbox 无业务有效期，执行器继续执行既有超时与隔离限制。
+主链为：Creator／代理提交任务，或 ARMI 在自主生活中形成委托 → Subject Commit 原子登记主体变化、委托意图和 Effect/outbox → 执行与核验 → 结果进入新的认知。自主委托的任务来源记录原 Subject Commit，任务制品在事务外准备，不创建虚构的 Creator 输入。委托和可选表达使用不同操作身份，可在同一次提交成立。申请、申请依据与决定、grant、policy decision、effect registration 六类表和审批接口均已删除。执行时验证实际内容；outbox 无业务有效期，执行器继续执行既有超时与隔离限制。
 
 停机、崩溃或 Runtime 更换后，未启动的委托取消；已启动且无可靠结果的保留 unknown，取消信号终止子进程树并清理临时工作区，不重跑、不回读临时目录。已提交主体事实、核验结果和受治理制品保留。原任务和独立结果机会链及其派生工作均由现有 owner 收尾；收尾后的旧执行结果不能越过 fence 和终态，也不能派生工作。任务投影分别显示执行与后续认知状态，执行完成不代表结果已被 ARMI 理解或采纳。
 
@@ -348,7 +355,7 @@ Admin 的业务结果模型由操作目录统一生成 CLI/MCP 合同并校验�
 
 ## 13. 数据库与配置
 
-当前数据库要求 PostgreSQL 18.4、UTF-8/UTC/builtin `C.UTF-8`、vector 0.8.6、pg_trgm 1.6、唯一 `0000`、baseline `armi.schema-baseline.v20` 和精确 role policy。Schema 是 package resource，有序 baseline SQL、表策略和 ACL 由 `armi-postgresql-contract` 随包交付；精确目录以当前资源为准。安装只接受无用户 relation 且无现存 `armi` namespace 的目标库：namespace 先在独立短事务建立，随后 `0000` 在一个事务组内写入表、约束、ACL、revision、identity 与 digests；中段失败可以留下空 namespace，但不会留下业务表或前移 revision。Runtime 只验证，不安装或升级。显式 setup 升级仅接受签名资源声明的精确 v19 到 v20 来源：五类调用表增加逐请求计量字段，新增只读用量视图，语音检查可关联会话，认知登记允许请求制品稍后附加。既有记录标记旧口径并保留原估算，不能用新价格重写或补造缺失请求。Owner 不变，调用事实禁止通用维护改写；结构转换、ACL、与新建 baseline 一致的结构核验及身份更新同事务提交。程序部署后数据库失败时保留数据，不自动降级；绑定只在数据库确认后刷新。
+当前数据库要求 PostgreSQL 18.4、UTF-8/UTC/builtin `C.UTF-8`、vector 0.8.6、pg_trgm 1.6、唯一 `0000`、baseline `armi.schema-baseline.v21` 和精确 role policy。Schema 是 package resource，有序 baseline SQL、表策略和 ACL 由 `armi-postgresql-contract` 随包交付；精确目录以当前资源为准。安装只接受无用户 relation 且无现存 `armi` namespace 的目标库：namespace 先在独立短事务建立，随后 `0000` 在一个事务组内写入表、约束、ACL、revision、identity 与 digests；中段失败可以留下空 namespace，但不会留下业务表或前移 revision。Runtime 只验证，不安装或升级。显式 setup 升级仅接受签名资源声明的精确 v20 到 v21 来源：增加 Attention 自主计划和请求额度登记，扩展自主候选与机会合同，Codex 来源增加原 Subject Commit 引用，用量查询保留委托的原操作归属。旧队列中被替代的三个 purpose 取消，历史机会、决定、活动、费用和原始制品保留；不改写旧沉默，不补造计划或额度消耗，也不恢复旧候选。结构转换、ACL、与新建 baseline 一致的结构核验及身份更新同事务提交。程序部署后数据库失败时保留数据，不自动降级；绑定只在数据库确认后刷新。
 
 配置合并顺序：仓库 `configs/runtime.yaml` → 环境根 `environment.yaml` → 登记的 `ARMI_*` 覆盖。当前 schema v3，strict/frozen/extra-forbid。环境根必须有普通 `environment.yaml`、`data/`、`secrets/`；data root 精确相等，禁止 reparse。Secret 只用 `env:ARMI_SECRET_*` 或位于 `secrets/` 的 `file:` locator，最大 64KiB，经 scoped handle 消费后清零。
 
