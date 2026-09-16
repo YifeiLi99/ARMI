@@ -1232,7 +1232,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
     def test_psychological_attention_advances_plan_and_settles_once(self) -> None:
         self._exercise_autonomy_plan(psychological=True)
 
-    def _exercise_autonomy_plan(self, *, psychological: bool) -> None:
+    def test_concern_review_wakes_once_without_mood_or_external_input(self) -> None:
+        self._exercise_autonomy_plan(psychological=False, concern=True)
+
+    def _exercise_autonomy_plan(
+        self, *, psychological: bool, concern: bool = False
+    ) -> None:
         from armi_attention.api import (
             AutonomyPolicy,
             LifeViolation,
@@ -1326,7 +1331,52 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         state_epoch=1,
                     )
                     self.assertEqual(changed, repeated)
-                    if psychological:
+                    if concern:
+                        from armi_subject_state.api import ConcernRecord, TimedReview
+
+                        now = datetime.now(UTC) - timedelta(hours=8)
+                        records = (
+                            ConcernRecord(
+                                concern_id=uuid7(),
+                                question="What changed the leaf direction?",
+                                reason="A synthetic observation remains unexplained",
+                                resolution_condition="A supported causal explanation",
+                                understanding="No explanation is known",
+                                state="waiting",
+                                review=TimedReview(
+                                    kind="review",
+                                    after_seconds=300,
+                                    reason="Reconsider with elapsed time",
+                                ),
+                                review_at=now + timedelta(seconds=300),
+                                created_at=now,
+                                updated_at=now,
+                                source_commit_id=uuid7(),
+                                basis_ordinals=(1,),
+                            ),
+                        )
+                        await unit.transaction.execute(
+                            "UPDATE armi.subject_component_revisions SET semantic_payload="
+                            "jsonb_set(semantic_payload,'{concerns}',%s::jsonb) WHERE subject_id=%s AND component_kind='mind'",
+                            (
+                                json.dumps(
+                                    [item.model_dump(mode="json") for item in records]
+                                ),
+                                born.subject_id,
+                            ),
+                        )
+                        await unit.transaction.execute(
+                            "UPDATE armi.autonomy_plans SET next_consideration_at=statement_timestamp()+interval '6 hours' WHERE subject_id=%s",
+                            (born.subject_id,),
+                        )
+                        for _ in range(3):
+                            await owner.consider_psychological_attention(
+                                unit.transaction,
+                                subject_id=born.subject_id,
+                                policy=policy,
+                                facts=facts,
+                            )
+                    elif psychological:
                         # No external event/state-epoch wakeup: a six-hour plan
                         # must be advanced by the real Mood read/Attention path.
                         await unit.transaction.execute(
@@ -1417,6 +1467,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     assert selected is not None
                     self.assertEqual(selected.opportunity_id, admitted.opportunity_id)
                     self.assertEqual(selected.selection_priority, 1)
+                    frozen_opportunity = await cognition_owner.context_snapshot(
+                        unit.transaction,
+                        opportunity_id=selected.opportunity_id,
+                    )
+                    assert frozen_opportunity.autonomy_context is not None
+                    self.assertIn(
+                        "last_considered_at",
+                        json.loads(frozen_opportunity.autonomy_context),
+                    )
                     exhausted = await cognition_owner.next_candidate(
                         unit.transaction,
                         scope=OpportunityCognitionSelectionScope(born.subject_id),
@@ -1500,6 +1559,28 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     await owner.admit_due(
                         unit.transaction, subject_id=born.subject_id, policy=policy
                     )
+                    if concern:
+                        self.assertIsNone(
+                            await facts.concern_review_since(
+                                unit.transaction,
+                                subject_id=born.subject_id,
+                                after=datetime.now(UTC),
+                            )
+                        )
+                        await owner.consider_psychological_attention(
+                            unit.transaction,
+                            subject_id=born.subject_id,
+                            policy=policy,
+                            facts=facts,
+                        )
+                        row = await (
+                            await unit.transaction.execute(
+                                "SELECT count(*) FROM armi.opportunities WHERE subject_id=%s AND purpose='consider_autonomous_life'",
+                                (born.subject_id,),
+                            )
+                        ).fetchone()
+                        assert row is not None
+                        self.assertEqual(row[0], 1)
                 for day in range(3):
                     # Test clock travel needs the isolated fixture administrator:
                     # Runtime deliberately cannot rewrite admission history.

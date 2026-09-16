@@ -189,6 +189,14 @@ class CreatorOutreachFacts:
 
 @runtime_checkable
 class LifeOpportunityFactsPort(Protocol):
+    async def concern_review_since(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        after: datetime | None,
+    ) -> datetime | None: ...
+
     async def psychological_attention_since(
         self,
         transaction: PostgreSQLTransaction,

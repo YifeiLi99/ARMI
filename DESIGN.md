@@ -158,6 +158,8 @@ Owner draft 在进程内携带已绑定的不可变领域对象。Subject Commit
 
 任一提议或 Owner 拒绝即拒绝本轮全部提议，不跨 atomic group 保留其余变化，也不剥离内部变化后单独发送回复。当前执行状态仅 accepted/rejected；历史 partially_accepted 记录保留为事实，提交入口不再接纳该状态。拒绝诊断保留各失败提议的 Owner、代码及提议路径。
 
+Context 中不存在的活动操作、关注引用或情绪轨迹不能出现在可执行候选入口；已有对象的引用按种类绑定，不能把关注当成情绪 episode。供应商适配只共享完全相同的 Schema 子节点并缩短定义名称，不删除字段语义或约束。已有对象更多时 Schema 会相应增大。
+
 分词和实际调用使用由类型生成的同一 Schema，不再复制整份对象手工拼接动作分支。自省 no_change 可以携带依据；更新按目标类型要求对应状态和版本。记忆维护将保留操作与重解释分开，重解释的关联引用与关系种类组成一个可选对象。Owner 继续核验有效引用和业务语义，提交继续核验异步期间可能变化的权限、版本、Runtime 和租约。
 
 数据库当前基线保留历史候选版本，不将旧制品改写成新输出。精确前向升级保留已发生事实；旧候选没有执行解析器，也不参与中断恢复。
@@ -166,27 +168,27 @@ Creator 文本与语音的资料、关系和承诺变化使用同一按操作区
 
 其他人对话 v8 将决定与 social 经历组成部分分开：关系变化必须附着经历，非空关系变化及承诺字段依赖由类型表达。沉默、延期可以附带说明，Expression 保存原决定种类并独立登记表达。空白、NUL 和 UTF-8 字节容量由 Expression Owner 拒绝，诊断定位 `decision.content`。主动表达并入自主生活的一次认知；旧主动联系合同不再有执行解析器。
 
-通用认知 v14 按 Owner 区分状态载荷，评价的新建与已有轨迹由不同类型表达。自主生活 v7 合并活动注意、内部推进及主动表达，共同提交有界行动、可选表达和下次考虑时间；资料及评价仍交原 Owner。文本结构约束进入同源 Schema，资料正文的实际字节容量仍由 Material Owner 保留。反思 v3 和维护 v3 在生成 Schema 与解析时选择当前 Owner／阶段类型。旧 compact metadata 翻译及根据顶层 kind 猜测合同的执行入口已经删除。
+通用认知 v15 按 Owner 区分状态载荷，评价的新建与已有轨迹由不同类型表达。自主生活 v8 合并活动注意、内部推进及主动表达，共同提交有界行动、可选表达和下次考虑时间；资料及评价仍交原 Owner。文本结构约束进入同源 Schema，资料正文的实际字节容量仍由 Material Owner 保留。反思 v3 和维护 v3 在生成 Schema 与解析时选择当前 Owner／阶段类型。旧 compact metadata 翻译及根据顶层 kind 猜测合同的执行入口已经删除。
 
 拒绝、需要信息等决定附带表达时，Expression 同时保留原决定类型与表达意图；是否有表达意图决定发送，不能把原决定改记为 reply。资料、经历和评价不因是否表达而丢弃。
 
-当前 purpose 与合同能力对应如下。数值为 2026-09-15 固定唯一引用 `ctx:1`、包含供应商 candidate 封装的紧凑 UTF-8 JSON Schema 字节数；用于体积比较，不代表 token 数或真实模型成功率。配置用途的完整性及 Schema 到解析器的正常无变化分支由 `apps/armi-runtime/tests/test_cognition_response_validation.py` 检查；具体 Owner 变化由 Cognition 的候选验证测试和数据库提交测试覆盖。
+当前 purpose 与合同能力对应如下。数值为 2026-09-16 固定唯一外部输入引用 `ctx:1`、无已有关注/活动/情绪轨迹时，按实际 Context 绑定后包含供应商 candidate 封装的紧凑 UTF-8 JSON Schema 字节数；用于体积比较，不代表 token 数或真实模型成功率。配置用途的完整性及 Schema 到解析器的正常无变化分支由 `apps/armi-runtime/tests/test_cognition_response_validation.py` 检查；具体 Owner 变化由 Cognition 的候选验证测试和数据库提交测试覆盖。
 
 | purpose／入口 | 合法工作及责任 Owner | Schema 字节 |
 |---|---|---:|
-| `consider_creator_input`、`consider_life_query_result`、`consider_requested_visual_observation` | 表达／沉默、精确查询、Web 搜索、视觉请求；Experience、Memory、Mood、Relationship、Material 与 Expression | 12151 |
-| Creator 实时语音 | 与 Creator 文本相同的业务动作，Expression 保留 60 字表达上限 | 12117 |
-| `consider_other_human_input` | 回复、沉默、延期、结束联系；当前对方的 Experience、Mood、Relationship 与 Expression；沉默和延期可附带说明 | 12062 |
+| `consider_creator_input`、`consider_life_query_result`、`consider_requested_visual_observation` | 表达／沉默、精确查询、Web 搜索、视觉请求；Mind 关注、Experience、Memory、Mood、Relationship、Material 与 Expression | 11715 |
+| Creator 实时语音 | 与 Creator 文本相同的业务动作，Expression 保留 60 字表达上限 | 11661 |
+| `consider_other_human_input` | 回复、沉默、延期、结束联系；当前对方的 Experience、Mood、Relationship 与 Expression；沉默和延期可附带说明 | 9823 |
 | `consider_autonomous_life` | 创建、推进、等待、完成或放弃活动，沉默／延期／需要信息，独立表达，以及已开启的查询、搜索、视觉和 Codex；Activity、Material、Mood、Expression 及工具 Owner | 按本轮能力与时间范围生成 |
 | `consider_sleep` | 入睡、保持清醒、延期、缺少信息；Sleep | 273 |
-| `consider_web_evidence`、`consider_codex_result`、`consider_codex_task` | 证据理解及用途允许的 Owner 提议；Codex 委托只从显式任务用途进入 | 22164 |
-| `consider_visual_observation` | 忽略或形成视觉经历及评价；Experience、Mood | 5617 |
-| `maintain_subjective_memory` | 记忆保持、巩固、淡化、遗忘、重解释；Memory、Sleep | 1733 |
-| `perform_subject_self_check` | 保持或发现内部问题；Sleep | 1046 |
-| `reflect_self` | 保持或更新 Self | 2388 |
-| `reflect_mind` | 保持或更新 Mind | 1909 |
-| `reflect_mood` | 保持或请求 Mood 长期反思，参数由 Owner 计算 | 1301 |
-| `reflect_prompt` | 保持或更新 Prompt | 1580 |
+| `consider_web_evidence`、`consider_codex_result`、`consider_codex_task` | 证据理解及用途允许的 Owner 提议；Codex 委托只从显式任务用途进入 | 19142 |
+| `consider_visual_observation` | 忽略或形成视觉经历及评价、更新关注；Experience、Mood、Mind | 6040 |
+| `maintain_subjective_memory` | 记忆保持、巩固、淡化、遗忘、重解释；Memory、Sleep | 1518 |
+| `perform_subject_self_check` | 保持或发现内部问题；Sleep | 964 |
+| `reflect_self` | 保持或更新 Self | 2036 |
+| `reflect_mind` | 保持或更新 Mind | 1557 |
+| `reflect_mood` | 保持或请求 Mood 长期反思，参数由 Owner 计算 | 1183 |
+| `reflect_prompt` | 保持或更新 Prompt | 1422 |
 
 技术失败通知由 Interaction 拥有，以原始外部输入及通知类别去重。Context、模型、候选、Web、Codex、视觉及发送失败在结算后登记通知；派生结果沿各 Owner 的来源记录定位最初输入，并核对主体、场景和接收方。没有外部输入祖先的自主活动只保留管理诊断。正常沉默、拒绝和延期不触发通知。
 
@@ -221,6 +223,12 @@ PostgreSQL 保存 subject、life、work、effect 与治理事实。多数可变�
 Embedding、关键词索引、列表投影、游标和前端缓存可删除重建。语义召回仅覆盖 current accessible memory 与未删除 material：固定 Qwen 1024 维 embedding，HNSW/halfvec 取稠密候选，GiST trigram 取关键词候选，原向量/真实词相似度精排，owner 集合 SQL 复核资格，再用 RRF 融合。投影 binding/profile/head/coverage 不符时不得进入 Context。
 
 ## 8. Mood
+
+### 持续关注与好奇
+
+Mind v3 的 `concerns` 保存有依据的问题、在意理由、解决条件、已有认识、状态和复查条件。最多四份未结束关注；身份、来源提交与时间由 Subject State Owner 产生。建立、更新、等待、解决、放下共用类型定义，与活动、表达、评价和计划原子提交。关注不等于活动，也不是全局好奇数值；只有决定探索时才使用既有 Activity/工具链。普通 Mind 文本更新及反思保留关注，管理替换或回退不能绕过合同清空它们。
+
+Attention 通过 Mind 公开读接口，将带理由的复查时间合并到现有自主计划。Creator 输入和工具/活动结果复用现有机会及结算唤起；事件仅提供重新评价的依据。已消费的到期条件由现有自主机会终结时间判定，不按扫描次数积累强度。Context 单独提供未结束关注及时间信息，结束内容留在组件历史，其他人对话不得获得这些私人内容。等待、沉默不自动删除问题，解决或放下后不再由该关注触发。此机制不声称已模拟孤独、思念或生理需求。
 
 模型只给有 Context 依据的语义 appraisal；Mood owner 确定性推导情绪成分、VAD target、half-life、当前 top emotions 和 action tendencies。权威状态当前为 `armi.mood.v3`，候选为 `armi.mood-candidate.v4`。
 
@@ -357,7 +365,7 @@ Admin 的业务结果模型由操作目录统一生成 CLI/MCP 合同并校验�
 
 ## 13. 数据库与配置
 
-当前数据库要求 PostgreSQL 18.4、UTF-8/UTC/builtin `C.UTF-8`、vector 0.8.6、pg_trgm 1.6、唯一 `0000`、baseline `armi.schema-baseline.v21` 和精确 role policy。Schema 是 package resource，有序 baseline SQL、表策略和 ACL 由 `armi-postgresql-contract` 随包交付；精确目录以当前资源为准。安装只接受无用户 relation 且无现存 `armi` namespace 的目标库：namespace 先在独立短事务建立，随后 `0000` 在一个事务组内写入表、约束、ACL、revision、identity 与 digests；中段失败可以留下空 namespace，但不会留下业务表或前移 revision。Runtime 只验证，不安装或升级。显式 setup 升级仅接受签名资源声明的精确 v20 到 v21 来源：增加 Attention 自主计划和请求额度登记，扩展自主候选与机会合同，Codex 来源增加原 Subject Commit 引用，用量查询保留委托的原操作归属。旧队列中被替代的三个 purpose 取消，历史机会、决定、活动、费用和原始制品保留；不改写旧沉默，不补造计划或额度消耗，也不恢复旧候选。结构转换、ACL、与新建 baseline 一致的结构核验及身份更新同事务提交。程序部署后数据库失败时保留数据，不自动降级；绑定只在数据库确认后刷新。
+当前数据库要求 PostgreSQL 18.4、UTF-8/UTC/builtin `C.UTF-8`、vector 0.8.6、pg_trgm 1.6、唯一 `0000`、baseline `armi.schema-baseline.v22` 和精确 role policy。Schema 是 package resource，有序 baseline SQL、表策略和 ACL 由 `armi-postgresql-contract` 随包交付；精确目录以当前资源为准。安装只接受无用户 relation 且无现存 `armi` namespace 的目标库：namespace 先在独立短事务建立，随后 `0000` 在一个事务组内写入表、约束、ACL、revision、identity 与 digests；中段失败可以留下空 namespace，但不会留下业务表或前移 revision。Runtime 只验证，不安装或升级。显式 setup 升级仅接受签名资源声明的精确 v21 到 v22 来源：以 `module_migration` 追加当前 Mind v3 revision，关注初始为空，保留原 Mind 文本及全部历史 v2 revision；扩展当前候选版本约束，不恢复旧候选。结构转换、ACL、与新建 baseline 一致的结构核验及身份更新同事务提交。程序部署后数据库失败时保留数据，不自动降级；绑定只在数据库确认后刷新。
 
 配置合并顺序：仓库 `configs/runtime.yaml` → 环境根 `environment.yaml` → 登记的 `ARMI_*` 覆盖。当前 schema v3，strict/frozen/extra-forbid。环境根必须有普通 `environment.yaml`、`data/`、`secrets/`；data root 精确相等，禁止 reparse。Secret 只用 `env:ARMI_SECRET_*` 或位于 `secrets/` 的 `file:` locator，最大 64KiB，经 scoped handle 消费后清零。
 

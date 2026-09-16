@@ -44,6 +44,18 @@ class PostgreSQLAutonomyOwner:
         attention_at = await facts.psychological_attention_since(
             transaction, subject_id=subject_id, after=previous[0]
         )
+        review_at = await facts.concern_review_since(
+            transaction, subject_id=subject_id, after=previous[0]
+        )
+        if review_at is not None:
+            await transaction.execute(
+                """UPDATE armi.autonomy_plans
+                   SET next_consideration_at=LEAST(next_consideration_at,%s),
+                       updated_at=statement_timestamp()
+                   WHERE subject_id=%s AND opportunity_id IS NULL
+                     AND next_consideration_at > %s""",
+                (review_at, subject_id, review_at),
+            )
         if attention_at is not None:
             await transaction.execute(
                 """UPDATE armi.autonomy_plans
