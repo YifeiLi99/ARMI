@@ -1,8 +1,12 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { RefObject } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import { ApiFailure, getCreatorOperation } from "../../api/client";
+import {
+  ApiFailure,
+  getCreatorOperation,
+  listUsageCalls,
+} from "../../api/client";
 
 type OperationPanelProps = {
   token: string;
@@ -41,12 +45,28 @@ export function OperationPanel({
   onUnauthorized,
   effectTriggerRef,
 }: OperationPanelProps) {
+  const [usageOpen, setUsageOpen] = useState(false);
   const operation = useQuery({
     queryKey: ["creator-operation", operationRef],
     enabled: operationRef !== null,
     queryFn: ({ signal }) => getCreatorOperation(token, operationRef!, signal),
     refetchInterval: (query) =>
       query.state.data?.status === "waiting" ? 2000 : false,
+  });
+  const usage = useQuery({
+    queryKey: ["operation-usage", operationRef],
+    enabled: operationRef !== null && usageOpen,
+    queryFn: ({ signal }) =>
+      listUsageCalls(
+        token,
+        {
+          operation_id: operationRef!,
+          start: "1970-01-01T00:00:00Z",
+          end: new Date().toISOString(),
+        },
+        0,
+        signal,
+      ),
   });
 
   useEffect(() => {
@@ -69,7 +89,10 @@ export function OperationPanel({
         <button
           type="button"
           className="secondary"
-          onClick={() => void operation.refetch()}
+          onClick={() => {
+            void operation.refetch();
+            if (usageOpen) void usage.refetch();
+          }}
         >
           刷新
         </button>
@@ -80,6 +103,32 @@ export function OperationPanel({
         <p role="status">当前无法核验这项 operation。</p>
       ) : (
         <>
+          <details onToggle={(event) => setUsageOpen(event.currentTarget.open)}>
+            <summary>关联云端 API 用量</summary>
+            {usage.isPending ? (
+              <p>正在读取用量…</p>
+            ) : usage.isError ? (
+              <p role="alert">用量查询失败，请到“用量与费用”刷新查询。</p>
+            ) : (
+              <>
+                <p>共 {usage.data.total} 次收费请求；单价估算不是实际扣款。</p>
+                <ul>
+                  {usage.data.items.map((item) => (
+                    <li key={item.receipt.call_id}>
+                      {item.receipt.service} / {item.receipt.model} ·{" "}
+                      {item.receipt.cost.known_microyuan === null
+                        ? "金额未确认"
+                        : `¥${(item.receipt.cost.known_microyuan / 1_000_000).toFixed(6)}`}{" "}
+                      · 调用 {item.receipt.call_id}
+                    </li>
+                  ))}
+                </ul>
+                {usage.data.total > usage.data.items.length && (
+                  <p>完整明细请到“用量与费用”查询。</p>
+                )}
+              </>
+            )}
+          </details>
           <dl>
             <div>
               <dt>合同状态</dt>

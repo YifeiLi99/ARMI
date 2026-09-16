@@ -1,0 +1,92 @@
+.usage-panel {
+  min-width: 0;
+}
+.usage-filters,
+.usage-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  align-items: end;
+}
+.usage-filters label {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 9rem;
+  max-width: 16rem;
+}
+.usage-filters input,
+.usage-filters select {
+  width: 100%;
+  min-width: 0;
+}
+.usage-overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+.usage-overview article {
+  border: 1px solid #dce5ed;
+  border-radius: 12px;
+  padding: 1rem;
+  display: grid;
+  gap: 0.7rem;
+  overflow-wrap: anywhere;
+}
+.usage-overview strong {
+  font-size: 1.2rem;
+  font-variant-numeric: tabular-nums;
+}
+.usage-calls,
+.usage-trend {
+  list-style: none;
+  padding: 0;
+}
+.usage-call {
+  border-top: 1px solid #dce5ed;
+  padding: 1rem 0;
+  overflow-wrap: anywhere;
+}
+.usage-call-heading,
+.usage-trend li > div {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+.usage-trend li {
+  margin: 0.9rem 0;
+}
+.usage-trend meter {
+  width: 100%;
+  height: 1rem;
+}
+.usage-detail {
+  background: #f3f6f9;
+  padding: 1rem;
+  border-radius: 10px;
+  margin-top: 1rem;
+}
+.usage-detail dl {
+  display: grid;
+  grid-template-columns: minmax(6rem, 1fr) minmax(0, 3fr);
+  gap: 0.7rem;
+}
+.usage-detail dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.usage-pagination {
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 1rem;
+}
+@media (max-width: 600px) {
+  .usage-filters label {
+    flex: 1 1 100%;
+    max-width: none;
+  }
+  .usage-detail dl {
+    grid-template-columns: 1fr;
+  }
+}

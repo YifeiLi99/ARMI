@@ -28,6 +28,7 @@ import { EffectDetail } from "../effect/EffectDetail";
 import { ExportPanel } from "../export/ExportPanel";
 import { DataRightsPanel } from "../dataRights/DataRightsPanel";
 import { OperationPanel } from "../operation/OperationPanel";
+import { UsagePanel } from "../usage/UsagePanel";
 import { OtherHumanRecordPanel } from "../otherHuman/OtherHumanRecordPanel";
 import { PromptPanel } from "../prompt/PromptPanel";
 import { TimelinePanel } from "../scene/TimelinePanel";
@@ -439,6 +440,16 @@ export function SessionPanel() {
               onUnauthorized={unauthorized}
             />
           </div>
+          {activePage === "usage" && (
+            <UsagePanel
+              token={view.stored.token}
+              onUnauthorized={unauthorized}
+              onOperation={(id) => {
+                setSelectedOperation(id);
+                navigate("operation");
+              }}
+            />
+          )}
         </div>
       </section>
     </div>

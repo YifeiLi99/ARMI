@@ -11,6 +11,7 @@ export type WorkspacePage =
   | "people"
   | "prompt"
   | "maintenance"
+  | "usage"
   | "export"
   | "data-rights"
   | "subject"
@@ -68,6 +69,7 @@ const navigationGroups: NavigationGroup[] = [
     label: "系统",
     items: [
       { page: "maintenance", label: "运行与维护", icon: "pulse" },
+      { page: "usage", label: "用量与费用", icon: "file" },
       { page: "export", label: "数据导出", icon: "download" },
       { page: "data-rights", label: "数据权利", icon: "trash" },
       { page: "subject", label: "主体状态", icon: "subject" },
@@ -108,6 +110,10 @@ const pageMeta: Record<WorkspacePage, { title: string; description: string }> =
     maintenance: {
       title: "运行与维护",
       description: "统一观察必需与可选组件，并控制本次运行中的能力入口。",
+    },
+    usage: {
+      title: "用量与费用",
+      description: "查看云端 API 的逐次用量和官方单价估算。",
     },
     export: {
       title: "数据导出",

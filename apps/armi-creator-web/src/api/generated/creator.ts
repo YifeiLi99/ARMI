@@ -704,6 +704,57 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/usage/calls": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Calls */
+    get: operations["listUsageCalls"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/usage/calls/{call_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Read */
+    get: operations["readUsageCall"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/usage/summary": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Summary */
+    get: operations["getUsageSummary"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/vision/observations/{observation_id}": {
     parameters: {
       query?: never;
@@ -3104,6 +3155,212 @@ export interface components {
       status: "unavailable";
       /** Trace Id */
       trace_id: string;
+    };
+    /** UsageCall */
+    UsageCall: {
+      /** Attempt Id */
+      attempt_id: string;
+      /** Auxiliary Requests */
+      auxiliary_requests?: components["schemas"]["UsageReceipt"][];
+      /** Business Result */
+      business_result: string | null;
+      /** 记录来自旧口径 */
+      historical_incomplete: boolean;
+      /** Operation Id */
+      operation_id: string | null;
+      /** Owner */
+      owner: string;
+      receipt: components["schemas"]["UsageReceipt"];
+      /** Reference Id */
+      reference_id: string;
+      /** Reference Kind */
+      reference_kind: string;
+    };
+    /** UsageCalls */
+    UsageCalls: {
+      /** Items */
+      items: components["schemas"]["UsageCall"][];
+      /** Total */
+      total: number;
+    };
+    /** UsageCost */
+    UsageCost: {
+      /** Components */
+      components: components["schemas"]["UsageCostComponent"][];
+      /** Currency */
+      currency: string;
+      /** Known Microyuan */
+      known_microyuan: number | null;
+      /** Missing Prices */
+      missing_prices: string[];
+      /** Missing Usage */
+      missing_usage: string[];
+      /** Rounding */
+      rounding: string;
+      /** Snapshot Id */
+      snapshot_id: string | null;
+      /** Status */
+      status: string;
+    };
+    /** UsageCostComponent */
+    UsageCostComponent: {
+      /** Estimated Microyuan */
+      estimated_microyuan: number;
+      price: components["schemas"]["UsageRate"];
+      /** Quantity */
+      quantity: number;
+      /** Source */
+      source: string;
+      /** Unit */
+      unit: string;
+    };
+    /** UsageDay */
+    UsageDay: {
+      /** Date */
+      date: string;
+      totals: components["schemas"]["UsageTotals"];
+      /** Units */
+      units: {
+        [key: string]: number;
+      };
+    };
+    /** UsageGroup */
+    UsageGroup: {
+      /** Model */
+      model: string;
+      /** Service */
+      service: string;
+      totals: components["schemas"]["UsageTotals"];
+      /** Units */
+      units: {
+        [key: string]: number;
+      };
+    };
+    /** UsagePrice */
+    UsagePrice: {
+      /** Effective From */
+      effective_from: string;
+      /** Effective Until */
+      effective_until: string | null;
+      /** Model */
+      model: string;
+      /** Provider */
+      provider: string;
+      /** Rates */
+      rates: components["schemas"]["UsageRate"][];
+      /** Service */
+      service: string;
+      /** Snapshot Id */
+      snapshot_id: string;
+      /** Source Url */
+      source_url: string;
+      /** Verified At */
+      verified_at: string;
+    };
+    /** UsageQuantityResponse */
+    UsageQuantityResponse: {
+      /** Quantity */
+      quantity: number;
+      /** Source */
+      source: string;
+      /** Unit */
+      unit: string;
+    };
+    /** UsageRate */
+    UsageRate: {
+      /** Microyuan */
+      microyuan: number;
+      /** Per Quantity */
+      per_quantity: number;
+      /** Unit */
+      unit: string;
+    };
+    /** UsageReceipt */
+    UsageReceipt: {
+      /** Billable */
+      billable: boolean;
+      /** Call Id */
+      call_id: string;
+      cost: components["schemas"]["UsageCost"];
+      /** Error Code */
+      error_code: string | null;
+      /** Finished At */
+      finished_at: string | null;
+      /** Model */
+      model: string;
+      /** Outcome */
+      outcome: string;
+      /** Parent Call Id */
+      parent_call_id?: string | null;
+      price: components["schemas"]["UsagePrice"] | null;
+      /** Provider */
+      provider: string;
+      /** Provider Request Id */
+      provider_request_id: string | null;
+      /** Purpose */
+      purpose: string;
+      /** Quantities */
+      quantities: components["schemas"]["UsageQuantityResponse"][];
+      /** Raw Usage */
+      raw_usage: {
+        [key: string]: components["schemas"]["JsonValue"];
+      } | null;
+      /** Received At */
+      received_at?: string | null;
+      /** Response Model */
+      response_model: string | null;
+      /** Schema Version */
+      schema_version: string;
+      /** Service */
+      service: string;
+      /** Started At */
+      started_at: string;
+    };
+    /** UsageSummary */
+    UsageSummary: {
+      /** Coverage */
+      coverage: string;
+      /**
+       * Currency
+       * @constant
+       */
+      currency: "CNY";
+      /** Daily */
+      daily: components["schemas"]["UsageDay"][];
+      /** Groups */
+      groups: components["schemas"]["UsageGroup"][];
+      /**
+       * Price Label
+       * @constant
+       */
+      price_label: "official_list_price_estimate";
+      /**
+       * Timezone
+       * @constant
+       */
+      timezone: "Asia/Shanghai";
+      totals: components["schemas"]["UsageTotals"];
+      /** Units */
+      units: {
+        [key: string]: number;
+      };
+    };
+    /** UsageTotals */
+    UsageTotals: {
+      /** Auxiliary Requests */
+      auxiliary_requests: number;
+      /** Billable Calls */
+      billable_calls: number;
+      /** 旧口径记录数 */
+      historical_incomplete_calls: number;
+      /** Incomplete Calls */
+      incomplete_calls: number;
+      /** Known Microyuan */
+      known_microyuan: number | null;
+      /** Unpriced Calls */
+      unpriced_calls: number;
+      /** Usage Unconfirmed Calls */
+      usage_unconfirmed_calls: number;
     };
     /** ValidationError */
     ValidationError: {
@@ -5798,6 +6055,88 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["UnavailableOutcomeResponse"];
+        };
+      };
+    };
+  };
+  listUsageCalls: {
+    parameters: {
+      query?: {
+        start?: string | null;
+        end?: string | null;
+        service?: string | null;
+        model?: string | null;
+        purpose?: string | null;
+        outcome?: string | null;
+        cost_status?: string | null;
+        operation_id?: string | null;
+        limit?: number;
+        offset?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["UsageCalls"];
+        };
+      };
+    };
+  };
+  readUsageCall: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        call_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["UsageCall"];
+        };
+      };
+    };
+  };
+  getUsageSummary: {
+    parameters: {
+      query?: {
+        start?: string | null;
+        end?: string | null;
+        service?: string | null;
+        model?: string | null;
+        purpose?: string | null;
+        outcome?: string | null;
+        cost_status?: string | null;
+        operation_id?: string | null;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["UsageSummary"];
         };
       };
     };

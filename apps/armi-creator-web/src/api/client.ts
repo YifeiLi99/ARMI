@@ -1,5 +1,72 @@
 import type { components } from "./generated/creator";
 
+export type UsageSummary = components["schemas"]["UsageSummary"];
+export type UsageCalls = components["schemas"]["UsageCalls"];
+export type UsageCall = components["schemas"]["UsageCall"];
+export type UsageFilters = {
+  start: string;
+  end: string;
+  service?: string;
+  model?: string;
+  purpose?: string;
+  outcome?: string;
+  cost_status?: string;
+  operation_id?: string;
+};
+
+async function queryUsage<T>(
+  token: string,
+  path: string,
+  parameters: Record<string, string | number | undefined>,
+  signal?: AbortSignal,
+): Promise<T> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(parameters)) {
+    if (value !== undefined && value !== "") query.set(key, String(value));
+  }
+  const response = await fetch(`/v1/usage/${path}?${query}`, {
+    credentials: "omit",
+    headers: { Authorization: `Bearer ${token}` },
+    ...(signal === undefined ? {} : { signal }),
+  });
+  return requireJson<T>(response);
+}
+
+export function getUsageSummary(
+  token: string,
+  filters: UsageFilters,
+  signal?: AbortSignal,
+) {
+  return queryUsage<UsageSummary>(token, "summary", filters, signal);
+}
+
+export function listUsageCalls(
+  token: string,
+  filters: UsageFilters,
+  offset: number,
+  signal?: AbortSignal,
+) {
+  return queryUsage<UsageCalls>(
+    token,
+    "calls",
+    { ...filters, offset, limit: 25 },
+    signal,
+  );
+}
+
+export function readUsageCall(
+  token: string,
+  callId: string,
+  signal?: AbortSignal,
+) {
+  return queryUsage<UsageCall>(
+    token,
+    `calls/${encodeURIComponent(callId)}`,
+    {},
+    signal,
+  );
+}
+
 export type BrowserSession =
   components["schemas"]["BrowserSessionCurrentResponse"];
 export type BrowserSessionEstablished =
