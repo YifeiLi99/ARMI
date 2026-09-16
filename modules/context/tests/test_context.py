@@ -131,6 +131,59 @@ def _memory(accessibility: str) -> tuple[object, ...]:
     return uuid7(), 2, payload, accessibility
 
 
+def test_concerns_are_private_separate_and_exclude_finished_history() -> None:
+    concern = {
+        "concern_id": str(uuid7()),
+        "question": "A private unresolved question",
+        "state": "waiting",
+        "updated_at": "2026-01-01T00:00:00+00:00",
+        "review_at": "2026-01-01T00:05:00+00:00",
+    }
+    mind = {
+        "schema_version": "armi.mind.v3",
+        "thoughts": [],
+        "concerns": [
+            concern,
+            {**concern, "state": "resolved", "question": "Finished history"},
+        ],
+    }
+    snapshot = _snapshot(
+        (), component_payloads=(("mind", uuid7(), 2, rfc8785.dumps(mind)),)
+    )
+    snapshot = cast(
+        ContextEpisodeSnapshot,
+        SimpleNamespace(
+            **{
+                **vars(snapshot),
+                "autonomy_context": b'{"current_time":"2026-01-01T00:10:00+00:00","last_considered_at":null}',
+            }
+        ),
+    )
+    request = _context_request(snapshot, None, b"fixed prompt", web_search_active=False)
+    concerns = [item for item in request.items if item.item_kind == "current_concern"]
+    assert len(concerns) == 1
+    assert concerns[0].content is not None
+    detail = json.loads(concerns[0].content)
+    assert detail["elapsed_seconds"] == 600
+    assert detail["consideration_reason"] == "review_time_reached"
+    mind_content = next(
+        item.content for item in request.items if item.item_kind == "mind"
+    )
+    assert mind_content is not None
+    assert "concerns" not in json.loads(mind_content)
+    other = cast(
+        ContextEpisodeSnapshot,
+        SimpleNamespace(**{**vars(snapshot), "purpose": "consider_other_human_input"}),
+    )
+    other_request = _context_request(
+        other, None, b"fixed prompt", web_search_active=False
+    )
+    assert not any(item.item_kind == "current_concern" for item in other_request.items)
+    assert not any(
+        "private unresolved" in (item.content or "") for item in other_request.items
+    )
+
+
 def test_active_creator_prompt_is_frozen_by_revision_in_future_context() -> None:
     revision_id = uuid7()
     snapshot = _snapshot(
@@ -705,7 +758,7 @@ def test_other_human_context_excludes_unscoped_private_life_content() -> None:
                     "mind",
                     uuid7(),
                     1,
-                    b'{"thoughts":["other-relationship-secret"]}',
+                    b'{"thoughts":["other-relationship-secret"],"concerns":[]}',
                 ),
             ),
         ),

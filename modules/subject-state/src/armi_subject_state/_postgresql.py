@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any, cast
 from uuid import UUID, uuid7
 
@@ -10,8 +11,10 @@ import rfc8785
 from armi_runtime_foundation import PostgreSQLAdminTransaction, PostgreSQLTransaction
 
 from ._application import SubjectStateApplication
+from ._concerns import CONCERN_RECORDS, apply_concern_changes
 from .api import (
     CandidateSubjectStateDraft,
+    ConcernRecord,
     LifeModeHead,
     SubjectStateBirthContinuity,
     SubjectStateHead,
@@ -35,12 +38,13 @@ _INITIAL: dict[SubjectStateKind, dict[str, object]] = {
         "tensions": [],
     },
     SubjectStateKind.MIND: {
-        "schema_version": "armi.mind.v2",
+        "schema_version": "armi.mind.v3",
         "understanding": [],
         "attention": [],
         "thoughts": [],
         "wishes": [],
         "motivations": [],
+        "concerns": [],
     },
     SubjectStateKind.LIFE_MODE: {
         "schema_version": "armi.life-mode.v1",
@@ -55,6 +59,15 @@ class PostgreSQLSubjectStateOwner:
 
     def __init__(self, application: SubjectStateApplication) -> None:
         self._application = application
+
+    async def concerns(
+        self, transaction: PostgreSQLTransaction, *, subject_id: UUID
+    ) -> tuple[ConcernRecord, ...]:
+        heads = await self.current_heads(transaction, subject_id=subject_id)
+        mind = next(item for item in heads if item.kind is SubjectStateKind.MIND)
+        return CONCERN_RECORDS.validate_json(
+            json.dumps(json.loads(mind.canonical_state)["concerns"]), strict=True
+        )
 
     def continuity(
         self, transaction: PostgreSQLAdminTransaction, *, subject_id: UUID | None
@@ -238,6 +251,39 @@ class PostgreSQLSubjectStateOwner:
             ).fetchone()
             if head is None or int(head[1]) != draft.expected_version:
                 raise SubjectStateViolation("SUBJECT-STATE-HEAD-STALE")
+            next_payload = json.loads(draft.canonical_next_state)
+            if draft.kind is SubjectStateKind.MIND:
+                current = await (
+                    await transaction.execute(
+                        "SELECT semantic_payload,statement_timestamp() FROM armi.subject_component_revisions WHERE component_revision_id=%s",
+                        (head[0],),
+                    )
+                ).fetchone()
+                if current is None:
+                    raise SubjectStateViolation("SUBJECT-STATE-MISSING")
+                records = CONCERN_RECORDS.validate_json(
+                    json.dumps(current[0]["concerns"]), strict=True
+                )
+                if (
+                    "concerns" in next_payload
+                    and next_payload["concerns"] != current[0]["concerns"]
+                ):
+                    raise SubjectStateViolation("SUBJECT-STATE-CONCERN-REPLACEMENT")
+                try:
+                    records = apply_concern_changes(
+                        records,
+                        draft.concern_changes,
+                        now=cast(datetime, current[1]),
+                        commit_id=commit_id,
+                        basis_ordinals=draft.basis_ordinals,
+                    )
+                except ValueError as error:
+                    raise SubjectStateViolation(
+                        "SUBJECT-STATE-CONCERN-CHANGE"
+                    ) from error
+                next_payload["concerns"] = [
+                    item.model_dump(mode="json") for item in records
+                ]
             revision_id = uuid7()
             await transaction.execute(
                 """INSERT INTO armi.subject_component_revisions (component_revision_id, subject_id, component_kind, component_version, previous_revision_id, origin_kind, origin_ref, subject_commit_id, proposal_ref, semantic_payload, privacy_scope) VALUES (%s,%s,%s,%s,%s,'subject_commit',%s,%s,%s,%s::jsonb,'private')""",
@@ -250,7 +296,7 @@ class PostgreSQLSubjectStateOwner:
                     commit_id,
                     commit_id,
                     draft.proposal_ref,
-                    draft.canonical_next_state.decode("utf-8"),
+                    rfc8785.dumps(next_payload).decode("utf-8"),
                 ),
             )
             updated = await (

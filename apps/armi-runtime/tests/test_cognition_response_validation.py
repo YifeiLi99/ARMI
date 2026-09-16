@@ -19,6 +19,7 @@ from armi_runtime.adapters.model.volcengine_ark import (
     _provider_output_schema,
 )
 from armi_runtime.composition.model_verification import (
+    bind_context_schema,
     candidate_schema,
     load_active_binding,
     parse_candidate,
@@ -62,7 +63,7 @@ def test_each_purpose_schema_and_parser_accept_its_unchanged_decision(purpose):
     version = manifest["purpose_profiles"][purpose]["response_contract_version"]
     kind = _PURPOSE_KINDS[purpose]
     value: dict[str, Any] = {"kind": kind}
-    if version == "armi.creator-cognitive-act-candidate.v4":
+    if version == "armi.creator-cognitive-act-candidate.v5":
         value = {
             "decision": {**value, "content": None},
             "experience": None,
@@ -108,7 +109,7 @@ def test_each_purpose_schema_and_parser_accept_its_unchanged_decision(purpose):
         if purpose == "consider_autonomous_life":
             value["next_consideration_seconds"] = 60
             value["expression"] = None
-    elif version == "armi.cognition-candidate.v14":
+    elif version == "armi.cognition-candidate.v15":
         value = {
             "schema_version": version,
             "base": {
@@ -140,6 +141,13 @@ def test_each_purpose_schema_and_parser_accept_its_unchanged_decision(purpose):
             "reason_summary": "无需变化",
         }
     schema = _schema(version, purpose)
+    if "concern_changes" in schema["properties"]["candidate"].get(
+        "properties", {}
+    ) or version in {
+        "armi.autonomous-activity-candidate.v8",
+        "armi.visual-observation-candidate.v3",
+    }:
+        value["concern_changes"] = []
     jsonschema.validate({"candidate": value}, schema)
     parsed = parse_candidate(
         json.dumps(value, ensure_ascii=False).encode(),
@@ -246,7 +254,15 @@ def test_old_dialogue_wire_cannot_select_an_execution_parser(value):
 
 
 def test_creator_schema_is_smaller_without_repeating_the_complete_object():
-    schema = _schema("armi.creator-cognitive-act-candidate.v4")
+    # Measure the actual model schema for the same ordinary input reference.
+    # No existing concern, activity or emotional episode is present in this Context.
+    schema = _provider_output_schema(
+        bind_context_schema(
+            candidate_schema("armi.creator-cognitive-act-candidate.v5"),
+            ({"ref": "ctx:1", "item_kind": "current_evidence"},),
+        ),
+        available_refs=("ctx:1",),
+    )
     encoded = json.dumps(schema, ensure_ascii=False, separators=(",", ":")).encode()
     assert len(encoded) < 12251
     assert schema["properties"]["candidate"]["type"] == "object"
@@ -341,6 +357,7 @@ def test_reflection_keeps_evidence_without_requiring_a_change(kind):
 @pytest.mark.parametrize("invalid", [False, True])
 def test_reply_memory_shape_is_visible_to_provider(invalid):
     value = {
+        "concern_changes": [],
         "decision": {"kind": "reply", "content": "Hello"},
         "experience": {
             "first_person_gist": "A greeting",
@@ -350,7 +367,7 @@ def test_reply_memory_shape_is_visible_to_provider(invalid):
         "appraisal": None,
         "changes": [],
     }
-    schema = _schema("armi.creator-cognitive-act-candidate.v4")
+    schema = _schema("armi.creator-cognitive-act-candidate.v5")
     if invalid:
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate({"candidate": value}, schema)
@@ -413,9 +430,10 @@ def test_appraisal_reference_and_trajectory_are_part_of_schema(transition):
         "decision": {"kind": "reply", "content": "Hello"},
         "experience": None,
         "appraisal": appraisal,
+        "concern_changes": [],
         "changes": [],
     }
-    version = "armi.creator-cognitive-act-candidate.v4"
+    version = "armi.creator-cognitive-act-candidate.v5"
     schema = _schema(version)
     jsonschema.validate({"candidate": value}, schema)
     parse_candidate(
@@ -445,7 +463,7 @@ def test_appraisal_reference_and_trajectory_are_part_of_schema(transition):
 def test_returned_output_is_saved_before_local_rejection(output):
     binding = replace(
         load_active_binding(),
-        response_contract_version="armi.creator-cognitive-act-candidate.v4",
+        response_contract_version="armi.creator-cognitive-act-candidate.v5",
     )
     adapter = VolcengineArkModelAdapter(
         binding=binding,

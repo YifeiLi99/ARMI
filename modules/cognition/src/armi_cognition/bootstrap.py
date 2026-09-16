@@ -43,6 +43,7 @@ from armi_subject_state.api import SubjectStateCognitionPort, SubjectStateReadPo
 from ._admin import PostgreSQLCognitionAdmin
 from ._candidate_application import CandidateValidationService
 from ._context_postgresql import PostgreSQLCognitionContextLifecycle
+from ._context_schema import bind_context_schema
 from ._data_rights import PostgreSQLCognitionDataRightsParticipant
 from ._exact_life_query import PostgreSQLCognitionExactLifeQuery
 from ._model_application import ModelPipeline
@@ -265,6 +266,7 @@ def bootstrap_cognition_recovery(
 
 __all__ = (
     "GENERIC_COGNITION_INSTRUCTIONS",
+    "bind_context_schema",
     "bootstrap_cognition_admin",
     "bootstrap_cognition_candidate",
     "bootstrap_cognition_context",

@@ -96,10 +96,13 @@ def validate_contract_single_version(root: Path) -> list[Violation]:
             upgrade_source = None
             # Read-only upgrade evidence is never an executable candidate contract.
             # Keep this exact fixture visible; do not exempt general test sources.
-            if (
-                _relative(path, root)
-                == "tests/postgresql/fixtures/v17-model-response.json"
-            ):
+            if _relative(path, root) in {
+                "tests/postgresql/fixtures/v17-model-response.json",
+                "tests/postgresql/fixtures/v21-mind.json",
+                "packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/upgrades/v21-to-v22.sql",
+            }:
+                # Exact forward migration mentions its source contracts to retain
+                # history; it never installs an old candidate execution parser.
                 continue
             if (
                 path.parent
@@ -329,6 +332,7 @@ DISTRIBUTIONS = (
         dependencies=(
             "armi-kernel==0.0.0",
             "armi-runtime-foundation==0.0.0",
+            "pydantic==2.13.4",
             "psycopg[binary]==3.3.4",
             "psycopg-pool==3.3.1",
             "rfc8785==0.1.4",

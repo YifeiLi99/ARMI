@@ -174,6 +174,17 @@ class PostgreSQLSubjectStateAdmin:
         replacement: object,
     ) -> bool:
         replacement = self.canonicalize_replacement(kind=kind, replacement=replacement)
+        if kind == "mind":
+            previous = transaction.execute(
+                "SELECT semantic_payload FROM armi.subject_component_revisions WHERE component_revision_id=%s AND subject_id=%s",
+                (previous_revision_id, subject_id),
+            ).fetchone()
+            if previous is None:
+                raise SubjectStateViolation("SUBJECT-STATE-MISSING")
+            concerns = cast(dict[str, object], previous[0])["concerns"]
+            if "concerns" in replacement and replacement["concerns"] != concerns:
+                raise SubjectStateViolation("SUBJECT-STATE-CONCERN-REPLACEMENT")
+            replacement = {**replacement, "concerns": concerns}
         transaction.execute(
             "INSERT INTO armi.subject_component_revisions (component_revision_id,subject_id,"
             "component_kind,component_version,previous_revision_id,origin_kind,origin_ref,"
@@ -217,6 +228,22 @@ class PostgreSQLSubjectStateAdmin:
         target_revision_id: str,
         target_version: int,
     ) -> bool:
+        if kind == "mind":
+            rows = transaction.execute(
+                "SELECT component_revision_id,semantic_payload FROM armi.subject_component_revisions "
+                "WHERE subject_id=%s AND component_kind='mind' AND component_revision_id IN (%s,%s)",
+                (subject_id, current_revision_id, target_revision_id),
+            ).fetchall()
+            payloads = {str(row[0]): cast(dict[str, object], row[1]) for row in rows}
+            current = payloads.get(current_revision_id)
+            target = payloads.get(target_revision_id)
+            if (
+                current is None
+                or target is None
+                or target.get("schema_version") != "armi.mind.v3"
+                or current.get("concerns") != target.get("concerns")
+            ):
+                raise SubjectStateViolation("SUBJECT-STATE-CONCERN-REPLACEMENT")
         return (
             transaction.execute(
                 "UPDATE armi.subject_component_heads SET current_revision_id=%s,"

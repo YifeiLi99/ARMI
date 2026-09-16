@@ -9,6 +9,7 @@ from typing import Any, cast
 import rfc8785
 from armi_kernel.application import CandidateFactClass
 
+from ._concerns import CONCERN_RECORDS
 from .api import CandidateSubjectStateDraft, SubjectStateKind, SubjectStateViolation
 
 _REF = re.compile(r"^proposal:[1-9][0-9]{0,2}$", re.ASCII)
@@ -32,6 +33,8 @@ def validate_candidate(value: CandidateSubjectStateDraft) -> None:
         or value.expected_version <= 0
         or type(value.canonical_next_state) is not bytes
         or not value.canonical_next_state
+        or (value.concern_changes and value.kind is not SubjectStateKind.MIND)
+        or len(value.concern_changes) > 4
     ):
         raise SubjectStateViolation("SUBJECT-STATE-CANDIDATE")
     try:
@@ -108,19 +111,17 @@ def _self(value: dict[str, object]) -> None:
 
 
 def _mind(value: dict[str, object]) -> None:
-    if (
-        set(value)
-        != {
-            "schema_version",
-            "understanding",
-            "attention",
-            "thoughts",
-            "wishes",
-            "motivations",
-        }
-        or value["schema_version"] != "armi.mind.v2"
-    ):
+    if (set(value) - {"concerns"}) != {
+        "schema_version",
+        "understanding",
+        "attention",
+        "thoughts",
+        "wishes",
+        "motivations",
+    } or value["schema_version"] != "armi.mind.v3":
         raise ValueError
+    if "concerns" in value:
+        CONCERN_RECORDS.validate_json(json.dumps(value["concerns"]), strict=True)
     if not all(
         _texts(value[key])
         for key in (

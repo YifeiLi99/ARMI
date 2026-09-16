@@ -1,0 +1,8 @@
+{
+  "schema_version": "armi.mind.v2",
+  "understanding": ["Synthetic historical understanding"],
+  "attention": [],
+  "thoughts": ["A thought recorded before the upgrade"],
+  "wishes": ["A historical wish is not a structured concern"],
+  "motivations": []
+}

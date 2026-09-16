@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
+from armi_subject_state.api import ConcernChange
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter
 
 from ._creator_appraisal_contract import AppraisalEventSignalV2
 from ._strict_model_json import strict_model_value
 
-VISUAL_OBSERVATION_CANDIDATE_VERSION = "armi.visual-observation-candidate.v2"
+VISUAL_OBSERVATION_CANDIDATE_VERSION = "armi.visual-observation-candidate.v3"
 
 
 class _StrictModel(BaseModel):
@@ -29,11 +30,13 @@ class VisualExperience(_StrictModel):
 
 
 class IgnoreVisualObservation(_StrictModel):
+    concern_changes: tuple[ConcernChange, ...] = Field(default=(), max_length=4)
     kind: Literal["ignore"]
     appraisal: AppraisalEventSignalV2 | None = None
 
 
 class AcceptVisualExperience(_StrictModel):
+    concern_changes: tuple[ConcernChange, ...] = Field(default=(), max_length=4)
     kind: Literal["experience"]
     experience: VisualExperience
     appraisal: AppraisalEventSignalV2 | None = None

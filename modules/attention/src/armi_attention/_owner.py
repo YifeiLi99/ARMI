@@ -268,7 +268,9 @@ class PostgreSQLOpportunityOwner:
                         (SELECT count(*) FROM armi.autonomy_request_admissions a
                          WHERE a.subject_id=p.subject_id AND a.quota_date=
                            (statement_timestamp() AT TIME ZONE 'Asia/Shanghai')::date)),
-                      p.outlet_state,p.outlet_reason_code
+                      p.outlet_state,p.outlet_reason_code,
+                      (SELECT max(resolved_at) FROM armi.opportunities o
+                       WHERE o.subject_id=p.subject_id AND o.purpose='consider_autonomous_life')
                FROM armi.autonomy_plans p WHERE p.subject_id=%s""",
                 (candidate.subject_id,),
             )
@@ -286,6 +288,9 @@ class PostgreSQLOpportunityOwner:
                     "outlet_bound": candidate.scene_id is not None,
                     "outlet_state": state[3],
                     "outlet_reason_code": state[4],
+                    "last_considered_at": None
+                    if state[5] is None
+                    else state[5].isoformat(),
                 }
             ),
         )

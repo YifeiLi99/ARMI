@@ -31,7 +31,7 @@ def test_subject_summary_is_private_and_ordered() -> None:
         2,
         (
             SubjectComponentSummary(SubjectStateKind.SELF, 2, "armi.self.v1"),
-            SubjectComponentSummary(SubjectStateKind.MIND, 1, "armi.mind.v2"),
+            SubjectComponentSummary(SubjectStateKind.MIND, 1, "armi.mind.v3"),
             SubjectComponentSummary(SubjectStateKind.LIFE_MODE, 1, "armi.life-mode.v1"),
         ),
         uuid7(),

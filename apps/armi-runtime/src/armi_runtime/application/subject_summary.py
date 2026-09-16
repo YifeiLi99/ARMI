@@ -51,7 +51,7 @@ class RuntimeSubjectSummaryAssembler:
             raise SubjectStateViolation("SUBJECT-STATE-SUMMARY")
         schema = {
             SubjectStateKind.SELF: "armi.self.v1",
-            SubjectStateKind.MIND: "armi.mind.v2",
+            SubjectStateKind.MIND: "armi.mind.v3",
             SubjectStateKind.LIFE_MODE: "armi.life-mode.v1",
         }
         ordered = sorted(

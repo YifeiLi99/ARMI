@@ -95,6 +95,7 @@ _SUBJECT_SKELETON = frozenset(
 _PRIVATE_RECALL = frozenset({"current_memory", "current_material", "recall_status"})
 _PRIVATE_LIFE = frozenset(
     {
+        "current_concern",
         "current_life_opportunity",
         "current_maintenance_window",
         "current_maintenance_phase",

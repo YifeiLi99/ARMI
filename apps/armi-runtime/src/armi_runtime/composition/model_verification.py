@@ -2,6 +2,7 @@
 
 from armi_cognition.bootstrap import (
     GENERIC_COGNITION_INSTRUCTIONS,
+    bind_context_schema,
 )
 from armi_cognition.bootstrap import (
     build_candidate_schema as candidate_schema,
@@ -25,6 +26,7 @@ from armi_cognition.bootstrap import (
 __all__ = (
     "GENERIC_COGNITION_INSTRUCTIONS",
     "CandidateValidationContext",
+    "bind_context_schema",
     "build_request_bytes",
     "candidate_schema",
     "checked_model_request",

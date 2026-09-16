@@ -17,7 +17,20 @@ class AutonomyPolicyResponse(AutonomyResponse):
     outlet: Literal["qq", "creator_web"]
 
 
+class ConcernAttentionStatus(AutonomyResponse):
+    concern_id: str
+    question: str
+    state: Literal["open", "waiting"]
+    review_kind: Literal["review", "creator_input", "activity_result"]
+    review_reason: str
+    review_at: str | None
+    condition_state: Literal["scheduled", "due", "consumed", "waiting_for_event"]
+
+
 class AutonomyStatus(AutonomyResponse):
+    concerns: list[ConcernAttentionStatus] = []
+    observed_at: str | None = None
+    last_considered_at: str | None = None
     state: Literal[
         "not_initialized",
         "disabled",

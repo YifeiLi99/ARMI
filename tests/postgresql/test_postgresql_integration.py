@@ -298,6 +298,7 @@ def _life_opportunity_facts(
         cognition=bootstrap_cognition_operation(),
         interaction=bootstrap_interaction_identity(_TEST_IDENTITY_TOKENS),
         mood=bootstrap_mood().read,
+        subject_state=bootstrap_subject_state().read,
         outlet_health=outlet_health,
     )
 
@@ -1669,7 +1670,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "CREATE TABLE armi.alembic_version (version_num varchar(32) NOT NULL, CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))"
             )
             connection.execute("INSERT INTO armi.alembic_version VALUES ('0000')")
-            with ZipFile(resource / "v20-source.zip") as archive:
+            with ZipFile(resource / "v21-source.zip") as archive:
                 for name in sorted(archive.namelist()):
                     if name.startswith("baseline/") and name.endswith(".sql"):
                         connection.execute(
@@ -1752,6 +1753,23 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
         with psycopg.connect(old.migrator_dsn) as connection:
             connection.execute("SET ROLE armi_owner")
+            # Construct the v21 payload in this isolated fixture, not a current birth.
+            connection.execute(
+                "UPDATE armi.subject_component_revisions SET semantic_payload=%s::jsonb "
+                "WHERE subject_id=%s AND component_kind='mind'",
+                (
+                    (Path(__file__).parent / "fixtures/v21-mind.json").read_text(
+                        encoding="utf-8"
+                    ),
+                    born.subject_id,
+                ),
+            )
+            old_mind = connection.execute(
+                "SELECT component_revision_id,component_version,semantic_payload "
+                "FROM armi.subject_component_revisions WHERE subject_id=%s AND component_kind='mind'",
+                (born.subject_id,),
+            ).fetchone()
+            assert old_mind is not None
             connection.execute(
                 """INSERT INTO armi.runtime_instances
                 (runtime_instance_id, subject_id, life_generation_id, bundle_activation_id, fence_token, status, lease_expires_at, stopped_at)
@@ -1811,6 +1829,30 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with psycopg.connect(old.migrator_dsn) as connection:
             connection.execute("SET ROLE armi_owner")
             self.assertEqual(apply_upgrade(connection)["state"], "current")
+            self.assertEqual(
+                connection.execute(
+                    "SELECT component_revision_id,component_version,semantic_payload "
+                    "FROM armi.subject_component_revisions WHERE component_revision_id=%s",
+                    (old_mind[0],),
+                ).fetchone(),
+                old_mind,
+            )
+            migrated_mind = connection.execute(
+                "SELECT r.origin_kind,r.previous_revision_id,r.component_version,r.semantic_payload "
+                "FROM armi.subject_component_heads h JOIN armi.subject_component_revisions r "
+                "ON r.component_revision_id=h.current_revision_id "
+                "WHERE h.subject_id=%s AND h.component_kind='mind'",
+                (born.subject_id,),
+            ).fetchone()
+            self.assertEqual(
+                migrated_mind,
+                (
+                    "module_migration",
+                    old_mind[0],
+                    old_mind[1] + 1,
+                    {**old_mind[2], "schema_version": "armi.mind.v3", "concerns": []},
+                ),
+            )
             self.assertEqual(
                 connection.execute(
                     "SELECT environment_id,incarnation FROM armi.deployment_environments"
@@ -5578,7 +5620,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             service = new_service()
             service._register_environment(1)  # pyright: ignore[reportPrivateUsage]
             replacement = {
-                "schema_version": "armi.mind.v2",
+                "schema_version": "armi.mind.v3",
                 "understanding": ["我知道这次变化来自隔离管理纠正"],
                 "attention": [],
                 "thoughts": [],
@@ -7495,12 +7537,16 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             interruption_stage="rollback", autonomous_codex=True
         )
 
+    def test_concern_and_expression_share_atomic_commit(self) -> None:
+        self._exercise_creator_reply(interruption_stage="rollback", concerns=True)
+
     def _exercise_creator_reply(
         self,
         *,
         interruption_stage: str | None = None,
         codex: bool = False,
         autonomous_codex: bool = False,
+        concerns: bool = False,
         purpose: str | None = None,
         system_notification: str | None = None,
         reply_decision_kind: Literal["reply", "decline", "need_information"] = "reply",
@@ -7989,6 +8035,64 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 codex_delegations=(task,),
                 next_consideration_seconds=3600,
             )
+        if concerns:
+            from armi_subject_state.api import (
+                CandidateSubjectStateDraft,
+                CreateConcern,
+                SubjectStateKind,
+                TimedReview,
+            )
+
+            with psycopg.connect(fixture.provisioner_dsn) as connection:
+                mind = connection.execute(
+                    "SELECT r.semantic_payload FROM armi.subject_component_heads h JOIN armi.subject_component_revisions r "
+                    "ON r.component_revision_id=h.current_revision_id WHERE h.subject_id=%s AND h.component_kind='mind'",
+                    (born.subject_id,),
+                ).fetchone()
+            assert mind is not None
+            draft = bootstrap_subject_state_cognition().bind(
+                CandidateSubjectStateDraft(
+                    "proposal:4",
+                    "group:2",
+                    (1,),
+                    CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
+                    SubjectStateKind.MIND,
+                    1,
+                    rfc8785.dumps(mind[0]),
+                    (
+                        CreateConcern(
+                            operation="create",
+                            question="What makes quiet reading appealing?",
+                            reason="The Creator described a new preference",
+                            resolution_condition="Understand their reason",
+                            understanding="The preference has been stated",
+                            state="waiting",
+                            review=TimedReview(
+                                kind="review",
+                                after_seconds=300,
+                                reason="Consider a suitable follow-up",
+                            ),
+                            basis_refs=("ctx:1",),
+                        ),
+                    ),
+                )
+            )
+            document = json.loads(change_set.canonical_bytes)
+            document["owner_drafts"] = [
+                {
+                    "proposal_ref": draft.proposal_ref,
+                    "atomic_group_ref": draft.atomic_group_ref,
+                    "basis_ordinals": list(draft.basis_ordinals),
+                    "fact_class": draft.fact_class.value,
+                    "owner": draft.owner,
+                    "payload": json.loads(draft.canonical_payload),
+                }
+            ]
+            change_set = replace(
+                change_set,
+                owner_drafts=(draft,),
+                canonical_bytes=rfc8785.dumps(document),
+            )
         change_set_bytes = change_set.canonical_bytes
         digests["change_set"] = Digest.from_bytes(change_set_bytes)
         payloads["change_set"] = change_set_bytes
@@ -8022,7 +8126,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             if live_evidence is not None
             else 1
         )
-        candidate_contract_version = "armi.cognition-candidate.v14"
+        candidate_contract_version = "armi.cognition-candidate.v15"
 
         def locator(digest: Digest) -> str:
             value = digest.value.removeprefix("sha256:")
@@ -9022,12 +9126,34 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         ).fetchone(),
                         (0,),
                     )
+                if concerns:
+                    self.assertEqual(
+                        connection.execute(
+                            "SELECT component_version,semantic_payload->'concerns' FROM armi.subject_component_revisions WHERE component_kind='mind'"
+                        ).fetchall(),
+                        [(1, [])],
+                    )
         status, version = asyncio.run(
             settle(),
             loop_factory=lambda: asyncio.SelectorEventLoop(selectors.SelectSelector()),
         )
         self.assertIs(status, CandidateApplicationStatus.APPLIED)
         self.assertEqual(version, 1)
+        if concerns:
+            with psycopg.connect(fixture.provisioner_dsn) as connection:
+                rows = connection.execute(
+                    "SELECT component_version,semantic_payload->'concerns' FROM armi.subject_component_revisions WHERE component_kind='mind' ORDER BY component_version"
+                ).fetchall()
+                self.assertEqual(rows[0], (1, []))
+                self.assertEqual(rows[1][0], 2)
+                self.assertEqual(
+                    rows[1][1][0]["question"], "What makes quiet reading appealing?"
+                )
+                self.assertEqual(
+                    connection.execute("SELECT count(*) FROM armi.effects").fetchone(),
+                    (1,),
+                )
+            return
         if autonomous_codex:
             with psycopg.connect(fixture.provisioner_dsn) as connection:
                 self.assertEqual(

@@ -500,13 +500,81 @@ def _provider_output_schema(
         dict[str, Any], _strict_provider_schema(value, available_refs=available_refs)
     )
     definitions = schema.pop("$defs", {})
-    return {
-        "type": "object",
-        "properties": {"candidate": schema},
-        "required": ["candidate"],
-        "additionalProperties": False,
-        "$defs": definitions,
-    }
+    return _share_schema_nodes(
+        {
+            "type": "object",
+            "properties": {"candidate": schema},
+            "required": ["candidate"],
+            "additionalProperties": False,
+            "$defs": definitions,
+        }
+    )
+
+
+def _share_schema_nodes(schema: dict[str, Any]) -> dict[str, Any]:
+    """Share identical JSON Schema nodes without altering their accepted values."""
+    counts: dict[str, int] = {}
+
+    def collect(value: object) -> None:
+        if isinstance(value, dict):
+            if any(key in value for key in ("type", "anyOf", "oneOf")):
+                key = json.dumps(value, sort_keys=True, separators=(",", ":"))
+                counts[key] = counts.get(key, 0) + 1
+            for child in cast(dict[str, object], value).values():
+                collect(child)
+        elif isinstance(value, list):
+            for child in cast(list[object], value):
+                collect(child)
+
+    collect(schema)
+    shared: dict[str, str] = {}
+    definitions = schema["$defs"]
+
+    def rewrite(value: Any, *, root: bool = False) -> Any:
+        if isinstance(value, list):
+            return [rewrite(item) for item in cast(list[Any], value)]
+        if not isinstance(value, dict):
+            return value
+        key = json.dumps(value, sort_keys=True, separators=(",", ":"))
+        count = counts.get(key, 0)
+        if not root and count > 1 and len(key) * (count - 1) > 32 * count + 16:
+            if key not in shared:
+                name = f"S{len(shared)}"
+                while name in definitions:
+                    name += "_"
+                shared[key] = name
+                definitions[name] = {
+                    field: rewrite(child)
+                    for field, child in cast(dict[str, Any], value).items()
+                }
+            return {"$ref": f"#/$defs/{shared[key]}"}
+        return {
+            field: rewrite(child)
+            for field, child in cast(dict[str, Any], value).items()
+        }
+
+    original_definitions = tuple(definitions.items())
+    result = {key: rewrite(value) for key, value in schema.items() if key != "$defs"}
+    for name, value in original_definitions:
+        definitions[name] = rewrite(value, root=True)
+    result["$defs"] = definitions
+    names = {name: f"D{index}" for index, name in enumerate(definitions)}
+
+    def rename(value: Any) -> Any:
+        if isinstance(value, list):
+            return [rename(item) for item in cast(list[Any], value)]
+        if not isinstance(value, dict):
+            return value
+        return {
+            key: f"#/$defs/{names[child.removeprefix('#/$defs/')]}"
+            if key == "$ref" and isinstance(child, str) and child.startswith("#/$defs/")
+            else rename(child)
+            for key, child in cast(dict[str, Any], value).items()
+        }
+
+    result = rename(result)
+    result["$defs"] = {names[name]: value for name, value in result["$defs"].items()}
+    return result
 
 
 def _strict_provider_schema(

@@ -1052,8 +1052,17 @@ export interface components {
     };
     /** AutonomyStatus */
     AutonomyStatus: {
+      /**
+       * Concerns
+       * @default []
+       */
+      concerns: components["schemas"]["ConcernAttentionStatus"][];
+      /** Last Considered At */
+      last_considered_at?: string | null;
       /** Next Consideration At */
       next_consideration_at?: string | null;
+      /** Observed At */
+      observed_at?: string | null;
       /** Opportunity Id */
       opportunity_id?: string | null;
       /** Outlet Observed At */
@@ -1140,6 +1149,32 @@ export interface components {
       enabled: boolean;
       /** Reason Code */
       reason_code: string | null;
+    };
+    /** ConcernAttentionStatus */
+    ConcernAttentionStatus: {
+      /** Concern Id */
+      concern_id: string;
+      /**
+       * Condition State
+       * @enum {string}
+       */
+      condition_state: "scheduled" | "due" | "consumed" | "waiting_for_event";
+      /** Question */
+      question: string;
+      /** Review At */
+      review_at: string | null;
+      /**
+       * Review Kind
+       * @enum {string}
+       */
+      review_kind: "review" | "creator_input" | "activity_result";
+      /** Review Reason */
+      review_reason: string;
+      /**
+       * State
+       * @enum {string}
+       */
+      state: "open" | "waiting";
     };
     /** CreatorActivityItemResponse */
     CreatorActivityItemResponse: {
@@ -3223,7 +3258,7 @@ export interface components {
        * Schema Version
        * @enum {string}
        */
-      schema_version: "armi.self.v1" | "armi.mind.v2" | "armi.life-mode.v1";
+      schema_version: "armi.self.v1" | "armi.mind.v3" | "armi.life-mode.v1";
       /** Version */
       version: number;
     };

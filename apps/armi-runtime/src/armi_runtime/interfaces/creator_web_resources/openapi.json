@@ -283,6 +283,25 @@
       "AutonomyStatus": {
         "additionalProperties": false,
         "properties": {
+          "concerns": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ConcernAttentionStatus"
+            },
+            "title": "Concerns",
+            "type": "array"
+          },
+          "last_considered_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Considered At"
+          },
           "next_consideration_at": {
             "anyOf": [
               {
@@ -293,6 +312,17 @@
               }
             ],
             "title": "Next Consideration At"
+          },
+          "observed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed At"
           },
           "opportunity_id": {
             "anyOf": [
@@ -562,6 +592,72 @@
           "reason_code"
         ],
         "title": "CodexAvailabilityResponse",
+        "type": "object"
+      },
+      "ConcernAttentionStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "concern_id": {
+            "title": "Concern Id",
+            "type": "string"
+          },
+          "condition_state": {
+            "enum": [
+              "scheduled",
+              "due",
+              "consumed",
+              "waiting_for_event"
+            ],
+            "title": "Condition State",
+            "type": "string"
+          },
+          "question": {
+            "title": "Question",
+            "type": "string"
+          },
+          "review_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review At"
+          },
+          "review_kind": {
+            "enum": [
+              "review",
+              "creator_input",
+              "activity_result"
+            ],
+            "title": "Review Kind",
+            "type": "string"
+          },
+          "review_reason": {
+            "title": "Review Reason",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "open",
+              "waiting"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "concern_id",
+          "question",
+          "state",
+          "review_kind",
+          "review_reason",
+          "review_at",
+          "condition_state"
+        ],
+        "title": "ConcernAttentionStatus",
         "type": "object"
       },
       "CreatorActivityItemResponse": {
@@ -5855,7 +5951,7 @@
           "schema_version": {
             "enum": [
               "armi.self.v1",
-              "armi.mind.v2",
+              "armi.mind.v3",
               "armi.life-mode.v1"
             ],
             "title": "Schema Version",

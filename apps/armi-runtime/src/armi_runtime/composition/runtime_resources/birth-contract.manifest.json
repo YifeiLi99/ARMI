@@ -11,8 +11,9 @@
     },
     "mind": {
       "attention": [],
+      "concerns": [],
       "motivations": [],
-      "schema_version": "armi.mind.v2",
+      "schema_version": "armi.mind.v3",
       "thoughts": [],
       "understanding": [],
       "wishes": []

@@ -23,7 +23,7 @@ def test_invalid_json_is_distinguished_from_wrong_field_type():
         parse_candidate(
             {"decision": {"kind": "reply", "content": 42}},
             allowed_context_refs=frozenset(),
-            expected_version="armi.creator-cognitive-act-candidate.v4",
+            expected_version="armi.creator-cognitive-act-candidate.v5",
         )
     result = contract_rejection(caught_model.value)
     assert result.diagnostics[0].stage == "structure"

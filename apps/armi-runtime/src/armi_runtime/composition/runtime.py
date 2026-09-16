@@ -1076,6 +1076,7 @@ async def _serve(
                     cognition=cognition_operation,
                     interaction=interaction_module.identity,
                     mood=mood_module.read,
+                    subject_state=subject_state_module.read,
                     outlet_health=autonomy_outlet_health,
                 ),
                 activity_read=activity_module.read,
@@ -2568,8 +2569,12 @@ async def _serve(
 
     app = create_runtime_app(
         autonomy_query=None
-        if runtime_unit_of_work_factory is None or sleep_module is None
-        else PostgreSQLAutonomyQuery(runtime_unit_of_work_factory, sleep_module.read),
+        if runtime_unit_of_work_factory is None
+        or sleep_module is None
+        or subject_state_module is None
+        else PostgreSQLAutonomyQuery(
+            runtime_unit_of_work_factory, sleep_module.read, subject_state_module.read
+        ),
         usage_query=None
         if runtime_unit_of_work_factory is None
         else PostgreSQLUsageQuery(runtime_unit_of_work_factory, prepared.root),

@@ -981,6 +981,7 @@ dependencies = [
     { name = "armi-runtime-foundation" },
     { name = "psycopg", extra = ["binary"] },
     { name = "psycopg-pool" },
+    { name = "pydantic" },
     { name = "rfc8785" },
 ]
 
@@ -991,6 +992,7 @@ requires-dist = [
     { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
     { name = "psycopg-pool", specifier = "==3.3.1" },
+    { name = "pydantic", specifier = "==2.13.4" },
     { name = "rfc8785", specifier = "==0.1.4" },
 ]
 

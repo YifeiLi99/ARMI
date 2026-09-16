@@ -63,6 +63,7 @@ from armi_runtime_foundation import (
 )
 
 from ._autonomous_activity_contract import autonomous_schema_for_context
+from ._context_schema import bind_context_schema
 from ._creator_cognitive_act_contract import (
     CREATOR_COGNITIVE_ACT_INSTRUCTIONS,
     CREATOR_COGNITIVE_ACT_VERSION,
@@ -246,6 +247,7 @@ class ModelPipeline:
 
     __slots__ = (
         "_adapter_factory",
+        "_adapter_schemas",
         "_adapters",
         "_autonomous_binding",
         "_catalog",
@@ -361,6 +363,8 @@ class ModelPipeline:
         )
         self._dialogue_version = dialogue_version
 
+        self._adapter_schemas: dict[str, tuple[dict[str, Any], str, str]] = {}
+
         def build_adapter(
             *,
             binding: ModelBinding,
@@ -368,6 +372,11 @@ class ModelPipeline:
             instructions: str = GENERIC_COGNITION_INSTRUCTIONS,
             schema_name: str = "armi_cognition_candidate_v12",
         ) -> CognitionModelPort:
+            self._adapter_schemas[binding.profile] = (
+                candidate_schema,
+                instructions,
+                schema_name,
+            )
             return adapter_factory(
                 binding=binding,
                 candidate_schema=CognitionSchemaDocument(
@@ -579,7 +588,9 @@ class ModelPipeline:
             # this worker with a stale lease before file/provider I/O begins.
             snapshot = await self._snapshot(record)
             context_bytes = await self._read_context(snapshot)
-            adapter = self._adapter_for(snapshot.purpose, context_bytes)
+            adapter = self._adapter_for(
+                snapshot.purpose, context_bytes, snapshot.included_context_refs
+            )
             request_bytes = build_request_bytes(
                 binding=adapter.binding,
                 compiled_context=context_bytes,
@@ -880,12 +891,18 @@ class ModelPipeline:
             task.cancel()
             await asyncio.gather(task, stopped, return_exceptions=True)
 
-    def _adapter_for(self, purpose: str, context_bytes: bytes) -> CognitionModelPort:
+    def _adapter_for(
+        self, purpose: str, context_bytes: bytes, refs: tuple[dict[str, object], ...]
+    ) -> CognitionModelPort:
         if purpose == "consider_autonomous_life":
             return self._adapter_factory(
                 binding=self._autonomous_binding,
                 candidate_schema=CognitionSchemaDocument(
-                    rfc8785.dumps(autonomous_schema_for_context(context_bytes))
+                    rfc8785.dumps(
+                        bind_context_schema(
+                            autonomous_schema_for_context(context_bytes), refs
+                        )
+                    )
                 ),
                 instructions=AUTONOMOUS_ACTIVITY_INSTRUCTIONS,
                 schema_name="armi_autonomous_activity_candidate_v7",
@@ -903,7 +920,7 @@ class ModelPipeline:
         if (
             purpose == "consider_creator_voice_input"
             and adapter.binding.response_contract_version
-            != "armi.creator-voice-act-candidate.v4"
+            != "armi.creator-voice-act-candidate.v5"
         ):
             raise ModelViolation("MODEL-BINDING")
         if (
@@ -912,7 +929,17 @@ class ModelPipeline:
             != OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION
         ):
             raise ModelViolation("MODEL-BINDING")
-        return adapter
+        if purpose == "reflect_mood":
+            return adapter
+        schema, instructions, name = self._adapter_schemas[adapter.binding.profile]
+        return self._adapter_factory(
+            binding=adapter.binding,
+            candidate_schema=CognitionSchemaDocument(
+                rfc8785.dumps(bind_context_schema(schema, refs))
+            ),
+            instructions=instructions,
+            schema_name=name,
+        )
 
     async def _settle_failure(
         self,

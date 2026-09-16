@@ -45,6 +45,9 @@ def autonomy_statement(
                    ELSE 'ready' END,
           'plan_version',plan_version,'next_consideration_at',next_consideration_at,
           'source_episode_id',source_episode_id,'opportunity_id',opportunity_id,
+          'observed_at',statement_timestamp(),
+          'last_considered_at',(SELECT max(resolved_at) FROM armi.opportunities o
+            WHERE o.subject_id=current.subject_id AND o.purpose='consider_autonomous_life'),
           'policy',policy,'used_requests',used,
           'outlet_state',CASE WHEN running THEN outlet_state ELSE 'unavailable' END,
           'outlet_reason_code',CASE WHEN running THEN outlet_reason_code ELSE 'LIFE-RUNTIME-STOPPED' END,

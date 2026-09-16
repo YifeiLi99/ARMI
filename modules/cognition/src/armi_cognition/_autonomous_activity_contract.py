@@ -6,6 +6,7 @@ import json
 from typing import Annotated, Any, Literal, cast
 
 from armi_kernel.application import ModelViolation
+from armi_subject_state.api import ConcernChange
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -24,10 +25,11 @@ from ._creator_cognitive_act_contract import RecordKind
 from ._strict_model_json import strict_model_value
 from ._text_contract import Text1024, Text2048, Text65536
 
-AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION = "armi.autonomous-activity-candidate.v7"
+AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION = "armi.autonomous-activity-candidate.v8"
 
 
 class _StrictModel(BaseModel):
+    concern_changes: tuple[ConcernChange, ...] = Field(default=(), max_length=4)
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
     next_consideration_seconds: int = Field(ge=60, le=21_600)
     expression: Text65536 | None = None
@@ -155,6 +157,16 @@ def autonomous_schema_for_context(compiled_context: bytes) -> dict[str, Any]:
     schema = autonomous_activity_candidate_schema()
     definitions = cast(dict[str, Any], schema["$defs"])
     blocked: set[str] = set()
+    if not any(item["item_kind"] == "current_activity" for item in items):
+        blocked.update(
+            {
+                "AutonomousWaitDecision",
+                "AutonomousProgressDecision",
+                "AutonomousCompleteDecision",
+                "AutonomousAbandonDecision",
+                "AutonomousNoResultDecision",
+            }
+        )
     if "web.search" not in enabled:
         blocked.add("AutonomousWebResearchDecision")
     if "codex.delegated-work" not in enabled:

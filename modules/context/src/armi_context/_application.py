@@ -6,6 +6,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, replace
+from datetime import datetime
 from typing import Any, cast
 from uuid import UUID, uuid7
 
@@ -714,6 +715,16 @@ def _context_request(
         "life_mode": ContextSection.LIFE_MODE,
     }
     for kind, source_id, version, payload in snapshot.component_payloads:
+        component_content = payload.decode("utf-8")
+        if kind == "mind":
+            component_content = json.dumps(
+                {
+                    key: value
+                    for key, value in json.loads(payload).items()
+                    if key != "concerns"
+                },
+                ensure_ascii=False,
+            )
         items.append(
             _candidate(
                 profile,
@@ -722,8 +733,9 @@ def _context_request(
                 ContextSourceIdentity(kind, source_id, version),
                 ContextTrustClass.SUBJECTIVE_STATE,
                 "private",
-                payload.decode("utf-8"),
+                component_content,
                 requested_required=kind == "self"
+                or (kind == "mind" and snapshot.purpose != "consider_other_human_input")
                 or (
                     snapshot.purpose
                     in {
@@ -735,6 +747,52 @@ def _context_request(
                 relevance=90,
             )
         )
+        if kind == "mind":
+            mind = json.loads(payload)
+            for concern in mind["concerns"]:
+                if concern["state"] not in {"open", "waiting"}:
+                    continue
+                context_concern = dict(concern)
+                if snapshot.autonomy_context is not None:
+                    autonomy = json.loads(snapshot.autonomy_context)
+                    now = datetime.fromisoformat(autonomy["current_time"])
+                    consumed = autonomy["last_considered_at"]
+                    context_concern["elapsed_seconds"] = max(
+                        0,
+                        int(
+                            (
+                                now - datetime.fromisoformat(concern["updated_at"])
+                            ).total_seconds()
+                        ),
+                    )
+                    context_concern["consideration_reason"] = (
+                        "review_time_reached"
+                        if concern["review_at"] is not None
+                        and datetime.fromisoformat(concern["review_at"]) <= now
+                        and (
+                            consumed is None
+                            or datetime.fromisoformat(concern["review_at"])
+                            > datetime.fromisoformat(consumed)
+                        )
+                        else "autonomous_context_review"
+                    )
+                else:
+                    context_concern["consideration_reason"] = snapshot.purpose
+                items.append(
+                    _candidate(
+                        profile,
+                        ContextSection.MIND,
+                        "current_concern",
+                        ContextSourceIdentity(
+                            "mind_concern", UUID(concern["concern_id"]), version
+                        ),
+                        ContextTrustClass.SUBJECTIVE_STATE,
+                        "private",
+                        json.dumps(context_concern, ensure_ascii=False),
+                        requested_required=True,
+                        relevance=95,
+                    )
+                )
         if kind == "mood":
             for episode_id, episode_payload, intensity in _active_mood_episodes(
                 payload

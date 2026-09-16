@@ -279,7 +279,7 @@ function subjectSummaryResponse(): object {
       {
         kind: "mind",
         version: 1,
-        schema_version: "armi.mind.v2",
+        schema_version: "armi.mind.v3",
         content_visibility: "private",
       },
       {

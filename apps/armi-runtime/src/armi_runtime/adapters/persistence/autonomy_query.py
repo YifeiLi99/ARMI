@@ -1,5 +1,6 @@
 """Read autonomous status and history through the common database query."""
 
+from datetime import datetime
 from typing import Literal, LiteralString, cast
 
 from armi_runtime_foundation import (
@@ -8,14 +9,19 @@ from armi_runtime_foundation import (
     autonomy_statement,
 )
 from armi_sleep.api import SleepReadPort
+from armi_subject_state.api import SubjectStateReadPort, concern_attention_status
 
 
 class PostgreSQLAutonomyQuery:
     def __init__(
-        self, factory: PostgreSQLRuntimeUnitOfWorkFactory, sleep: SleepReadPort
+        self,
+        factory: PostgreSQLRuntimeUnitOfWorkFactory,
+        sleep: SleepReadPort,
+        subject_state: SubjectStateReadPort,
     ) -> None:
         self._factory = factory
         self._sleep = sleep
+        self._subject_state = subject_state
 
     async def query(
         self,
@@ -40,4 +46,20 @@ class PostgreSQLAutonomyQuery:
                     cast(LiteralString, statement), parameters
                 )
             ).fetchone()
-        return autonomy_result(row)
+            result = autonomy_result(row)
+            if (
+                mode == "status"
+                and unit.runtime_fence is not None
+                and result.get("observed_at") is not None
+            ):
+                records = await self._subject_state.concerns(
+                    unit.transaction, subject_id=unit.runtime_fence.subject_id
+                )
+                result["concerns"] = concern_attention_status(
+                    records,
+                    as_of=datetime.fromisoformat(str(result["observed_at"])),
+                    consumed_before=None
+                    if result["last_considered_at"] is None
+                    else datetime.fromisoformat(str(result["last_considered_at"])),
+                )
+            return result

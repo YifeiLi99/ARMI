@@ -131,7 +131,10 @@ from armi_sleep.api import (
     SleepDecisionKind,
 )
 from armi_subject_state.api import (
+    ActivityReview,
     CandidateSubjectStateDraft,
+    ConcernChange,
+    CreateConcern,
     SubjectStateCognitionPort,
     SubjectStateKind,
 )
@@ -613,6 +616,135 @@ class DeterministicCandidateValidator:
         )
 
     def _validate_parsed(
+        self,
+        parsed_candidate: object,
+        *,
+        bases: tuple[CandidateBasis, ...],
+        basis_by_ref: dict[str, CandidateBasis],
+    ) -> CandidateValidationResult:
+        result = self._validate_decision(
+            parsed_candidate, bases=bases, basis_by_ref=basis_by_ref
+        )
+        changes = cast(
+            tuple[ConcernChange, ...], getattr(parsed_candidate, "concern_changes", ())
+        )
+        return self._attach_concerns(
+            result, changes, bases=bases, basis_by_ref=basis_by_ref
+        )
+
+    def _attach_concerns(
+        self,
+        result: CandidateValidationResult,
+        changes: tuple[ConcernChange, ...],
+        *,
+        bases: tuple[CandidateBasis, ...],
+        basis_by_ref: dict[str, CandidateBasis],
+    ) -> CandidateValidationResult:
+        if not changes or result.change_set is None:
+            return result
+        current = next(
+            (
+                (version, payload)
+                for owner, version, payload in self._context.current_components
+                if owner is CandidateOwner.MIND
+            ),
+            None,
+        )
+        mind_basis = next((item for item in bases if item.item_kind == "mind"), None)
+        if current is None or mind_basis is None:
+            return _rejected("CANDIDATE-CONCERN-MIND", field_path=("concern_changes",))
+        ordinals = {mind_basis.ordinal}
+        bound: list[ConcernChange] = []
+        for change in changes:
+            updates: dict[str, Any] = {}
+            for ref in change.basis_refs:
+                basis = basis_by_ref.get(ref)
+                if basis is None:
+                    return _rejected(
+                        "CANDIDATE-CONCERN-BASIS",
+                        field_path=("concern_changes", "basis_refs"),
+                    )
+                ordinals.add(basis.ordinal)
+            if not isinstance(change, CreateConcern):
+                basis = basis_by_ref.get(change.concern_ref)
+                if (
+                    basis is None
+                    or basis.item_kind != "current_concern"
+                    or basis.source_ref is None
+                ):
+                    return _rejected(
+                        "CANDIDATE-CONCERN-REFERENCE",
+                        field_path=("concern_changes", "concern_ref"),
+                    )
+                updates["concern_ref"] = str(basis.source_ref)
+                ordinals.add(basis.ordinal)
+            review = getattr(change, "review", None)
+            if isinstance(review, ActivityReview):
+                basis = basis_by_ref.get(review.activity_ref)
+                if (
+                    basis is None
+                    or basis.item_kind != "current_activity"
+                    or self._context.current_activity_id is None
+                ):
+                    return _rejected(
+                        "CANDIDATE-CONCERN-ACTIVITY",
+                        field_path=("concern_changes", "review"),
+                    )
+                updates["review"] = review.model_copy(
+                    update={"activity_ref": str(self._context.current_activity_id)}
+                )
+                ordinals.add(basis.ordinal)
+            bound.append(change.model_copy(update=updates))
+        change_set = result.change_set
+        existing = next(
+            (item for item in change_set.owner_drafts if item.owner == "mind"), None
+        )
+        if existing is not None:
+            ordinals.update(
+                cast(CandidateSubjectStateDraft, existing.candidate).basis_ordinals
+            )
+        if len(ordinals) > 8:
+            return _rejected(
+                "CANDIDATE-CONCERN-BASIS-CAPACITY",
+                field_path=("concern_changes", "basis_refs"),
+            )
+        if existing is not None:
+            previous = cast(CandidateSubjectStateDraft, existing.candidate)
+            draft = replace(
+                previous,
+                concern_changes=tuple(bound),
+                basis_ordinals=tuple(sorted(set(previous.basis_ordinals) | ordinals)),
+            )
+        else:
+            draft = CandidateSubjectStateDraft(
+                "proposal:99",
+                "group:1",
+                tuple(sorted(ordinals)),
+                CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
+                SubjectStateKind.MIND,
+                current[0],
+                current[1],
+                tuple(bound),
+            )
+        owners = (
+            *(item for item in change_set.owner_drafts if item.owner != "mind"),
+            self._subject_state_cognition.bind(draft),
+        )
+        wire = json.loads(change_set.canonical_bytes)
+        wire["owner_drafts"] = [_owner_draft_wire(item) for item in owners]
+        wire["disposition"] = CandidateDisposition.CHANGE.value
+        return replace(
+            result,
+            accepted_count=result.accepted_count + int(existing is None),
+            change_set=replace(
+                change_set,
+                owner_drafts=owners,
+                disposition=CandidateDisposition.CHANGE,
+                canonical_bytes=rfc8785.dumps(wire),
+            ),
+        )
+
+    def _validate_decision(
         self,
         parsed_candidate: object,
         *,
@@ -3216,7 +3348,7 @@ def _expand_dialogue_candidate(
         )
     return (
         CognitionCandidate.model_construct(
-            schema_version="armi.cognition-candidate.v14",
+            schema_version="armi.cognition-candidate.v15",
             base=CandidateBase.model_construct(
                 subject_version=context.base_subject_version,
                 state_epoch=context.base_state_epoch,
@@ -3325,7 +3457,14 @@ def _bind_dialogue_component_change(
     if current is None or basis is None:
         return None, "CANDIDATE-COMPONENT-CONTEXT"
     try:
-        current_state = state_type.model_validate_json(current[1], strict=True)
+        current_payload = {
+            key: value
+            for key, value in json.loads(current[1]).items()
+            if key != "concerns"
+        }
+        current_state = state_type.model_validate_json(
+            json.dumps(current_payload), strict=True
+        )
         next_state = current_state.model_dump(mode="json")
         field_names = (
             (
@@ -4420,7 +4559,7 @@ def _component_failure(
     next_state = proposal.payload.next_state.model_dump(mode="json")
     schema_owner = {
         "armi.self.v1": CandidateOwner.SELF,
-        "armi.mind.v2": CandidateOwner.MIND,
+        "armi.mind.v3": CandidateOwner.MIND,
         "armi.mood.v3": CandidateOwner.MOOD,
         "armi.mood-appraisal.v2": CandidateOwner.MOOD,
         "armi.life-mode.v1": CandidateOwner.LIFE_MODE,

@@ -12,6 +12,20 @@ from armi_kernel.application import CandidateFactClass, CandidateOwnerDraft
 from armi_runtime_foundation import AdminContentPort as SubjectStateAdminContentPort
 from armi_runtime_foundation import PostgreSQLAdminTransaction, PostgreSQLTransaction
 
+from ._concerns import (
+    CONCERN_CHANGES,
+    CONCERN_RECORDS,
+    ActivityReview,
+    CloseConcern,
+    ConcernChange,
+    ConcernRecord,
+    CreateConcern,
+    CreatorInputReview,
+    TimedReview,
+    UpdateConcern,
+    concern_attention_status,
+)
+
 
 class SubjectStateKind(StrEnum):
     SELF = "self"
@@ -41,6 +55,7 @@ class CandidateSubjectStateDraft:
     kind: SubjectStateKind
     expected_version: int
     canonical_next_state: bytes
+    concern_changes: tuple[ConcernChange, ...] = ()
 
     def __post_init__(self) -> None:
         from ._domain import validate_candidate
@@ -81,7 +96,7 @@ class SubjectComponentSummary:
     def __post_init__(self) -> None:
         expected = {
             SubjectStateKind.SELF: "armi.self.v1",
-            SubjectStateKind.MIND: "armi.mind.v2",
+            SubjectStateKind.MIND: "armi.mind.v3",
             SubjectStateKind.LIFE_MODE: "armi.life-mode.v1",
         }
         if (
@@ -142,6 +157,10 @@ class SubjectStateCorrectionHead:
 
 @runtime_checkable
 class SubjectStateReadPort(Protocol):
+    async def concerns(
+        self, transaction: PostgreSQLTransaction, *, subject_id: UUID
+    ) -> tuple[ConcernRecord, ...]: ...
+
     async def active_activity_ids(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID
     ) -> tuple[UUID, ...]: ...
@@ -283,7 +302,15 @@ class SubjectStateAdminCorrectionPort(Protocol):
 
 
 __all__ = (
+    "CONCERN_CHANGES",
+    "CONCERN_RECORDS",
+    "ActivityReview",
     "CandidateSubjectStateDraft",
+    "CloseConcern",
+    "ConcernChange",
+    "ConcernRecord",
+    "CreateConcern",
+    "CreatorInputReview",
     "LifeModeHead",
     "SubjectComponentSummary",
     "SubjectStateAdminComponent",
@@ -301,4 +328,7 @@ __all__ = (
     "SubjectStateReadPort",
     "SubjectStateViolation",
     "SubjectSummary",
+    "TimedReview",
+    "UpdateConcern",
+    "concern_attention_status",
 )

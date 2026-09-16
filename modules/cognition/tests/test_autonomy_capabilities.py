@@ -85,8 +85,29 @@ def test_missing_frozen_capability_context_fails_before_model_request():
 @pytest.mark.parametrize("state", ["disabled", "unbound", "unavailable"])
 def test_unavailable_outlet_allows_thinking_without_queued_expression(state):
     schema = autonomous_schema_for_context(compiled([], outlet_state=state))
-    assert "no_result" in schema["discriminator"]["mapping"]
+    assert "no_activity" in schema["discriminator"]["mapping"]
+    assert "wait" not in schema["discriminator"]["mapping"]
     for branch in schema["oneOf"]:
         properties = schema["$defs"][branch["$ref"].split("/")[-1]]["properties"]
         assert properties["expression"] == {"type": "null", "default": None}
         assert "next_consideration_seconds" in properties
+
+
+def test_activity_work_needs_an_actual_activity_but_concerns_do_not():
+    value = json.loads(compiled([]))
+    empty = autonomous_schema_for_context(json.dumps(value).encode())
+    actions = empty["discriminator"]["mapping"]
+    assert {
+        "no_activity",
+        "defer",
+        "need_information",
+        "start_activity",
+    } <= actions.keys()
+    assert not {"wait", "progress", "complete", "abandon", "no_result"} & actions.keys()
+    value["layers"][0]["items"].append(
+        {"item_kind": "current_activity", "content": "{}"}
+    )
+    active = autonomous_schema_for_context(json.dumps(value).encode())
+    assert {"wait", "progress", "complete", "abandon", "no_result"} <= active[
+        "discriminator"
+    ]["mapping"].keys()

@@ -17,7 +17,7 @@ def test_subject_state_owner_draft_round_trip() -> None:
         1,
         rfc8785.dumps(
             {
-                "schema_version": "armi.mind.v2",
+                "schema_version": "armi.mind.v3",
                 "understanding": [],
                 "attention": [],
                 "thoughts": [],

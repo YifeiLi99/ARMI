@@ -36,7 +36,11 @@ from armi_runtime_foundation import (
     usage_statement,
 )
 from armi_sleep.api import SleepAdminReadPort
-from armi_subject_state.api import SubjectStateAdminReadPort
+from armi_subject_state.api import (
+    CONCERN_RECORDS,
+    SubjectStateAdminReadPort,
+    concern_attention_status,
+)
 
 from .role_session import AdminRoleBoundPool
 from .runtime_foundation import RuntimeFoundationAdminAdapter
@@ -241,7 +245,27 @@ class AdminObservationGateway:
                 and self._sleep.has_active_maintenance(uow.transaction),
             )
             row = uow.transaction.execute(statement, parameters).fetchone()
-        return autonomy_result(row)
+            result = autonomy_result(row)
+            if mode == "status" and result.get("observed_at") is not None:
+                components = self._subject_state.current_components(
+                    uow.transaction, private=True
+                )
+                mind = next(
+                    (item for item in components if item.kind.value == "mind"), None
+                )
+                if mind is not None:
+                    records = CONCERN_RECORDS.validate_json(
+                        json.dumps(cast(dict[str, object], mind.payload)["concerns"]),
+                        strict=True,
+                    )
+                    result["concerns"] = concern_attention_status(
+                        records,
+                        as_of=datetime.fromisoformat(str(result["observed_at"])),
+                        consumed_before=None
+                        if result["last_considered_at"] is None
+                        else datetime.fromisoformat(str(result["last_considered_at"])),
+                    )
+            return result
 
     def cognition_read(
         self, *, episode_id: str, artifact_id: str | None, offset: int, length: int
