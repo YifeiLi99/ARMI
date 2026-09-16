@@ -45,7 +45,6 @@ _SETUP_FIELDS = {
     "napcat": ("napcat",),
 }
 _OPTIONAL_SETUP = {"status", "check", "login_startup", "uninstall"}
-_BOUND_FIELDS = {"environment_id", "environment_incarnation", "purpose"}
 
 
 class MCPBinding(BaseModel):
@@ -141,12 +140,12 @@ class ARMIMCPServer(MCPServer[Any]):
                 schema["properties"] = {
                     key: value
                     for key, value in schema["properties"].items()
-                    if key not in _BOUND_FIELDS
+                    if key not in operation.bound_fields
                 }
                 schema["required"] = [
                     key
                     for key in schema.get("required", [])
-                    if key not in _BOUND_FIELDS
+                    if key not in operation.bound_fields
                 ]
                 result.append(
                     Tool(

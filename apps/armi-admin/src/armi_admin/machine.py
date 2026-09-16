@@ -83,7 +83,7 @@ class AdminSession:
                 "environment_incarnation": config.environment_incarnation,
                 "purpose": "admin." + name,
             }.items():
-                if field in operation.request.model_fields:
+                if field in operation.bound_fields:
                     if field in payload and payload[field] != value:
                         raise ValueError("ADMIN-BINDING-MISMATCH")
                     payload[field] = value

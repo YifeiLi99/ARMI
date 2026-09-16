@@ -57,12 +57,9 @@ def _run(argv: list[str] | None = None) -> int:
         fields = request_schema.get("properties", {})
         editable: list[str] = []
         for field, schema in fields.items():
-            if field in {
-                "environment_id",
-                "environment_incarnation",
-                "purpose",
-                "idempotency_key",
-            } or (field == "component" and operation.mode == "lifecycle"):
+            if field in operation.bound_fields | {"idempotency_key"} or (
+                field == "component" and operation.mode == "lifecycle"
+            ):
                 continue
             if "$ref" in schema:
                 schema = request_schema["$defs"][schema["$ref"].rsplit("/", 1)[1]]

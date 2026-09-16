@@ -39,6 +39,7 @@ from .contracts import (
     RuntimeStatusRequest,
     SchemaStatusRequest,
     SchemaStatusResult,
+    ScopedOperationRequest,
     SettleCorrectionWorkRequest,
     SubjectSnapshotRequest,
     TailDiagnosticsRequest,
@@ -73,6 +74,13 @@ class AdminOperation:
         "authorization",
         "database",
     ]
+
+    @property
+    def bound_fields(self) -> frozenset[str]:
+        fields = {"environment_id", "environment_incarnation"}
+        if issubclass(self.request, ScopedOperationRequest):
+            fields.add("purpose")
+        return frozenset(fields & self.request.model_fields.keys())
 
     @property
     def read_only(self) -> bool:

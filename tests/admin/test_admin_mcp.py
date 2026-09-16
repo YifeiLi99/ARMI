@@ -182,6 +182,43 @@ def test_mcp_cognition_read_returns_text_and_pagination():
     asyncio.run(exercise())
 
 
+def test_mcp_usage_preserves_optional_business_purpose() -> None:
+    async def exercise() -> None:
+        service = _service()
+        gateway = Mock(spec=AdminObservationGateway)
+        gateway.usage.return_value = {"total": 1, "items": []}
+        service._observation = gateway
+        async with Client(_server(service)) as client:
+            tools = {tool.name: tool for tool in (await client.list_tools()).tools}
+            for name in ("admin_usage_summary", "admin_usage_list"):
+                assert "purpose" in tools[name].input_schema["properties"]
+            assert (
+                "purpose" not in tools["admin_runtime_drain"].input_schema["properties"]
+            )
+            for arguments, expected in (
+                ({}, None),
+                ({"purpose": "consider_autonomous_life"}, "consider_autonomous_life"),
+            ):
+                result = await client.call_tool("admin_usage_list", arguments)
+                assert not result.is_error
+                assert result.structured_content is not None
+                assert result.structured_content["result"]["total"] == 1
+                query = gateway.usage.call_args.args[0]
+                assert query.filters.purpose == expected
+
+    asyncio.run(exercise())
+
+
+def test_usage_cli_exposes_purpose_filter() -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "armi_admin.cli", "usage", "list", "--help"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert "--purpose" in result.stdout
+
+
 def _server(service: AdminToolService) -> ARMIMCPServer:
     session = AdminSession(service.config.environment_root / "admin.yaml")
     binding = patch.object(
