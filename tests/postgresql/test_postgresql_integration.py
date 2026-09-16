@@ -297,6 +297,7 @@ def _life_opportunity_facts(
     return RuntimeLifeOpportunityFacts(
         cognition=bootstrap_cognition_operation(),
         interaction=bootstrap_interaction_identity(_TEST_IDENTITY_TOKENS),
+        mood=bootstrap_mood().read,
         outlet_health=outlet_health,
     )
 
@@ -1225,6 +1226,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             self.assertEqual(operation_only.totals.billable_calls, 0)
 
     def test_autonomy_persistent_plan_and_concurrent_quota(self) -> None:
+        self._exercise_autonomy_plan(psychological=False)
+
+    def test_psychological_attention_advances_plan_and_settles_once(self) -> None:
+        self._exercise_autonomy_plan(psychological=True)
+
+    def _exercise_autonomy_plan(self, *, psychological: bool) -> None:
         from armi_attention.api import (
             AutonomyPolicy,
             LifeViolation,
@@ -1277,6 +1284,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         request_digest=Digest.from_bytes(b"autonomy-fixture"),
                     )
                 )
+                facts = _life_opportunity_facts(
+                    factory, environment_id=fixture.environment_id, activity_read=None
+                )
                 async with factory.unit_of_work() as unit:
                     initial = await owner.ensure_plan(
                         unit.transaction, subject_id=born.subject_id, policy=policy
@@ -1315,11 +1325,75 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         state_epoch=1,
                     )
                     self.assertEqual(changed, repeated)
-                    # Virtual elapsed time in this isolated database, not a running environment.
-                    await unit.transaction.execute(
-                        "UPDATE armi.autonomy_plans SET next_consideration_at=statement_timestamp()-interval '3 days' WHERE subject_id=%s",
-                        (born.subject_id,),
-                    )
+                    if psychological:
+                        # No external event/state-epoch wakeup: a six-hour plan
+                        # must be advanced by the real Mood read/Attention path.
+                        await unit.transaction.execute(
+                            "UPDATE armi.autonomy_plans SET next_consideration_at=statement_timestamp()+interval '6 hours' WHERE subject_id=%s",
+                            (born.subject_id,),
+                        )
+                        await owner.consider_psychological_attention(
+                            unit.transaction,
+                            subject_id=born.subject_id,
+                            policy=policy,
+                            facts=facts,
+                        )
+                        quiet = await owner.admit_due(
+                            unit.transaction, subject_id=born.subject_id, policy=policy
+                        )
+                        self.assertEqual(quiet.reason_code, "LIFE-AUTONOMY-NOT-DUE")
+                        # Synthetic affect evidence, confined to this disposable
+                        # database. Never injected into the installed subject.
+                        await unit.transaction.execute(
+                            """INSERT INTO armi.mood_appraisal_events (
+                                mood_appraisal_event_id,subject_id,mood_revision_id,
+                                mood_episode_id,transition,event_phase,gist,basis_ordinals,
+                                appraisal_payload,importance,derived_vad,derived_components,
+                                derivation_version,dynamics_version,privacy_scope,
+                                appraisal_mapping_version,derived_appraisal_payload,occurred_at)
+                               SELECT %s,subject_id,current_revision_id,%s,'new','ongoing',
+                                      '有件事还没弄明白',ARRAY[1]::smallint[],
+                                      '{"schema_version":"armi.mood-appraisal.v2"}'::jsonb,
+                                      60,'{"valence":0,"arousal":20,"dominance":0}'::jsonb,
+                                      %s::jsonb,'cpm-fuzzy.v2','recency-reappraisal.v1','private',
+                                      'semantic-anchors.v1',
+                                      '{"schema_version":"armi.mood-derived-appraisal.v2"}'::jsonb,
+                                      statement_timestamp()-interval '2 minutes'
+                               FROM armi.mood_heads WHERE subject_id=%s""",
+                            (
+                                uuid7(),
+                                uuid7(),
+                                json.dumps(
+                                    [
+                                        {
+                                            "family": "confusion",
+                                            "nuance": "想弄清楚",
+                                            "vad": {
+                                                "valence": 0,
+                                                "arousal": 20,
+                                                "dominance": 0,
+                                            },
+                                            "intensity": 60,
+                                            "half_life_seconds": 3600,
+                                        }
+                                    ]
+                                ),
+                                born.subject_id,
+                            ),
+                        )
+                        for _ in range(3):
+                            await owner.consider_psychological_attention(
+                                unit.transaction,
+                                subject_id=born.subject_id,
+                                policy=policy,
+                                facts=facts,
+                            )
+                    else:
+                        # Virtual elapsed time in this isolated database.
+                        await unit.transaction.execute(
+                            "UPDATE armi.autonomy_plans SET next_consideration_at=statement_timestamp()-interval '3 days' WHERE subject_id=%s",
+                            (born.subject_id,),
+                        )
                     admitted = await owner.admit_due(
                         unit.transaction, subject_id=born.subject_id, policy=policy
                     )
@@ -1500,6 +1574,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             )
                         for _ in range(3):
                             async with factory.unit_of_work() as unit:
+                                await owner.consider_psychological_attention(
+                                    unit.transaction,
+                                    subject_id=born.subject_id,
+                                    policy=policy,
+                                    facts=facts,
+                                )
                                 no_loop = await owner.admit_due(
                                     unit.transaction,
                                     subject_id=born.subject_id,

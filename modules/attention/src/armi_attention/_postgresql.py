@@ -95,6 +95,9 @@ class PostgreSQLLifeOpportunityRepository:
                 None,
                 "LIFE-BACKPRESSURE-COGNITION-CAPACITY",
             )
+        await owner.consider_psychological_attention(
+            transaction, subject_id=fence.subject_id, policy=policy, facts=self._facts
+        )
         heads = await self._activities.scheduling_heads(
             transaction, subject_id=fence.subject_id
         )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from datetime import datetime
 from uuid import UUID
 
 from armi_attention.api import (
@@ -11,6 +12,7 @@ from armi_attention.api import (
 )
 from armi_cognition.api import CognitionOperationReadPort
 from armi_interaction.api import InteractionIdentityPort
+from armi_mood.api import MoodReadPort
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
 
 from armi_runtime.application.cognition_cycle import RuntimeCognitionState
@@ -20,6 +22,7 @@ class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
     __slots__ = (
         "_cognition",
         "_interaction",
+        "_mood",
         "_outlet_health",
     )
 
@@ -28,14 +31,27 @@ class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
         *,
         cognition: CognitionOperationReadPort,
         interaction: InteractionIdentityPort,
+        mood: MoodReadPort,
         outlet_health: Callable[[str], Awaitable[tuple[str, str | None]]],
     ) -> None:
         self._cognition = cognition
         self._interaction = interaction
+        self._mood = mood
         self._outlet_health = outlet_health
 
     async def outlet_health(self, outlet: str) -> tuple[str, str | None]:
         return await self._outlet_health(outlet)
+
+    async def psychological_attention_since(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        after: datetime | None,
+    ) -> datetime | None:
+        return await self._mood.attention_since(
+            transaction, subject_id=subject_id, after=after
+        )
 
     async def state_epoch(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID

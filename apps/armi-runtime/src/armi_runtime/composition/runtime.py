@@ -1075,6 +1075,7 @@ async def _serve(
                 facts=RuntimeLifeOpportunityFacts(
                     cognition=cognition_operation,
                     interaction=interaction_module.identity,
+                    mood=mood_module.read,
                     outlet_health=autonomy_outlet_health,
                 ),
                 activity_read=activity_module.read,

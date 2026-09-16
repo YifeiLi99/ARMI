@@ -1205,6 +1205,38 @@ def derive_effective_snapshot(
     return current, tuple(active), tuple(episodes[:5]), tuple(tendencies[:2])
 
 
+def attention_since(
+    events: tuple[StoredAffectiveEvent, ...],
+    *,
+    after: datetime | None,
+    as_of: datetime,
+) -> datetime | None:
+    """New, still-active concerns can attract attention; they never order action."""
+    latest: dict[UUID, StoredAffectiveEvent] = {}
+    for event in sorted(events, key=lambda item: item.occurred_at):
+        if event.episode_id is not None and event.occurred_at <= as_of:
+            latest[event.episode_id] = event
+    candidates: list[datetime] = []
+    for event in latest.values():
+        if (
+            (after is not None and event.occurred_at <= after)
+            or event.transition is AppraisalTransition.RESOLVE
+            or event.phase is AppraisalEventPhase.AVERTED
+        ):
+            continue
+        _, _, _, tendencies = derive_effective_snapshot(
+            VAD(0, 0, 0),
+            (event,),
+            as_of=as_of,
+        )
+        if any(
+            item.tendency not in {ActionTendency.PAUSE, ActionTendency.DISENGAGE}
+            for item in tendencies
+        ):
+            candidates.append(event.occurred_at)
+    return min(candidates) if candidates else None
+
+
 def validate_candidate(value: CandidateMoodDraft) -> None:
     common_invalid = (
         _REF.fullmatch(value.proposal_ref) is None

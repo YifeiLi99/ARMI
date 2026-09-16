@@ -45,6 +45,15 @@ class AutonomyPlan:
 
 @runtime_checkable
 class AutonomyPort(Protocol):
+    async def consider_psychological_attention(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        policy: AutonomyPolicy,
+        facts: LifeOpportunityFactsPort,
+    ) -> None: ...
+
     async def admit_due(
         self,
         transaction: PostgreSQLTransaction,
@@ -180,6 +189,14 @@ class CreatorOutreachFacts:
 
 @runtime_checkable
 class LifeOpportunityFactsPort(Protocol):
+    async def psychological_attention_since(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        after: datetime | None,
+    ) -> datetime | None: ...
+
     async def outlet_health(self, outlet: str) -> tuple[str, str | None]: ...
 
     async def state_epoch(

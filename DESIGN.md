@@ -224,7 +224,9 @@ Embedding、关键词索引、列表投影、游标和前端缓存可删除重�
 
 模型只给有 Context 依据的语义 appraisal；Mood owner 确定性推导情绪成分、VAD target、half-life、当前 top emotions 和 action tendencies。权威状态当前为 `armi.mood.v3`，候选为 `armi.mood-candidate.v4`。
 
-事件以 new/reinforce/reappraise/resolve 形成 episode 轨迹。当前快照按数据库 `as_of` 从 home base 和仍有效事件推导，不按秒写库；同一事实和时间得到同一结果。Mood 只作为 Context 状态/建议，不能直接改变 Self、Memory、Relationship、Capability 或 Effect。Home base 只在 sleep maintenance 的确定性 `reflect_mood` 阶段小步调整。
+事件以 new/reinforce/reappraise/resolve 形成 episode 轨迹。当前快照按数据库 `as_of` 从 home base 和仍有效事件推导，不按秒写库；同一事实和时间得到同一结果。Mood 不能直接改变 Self、Memory、Relationship、Capability 或 Effect。Home base 只在 sleep maintenance 的确定性 `reflect_mood` 阶段小步调整。
+
+心理关注的最小闭环复用 Mood 事件和 Attention 自主计划：Mood 读取每个事件轨迹的最新评价，以现有衰减算法判断是否仍有活跃行动倾向；已解决、已避免、已衰减或仅有暂停/脱离倾向的事件不提前唤起。Attention 只考虑上次自主轮次终结后形成的新评价，将计划提前至该评价发生时间加配置的最小考虑间隔，不推迟更早的计划，也不另建轮次。终结时间来自已有机会记录，沉默及中断同样消费本次关注；自身提交中的评价不会立刻唤起自身。重复扫描及重启不重复消费同一来源，新的强化/重新评价可以再次获得关注。机会仍经过容量、维护和额度检查，再冻结当前 Mood Context，由一次认知决定行动、表达或沉默并原子安排下次计划。这不是按情绪数值强制问候，也尚未构成持续动机或生理需求模拟。
 
 ESP32 心情窗只接收 Mood 映射后的不透明 face、color、energy 和 version；情绪名、nuance、事件和 VAD 原值不离开主机。
 

@@ -14,6 +14,7 @@ from ._application import MoodApplication
 from ._domain import (
     StoredAffectiveEvent,
     StoredEmotionComponent,
+    attention_since,
     clamp_home_base,
     component_to_wire,
     derive_effective_snapshot,
@@ -121,6 +122,24 @@ class PostgreSQLMoodOwner:
             episodes,
             tendencies,
         )
+
+    async def attention_since(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        after: datetime | None,
+    ) -> datetime | None:
+        clock = await (
+            await transaction.execute("SELECT statement_timestamp()")
+        ).fetchone()
+        if clock is None:
+            raise MoodViolation("MOOD-CLOCK")
+        as_of = clock[0]
+        events = await self._load_events(
+            transaction, subject_id=subject_id, as_of=as_of
+        )
+        return attention_since(events, after=after, as_of=as_of)
 
     async def _load_events(
         self,

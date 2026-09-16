@@ -11,6 +11,7 @@ from armi_runtime_foundation import PostgreSQLTransaction
 from .api import (
     AutonomyPlan,
     AutonomyPolicy,
+    LifeOpportunityFactsPort,
     LifeViolation,
     OpportunityAdmissionOutcome,
     OpportunityAdmissionStatus,
@@ -19,6 +20,40 @@ from .api import (
 
 
 class PostgreSQLAutonomyOwner:
+    async def consider_psychological_attention(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        policy: AutonomyPolicy,
+        facts: LifeOpportunityFactsPort,
+    ) -> None:
+        if not policy.enabled:
+            return
+        # Terminal rounds are the durable attention watermark, including
+        # silence and interruption. Never reawaken from their own appraisal.
+        previous = await (
+            await transaction.execute(
+                """SELECT max(resolved_at) FROM armi.opportunities
+                   WHERE subject_id=%s AND purpose='consider_autonomous_life'""",
+                (subject_id,),
+            )
+        ).fetchone()
+        if previous is None:
+            raise LifeViolation("LIFE-AUTONOMY-HISTORY-MISSING")
+        attention_at = await facts.psychological_attention_since(
+            transaction, subject_id=subject_id, after=previous[0]
+        )
+        if attention_at is not None:
+            await transaction.execute(
+                """UPDATE armi.autonomy_plans
+                   SET next_consideration_at=LEAST(next_consideration_at,
+                       %s + %s * interval '1 second'),
+                       updated_at=statement_timestamp()
+                   WHERE subject_id=%s AND opportunity_id IS NULL""",
+                (attention_at, policy.minimum_consideration_seconds, subject_id),
+            )
+
     async def admit_due(
         self,
         transaction: PostgreSQLTransaction,

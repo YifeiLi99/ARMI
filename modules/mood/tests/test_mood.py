@@ -9,6 +9,7 @@ from armi_kernel.application import CandidateFactClass
 from armi_mood._domain import (
     StoredAffectiveEvent,
     StoredEmotionComponent,
+    attention_since,
     clamp_home_base,
     derive_effective_snapshot,
     derive_effective_state,
@@ -466,6 +467,65 @@ def test_same_family_merges_and_snapshot_exposes_episode_and_top_tendencies() ->
     )
     assert episodes[0].episode_id == episode_id
     assert len(tendencies) <= 2
+
+
+@pytest.mark.parametrize(
+    "family,attracts",
+    [
+        (EmotionFamily.CONFUSION, True),
+        (EmotionFamily.INTEREST, True),
+        (EmotionFamily.AFFECTION, True),
+        (EmotionFamily.GUILT, True),
+        (EmotionFamily.CONTENTMENT, False),
+    ],
+)
+def test_new_affect_can_attract_attention_without_ordering_expression(
+    family: EmotionFamily, attracts: bool
+) -> None:
+    now = datetime(2026, 9, 16, tzinfo=UTC)
+    event = StoredAffectiveEvent(
+        now,
+        (
+            StoredEmotionComponent(
+                EmotionComponent(family, "牵挂的事情", VAD(0, 20, 0), 60), 3600
+            ),
+        ),
+        uuid7(),
+        phase=AppraisalEventPhase.ONGOING,
+    )
+    assert attention_since((event,), after=None, as_of=now) == (
+        now if attracts else None
+    )
+    assert attention_since((event,), after=now, as_of=now) is None
+    assert attention_since((event,), after=None, as_of=now + timedelta(days=2)) is None
+
+
+@pytest.mark.parametrize(
+    "transition", [AppraisalTransition.RESOLVE, AppraisalTransition.REAPPRAISE]
+)
+def test_resolved_or_reappraised_concern_does_not_reuse_old_action_tendency(
+    transition: AppraisalTransition,
+) -> None:
+    now = datetime(2026, 9, 16, tzinfo=UTC)
+    episode = uuid7()
+    event = StoredAffectiveEvent(
+        now,
+        (
+            StoredEmotionComponent(
+                EmotionComponent(EmotionFamily.CONFUSION, "不明白", VAD(0, 20, 0), 60),
+                3600,
+            ),
+        ),
+        episode,
+    )
+    later = StoredAffectiveEvent(
+        now + timedelta(minutes=1),
+        (),
+        episode,
+        transition,
+        AppraisalEventPhase.AVERTED,
+    )
+    assert attention_since((event, later), after=None, as_of=later.occurred_at) is None
 
 
 def test_same_as_of_is_independent_of_poll_slices() -> None:

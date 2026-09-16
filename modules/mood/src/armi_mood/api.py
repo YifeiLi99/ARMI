@@ -495,6 +495,14 @@ class MoodCorrectionHead:
 
 @runtime_checkable
 class MoodReadPort(Protocol):
+    async def attention_since(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        after: datetime | None,
+    ) -> datetime | None: ...
+
     async def current(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID
     ) -> MoodHead: ...

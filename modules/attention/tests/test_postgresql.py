@@ -182,6 +182,9 @@ async def test_autonomy_uses_idle_single_slot_regardless_of_unanswered_contact(
             creator_party_id=creator,
             activity_id=None,
         )
+        owner.consider_psychological_attention.assert_awaited_once_with(
+            unit.transaction, subject_id=subject, policy=AutonomyPolicy(), facts=facts
+        )
     facts.outreach.assert_awaited_once_with(unit, outlet="qq")
 
 
