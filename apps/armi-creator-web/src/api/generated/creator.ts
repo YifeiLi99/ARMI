@@ -72,6 +72,40 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/autonomy/history": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** History */
+    get: operations["listAutonomyHistory"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/autonomy/status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Status */
+    get: operations["getAutonomyStatus"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/browser-sessions": {
     parameters: {
       query?: never;
@@ -966,6 +1000,100 @@ export interface components {
       | "complete"
       | "abandon"
       | "system_fail";
+    /** AutonomyHistory */
+    AutonomyHistory: {
+      /** Items */
+      items: components["schemas"]["AutonomyHistoryItem"][];
+      /** Limit */
+      limit: number;
+      /** Offset */
+      offset: number;
+      /** Total */
+      total: number;
+    };
+    /** AutonomyHistoryItem */
+    AutonomyHistoryItem: {
+      /** Available After */
+      available_after: string;
+      /** Cognition Status */
+      cognition_status: string | null;
+      /** Current Disposition */
+      current_disposition: string;
+      /** Effect Id */
+      effect_id: string | null;
+      /** Effect Status */
+      effect_status: string | null;
+      /** Episode Id */
+      episode_id: string | null;
+      /** Failure Code */
+      failure_code: string | null;
+      /** Final Disposition */
+      final_disposition: string | null;
+      /** Operation Id */
+      operation_id: string;
+      /** Resolution Reason Code */
+      resolution_reason_code: string | null;
+    };
+    /** AutonomyPolicyResponse */
+    AutonomyPolicyResponse: {
+      /** Daily Request Limit */
+      daily_request_limit: number;
+      /** Enabled */
+      enabled: boolean;
+      /** Maximum Consideration Seconds */
+      maximum_consideration_seconds: number;
+      /** Minimum Consideration Seconds */
+      minimum_consideration_seconds: number;
+      /**
+       * Outlet
+       * @enum {string}
+       */
+      outlet: "qq" | "creator_web";
+    };
+    /** AutonomyStatus */
+    AutonomyStatus: {
+      /** Next Consideration At */
+      next_consideration_at?: string | null;
+      /** Opportunity Id */
+      opportunity_id?: string | null;
+      /** Outlet Observed At */
+      outlet_observed_at?: string | null;
+      /** Outlet Reason Code */
+      outlet_reason_code?: string | null;
+      /** Outlet State */
+      outlet_state?: ("ready" | "disabled" | "unbound" | "unavailable") | null;
+      /** Plan Version */
+      plan_version?: number | null;
+      policy?: components["schemas"]["AutonomyPolicyResponse"] | null;
+      /** Quota Resets At */
+      quota_resets_at?: string | null;
+      /** Remaining Requests */
+      remaining_requests?: number | null;
+      /** Source Episode Id */
+      source_episode_id?: string | null;
+      /**
+       * State
+       * @enum {string}
+       */
+      state:
+        | "not_initialized"
+        | "disabled"
+        | "runtime_stopped"
+        | "sleeping"
+        | "quota_exhausted"
+        | "thinking"
+        | "resource_busy"
+        | "scheduled"
+        | "ready";
+      /**
+       * Timezone
+       * @default Asia/Shanghai
+       * @constant
+       */
+      timezone: "Asia/Shanghai";
+      /** Used Requests */
+      used_requests?: number | null;
+    };
     /** BrowserSessionCurrentResponse */
     BrowserSessionCurrentResponse: {
       /**
@@ -3549,6 +3677,49 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["UnavailableOutcomeResponse"];
+        };
+      };
+    };
+  };
+  listAutonomyHistory: {
+    parameters: {
+      query?: {
+        limit?: number;
+        offset?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AutonomyHistory"];
+        };
+      };
+    };
+  };
+  getAutonomyStatus: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AutonomyStatus"];
         };
       };
     };

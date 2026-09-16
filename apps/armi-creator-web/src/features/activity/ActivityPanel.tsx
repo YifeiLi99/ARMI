@@ -1,11 +1,19 @@
-import { useEffect, useState } from "react";
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
+import {
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 
 import {
   ApiFailure,
   getCreatorActivities,
   getCreatorActivityTimeline,
+  getAutonomyStatus,
+  getAutonomyHistory,
 } from "../../api/client";
+import { OperationPanel } from "../operation/OperationPanel";
+import { EffectDetail } from "../effect/EffectDetail";
 
 type ActivityPanelProps = {
   token: string;
@@ -25,6 +33,22 @@ const STATUS_LABELS: Record<string, string> = {
   abandoned: "已放弃",
   failed: "技术失败",
 };
+
+const AUTONOMY_LABELS: Record<string, string> = {
+  not_initialized: "尚未建立自主计划",
+  disabled: "自主生活未开启",
+  runtime_stopped: "Runtime 已停止",
+  sleeping: "睡眠维护中",
+  quota_exhausted: "今日自主额度已用完",
+  thinking: "正在自主考虑",
+  resource_busy: "等待认知资源",
+  scheduled: "等待下次考虑时间",
+  ready: "等待调度",
+};
+
+function localTime(value: string) {
+  return new Date(value).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
+}
 
 const EVENT_LABELS: Record<string, string> = {
   created: "建立活动",
@@ -50,6 +74,32 @@ export function ActivityPanel({
   onUnauthorized,
 }: ActivityPanelProps) {
   const queryClient = useQueryClient();
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [operationRef, setOperationRef] = useState<string | null>(null);
+  const [effectRef, setEffectRef] = useState<string | null>(null);
+  const effectTriggerRef = useRef<HTMLButtonElement>(null);
+  const autonomyKey = ["autonomy", environmentId, creatorPartyId] as const;
+  const autonomy = useQuery({
+    queryKey: autonomyKey,
+    queryFn: ({ signal }) => getAutonomyStatus(token, signal),
+    refetchInterval: 30_000,
+  });
+  const historyKey = [
+    "autonomy-history",
+    environmentId,
+    creatorPartyId,
+  ] as const;
+  const history = useInfiniteQuery({
+    queryKey: historyKey,
+    queryFn: ({ signal, pageParam }) =>
+      getAutonomyHistory(token, pageParam, signal),
+    initialPageParam: 0,
+    getNextPageParam: (page) =>
+      page.offset + page.items.length < page.total
+        ? page.offset + page.limit
+        : undefined,
+    enabled: historyOpen,
+  });
   const [selectedActivityId, setSelectedActivityId] = useState<string | null>(
     null,
   );
@@ -90,11 +140,19 @@ export function ActivityPanel({
     if (
       (activities.error instanceof ApiFailure &&
         activities.error.status === 401) ||
-      (timeline.error instanceof ApiFailure && timeline.error.status === 401)
+      (timeline.error instanceof ApiFailure && timeline.error.status === 401) ||
+      (autonomy.error instanceof ApiFailure && autonomy.error.status === 401) ||
+      (history.error instanceof ApiFailure && history.error.status === 401)
     ) {
       onUnauthorized();
     }
-  }, [activities.error, onUnauthorized, timeline.error]);
+  }, [
+    activities.error,
+    autonomy.error,
+    history.error,
+    onUnauthorized,
+    timeline.error,
+  ]);
 
   return (
     <section
@@ -110,6 +168,14 @@ export function ActivityPanel({
           type="button"
           className="secondary"
           onClick={() => {
+            void queryClient.resetQueries({
+              queryKey: autonomyKey,
+              exact: true,
+            });
+            void queryClient.resetQueries({
+              queryKey: historyKey,
+              exact: true,
+            });
             void queryClient.resetQueries({ queryKey: listKey, exact: true });
             if (selectedActivityId !== null) {
               void queryClient.resetQueries({
@@ -122,6 +188,136 @@ export function ActivityPanel({
           刷新
         </button>
       </div>
+      <section aria-label="自主计划">
+        {autonomy.isPending ? <p role="status">正在读取自主计划</p> : null}
+        {autonomy.isError ? <p role="status">当前无法读取自主计划。</p> : null}
+        {autonomy.data ? (
+          <>
+            <h3>{AUTONOMY_LABELS[autonomy.data.state]}</h3>
+            {autonomy.data.next_consideration_at ? (
+              <p>
+                下次期望时间：{localTime(autonomy.data.next_consideration_at)}
+                （北京时间）
+              </p>
+            ) : null}
+            {autonomy.data.policy ? (
+              <p>
+                今日自主请求：{autonomy.data.used_requests} /{" "}
+                {autonomy.data.policy.daily_request_limit}；主动出口：
+                {autonomy.data.policy.outlet === "qq" ? "QQ" : "Creator 网页"}
+              </p>
+            ) : null}
+            {autonomy.data.outlet_state &&
+            autonomy.data.outlet_state !== "ready" ? (
+              <p role="status">
+                主动出口暂不可用：
+                {autonomy.data.outlet_reason_code ?? autonomy.data.outlet_state}
+                。仍可自主思考，不切换渠道。
+              </p>
+            ) : null}
+            {autonomy.data.state === "quota_exhausted" &&
+            autonomy.data.quota_resets_at ? (
+              <p>额度恢复：{localTime(autonomy.data.quota_resets_at)}</p>
+            ) : null}
+          </>
+        ) : null}
+        <button
+          type="button"
+          className="secondary"
+          aria-expanded={historyOpen}
+          onClick={() => setHistoryOpen(!historyOpen)}
+        >
+          {historyOpen ? "收起自主记录" : "查看自主记录"}
+        </button>
+        {historyOpen ? (
+          <div aria-live="polite">
+            {history.isPending ? <p role="status">正在读取自主记录</p> : null}
+            {history.isError ? (
+              <p role="status">当前无法读取自主记录。</p>
+            ) : null}
+            {history.data?.pages[0]?.total === 0 ? (
+              <p>尚无自主机会记录。</p>
+            ) : null}
+            <ol>
+              {history.data?.pages
+                .flatMap((page) => page.items)
+                .map((item) => (
+                  <li key={item.operation_id}>
+                    <time dateTime={item.available_after}>
+                      {localTime(item.available_after)}
+                    </time>
+                    <p>
+                      {item.effect_status === "unknown"
+                        ? "发送结果未知"
+                        : item.failure_code
+                          ? "执行失败"
+                          : item.effect_status
+                            ? `表达交付：${item.effect_status}`
+                            : item.final_disposition === "no_change" ||
+                                item.final_disposition === "no_action"
+                              ? "本轮自主沉默"
+                              : item.final_disposition === "defer"
+                                ? "本轮延期"
+                                : item.cognition_status === null
+                                  ? "尚未开始认知"
+                                  : item.current_disposition === "resolved"
+                                    ? "本轮决定已结算"
+                                    : "正在处理"}
+                    </p>
+                    {item.failure_code || item.resolution_reason_code ? (
+                      <p>{item.failure_code ?? item.resolution_reason_code}</p>
+                    ) : null}
+                    <details>
+                      <summary>操作引用</summary>
+                      <code>{item.operation_id}</code>
+                      {item.episode_id ? (
+                        <p>
+                          认知：<code>{item.episode_id}</code>
+                        </p>
+                      ) : null}
+                    </details>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => {
+                        setOperationRef(item.operation_id);
+                        setEffectRef(null);
+                      }}
+                    >
+                      查看操作与用量
+                    </button>
+                  </li>
+                ))}
+            </ol>
+            {history.hasNextPage ? (
+              <button
+                type="button"
+                className="secondary"
+                disabled={history.isFetchingNextPage}
+                onClick={() => void history.fetchNextPage()}
+              >
+                加载更早自主记录
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
+      <OperationPanel
+        token={token}
+        operationRef={operationRef}
+        onEffectSelected={setEffectRef}
+        onUnauthorized={onUnauthorized}
+        effectTriggerRef={effectTriggerRef}
+      />
+      <EffectDetail
+        token={token}
+        effectRef={effectRef}
+        onUnauthorized={onUnauthorized}
+        onClose={() => {
+          setEffectRef(null);
+          effectTriggerRef.current?.focus();
+        }}
+      />
       {activities.isPending ? <p role="status">正在读取活动</p> : null}
       {activities.isError ? <p role="status">当前无法读取 Activity。</p> : null}
       {activities.data !== undefined && activityItems.length === 0 ? (

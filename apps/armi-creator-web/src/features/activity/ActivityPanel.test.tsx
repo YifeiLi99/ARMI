@@ -37,8 +37,76 @@ afterEach(() => {
 });
 
 describe("Creator Activity panel", () => {
+  it("paginates autonomous history and distinguishes silence from delivered expression and unknown", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const path = String(input);
+      if (path === "/v1/autonomy/status") {
+        return jsonResponse({
+          state: "quota_exhausted",
+          used_requests: 48,
+          quota_resets_at: "2026-09-16T16:00:00Z",
+          policy: { daily_request_limit: 48, outlet: "qq" },
+        });
+      }
+      if (path.startsWith("/v1/activities?")) {
+        return jsonResponse({ items: [], next_cursor: null });
+      }
+      if (path.startsWith("/v1/autonomy/history?")) {
+        const offset = Number(
+          new URL(path, "http://localhost").searchParams.get("offset"),
+        );
+        return jsonResponse({
+          offset,
+          limit: 1,
+          total: 3,
+          items: [
+            {
+              operation_id: `${ACTIVITY_ID}-${offset}`,
+              available_after: "2026-09-16T10:00:00Z",
+              current_disposition: "resolved",
+              resolution_reason_code: null,
+              episode_id: null,
+              cognition_status: "completed",
+              final_disposition: "no_change",
+              failure_code: null,
+              effect_id: offset ? ACTIVITY_ID : null,
+              effect_status:
+                offset === 0 ? null : offset === 1 ? "completed" : "unknown",
+            },
+          ],
+        });
+      }
+      throw new Error(`unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderPanel();
+    expect(await screen.findByText("今日自主额度已用完")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "查看自主记录" }));
+    expect(await screen.findByText("本轮自主沉默")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "加载更早自主记录" }));
+    expect(await screen.findByText("表达交付：completed")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "加载更早自主记录" }));
+    expect(await screen.findByText("发送结果未知")).toBeInTheDocument();
+    expect(screen.getAllByText("本轮自主沉默")).toHaveLength(1);
+    expect(
+      screen.queryByRole("button", { name: "加载更早自主记录" }),
+    ).toBeNull();
+    expect(
+      screen.getAllByRole("button", { name: "查看操作与用量" }),
+    ).toHaveLength(3);
+  });
+
   it("shows authoritative focus, waiting and terminal fields with a merged timeline", async () => {
     const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      if (String(input) === "/v1/autonomy/status") {
+        return jsonResponse({
+          state: "scheduled",
+          next_consideration_at: "2026-08-04T12:00:00Z",
+          used_requests: 3,
+          policy: { daily_request_limit: 48, outlet: "qq" },
+        });
+      }
       if (String(input).startsWith("/v1/activities?")) {
         return jsonResponse({
           contract_version: "1.0",

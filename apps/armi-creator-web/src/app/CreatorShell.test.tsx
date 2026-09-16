@@ -156,6 +156,14 @@ function activityPageResponse(goal?: string): object {
   };
 }
 
+function autonomyStatusResponse(): object {
+  return {
+    state: "not_initialized",
+    policy: null,
+    timezone: "Asia/Shanghai",
+  };
+}
+
 function lifeRecordPageResponse(): object {
   return {
     contract_version: "1.0",
@@ -209,6 +217,9 @@ function dataRightsResponse(): object {
 }
 
 function optionalLifeProjectionResponse(url: string): Response | undefined {
+  if (url === "/v1/autonomy/status") {
+    return jsonResponse(autonomyStatusResponse());
+  }
   if (url === "/v1/data-rights/orders") {
     return jsonResponse({contract_version: "1.0", projection_version: "data-rights-order-collection.v3", orders: []});
   }
@@ -324,6 +335,7 @@ describe("Creator local connection shell", () => {
       .mockResolvedValueOnce(jsonResponse(promptResponse()))
       .mockResolvedValueOnce(jsonResponse(dataRightsResponse()))
       .mockResolvedValueOnce(jsonResponse(maintenanceStatusResponse()))
+      .mockResolvedValueOnce(jsonResponse(autonomyStatusResponse()))
       .mockResolvedValueOnce(jsonResponse(activityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(lifeRecordPageResponse()))
       .mockResolvedValueOnce(jsonResponse(memoryPageResponse()))
@@ -431,6 +443,7 @@ describe("Creator local connection shell", () => {
       .mockResolvedValueOnce(jsonResponse(promptResponse()))
       .mockResolvedValueOnce(jsonResponse(dataRightsResponse()))
       .mockResolvedValueOnce(jsonResponse(maintenanceStatusResponse()))
+      .mockResolvedValueOnce(jsonResponse(autonomyStatusResponse()))
       .mockResolvedValueOnce(jsonResponse(activityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(lifeRecordPageResponse()))
       .mockResolvedValueOnce(jsonResponse(memoryPageResponse()))
@@ -507,6 +520,7 @@ describe("Creator local connection shell", () => {
       .mockResolvedValueOnce(jsonResponse(promptResponse()))
       .mockResolvedValueOnce(jsonResponse(dataRightsResponse()))
       .mockResolvedValueOnce(jsonResponse(maintenanceStatusResponse()))
+      .mockResolvedValueOnce(jsonResponse(autonomyStatusResponse()))
       .mockResolvedValueOnce(jsonResponse(activityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(lifeRecordPageResponse()))
       .mockResolvedValueOnce(jsonResponse(memoryPageResponse()))
@@ -538,7 +552,7 @@ describe("Creator local connection shell", () => {
     render(<CreatorShell />);
 
     expect(await screen.findByText("authoritative.event")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(15);
+    expect(fetchMock).toHaveBeenCalledTimes(16);
   });
 
   it("uses an Activity invalidation only to refetch its read projection", async () => {
@@ -725,6 +739,7 @@ describe("Creator local connection shell", () => {
       )
       .mockResolvedValueOnce(jsonResponse(promptResponse()))
       .mockResolvedValueOnce(jsonResponse(maintenanceStatusResponse()))
+      .mockResolvedValueOnce(jsonResponse(autonomyStatusResponse()))
       .mockResolvedValueOnce(jsonResponse(activityPageResponse()))
       .mockResolvedValueOnce(jsonResponse(lifeRecordPageResponse()))
       .mockResolvedValueOnce(jsonResponse(memoryPageResponse()))

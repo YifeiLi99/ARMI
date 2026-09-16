@@ -1,5 +1,33 @@
 import type { components } from "./generated/creator";
 
+export type AutonomyStatus = components["schemas"]["AutonomyStatus"];
+export type AutonomyHistory = components["schemas"]["AutonomyHistory"];
+
+export async function getAutonomyStatus(token: string, signal?: AbortSignal) {
+  const response = await fetch("/v1/autonomy/status", {
+    credentials: "omit",
+    headers: { Authorization: `Bearer ${token}` },
+    ...(signal === undefined ? {} : { signal }),
+  });
+  return requireJson<AutonomyStatus>(response);
+}
+
+export async function getAutonomyHistory(
+  token: string,
+  offset: number,
+  signal?: AbortSignal,
+) {
+  const response = await fetch(
+    `/v1/autonomy/history?limit=25&offset=${offset}`,
+    {
+      credentials: "omit",
+      headers: { Authorization: `Bearer ${token}` },
+      ...(signal === undefined ? {} : { signal }),
+    },
+  );
+  return requireJson<AutonomyHistory>(response);
+}
+
 export type UsageSummary = components["schemas"]["UsageSummary"];
 export type UsageCalls = components["schemas"]["UsageCalls"];
 export type UsageCall = components["schemas"]["UsageCall"];
