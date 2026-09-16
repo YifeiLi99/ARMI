@@ -106,6 +106,7 @@ from armi_kernel.application import (
     ModelResultStatus,
     PersonalityAnchor,
     PostCommitAction,
+    PriceCatalog,
     RecoveryStatus,
     RuntimeAuthorityRecord,
     RuntimeAuthorityViolation,
@@ -1074,6 +1075,152 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(installed, declared)
 
+    def test_provider_usage_summary_filters_and_pagination_share_receipts(self) -> None:
+        from dataclasses import replace
+        from datetime import UTC, datetime
+
+        from armi_kernel.application import (
+            PriceSnapshot,
+            ProviderMeterScope,
+            UnitPrice,
+            UsageFilter,
+            UsageQuery,
+            UsageUnit,
+            provider_call,
+            provider_meter_scope,
+        )
+        from armi_local_control import (
+            UsageCall,
+            UsageCalls,
+            UsageSummary,
+        )
+        from armi_runtime_foundation import (
+            usage_result,
+            usage_statement,
+        )
+
+        fixture = self.create_database()
+        self._install_current(
+            fixture.migrator_dsn, environment_id=fixture.environment_id
+        )
+        rows = {}
+        prices = PriceCatalog(
+            (
+                PriceSnapshot(
+                    "test-price",
+                    "test-provider",
+                    "test-model",
+                    "generation",
+                    datetime(2020, 1, 1, tzinfo=UTC),
+                    datetime(2020, 1, 1, tzinfo=UTC),
+                    "https://example.test/official-pricing",
+                    (
+                        UnitPrice(UsageUnit.INPUT_TOKENS, 2, 1),
+                        UnitPrice(UsageUnit.CACHED_INPUT_TOKENS, 1, 1),
+                        UnitPrice(UsageUnit.OUTPUT_TOKENS, 6, 1),
+                    ),
+                ),
+            )
+        )
+
+        async def generate() -> None:
+            async def save(receipt):
+                rows[receipt.call_id] = replace(
+                    receipt, started_at="2026-09-15T16:00:00+00:00"
+                )
+
+            with provider_meter_scope(
+                ProviderMeterScope(save, prices, "credential_verification")
+            ):
+                async with provider_call(
+                    provider="test-provider", model="test-model", service="generation"
+                ) as call:
+                    await call.capture(
+                        usage={
+                            "input_tokens": 100,
+                            "cached_input_tokens": 40,
+                            "output_tokens": 20,
+                        }
+                    )
+                async with provider_call(
+                    provider="test-provider", model="test-model", service="asr"
+                ) as call:
+                    await call.finish("unknown")
+                async with provider_call(
+                    provider="test-provider", model="unpriced", service="generation"
+                ) as call:
+                    await call.capture(
+                        usage={
+                            "input_tokens": 10,
+                            "cached_input_tokens": 0,
+                            "output_tokens": 1,
+                        }
+                    )
+                async with provider_call(
+                    provider="test-provider", model="test-model", service="tokenization"
+                ) as call:
+                    await call.capture(usage={"input_tokens": 999})
+
+        asyncio.run(generate())
+        checks = tuple(
+            {"verification_id": str(uuid7()), "call": row.document()}
+            for row in rows.values()
+        )
+        filters = UsageFilter.from_strings(
+            start="2026-09-16T00:00:00+08:00", end="2026-09-17T00:00:00+08:00"
+        )
+        with psycopg.connect(fixture.admin_role_dsn) as connection:
+
+            def query(request):
+                statement, parameters = usage_statement(request, checks)
+                return usage_result(
+                    connection.execute(
+                        cast(LiteralString, statement), parameters
+                    ).fetchone()
+                )
+
+            summary = UsageSummary.model_validate(query(UsageQuery("summary", filters)))
+            self.assertEqual(summary.totals.billable_calls, 3)
+            self.assertEqual(summary.totals.auxiliary_requests, 1)
+            self.assertEqual(summary.totals.known_microyuan, 280)
+            self.assertEqual(summary.totals.usage_unconfirmed_calls, 1)
+            self.assertEqual(summary.totals.unpriced_calls, 1)
+            self.assertEqual(summary.units["input_tokens"], 110)
+            self.assertEqual(summary.daily[0].date, "2026-09-16")
+            first = UsageCalls.model_validate(
+                query(UsageQuery("list", filters, limit=1))
+            )
+            second = UsageCalls.model_validate(
+                query(UsageQuery("list", filters, limit=1, offset=1))
+            )
+            self.assertEqual(first.total, 3)
+            self.assertNotEqual(
+                first.items[0].receipt.call_id, second.items[0].receipt.call_id
+            )
+            detail = UsageCall.model_validate(
+                query(
+                    UsageQuery("read", filters, call_id=first.items[0].receipt.call_id)
+                )
+            )
+            self.assertEqual(detail, first.items[0])
+            selected = replace(filters, model="unpriced")
+            filtered = UsageSummary.model_validate(
+                query(UsageQuery("summary", selected))
+            )
+            self.assertEqual(filtered.totals.billable_calls, 1)
+            self.assertIsNone(filtered.totals.known_microyuan)
+            empty = UsageSummary.model_validate(
+                query(UsageQuery("summary", replace(filters, model="absent")))
+            )
+            self.assertEqual(empty.totals.billable_calls, 0)
+            self.assertIsNone(empty.totals.known_microyuan)
+            operation_only = UsageSummary.model_validate(
+                query(
+                    UsageQuery("summary", replace(filters, operation_id=str(uuid7())))
+                )
+            )
+            self.assertEqual(operation_only.totals.billable_calls, 0)
+
     def test_supported_database_upgrade_preserves_data_and_matches_fresh_schema(
         self,
     ) -> None:
@@ -1133,7 +1280,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "CREATE TABLE armi.alembic_version (version_num varchar(32) NOT NULL, CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))"
             )
             connection.execute("INSERT INTO armi.alembic_version VALUES ('0000')")
-            with ZipFile(resource / "v18-source.zip") as archive:
+            with ZipFile(resource / "v19-source.zip") as archive:
                 for name in sorted(archive.namelist()):
                     if name.startswith("baseline/") and name.endswith(".sql"):
                         connection.execute(
@@ -1164,6 +1311,101 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             connection.execute(
                 "INSERT INTO armi.artifacts (artifact_id,artifact_object_id,object_generation,media_type,logical_kind,producer_kind,producer_trace_id,privacy_scope) VALUES (%s,%s,1,'application/json','cognition.model_response','cognition',%s,'private')",
                 (historical_artifact, historical_object, "a" * 32),
+            )
+
+        async def historical_subject():
+            factory = PostgreSQLUnitOfWorkFactory(
+                old.runtime_dsn,
+                environment_id=old.environment_id,
+                pool_min=1,
+                pool_max=2,
+                acquire_timeout_seconds=2,
+                statement_timeout_seconds=5,
+                require_runtime_fence=False,
+            )
+            birth = BirthTransaction(
+                _publishing_artifact_store(
+                    Path(artifact_directory.name) / "birth", factory
+                ),
+                ArtifactCatalogRepository(),
+                _birth_repository(),
+                factory,
+            )
+            await factory.open()
+            try:
+                return await birth.birth(
+                    BirthManifest(
+                        schema_version="armi.birth-manifest.v1",
+                        environment_id=old.environment_id,
+                        birth_request_id=uuid7(),
+                        creator_party_id=uuid7(),
+                        idempotency_key="usage-upgrade-fixture",
+                        personality_anchor=PersonalityAnchor(
+                            schema_version="armi.personality-anchor.v1",
+                            voice_style="约 16 岁少女口吻",
+                            traits=("清醒",),
+                        ),
+                        birth_contract_digest=packaged_birth_digests()[
+                            "birth_contract_digest"
+                        ],
+                        request_digest=Digest.from_bytes(b"usage-upgrade-fixture"),
+                    )
+                )
+            finally:
+                await factory.close()
+
+        born = asyncio.run(
+            historical_subject(),
+            loop_factory=lambda: asyncio.SelectorEventLoop(selectors.SelectSelector()),
+        )
+        historical_call, historical_request, historical_work, historical_runtime = (
+            uuid7() for _ in range(4)
+        )
+        with psycopg.connect(old.migrator_dsn) as connection:
+            connection.execute("SET ROLE armi_owner")
+            connection.execute(
+                """INSERT INTO armi.runtime_instances
+                (runtime_instance_id, subject_id, life_generation_id, bundle_activation_id, fence_token, status, lease_expires_at, stopped_at)
+                SELECT %s, subject_id, current_generation_id, current_bundle_activation_id, 1, 'stopped', statement_timestamp() + interval '1 hour', statement_timestamp()
+                FROM armi.subjects WHERE subject_id = %s""",
+                (historical_runtime, born.subject_id),
+            )
+            connection.execute(
+                """INSERT INTO armi.durable_work
+                (work_id,work_kind,owner_kind,owner_ref,subject_id,idempotency_key,payload_digest,not_before,deadline_at,status,max_attempts,trace_id)
+                VALUES (%s,'web.search.invoke','web_observation_request',%s,%s,'usage-history',%s,statement_timestamp(),statement_timestamp()+interval '1 hour','failed',1,%s)""",
+                (
+                    historical_work,
+                    historical_request,
+                    born.subject_id,
+                    "sha256:" + historical_digest,
+                    "b" * 32,
+                ),
+            )
+            connection.execute(
+                """INSERT INTO armi.web_observation_requests
+                (web_observation_request_id,subject_id,runtime_instance_id,fence_token,idempotency_key,purpose,operation_class,request_artifact_id,request_digest,binding_id,work_id,deadline_at,status,last_error_code,completed_at)
+                VALUES (%s,%s,%s,1,'usage-history','public_web_research','search_read_public',%s,%s,'armi.model-tool.volcengine-ark-web-search-v1',%s,statement_timestamp()+interval '1 hour','failed','WEB-TEST',statement_timestamp())""",
+                (
+                    historical_request,
+                    born.subject_id,
+                    historical_runtime,
+                    historical_artifact,
+                    "sha256:" + historical_digest,
+                    historical_work,
+                ),
+            )
+            connection.execute(
+                """INSERT INTO armi.observation_attempts
+                (observation_attempt_id,web_observation_request_id,work_id,work_attempt_id,work_lease_token,attempt_no,binding_id,credential_identity,dispatch_state,provider_model_id,input_tokens,output_tokens,web_search_calls,estimated_cost_microyuan,result_status,error_code,dispatched_at,settled_at)
+                VALUES (%s,%s,%s,%s,1,1,'armi.model-tool.volcengine-ark-web-search-v1',%s,'settled','doubao-seed-evolving',12,3,1,157,'failed','WEB-TEST',statement_timestamp(),statement_timestamp())""",
+                (
+                    historical_call,
+                    historical_request,
+                    historical_work,
+                    uuid7(),
+                    "sha256:" + "c" * 64,
+                ),
             )
         with psycopg.connect(old.migrator_dsn) as connection:
             connection.execute("SET ROLE armi_owner")
@@ -1202,6 +1444,22 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ),
             )
             self.assertEqual(historical_path.read_bytes(), historical)
+            self.assertEqual(
+                connection.execute(
+                    "SELECT usage_contract_version, provider_calls, estimated_cost_microyuan FROM armi.observation_attempts WHERE observation_attempt_id=%s",
+                    (historical_call,),
+                ).fetchone(),
+                (0, {}, 157),
+            )
+            receipt = connection.execute(
+                "SELECT legacy,receipt FROM armi.provider_usage_calls WHERE attempt_id=%s",
+                (historical_call,),
+            ).fetchone()
+            assert receipt is not None
+            self.assertTrue(receipt[0])
+            self.assertEqual(receipt[1]["cost"]["known_microyuan"], 157)
+            self.assertEqual(receipt[1]["cost"]["status"], "legacy")
+            self.assertIsNone(receipt[1]["price"])
 
     def test_online_content_owner_revisions_receipts_and_busy_fences(self) -> None:
         from armi_admin.application.content_contracts import ContentWriteRequest
@@ -2528,6 +2786,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     require_runtime_fence=False,
                 )
                 pipeline = ExternalContentPipeline(
+                    prices=PriceCatalog(()),
                     factory=pipeline_factory,
                     storage=storage,
                     catalog=ArtifactCatalogRepository(),
@@ -5412,6 +5671,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     secret_roots=(),
                 )
             )
+            receipt_fenced = False
+
+            def usage_admission():
+                if receipt_fenced:
+                    raise RuntimeAuthorityViolation("AUTH-LOCAL-SUSPENDED")
+                return current.fence
+
             web_factory = PostgreSQLUnitOfWorkFactory(
                 fixture.runtime_dsn,
                 environment_id=fixture.environment_id,
@@ -5419,7 +5685,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 pool_max=2,
                 acquire_timeout_seconds=2,
                 statement_timeout_seconds=10,
-                authority_admission=lambda: current.fence,
+                authority_admission=usage_admission,
             )
             execution_custody = PostgreSQLExecutionCustody(
                 fixture.runtime_dsn,
@@ -5428,6 +5694,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 pool_timeout_seconds=2,
             )
             pipeline = bootstrap_web_observation(
+                prices=PriceCatalog(()),
                 factory=web_factory,
                 storage=_publishing_artifact_store(
                     data_root / "artifacts",
@@ -5456,6 +5723,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 async def invoke(
                     self, request_bytes: bytes
                 ) -> WebObservationInvocationResult:
+                    nonlocal receipt_fenced
                     self.assert_request(request_bytes)
                     response = {
                         "id": "resp_conformance",
@@ -5492,10 +5760,34 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         "usage": {
                             "input_tokens": 10,
                             "output_tokens": 10,
+                            "cached_input_tokens": 0,
                             "tool_usage": {"web_search": 1},
                         },
                     }
                     canonical, actions, usage, model = normalize_full_response(response)
+                    from armi_kernel.application import provider_call
+
+                    async with provider_call(
+                        provider="volcengine_ark", model=model, service="web_search"
+                    ) as measured:
+                        receipt_fenced = True
+                        try:
+                            await measured.capture(
+                                usage=response["usage"],
+                                provider_request_id=response["id"],
+                                response_model=model,
+                            )
+                            with pytest.raises(DatabaseTransactionError):
+                                async with provider_call(
+                                    provider="volcengine_ark",
+                                    model=model,
+                                    service="web_search",
+                                ):
+                                    raise AssertionError(
+                                        "a fenced Runtime must not dispatch another request"
+                                    )
+                        finally:
+                            receipt_fenced = False
                     return WebObservationInvocationResult(
                         WebObservationResultStatus.SUCCEEDED,
                         model,
@@ -5605,10 +5897,30 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertEqual(evidence["attempt_count"], 1)
         self.assertGreaterEqual(cast(int, evidence["tool_call_count"]), 1)
         self.assertEqual(evidence["completed_work_count"], 1)
-        self.assertLessEqual(
-            cast(int, evidence["estimated_model_cost_microyuan"]), 1_000_000
-        )
+        self.assertIsNone(evidence["estimated_model_cost_microyuan"])
         with psycopg.connect(fixture.admin_role_dsn) as connection:
+            receipt_row = connection.execute(
+                "SELECT receipt FROM armi.provider_usage_calls WHERE owner = 'web-observation'"
+            ).fetchone()
+            assert receipt_row is not None
+            self.assertEqual(receipt_row[0]["outcome"], "returned")
+            self.assertEqual(receipt_row[0]["cost"]["status"], "unpriced")
+            if live_credential is None:
+                self.assertEqual(
+                    receipt_row[0]["provider_request_id"], "resp_conformance"
+                )
+                self.assertEqual(
+                    {
+                        item["unit"]: item["quantity"]
+                        for item in receipt_row[0]["quantities"]
+                    },
+                    {
+                        "input_tokens": 10,
+                        "output_tokens": 10,
+                        "cached_input_tokens": 0,
+                        "web_search_calls": 1,
+                    },
+                )
             row = connection.execute(
                 "SELECT count(*) FROM armi.web_observation_requests"
             ).fetchone()
@@ -7082,6 +7394,17 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 self.fail("MODEL-LIVE-CREDENTIAL")
 
             async def live_candidate() -> tuple[Any, dict[str, object]]:
+                from tools.live_ark_credential import live_provider_meter
+
+                with live_provider_meter(
+                    Path(live_environment_root).resolve()
+                ) as meter:
+                    result, evidence = await metered_live_candidate(meter.prices)
+                    return result, {**evidence, **meter.report()}
+
+            async def metered_live_candidate(
+                prices: PriceCatalog,
+            ) -> tuple[Any, dict[str, object]]:
                 binding = load_active_binding()
                 request_bytes = build_request_bytes(
                     binding=binding,
@@ -7120,6 +7443,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 )
                 input_tokens = await adapter.tokenize(request_bytes)
                 request = checked_model_request(
+                    prices=prices,
                     binding=binding,
                     request_bytes=request_bytes,
                     context_digest=digests["compiled_context"],
@@ -7136,8 +7460,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     or invocation.provider_model_id is None
                 ):
                     self.fail(invocation.error_code or "MODEL-LIVE-FAILED")
-                if invocation.usage.estimated_cost_microyuan > 1_000_000:
-                    self.fail("MODEL-LIVE-BUDGET")
                 response = cast(dict[str, Any], json.loads(invocation.response_bytes))
                 candidate_bytes = rfc8785.dumps(
                     json.loads(response["output_text"])["candidate"]
@@ -7212,7 +7534,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "input_tokens": invocation.usage.input_tokens,
                     "output_tokens": invocation.usage.output_tokens,
                     "cached_input_tokens": invocation.usage.cached_input_tokens,
-                    "estimated_cost_microyuan": invocation.usage.estimated_cost_microyuan,
                     "elapsed_ms": elapsed_ms,
                 }
 

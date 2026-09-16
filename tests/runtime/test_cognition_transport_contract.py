@@ -6,6 +6,11 @@ from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
+from armi_kernel.application import (
+    PriceCatalog,
+    ProviderMeterScope,
+    provider_meter_scope,
+)
 from armi_runtime.adapters.model import volcengine_ark as ark
 from armi_runtime.composition.model_verification import (
     GENERIC_COGNITION_INSTRUCTIONS,
@@ -45,11 +50,24 @@ async def test_generic_transport_sends_current_prompt_and_schema(
         ).encode(),
         max_output_tokens=1024,
     )
-    await transport.invoke(
-        api_key=memoryview(b"isolated-test"),
-        binding=cast(Any, SimpleNamespace(model_id="doubao-seed-evolving")),
-        request=cast(Any, request),
-    )
+    receipts = []
+
+    async def save(receipt):
+        receipts.append(receipt)
+
+    with provider_meter_scope(ProviderMeterScope(save, PriceCatalog(()), purpose)):
+        await transport.invoke(
+            api_key=memoryview(b"isolated-test"),
+            binding=cast(
+                Any,
+                SimpleNamespace(
+                    provider="volcengine_ark", model_id="doubao-seed-evolving"
+                ),
+            ),
+            request=cast(Any, request),
+        )
+    assert receipts[-1].provider_request_id == "controlled-response"
+    assert receipts[-1].outcome == "returned"
     assert create.await_args is not None
     payload = create.await_args.kwargs
     assert payload == transport.request_parameters(
