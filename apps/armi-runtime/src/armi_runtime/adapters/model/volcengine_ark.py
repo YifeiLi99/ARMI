@@ -21,6 +21,7 @@ from armi_kernel.application import (
     ModelResultStatus,
     ModelUsage,
     ModelViolation,
+    provider_call,
 )
 from openai import (
     APIConnectionError,
@@ -96,24 +97,39 @@ class OpenAIArkTransport:
                 self._candidate_schema,
                 available_refs=_available_refs(request_bytes),
             )
-            result_value = await client.post(
-                "/tokenization",
-                cast_to=cast(Any, dict[str, Any]),
-                body={
-                    "model": binding.model_id,
-                    "text": "\n".join(
-                        (
-                            self._instructions,
-                            rendered_input,
-                            json.dumps(
-                                provider_schema,
-                                ensure_ascii=False,
-                                separators=(",", ":"),
-                            ),
-                        )
-                    ),
-                },
-            )
+            async with provider_call(
+                provider=binding.provider,
+                model=binding.model_id,
+                service="tokenization",
+            ) as call:
+                result_value = await client.post(
+                    "/tokenization",
+                    cast_to=cast(Any, dict[str, Any]),
+                    body={
+                        "model": binding.model_id,
+                        "text": "\n".join(
+                            (
+                                self._instructions,
+                                rendered_input,
+                                json.dumps(
+                                    provider_schema,
+                                    ensure_ascii=False,
+                                    separators=(",", ":"),
+                                ),
+                            )
+                        ),
+                    },
+                )
+                token_usage = (
+                    cast(dict[str, object], result_value).get("usage")
+                    if isinstance(result_value, dict)
+                    else None
+                )
+                await call.capture(
+                    usage=cast(dict[str, object], token_usage)
+                    if isinstance(token_usage, dict)
+                    else None
+                )
         finally:
             await client.close()
         if not isinstance(result_value, dict):
@@ -155,12 +171,26 @@ class OpenAIArkTransport:
     ) -> dict[str, Any]:
         client = _client(api_key, binding)
         try:
-            response = cast(
-                Response,
-                await client.responses.create(
-                    **self.request_parameters(binding, request)
-                ),
-            )
+            async with provider_call(
+                provider=binding.provider,
+                model=binding.model_id,
+                service="generation",
+            ) as call:
+                response = cast(
+                    Response,
+                    await client.responses.create(
+                        **self.request_parameters(binding, request)
+                    ),
+                )
+                raw_usage = response.model_dump(mode="json").get("usage")
+                await call.capture(
+                    usage=cast(dict[str, object], raw_usage)
+                    if isinstance(raw_usage, dict)
+                    else None,
+                    provider_request_id=getattr(response, "_request_id", None)
+                    or response.id,
+                    response_model=response.model,
+                )
         finally:
             await client.close()
         output_types = tuple(
@@ -415,10 +445,6 @@ class VolcengineArkModelAdapter(ModelPort):
             input_tokens,
             output_tokens,
             cached_tokens,
-            self._binding.estimate_cost_microyuan(
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-            ),
         )
         safe_response = {
             "schema_version": "armi.model-response-artifact.v3",

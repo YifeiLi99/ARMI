@@ -1,0 +1,13 @@
+{
+  "format": "armi.database-upgrade.v1",
+  "source": {
+    "baseline": "armi.schema-baseline.v19",
+    "schema_digest": "sha256:8a6cb08cf79815511a48a784b59d60557c5686f1e42d15b9c91b14bb8f2875a5",
+    "role_policy_digest": "sha256:f05c37c65b583f8e08423cf46347df1ccd022620afbb5926ef9d3eb936351aa3",
+    "postgresql": "18.4",
+    "vector": "0.8.6",
+    "pg_trgm": "1.6"
+  },
+  "target_baseline": "armi.schema-baseline.v20",
+  "steps": ["../upgrades/v19-to-v20.sql", "baseline/85_provider_usage.sql", "baseline/99_privileges.sql"]
+}

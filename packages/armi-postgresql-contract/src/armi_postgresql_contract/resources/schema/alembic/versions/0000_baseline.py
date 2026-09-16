@@ -22,6 +22,7 @@ _DOCUMENTS = (
     "70_web_codex_audit_data_rights.sql",
     "75_admin_management.sql",
     "80_cross_domain_constraints_and_indexes.sql",
+    "85_provider_usage.sql",
     "90_static_catalog.sql",
     "99_privileges.sql",
 )

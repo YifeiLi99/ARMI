@@ -199,13 +199,32 @@ class PostgreSQLUnitOfWorkFactory:
             runtime_fence=runtime_fence,
         )
 
+    def provider_usage_unit_of_work(
+        self, *, registration: bool
+    ) -> PostgreSQLUnitOfWork:
+        if registration:
+            return self.unit_of_work()
+        # Observed consumption can arrive after authority loss. Owners update
+        # only an existing provider_calls entry, never resume the old operation.
+        return PostgreSQLUnitOfWork(
+            self._pool,
+            environment_id=self._environment_id,
+            expected_role=self._expected_role,
+            isolation=TransactionIsolation.READ_COMMITTED,
+            read_only=False,
+            statement_timeout_milliseconds=self._statement_timeout_milliseconds,
+            acquire_timeout_seconds=self._acquire_timeout_seconds,
+            authority_admission=None,
+            runtime_fence=None,
+        )
+
     def bootstrap_birth_unit_of_work(
         self,
         *,
         isolation: TransactionIsolation = TransactionIsolation.SERIALIZABLE,
         read_only: bool = False,
     ) -> PostgreSQLUnitOfWork:
-        """Return the sole unfenced product-write exception for T-01 birth."""
+        """Return the unfenced subject-creation transaction for T-01 birth."""
 
         if read_only:
             return self.unit_of_work(isolation=isolation, read_only=True)

@@ -13,7 +13,7 @@ from armi_adapter_qq import load_qq_napcat_config
 from armi_cognition.bootstrap import load_active_model_binding, load_voice_model_binding
 from armi_context.api import load_embedding_binding
 from armi_kernel import load_yaml_mapping
-from armi_kernel.application import ModelViolation
+from armi_kernel.application import ModelViolation, load_price_catalog
 from armi_local_control.configuration.editing import EnvironmentConfiguration
 from armi_local_control.configuration.paths import has_reparse_point
 from armi_local_control.maintenance import ConfigurationInvocation
@@ -35,11 +35,12 @@ class ConfigurationAsset(EnvironmentConfiguration):
             runtime_config_path("runtime.yaml"),
             environment_id=str(request.environment_id),
         )
-        self.target: Literal["model-bindings", "web-search", "qq", "mood-display"] = (
-            request.target
-        )
+        self.target: Literal[
+            "model-bindings", "provider-pricing", "web-search", "qq", "mood-display"
+        ] = request.target
         relative = {
             "model-bindings": "configs/model-bindings.yaml",
+            "provider-pricing": "configs/provider-pricing.yaml",
             "web-search": "configs/web-search.yaml",
             "qq": "channels/qq-napcat.yaml",
             "mood-display": "devices/mood-display.yaml",
@@ -47,7 +48,7 @@ class ConfigurationAsset(EnvironmentConfiguration):
         self.path = self.root / relative
         self.default = (
             runtime_config_path(self.target + ".yaml")
-            if self.target in {"model-bindings", "web-search"}
+            if self.target in {"model-bindings", "web-search", "provider-pricing"}
             else None
         )
 
@@ -136,6 +137,8 @@ class ConfigurationAsset(EnvironmentConfiguration):
                     load_external_recognition_binding(path)
                 case "web-search":
                     validate_web_search_configuration(raw)
+                case "provider-pricing":
+                    load_price_catalog(path)
                 case "qq":
                     load_qq_napcat_config(path)
                 case "mood-display":

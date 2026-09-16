@@ -324,7 +324,14 @@ class Desktop:
         target_selector = ttk.Combobox(
             bar,
             textvariable=self.target,
-            values=("runtime", "model-bindings", "web-search", "qq", "mood-display"),
+            values=(
+                "runtime",
+                "model-bindings",
+                "provider-pricing",
+                "web-search",
+                "qq",
+                "mood-display",
+            ),
             state="readonly",
             width=22,
         )

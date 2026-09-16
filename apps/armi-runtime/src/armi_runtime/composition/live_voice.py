@@ -7,7 +7,7 @@ from uuid import UUID
 
 from armi_interaction.api import CreatorIdentityContext, CreatorInteractionPort
 from armi_kernel import load_yaml_file
-from armi_kernel.application import CredentialPurpose
+from armi_kernel.application import CredentialPurpose, load_price_catalog
 from armi_live_voice.api import (
     AudioFormat,
     LiveVoiceBinding,
@@ -70,7 +70,7 @@ def compose_runtime_live_voice(
         model_locator_name = str(voice_binding["credential_locator"])
         model_purpose = CredentialPurpose(str(voice_binding["credential_purpose"]))
         if (
-            bindings.get("schema_version") != "armi.model-bindings.v2"
+            bindings.get("schema_version") != "armi.model-bindings.v3"
             or voice_provider != "volcengine_ark"
             or not voice_api_base.startswith("https://")
             or voice_binding.get("profile") != "creator_voice_act"
@@ -164,6 +164,9 @@ def compose_runtime_live_voice(
         scene_key=creator.default_scene_key,
     )
     return compose_live_voice(
+        prices=load_price_catalog(
+            runtime_config_path("provider-pricing.yaml", environment_root=prepared.root)
+        ),
         audio=audio,
         asr=VolcStreamingAsr(
             speech_credentials,

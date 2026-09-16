@@ -6,55 +6,31 @@ import argparse
 import asyncio
 import json
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, cast
 
 import httpx
-from armi_kernel import load_yaml_file
 from armi_runtime.composition.web_search_verification import (
     API_BASE,
     BINDING_ID,
     MODEL,
     TOOL_DECLARATION,
     WebSearchViolation,
+    metered_ark_response,
     normalize_provider_response,
 )
-from live_ark_credential import load_live_ark_credential
+from live_ark_credential import live_provider_meter, load_live_ark_credential
 from openai import AsyncOpenAI
-
-_BUDGET_MICROYUAN = 2_000_000
-
-
-def _rates(root: Path) -> tuple[int, int]:
-    try:
-        manifest = cast(
-            dict[str, Any], load_yaml_file(root / "configs/model-bindings.yaml")
-        )
-        binding = next(
-            item for item in manifest["bindings"] if item["model_id"] == MODEL
-        )
-        input_rate = binding["input_microyuan_per_million"]
-        output_rate = binding["output_microyuan_per_million"]
-    except OSError, KeyError, StopIteration, TypeError, ValueError:
-        raise WebSearchViolation("WEB-SEARCH-LIVE-COST") from None
-    if not all(type(item) is int and item > 0 for item in (input_rate, output_rate)):
-        raise WebSearchViolation("WEB-SEARCH-LIVE-COST")
-    return cast(int, input_rate), cast(int, output_rate)
-
-
-def _cost(evidence: Mapping[str, int], rates: tuple[int, int]) -> int:
-    value = (
-        evidence["input_tokens"] * rates[0]
-        + evidence["output_tokens"] * rates[1]
-        + 999_999
-    ) // 1_000_000
-    if value > _BUDGET_MICROYUAN:
-        raise WebSearchViolation("WEB-SEARCH-LIVE-BUDGET")
-    return value
 
 
 async def _run(root: Path, environment_root: Path) -> dict[str, object]:
+    with live_provider_meter(environment_root) as meter:
+        result = await _run_metered(environment_root)
+        return {**result, **meter.report()}
+
+
+async def _run_metered(environment_root: Path) -> dict[str, object]:
     try:
         api_key = load_live_ark_credential(environment_root).read_text()
     except Exception:
@@ -69,7 +45,9 @@ async def _run(root: Path, environment_root: Path) -> dict[str, object]:
     )
     started = time.perf_counter()
     try:
-        response = await client.responses.create(
+        response = await metered_ark_response(
+            client,
+            service="web_search",
             model=MODEL,
             input=(
                 "请使用联网搜索查找火山方舟官方 Responses API 工具调用文档。"
@@ -84,7 +62,6 @@ async def _run(root: Path, environment_root: Path) -> dict[str, object]:
         if not isinstance(raw.get("id"), str) or not raw["id"]:
             raise WebSearchViolation("WEB-SEARCH-LIVE-REQUEST-ID")
         _normalized, evidence = normalize_provider_response(raw)
-        estimated_cost = _cost(evidence, _rates(root))
         return {
             "status": "pass",
             "provider": "volcengine_ark",
@@ -92,7 +69,6 @@ async def _run(root: Path, environment_root: Path) -> dict[str, object]:
             "binding_id": BINDING_ID,
             "store": False,
             **evidence,
-            "estimated_model_cost_microyuan": estimated_cost,
             "elapsed_ms": round((time.perf_counter() - started) * 1000),
             "production_model_tools": [],
             "m0_seam_web": None,

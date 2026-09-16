@@ -28,12 +28,9 @@ class PrimaryModelSettings(ManifestSection):
     credential_identity: str
     credential_locator: str
     credential_purpose: str
-    pricing_snapshot_id: str
     input_token_limit: Positive
     output_token_limit: Positive
     timeout_seconds: Positive
-    input_microyuan_per_million: NonNegative
-    output_microyuan_per_million: NonNegative
     attempt_cost_limit_microyuan: Positive
 
 
@@ -104,7 +101,7 @@ class RecognitionModelSettings(ManifestSection):
 
 
 class ModelManifest(ManifestSection):
-    schema_version: Literal["armi.model-bindings.v2"]
+    schema_version: Literal["armi.model-bindings.v3"]
     active_binding: str
     bindings: Annotated[list[PrimaryModelSettings], Field(min_length=1, max_length=1)]
     voice_binding: VoiceModelSettings

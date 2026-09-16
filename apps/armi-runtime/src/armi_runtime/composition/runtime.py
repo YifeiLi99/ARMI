@@ -84,6 +84,7 @@ from armi_kernel.application import (
     RuntimeAuthorityViolation,
     RuntimeInstanceId,
     SubjectCommitViolation,
+    load_price_catalog,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, TraceId
 from armi_live_vision.api import (
@@ -125,6 +126,7 @@ from armi_runtime.adapters.model.external_content import (
     load_external_recognition_binding,
 )
 from armi_runtime.adapters.persistence.durable_work import PostgreSQLDurableWorkGateway
+from armi_runtime.adapters.persistence.provider_usage import PostgreSQLUsageQuery
 from armi_runtime.adapters.persistence.runtime_observability import (
     RuntimeObservationError,
 )
@@ -353,6 +355,11 @@ async def _compose_live_vision_sources(
                 else source_config.fps
             )
             sink = compose_visual_observation_sink(
+                prices=load_price_catalog(
+                    runtime_config_path(
+                        "provider-pricing.yaml", environment_root=prepared.root
+                    )
+                ),
                 failure_notification=failure_notification,
                 factory=factory,
                 storage=ContentAddressedArtifactStore(
@@ -2505,6 +2512,9 @@ async def _serve(
         return data_rights_result_wire(result)
 
     app = create_runtime_app(
+        usage_query=None
+        if runtime_unit_of_work_factory is None
+        else PostgreSQLUsageQuery(runtime_unit_of_work_factory, prepared.root),
         creator_media=None
         if media_uploads is None or interaction_module is None
         else CreatorMedia(media_uploads, interaction_module.creator_media),

@@ -61,7 +61,7 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
         "live-voice", maintenance_writable=True
     ),
     "live_voice_provider_attempts": TableOwnership(
-        "live-voice", maintenance_writable=True
+        "live-voice", maintenance_writable=False
     ),
     "live_voice_playback_attempts": TableOwnership(
         "live-voice", maintenance_writable=True
@@ -76,10 +76,10 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     ),
     # Perception and evidence.
     "external_content_recognition_attempts": TableOwnership(
-        "perception", maintenance_writable=True
+        "perception", maintenance_writable=False
     ),
     "visual_recognition_attempts": TableOwnership(
-        "perception", maintenance_writable=True
+        "perception", maintenance_writable=False
     ),
     "experience_evidence_links": TableOwnership("evidence", maintenance_writable=True),
     "external_evidence": TableOwnership("evidence", maintenance_writable=True),
@@ -100,7 +100,7 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     ),
     # Experience and cognition.
     "accepted_experiences": TableOwnership("experience", maintenance_writable=True),
-    "cognitive_attempts": TableOwnership("cognition", maintenance_writable=True),
+    "cognitive_attempts": TableOwnership("cognition", maintenance_writable=False),
     "cognitive_candidate_applications": TableOwnership(
         "cognition", maintenance_writable=True
     ),
@@ -166,7 +166,7 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     "local_inbox_deliveries": TableOwnership("effect", maintenance_writable=False),
     # Web, Codex, and Data Rights.
     "observation_attempts": TableOwnership(
-        "web-observation", maintenance_writable=True
+        "web-observation", maintenance_writable=False
     ),
     "observation_tool_calls": TableOwnership(
         "web-observation", maintenance_writable=True

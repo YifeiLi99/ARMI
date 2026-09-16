@@ -49,6 +49,27 @@ class RuntimeStatusRequest(EnvironmentRequest):
     pass
 
 
+class UsageRequest(EnvironmentRequest):
+    start: str | None = None
+    end: str | None = None
+    service: str | None = Field(default=None, max_length=128)
+    model: str | None = Field(default=None, max_length=128)
+    purpose: str | None = Field(default=None, max_length=128)
+    outcome: str | None = Field(default=None, max_length=128)
+    cost_status: str | None = Field(default=None, max_length=128)
+    operation_id: str | None = None
+
+
+class UsageListRequest(UsageRequest):
+    limit: int = Field(default=25, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)
+
+
+class UsageReadRequest(EnvironmentRequest):
+    call_id: str
+    _call_id = field_validator("call_id")(_uuid7)
+
+
 class DoctorRequest(EnvironmentRequest):
     """Read diagnostics only; never collect devices or dispatch external effects."""
 
@@ -77,9 +98,14 @@ class AuthorizationRevokeRequest(AuthorizationGetRequest):
 
 
 class ConfigurationRequest(EnvironmentRequest):
-    target: Literal["runtime", "model-bindings", "web-search", "qq", "mood-display"] = (
-        "runtime"
-    )
+    target: Literal[
+        "runtime",
+        "model-bindings",
+        "provider-pricing",
+        "web-search",
+        "qq",
+        "mood-display",
+    ] = "runtime"
     action: Literal["read", "validate", "preview", "apply", "status"]
     patch: dict[str, object] = Field(default_factory=dict)
     document: dict[str, object] | None = None
@@ -508,6 +534,9 @@ HealthResult = AdminToolResult[HealthPayload]
 SchemaStatusResult = AdminToolResult[SchemaStatusPayload]
 ObservationRequest = (
     CognitionReadRequest
+    | UsageRequest
+    | UsageListRequest
+    | UsageReadRequest
     | InvocationStatusRequest
     | DoctorRequest
     | RuntimeStatusRequest
@@ -573,4 +602,7 @@ __all__ = (
     "SubjectSnapshotRequest",
     "TailDiagnosticsRequest",
     "TraceFlowRequest",
+    "UsageListRequest",
+    "UsageReadRequest",
+    "UsageRequest",
 )

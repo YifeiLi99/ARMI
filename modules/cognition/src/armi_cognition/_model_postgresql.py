@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import cast
 from uuid import UUID, uuid7
@@ -21,6 +22,7 @@ from armi_kernel.application import (
     ModelInvocationResult,
     ModelUsage,
     ModelViolation,
+    ProviderCallReceipt,
     WorkLease,
     WorkRecord,
     WorkStatus,
@@ -176,7 +178,7 @@ class PostgreSQLCognitiveModelRepository:
         lease: WorkLease,
         snapshot: ModelEpisodeSnapshot,
         binding: ModelBinding,
-        request_artifact: ArtifactRef,
+        request_artifact: ArtifactRef | None,
     ) -> ModelAttemptId | None:
         connection = unit_of_work.transaction
         await self._assert_lease(unit_of_work, lease, snapshot.episode_id)
@@ -297,9 +299,9 @@ class PostgreSQLCognitiveModelRepository:
                 binding.profile,
                 binding.request_contract_version,
                 binding.response_contract_version,
-                binding.pricing_snapshot_id,
+                None,
                 binding.credential_identity,
-                request_artifact.artifact_id.value,
+                request_artifact.artifact_id.value if request_artifact else None,
             ),
         )
         updated = await (
@@ -327,6 +329,52 @@ class PostgreSQLCognitiveModelRepository:
         )
         return attempt_id
 
+    async def attach_request(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        lease: WorkLease,
+        episode_id: UUID,
+        attempt_id: ModelAttemptId,
+        request_artifact: ArtifactRef,
+    ) -> None:
+        await self._assert_lease(unit_of_work, lease, episode_id)
+        result = await unit_of_work.transaction.execute(
+            """UPDATE armi.cognitive_attempts SET request_artifact_id=%s
+               WHERE model_attempt_id=%s AND dispatch_status='prepared'
+                 AND request_artifact_id IS NULL""",
+            (request_artifact.artifact_id.value, attempt_id.value),
+        )
+        if result.rowcount != 1:
+            raise ModelViolation("MODEL-ATTEMPT-STATE")
+
+    async def record_provider_call(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        attempt_id: ModelAttemptId,
+        receipt: ProviderCallReceipt,
+    ) -> None:
+        # A receipt is an observed external fact, not authority to resume cognition.
+        result = await unit_of_work.transaction.execute(
+            """UPDATE armi.cognitive_attempts
+               SET provider_calls=jsonb_set(provider_calls,ARRAY[%s],%s::jsonb)
+               WHERE model_attempt_id=%s
+                 AND ((%s AND settled_at IS NULL AND NOT (provider_calls ? %s))
+                      OR (NOT %s AND provider_calls ? %s))""",
+            (
+                receipt.call_id,
+                json.dumps(receipt.document()),
+                attempt_id.value,
+                receipt.registration,
+                receipt.call_id,
+                receipt.registration,
+                receipt.call_id,
+            ),
+        )
+        if result.rowcount != 1:
+            raise ModelViolation("MODEL-ATTEMPT-STATE")
+
     async def mark_dispatched(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
@@ -348,6 +396,7 @@ class PostgreSQLCognitiveModelRepository:
                   AND work_id = %s
                   AND work_attempt_id = %s
                   AND dispatch_status = 'prepared'
+                  AND request_artifact_id IS NOT NULL
                 RETURNING model_attempt_id
                 """,
                 (
@@ -526,13 +575,14 @@ class PostgreSQLCognitiveModelRepository:
                     output_tokens = %s,
                     cached_input_tokens = %s,
                     estimated_cost_microyuan = %s,
-                    result_status = %s,
+                    result_status = CASE WHEN dispatch_status='prepared'
+                                         THEN 'cancelled' ELSE %s END,
                     error_code = %s,
                     settled_at = statement_timestamp()
                 WHERE model_attempt_id = %s
                   AND work_id = %s
                   AND work_attempt_id = %s
-                  AND dispatch_status = 'dispatched'
+                  AND dispatch_status IN ('prepared', 'dispatched')
                 RETURNING model_attempt_id
                 """,
                 (
@@ -542,7 +592,7 @@ class PostgreSQLCognitiveModelRepository:
                     usage.input_tokens if usage else None,
                     usage.output_tokens if usage else None,
                     usage.cached_input_tokens if usage else None,
-                    usage.estimated_cost_microyuan if usage else None,
+                    None,
                     result.status.value,
                     result.error_code,
                     attempt_id.value,

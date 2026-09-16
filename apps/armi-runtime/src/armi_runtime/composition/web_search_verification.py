@@ -19,11 +19,14 @@ from armi_web_observation.bootstrap import (
     web_search_violation as WebSearchViolation,
 )
 
+from armi_runtime.adapters.model._metered_ark import metered_ark_response
+
 __all__ = (
     "API_BASE",
     "BINDING_ID",
     "MODEL",
     "TOOL_DECLARATION",
     "WebSearchViolation",
+    "metered_ark_response",
     "normalize_provider_response",
 )

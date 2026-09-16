@@ -8,6 +8,11 @@ from types import SimpleNamespace
 
 import armi_runtime.adapters.voice.volc as volc_module
 import pytest
+from armi_kernel.application import (
+    PriceCatalog,
+    ProviderMeterScope,
+    provider_meter_scope,
+)
 from armi_live_voice.api import LiveVoiceViolation
 from armi_runtime.adapters.voice.volc import (
     VolcCredentials,
@@ -20,6 +25,20 @@ from armi_runtime.adapters.voice.volc import (
     encode_event,
     json_payload,
 )
+
+
+@pytest.fixture(autouse=True)
+def fake_provider_receipts():
+    """These adapter tests use fake transports and an inspectable receipt sink."""
+    receipts = []
+
+    async def save(receipt):
+        receipts.append(receipt)
+
+    with provider_meter_scope(
+        ProviderMeterScope(save, PriceCatalog(()), "adapter_test")
+    ):
+        yield receipts
 
 
 def test_voice_credentials_decode_from_scoped_api_key() -> None:
@@ -267,6 +286,7 @@ async def test_tts_reuses_prepared_connection_for_multiple_sessions(
 @pytest.mark.asyncio
 async def test_tts_propagates_text_stream_failure_without_waiting_for_session_end(
     monkeypatch: pytest.MonkeyPatch,
+    fake_provider_receipts,
 ) -> None:
     socket = FakeTtsSocket()
 
@@ -290,3 +310,7 @@ async def test_tts_propagates_text_stream_failure_without_waiting_for_session_en
 
     with pytest.raises(LiveVoiceViolation, match="bad trailing output"):
         await asyncio.wait_for(consume(), timeout=1)
+    receipt = fake_provider_receipts[-1]
+    assert receipt.outcome == "unknown"
+    assert receipt.quantities[0].quantity == len("已经发出的片段")
+    assert receipt.quantities[0].source.value == "local_measurement"

@@ -34,6 +34,7 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpe
 
 from armi_runtime.application.model_manifest import load_model_manifest
 
+from ._metered_ark import metered_ark_response
 from .doubao_speech import DoubaoSpeechRecognitionBinding
 
 _PURPOSE = CredentialPurpose("model.request")
@@ -111,7 +112,8 @@ class VolcengineArkExternalContentRecognizer(
                 timeout=self._binding.timeout_seconds,
                 http_client=httpx.AsyncClient(trust_env=False),
             )
-            response = await client.responses.create(
+            response = await metered_ark_response(
+                client,
                 model=model_id,
                 input=cast(Any, [_input_message(request)]),
                 store=False,
@@ -178,7 +180,8 @@ class VolcengineArkExternalContentRecognizer(
                 timeout=self._binding.timeout_seconds,
                 http_client=httpx.AsyncClient(trust_env=False),
             )
-            response = await client.responses.create(
+            response = await metered_ark_response(
+                client,
                 model=model_id,
                 input=cast(Any, [_visual_observation_message(request)]),
                 store=False,

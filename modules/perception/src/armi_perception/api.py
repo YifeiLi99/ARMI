@@ -20,6 +20,7 @@ from armi_kernel.application import (
     ArtifactPublication,
     ArtifactRef,
     ArtifactRegistration,
+    ProviderCallReceipt,
     WorkLease,
     WorkRecord,
     WorkType,
@@ -277,6 +278,14 @@ class VisualRecognitionPort(Protocol):
 
 @runtime_checkable
 class VisualRecognitionAttemptPort(Protocol):
+    async def record_provider_call(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        attempt_id: UUID,
+        receipt: ProviderCallReceipt,
+    ) -> None: ...
+
     async def prepared_attempt_for_observation(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,

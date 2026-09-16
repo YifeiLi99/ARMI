@@ -44,12 +44,16 @@ from armi_kernel.application import (
     ModelResultStatus,
     ModelUsage,
     ModelViolation,
+    PriceCatalog,
+    ProviderCallReceipt,
+    ProviderMeterScope,
     SubjectCommitViolation,
     WorkLease,
     WorkRecord,
     WorkType,
     WorkViolation,
     ordered_custody_requests,
+    provider_meter_scope,
 )
 from armi_kernel.contracts import Instant, Purpose, SubjectId
 from armi_runtime_foundation import (
@@ -204,7 +208,7 @@ class _DeterministicMoodReflectionAdapter:
                     },
                 }
             ),
-            ModelUsage(max(1, len(request.canonical_bytes) // 4), 1, 0, 0),
+            ModelUsage(max(1, len(request.canonical_bytes) // 4), 1, 0),
         )
 
 
@@ -252,6 +256,7 @@ class ModelPipeline:
         "_failure_notification",
         "_finalization",
         "_lease_owner",
+        "_prices",
         "_repository",
         "_stop",
         "_storage",
@@ -272,11 +277,13 @@ class ModelPipeline:
         finalization: CognitionFinalizationPort,
         adapter_factory: CognitionModelAdapterFactory,
         binding_path: Path,
+        prices: PriceCatalog,
         web_search_active: bool = False,
         wakeups: CognitionWakeupPort | None = None,
         diagnostic: Diagnostic | None = None,
         failure_notification: Callable[[UUID, str], Awaitable[None]] | None = None,
     ) -> None:
+        self._prices = prices
         dialogue_version = DIALOGUE_CANDIDATE_VERSION
         load_active_binding(
             binding_path,
@@ -626,8 +633,34 @@ class ModelPipeline:
                 included_context_refs=snapshot.included_context_refs,
                 budget_exclusions=snapshot.budget_exclusions,
             )
-            input_tokens = await adapter.tokenize(request_bytes)
+            async with self._factory.unit_of_work() as unit_of_work:
+                attempt_id = await self._repository.prepare_attempt(
+                    unit_of_work,
+                    lease=lease,
+                    snapshot=snapshot,
+                    binding=adapter.binding,
+                    request_artifact=None,
+                )
+            if attempt_id is None:
+                self._diagnostic("model.outcome_unknown")
+                return
+            bound_attempt = attempt_id
+
+            async def save_usage(receipt: ProviderCallReceipt) -> None:
+                async with self._factory.provider_usage_unit_of_work(
+                    registration=receipt.registration
+                ) as usage_uow:
+                    await self._repository.record_provider_call(
+                        usage_uow,
+                        attempt_id=bound_attempt,
+                        receipt=receipt,
+                    )
+
+            usage_scope = ProviderMeterScope(save_usage, self._prices, snapshot.purpose)
+            with provider_meter_scope(usage_scope):
+                input_tokens = await adapter.tokenize(request_bytes)
             request = checked_model_request(
+                prices=self._prices,
                 binding=adapter.binding,
                 request_bytes=request_bytes,
                 context_digest=snapshot.context_digest,
@@ -652,16 +685,13 @@ class ModelPipeline:
                             snapshot,
                         )
                     )
-                attempt_id = await self._repository.prepare_attempt(
+                await self._repository.attach_request(
                     unit_of_work,
                     lease=lease,
-                    snapshot=snapshot,
-                    binding=adapter.binding,
+                    episode_id=snapshot.episode_id,
+                    attempt_id=attempt_id,
                     request_artifact=request_registration.ref,
                 )
-                if attempt_id is None:
-                    self._diagnostic("model.outcome_unknown")
-                    return
             async with self._factory.unit_of_work() as unit_of_work:
                 await self._repository.mark_dispatched(
                     unit_of_work,
@@ -669,7 +699,8 @@ class ModelPipeline:
                     attempt_id=attempt_id,
                     episode_id=snapshot.episode_id,
                 )
-            result = await adapter.invoke(request)
+            with provider_meter_scope(usage_scope):
+                result = await adapter.invoke(request)
             if result.status is ModelResultStatus.SUCCEEDED:
                 published_response = await self._publish(
                     cast(bytes, result.response_bytes),

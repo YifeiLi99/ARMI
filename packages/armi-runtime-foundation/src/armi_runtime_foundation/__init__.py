@@ -22,6 +22,7 @@ from .projection_cursor import (
     ProjectionCursorPage,
     ProjectionCursorStale,
 )
+from .provider_usage_query import usage_result, usage_statement
 from .recovery import (
     EmptyRecoveryParticipant,
     InterruptedWorkEndParticipant,
@@ -92,4 +93,6 @@ __all__ = (
     "RecoveryWorkSnapshot",
     "RuntimeTransactionFailure",
     "StopSignal",
+    "usage_result",
+    "usage_statement",
 )

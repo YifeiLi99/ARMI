@@ -5680,6 +5680,644 @@
         "title": "UnavailableOutcomeResponse",
         "type": "object"
       },
+      "UsageCall": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt_id": {
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "auxiliary_requests": {
+            "items": {
+              "$ref": "#/components/schemas/UsageReceipt"
+            },
+            "title": "Auxiliary Requests",
+            "type": "array"
+          },
+          "business_result": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Result"
+          },
+          "historical_incomplete": {
+            "title": "记录来自旧口径",
+            "type": "boolean"
+          },
+          "operation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Id"
+          },
+          "owner": {
+            "title": "Owner",
+            "type": "string"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/UsageReceipt"
+          },
+          "reference_id": {
+            "title": "Reference Id",
+            "type": "string"
+          },
+          "reference_kind": {
+            "title": "Reference Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "owner",
+          "attempt_id",
+          "operation_id",
+          "reference_kind",
+          "reference_id",
+          "business_result",
+          "historical_incomplete",
+          "receipt"
+        ],
+        "title": "UsageCall",
+        "type": "object"
+      },
+      "UsageCalls": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/UsageCall"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "items"
+        ],
+        "title": "UsageCalls",
+        "type": "object"
+      },
+      "UsageCost": {
+        "additionalProperties": false,
+        "properties": {
+          "components": {
+            "items": {
+              "$ref": "#/components/schemas/UsageCostComponent"
+            },
+            "title": "Components",
+            "type": "array"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "known_microyuan": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Known Microyuan"
+          },
+          "missing_prices": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Prices",
+            "type": "array"
+          },
+          "missing_usage": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Usage",
+            "type": "array"
+          },
+          "rounding": {
+            "title": "Rounding",
+            "type": "string"
+          },
+          "snapshot_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snapshot Id"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "known_microyuan",
+          "components",
+          "missing_usage",
+          "missing_prices",
+          "snapshot_id",
+          "currency",
+          "rounding"
+        ],
+        "title": "UsageCost",
+        "type": "object"
+      },
+      "UsageCostComponent": {
+        "additionalProperties": false,
+        "properties": {
+          "estimated_microyuan": {
+            "title": "Estimated Microyuan",
+            "type": "integer"
+          },
+          "price": {
+            "$ref": "#/components/schemas/UsageRate"
+          },
+          "quantity": {
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit",
+          "quantity",
+          "source",
+          "price",
+          "estimated_microyuan"
+        ],
+        "title": "UsageCostComponent",
+        "type": "object"
+      },
+      "UsageDay": {
+        "additionalProperties": false,
+        "properties": {
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/UsageTotals"
+          },
+          "units": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Units",
+            "type": "object"
+          }
+        },
+        "required": [
+          "date",
+          "totals",
+          "units"
+        ],
+        "title": "UsageDay",
+        "type": "object"
+      },
+      "UsageGroup": {
+        "additionalProperties": false,
+        "properties": {
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "service": {
+            "title": "Service",
+            "type": "string"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/UsageTotals"
+          },
+          "units": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Units",
+            "type": "object"
+          }
+        },
+        "required": [
+          "service",
+          "model",
+          "totals",
+          "units"
+        ],
+        "title": "UsageGroup",
+        "type": "object"
+      },
+      "UsagePrice": {
+        "additionalProperties": false,
+        "properties": {
+          "effective_from": {
+            "title": "Effective From",
+            "type": "string"
+          },
+          "effective_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Until"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "rates": {
+            "items": {
+              "$ref": "#/components/schemas/UsageRate"
+            },
+            "title": "Rates",
+            "type": "array"
+          },
+          "service": {
+            "title": "Service",
+            "type": "string"
+          },
+          "snapshot_id": {
+            "title": "Snapshot Id",
+            "type": "string"
+          },
+          "source_url": {
+            "title": "Source Url",
+            "type": "string"
+          },
+          "verified_at": {
+            "title": "Verified At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "snapshot_id",
+          "provider",
+          "model",
+          "service",
+          "effective_from",
+          "effective_until",
+          "verified_at",
+          "source_url",
+          "rates"
+        ],
+        "title": "UsagePrice",
+        "type": "object"
+      },
+      "UsageQuantityResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "quantity": {
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit",
+          "quantity",
+          "source"
+        ],
+        "title": "UsageQuantityResponse",
+        "type": "object"
+      },
+      "UsageRate": {
+        "additionalProperties": false,
+        "properties": {
+          "microyuan": {
+            "title": "Microyuan",
+            "type": "integer"
+          },
+          "per_quantity": {
+            "title": "Per Quantity",
+            "type": "integer"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit",
+          "microyuan",
+          "per_quantity"
+        ],
+        "title": "UsageRate",
+        "type": "object"
+      },
+      "UsageReceipt": {
+        "additionalProperties": false,
+        "properties": {
+          "billable": {
+            "title": "Billable",
+            "type": "boolean"
+          },
+          "call_id": {
+            "title": "Call Id",
+            "type": "string"
+          },
+          "cost": {
+            "$ref": "#/components/schemas/UsageCost"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "outcome": {
+            "title": "Outcome",
+            "type": "string"
+          },
+          "parent_call_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Call Id"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UsagePrice"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "provider_request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Request Id"
+          },
+          "purpose": {
+            "title": "Purpose",
+            "type": "string"
+          },
+          "quantities": {
+            "items": {
+              "$ref": "#/components/schemas/UsageQuantityResponse"
+            },
+            "title": "Quantities",
+            "type": "array"
+          },
+          "raw_usage": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/JsonValue"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Usage"
+          },
+          "received_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Received At"
+          },
+          "response_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response Model"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "service": {
+            "title": "Service",
+            "type": "string"
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "call_id",
+          "provider",
+          "model",
+          "service",
+          "purpose",
+          "started_at",
+          "finished_at",
+          "billable",
+          "outcome",
+          "provider_request_id",
+          "response_model",
+          "quantities",
+          "cost",
+          "price",
+          "raw_usage",
+          "error_code"
+        ],
+        "title": "UsageReceipt",
+        "type": "object"
+      },
+      "UsageSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "coverage": {
+            "title": "Coverage",
+            "type": "string"
+          },
+          "currency": {
+            "const": "CNY",
+            "title": "Currency",
+            "type": "string"
+          },
+          "daily": {
+            "items": {
+              "$ref": "#/components/schemas/UsageDay"
+            },
+            "title": "Daily",
+            "type": "array"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/UsageGroup"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "price_label": {
+            "const": "official_list_price_estimate",
+            "title": "Price Label",
+            "type": "string"
+          },
+          "timezone": {
+            "const": "Asia/Shanghai",
+            "title": "Timezone",
+            "type": "string"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/UsageTotals"
+          },
+          "units": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Units",
+            "type": "object"
+          }
+        },
+        "required": [
+          "currency",
+          "price_label",
+          "timezone",
+          "coverage",
+          "totals",
+          "units",
+          "daily",
+          "groups"
+        ],
+        "title": "UsageSummary",
+        "type": "object"
+      },
+      "UsageTotals": {
+        "additionalProperties": false,
+        "properties": {
+          "auxiliary_requests": {
+            "title": "Auxiliary Requests",
+            "type": "integer"
+          },
+          "billable_calls": {
+            "title": "Billable Calls",
+            "type": "integer"
+          },
+          "historical_incomplete_calls": {
+            "title": "旧口径记录数",
+            "type": "integer"
+          },
+          "incomplete_calls": {
+            "title": "Incomplete Calls",
+            "type": "integer"
+          },
+          "known_microyuan": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Known Microyuan"
+          },
+          "unpriced_calls": {
+            "title": "Unpriced Calls",
+            "type": "integer"
+          },
+          "usage_unconfirmed_calls": {
+            "title": "Usage Unconfirmed Calls",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "billable_calls",
+          "auxiliary_requests",
+          "known_microyuan",
+          "incomplete_calls",
+          "usage_unconfirmed_calls",
+          "unpriced_calls",
+          "historical_incomplete_calls"
+        ],
+        "title": "UsageTotals",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -9398,6 +10036,369 @@
           }
         ],
         "summary": "Get Subject Summary"
+      }
+    },
+    "/v1/usage/calls": {
+      "get": {
+        "operationId": "listUsageCalls",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End"
+            }
+          },
+          {
+            "in": "query",
+            "name": "service",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Service"
+            }
+          },
+          {
+            "in": "query",
+            "name": "model",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model"
+            }
+          },
+          {
+            "in": "query",
+            "name": "purpose",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Purpose"
+            }
+          },
+          {
+            "in": "query",
+            "name": "outcome",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Outcome"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cost_status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cost Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "operation_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Operation Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageCalls"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "Calls"
+      }
+    },
+    "/v1/usage/calls/{call_id}": {
+      "get": {
+        "operationId": "readUsageCall",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "call_id",
+            "required": true,
+            "schema": {
+              "title": "Call Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageCall"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "Read"
+      }
+    },
+    "/v1/usage/summary": {
+      "get": {
+        "operationId": "getUsageSummary",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End"
+            }
+          },
+          {
+            "in": "query",
+            "name": "service",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Service"
+            }
+          },
+          {
+            "in": "query",
+            "name": "model",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model"
+            }
+          },
+          {
+            "in": "query",
+            "name": "purpose",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Purpose"
+            }
+          },
+          {
+            "in": "query",
+            "name": "outcome",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Outcome"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cost_status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cost Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "operation_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Operation Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "Summary"
       }
     },
     "/v1/vision/observations/{observation_id}": {

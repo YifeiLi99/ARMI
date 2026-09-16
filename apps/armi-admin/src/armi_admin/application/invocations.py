@@ -22,7 +22,15 @@ class InvocationReferences(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
     configuration_target: (
-        Literal["runtime", "model-bindings", "web-search", "qq", "mood-display"] | None
+        Literal[
+            "runtime",
+            "model-bindings",
+            "provider-pricing",
+            "web-search",
+            "qq",
+            "mood-display",
+        ]
+        | None
     ) = None
     expected_version: str | None = None
     configuration_write_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")

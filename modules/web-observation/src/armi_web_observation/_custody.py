@@ -16,6 +16,7 @@ from armi_kernel.application import (
     CredentialLocator,
     CredentialPort,
     CredentialPurpose,
+    provider_call,
 )
 from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI
 
@@ -28,9 +29,9 @@ from ._observation_contract import (
 )
 from ._provider_contract import API_BASE, MODEL, TOOL_DECLARATION
 
-SCHEMA_VERSION: Final = "armi.web-search-custody.v1"
+SCHEMA_VERSION: Final = "armi.web-search-custody.v2"
 REQUEST_VERSION: Final = "armi.web-search-request.v1"
-RESULT_VERSION: Final = "armi.web-search-result.v1"
+RESULT_VERSION: Final = "armi.web-search-result.v2"
 MAX_REQUEST_BYTES: Final = 64 * 1024
 MAX_RESULT_BYTES: Final = 1024 * 1024
 MAX_TOOL_CALLS: Final = 8
@@ -64,8 +65,6 @@ _PROHIBITED_KEYS = frozenset(
 @dataclass(frozen=True, slots=True)
 class WebSearchCustodyPolicy:
     binding_id: str
-    input_microyuan_per_million: int
-    output_microyuan_per_million: int
 
 
 def load_custody_policy(raw: bytes) -> WebSearchCustodyPolicy:
@@ -107,8 +106,6 @@ def load_custody_policy(raw: bytes) -> WebSearchCustodyPolicy:
         raise WebObservationViolation("WEB-MANIFEST-DRIFT")
     return WebSearchCustodyPolicy(
         "armi.model-tool.volcengine-ark-web-search-v1",
-        6_000_000,
-        30_000_000,
     )
 
 
@@ -287,15 +284,11 @@ def normalize_full_response(
         raise WebObservationViolation("WEB-RESULT-EVIDENCE")
     if not 1 <= citation_count <= MAX_CITATIONS or billed_calls < len(calls):
         raise WebObservationViolation("WEB-RESULT-EVIDENCE")
-    cost = (
-        input_tokens * 6_000_000 + output_tokens * 30_000_000 + 999_999
-    ) // 1_000_000
     usage = WebObservationUsage(
         input_tokens,
         output_tokens,
         billed_calls,
         citation_count,
-        cost,
     )
     result = {
         "schema_version": RESULT_VERSION,
@@ -309,8 +302,6 @@ def normalize_full_response(
             "output_tokens": output_tokens,
             "web_search_calls": billed_calls,
             "citation_count": citation_count,
-            "estimated_model_cost_microyuan": cost,
-            "web_search_monetary_cost_available": False,
         },
     }
     canonical = rfc8785.dumps(cast(Any, result)) + b"\n"
@@ -352,14 +343,26 @@ class ArkWebSearchAdapter:
             http_client=httpx.AsyncClient(trust_env=False),
         )
         try:
-            response = await client.responses.create(
-                model=MODEL,
-                input=query,
-                store=False,
-                tools=cast(Any, [dict(TOOL_DECLARATION)]),
-                max_output_tokens=MAX_OUTPUT_TOKENS,
-                extra_body={"thinking": {"type": "disabled"}},
-            )
+            async with provider_call(
+                provider="volcengine_ark", model=MODEL, service="web_search"
+            ) as call:
+                response = await client.responses.create(
+                    model=MODEL,
+                    input=query,
+                    store=False,
+                    tools=cast(Any, [dict(TOOL_DECLARATION)]),
+                    max_output_tokens=MAX_OUTPUT_TOKENS,
+                    extra_body={"thinking": {"type": "disabled"}},
+                )
+                raw_usage = response.model_dump(mode="json").get("usage")
+                await call.capture(
+                    usage=cast(dict[str, object], raw_usage)
+                    if isinstance(raw_usage, dict)
+                    else None,
+                    provider_request_id=getattr(response, "_request_id", None)
+                    or response.id,
+                    response_model=response.model,
+                )
             canonical, actions, usage, model = normalize_full_response(
                 cast(dict[str, object], response.model_dump(mode="json"))
             )

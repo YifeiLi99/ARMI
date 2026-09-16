@@ -1,4 +1,4 @@
-schema_version: armi.web-search-custody.v1
+schema_version: armi.web-search-custody.v2
 binding_id: armi.model-tool.volcengine-ark-web-search-v1
 provider: volcengine_ark
 model: doubao-seed-evolving
@@ -8,7 +8,7 @@ credential_locator: model.ark_api_key
 credential_purpose: web.search
 purpose: public_web_research
 operation_class: search_read_public
-result_contract: armi.web-search-result.v1
+result_contract: armi.web-search-result.v2
 store: false
 production_cognition_tools: []
 tool_actions:

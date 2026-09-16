@@ -9,6 +9,7 @@ from enum import StrEnum
 from typing import ClassVar, Literal, Protocol, runtime_checkable
 from uuid import UUID
 
+from armi_kernel.application import ProviderCallReceipt
 from armi_runtime_foundation import PostgreSQLTransaction
 
 
@@ -257,8 +258,18 @@ class VoiceJournalPort(Protocol):
         silent: bool = False,
     ) -> None: ...
     async def begin_provider_attempt(
-        self, *, turn_id: UUID, binding: VoiceProviderBinding
+        self,
+        *,
+        turn_id: UUID | None,
+        binding: VoiceProviderBinding,
+        session_id: UUID | None = None,
     ) -> UUID: ...
+    async def record_provider_call(
+        self,
+        *,
+        attempt_id: UUID,
+        receipt: ProviderCallReceipt,
+    ) -> None: ...
     async def mark_provider_dispatched(self, *, attempt_id: UUID) -> None: ...
     async def mark_provider_first_result(self, *, attempt_id: UUID) -> None: ...
     async def settle_provider_attempt(

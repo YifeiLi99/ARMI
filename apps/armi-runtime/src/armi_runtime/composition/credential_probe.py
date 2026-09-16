@@ -10,12 +10,21 @@ import sys
 import unicodedata
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 import httpx
 from armi_cognition.bootstrap import load_active_model_binding, load_voice_model_binding
+from armi_kernel.application import (
+    ProviderCallReceipt,
+    ProviderMeterScope,
+    load_price_catalog,
+    provider_meter_scope,
+)
+from armi_local_control import ProviderCheckReceipts
 from armi_local_control.configuration import load_effective_config
 from openai import AsyncOpenAI
 
+from armi_runtime.adapters.model._metered_ark import metered_ark_response
 from armi_runtime.adapters.voice.volc import (
     VolcStreamingAsr,
     VolcStreamingTts,
@@ -70,7 +79,8 @@ async def _model_check(key: str, binding: Any) -> dict[str, Any]:
         max_retries=0,
         http_client=httpx.AsyncClient(trust_env=False),
     ) as client:
-        response = await client.responses.create(
+        response = await metered_ark_response(
+            client,
             model=binding.model_id,
             input='连接测试，请输出 {"ok":true}。',
             store=False,
@@ -96,7 +106,32 @@ async def _model_check(key: str, binding: Any) -> dict[str, Any]:
         return {"status": "passed", "model": binding.model_id}
 
 
-async def verify(name: str, key: str, root: Path) -> dict[str, Any]:
+async def verify(
+    name: str, key: str, root: Path, verification_id: str
+) -> dict[str, Any]:
+    if UUID(verification_id).version != 7:
+        raise ValueError("USAGE-ADMIN-RECEIPT")
+    journal = ProviderCheckReceipts(root)
+    prices = load_price_catalog(
+        runtime_config_path("provider-pricing.yaml", environment_root=root)
+    )
+
+    async def save(receipt: ProviderCallReceipt) -> None:
+        await asyncio.to_thread(
+            journal.save,
+            verification_id=verification_id,
+            credential_name=name,
+            call=receipt.document(),
+        )
+
+    with provider_meter_scope(
+        ProviderMeterScope(save, prices, "credential_verification")
+    ):
+        result = await _verify(name, key, root)
+    return {**result, "verification_id": verification_id}
+
+
+async def _verify(name: str, key: str, root: Path) -> dict[str, Any]:
     checks: dict[str, Any] = {}
     if name == "model.ark_api_key":
         path = runtime_config_path("model-bindings.yaml", environment_root=root)
@@ -189,7 +224,12 @@ def main() -> int:
             raise ValueError("input size")
         request = json.loads(raw)
         result = asyncio.run(
-            verify(request["name"], request["key"], Path(request["root"]))
+            verify(
+                request["name"],
+                request["key"],
+                Path(request["root"]),
+                request["verification_id"],
+            )
         )
     except Exception as error:
         result = _failure(error)

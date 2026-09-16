@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator
 from uuid import UUID, uuid7
 
 import pytest
+from armi_kernel.application import PriceCatalog
 from armi_live_voice.api import (
     AcceptedVoiceInput,
     AudioDevice,
@@ -153,6 +154,9 @@ class FakeJournal:
     async def mark_provider_dispatched(self, **_: object) -> None:
         pass
 
+    async def record_provider_call(self, **_: object) -> None:
+        pass
+
     async def mark_provider_first_result(self, **_: object) -> None:
         pass
 
@@ -200,6 +204,7 @@ async def test_committed_effect_is_registered_before_audio_and_only_then_complet
         expression=FakeExpression(log),
         journal=journal,
         binding=_binding(),
+        prices=PriceCatalog(()),
     )
     await service.start()
     await asyncio.wait_for(inputs.accepted.wait(), timeout=1)
@@ -226,6 +231,7 @@ async def test_silence_completes_without_fabricated_audio() -> None:
         expression=FakeExpression(log),
         journal=journal,
         binding=_binding(),
+        prices=PriceCatalog(()),
     )
     await service.start()
     await asyncio.wait_for(inputs.accepted.wait(), timeout=1)
@@ -249,6 +255,7 @@ async def test_technical_cognition_failure_ends_wait_and_exposes_session_error()
         expression=FakeExpression(log),
         journal=journal,
         binding=_binding(),
+        prices=PriceCatalog(()),
     )
     await service.start()
     await asyncio.wait_for(inputs.accepted.wait(), timeout=1)
@@ -284,6 +291,7 @@ async def test_failed_playback_distinguishes_no_delivery_from_unknown_result(
         expression=FakeExpression(log),
         journal=journal,
         binding=_binding(),
+        prices=PriceCatalog(()),
     )
     await service.start()
     await asyncio.wait_for(inputs.accepted.wait(), timeout=1)
@@ -312,6 +320,7 @@ async def test_failure_after_full_playback_is_unknown_and_never_safe_to_replay()
         expression=FailingExpression(log),
         journal=journal,
         binding=_binding(),
+        prices=PriceCatalog(()),
     )
     await service.start()
     await asyncio.wait_for(inputs.accepted.wait(), timeout=1)

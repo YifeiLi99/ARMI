@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from uuid import UUID
 
+from armi_kernel.application import UsageQueryPort
+
 from armi_runtime.application.creator_commands import CreatorCommands
 from armi_runtime.application.creator_media import CreatorMedia
 from armi_runtime.application.creator_system import CreatorSystem
@@ -67,6 +69,7 @@ from .creator_routes_operations import register_operation_routes
 from .creator_routes_scenes import register_scene_routes
 from .creator_routes_subject_life import register_subject_life_routes
 from .creator_routes_system import register_system_routes
+from .creator_routes_usage import register_usage_routes
 
 
 def create_runtime_app(
@@ -96,6 +99,7 @@ def create_runtime_app(
     creator_events: CreatorEventBroker | None = None,
     creator_input: CreatorInputAcceptancePort | None = None,
     creator_operations: CreatorOperationQueryPort | None = None,
+    usage_query: UsageQueryPort | None = None,
     subject_summary: SubjectSummaryProvider | None = None,
     creator_prompt: CreatorPromptPort | None = None,
     creator_export: CreatorExportPort | None = None,
@@ -175,6 +179,7 @@ def create_runtime_app(
         effects=effect_ledger,
     )
     system = CreatorSystem(
+        usage=usage_query,
         readiness=readiness,
         runtime_status=runtime_status,
         qq_health=qq_channel_health,
@@ -256,6 +261,13 @@ def create_runtime_app(
             response.headers.setdefault(name, value)
         return response
 
+    register_usage_routes(
+        app=app,
+        bearer=bearer,
+        canonical_origin=canonical_origin,
+        browser_sessions=browser_sessions,
+        system=system,
+    )
     register_system_routes(
         app=app,
         bearer=bearer,

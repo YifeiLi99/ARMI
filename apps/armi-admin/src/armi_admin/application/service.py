@@ -14,8 +14,12 @@ from datetime import UTC, datetime
 from typing import Any, Literal, cast
 from uuid import uuid7
 
-from armi_kernel.application import CredentialPurpose
-from armi_local_control import ConfigurationViolation, environment_control_root
+from armi_kernel.application import CredentialPurpose, UsageFilter, UsageQuery
+from armi_local_control import (
+    ConfigurationViolation,
+    ProviderCheckReceipts,
+    environment_control_root,
+)
 from armi_local_control.configuration.defaults import runtime_defaults_file
 from armi_local_control.configuration.editing import (
     EnvironmentConfiguration,
@@ -125,6 +129,9 @@ ObservationToolName = Literal[
     "tail_diagnostics",
     "trace_flow",
     "cognition_read",
+    "usage_summary",
+    "usage_list",
+    "usage_read",
 ]
 MutationToolName = Literal[
     "data_deletion_preview",
@@ -855,6 +862,40 @@ class AdminToolService:
                         offset=typed_read.offset,
                         length=typed_read.length,
                     )
+                elif name in {"usage_summary", "usage_list", "usage_read"}:
+                    arguments = request.model_dump(
+                        exclude={"contract_version", "environment_id"}
+                    )
+                    filters = UsageFilter.from_strings(
+                        **{
+                            key: arguments[key]
+                            for key in (
+                                "start",
+                                "end",
+                                "service",
+                                "model",
+                                "purpose",
+                                "outcome",
+                                "cost_status",
+                                "operation_id",
+                            )
+                            if key in arguments
+                        }
+                    )
+                    query = UsageQuery(
+                        cast(
+                            Literal["summary", "list", "read"],
+                            name.removeprefix("usage_"),
+                        ),
+                        filters,
+                        arguments.get("limit", 25),
+                        arguments.get("offset", 0),
+                        arguments.get("call_id"),
+                    )
+                    result = gateway.usage(
+                        query,
+                        ProviderCheckReceipts(self._config.environment_root).read(),
+                    )
                 elif name == "inspect_scope":
                     typed_scope = cast(InspectScopeRequest, request)
                     result = gateway.inspect_scope(
@@ -1019,6 +1060,7 @@ class AdminToolService:
                 relative = {
                     "runtime": "environment.yaml",
                     "model-bindings": "configs/model-bindings.yaml",
+                    "provider-pricing": "configs/provider-pricing.yaml",
                     "web-search": "configs/web-search.yaml",
                     "qq": "channels/qq-napcat.yaml",
                     "mood-display": "devices/mood-display.yaml",
@@ -1193,7 +1235,13 @@ class AdminToolService:
                 "next_operations": ["configuration"],
             }
         )
-        for target in ("model-bindings", "web-search", "qq", "mood-display"):
+        for target in (
+            "model-bindings",
+            "provider-pricing",
+            "web-search",
+            "qq",
+            "mood-display",
+        ):
             asset = self.configuration(
                 ConfigurationRequest(
                     environment_id=self._config.environment_id,
@@ -1895,7 +1943,7 @@ class AdminToolService:
             or snapshot.encoding != "UTF8"
             or snapshot.timezone != "UTC"
             or snapshot.revision != "0000"
-            or snapshot.baseline_identity != "armi.schema-baseline.v19"
+            or snapshot.baseline_identity != "armi.schema-baseline.v20"
         ):
             raise ValueError("ADMIN-DB-IDENTITY")
 

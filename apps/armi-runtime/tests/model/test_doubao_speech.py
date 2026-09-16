@@ -13,7 +13,10 @@ from armi_kernel.application import (
     CredentialLocator,
     CredentialPort,
     CredentialPurpose,
+    PriceCatalog,
+    ProviderMeterScope,
     SecretHandle,
+    provider_meter_scope,
 )
 from armi_kernel.contracts import TraceId
 from armi_perception.api import (
@@ -25,6 +28,21 @@ from armi_runtime.adapters.model.doubao_speech import (
     DoubaoSpeechRecognitionBinding,
     DoubaoSpeechRecognizer,
 )
+
+
+@pytest.fixture(autouse=True)
+def fake_provider_receipts():
+    """These adapter tests use fake transports and an inspectable receipt sink."""
+    receipts = []
+
+    async def save(receipt):
+        receipts.append(receipt)
+
+    with provider_meter_scope(
+        ProviderMeterScope(save, PriceCatalog(()), "adapter_test")
+    ):
+        yield receipts
+
 
 _T = TypeVar("_T")
 
@@ -87,6 +105,7 @@ def _request() -> ExternalContentRecognitionRequest:
 @pytest.mark.asyncio
 async def test_accepted_task_retries_query_503_then_preserves_success(
     monkeypatch: pytest.MonkeyPatch,
+    fake_provider_receipts,
 ) -> None:
     original_sleep = asyncio.sleep
 
@@ -113,7 +132,7 @@ async def test_accepted_task_retries_query_503_then_preserves_success(
         return httpx.Response(
             200,
             headers={"X-Api-Status-Code": "20000000"},
-            json={"result": {"text": "已识别"}},
+            json={"result": {"text": "已识别"}, "audio_info": {"duration": 1234}},
         )
 
     result = await _recognizer(httpx.MockTransport(handler)).recognize(_request())
@@ -122,6 +141,17 @@ async def test_accepted_task_retries_query_503_then_preserves_success(
     assert result.text == "已识别"
     assert result.provider_request_id == "task-1"
     assert calls == 3
+    final = {row.call_id: row for row in fake_provider_receipts}
+    assert len(final) == 3
+    charged = [row for row in final.values() if row.billable]
+    assert len(charged) == 1
+    assert charged[0].quantities[0].quantity == 1234
+    assert charged[0].outcome == "returned"
+    assert all(
+        row.parent_call_id == charged[0].call_id
+        for row in final.values()
+        if not row.billable
+    )
 
 
 @pytest.mark.asyncio

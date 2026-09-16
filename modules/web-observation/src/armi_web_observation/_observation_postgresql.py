@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any, cast
 from uuid import UUID, uuid7
@@ -9,6 +10,7 @@ from uuid import UUID, uuid7
 from armi_kernel.application import (
     ArtifactId,
     ArtifactRef,
+    ProviderCallReceipt,
     WorkId,
     WorkLease,
     WorkRecord,
@@ -50,6 +52,32 @@ class WebObservationSnapshot:
 
 
 class PostgreSQLWebObservationRepository:
+    async def record_provider_call(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        attempt_id: WebObservationAttemptId,
+        receipt: ProviderCallReceipt,
+    ) -> None:
+        result = await unit_of_work.transaction.execute(
+            """UPDATE armi.observation_attempts
+               SET provider_calls=jsonb_set(provider_calls,ARRAY[%s],%s::jsonb)
+               WHERE observation_attempt_id=%s
+                 AND ((%s AND settled_at IS NULL AND NOT (provider_calls ? %s))
+                      OR (NOT %s AND provider_calls ? %s))""",
+            (
+                receipt.call_id,
+                json.dumps(receipt.document()),
+                attempt_id.value,
+                receipt.registration,
+                receipt.call_id,
+                receipt.registration,
+                receipt.call_id,
+            ),
+        )
+        if result.rowcount != 1:
+            raise WebObservationViolation("WEB-ATTEMPT-STATE")
+
     """Own fixed SQL for request, attempt, tool-call, and result custody."""
 
     __slots__ = ("_catalog",)
@@ -395,7 +423,7 @@ class PostgreSQLWebObservationRepository:
                     usage.output_tokens,
                     usage.web_search_calls,
                     usage.citation_count,
-                    usage.estimated_cost_microyuan,
+                    None,
                     attempt_id.value,
                     lease.attempt_id.value,
                     lease.token,

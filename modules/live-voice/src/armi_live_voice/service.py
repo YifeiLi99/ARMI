@@ -7,6 +7,13 @@ from collections.abc import AsyncIterator
 from contextlib import suppress
 from uuid import UUID, uuid7
 
+from armi_kernel.application import (
+    PriceCatalog,
+    ProviderCallReceipt,
+    ProviderMeterScope,
+    provider_meter_scope,
+)
+
 from .api import (
     AttemptOutcome,
     AudioDevicePort,
@@ -38,6 +45,7 @@ class LiveVoiceService:
         expression: VoiceExpressionPort,
         journal: VoiceJournalPort,
         binding: LiveVoiceBinding,
+        prices: PriceCatalog,
     ) -> None:
         self._audio = audio
         self._asr = asr
@@ -47,6 +55,7 @@ class LiveVoiceService:
         self._expression = expression
         self._journal = journal
         self._binding = binding
+        self._prices = prices
         self._machine = HalfDuplexStateMachine()
         self._task: asyncio.Task[None] | None = None
         self._stop = asyncio.Event()
@@ -103,7 +112,7 @@ class LiveVoiceService:
         try:
             await self._journal.open_session(session_id=self._session_id)
             await asyncio.gather(
-                self._model.prepare(),
+                self._prepare_model(),
                 self._tts.prepare(),
             )
             await self._transition(
@@ -173,6 +182,38 @@ class LiveVoiceService:
         )
         await self._transition(LiveVoiceSessionState.LISTENING)
 
+    def _meter_scope(self, attempt_id: UUID, purpose: str) -> ProviderMeterScope:
+        async def save(receipt: ProviderCallReceipt) -> None:
+            await self._journal.record_provider_call(
+                attempt_id=attempt_id, receipt=receipt
+            )
+
+        return ProviderMeterScope(save, self._prices, purpose)
+
+    async def _prepare_model(self) -> None:
+        assert self._session_id is not None
+        attempt = await self._journal.begin_provider_attempt(
+            turn_id=None,
+            session_id=self._session_id,
+            binding=self._binding.llm,
+        )
+        try:
+            await self._journal.mark_provider_dispatched(attempt_id=attempt)
+            with provider_meter_scope(
+                self._meter_scope(attempt, "voice_compatibility")
+            ):
+                await self._model.prepare()
+        except BaseException:
+            await self._journal.settle_provider_attempt(
+                attempt_id=attempt,
+                outcome=AttemptOutcome.UNKNOWN,
+                error_code="VOICE-LLM-PREPARE-FAILED",
+            )
+            raise
+        await self._journal.settle_provider_attempt(
+            attempt_id=attempt, outcome=AttemptOutcome.COMPLETED
+        )
+
     async def _execute_turn(self, turn_id: UUID) -> tuple[AttemptOutcome, str, bool]:
         await self._transition(LiveVoiceSessionState.RECOGNIZING)
         asr_attempt = await self._journal.begin_provider_attempt(
@@ -182,15 +223,16 @@ class LiveVoiceService:
         received_asr = False
         try:
             await self._journal.mark_provider_dispatched(attempt_id=asr_attempt)
-            async for event in self._asr.recognize(self._audio.capture()):
-                if not received_asr:
-                    await self._journal.mark_provider_first_result(
-                        attempt_id=asr_attempt
-                    )
-                    received_asr = True
-                transcript = event.text
-                if event.utterance_ended:
-                    break
+            with provider_meter_scope(self._meter_scope(asr_attempt, "voice_asr")):
+                async for event in self._asr.recognize(self._audio.capture()):
+                    if not received_asr:
+                        await self._journal.mark_provider_first_result(
+                            attempt_id=asr_attempt
+                        )
+                        received_asr = True
+                    transcript = event.text
+                    if event.utterance_ended:
+                        break
         except asyncio.CancelledError:
             await self._journal.settle_provider_attempt(
                 attempt_id=asr_attempt,
@@ -349,9 +391,10 @@ class LiveVoiceService:
         try:
             await self._journal.mark_provider_dispatched(attempt_id=tts_attempt)
             await self._journal.mark_playback_dispatched(attempt_id=playback_attempt)
-            reported_frames = await self._audio.play(
-                observed_audio(), on_frame_written=frame_written
-            )
+            with provider_meter_scope(self._meter_scope(tts_attempt, "voice_tts")):
+                reported_frames = await self._audio.play(
+                    observed_audio(), on_frame_written=frame_written
+                )
             if reported_frames != written_frames:
                 raise LiveVoiceViolation(
                     "VOICE-PLAYBACK-COUNT", "audio playback count is inconsistent"

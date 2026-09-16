@@ -19,8 +19,10 @@ from .native_postgresql import (
     write_control,
 )
 from .process_identity import ManagedProcessIdentity, ManagedProcessState
+from .provider_check_receipts import ProviderCheckReceipts
 from .runtime_errors import RuntimeViolation
 from .runtime_process import RuntimeProcessManager
+from .usage_contracts import UsageCall, UsageCalls, UsageSummary
 
 __all__ = (
     "ConfigurationViolation",
@@ -32,9 +34,13 @@ __all__ = (
     "NativePostgreSQL",
     "PostgreSQLControlBinding",
     "PreflightRequirements",
+    "ProviderCheckReceipts",
     "RuntimeConfig",
     "RuntimeProcessManager",
     "RuntimeViolation",
+    "UsageCall",
+    "UsageCalls",
+    "UsageSummary",
     "environment_control_root",
     "free_loopback_port",
     "load_effective_config",

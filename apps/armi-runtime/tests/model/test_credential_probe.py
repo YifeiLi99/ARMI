@@ -1,6 +1,7 @@
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
+from uuid import uuid7
 
 import pytest
 from armi_cognition.api import CognitionSchemaDocument
@@ -64,7 +65,9 @@ async def test_speech_probe_requires_real_audio_and_matching_recognition(
 
     monkeypatch.setattr(probe, "VolcStreamingTts", Tts)
     monkeypatch.setattr(probe, "VolcStreamingAsr", Asr)
-    result = await probe.verify("speech.volc_credentials", "test-key", Path("."))
+    result = await probe.verify(
+        "speech.volc_credentials", "test-key", Path("."), str(uuid7())
+    )
     assert result["checks"]["tts"]["status"] == "passed"
     assert result["checks"]["asr"]["status"] == expected
     assert result["status"] == expected
@@ -81,7 +84,9 @@ async def test_models_are_checked_separately_and_errors_are_redacted(monkeypatch
         return {"status": "passed"}
 
     monkeypatch.setattr(probe, "_model_check", check)
-    result = await probe.verify("model.ark_api_key", "test-key", Path("."))
+    result = await probe.verify(
+        "model.ark_api_key", "test-key", Path("."), str(uuid7())
+    )
     assert len(calls) == 2
     assert result["status"] == "failed"
     assert result["checks"]["model"]["status"] == "passed"

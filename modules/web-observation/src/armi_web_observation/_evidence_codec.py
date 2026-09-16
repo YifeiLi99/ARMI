@@ -15,7 +15,7 @@ from ._research_contract import WebResearchViolation
 
 WEB_EVIDENCE_VERSION = "armi.web-evidence.v1"
 WEB_SOURCE_REFERENCE_VERSION = "armi.web-source-reference.v1"
-_CUSTODY_RESULT_VERSION = "armi.web-search-result.v1"
+_CUSTODY_RESULT_VERSION = "armi.web-search-result.v2"
 
 
 @dataclass(frozen=True, slots=True)

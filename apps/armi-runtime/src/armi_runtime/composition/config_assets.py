@@ -6,7 +6,9 @@ from pathlib import Path
 
 from armi_runtime.application.model_manifest import load_model_manifest
 
-_CONFIG_NAMES = frozenset({"runtime.yaml", "model-bindings.yaml", "web-search.yaml"})
+_CONFIG_NAMES = frozenset(
+    {"runtime.yaml", "model-bindings.yaml", "web-search.yaml", "provider-pricing.yaml"}
+)
 
 
 def runtime_config_path(name: str, *, environment_root: Path | None = None) -> Path:

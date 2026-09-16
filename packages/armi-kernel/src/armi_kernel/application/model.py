@@ -71,13 +71,10 @@ class ModelBinding:
     profile: str
     request_contract_version: str
     response_contract_version: str
-    pricing_snapshot_id: str
     credential_identity: str
     input_token_limit: int
     output_token_limit: int
     timeout_seconds: int
-    input_microyuan_per_million: int
-    output_microyuan_per_million: int
     attempt_cost_limit_microyuan: int
 
     def __post_init__(self) -> None:
@@ -87,7 +84,6 @@ class ModelBinding:
             self.profile,
             self.request_contract_version,
             self.response_contract_version,
-            self.pricing_snapshot_id,
             self.credential_identity,
         ):
             _require_token(value)
@@ -103,29 +99,12 @@ class ModelBinding:
             self.input_token_limit,
             self.output_token_limit,
             self.timeout_seconds,
-            self.input_microyuan_per_million,
-            self.output_microyuan_per_million,
             self.attempt_cost_limit_microyuan,
         ):
             if type(value) is not int or value <= 0:
                 raise ModelViolation("MODEL-BINDING-BUDGET")
         if self.output_token_limit > self.input_token_limit:
             raise ModelViolation("MODEL-BINDING-BUDGET")
-
-    def estimate_cost_microyuan(
-        self,
-        *,
-        input_tokens: int,
-        output_tokens: int,
-    ) -> int:
-        for value in (input_tokens, output_tokens):
-            if type(value) is not int or value < 0:
-                raise ModelViolation("MODEL-USAGE")
-        numerator = (
-            input_tokens * self.input_microyuan_per_million
-            + output_tokens * self.output_microyuan_per_million
-        )
-        return (numerator + 999_999) // 1_000_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,14 +132,12 @@ class ModelUsage:
     input_tokens: int
     output_tokens: int
     cached_input_tokens: int
-    estimated_cost_microyuan: int
 
     def __post_init__(self) -> None:
         for value in (
             self.input_tokens,
             self.output_tokens,
             self.cached_input_tokens,
-            self.estimated_cost_microyuan,
         ):
             if type(value) is not int or value < 0:
                 raise ModelViolation("MODEL-USAGE")

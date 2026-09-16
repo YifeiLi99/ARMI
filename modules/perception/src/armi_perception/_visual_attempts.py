@@ -1,11 +1,39 @@
 """Persistence owned by perception for live visual-model calls."""
 
+import json
 from uuid import UUID
 
+from armi_kernel.application import ProviderCallReceipt
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
 
 
 class PostgreSQLVisualRecognitionAttempts:
+    async def record_provider_call(
+        self,
+        unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        attempt_id: UUID,
+        receipt: ProviderCallReceipt,
+    ) -> None:
+        result = await unit_of_work.transaction.execute(
+            """UPDATE armi.visual_recognition_attempts
+               SET provider_calls=jsonb_set(provider_calls,ARRAY[%s],%s::jsonb)
+               WHERE visual_attempt_id=%s
+                 AND ((%s AND settled_at IS NULL AND NOT (provider_calls ? %s))
+                      OR (NOT %s AND provider_calls ? %s))""",
+            (
+                receipt.call_id,
+                json.dumps(receipt.document()),
+                attempt_id,
+                receipt.registration,
+                receipt.call_id,
+                receipt.registration,
+                receipt.call_id,
+            ),
+        )
+        if result.rowcount != 1:
+            raise RuntimeError("VISION-ATTEMPT-STALE")
+
     async def prepared_attempt_for_observation(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,

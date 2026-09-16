@@ -162,7 +162,6 @@ class WebObservationUsage:
     output_tokens: int
     web_search_calls: int
     citation_count: int
-    estimated_cost_microyuan: int
 
     def __post_init__(self) -> None:
         for value in (
@@ -170,14 +169,11 @@ class WebObservationUsage:
             self.output_tokens,
             self.web_search_calls,
             self.citation_count,
-            self.estimated_cost_microyuan,
         ):
             if type(value) is not int or value < 0:
                 raise WebObservationViolation("WEB-USAGE")
         if not 1 <= self.web_search_calls <= 8 or not 1 <= self.citation_count <= 128:
             raise WebObservationViolation("WEB-USAGE")
-        if self.estimated_cost_microyuan > 1_000_000:
-            raise WebObservationViolation("WEB-BUDGET")
 
 
 @dataclass(frozen=True, slots=True)

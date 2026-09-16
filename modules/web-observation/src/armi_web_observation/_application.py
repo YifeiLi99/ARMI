@@ -30,6 +30,9 @@ from armi_kernel.application import (
     ExecutionCustodyScope,
     ExecutionCustodyScopeKind,
     ExecutionCustodyViolation,
+    PriceCatalog,
+    ProviderCallReceipt,
+    ProviderMeterScope,
     WorkDraft,
     WorkId,
     WorkLease,
@@ -39,6 +42,7 @@ from armi_kernel.application import (
     WorkType,
     WorkViolation,
     ordered_custody_requests,
+    provider_meter_scope,
 )
 from armi_kernel.contracts import (
     Digest,
@@ -106,6 +110,7 @@ class WebSearchPipeline:
         "_failure_notifications",
         "_lease_owner",
         "_policy",
+        "_prices",
         "_repository",
         "_stop",
         "_storage",
@@ -123,12 +128,14 @@ class WebSearchPipeline:
         credential_port: CredentialPort,
         credential_locator: CredentialLocator,
         manifest_bytes: bytes,
+        prices: PriceCatalog,
         evidence: EvidenceWritePort,
         opportunity: OpportunityAdmissionPort,
         diagnostic: Diagnostic | None = None,
         failure_notifications: Callable[[UUID, str], Awaitable[None]] | None = None,
     ) -> None:
         self._factory = factory
+        self._prices = prices
         self._failure_notifications = failure_notifications
         self._storage = storage
         self._adapter = ArkWebSearchAdapter(credential_port, credential_locator)
@@ -324,7 +331,20 @@ class WebSearchPipeline:
                     snapshot=snapshot,
                     attempt_id=attempt_id,
                 )
-            result, lease = await self._invoke_with_renewal(request_bytes, lease)
+            bound_attempt = attempt_id
+
+            async def save(receipt: ProviderCallReceipt) -> None:
+                async with self._factory.provider_usage_unit_of_work(
+                    registration=receipt.registration
+                ) as unit:
+                    await self._repository.record_provider_call(
+                        unit, attempt_id=bound_attempt, receipt=receipt
+                    )
+
+            with provider_meter_scope(
+                ProviderMeterScope(save, self._prices, "web_research")
+            ):
+                result, lease = await self._invoke_with_renewal(request_bytes, lease)
             await self._settle(lease, snapshot, attempt_id, result)
             return True
         except WebObservationViolation as error:

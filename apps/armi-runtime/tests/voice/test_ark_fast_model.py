@@ -5,8 +5,27 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
+from armi_kernel.application import (
+    PriceCatalog,
+    ProviderMeterScope,
+    provider_meter_scope,
+)
 from armi_live_voice.api import LiveVoiceViolation
 from armi_runtime.adapters.voice.ark import ArkResponsesFastModel
+
+
+@pytest.fixture(autouse=True)
+def fake_provider_receipts():
+    """These adapter tests use fake transports and an inspectable receipt sink."""
+    receipts = []
+
+    async def save(receipt):
+        receipts.append(receipt)
+
+    with provider_meter_scope(
+        ProviderMeterScope(save, PriceCatalog(()), "adapter_test")
+    ):
+        yield receipts
 
 
 class FakeResponses:
@@ -16,7 +35,12 @@ class FakeResponses:
 
     async def create(self, **request: object):
         self.requests.append(request)
-        return SimpleNamespace(output_text=self.output_text)
+        return SimpleNamespace(
+            output_text=self.output_text,
+            id="warmup-response",
+            model="test-fast",
+            model_dump=lambda **_: {"usage": {"input_tokens": 10, "output_tokens": 4}},
+        )
 
 
 def _adapter(responses: FakeResponses) -> ArkResponsesFastModel:
@@ -46,7 +70,33 @@ async def test_voice_startup_uses_minimal_strict_json_compatibility_check() -> N
 
 
 @pytest.mark.asyncio
-async def test_voice_startup_rejects_model_without_exact_strict_result() -> None:
+async def test_voice_startup_rejects_model_without_exact_strict_result(
+    fake_provider_receipts,
+) -> None:
     with pytest.raises(LiveVoiceViolation, match="warmup failed") as captured:
         await _adapter(FakeResponses('{"ok":false}')).prepare()
     assert captured.value.code == "VOICE-LLM-PREPARE-FAILED"
+    receipt = fake_provider_receipts[-1]
+    assert receipt.outcome == "returned"
+    assert receipt.provider_request_id == "warmup-response"
+    assert {item.unit.value: item.quantity for item in receipt.quantities} == {
+        "input_tokens": 10,
+        "output_tokens": 4,
+    }
+
+
+@pytest.mark.asyncio
+async def test_voice_compatibility_registration_failure_sends_no_request():
+    responses = FakeResponses()
+
+    async def reject(_receipt):
+        raise OSError("receipt storage unavailable")
+
+    with (
+        provider_meter_scope(
+            ProviderMeterScope(reject, PriceCatalog(()), "compatibility")
+        ),
+        pytest.raises(LiveVoiceViolation),
+    ):
+        await _adapter(responses).prepare()
+    assert responses.requests == []

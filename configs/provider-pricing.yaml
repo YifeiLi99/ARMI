@@ -1,0 +1,34 @@
+schema_version: armi.provider-pricing.v1
+currency: CNY
+# Public list prices, not account charges. Missing rates are deliberately absent.
+# Source: https://www.volcengine.com/product/ark (verified 2026-09-16).
+# Speech, Character and multimodal rates require a matching official source;
+# never inherit the Evolving price for those resources.
+snapshots:
+  - snapshot_id: ark-evolving-generation-2026-09-16
+    provider: volcengine_ark
+    model: doubao-seed-evolving
+    service: generation
+    effective_from: '2026-09-16T00:00:00+08:00'
+    effective_until: null
+    verified_at: '2026-09-16T00:00:00+08:00'
+    source_url: https://www.volcengine.com/product/doubao
+    rates: &evolving_token_rates
+      - unit: input_tokens
+        microyuan: 6000000
+        per_quantity: 1000000
+      - unit: output_tokens
+        microyuan: 30000000
+        per_quantity: 1000000
+      - unit: cached_input_tokens
+        microyuan: 1200000
+        per_quantity: 1000000
+  - snapshot_id: ark-evolving-web-2026-09-16
+    provider: volcengine_ark
+    model: doubao-seed-evolving
+    service: web_search
+    effective_from: '2026-09-16T00:00:00+08:00'
+    effective_until: null
+    verified_at: '2026-09-16T00:00:00+08:00'
+    source_url: https://www.volcengine.com/product/doubao
+    rates: *evolving_token_rates

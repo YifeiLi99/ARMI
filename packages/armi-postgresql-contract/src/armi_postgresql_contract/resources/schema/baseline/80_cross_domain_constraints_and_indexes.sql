@@ -3443,6 +3443,9 @@ ALTER TABLE ONLY armi.live_voice_playback_attempts
 ALTER TABLE ONLY armi.live_voice_provider_attempts
     ADD CONSTRAINT live_voice_provider_attempts_turn_id_fkey FOREIGN KEY (turn_id) REFERENCES armi.live_voice_turns(turn_id);
 
+ALTER TABLE ONLY armi.live_voice_provider_attempts
+    ADD CONSTRAINT live_voice_provider_attempts_session_id_fkey FOREIGN KEY (session_id) REFERENCES armi.live_voice_sessions(session_id);
+
 --
 -- Name: live_voice_sessions live_voice_sessions_creator_party_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --

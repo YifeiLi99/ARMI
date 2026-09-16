@@ -246,6 +246,9 @@ def bootstrap_setup(
         import sys
         from typing import cast
 
+        from armi_local_control import ProviderCheckReceipts
+
+        verification_id = str(uuid7())
         try:
             completed = subprocess.run(
                 [sys.executable, "-m", "armi_runtime.credential_probe"],
@@ -254,6 +257,7 @@ def bootstrap_setup(
                         "name": name,
                         "key": secret.decode("utf-8"),
                         "root": str(paths.environment_root),
+                        "verification_id": verification_id,
                     }
                 ).encode("utf-8"),
                 capture_output=True,
@@ -277,7 +281,12 @@ def bootstrap_setup(
                 "status": "failed",
                 "error_code": "SETUP-CREDENTIAL-VERIFY-FAILED",
                 "message": "验证进程失败或超时。凭据已保存。尚未验证通过。",
+                "verification_id": verification_id,
             }
+        finally:
+            ProviderCheckReceipts(paths.environment_root).settle_interrupted(
+                verification_id
+            )
 
     return SetupApplication(
         paths,

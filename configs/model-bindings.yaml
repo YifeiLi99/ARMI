@@ -1,4 +1,4 @@
-schema_version: armi.model-bindings.v2
+schema_version: armi.model-bindings.v3
 active_binding: armi.model-adapter.volcengine-ark-responses-v1
 
 bindings:
@@ -13,12 +13,9 @@ bindings:
     credential_identity: armi.model.ark-api-key.v1
     credential_locator: model.ark_api_key
     credential_purpose: model.request
-    pricing_snapshot_id: volcengine-ark-cn-2026-07-31-evolving
     input_token_limit: 65536
     output_token_limit: 4096
     timeout_seconds: 180
-    input_microyuan_per_million: 6000000
-    output_microyuan_per_million: 30000000
     attempt_cost_limit_microyuan: 1000000
 
 voice_binding:

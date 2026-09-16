@@ -29,7 +29,7 @@ class PostgreSQLCognitionAdmin:
                 str(row[2]),
                 str(row[3]),
                 str(row[4]),
-                cast(UUID, row[5]),
+                cast(UUID | None, row[5]),
                 cast(UUID | None, row[6]),
                 str(row[7]),
                 cast(str | None, row[8]),

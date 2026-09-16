@@ -111,6 +111,16 @@ class PostgreSQLRuntimeUnitOfWorkFactory(Protocol):
         read_only: bool = False,
     ) -> PostgreSQLRuntimeUnitOfWorkContext: ...
 
+    def provider_usage_unit_of_work(
+        self, *, registration: bool
+    ) -> PostgreSQLRuntimeUnitOfWorkContext:
+        """Register under the current fence, or settle only an existing receipt.
+
+        Owners must constrain settlement to an already registered call ID; this
+        transaction never authorizes new work, subject changes, or effects.
+        """
+        ...
+
 
 @runtime_checkable
 class StopSignal(Protocol):

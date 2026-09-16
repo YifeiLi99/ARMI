@@ -13,6 +13,7 @@ from armi_kernel.application import (
     CredentialPort,
     DurableWorkPort,
     ExecutionCustodyPort,
+    PriceCatalog,
 )
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
@@ -71,6 +72,7 @@ def bootstrap_web_context_read() -> WebContextReadPort:
 
 def bootstrap_web_observation(
     *,
+    prices: PriceCatalog,
     factory: PostgreSQLRuntimeUnitOfWorkFactory,
     storage: WebArtifactStorePort,
     catalog: WebArtifactCatalogPort,
@@ -85,6 +87,7 @@ def bootstrap_web_observation(
     failure_notifications: Callable[[UUID, str], Awaitable[None]] | None = None,
 ) -> WebObservationRuntimePort:
     return WebSearchPipeline(
+        prices=prices,
         failure_notifications=failure_notifications,
         factory=factory,
         storage=storage,

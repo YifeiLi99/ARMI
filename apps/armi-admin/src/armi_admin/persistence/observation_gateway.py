@@ -19,13 +19,19 @@ from armi_effect.api import EffectAdminPort
 from armi_evidence.api import EvidenceAdminPort
 from armi_expression.api import ExpressionAdminPort
 from armi_interaction.api import InteractionAdminPort
-from armi_kernel.application import RESPONSIBILITY_BINDINGS, ArtifactViolation
+from armi_kernel.application import (
+    RESPONSIBILITY_BINDINGS,
+    ArtifactViolation,
+    UsageQuery,
+)
 from armi_local_control.runtime_errors import RuntimeViolation
 from armi_material.api import MaterialAdminItem, MaterialAdminReadPort
 from armi_mood.api import MoodAdminReadPort
 from armi_runtime_foundation import (
     PostgreSQLAdminTransaction,
     PostgreSQLAdminUnitOfWorkFactory,
+    usage_result,
+    usage_statement,
 )
 from armi_subject_state.api import SubjectStateAdminReadPort
 
@@ -205,6 +211,15 @@ class AdminObservationGateway:
             "registered_at": _safe(row.registered_at),
         }
 
+    def usage(
+        self, query: UsageQuery, checks: tuple[dict[str, object], ...]
+    ) -> dict[str, object]:
+        statement, parameters = usage_statement(query, checks)
+        with self._factory.repeatable_read() as uow:
+            return usage_result(
+                uow.transaction.execute(statement, parameters).fetchone()
+            )
+
     def cognition_read(
         self, *, episode_id: str, artifact_id: str | None, offset: int, length: int
     ) -> dict[str, object]:
@@ -227,7 +242,8 @@ class AdminObservationGateway:
                 if identity is not None:
                     refs[identity] = role
             for attempt in attempts:
-                refs[attempt.request_artifact_id] = "request"
+                if attempt.request_artifact_id is not None:
+                    refs[attempt.request_artifact_id] = "request"
                 if attempt.response_artifact_id is not None:
                     refs[attempt.response_artifact_id] = "response"
             refs.update(
@@ -545,6 +561,11 @@ class AdminObservationGateway:
                         )
                     )
             self._expand_flow(tx, nodes, edges)
+            for node in nodes:
+                if node["kind"] == "opportunity":
+                    cast(dict[str, object], node["attributes"])[
+                        "usage_operation_id"
+                    ] = node["id"]
         query = _query_digest({"selector_kind": kind, "selector": value})
         ordered = sorted(
             nodes,
@@ -727,6 +748,9 @@ class AdminObservationGateway:
                     tx, operation_ref=identity
                 ) or self._expression.intent(tx, action_intent_id=identity)
                 if operation is not None:
+                    cast(dict[str, object], node["attributes"])[
+                        "usage_operation_id"
+                    ] = str(operation.root_opportunity_id)
                     link(
                         kind,
                         identity,

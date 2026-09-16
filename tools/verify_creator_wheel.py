@@ -19,6 +19,7 @@ REQUIRED = {
     f"{PACKAGE_PREFIX}static/.vite/manifest.json",
     f"{RUNTIME_PREFIX}runtime.yaml",
     f"{RUNTIME_PREFIX}model-bindings.yaml",
+    f"{RUNTIME_PREFIX}provider-pricing.yaml",
     f"{RUNTIME_PREFIX}web-search.yaml",
 }
 CONTRACT_REQUIRED = {
@@ -35,6 +36,7 @@ CONTRACT_REQUIRED = {
             "60_actions_work_and_effects.sql",
             "70_web_codex_audit_data_rights.sql",
             "80_cross_domain_constraints_and_indexes.sql",
+            "85_provider_usage.sql",
             "90_static_catalog.sql",
             "99_privileges.sql",
         )

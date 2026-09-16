@@ -303,11 +303,8 @@ GRANT INSERT ON TABLE armi.cognition_maintenance_cursors TO armi_admin;
 
 GRANT UPDATE ON TABLE armi.cognition_maintenance_cursors TO armi_admin;
 
-GRANT DELETE ON TABLE armi.cognitive_attempts TO armi_admin;
 
-GRANT INSERT ON TABLE armi.cognitive_attempts TO armi_admin;
 
-GRANT UPDATE ON TABLE armi.cognitive_attempts TO armi_admin;
 
 GRANT DELETE ON TABLE armi.cognitive_candidate_applications TO armi_admin;
 
@@ -409,9 +406,7 @@ GRANT INSERT ON TABLE armi.experience_evidence_links TO armi_admin;
 
 GRANT UPDATE ON TABLE armi.experience_evidence_links TO armi_admin;
 
-GRANT INSERT ON TABLE armi.external_content_recognition_attempts TO armi_admin;
 
-GRANT UPDATE ON TABLE armi.external_content_recognition_attempts TO armi_admin;
 
 GRANT INSERT ON TABLE armi.external_evidence TO armi_admin;
 
@@ -467,11 +462,8 @@ GRANT INSERT ON TABLE armi.live_voice_playback_attempts TO armi_admin;
 
 GRANT UPDATE ON TABLE armi.live_voice_playback_attempts TO armi_admin;
 
-GRANT DELETE ON TABLE armi.live_voice_provider_attempts TO armi_admin;
 
-GRANT INSERT ON TABLE armi.live_voice_provider_attempts TO armi_admin;
 
-GRANT UPDATE ON TABLE armi.live_voice_provider_attempts TO armi_admin;
 
 GRANT DELETE ON TABLE armi.live_voice_sessions TO armi_admin;
 
@@ -531,11 +523,8 @@ GRANT DELETE ON TABLE armi.mood_revisions TO armi_admin;
 
 GRANT UPDATE ON TABLE armi.mood_revisions TO armi_admin;
 
-GRANT DELETE ON TABLE armi.observation_attempts TO armi_admin;
 
-GRANT INSERT ON TABLE armi.observation_attempts TO armi_admin;
 
-GRANT UPDATE ON TABLE armi.observation_attempts TO armi_admin;
 
 GRANT DELETE ON TABLE armi.observation_tool_calls TO armi_admin;
 
@@ -633,11 +622,8 @@ GRANT SELECT ON TABLE armi.subjective_memory_revisions TO armi_admin;
 
 GRANT UPDATE ON TABLE armi.subjective_memory_revisions TO armi_admin;
 
-GRANT DELETE ON TABLE armi.visual_recognition_attempts TO armi_admin;
 
-GRANT INSERT ON TABLE armi.visual_recognition_attempts TO armi_admin;
 
-GRANT UPDATE ON TABLE armi.visual_recognition_attempts TO armi_admin;
 
 GRANT DELETE ON TABLE armi.web_evidence_sources TO armi_admin;
 
@@ -658,3 +644,5 @@ GRANT INSERT ON TABLE armi.web_research_intents TO armi_admin;
 GRANT UPDATE ON TABLE armi.web_research_intents TO armi_admin;
 
 GRANT SELECT ON TABLE armi.admin_data_changes TO armi_runtime;
+
+GRANT SELECT ON TABLE armi.provider_usage_calls TO armi_runtime, armi_admin;

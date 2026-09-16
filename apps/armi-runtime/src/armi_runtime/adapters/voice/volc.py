@@ -9,11 +9,18 @@ import importlib
 import json
 import struct
 import zlib
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncGenerator, AsyncIterator, Mapping
 from dataclasses import dataclass
 from typing import Any, cast
 from uuid import uuid4
 
+from armi_kernel.application import (
+    MeteredProviderCall,
+    UsageQuantity,
+    UsageSource,
+    UsageUnit,
+    provider_call,
+)
 from armi_live_voice.api import LiveVoiceViolation, RecognitionEvent
 
 ASR_ENDPOINT = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel"
@@ -223,6 +230,20 @@ class VolcStreamingAsr:
     async def recognize(
         self, frames: AsyncIterator[bytes]
     ) -> AsyncIterator[RecognitionEvent]:
+        async with (
+            provider_call(
+                provider="volcengine", model=self._resource_id, service="asr"
+            ) as call,
+            contextlib.aclosing(self._recognize(frames, call)) as events,
+        ):
+            async for event in events:
+                yield event
+
+    async def _recognize(
+        self,
+        frames: AsyncIterator[bytes],
+        call: MeteredProviderCall,
+    ) -> AsyncGenerator[RecognitionEvent]:
         connect = importlib.import_module("websockets.asyncio.client").connect
 
         headers = {
@@ -256,7 +277,10 @@ class VolcStreamingAsr:
                 first = decode_message(await socket.recv())
                 _raise_provider_error(first, "ASR")
 
+                sent_audio_bytes = 0
+
                 async def send_audio() -> None:
+                    nonlocal sent_audio_bytes
                     iterator = frames.__aiter__()
                     try:
                         current = await anext(iterator)
@@ -279,6 +303,7 @@ class VolcStreamingAsr:
                             await socket.send(
                                 encode_asr_audio(current, sequence, last=True)
                             )
+                            sent_audio_bytes += len(current)
                             return
                         total_audio_bytes += len(current)
                         if total_audio_bytes > _MAX_ASR_UTTERANCE_BYTES:
@@ -287,6 +312,7 @@ class VolcStreamingAsr:
                                 "ASR utterance exceeds the resource budget",
                             )
                         await socket.send(encode_asr_audio(current, sequence))
+                        sent_audio_bytes += len(current)
                         current = following
                         sequence += 1
 
@@ -312,8 +338,36 @@ class VolcStreamingAsr:
                                 raise sender_error
                         response = decode_message(await receiver)
                         _raise_provider_error(response, "ASR")
-                        event = _recognition_event(json_payload(response))
+                        document = json_payload(response)
+                        raw_usage = document.get("usage")
+                        audio_info = document.get("audio_info")
+                        duration = (
+                            cast(dict[str, object], audio_info).get("duration")
+                            if isinstance(audio_info, dict)
+                            else None
+                        )
+                        provider_duration = type(duration) is int and duration >= 0
+                        await call.capture(
+                            usage=cast(dict[str, object], raw_usage)
+                            if isinstance(raw_usage, dict)
+                            else None,
+                            provider_request_id=headers["X-Api-Request-Id"],
+                            quantities=(
+                                UsageQuantity(
+                                    UsageUnit.AUDIO_MILLISECONDS,
+                                    cast(int, duration)
+                                    if provider_duration
+                                    else sent_audio_bytes // 32,
+                                    UsageSource.PROVIDER
+                                    if provider_duration
+                                    else UsageSource.LOCAL_MEASUREMENT,
+                                ),
+                            ),
+                        )
+                        event = _recognition_event(document)
                         if event is not None:
+                            if event.utterance_ended:
+                                await call.finish("returned")
                             yield event
                             if event.utterance_ended:
                                 return
@@ -354,6 +408,20 @@ class VolcStreamingTts:
             await self._close_connection()
 
     async def synthesize(self, fragments: AsyncIterator[str]) -> AsyncIterator[bytes]:
+        async with (
+            provider_call(
+                provider="volcengine", model=self._resource_id, service="tts"
+            ) as call,
+            contextlib.aclosing(self._synthesize(fragments, call)) as frames,
+        ):
+            async for frame in frames:
+                yield frame
+
+    async def _synthesize(
+        self,
+        fragments: AsyncIterator[str],
+        call: MeteredProviderCall,
+    ) -> AsyncGenerator[bytes]:
         session_id = str(uuid4())
         try:
             async with self._connection_lock:
@@ -375,6 +443,7 @@ class VolcStreamingTts:
 
                 async def feed_text() -> None:
                     sent = False
+                    characters = 0
                     async for fragment in fragments:
                         text = fragment.strip()
                         if not text:
@@ -383,6 +452,18 @@ class VolcStreamingTts:
                         task = {"event": _TASK_REQUEST, "req_params": {"text": text}}
                         await socket.send(
                             encode_event(_TASK_REQUEST, task, session_id=session_id)
+                        )
+                        characters += len(text)
+                        await call.capture(
+                            usage=None,
+                            provider_request_id=session_id,
+                            quantities=(
+                                UsageQuantity(
+                                    UsageUnit.TEXT_CHARACTERS,
+                                    characters,
+                                    UsageSource.LOCAL_MEASUREMENT,
+                                ),
+                            ),
                         )
                     if not sent:
                         raise LiveVoiceViolation("VOICE-TTS-TEXT", "TTS text is empty")
@@ -424,6 +505,25 @@ class VolcStreamingTts:
                                 yield response.payload
                         elif response.event == _SESSION_FINISHED:
                             await feeder
+                            document = (
+                                json_payload(response) if response.payload else {}
+                            )
+                            raw_usage = document.get("usage")
+                            count = (
+                                cast(dict[str, object], raw_usage).get("text_words")
+                                if isinstance(raw_usage, dict)
+                                else None
+                            )
+                            await call.capture(
+                                usage=cast(dict[str, object], raw_usage)
+                                if isinstance(raw_usage, dict)
+                                else None,
+                                quantities=(
+                                    UsageQuantity(UsageUnit.TEXT_CHARACTERS, count),
+                                )
+                                if type(count) is int and count >= 0
+                                else (),
+                            )
                             break
                         elif response.event == _SESSION_FAILED:
                             raise LiveVoiceViolation(

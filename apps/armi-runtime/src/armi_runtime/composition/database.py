@@ -170,6 +170,7 @@ from armi_kernel.application import (
     ModelBinding,
     ModelViolation,
     RuntimeFence,
+    load_price_catalog,
 )
 from armi_live_vision.bootstrap import (
     bootstrap_live_vision_commit,
@@ -1106,6 +1107,11 @@ def compose_perception_module(
             runtime_config_path("model-bindings.yaml", environment_root=prepared.root)
         )
         return bootstrap_perception(
+            prices=load_price_catalog(
+                runtime_config_path(
+                    "provider-pricing.yaml", environment_root=prepared.root
+                )
+            ),
             failure_notifications=_interaction_failure_notifications(
                 prepared, unit_of_work_factory, catalog, diagnostic
             ),
@@ -1580,6 +1586,9 @@ def compose_model_pipeline(
         )
 
     return bootstrap_cognition_model(
+        prices=load_price_catalog(
+            runtime_config_path("provider-pricing.yaml", environment_root=prepared.root)
+        ),
         failure_notification=_cognition_failure_notification(
             prepared, unit_of_work_factory, catalog, diagnostic, voice
         ),
@@ -1624,6 +1633,9 @@ def compose_web_search_pipeline(
     except OSError:
         raise WebObservationViolation("WEB-MANIFEST") from None
     return bootstrap_web_observation(
+        prices=load_price_catalog(
+            runtime_config_path("provider-pricing.yaml", environment_root=prepared.root)
+        ),
         failure_notifications=_opportunity_failure_notification(
             prepared, unit_of_work_factory, catalog, diagnostic, voice
         ),

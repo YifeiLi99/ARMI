@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Literal, cast
 from uuid import UUID, uuid7
 
+from armi_kernel.application import ProviderCallReceipt
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
     PostgreSQLTransaction,
@@ -267,18 +269,27 @@ class PostgreSQLLiveVoiceJournal:
                 )
 
     async def begin_provider_attempt(
-        self, *, turn_id: UUID, binding: VoiceProviderBinding
+        self,
+        *,
+        turn_id: UUID | None,
+        binding: VoiceProviderBinding,
+        session_id: UUID | None = None,
     ) -> UUID:
+        if (turn_id is None) == (session_id is None):
+            raise LiveVoiceViolation(
+                "VOICE-JOURNAL-ATTEMPT", "exactly one parent is required"
+            )
         attempt_id = uuid7()
         async with self._factory.unit_of_work() as unit:
             await unit.transaction.execute(
                 """INSERT INTO armi.live_voice_provider_attempts
-                   (provider_attempt_id,turn_id,service_kind,provider,
+                   (provider_attempt_id,turn_id,session_id,service_kind,provider,
                     resource_id,model_identity,dispatch_state,result_status)
-                   VALUES (%s,%s,%s,%s,%s,%s,'prepared','started')""",
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,'prepared','started')""",
                 (
                     attempt_id,
                     turn_id,
+                    session_id,
                     binding.service.value,
                     binding.provider,
                     binding.resource_id,
@@ -286,6 +297,34 @@ class PostgreSQLLiveVoiceJournal:
                 ),
             )
         return attempt_id
+
+    async def record_provider_call(
+        self,
+        *,
+        attempt_id: UUID,
+        receipt: ProviderCallReceipt,
+    ) -> None:
+        async with self._factory.provider_usage_unit_of_work(
+            registration=receipt.registration
+        ) as unit:
+            result = await unit.transaction.execute(
+                """UPDATE armi.live_voice_provider_attempts
+                   SET provider_calls=jsonb_set(provider_calls,ARRAY[%s],%s::jsonb)
+               WHERE provider_attempt_id=%s
+                 AND ((%s AND settled_at IS NULL AND NOT (provider_calls ? %s))
+                      OR (NOT %s AND provider_calls ? %s))""",
+                (
+                    receipt.call_id,
+                    json.dumps(receipt.document()),
+                    attempt_id,
+                    receipt.registration,
+                    receipt.call_id,
+                    receipt.registration,
+                    receipt.call_id,
+                ),
+            )
+            if result.rowcount != 1:
+                raise LiveVoiceViolation("VOICE-JOURNAL-ATTEMPT", "attempt is missing")
 
     async def mark_provider_dispatched(self, *, attempt_id: UUID) -> None:
         async with self._factory.unit_of_work() as unit:

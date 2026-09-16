@@ -28,6 +28,10 @@ class ConfigurationConsumption:
         self.paths.update(
             {
                 (root / "configs/model-bindings.yaml").resolve(): "model-bindings",
+                (root / "configs/provider-pricing.yaml").resolve(): "provider-pricing",
+                runtime_config_path(
+                    "provider-pricing.yaml", environment_root=root
+                ).resolve(): "provider-pricing",
                 (root / "configs/web-search.yaml").resolve(): "web-search",
             }
         )

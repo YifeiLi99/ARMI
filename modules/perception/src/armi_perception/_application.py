@@ -30,10 +30,14 @@ from armi_kernel.application import (
     ArtifactPublication,
     ArtifactRegistration,
     ArtifactViolation,
+    PriceCatalog,
+    ProviderCallReceipt,
+    ProviderMeterScope,
     WorkLease,
     WorkResultRef,
     WorkType,
     WorkViolation,
+    provider_meter_scope,
 )
 from armi_kernel.contracts import Digest, Instant, TraceId
 from armi_runtime_foundation import (
@@ -88,6 +92,7 @@ class ExternalContentPipeline:
         "_failure_notifications",
         "_fetch",
         "_lease_owner",
+        "_prices",
         "_recognizer",
         "_repository",
         "_stop",
@@ -111,6 +116,7 @@ class ExternalContentPipeline:
         opportunity: OpportunityAdmissionPort,
         fetch: ExternalMediaFetchPort,
         recognizer: ExternalContentRecognitionPort,
+        prices: PriceCatalog,
         target_for: Callable[[ExternalMessagePartKind], tuple[str, str]],
         wakeups: PerceptionWakeupPort,
         diagnostic: Diagnostic | None = None,
@@ -121,6 +127,7 @@ class ExternalContentPipeline:
         self._storage = storage
         self._fetch = fetch
         self._recognizer = recognizer
+        self._prices = prices
         self._target_for = target_for
         self._wakeups = wakeups
         self._diagnostic = diagnostic or _ignore_diagnostic
@@ -385,7 +392,9 @@ class ExternalContentPipeline:
                 )
             result, lease = await self._await_with_lease(
                 lease,
-                self._recognizer.recognize(
+                self._recognize_metered(
+                    attempt_id,
+                    snapshot.purpose,
                     ExternalContentRecognitionRequest(
                         kind=part.kind,
                         content=downloaded.content,
@@ -396,7 +405,7 @@ class ExternalContentPipeline:
                         source_kind=part.source_kind,
                         source_summary=part.source_summary,
                         visual_inputs=extracted.visual_inputs,
-                    )
+                    ),
                 ),
             )
             if result.status is ExternalContentRecognitionStatus.SUCCEEDED:
@@ -569,6 +578,23 @@ class ExternalContentPipeline:
             await self._notify_failure(lease, code)
         except WorkViolation:
             self._diagnostic("external.content.settlement.deferred")
+
+    async def _recognize_metered(
+        self,
+        attempt_id: UUID,
+        purpose: str,
+        request: ExternalContentRecognitionRequest,
+    ) -> ExternalContentRecognitionResult:
+        async def save(receipt: ProviderCallReceipt) -> None:
+            async with self._factory.provider_usage_unit_of_work(
+                registration=receipt.registration
+            ) as unit:
+                await self._repository.record_provider_call(
+                    unit, attempt_id=attempt_id, receipt=receipt
+                )
+
+        with provider_meter_scope(ProviderMeterScope(save, self._prices, purpose)):
+            return await self._recognizer.recognize(request)
 
     async def _terminalize_recognition(self, lease: WorkLease) -> None:
         await self._fail_work(lease, "EXTERNAL-CONTENT-RECOGNITION")

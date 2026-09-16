@@ -19,7 +19,7 @@ from armi_data_rights.api import DataRightsParticipant
 from armi_evidence.api import EvidenceReadPort
 from armi_experience.api import ExperienceReadPort
 from armi_interaction.api import InteractionCognitionReadPort
-from armi_kernel.application import DurableWorkPort, ExecutionCustodyPort
+from armi_kernel.application import DurableWorkPort, ExecutionCustodyPort, PriceCatalog
 from armi_material.api import (
     MaterialCandidateContextPort,
     MaterialCognitionPort,
@@ -153,6 +153,7 @@ def bootstrap_cognition_model(
     finalization: CognitionFinalizationPort,
     adapter_factory: CognitionModelAdapterFactory,
     binding_path: Path,
+    prices: PriceCatalog,
     web_search_active: bool = False,
     wakeups: CognitionWakeupPort | None = None,
     diagnostic: Callable[[str], None] | None = None,
@@ -170,6 +171,7 @@ def bootstrap_cognition_model(
         adapter_factory=adapter_factory,
         failure_notification=failure_notification,
         binding_path=binding_path,
+        prices=prices,
         web_search_active=web_search_active,
         wakeups=wakeups,
         diagnostic=diagnostic,

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
 
+from armi_kernel.application import UsageQueryPort
 from armi_live_vision.api import LiveVisionViolation
 
 from .creator_contract import (
@@ -52,6 +53,7 @@ class CreatorSystem:
         Callable[[UUID], Awaitable[LiveVisionObservationResponse | None]] | None
     )
     vision_preview: Callable[[str], bytes | None] | None
+    usage: UsageQueryPort | None = None
 
     async def channel(
         self, action: Literal["start", "stop", "status"]

@@ -7,6 +7,8 @@ from typing import Any
 
 from armi_live_voice.api import LiveVoiceViolation
 
+from armi_runtime.adapters.model._metered_ark import metered_ark_response
+
 
 class ArkResponsesFastModel:
     def __init__(
@@ -20,7 +22,7 @@ class ArkResponsesFastModel:
             raise LiveVoiceViolation("VOICE-LLM-CREDENTIAL", "Ark API key is empty")
         from openai import AsyncOpenAI
 
-        self._client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        self._client = AsyncOpenAI(api_key=api_key, base_url=base_url, max_retries=0)
         self._model = model
         self._prepare_lock = asyncio.Lock()
 
@@ -28,7 +30,8 @@ class ArkResponsesFastModel:
         """Warm the selected model when an explicit voice session starts."""
         try:
             async with self._prepare_lock:
-                response: Any = await self._client.responses.create(
+                response: Any = await metered_ark_response(
+                    self._client,
                     model=self._model,
                     instructions="严格按 JSON Schema 输出语音兼容检查结果。",
                     input="开始",

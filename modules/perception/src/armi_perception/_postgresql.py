@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid7
 
@@ -29,6 +30,7 @@ from armi_interaction.api import (
     InteractionPerceptionPort,
 )
 from armi_kernel.application import (
+    ProviderCallReceipt,
     WorkDraft,
     WorkId,
     WorkLease,
@@ -44,6 +46,32 @@ from .api import ExternalContentRecognitionResult
 
 
 class PostgreSQLExternalContentRepository:
+    async def record_provider_call(
+        self,
+        unit: PostgreSQLRuntimeUnitOfWork,
+        *,
+        attempt_id: UUID,
+        receipt: ProviderCallReceipt,
+    ) -> None:
+        result = await unit.transaction.execute(
+            """UPDATE armi.external_content_recognition_attempts
+               SET provider_calls=jsonb_set(provider_calls,ARRAY[%s],%s::jsonb)
+               WHERE recognition_attempt_id=%s
+                 AND ((%s AND settled_at IS NULL AND NOT (provider_calls ? %s))
+                      OR (NOT %s AND provider_calls ? %s))""",
+            (
+                receipt.call_id,
+                json.dumps(receipt.document()),
+                attempt_id,
+                receipt.registration,
+                receipt.call_id,
+                receipt.registration,
+                receipt.call_id,
+            ),
+        )
+        if result.rowcount != 1:
+            raise RuntimeError("PERCEPTION-ATTEMPT-STALE")
+
     __slots__ = (
         "_data_rights",
         "_evidence",

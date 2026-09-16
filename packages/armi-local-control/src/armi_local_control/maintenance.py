@@ -89,7 +89,9 @@ class ConfigurationInvocation(BaseModel):
     )
     environment_root: AbsolutePath
     environment_id: Uuid7
-    target: Literal["model-bindings", "web-search", "qq", "mood-display"]
+    target: Literal[
+        "model-bindings", "provider-pricing", "web-search", "qq", "mood-display"
+    ]
     action: Literal["read", "validate", "preview", "apply", "status"]
     patch: dict[str, object] = Field(default_factory=dict)
     document: dict[str, object] | None = None

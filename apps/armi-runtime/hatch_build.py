@@ -9,7 +9,12 @@ from hatchling.builders.hooks.plugin.interface import (  # pyright: ignore[repor
     BuildHookInterface,
 )
 
-_CONFIG_NAMES = ("runtime.yaml", "model-bindings.yaml", "web-search.yaml")
+_CONFIG_NAMES = (
+    "runtime.yaml",
+    "model-bindings.yaml",
+    "web-search.yaml",
+    "provider-pricing.yaml",
+)
 _PACKAGED_DIRECTORY = Path("src/armi_runtime/composition/runtime_resources")
 
 

@@ -42,7 +42,7 @@ def _run(argv: list[str] | None = None) -> int:
             else operation.name.replace("_", "-")
         )
         parent = commands
-        if operation.name.startswith(("authorization_", "invocation_")):
+        if operation.name.startswith(("authorization_", "invocation_", "usage_")):
             group, name = operation.name.split("_", 1)
             if group not in groups:
                 groups[group] = commands.add_parser(group).add_subparsers(required=True)

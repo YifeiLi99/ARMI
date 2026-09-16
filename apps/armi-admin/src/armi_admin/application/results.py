@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
+from armi_local_control import UsageCall, UsageCalls, UsageSummary
 from armi_local_control.configuration.models import (
     CameraSourceConfig,
     ScreenSourceConfig,
@@ -48,7 +49,7 @@ class CognitionAttemptPayload(Payload):
     model_id: str
     request_schema_version: str
     candidate_schema_version: str
-    request_artifact_id: str
+    request_artifact_id: str | None
     response_artifact_id: str | None
     dispatch_status: str
     result_status: str | None
@@ -99,6 +100,7 @@ class GraphReference(Payload):
 
 
 class GraphAttributes(Payload):
+    usage_operation_id: str | None = None
     failure_code: str | None = None
     send_unknown: bool | None = None
     target_kind: str | None = None
@@ -1023,6 +1025,9 @@ RESULT_PAYLOADS: dict[str, type[BaseModel]] = {
     "authorization_revoke": AuthorizationPayload,
     "trace_flow": FlowGraphPayload,
     "cognition_read": CognitionReadPayload,
+    "usage_summary": UsageSummary,
+    "usage_list": UsageCalls,
+    "usage_read": UsageCall,
     "inspect_scope": ScopeGraphPayload,
     "subject_snapshot": SubjectSnapshotPayload,
     "tail_diagnostics": DiagnosticPagePayload,

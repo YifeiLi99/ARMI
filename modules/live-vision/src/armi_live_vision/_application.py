@@ -28,6 +28,9 @@ from armi_kernel.application import (
     ArtifactPolicy,
     ArtifactPrivacyScope,
     DurableWorkPort,
+    PriceCatalog,
+    ProviderCallReceipt,
+    ProviderMeterScope,
     WorkDraft,
     WorkId,
     WorkLease,
@@ -36,6 +39,7 @@ from armi_kernel.application import (
     WorkRecord,
     WorkResultRef,
     WorkType,
+    provider_meter_scope,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, Instant, SubjectId, TraceId
 from armi_perception.api import (
@@ -70,6 +74,7 @@ class DurableVisualObservationCoordinator:
         work: DurableWorkPort,
         recognizer: VisualRecognitionPort,
         attempts: VisualRecognitionAttemptPort,
+        prices: PriceCatalog,
         evidence: EvidenceWritePort,
         opportunity: OpportunityAdmissionPort,
         subject_id: UUID,
@@ -88,6 +93,7 @@ class DurableVisualObservationCoordinator:
         self._work = work
         self._recognizer = recognizer
         self._attempts = attempts
+        self._prices = prices
         self._evidence = evidence
         self._opportunity = opportunity
         self._subject_id = subject_id
@@ -383,19 +389,33 @@ class DurableVisualObservationCoordinator:
             frame_values.append(VisualFrame(item[3], value, int(item[1]), int(item[2])))
         previous = await self._previous_completed_summary(VisualSourceKind(str(row[2])))
         try:
-            result = await self._recognizer.recognize_visual(
-                VisualRecognitionRequest(
-                    row[0],
-                    str(row[1]),
-                    str(row[2]),
-                    tuple(
-                        VisualRecognitionInput(frame.jpeg, Instant(frame.captured_at))
-                        for frame in frame_values
-                    ),
-                    previous,
-                    record.draft.trace_id,
+
+            async def save(receipt: ProviderCallReceipt) -> None:
+                async with self._factory.provider_usage_unit_of_work(
+                    registration=receipt.registration
+                ) as unit:
+                    await self._attempts.record_provider_call(
+                        unit, attempt_id=attempt_id, receipt=receipt
+                    )
+
+            with provider_meter_scope(
+                ProviderMeterScope(save, self._prices, "visual_observation")
+            ):
+                result = await self._recognizer.recognize_visual(
+                    VisualRecognitionRequest(
+                        row[0],
+                        str(row[1]),
+                        str(row[2]),
+                        tuple(
+                            VisualRecognitionInput(
+                                frame.jpeg, Instant(frame.captured_at)
+                            )
+                            for frame in frame_values
+                        ),
+                        previous,
+                        record.draft.trace_id,
+                    )
                 )
-            )
         except Exception:
             await self._settle_failure(
                 row[0],

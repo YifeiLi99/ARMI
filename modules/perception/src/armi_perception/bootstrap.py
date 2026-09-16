@@ -14,6 +14,7 @@ from armi_interaction.api import (
     InteractionFailureNotificationPort,
     InteractionPerceptionPort,
 )
+from armi_kernel.application import PriceCatalog
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
     RecoveryParticipant,
@@ -59,6 +60,7 @@ class PerceptionModule:
 
 def bootstrap_perception(
     *,
+    prices: PriceCatalog,
     unit_of_work_factory: PostgreSQLRuntimeUnitOfWorkFactory,
     storage: ContentAddressedArtifactStore,
     catalog: PerceptionArtifactCatalogPort,
@@ -81,6 +83,7 @@ def bootstrap_perception(
         speech=speech_recognizer,
     )
     worker = ExternalContentPipeline(
+        prices=prices,
         failure_notifications=failure_notifications,
         factory=unit_of_work_factory,
         storage=storage,

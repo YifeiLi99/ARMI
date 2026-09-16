@@ -30,10 +30,22 @@ from armi_runtime.composition.model_verification import (
     checked_model_request,
     load_active_binding,
 )
-from live_ark_credential import load_live_ark_credential
+from live_ark_credential import (
+    LiveProviderMeter,
+    live_provider_meter,
+    load_live_ark_credential,
+)
 
 
 async def _verify(environment_root: Path) -> dict[str, object]:
+    with live_provider_meter(environment_root) as meter:
+        result = await _verify_metered(environment_root, meter)
+        return {**result, **meter.report()}
+
+
+async def _verify_metered(
+    environment_root: Path, meter: LiveProviderMeter
+) -> dict[str, object]:
     credential = load_live_ark_credential(environment_root)
     binding = load_active_binding()
     subject_id = uuid7()
@@ -99,6 +111,7 @@ async def _verify(environment_root: Path) -> dict[str, object]:
     )
     input_tokens = await adapter.tokenize(request_bytes)
     request = checked_model_request(
+        prices=meter.prices,
         binding=binding,
         request_bytes=request_bytes,
         context_digest=context_digest,
@@ -116,8 +129,6 @@ async def _verify(environment_root: Path) -> dict[str, object]:
         or invocation.provider_model_id is None
     ):
         raise RuntimeError("MODEL-LIVE-FAILED")
-    if invocation.usage.estimated_cost_microyuan > 1_000_000:
-        raise RuntimeError("MODEL-LIVE-BUDGET")
     response = cast(dict[str, Any], json.loads(invocation.response_bytes))
     candidate_bytes = json.loads(response["output_text"])["candidate"]
     validator = build_candidate_validator(
@@ -183,7 +194,6 @@ async def _verify(environment_root: Path) -> dict[str, object]:
         "input_tokens": invocation.usage.input_tokens,
         "output_tokens": invocation.usage.output_tokens,
         "cached_input_tokens": invocation.usage.cached_input_tokens,
-        "estimated_cost_microyuan": invocation.usage.estimated_cost_microyuan,
         "elapsed_ms": elapsed_ms,
         "tools_enabled": False,
         "store": False,

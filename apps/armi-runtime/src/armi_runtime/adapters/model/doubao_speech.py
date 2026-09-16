@@ -19,6 +19,10 @@ from armi_kernel.application import (
     CredentialLocator,
     CredentialPort,
     CredentialPurpose,
+    MeteredProviderCall,
+    UsageQuantity,
+    UsageUnit,
+    provider_call,
 )
 from armi_perception.api import (
     ExternalContentRecognitionPort,
@@ -80,6 +84,24 @@ class DoubaoSpeechRecognizer(ExternalContentRecognitionPort):
     ) -> ExternalContentRecognitionResult:
         if request.kind is not ExternalMessagePartKind.AUDIO:
             raise ExternalMessageViolation("EXTERNAL-MESSAGE-RECOGNITION-KIND")
+        async with provider_call(
+            provider=_PROVIDER, model=self._binding.resource_id, service="asr"
+        ) as call:
+            result = await self._recognize(request, call)
+            if result.status is not ExternalContentRecognitionStatus.SUCCEEDED:
+                await call.finish(
+                    "unknown"
+                    if result.status is ExternalContentRecognitionStatus.UNKNOWN
+                    else "failed",
+                    error_code=result.error_code,
+                )
+            return result
+
+    async def _recognize(
+        self,
+        request: ExternalContentRecognitionRequest,
+        call: MeteredProviderCall,
+    ) -> ExternalContentRecognitionResult:
         secret = self._copy_secret()
         accepted = False
         try:
@@ -118,6 +140,11 @@ class DoubaoSpeechRecognizer(ExternalContentRecognitionPort):
                             },
                         },
                     )
+                    await call.capture(
+                        usage=None,
+                        provider_request_id=submitted.headers.get("X-Tt-Logid")
+                        or request_id,
+                    )
                     submitted.raise_for_status()
                     rejection = self._provider_rejection(submitted)
                     if rejection is not None:
@@ -130,14 +157,57 @@ class DoubaoSpeechRecognizer(ExternalContentRecognitionPort):
                     poll_error_index = 0
                     while True:
                         try:
-                            response = await client.post(
-                                self._binding.query_url,
-                                headers=query_headers,
-                                json={},
-                            )
-                            response.raise_for_status()
+                            async with provider_call(
+                                provider=_PROVIDER,
+                                model=self._binding.resource_id,
+                                service="poll",
+                                parent_call_id=call.receipt.call_id,
+                            ) as poll:
+                                response = await client.post(
+                                    self._binding.query_url,
+                                    headers=query_headers,
+                                    json={},
+                                )
+                                await poll.capture(
+                                    usage=None,
+                                    provider_request_id=response.headers.get(
+                                        "X-Tt-Logid"
+                                    )
+                                    or request_id,
+                                )
+                                response.raise_for_status()
                             status_code = response.headers.get("X-Api-Status-Code")
                             if status_code == _SUCCEEDED:
+                                payload: object = response.json()
+                                document = (
+                                    cast(dict[str, object], payload)
+                                    if isinstance(payload, dict)
+                                    else {}
+                                )
+                                audio = document.get("audio_info")
+                                duration = (
+                                    cast(dict[str, object], audio).get("duration")
+                                    if isinstance(audio, dict)
+                                    else None
+                                )
+                                usage = document.get("usage")
+                                await call.capture(
+                                    usage=cast(dict[str, object], usage)
+                                    if isinstance(usage, dict)
+                                    else None,
+                                    provider_request_id=response.headers.get(
+                                        "X-Tt-Logid"
+                                    )
+                                    or log_id
+                                    or request_id,
+                                    quantities=(
+                                        UsageQuantity(
+                                            UsageUnit.AUDIO_MILLISECONDS, duration
+                                        ),
+                                    )
+                                    if type(duration) is int and duration >= 0
+                                    else (),
+                                )
                                 return self._decode_response(
                                     response, fallback_log_id=log_id
                                 )

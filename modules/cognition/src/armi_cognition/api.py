@@ -737,7 +737,7 @@ class CognitionAdminAttempt:
     model_id: str
     request_schema_version: str
     candidate_schema_version: str
-    request_artifact_id: UUID
+    request_artifact_id: UUID | None
     response_artifact_id: UUID | None
     dispatch_status: str
     result_status: str | None

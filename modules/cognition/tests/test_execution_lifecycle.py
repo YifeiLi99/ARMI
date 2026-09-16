@@ -42,6 +42,7 @@ def test_invalid_saved_response_cannot_reach_subject_commit():
 
 class _Execution(model.ModelPipeline):
     def __init__(self, finalization: AsyncMock) -> None:
+        self._prices = model.PriceCatalog(())
         self.published: list[tuple[str, bytes]] = []
         self.input_evidence = b'{"schema_version":"armi.model-input-evidence.v1","provider_request":{"instructions":"saved"}}'
         self._failure_notification = AsyncMock()
@@ -64,6 +65,7 @@ class _Execution(model.ModelPipeline):
             SimpleNamespace(
                 prepare_attempt=AsyncMock(return_value=model.ModelAttemptId(uuid7())),
                 mark_dispatched=AsyncMock(),
+                attach_request=AsyncMock(),
                 settle_success=AsyncMock(),
                 finalize_primary_success=AsyncMock(),
                 settle_failure=AsyncMock(),
@@ -87,7 +89,7 @@ class _Execution(model.ModelPipeline):
                     "controlled-request",
                     "controlled-model",
                     self.result_bytes,
-                    ModelUsage(1, 1, 0, 0),
+                    ModelUsage(1, 1, 0),
                 )
             ),
         )

@@ -38,7 +38,7 @@ from .interaction_authority import verify_interaction
 from .system_commands import invoke_system
 
 
-def _system_authorize(
+def authorize_system(
     request: Request, sessions: BrowserSessionStore | None, origin: str
 ) -> JSONResponse | None:
     if sessions is None:
@@ -167,7 +167,7 @@ def register_system_routes(
         dependencies=[Security(bearer)],
     )
     async def get_runtime_status(request: Request) -> Response:
-        denied = _system_authorize(request, browser_sessions, canonical_origin)
+        denied = authorize_system(request, browser_sessions, canonical_origin)
         if denied is not None:
             return denied
         return _system_response(await invoke_system(system, "runtime_status", {}))
@@ -184,7 +184,7 @@ def register_system_routes(
         dependencies=[Security(bearer)],
     )
     async def get_qq_channel_health(request: Request) -> Response:
-        denied = _system_authorize(request, browser_sessions, canonical_origin)
+        denied = authorize_system(request, browser_sessions, canonical_origin)
         if denied is not None:
             return denied
         return _system_response(await invoke_system(system, "channel_status", {}))
@@ -196,7 +196,7 @@ def register_system_routes(
         dependencies=[Security(bearer)],
     )
     async def start_qq_channel(request: Request) -> Response:
-        denied = _system_authorize(request, browser_sessions, canonical_origin)
+        denied = authorize_system(request, browser_sessions, canonical_origin)
         if denied is not None:
             return denied
         return _system_response(await invoke_system(system, "channel_start", {}))
@@ -208,7 +208,7 @@ def register_system_routes(
         dependencies=[Security(bearer)],
     )
     async def stop_qq_channel(request: Request) -> Response:
-        denied = _system_authorize(request, browser_sessions, canonical_origin)
+        denied = authorize_system(request, browser_sessions, canonical_origin)
         if denied is not None:
             return denied
         return _system_response(await invoke_system(system, "channel_stop", {}))
@@ -220,7 +220,7 @@ def register_system_routes(
         dependencies=[Security(bearer)],
     )
     async def get_live_voice_status(request: Request) -> Response:
-        denied = _system_authorize(request, browser_sessions, canonical_origin)
+        denied = authorize_system(request, browser_sessions, canonical_origin)
         if denied is not None:
             return denied
         return _system_response(await invoke_system(system, "voice_status", {}))
@@ -232,7 +232,7 @@ def register_system_routes(
         dependencies=[Security(bearer)],
     )
     async def start_live_voice(request: Request) -> Response:
-        denied = _system_authorize(request, browser_sessions, canonical_origin)
+        denied = authorize_system(request, browser_sessions, canonical_origin)
         if denied is not None:
             return denied
         return _system_response(await invoke_system(system, "voice_start", {}))
@@ -244,7 +244,7 @@ def register_system_routes(
         dependencies=[Security(bearer)],
     )
     async def stop_live_voice(request: Request) -> Response:
-        denied = _system_authorize(request, browser_sessions, canonical_origin)
+        denied = authorize_system(request, browser_sessions, canonical_origin)
         if denied is not None:
             return denied
         return _system_response(await invoke_system(system, "voice_stop", {}))
@@ -256,7 +256,7 @@ def register_system_routes(
         dependencies=[Security(bearer)],
     )
     async def get_live_vision_status(request: Request) -> Response:
-        denied = _system_authorize(request, browser_sessions, canonical_origin)
+        denied = authorize_system(request, browser_sessions, canonical_origin)
         if denied is not None:
             return denied
         return _system_response(await invoke_system(system, "vision_status", {}))
@@ -268,7 +268,7 @@ def register_system_routes(
         dependencies=[Security(bearer)],
     )
     async def start_live_vision(request: Request, source_kind: str) -> Response:
-        denied = _system_authorize(request, browser_sessions, canonical_origin)
+        denied = authorize_system(request, browser_sessions, canonical_origin)
         if denied is not None:
             return denied
         return _system_response(
@@ -282,7 +282,7 @@ def register_system_routes(
         dependencies=[Security(bearer)],
     )
     async def stop_live_vision(request: Request, source_kind: str) -> Response:
-        denied = _system_authorize(request, browser_sessions, canonical_origin)
+        denied = authorize_system(request, browser_sessions, canonical_origin)
         if denied is not None:
             return denied
         return _system_response(
@@ -297,7 +297,7 @@ def register_system_routes(
         responses={202: {"model": LiveVisionObservationResponse}, 409: {}},
     )
     async def observe_live_vision(request: Request) -> Response:
-        denied = _system_authorize(request, browser_sessions, canonical_origin)
+        denied = authorize_system(request, browser_sessions, canonical_origin)
         if denied is not None:
             return denied
         try:
@@ -327,7 +327,7 @@ def register_system_routes(
     async def get_live_vision_observation(
         request: Request, observation_id: str
     ) -> Response:
-        denied = _system_authorize(request, browser_sessions, canonical_origin)
+        denied = authorize_system(request, browser_sessions, canonical_origin)
         if denied is not None:
             return denied
         return _system_response(
@@ -344,7 +344,7 @@ def register_system_routes(
         dependencies=[Security(bearer)],
     )
     async def get_live_vision_preview(request: Request, source_kind: str) -> Response:
-        denied = _system_authorize(request, browser_sessions, canonical_origin)
+        denied = authorize_system(request, browser_sessions, canonical_origin)
         if denied is not None:
             return denied
         return _system_response(

@@ -37,6 +37,7 @@ from armi_kernel import load_yaml_file
 from armi_kernel.application import (
     ModelBinding,
     ModelViolation,
+    PriceCatalog,
 )
 from armi_kernel.contracts import Digest
 from pydantic import TypeAdapter, ValidationError
@@ -401,6 +402,7 @@ def _request(binding: ModelBinding):
         ),
     )
     return checked_model_request(
+        prices=PriceCatalog(()),
         binding=binding,
         request_bytes=request_bytes,
         context_digest=context_digest,
@@ -414,8 +416,6 @@ def test_only_evolving_binding_is_active_and_request_is_stable() -> None:
     assert first.model_id == ACTIVE_MODEL_ID == "doubao-seed-evolving"
     assert first.version_policy == ACTIVE_VERSION_POLICY
     assert first.response_model_identity_required
-    assert first.input_microyuan_per_million == 6_000_000
-    assert first.output_microyuan_per_million == 30_000_000
     assert first == second
     assert _request(first).canonical_bytes == _request(second).canonical_bytes
 
