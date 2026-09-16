@@ -35,11 +35,8 @@ _PURPOSE_KINDS = {
     "consider_creator_input": "no_change",
     "consider_life_query_result": "no_change",
     "consider_requested_visual_observation": "no_change",
-    "consider_creator_outreach": "no_action",
     "consider_other_human_input": "silence",
     "consider_autonomous_life": "no_activity",
-    "consider_activity_attention": "no_action",
-    "consider_activity_internal_work": "no_result",
     "consider_sleep": "stay_awake",
     "consider_visual_observation": "ignore",
     "maintain_subjective_memory": "memory_unchanged",
@@ -105,10 +102,12 @@ def test_each_purpose_schema_and_parser_accept_its_unchanged_decision(purpose):
         }
     elif purpose in {
         "consider_autonomous_life",
-        "consider_activity_attention",
         "consider_visual_observation",
     }:
         value["appraisal"] = None
+        if purpose == "consider_autonomous_life":
+            value["next_consideration_seconds"] = 60
+            value["expression"] = None
     elif version == "armi.cognition-candidate.v14":
         value = {
             "schema_version": version,

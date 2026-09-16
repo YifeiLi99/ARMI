@@ -28,10 +28,13 @@ async def test_catalog_uses_runtime_availability(
         async def fetchall(self) -> list[tuple[object, ...]]:
             return [(uuid7(), "codex.delegated-work", "execute", 1)]
 
-    catalog = bootstrap_capability(lambda: availability)
+    catalog = bootstrap_capability(lambda: {"codex.delegated-work": availability})
     rows = await catalog.context_state_payloads(
         cast(Any, Transaction()), subject_id=uuid7()
     )
+    if not availability.enabled:
+        assert rows == ()
+        return
     payload = json.loads(rows[0][2])
     assert payload["enabled"] is availability.enabled
     assert payload["availability_status"] == (

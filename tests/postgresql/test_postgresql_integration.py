@@ -58,6 +58,7 @@ from armi_codex.api import (
     CodexTaskSourceId,
     CodexVerificationStatus,
     CreatorCodexTaskCommand,
+    bind_autonomous_codex_task,
 )
 from armi_cognition.api import CognitionSchemaDocument, SubjectChangeSet
 from armi_context.api import EMBEDDING_BINDING_ID
@@ -206,6 +207,7 @@ from armi_runtime.composition.postgresql_test import (
     PostgreSQLSceneTimelineQuery,
     bootstrap_activity,
     bootstrap_activity_cognition,
+    bootstrap_autonomy,
     bootstrap_codex_commit,
     bootstrap_codex_read_ports,
     bootstrap_codex_timeline_projection,
@@ -289,12 +291,13 @@ def _life_opportunity_facts(
     environment_id: UUID,
     activity_read: Any,
 ) -> RuntimeLifeOpportunityFacts:
+    async def outlet_health(_outlet: str) -> tuple[str, str | None]:
+        return "ready", None
+
     return RuntimeLifeOpportunityFacts(
-        activities=activity_read,
         cognition=bootstrap_cognition_operation(),
-        effects=bootstrap_effect_operation_read(),
-        expression=bootstrap_expression_action_ports().intents,
         interaction=bootstrap_interaction_identity(_TEST_IDENTITY_TOKENS),
+        outlet_health=outlet_health,
     )
 
 
@@ -1221,6 +1224,312 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(operation_only.totals.billable_calls, 0)
 
+    def test_autonomy_persistent_plan_and_concurrent_quota(self) -> None:
+        from armi_attention.api import (
+            AutonomyPolicy,
+            LifeViolation,
+            OpportunityCognitionSelectionScope,
+            OpportunitySelectionCursor,
+        )
+        from armi_local_control import AutonomyHistory, AutonomyStatus
+        from armi_runtime_foundation import autonomy_result, autonomy_statement
+
+        fixture = self.create_database()
+        self._install_current(
+            fixture.migrator_dsn, environment_id=fixture.environment_id
+        )
+        policy = AutonomyPolicy(daily_request_limit=2)
+        owner = bootstrap_autonomy()
+
+        async def exercise(root: Path) -> None:
+            factory = PostgreSQLUnitOfWorkFactory(
+                fixture.runtime_dsn,
+                environment_id=fixture.environment_id,
+                pool_min=1,
+                pool_max=4,
+                acquire_timeout_seconds=5,
+                statement_timeout_seconds=5,
+                require_runtime_fence=False,
+            )
+            await factory.open()
+            try:
+                birth = BirthTransaction(
+                    _publishing_artifact_store(root, factory),
+                    ArtifactCatalogRepository(),
+                    _birth_repository(),
+                    factory,
+                )
+                born = await birth.birth(
+                    BirthManifest(
+                        schema_version="armi.birth-manifest.v1",
+                        environment_id=fixture.environment_id,
+                        birth_request_id=uuid7(),
+                        creator_party_id=uuid7(),
+                        idempotency_key="autonomy-fixture",
+                        personality_anchor=PersonalityAnchor(
+                            schema_version="armi.personality-anchor.v1",
+                            voice_style="约 16 岁少女口吻",
+                            traits=("清醒",),
+                        ),
+                        birth_contract_digest=packaged_birth_digests()[
+                            "birth_contract_digest"
+                        ],
+                        request_digest=Digest.from_bytes(b"autonomy-fixture"),
+                    )
+                )
+                async with factory.unit_of_work() as unit:
+                    initial = await owner.ensure_plan(
+                        unit.transaction, subject_id=born.subject_id, policy=policy
+                    )
+                    outcome = await owner.admit_due(
+                        unit.transaction, subject_id=born.subject_id, policy=policy
+                    )
+                    self.assertEqual(outcome.reason_code, "LIFE-AUTONOMY-NOT-DUE")
+                async with factory.unit_of_work() as unit:
+                    resumed = await owner.ensure_plan(
+                        unit.transaction, subject_id=born.subject_id, policy=policy
+                    )
+                    self.assertEqual(resumed, initial)
+                    await unit.transaction.execute(
+                        "UPDATE armi.autonomy_plans SET next_consideration_at=statement_timestamp()+interval '6 hours' WHERE subject_id=%s",
+                        (born.subject_id,),
+                    )
+                    await unit.transaction.execute(
+                        "UPDATE armi.subjects SET state_epoch=state_epoch+1 WHERE subject_id=%s",
+                        (born.subject_id,),
+                    )
+                    changed = await owner.ensure_plan(
+                        unit.transaction,
+                        subject_id=born.subject_id,
+                        policy=policy,
+                        state_epoch=1,
+                    )
+                    self.assertLess(
+                        changed.next_consideration_at,
+                        datetime.now(UTC) + timedelta(minutes=2),
+                    )
+                    repeated = await owner.ensure_plan(
+                        unit.transaction,
+                        subject_id=born.subject_id,
+                        policy=policy,
+                        state_epoch=1,
+                    )
+                    self.assertEqual(changed, repeated)
+                    # Virtual elapsed time in this isolated database, not a running environment.
+                    await unit.transaction.execute(
+                        "UPDATE armi.autonomy_plans SET next_consideration_at=statement_timestamp()-interval '3 days' WHERE subject_id=%s",
+                        (born.subject_id,),
+                    )
+                    admitted = await owner.admit_due(
+                        unit.transaction, subject_id=born.subject_id, policy=policy
+                    )
+                    self.assertEqual(
+                        admitted.status, OpportunityAdmissionStatus.ADMITTED
+                    )
+                async with factory.unit_of_work() as unit:
+                    duplicate = await owner.admit_due(
+                        unit.transaction, subject_id=born.subject_id, policy=policy
+                    )
+                    self.assertEqual(
+                        duplicate.status, OpportunityAdmissionStatus.DUPLICATE
+                    )
+                    self.assertEqual(duplicate.opportunity_id, admitted.opportunity_id)
+                    cognition_owner = bootstrap_opportunity_cognition()
+                    selected = await cognition_owner.next_candidate(
+                        unit.transaction,
+                        scope=OpportunityCognitionSelectionScope(born.subject_id),
+                    )
+                    assert selected is not None
+                    self.assertEqual(selected.opportunity_id, admitted.opportunity_id)
+                    self.assertEqual(selected.selection_priority, 1)
+                    exhausted = await cognition_owner.next_candidate(
+                        unit.transaction,
+                        scope=OpportunityCognitionSelectionScope(born.subject_id),
+                        after=OpportunitySelectionCursor(
+                            selected.available_after,
+                            selected.opportunity_id,
+                            selected.selection_priority,
+                        ),
+                    )
+                    self.assertIsNone(exhausted)
+
+                async def register(call_id: str, *, rollback: bool = False) -> bool:
+                    async with factory.unit_of_work() as unit:
+                        changed = await owner.register_request(
+                            unit.transaction,
+                            subject_id=born.subject_id,
+                            root_opportunity_id=admitted.opportunity_id,
+                            call_id=call_id,
+                            policy=policy,
+                        )
+                        if rollback:
+                            raise RuntimeError("isolated owner receipt failure")
+                        return changed
+
+                with self.assertRaisesRegex(
+                    RuntimeError, "isolated owner receipt failure"
+                ):
+                    await register(str(uuid7()), rollback=True)
+                first = str(uuid7())
+                self.assertTrue(await register(first))
+                self.assertFalse(await register(first))
+                outcomes = await asyncio.gather(
+                    register(str(uuid7())),
+                    register(str(uuid7())),
+                    return_exceptions=True,
+                )
+                self.assertEqual(sum(value is True for value in outcomes), 1)
+                failures = [
+                    value for value in outcomes if isinstance(value, LifeViolation)
+                ]
+                self.assertEqual(
+                    [value.code for value in failures],
+                    ["LIFE-AUTONOMY-QUOTA-EXHAUSTED"],
+                )
+                async with factory.unit_of_work() as unit:
+                    allowed = await cognition_owner.can_consider_autonomy(
+                        unit.transaction,
+                        subject_id=born.subject_id,
+                    )
+                    self.assertFalse(allowed)
+                async with factory.unit_of_work(read_only=True) as unit:
+                    statement, parameters = autonomy_statement("status")
+                    row = await (
+                        await unit.transaction.execute(
+                            cast(LiteralString, statement), parameters
+                        )
+                    ).fetchone()
+                    status = AutonomyStatus.model_validate(autonomy_result(row))
+                    self.assertEqual(
+                        (status.used_requests, status.remaining_requests), (2, 0)
+                    )
+                    statement, parameters = autonomy_statement("history", 1, 0)
+                    row = await (
+                        await unit.transaction.execute(
+                            cast(LiteralString, statement), parameters
+                        )
+                    ).fetchone()
+                    history = AutonomyHistory.model_validate(autonomy_result(row))
+                    self.assertEqual(history.total, 1)
+                    self.assertEqual(
+                        history.items[0].operation_id, str(admitted.opportunity_id)
+                    )
+                # Advance only this isolated database's deadlines/day assignments.
+                # Exercise real Owner SQL over three quota days without wall-clock
+                # sleeps, provider calls, or any installed environment data.
+                assert admitted.opportunity_id is not None
+                async with factory.unit_of_work() as unit:
+                    await cognition_owner.interrupt_cognition(
+                        unit.transaction, opportunity_ids=(admitted.opportunity_id,)
+                    )
+                    await owner.admit_due(
+                        unit.transaction, subject_id=born.subject_id, policy=policy
+                    )
+                for day in range(3):
+                    # Test clock travel needs the isolated fixture administrator:
+                    # Runtime deliberately cannot rewrite admission history.
+                    async with await psycopg.AsyncConnection.connect(
+                        fixture.provisioner_dsn
+                    ) as clock_connection:
+                        await clock_connection.execute(
+                            "UPDATE armi.autonomy_request_admissions SET quota_date=quota_date-1 WHERE subject_id=%s",
+                            (born.subject_id,),
+                        )
+                    for round_no in range(policy.daily_request_limit):
+                        async with factory.unit_of_work() as unit:
+                            await unit.transaction.execute(
+                                "UPDATE armi.autonomy_plans SET next_consideration_at=statement_timestamp()-interval '1 second' WHERE subject_id=%s",
+                                (born.subject_id,),
+                            )
+                            current = await owner.admit_due(
+                                unit.transaction,
+                                subject_id=born.subject_id,
+                                policy=policy,
+                            )
+                            self.assertEqual(
+                                current.status, OpportunityAdmissionStatus.ADMITTED
+                            )
+                            assert current.opportunity_id is not None
+                            self.assertTrue(
+                                await cognition_owner.select_for_cognition(
+                                    unit.transaction,
+                                    opportunity_id=current.opportunity_id,
+                                )
+                            )
+                            episode = uuid7()
+                            await unit.transaction.execute(
+                                """INSERT INTO armi.cognitive_episodes (
+                                    cognitive_episode_id,opportunity_id,subject_id,purpose,status,
+                                    base_subject_version,base_state_epoch,bundle_activation_id,
+                                    mechanism_identity,trace_id)
+                                   SELECT %s,%s,subject_id,'consider_autonomous_life','preparing',
+                                          subject_version,state_epoch,current_bundle_activation_id,
+                                          'armi.context-compiler.layered-v3',%s
+                                   FROM armi.subjects WHERE subject_id=%s""",
+                                (
+                                    episode,
+                                    current.opportunity_id,
+                                    "3" * 32,
+                                    born.subject_id,
+                                ),
+                            )
+                            await owner.register_request(
+                                unit.transaction,
+                                subject_id=born.subject_id,
+                                root_opportunity_id=current.opportunity_id,
+                                call_id=f"virtual-day-{day}-round-{round_no}",
+                                policy=policy,
+                            )
+                            await bootstrap_opportunity_transition().resolve_subject_commit(
+                                unit.transaction,
+                                opportunity_id=current.opportunity_id,
+                                source_episode_id=episode,
+                                next_consideration_seconds=3600,
+                            )
+                            planned = await owner.ensure_plan(
+                                unit.transaction,
+                                subject_id=born.subject_id,
+                                policy=policy,
+                                state_epoch=1,
+                            )
+                            self.assertEqual(planned.source_episode_id, episode)
+                            self.assertIsNone(planned.opportunity_id)
+                            self.assertGreater(
+                                planned.next_consideration_at,
+                                datetime.now(UTC) + timedelta(minutes=59),
+                            )
+                        for _ in range(3):
+                            async with factory.unit_of_work() as unit:
+                                no_loop = await owner.admit_due(
+                                    unit.transaction,
+                                    subject_id=born.subject_id,
+                                    policy=policy,
+                                )
+                                self.assertEqual(
+                                    no_loop.reason_code, "LIFE-AUTONOMY-NOT-DUE"
+                                )
+                    async with factory.unit_of_work() as unit:
+                        await unit.transaction.execute(
+                            "UPDATE armi.autonomy_plans SET next_consideration_at=statement_timestamp()-interval '1 second' WHERE subject_id=%s",
+                            (born.subject_id,),
+                        )
+                        blocked = await owner.admit_due(
+                            unit.transaction, subject_id=born.subject_id, policy=policy
+                        )
+                        self.assertEqual(
+                            blocked.reason_code, "LIFE-AUTONOMY-QUOTA-EXHAUSTED"
+                        )
+            finally:
+                await factory.close()
+
+        with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as directory:
+            asyncio.run(
+                exercise(Path(directory)),
+                loop_factory=lambda: asyncio.SelectorEventLoop(
+                    selectors.SelectSelector()
+                ),
+            )
+
     def test_supported_database_upgrade_preserves_data_and_matches_fresh_schema(
         self,
     ) -> None:
@@ -1280,7 +1589,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "CREATE TABLE armi.alembic_version (version_num varchar(32) NOT NULL, CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))"
             )
             connection.execute("INSERT INTO armi.alembic_version VALUES ('0000')")
-            with ZipFile(resource / "v19-source.zip") as archive:
+            with ZipFile(resource / "v20-source.zip") as archive:
                 for name in sorted(archive.namelist()):
                     if name.startswith("baseline/") and name.endswith(".sql"):
                         connection.execute(
@@ -1397,8 +1706,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             connection.execute(
                 """INSERT INTO armi.observation_attempts
-                (observation_attempt_id,web_observation_request_id,work_id,work_attempt_id,work_lease_token,attempt_no,binding_id,credential_identity,dispatch_state,provider_model_id,input_tokens,output_tokens,web_search_calls,estimated_cost_microyuan,result_status,error_code,dispatched_at,settled_at)
-                VALUES (%s,%s,%s,%s,1,1,'armi.model-tool.volcengine-ark-web-search-v1',%s,'settled','doubao-seed-evolving',12,3,1,157,'failed','WEB-TEST',statement_timestamp(),statement_timestamp())""",
+                (observation_attempt_id,web_observation_request_id,work_id,work_attempt_id,work_lease_token,attempt_no,binding_id,credential_identity,dispatch_state,provider_model_id,input_tokens,output_tokens,web_search_calls,estimated_cost_microyuan,result_status,error_code,dispatched_at,settled_at,usage_contract_version)
+                VALUES (%s,%s,%s,%s,1,1,'armi.model-tool.volcengine-ark-web-search-v1',%s,'settled','doubao-seed-evolving',12,3,1,157,'failed','WEB-TEST',statement_timestamp(),statement_timestamp(),0)""",
                 (
                     historical_call,
                     historical_request,
@@ -4058,9 +4367,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         activity_read=activity_module.read,
                     ),
                     activity_read=activity_module.read,
-                    material_read=material_module.read,
-                    relationship_read=relationship_module.read,
-                    relationship_policy=relationship_module.policy,
                     sleep_maintenance=sleep_module.maintenance,
                     sleep_read=sleep_module.read,
                     subject_state_read=bootstrap_subject_state().read,
@@ -4074,6 +4380,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             for pipeline in pipelines:
                 await pipeline.open()
             try:
+                initial = await pipelines[0].admit_once()
+                self.assertEqual(initial.reason_code, "LIFE-AUTONOMY-NOT-DUE")
+                async with factories[0].unit_of_work() as uow:
+                    await uow.transaction.execute(
+                        "UPDATE armi.autonomy_plans SET next_consideration_at=statement_timestamp()-interval '1 second'"
+                    )
                 first, second = await asyncio.gather(
                     pipelines[0].admit_once(),
                     pipelines[1].admit_once(),
@@ -4095,6 +4407,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                                WHERE opportunity_id=%s""",
                             (reason, previous_id),
                         )
+                    replan = await pipelines[0].admit_once()
+                    self.assertEqual(
+                        replan.reason_code, "LIFE-AUTONOMY-RECONSIDERATION-SCHEDULED"
+                    )
+                    async with factories[0].unit_of_work() as uow:
+                        await uow.transaction.execute(
+                            "UPDATE armi.autonomy_plans SET next_consideration_at=statement_timestamp()-interval '1 second'"
+                        )
                     fresh, concurrent = await asyncio.gather(
                         pipelines[0].admit_once(),
                         pipelines[1].admit_once(),
@@ -4112,9 +4432,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         rows = await (
                             await uow.transaction.execute(
                                 """SELECT opportunity_id,current_disposition,resolution_reason_code,
-                                      predecessor_opportunity_id,reconsideration_no
-                               FROM armi.opportunities WHERE source_kind='life_generation_available'
-                               ORDER BY reconsideration_no"""
+                                      predecessor_opportunity_id,source_version
+                               FROM armi.opportunities WHERE source_kind='autonomy_plan'
+                               ORDER BY source_version"""
                             )
                         ).fetchall()
                         self.assertEqual(
@@ -4122,7 +4442,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         )
                         self.assertEqual(
                             rows[-1],
-                            (fresh.opportunity_id, "open", None, previous_id, number),
+                            (fresh.opportunity_id, "open", None, None, number + 1),
                         )
                         # New admission carries no old episode or frozen Context.
                         count = await (
@@ -4141,14 +4461,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             opportunity_id=previous_id,
                         )
                     )
-                    await bootstrap_opportunity_transition().resolve_subject_commit(
+                    await bootstrap_opportunity_cognition().interrupt_cognition(
                         uow.transaction,
-                        opportunity_id=previous_id,
+                        opportunity_ids=(previous_id,),
                     )
                 settled = await pipelines[0].admit_once()
-                self.assertEqual(settled.status, OpportunityAdmissionStatus.DUPLICATE)
-                self.assertEqual(settled.opportunity_id, previous_id)
-                attention = await pipelines[0].admit_attention_once()
+                self.assertEqual(
+                    settled.reason_code, "LIFE-AUTONOMY-RECONSIDERATION-SCHEDULED"
+                )
+                attention = await pipelines[0].admit_once()
                 await asyncio.sleep(1)
                 sleep_window = await pipelines[0].maintain_sleep_once()
             finally:
@@ -4182,7 +4503,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertEqual(restarted.status, OpportunityAdmissionStatus.DUPLICATE)
         self.assertEqual(restarted.opportunity_id, first.opportunity_id)
         self.assertEqual(attention.status, OpportunityAdmissionStatus.REJECTED)
-        self.assertEqual(attention.reason_code, "LIFE-SCHEDULER-IDLE")
+        self.assertEqual(attention.reason_code, "LIFE-AUTONOMY-NOT-DUE")
         self.assertEqual(sleep_window.status, OpportunityAdmissionStatus.ADMITTED)
         self.assertIsNotNone(sleep_window.opportunity_id)
         with psycopg.connect(fixture.provisioner_dsn) as connection:
@@ -4192,12 +4513,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                        count(DISTINCT source_ref),
                        min(source_version), max(source_version)
                 FROM armi.opportunities
-                WHERE source_kind = 'life_generation_available'
+                WHERE source_kind = 'autonomy_plan'
                 """
             ).fetchone()
         self.assertIsNotNone(row)
         assert row is not None
-        self.assertEqual(row, (3, 1, 1, 1, 1))
+        self.assertEqual(row, (3, 3, 1, 1, 3))
 
     def test_creator_read_queries_and_maintenance_share_runtime_state(
         self,
@@ -4463,9 +4784,6 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     activity_read=activity_module.read,
                 ),
                 activity_read=activity_module.read,
-                material_read=material_module.read,
-                relationship_read=relationship_module.read,
-                relationship_policy=relationship_module.policy,
                 sleep_maintenance=sleep_module.maintenance,
                 sleep_read=sleep_module.read,
                 subject_state_read=bootstrap_subject_state().read,
@@ -7092,11 +7410,17 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             with self.subTest(stage=stage):
                 self._exercise_creator_reply(interruption_stage=stage, codex=True)
 
+    def test_autonomous_codex_and_expression_share_atomic_commit(self) -> None:
+        self._exercise_creator_reply(
+            interruption_stage="rollback", autonomous_codex=True
+        )
+
     def _exercise_creator_reply(
         self,
         *,
         interruption_stage: str | None = None,
         codex: bool = False,
+        autonomous_codex: bool = False,
         purpose: str | None = None,
         system_notification: str | None = None,
         reply_decision_kind: Literal["reply", "decline", "need_information"] = "reply",
@@ -7271,7 +7595,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         live_evidence: dict[str, object] | None = None
         if live_environment_root is None:
             change_set_document = {
-                "schema_version": "armi.subject-change-set.v35",
+                "schema_version": "armi.subject-change-set.v36",
                 "subject_id": str(born.subject_id),
                 "generation_id": str(born.life_generation_id),
                 "episode_id": str(ids["episode"]),
@@ -7551,6 +7875,40 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     self.fail("CANDIDATE-RESPONSE-NOT-REPLY")
                 payloads["reply"] = reply.content_bytes
                 digests["reply"] = Digest.from_bytes(payloads["reply"])
+        if autonomous_codex:
+            task = bind_autonomous_codex_task(
+                objective="整理当前研究并保留结论。",
+                model_id="gpt-5.6-sol",
+                reasoning_effort="medium",
+                web_search=False,
+                proposal_ref="proposal:4",
+                atomic_group_ref="group:2",
+                basis_ordinals=(2, 3),
+            )
+            document = json.loads(change_set.canonical_bytes)
+            document["experiences"] = []
+            document["next_consideration_seconds"] = 3600
+            document["codex_delegations"] = [
+                {
+                    "source_origin": "subject_commit",
+                    "proposal_ref": task.proposal_ref,
+                    "atomic_group_ref": task.atomic_group_ref,
+                    "basis_ordinals": list(task.basis_ordinals),
+                    "task_source_id": str(task.task_source_id.value),
+                    "task_manifest_digest": task.task_manifest_digest.value,
+                    "validator_id": task.validator_id,
+                    "capability_kind": task.capability_kind,
+                    "operation": task.operation,
+                    "purpose": task.purpose,
+                }
+            ]
+            change_set = replace(
+                change_set,
+                canonical_bytes=rfc8785.dumps(document),
+                experiences=(),
+                codex_delegations=(task,),
+                next_consideration_seconds=3600,
+            )
         change_set_bytes = change_set.canonical_bytes
         digests["change_set"] = Digest.from_bytes(change_set_bytes)
         payloads["change_set"] = change_set_bytes
@@ -7990,7 +8348,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         ids["validation"],
                         action.proposal_ref,
                         action.atomic_group_ref,
-                        "codex_delegation" if codex else "action",
+                        "codex_delegation"
+                        if isinstance(action, CodexDelegationDraft)
+                        else "action",
                         len(change_set.experiences)
                         + len(change_set.owner_drafts)
                         + ordinal,
@@ -8316,14 +8676,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             evidence_module = bootstrap_evidence()
             data_rights_core = bootstrap_data_rights_core()
+            codex_commit = bootstrap_codex_commit(
+                bootstrap_codex_read_ports().task_sources,
+                expression_module.commit,
+                ArtifactCatalogRepository(),
+                lambda: True,
+            )
             repository = PostgreSQLSubjectCommitRepository(
                 activity_commit=activity_module.commit,
-                codex_commit=bootstrap_codex_commit(
-                    bootstrap_codex_read_ports().task_sources,
-                    expression_module.commit,
-                    ArtifactCatalogRepository(),
-                    lambda: True,
-                ),
+                codex_commit=codex_commit,
                 cognition_commit=bootstrap_cognition_subject_commit(),
                 experience_commit=bootstrap_experience_owner(),
                 context_projections=_ContextProjectionInvalidation(),
@@ -8349,7 +8710,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             await sleep_module.open()
             await activity_module.open()
             await factory.open()
+            task_directory = tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp")
             try:
+                prepared_tasks = await codex_commit.prepare_tasks(
+                    delegations=change_set.codex_delegations,
+                    storage=_publishing_artifact_store(
+                        Path(task_directory.name), factory
+                    ),
+                    trace_id=TraceId(trace),
+                )
                 async with factory.unit_of_work() as unit_of_work:
                     snapshot = await repository.snapshot(
                         unit_of_work, lease, ids["episode"]
@@ -8363,6 +8732,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         snapshot=snapshot,
                         change_set=change_set,
                         owner_drafts=owner_drafts,
+                        prepared_codex=prepared_tasks,
                         response_artifact=(
                             ArtifactRef(
                                 ArtifactId(artifact_ids["reply"]),
@@ -8390,13 +8760,48 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     if rollback:
                         raise RuntimeError("injected after subject and effect writes")
                 return result.status, result.subject_version or -1
+            except DatabaseTransactionError as error:
+                raise AssertionError(
+                    f"Subject Commit database cause: {error.__context__}"
+                ) from error
             finally:
                 await factory.close()
                 await memory_module.close()
                 await relationship_module.close()
                 await sleep_module.close()
                 await activity_module.close()
+                task_directory.cleanup()
 
+        if autonomous_codex:
+            with psycopg.connect(fixture.provisioner_dsn) as connection:
+                connection.execute(
+                    """UPDATE armi.opportunities SET purpose='consider_autonomous_life',
+                       evidence_id=NULL,source_kind='autonomy_plan',source_ref=%s,source_version=1
+                       WHERE opportunity_id=%s""",
+                    (born.subject_id, ids["opportunity"]),
+                )
+                connection.execute(
+                    "UPDATE armi.cognitive_episodes SET purpose='consider_autonomous_life' WHERE cognitive_episode_id=%s",
+                    (ids["episode"],),
+                )
+                connection.execute(
+                    """INSERT INTO armi.autonomy_plans(subject_id,plan_version,policy,
+                       observed_state_epoch,next_consideration_at,opportunity_id)
+                       VALUES (%s,1,%s::jsonb,0,statement_timestamp(),%s)""",
+                    (
+                        born.subject_id,
+                        json.dumps(
+                            {
+                                "enabled": True,
+                                "daily_request_limit": 48,
+                                "minimum_consideration_seconds": 60,
+                                "maximum_consideration_seconds": 21600,
+                                "outlet": "creator_web",
+                            }
+                        ),
+                        ids["opportunity"],
+                    ),
+                )
         if purpose is not None:
             sceneless = (
                 COGNITION_PURPOSES[CognitionPurpose(purpose)].scene_requirement
@@ -8524,12 +8929,62 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 """).fetchone(),
                     (0, 0, 0, 0, 0),
                 )
+                if autonomous_codex:
+                    self.assertEqual(
+                        connection.execute(
+                            "SELECT plan_version,source_episode_id,opportunity_id FROM armi.autonomy_plans"
+                        ).fetchone(),
+                        (1, None, ids["opportunity"]),
+                    )
+                    self.assertEqual(
+                        connection.execute(
+                            "SELECT count(*) FROM armi.codex_task_sources WHERE origin_subject_commit_id IS NOT NULL"
+                        ).fetchone(),
+                        (0,),
+                    )
         status, version = asyncio.run(
             settle(),
             loop_factory=lambda: asyncio.SelectorEventLoop(selectors.SelectSelector()),
         )
         self.assertIs(status, CandidateApplicationStatus.APPLIED)
         self.assertEqual(version, 1)
+        if autonomous_codex:
+            with psycopg.connect(fixture.provisioner_dsn) as connection:
+                self.assertEqual(
+                    connection.execute(
+                        "SELECT action_kind,count(*) FROM armi.action_intents GROUP BY action_kind ORDER BY action_kind"
+                    ).fetchall(),
+                    [("codex_delegation", 1), ("party_response", 1)],
+                )
+                self.assertEqual(
+                    connection.execute(
+                        "SELECT count(DISTINCT operation_ref),count(DISTINCT root_opportunity_id) FROM armi.action_intents"
+                    ).fetchone(),
+                    (2, 1),
+                )
+                self.assertEqual(
+                    connection.execute(
+                        "SELECT count(*) FROM armi.codex_task_sources source JOIN armi.subject_commits commit USING (subject_id) WHERE source.origin_subject_commit_id=commit.subject_commit_id"
+                    ).fetchone(),
+                    (1,),
+                )
+                self.assertEqual(
+                    connection.execute(
+                        "SELECT plan_version,source_episode_id,opportunity_id FROM armi.autonomy_plans"
+                    ).fetchone(),
+                    (2, ids["episode"], None),
+                )
+                self.assertEqual(
+                    connection.execute("SELECT count(*) FROM armi.effects").fetchone(),
+                    (2,),
+                )
+                self.assertEqual(
+                    connection.execute(
+                        "SELECT count(*) FROM armi.accepted_experiences"
+                    ).fetchone(),
+                    (0,),
+                )
+            return
         if interruption_stage is not None:
             self._verify_reply_interruption(
                 fixture, fence, ids, payloads, interruption_stage, codex=codex
@@ -9998,7 +10453,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 assert context_facts is not None
                 self.assertEqual(context_facts[0], 1)
                 self.assertGreaterEqual(context_facts[1], 10)
-                self.assertEqual(context_facts[2:], (4, 0))
+                # The first autonomous consideration is scheduled one minute
+                # after activation; only this input has frozen a Context here.
+                self.assertEqual(context_facts[2:], (2, 0))
                 artifact_identity = database.execute(
                     """
                     SELECT object.content_digest, object.storage_locator
@@ -10129,8 +10586,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     ).fetchall(),
                     [
                         ("artifact.object.delete", 1),
-                        ("cognition.context.prepare", 2),
-                        ("cognition.execute", 2),
+                        ("cognition.context.prepare", 1),
+                        ("cognition.execute", 1),
                     ],
                 )
                 self.assertEqual(

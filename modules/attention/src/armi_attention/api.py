@@ -16,6 +16,8 @@ from armi_runtime_foundation import (
     PostgreSQLTransaction,
 )
 
+from ._autonomy_policy import AutonomyPolicy, quota_day, quota_reset_at
+
 _CODE = re.compile(r"^(?:LIFE|ACTIVITY)-[A-Z0-9-]+$", re.ASCII)
 
 
@@ -30,6 +32,60 @@ class LifeViolation(RuntimeError):
 
     def __str__(self) -> str:
         return f"{self.code}: autonomous life operation failed"
+
+
+@dataclass(frozen=True, slots=True)
+class AutonomyPlan:
+    subject_id: UUID
+    version: int
+    next_consideration_at: datetime
+    source_episode_id: UUID | None
+    opportunity_id: UUID | None
+
+
+@runtime_checkable
+class AutonomyPort(Protocol):
+    async def admit_due(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        policy: AutonomyPolicy,
+        scene_id: UUID | None = None,
+        creator_party_id: UUID | None = None,
+        activity_id: UUID | None = None,
+    ) -> OpportunityAdmissionOutcome: ...
+
+    async def ensure_plan(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        policy: AutonomyPolicy,
+        state_epoch: int | None = None,
+    ) -> AutonomyPlan: ...
+
+    async def commit_plan(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        expected_version: int,
+        episode_id: UUID,
+        opportunity_id: UUID,
+        delay_seconds: int,
+        policy: AutonomyPolicy,
+    ) -> None: ...
+
+    async def register_request(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        root_opportunity_id: UUID | None,
+        call_id: str,
+        policy: AutonomyPolicy,
+    ) -> bool: ...
 
 
 class LifeOpportunitySourceKind(StrEnum):
@@ -74,7 +130,9 @@ class ExternalEvidenceOpportunityDraft:
             raise LifeViolation("LIFE-ADMISSION-PURPOSE")
         definition = COGNITION_PURPOSES[self.purpose]
         scene_required = definition.scene_requirement == "required"
-        if scene_required != (self.scene_id is not None):
+        if definition.scene_requirement != "optional" and scene_required != (
+            self.scene_id is not None
+        ):
             raise LifeViolation("LIFE-ADMISSION-PURPOSE")
 
 
@@ -115,73 +173,28 @@ class OpportunityId:
 
 
 @dataclass(frozen=True, slots=True)
-class CreatorOutreachPolicy:
-    """Frozen frequency boundaries for considering proactive Creator contact."""
-
-    absence_after_seconds: int
-    minimum_interval_seconds: int
-
-    def __post_init__(self) -> None:
-        if (
-            type(self.absence_after_seconds) is not int
-            or self.absence_after_seconds < 3_600
-            or type(self.minimum_interval_seconds) is not int
-            or self.minimum_interval_seconds < 3_600
-        ):
-            raise LifeViolation("LIFE-OUTREACH-POLICY")
-
-
-@dataclass(frozen=True, slots=True)
-class LifeGenerationFacts:
-    generation_no: int
-    activation_reason: str
-    created_at: datetime
-
-
-@dataclass(frozen=True, slots=True)
-class AttentionRetryFacts:
-    failed_ready: bool
-    need_information_at: datetime | None
-    creator_input_after_need: bool
-
-
-@dataclass(frozen=True, slots=True)
 class CreatorOutreachFacts:
     scene_id: UUID
     creator_party_id: UUID
-    latest_input_id: UUID | None
-    latest_input_at: datetime | None
-    generation_id: UUID
-    generation_no: int
-    generation_created_at: datetime
-    now: datetime
-    awaiting_creator: bool
-    last_cognition_at: datetime | None
-    last_timeline_at: datetime | None
 
 
 @runtime_checkable
 class LifeOpportunityFactsPort(Protocol):
-    async def generation(
-        self, unit_of_work: PostgreSQLRuntimeUnitOfWork
-    ) -> LifeGenerationFacts: ...
+    async def outlet_health(self, outlet: str) -> tuple[str, str | None]: ...
+
+    async def state_epoch(
+        self, transaction: PostgreSQLTransaction, *, subject_id: UUID
+    ) -> int: ...
 
     async def active_cognition_count(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID
     ) -> int: ...
 
-    async def attention_retry(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        subject_id: UUID,
-        root_opportunity_id: UUID,
-        resolved_at: datetime | None,
-    ) -> AttentionRetryFacts: ...
-
     async def outreach(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
+        *,
+        outlet: str | None = None,
     ) -> CreatorOutreachFacts | None: ...
 
 
@@ -233,10 +246,10 @@ class OpportunityCommitSnapshot:
 class OpportunityOperationSnapshot:
     root_opportunity_id: UUID
     current_opportunity_id: UUID
-    evidence_id: UUID
+    evidence_id: UUID | None
     subject_id: UUID
-    scene_id: UUID
-    context_party_id: UUID
+    scene_id: UUID | None
+    context_party_id: UUID | None
     purpose: str
     disposition: str
     reconsideration_no: int
@@ -246,6 +259,7 @@ class OpportunityOperationSnapshot:
 class OpportunitySelectionCursor:
     available_after: datetime
     opportunity_id: UUID
+    priority: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -271,10 +285,29 @@ class OpportunityCognitionCandidate:
     available_after: datetime
     expires_at: datetime | None
     activity_id: UUID | None
+    autonomy_context: bytes | None = None
+
+    @property
+    def selection_priority(self) -> int:
+        return (
+            0
+            if self.purpose
+            in {
+                "consider_creator_input",
+                "consider_creator_voice_input",
+                "consider_other_human_input",
+                "consider_codex_task",
+            }
+            else 1
+        )
 
 
 @runtime_checkable
 class OpportunityCognitionSelectionPort(Protocol):
+    async def can_consider_autonomy(
+        self, transaction: PostgreSQLTransaction, *, subject_id: UUID
+    ) -> bool: ...
+
     async def next_candidate(
         self,
         transaction: PostgreSQLTransaction,
@@ -371,6 +404,10 @@ class OpportunityAdmissionPort(Protocol):
 
 @runtime_checkable
 class OpportunityTransitionPort(Protocol):
+    async def origin_snapshot(
+        self, transaction: PostgreSQLTransaction, *, opportunity_id: UUID
+    ) -> tuple[UUID, UUID | None, str]: ...
+
     async def subject_commit_snapshot(
         self, transaction: PostgreSQLTransaction, *, opportunity_id: UUID
     ) -> OpportunityCommitSnapshot: ...
@@ -381,22 +418,12 @@ class OpportunityTransitionPort(Protocol):
         *,
         opportunity_id: UUID,
         disposition: str = "resolved",
+        next_consideration_seconds: int | None = None,
+        source_episode_id: UUID | None = None,
     ) -> None: ...
 
     async def supersede_subject_commit(
         self, transaction: PostgreSQLTransaction, *, opportunity_id: UUID
-    ) -> OpportunityId | None: ...
-
-    async def reconsider_activity(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        subject_id: UUID,
-        root_opportunity_id: UUID,
-        predecessor_opportunity_id: UUID,
-        source_ref: UUID,
-        source_version: int,
-        activity_id: UUID,
     ) -> OpportunityId | None: ...
 
     async def reconsider_sleep(
@@ -419,7 +446,6 @@ class OpportunityOwnerPort(
 
 
 @runtime_checkable
-@runtime_checkable
 class OpportunityRuntimePort(LifeOpportunitySourcePort, Protocol):
     async def open(self) -> None: ...
 
@@ -430,14 +456,6 @@ class OpportunityRuntimePort(LifeOpportunitySourcePort, Protocol):
     async def run(self) -> None: ...
 
     async def maintain_sleep_once(self) -> OpportunityAdmissionOutcome: ...
-
-    async def admit_life_material_once(self) -> OpportunityAdmissionOutcome: ...
-
-    async def admit_creator_outreach_once(self) -> OpportunityAdmissionOutcome: ...
-
-    async def admit_attention_once(self) -> OpportunityAdmissionOutcome: ...
-
-    async def admit_internal_work_once(self) -> OpportunityAdmissionOutcome: ...
 
     async def request_emergency_wake(
         self,
@@ -473,11 +491,11 @@ class OpportunityAdminPort(Protocol):
 
 
 __all__ = (
-    "AttentionRetryFacts",
+    "AutonomyPlan",
+    "AutonomyPolicy",
+    "AutonomyPort",
     "CreatorOutreachFacts",
-    "CreatorOutreachPolicy",
     "ExternalEvidenceOpportunityDraft",
-    "LifeGenerationFacts",
     "LifeOpportunityFactsPort",
     "LifeOpportunitySourceKind",
     "LifeOpportunitySourcePort",
@@ -503,4 +521,6 @@ __all__ = (
     "OpportunitySelectionCursor",
     "OpportunityTransitionPort",
     "OpportunityWakeupPort",
+    "quota_day",
+    "quota_reset_at",
 )

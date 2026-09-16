@@ -96,6 +96,7 @@ def test_trace_connects_input_context_commit_effect_and_delivery_without_private
             "materials",
             "mood",
             "subject_state",
+            "sleep",
             "evidence",
             "opportunity",
         )
@@ -365,6 +366,7 @@ def test_diagnostics_verify_artifacts_outside_database_transaction():
         materials=cast(MaterialAdminReadPort, object()),
         mood=_Mood(),
         subject_state=_SubjectState(),
+        sleep=cast(Any, object()),
     )
     result = gateway.diagnostics()
     assert (
@@ -418,6 +420,7 @@ class _Observation(AdminObservationGateway):
             materials=cast(MaterialAdminReadPort, materials),
             mood=_Mood(),
             subject_state=_SubjectState(),
+            sleep=cast(Any, object()),
         )
 
 

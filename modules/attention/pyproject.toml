@@ -6,8 +6,6 @@ dependencies = [
     "armi-data-rights==0.0.0",
     "armi-activity==0.0.0",
     "armi-kernel==0.0.0",
-    "armi-material==0.0.0",
-    "armi-relationship==0.0.0",
     "armi-runtime-foundation==0.0.0",
     "armi-sleep==0.0.0",
     "armi-subject-state==0.0.0",
@@ -17,8 +15,6 @@ dependencies = [
 armi-data-rights = { workspace = true }
 armi-activity = { workspace = true }
 armi-kernel = { workspace = true }
-armi-material = { workspace = true }
-armi-relationship = { workspace = true }
 armi-runtime-foundation = { workspace = true }
 armi-sleep = { workspace = true }
 armi-subject-state = { workspace = true }

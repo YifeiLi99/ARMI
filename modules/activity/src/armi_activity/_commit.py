@@ -65,28 +65,13 @@ class PostgreSQLActivityCommit:
                 or int(row[1]) != value.expected_head_version
                 or row[2] != context.subject_id
                 or context.source_activity_id != value.activity_id
-                or context.source_ref != value.current_revision_id
+                or (
+                    context.opportunity_purpose != "consider_autonomous_life"
+                    and context.source_ref != value.current_revision_id
+                )
             ):
                 return False
         return True
-
-    def requests_reconsideration(
-        self,
-        *,
-        context: ActivityCommitContext,
-        drafts: tuple[CandidateActivityDraft | CandidateActivityDecisionDraft, ...],
-    ) -> bool:
-        decisions = tuple(
-            item
-            for item in self._drafts(drafts)
-            if isinstance(item, CandidateActivityDecisionDraft)
-        )
-        return (
-            context.opportunity_purpose == "consider_activity_attention"
-            and len(decisions) == 1
-            and decisions[0].decision_kind is ActivityAttentionDecisionKind.DEFER
-            and context.reconsideration_no == 0
-        )
 
     async def commit(
         self,
@@ -173,7 +158,11 @@ class PostgreSQLActivityCommit:
         return ActivityCommitResult(
             result_revision_id,
             decision.activity_id
-            if decision.decision_kind is ActivityAttentionDecisionKind.ENGAGE
+            if decision.decision_kind
+            in {
+                ActivityAttentionDecisionKind.ENGAGE,
+                ActivityAttentionDecisionKind.PROGRESS,
+            }
             else None,
             decision.proposal_ref,
             True,
@@ -194,43 +183,9 @@ class PostgreSQLActivityCommit:
             for item in self._drafts(drafts)
             if isinstance(item, CandidateActivityDecisionDraft)
         )
-        if context.opportunity_purpose == "consider_activity_attention":
-            if not decisions:
-                return
-            if len(decisions) != 1:
-                raise ActivityViolation("ACTIVITY-COMMIT-SHAPE")
-            decision = decisions[0]
-            review_not_before = (
-                datetime.now(UTC) + timedelta(seconds=60)
-                if decision.decision_kind is ActivityAttentionDecisionKind.DEFER
-                else None
-            )
-            await transaction.execute(
-                """
-                INSERT INTO armi.activity_decisions (
-                    activity_decision_id, decision_source, opportunity_id,
-                    cognitive_episode_id, candidate_validation_id,
-                    candidate_application_id, activity_id, expected_revision_id,
-                    expected_head_version, decision_kind, result_revision_id,
-                    review_not_before) VALUES (
-                    %s, 'attention', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    uuid7(),
-                    context.opportunity_id,
-                    context.episode_id,
-                    context.validation_id,
-                    application_id,
-                    decision.activity_id,
-                    decision.current_revision_id,
-                    decision.expected_head_version,
-                    decision.decision_kind.value,
-                    result_revision_id,
-                    review_not_before,
-                ),
-            )
+        if context.opportunity_purpose != "consider_autonomous_life":
             return
-        if context.opportunity_purpose != "consider_activity_internal_work":
+        if not decisions:
             return
         if (
             len(decisions) != 1
@@ -344,6 +299,11 @@ class PostgreSQLActivityCommit:
             "paused": {"resume"},
             "resuming": {"engage"},
         }
+        if context.opportunity_purpose == "consider_autonomous_life":
+            for current in ("considering", "ready", "waiting", "paused", "resuming"):
+                allowed.setdefault(current, set()).update(
+                    {"progress", "wait", "pause", "complete", "abandon"}
+                )
         if target is None or kind not in allowed.get(str(row[6]), set()):
             raise ActivityViolation("ACTIVITY-TRANSITION")
         revision_id = uuid7()

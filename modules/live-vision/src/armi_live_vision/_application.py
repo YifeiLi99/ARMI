@@ -392,7 +392,7 @@ class DurableVisualObservationCoordinator:
 
             async def save(receipt: ProviderCallReceipt) -> None:
                 async with self._factory.provider_usage_unit_of_work(
-                    registration=receipt.registration
+                    receipt=receipt
                 ) as unit:
                     await self._attempts.record_provider_call(
                         unit, attempt_id=attempt_id, receipt=receipt

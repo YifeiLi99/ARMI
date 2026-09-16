@@ -19,7 +19,7 @@ from armi_artifact_store.life_material_codec import (
     build_life_material_artifact,
 )
 from armi_attention.api import OpportunityTransitionPort
-from armi_codex.api import CodexCommitPort
+from armi_codex.api import CodexCommitPort, CodexDelegationViolation
 from armi_cognition.api import (
     CognitionPreparedCandidate,
     CognitionSubjectCommitPort,
@@ -120,6 +120,7 @@ class SubjectCommitPipeline:
 
     __slots__ = (
         "_catalog",
+        "_codex_commit",
         "_diagnostic",
         "_factory",
         "_fault_injector",
@@ -163,6 +164,7 @@ class SubjectCommitPipeline:
         fault_injector: FaultInjector | None = None,
     ) -> None:
         self._factory = factory
+        self._codex_commit = codex_commit
         self._catalog = catalog
         self._storage = storage
         self._notifier = notifier
@@ -236,6 +238,17 @@ class SubjectCommitPipeline:
                 else None
             )
             material_drafts = owner_drafts.material
+            prepared_codex = (
+                await self._codex_commit.prepare_tasks(
+                    delegations=change_set.codex_delegations,
+                    storage=self._storage,
+                    trace_id=candidate.trace_id,
+                )
+                if any(
+                    item.new_task is not None for item in change_set.codex_delegations
+                )
+                else ()
+            )
             published_materials: list[tuple[str, ArtifactPublication]] = []
             for material in material_drafts:
                 if material.body_bytes is None:
@@ -347,6 +360,7 @@ class SubjectCommitPipeline:
                     owner_drafts=owner_drafts,
                     response_artifact=response_artifact,
                     research_artifact=research_artifact,
+                    prepared_codex=prepared_codex,
                     material_artifacts=material_artifacts,
                     prompt_artifacts=prompt_artifacts,
                 )
@@ -367,6 +381,8 @@ class SubjectCommitPipeline:
                     await self._settle_stale(lease, snapshot, candidate)
                 return
             raise
+        except CodexDelegationViolation as error:
+            raise SubjectCommitViolation(f"SUBJECT-{error.code}") from None
         except ArtifactViolation:
             raise SubjectCommitViolation("SUBJECT-RESPONSE-ARTIFACT") from None
         except DatabaseTransactionError as error:

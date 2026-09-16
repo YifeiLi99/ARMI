@@ -62,6 +62,7 @@ from armi_runtime_foundation import (
     RuntimeTransactionFailure,
 )
 
+from ._autonomous_activity_contract import autonomous_schema_for_context
 from ._creator_cognitive_act_contract import (
     CREATOR_COGNITIVE_ACT_INSTRUCTIONS,
     CREATOR_COGNITIVE_ACT_VERSION,
@@ -70,10 +71,7 @@ from ._creator_cognitive_act_contract import (
     creator_voice_act_schema,
 )
 from ._model_contract import (
-    ACTIVITY_ATTENTION_INSTRUCTIONS,
-    ACTIVITY_INTERNAL_WORK_INSTRUCTIONS,
     AUTONOMOUS_ACTIVITY_INSTRUCTIONS,
-    CREATOR_OUTREACH_INSTRUCTIONS,
     DIALOGUE_CANDIDATE_VERSION,
     GENERIC_COGNITION_INSTRUCTIONS,
     MEMORY_MAINTENANCE_INSTRUCTIONS,
@@ -247,7 +245,9 @@ class ModelPipeline:
     """Claim model work and preserve every physical provider attempt."""
 
     __slots__ = (
+        "_adapter_factory",
         "_adapters",
+        "_autonomous_binding",
         "_catalog",
         "_custody",
         "_diagnostic",
@@ -300,11 +300,6 @@ class ModelPipeline:
             binding_path,
             expected_dialogue_version=dialogue_version,
         )
-        outreach_binding = load_purpose_binding(
-            "consider_creator_outreach",
-            binding_path,
-            expected_dialogue_version=dialogue_version,
-        )
         other_human_binding = load_purpose_binding(
             "consider_other_human_input",
             binding_path,
@@ -315,16 +310,8 @@ class ModelPipeline:
             binding_path,
             expected_dialogue_version=dialogue_version,
         )
-        attention_binding = load_purpose_binding(
-            "consider_activity_attention",
-            binding_path,
-            expected_dialogue_version=dialogue_version,
-        )
-        internal_work_binding = load_purpose_binding(
-            "consider_activity_internal_work",
-            binding_path,
-            expected_dialogue_version=dialogue_version,
-        )
+        self._adapter_factory = adapter_factory
+        self._autonomous_binding = autonomous_binding
         sleep_binding = load_purpose_binding(
             "consider_sleep",
             binding_path,
@@ -441,12 +428,6 @@ class ModelPipeline:
                     codex_result_binding.response_contract_version
                 ),
             ),
-            "consider_creator_outreach": build_adapter(
-                binding=outreach_binding,
-                candidate_schema=candidate_schema(DIALOGUE_CANDIDATE_VERSION),
-                instructions=CREATOR_OUTREACH_INSTRUCTIONS,
-                schema_name="armi_creator_outreach_candidate_v1",
-            ),
             "consider_other_human_input": build_adapter(
                 binding=other_human_binding,
                 candidate_schema=candidate_schema(
@@ -454,30 +435,6 @@ class ModelPipeline:
                 ),
                 instructions=OTHER_HUMAN_DIALOGUE_INSTRUCTIONS,
                 schema_name="armi_other_human_dialogue_candidate_v1",
-            ),
-            "consider_autonomous_life": build_adapter(
-                binding=autonomous_binding,
-                candidate_schema=candidate_schema(
-                    autonomous_binding.response_contract_version
-                ),
-                instructions=AUTONOMOUS_ACTIVITY_INSTRUCTIONS,
-                schema_name="armi_autonomous_activity_candidate_v1",
-            ),
-            "consider_activity_attention": build_adapter(
-                binding=attention_binding,
-                candidate_schema=candidate_schema(
-                    attention_binding.response_contract_version
-                ),
-                instructions=ACTIVITY_ATTENTION_INSTRUCTIONS,
-                schema_name="armi_activity_attention_candidate_v2",
-            ),
-            "consider_activity_internal_work": build_adapter(
-                binding=internal_work_binding,
-                candidate_schema=candidate_schema(
-                    internal_work_binding.response_contract_version
-                ),
-                instructions=ACTIVITY_INTERNAL_WORK_INSTRUCTIONS,
-                schema_name="armi_activity_internal_work_candidate_v1",
             ),
             "consider_sleep": build_adapter(
                 binding=sleep_binding,
@@ -599,7 +556,7 @@ class ModelPipeline:
                     )
                 )
             if (
-                snapshot.purpose == "consider_creator_outreach"
+                snapshot.purpose == "consider_autonomous_life"
                 and snapshot.scene_id is not None
             ):
                 custody_requests.append(
@@ -621,8 +578,8 @@ class ModelPipeline:
             # custody so a Data Rights or Runtime exclusive holder cannot leave
             # this worker with a stale lease before file/provider I/O begins.
             snapshot = await self._snapshot(record)
-            adapter = self._adapter_for(snapshot.purpose)
             context_bytes = await self._read_context(snapshot)
+            adapter = self._adapter_for(snapshot.purpose, context_bytes)
             request_bytes = build_request_bytes(
                 binding=adapter.binding,
                 compiled_context=context_bytes,
@@ -647,14 +604,21 @@ class ModelPipeline:
             bound_attempt = attempt_id
 
             async def save_usage(receipt: ProviderCallReceipt) -> None:
-                async with self._factory.provider_usage_unit_of_work(
-                    registration=receipt.registration
-                ) as usage_uow:
-                    await self._repository.record_provider_call(
-                        usage_uow,
-                        attempt_id=bound_attempt,
-                        receipt=receipt,
-                    )
+                try:
+                    async with self._factory.provider_usage_unit_of_work(
+                        receipt=receipt
+                    ) as usage_uow:
+                        await self._repository.record_provider_call(
+                            usage_uow,
+                            attempt_id=bound_attempt,
+                            receipt=receipt,
+                        )
+                except RuntimeTransactionFailure as error:
+                    if error.code.startswith("LIFE-AUTONOMY-"):
+                        raise ModelViolation(
+                            "MODEL-" + error.code.removeprefix("LIFE-")
+                        ) from None
+                    raise
 
             usage_scope = ProviderMeterScope(save_usage, self._prices, snapshot.purpose)
             with provider_meter_scope(usage_scope):
@@ -916,7 +880,16 @@ class ModelPipeline:
             task.cancel()
             await asyncio.gather(task, stopped, return_exceptions=True)
 
-    def _adapter_for(self, purpose: str) -> CognitionModelPort:
+    def _adapter_for(self, purpose: str, context_bytes: bytes) -> CognitionModelPort:
+        if purpose == "consider_autonomous_life":
+            return self._adapter_factory(
+                binding=self._autonomous_binding,
+                candidate_schema=CognitionSchemaDocument(
+                    rfc8785.dumps(autonomous_schema_for_context(context_bytes))
+                ),
+                instructions=AUTONOMOUS_ACTIVITY_INSTRUCTIONS,
+                schema_name="armi_autonomous_activity_candidate_v7",
+            )
         try:
             adapter = self._adapters[purpose]
         except KeyError:
@@ -931,11 +904,6 @@ class ModelPipeline:
             purpose == "consider_creator_voice_input"
             and adapter.binding.response_contract_version
             != "armi.creator-voice-act-candidate.v4"
-        ):
-            raise ModelViolation("MODEL-BINDING")
-        if (
-            purpose == "consider_creator_outreach"
-            and adapter.binding.response_contract_version != DIALOGUE_CANDIDATE_VERSION
         ):
             raise ModelViolation("MODEL-BINDING")
         if (
@@ -1045,7 +1013,9 @@ def _artifact_audit(
 
 def _error_result(error: ModelViolation) -> ModelInvocationResult:
     status = (
-        ModelResultStatus.OUTCOME_UNKNOWN
+        ModelResultStatus.REJECTED
+        if error.code.startswith("MODEL-AUTONOMY-")
+        else ModelResultStatus.OUTCOME_UNKNOWN
         if error.outcome_unknown
         else ModelResultStatus.TIMED_OUT
         if error.code == "MODEL-REQUEST-TIMEOUT"

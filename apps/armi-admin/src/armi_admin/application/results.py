@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from armi_local_control import UsageCall, UsageCalls, UsageSummary
+from armi_local_control import (
+    AutonomyHistory,
+    AutonomyStatus,
+    UsageCall,
+    UsageCalls,
+    UsageSummary,
+)
 from armi_local_control.configuration.models import (
     CameraSourceConfig,
     ScreenSourceConfig,
@@ -1025,6 +1031,8 @@ RESULT_PAYLOADS: dict[str, type[BaseModel]] = {
     "authorization_revoke": AuthorizationPayload,
     "trace_flow": FlowGraphPayload,
     "cognition_read": CognitionReadPayload,
+    "autonomy_status": AutonomyStatus,
+    "autonomy_history": AutonomyHistory,
     "usage_summary": UsageSummary,
     "usage_list": UsageCalls,
     "usage_read": UsageCall,

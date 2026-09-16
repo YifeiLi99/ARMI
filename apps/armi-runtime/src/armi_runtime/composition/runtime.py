@@ -29,7 +29,7 @@ from armi_artifact_store.bootstrap import (
     bootstrap_artifact_lifecycle,
 )
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
-from armi_attention.api import LifeViolation
+from armi_attention.api import AutonomyPolicy, LifeViolation
 from armi_attention.bootstrap import (
     bootstrap_opportunity_owner,
     bootstrap_opportunity_sleep,
@@ -125,6 +125,7 @@ from armi_runtime.adapters.model.external_content import (
     VolcengineArkExternalContentRecognizer,
     load_external_recognition_binding,
 )
+from armi_runtime.adapters.persistence.autonomy_query import PostgreSQLAutonomyQuery
 from armi_runtime.adapters.persistence.durable_work import PostgreSQLDurableWorkGateway
 from armi_runtime.adapters.persistence.provider_usage import PostgreSQLUsageQuery
 from armi_runtime.adapters.persistence.runtime_observability import (
@@ -517,7 +518,62 @@ async def _serve(
         False,
         "CODEX-DISABLED" if not config.codex.enabled else "CODEX-UNAVAILABLE",
     )
-    capability_read = bootstrap_capability(lambda: codex_availability)
+
+    async def autonomy_outlet_health(outlet: str) -> tuple[str, str | None]:
+        if outlet == "creator_web":
+            return (
+                ("ready", None)
+                if web_assets_error is None
+                else ("unavailable", web_assets_error)
+            )
+        health = await qq_health_status()
+        if not health.enabled:
+            return "disabled", "QQ-DISABLED"
+        if health.state == "ready":
+            return "ready", None
+        return "unavailable", health.reason_codes[
+            0
+        ] if health.reason_codes else "QQ-UNAVAILABLE"
+
+    def visual_capability(
+        kind: VisualSourceKind, enabled: bool
+    ) -> CapabilityAvailability:
+        if not enabled:
+            return CapabilityAvailability(False, False, "VISION-DISABLED")
+        service = live_vision_services.get(kind)
+        if service is None:
+            return CapabilityAvailability(True, False, "VISION-PIPELINE-UNAVAILABLE")
+        snapshot = service.status()
+        available = snapshot.expected_running and snapshot.state.value == "observing"
+        return CapabilityAvailability(
+            True,
+            available,
+            None if available else snapshot.reason_code or "VISION-SOURCE-NOT-READY",
+        )
+
+    capability_read = bootstrap_capability(
+        lambda: {
+            "codex.delegated-work": codex_availability,
+            "web.search": CapabilityAvailability(
+                config.web.enabled,
+                config.web.enabled and web_search_pipeline is not None,
+                "WEB-DISABLED"
+                if not config.web.enabled
+                else "WEB-UNAVAILABLE"
+                if web_search_pipeline is None
+                else None,
+            ),
+            "vision.camera": visual_capability(
+                VisualSourceKind.CAMERA,
+                config.vision.camera.enabled,
+            ),
+            "vision.screen": visual_capability(
+                VisualSourceKind.SCREEN,
+                config.vision.screen.enabled,
+            ),
+            "life.query": CapabilityAvailability(True, True, None),
+        }
+    )
     effect_pipeline = None
     web_search_pipeline: WebObservationRuntimePort | None = None
     web_research_pipeline: WebResearchRuntimePort | None = None
@@ -731,7 +787,9 @@ async def _serve(
             cognition_context = bootstrap_cognition_context(
                 experiences=experience_owner
             )
-            opportunity_owner = bootstrap_opportunity_owner()
+            opportunity_owner = bootstrap_opportunity_owner(
+                AutonomyPolicy(**config.autonomy.model_dump())
+            )
             opportunity_sleep = bootstrap_opportunity_sleep()
             web_context = bootstrap_web_context_read()
             activity_module = compose_activity_module(
@@ -887,6 +945,7 @@ async def _serve(
                 interaction=interaction_module.context_read,
                 expression=expression_module.intents,
                 effects=effect_owner,
+                opportunities=opportunity_owner,
             )
             if config.voice.enabled:
                 try:
@@ -1014,16 +1073,11 @@ async def _serve(
                 prepared,
                 unit_of_work_factory=runtime_unit_of_work_factory,
                 facts=RuntimeLifeOpportunityFacts(
-                    activities=activity_module.read,
                     cognition=cognition_operation,
-                    effects=effect_owner,
-                    expression=expression_module.intents,
                     interaction=interaction_module.identity,
+                    outlet_health=autonomy_outlet_health,
                 ),
                 activity_read=activity_module.read,
-                material_read=material_module.read,
-                relationship_read=relationship_module.read,
-                relationship_policy=relationship_module.policy,
                 sleep_maintenance=sleep_module.maintenance,
                 sleep_read=sleep_module.read,
                 subject_state_read=subject_state_module.read,
@@ -2512,6 +2566,9 @@ async def _serve(
         return data_rights_result_wire(result)
 
     app = create_runtime_app(
+        autonomy_query=None
+        if runtime_unit_of_work_factory is None or sleep_module is None
+        else PostgreSQLAutonomyQuery(runtime_unit_of_work_factory, sleep_module.read),
         usage_query=None
         if runtime_unit_of_work_factory is None
         else PostgreSQLUsageQuery(runtime_unit_of_work_factory, prepared.root),

@@ -21,7 +21,7 @@ from .schema_resources import (
 
 def upgrade_plan() -> dict[str, Any]:
     root = schema_resource_root().parent / "upgrades"
-    plan = json.loads((root / "v19-to-v20.json").read_text(encoding="utf-8"))
+    plan = json.loads((root / "v20-to-v21.json").read_text(encoding="utf-8"))
     if (
         plan["format"] != "armi.database-upgrade.v1"
         or plan["target_baseline"] != BASELINE_IDENTITY

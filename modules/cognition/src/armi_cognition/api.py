@@ -119,6 +119,7 @@ class SubjectChangeSet:
     codex_delegations: tuple[CodexDelegationDraft, ...] = ()
     owner_drafts: tuple[CandidateOwnerDraft, ...] = ()
     exact_life_queries: tuple[CandidateExactLifeQueryDraft, ...] = ()
+    next_consideration_seconds: int | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -253,7 +254,9 @@ class CognitionContextEpisodeDraft:
     def __post_init__(self) -> None:
         purpose = require_cognition_purpose(self.purpose)
         definition = COGNITION_PURPOSES[purpose]
-        if (definition.scene_requirement == "required") != (self.scene_id is not None):
+        if definition.scene_requirement != "optional" and (
+            definition.scene_requirement == "required"
+        ) != (self.scene_id is not None):
             raise ValueError("CANDIDATE-PURPOSE-SCENE")
 
 
@@ -290,6 +293,10 @@ class CognitionContextEpisodeSnapshot:
 
 @runtime_checkable
 class CognitionContextLifecyclePort(Protocol):
+    async def active_opportunities(
+        self, transaction: PostgreSQLTransaction, *, subject_id: UUID
+    ) -> tuple[UUID, ...]: ...
+
     async def create_context_episode(
         self,
         transaction: PostgreSQLTransaction,
@@ -545,10 +552,6 @@ class CognitionOperationReadPort(Protocol):
     async def opportunity_episode_states(
         self, transaction: PostgreSQLTransaction, *, opportunity_id: UUID
     ) -> tuple[tuple[UUID, str], ...]: ...
-
-    async def last_purpose_created_at(
-        self, transaction: PostgreSQLTransaction, *, subject_id: UUID, purpose: str
-    ) -> datetime | None: ...
 
     async def active_count(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID

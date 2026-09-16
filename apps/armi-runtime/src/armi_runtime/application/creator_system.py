@@ -11,6 +11,7 @@ from uuid import UUID
 from armi_kernel.application import UsageQueryPort
 from armi_live_vision.api import LiveVisionViolation
 
+from .autonomy_query import AutonomyQueryPort
 from .creator_contract import (
     LiveVisionObservationResponse,
     LiveVisionStatusResponse,
@@ -54,6 +55,7 @@ class CreatorSystem:
     )
     vision_preview: Callable[[str], bytes | None] | None
     usage: UsageQueryPort | None = None
+    autonomy: AutonomyQueryPort | None = None
 
     async def channel(
         self, action: Literal["start", "stop", "status"]

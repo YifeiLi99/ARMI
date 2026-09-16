@@ -74,30 +74,45 @@ class RuntimeCreatorOperationAssembler(CreatorOperationQueryPort):
             if opportunity is None or opportunity.purpose not in {
                 "consider_creator_input",
                 "consider_codex_task",
+                "consider_autonomous_life",
             }:
                 raise CreatorInputViolation("SCOPE-OPERATION-NOT-VISIBLE")
-            evidence = await self._evidence.snapshot(
-                transaction,
-                evidence_id=EvidenceId(opportunity.evidence_id),
+            evidence = (
+                None
+                if opportunity.evidence_id is None
+                else await self._evidence.snapshot(
+                    transaction, evidence_id=EvidenceId(opportunity.evidence_id)
+                )
             )
             codex_digest = None
-            if evidence.codex_task_source_id is not None:
+            codex_source_id = (
+                None if evidence is None else evidence.codex_task_source_id
+            )
+            if codex_source_id is not None:
                 task = await self._codex.task_source(
                     transaction,
-                    task_source_id=evidence.codex_task_source_id,
+                    task_source_id=codex_source_id,
                 )
                 codex_digest = task.task_manifest_digest
-            acceptance = await self._interaction.operation_acceptance(
-                transaction,
-                interaction_id=evidence.interaction_id,
-                scene_id=opportunity.scene_id,
-                creator_party_id=self._creator_party_id,
-                codex_content_digest=codex_digest,
-                evidence_id=opportunity.evidence_id,
-                opportunity_id=opportunity.root_opportunity_id,
-            )
-            if acceptance is None:
-                raise CreatorInputViolation("SCOPE-OPERATION-NOT-VISIBLE")
+            acceptance = None
+            if opportunity.purpose != "consider_autonomous_life":
+                if (
+                    evidence is None
+                    or opportunity.scene_id is None
+                    or opportunity.evidence_id is None
+                ):
+                    raise CreatorInputViolation("SCOPE-OPERATION-NOT-VISIBLE")
+                acceptance = await self._interaction.operation_acceptance(
+                    transaction,
+                    interaction_id=evidence.interaction_id,
+                    scene_id=opportunity.scene_id,
+                    creator_party_id=self._creator_party_id,
+                    codex_content_digest=codex_digest,
+                    evidence_id=opportunity.evidence_id,
+                    opportunity_id=opportunity.root_opportunity_id,
+                )
+                if acceptance is None:
+                    raise CreatorInputViolation("SCOPE-OPERATION-NOT-VISIBLE")
             cognition = await self._cognition.operation_snapshot(
                 transaction,
                 opportunity_id=opportunity.current_opportunity_id,
@@ -112,6 +127,14 @@ class RuntimeCreatorOperationAssembler(CreatorOperationQueryPort):
                     transaction,
                     action_intent_id=expression.intent_id,
                 )
+                if (
+                    codex_source_id is None
+                    and expression.action_kind == "codex_delegation"
+                ):
+                    intent = await self._expression.intent_snapshot(
+                        transaction, action_intent_id=expression.intent_id
+                    )
+                    codex_source_id = intent.codex_task_source_id
             phase, failure_code = _derive_phase(
                 disposition=opportunity.disposition,
                 reconsideration_no=opportunity.reconsideration_no,
@@ -134,13 +157,13 @@ class RuntimeCreatorOperationAssembler(CreatorOperationQueryPort):
             codex_execution = None
             if (
                 effect is not None
-                and evidence.codex_task_source_id is not None
+                and codex_source_id is not None
                 and _operation_kind(expression) == "codex_delegation"
             ):
                 execution = await self._codex_executions.execution_for_effect(
                     transaction,
                     effect_id=effect.effect_id,
-                    task_source_id=evidence.codex_task_source_id,
+                    task_source_id=codex_source_id,
                 )
                 if execution is not None:
                     result_phase = None
@@ -223,6 +246,9 @@ class RuntimeCreatorOperationAssembler(CreatorOperationQueryPort):
                     )
             return CreatorOperation(
                 acceptance=acceptance,
+                autonomous_opportunity_id=opportunity_id
+                if acceptance is None
+                else None,
                 phase=phase,
                 failure_code=failure_code,
                 subject_version=(

@@ -13,7 +13,7 @@ from ._creator_appraisal_contract import (
     CreatorAppraisalExperience,
 )
 from ._creator_changes import CreatorChange, change_context_refs
-from ._dialogue_contract import DIALOGUE_CANDIDATE_VERSION, ContextRef
+from ._dialogue_contract import ContextRef
 from ._expression_instructions import CONVERSATIONAL_EXPRESSION_INSTRUCTIONS
 from ._strict_model_json import strict_model_value
 
@@ -132,19 +132,6 @@ class VoiceReplyDecision(ReplyDecision, frozen=True):
     content: Annotated[str, StringConstraints(min_length=1, max_length=60)]
 
 
-class CreatorOutreachCandidate(CreatorCognitiveActCandidate, frozen=True):
-    """Express an existing outreach opportunity without inventing a second activity."""
-
-    decision: Annotated[ReplyDecision | TerminalDecision, Field(discriminator="kind")]
-    experience: None = None
-    appraisal: None = None
-    changes: tuple[()] = ()
-
-    @property
-    def schema_version(self) -> str:
-        return DIALOGUE_CANDIDATE_VERSION
-
-
 class VoiceTerminalDecision(TerminalDecision, frozen=True):
     content: Annotated[str, StringConstraints(min_length=1, max_length=60)] | None = (
         None
@@ -174,15 +161,6 @@ class CreatorVoiceActCandidate(CreatorCognitiveActCandidate, frozen=True):
 
 _ACT = TypeAdapter(CreatorCognitiveActCandidate)
 _VOICE = TypeAdapter(CreatorVoiceActCandidate)
-_OUTREACH = TypeAdapter(CreatorOutreachCandidate)
-
-
-def creator_outreach_schema() -> dict[str, object]:
-    return cast(dict[str, object], _OUTREACH.json_schema())
-
-
-def parse_creator_outreach(value: object) -> CreatorOutreachCandidate:
-    return _OUTREACH.validate_python(strict_model_value(value), strict=True)
 
 
 def creator_cognitive_act_schema(*, web_search: bool = True) -> dict[str, object]:

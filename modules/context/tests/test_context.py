@@ -103,11 +103,11 @@ def _snapshot(
             capability_state_payloads=capability_state_payloads,
             opportunity_source_ref=source_ref,
             opportunity_source_version=1,
+            autonomy_context=None,
             opportunity_source_kind=opportunity_source_kind,
             opportunity_available_after=datetime(2026, 1, 1, tzinfo=UTC),
             opportunity_expires_at=None,
             evidence=None,
-            outreach_trigger_bytes=None,
             fixed_prompt=SimpleNamespace(source_id=uuid7(), source_version=1),
             creator_prompt=creator_prompt,
             subject_prompt=subject_prompt,
@@ -262,19 +262,19 @@ def test_codex_task_context_exposes_registered_manifest_digest() -> None:
     assert document["source_tree_digest"] != manifest_digest.value
 
 
-def test_creator_outreach_trigger_is_required_runtime_evidence() -> None:
+def test_autonomy_opportunity_is_required_runtime_evidence() -> None:
     scene_id = uuid7()
     trigger = b'{"kind":"creator_outreach_absence"}'
     snapshot = _snapshot(
         (),
         scene_id=scene_id,
         scene_bytes=b'{"status":"open"}',
-        purpose="consider_creator_outreach",
-        opportunity_source_kind="creator_outreach_absence",
+        purpose="consider_autonomous_life",
+        opportunity_source_kind="autonomy_plan",
     )
     snapshot = cast(
         ContextEpisodeSnapshot,
-        SimpleNamespace(**{**vars(snapshot), "outreach_trigger_bytes": trigger}),
+        SimpleNamespace(**{**vars(snapshot), "autonomy_context": trigger}),
     )
     request = _context_request(
         snapshot,
@@ -284,12 +284,10 @@ def test_creator_outreach_trigger_is_required_runtime_evidence() -> None:
     )
 
     evidence = next(
-        item for item in request.items if item.item_kind == "current_evidence"
+        item for item in request.items if item.item_kind == "current_life_opportunity"
     )
-    scene = next(item for item in request.items if item.item_kind == "current_scene")
     assert evidence.required
     assert evidence.trust_class.value == "runtime_authority"
-    assert scene.required
 
 
 def test_active_subject_prompt_is_frozen_and_changes_only_future_context() -> None:

@@ -49,6 +49,11 @@ class RuntimeStatusRequest(EnvironmentRequest):
     pass
 
 
+class AutonomyHistoryRequest(EnvironmentRequest):
+    limit: int = Field(default=25, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)
+
+
 class UsageRequest(EnvironmentRequest):
     start: str | None = None
     end: str | None = None
@@ -534,6 +539,7 @@ HealthResult = AdminToolResult[HealthPayload]
 SchemaStatusResult = AdminToolResult[SchemaStatusPayload]
 ObservationRequest = (
     CognitionReadRequest
+    | AutonomyHistoryRequest
     | UsageRequest
     | UsageListRequest
     | UsageReadRequest
@@ -570,6 +576,7 @@ __all__ = (
     "AdminToolResult",
     "ApplyCorrectionRequest",
     "ArmFaultRequest",
+    "AutonomyHistoryRequest",
     "ClearFaultsRequest",
     "CognitionReadRequest",
     "CorrectionSpec",

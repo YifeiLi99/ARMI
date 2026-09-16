@@ -117,6 +117,19 @@ class PostgreSQLExpressionOwner:
         ):
             raise ResponseViolation("SUBJECT-RESPONSE-SCOPE")
         connection = unit_of_work.transaction
+        if context.opportunity_purpose == "consider_autonomous_life":
+            relationship = await self._relationships.current_for_party(
+                connection,
+                subject_id=context.subject_id,
+                generation_id=context.generation_id,
+                other_party_id=reply.creator_party_id,
+                scope="creator_social",
+            )
+            if (
+                relationship is not None
+                and not self._relationship_policy.allows_snapshot_outreach(relationship)
+            ):
+                raise ResponseViolation("SUBJECT-RELATIONSHIP-BOUNDARY")
         action_id = uuid7()
         revision_id = uuid7()
         await connection.execute(

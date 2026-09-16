@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from uuid import UUID
 
 from armi_kernel.application import (
@@ -38,18 +37,6 @@ class PostgreSQLCognitionSubjectCommit:
             )
         ).fetchall()
         return tuple((row[0], str(row[1])) for row in rows)
-
-    async def last_purpose_created_at(
-        self, transaction: PostgreSQLTransaction, *, subject_id: UUID, purpose: str
-    ) -> datetime | None:
-        row = await (
-            await transaction.execute(
-                """SELECT max(created_at) FROM armi.cognitive_episodes
-                   WHERE subject_id=%s AND purpose=%s""",
-                (subject_id, purpose),
-            )
-        ).fetchone()
-        return None if row is None else row[0]
 
     async def active_count(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID

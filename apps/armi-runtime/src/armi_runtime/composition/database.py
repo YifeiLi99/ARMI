@@ -19,6 +19,7 @@ from armi_activity.bootstrap import (
 from armi_artifact_store.api import ArtifactCatalogPort
 from armi_artifact_store.content_store import ContentAddressedArtifactStore
 from armi_attention.api import (
+    AutonomyPolicy,
     LifeOpportunityFactsPort,
     OpportunityAdmissionPort,
     OpportunityCognitionPort,
@@ -29,9 +30,11 @@ from armi_attention.api import (
     OpportunityTransitionPort,
 )
 from armi_attention.bootstrap import (
+    bootstrap_autonomy,
     bootstrap_opportunity,
     bootstrap_opportunity_admission,
     bootstrap_opportunity_cognition,
+    bootstrap_opportunity_transition,
 )
 from armi_capability.api import (
     CapabilityReadPort,
@@ -306,6 +309,7 @@ from armi_runtime.adapters.persistence.unit_of_work import PostgreSQLUnitOfWorkF
 from armi_runtime.application.action_lifecycle import (
     RuntimeCodexArtifactReference,
 )
+from armi_runtime.application.autonomy_usage import AutonomyRequestAdmission
 from armi_runtime.application.cognition_cycle import (
     RuntimeCognitionCycleSelector,
     RuntimeCognitionState,
@@ -314,6 +318,7 @@ from armi_runtime.application.cognition_cycle import (
 from armi_runtime.application.operation_assembler import (
     RuntimeCreatorOperationAssembler,
 )
+from armi_runtime.application.opportunity_origin import RuntimeOpportunityOrigin
 
 from .birth_manifest import packaged_birth_digests
 from .config_assets import runtime_config_path
@@ -932,6 +937,17 @@ def compose_runtime_unit_of_work_factory(
                     acquire_timeout_seconds=config.database.pool_acquire_timeout_seconds,
                     statement_timeout_seconds=config.database.statement_timeout_seconds,
                     authority_admission=authority_admission,
+                    provider_admission=AutonomyRequestAdmission(
+                        bootstrap_autonomy(),
+                        AutonomyPolicy(**config.autonomy.model_dump()),
+                        RuntimeOpportunityOrigin(
+                            opportunities=bootstrap_opportunity_transition(),
+                            evidence=bootstrap_evidence().read,
+                            codex=bootstrap_codex_read_ports().context,
+                            effects=bootstrap_effect_operation_read(),
+                            expression=bootstrap_expression_action_ports().intents,
+                        ),
+                    ).admit,
                 )
 
             return handle.consume(create)
@@ -1231,11 +1247,8 @@ def compose_life_opportunity_pipeline(
     unit_of_work_factory: PostgreSQLUnitOfWorkFactory,
     facts: LifeOpportunityFactsPort,
     activity_read: ActivityReadPort,
-    relationship_read: RelationshipReadPort,
-    relationship_policy: RelationshipPolicyPort,
     sleep_maintenance: SleepMaintenancePort,
     sleep_read: SleepReadPort,
-    material_read: MaterialReadPort,
     subject_state_read: SubjectStateReadPort,
     wakeups: WorkWakeupBus | None = None,
     notifier: CreatorProjectionNotifier | None = None,
@@ -1244,14 +1257,12 @@ def compose_life_opportunity_pipeline(
 
     config = prepared.effective.config
     return bootstrap_opportunity(
+        autonomy_policy=AutonomyPolicy(**config.autonomy.model_dump()),
         factory=unit_of_work_factory,
         facts=facts,
         activity_read=activity_read,
-        relationship_read=relationship_read,
-        relationship_policy=relationship_policy,
         sleep_maintenance=sleep_maintenance,
         sleep_read=sleep_read,
-        material_read=material_read,
         subject_state_read=subject_state_read,
         wakeups=wakeups,
         notifier=notifier,
@@ -1312,6 +1323,13 @@ def compose_context_pipeline(
         codex_sources=codex_read,
         effects=effect_read,
         expression=expression_read,
+        origins=RuntimeOpportunityOrigin(
+            opportunities=bootstrap_opportunity_transition(),
+            evidence=evidence_read,
+            codex=codex_context,
+            effects=effect_read,
+            expression=expression_read,
+        ),
     )
     storage = _artifact_storage(prepared, unit_of_work_factory, catalog)
     return bootstrap_context(
@@ -1361,6 +1379,7 @@ def compose_context_dialogue_read(
     interaction: InteractionContextReadPort,
     expression: ExpressionIntentReadPort,
     effects: EffectOperationReadPort,
+    opportunities: OpportunityTransitionPort,
 ) -> ContextDialogueReadPort:
     return bootstrap_context_dialogue_read(
         storage=ContentAddressedArtifactStore(
@@ -1373,6 +1392,7 @@ def compose_context_dialogue_read(
         expression=expression,
         effects=effects,
         voice=bootstrap_live_voice_context_read(),
+        opportunities=opportunities,
     )
 
 

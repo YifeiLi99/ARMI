@@ -412,15 +412,6 @@ class CodexEffectDraft:
 
 @runtime_checkable
 class ExpressionIntentReadPort(Protocol):
-    async def outreach_intents(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        subject_id: UUID,
-        scene_id: UUID,
-        context_party_id: UUID,
-    ) -> tuple[ExpressionIntentSnapshot, ...]: ...
-
     async def intent_snapshot(
         self,
         transaction: PostgreSQLTransaction,

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from contextvars import ContextVar, Token
 from enum import StrEnum
@@ -17,6 +17,7 @@ from armi_kernel.application import (
     BeforeCommitHook,
     DurableWorkWriter,
     PostCommitAction,
+    ProviderCallReceipt,
     RuntimeAuthorityViolation,
     RuntimeFence,
     TransactionIsolation,
@@ -110,6 +111,7 @@ class PostgreSQLUnitOfWorkFactory:
         "_environment_id",
         "_expected_role",
         "_pool",
+        "_provider_admission",
         "_require_runtime_fence",
         "_statement_timeout_milliseconds",
     )
@@ -125,6 +127,10 @@ class PostgreSQLUnitOfWorkFactory:
         statement_timeout_seconds: int,
         authority_admission: Callable[[], RuntimeFence] | None = None,
         require_runtime_fence: bool = True,
+        provider_admission: Callable[
+            [PostgreSQLUnitOfWork, ProviderCallReceipt], Awaitable[None]
+        ]
+        | None = None,
     ) -> None:
         if environment_id.version != 7:
             raise ValueError("environment_id must be UUIDv7")
@@ -134,6 +140,7 @@ class PostgreSQLUnitOfWorkFactory:
         self._statement_timeout_milliseconds = statement_timeout_seconds * 1000
         self._authority_admission = authority_admission
         self._require_runtime_fence = require_runtime_fence
+        self._provider_admission = provider_admission
 
         async def check(
             connection: psycopg.AsyncConnection[tuple[Any, ...]],
@@ -170,6 +177,7 @@ class PostgreSQLUnitOfWorkFactory:
         *,
         isolation: TransactionIsolation = TransactionIsolation.READ_COMMITTED,
         read_only: bool = False,
+        before_commit: Callable[[PostgreSQLUnitOfWork], Awaitable[None]] | None = None,
     ) -> PostgreSQLUnitOfWork:
         runtime_fence: RuntimeFence | None = None
         if not read_only and self._authority_admission is not None:
@@ -197,12 +205,20 @@ class PostgreSQLUnitOfWorkFactory:
             acquire_timeout_seconds=self._acquire_timeout_seconds,
             authority_admission=self._authority_admission,
             runtime_fence=runtime_fence,
+            before_commit=before_commit,
         )
 
     def provider_usage_unit_of_work(
-        self, *, registration: bool
+        self, *, receipt: ProviderCallReceipt
     ) -> PostgreSQLUnitOfWork:
-        if registration:
+        if receipt.registration:
+            admission = self._provider_admission
+            if receipt.billable and admission is not None:
+
+                async def check_admission(unit: PostgreSQLUnitOfWork) -> None:
+                    await admission(unit, receipt)
+
+                return self.unit_of_work(before_commit=check_admission)
             return self.unit_of_work()
         # Observed consumption can arrive after authority loss. Owners update
         # only an existing provider_calls entry, never resume the old operation.
@@ -278,6 +294,7 @@ class PostgreSQLUnitOfWork:
         acquire_timeout_seconds: int,
         authority_admission: Callable[[], RuntimeFence] | None,
         runtime_fence: RuntimeFence | None,
+        before_commit: Callable[[PostgreSQLUnitOfWork], Awaitable[None]] | None = None,
     ) -> None:
         self._pool = pool
         self._environment_id = environment_id
@@ -295,6 +312,12 @@ class PostgreSQLUnitOfWork:
         self._transaction: Any = None
         self._active_token: Token[PostgreSQLUnitOfWork | None] | None = None
         self._before_commit: list[BeforeCommitHook] = []
+        if before_commit is not None:
+
+            async def initial_hook() -> None:
+                await before_commit(self)
+
+            self._before_commit.append(initial_hook)
         self._deferred_actions: list[PostCommitAction] = []
         self._committed_actions: tuple[PostCommitAction, ...] = ()
         self._rollback_requested = False

@@ -102,6 +102,341 @@
         ],
         "type": "string"
       },
+      "AutonomyHistory": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AutonomyHistoryItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "AutonomyHistory",
+        "type": "object"
+      },
+      "AutonomyHistoryItem": {
+        "additionalProperties": false,
+        "properties": {
+          "available_after": {
+            "title": "Available After",
+            "type": "string"
+          },
+          "cognition_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cognition Status"
+          },
+          "current_disposition": {
+            "title": "Current Disposition",
+            "type": "string"
+          },
+          "effect_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effect Id"
+          },
+          "effect_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effect Status"
+          },
+          "episode_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Episode Id"
+          },
+          "failure_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Code"
+          },
+          "final_disposition": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Final Disposition"
+          },
+          "operation_id": {
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "resolution_reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution Reason Code"
+          }
+        },
+        "required": [
+          "operation_id",
+          "available_after",
+          "current_disposition",
+          "resolution_reason_code",
+          "episode_id",
+          "cognition_status",
+          "final_disposition",
+          "failure_code",
+          "effect_id",
+          "effect_status"
+        ],
+        "title": "AutonomyHistoryItem",
+        "type": "object"
+      },
+      "AutonomyPolicyResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "daily_request_limit": {
+            "title": "Daily Request Limit",
+            "type": "integer"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "maximum_consideration_seconds": {
+            "title": "Maximum Consideration Seconds",
+            "type": "integer"
+          },
+          "minimum_consideration_seconds": {
+            "title": "Minimum Consideration Seconds",
+            "type": "integer"
+          },
+          "outlet": {
+            "enum": [
+              "qq",
+              "creator_web"
+            ],
+            "title": "Outlet",
+            "type": "string"
+          }
+        },
+        "required": [
+          "enabled",
+          "daily_request_limit",
+          "minimum_consideration_seconds",
+          "maximum_consideration_seconds",
+          "outlet"
+        ],
+        "title": "AutonomyPolicyResponse",
+        "type": "object"
+      },
+      "AutonomyStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "next_consideration_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Consideration At"
+          },
+          "opportunity_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opportunity Id"
+          },
+          "outlet_observed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outlet Observed At"
+          },
+          "outlet_reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outlet Reason Code"
+          },
+          "outlet_state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ready",
+                  "disabled",
+                  "unbound",
+                  "unavailable"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outlet State"
+          },
+          "plan_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Version"
+          },
+          "policy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AutonomyPolicyResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "quota_resets_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quota Resets At"
+          },
+          "remaining_requests": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remaining Requests"
+          },
+          "source_episode_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Episode Id"
+          },
+          "state": {
+            "enum": [
+              "not_initialized",
+              "disabled",
+              "runtime_stopped",
+              "sleeping",
+              "quota_exhausted",
+              "thinking",
+              "resource_busy",
+              "scheduled",
+              "ready"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "timezone": {
+            "const": "Asia/Shanghai",
+            "default": "Asia/Shanghai",
+            "title": "Timezone",
+            "type": "string"
+          },
+          "used_requests": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Used Requests"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "AutonomyStatus",
+        "type": "object"
+      },
       "BrowserSessionCurrentResponse": {
         "additionalProperties": false,
         "properties": {
@@ -6620,6 +6955,77 @@
           }
         ],
         "summary": "Get Creator Activity Timeline"
+      }
+    },
+    "/v1/autonomy/history": {
+      "get": {
+        "operationId": "listAutonomyHistory",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutonomyHistory"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "History"
+      }
+    },
+    "/v1/autonomy/status": {
+      "get": {
+        "operationId": "getAutonomyStatus",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutonomyStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "browserSessionBearer": []
+          }
+        ],
+        "summary": "Status"
       }
     },
     "/v1/browser-sessions": {

@@ -2454,6 +2454,9 @@ ALTER TABLE ONLY armi.codex_task_sources
 ALTER TABLE ONLY armi.codex_task_sources
     ADD CONSTRAINT codex_task_sources_subject_id_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
 
+ALTER TABLE ONLY armi.codex_task_sources
+    ADD CONSTRAINT codex_task_sources_origin_subject_commit_id_fkey FOREIGN KEY (origin_subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
+
 --
 -- Name: codex_task_sources codex_task_sources_task_manifest_artifact_id_fkey; Type: FK CONSTRAINT; Schema: armi; Owner: -
 --

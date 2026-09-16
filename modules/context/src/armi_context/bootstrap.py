@@ -11,6 +11,7 @@ from armi_artifact_store import ContentAddressedArtifactStore
 from armi_attention.api import (
     OpportunityCognitionSelectionPort,
     OpportunityContextReadPort,
+    OpportunityTransitionPort,
 )
 from armi_capability.api import CapabilityReadPort
 from armi_codex.api import CodexTaskSourceReadPort
@@ -138,6 +139,7 @@ def bootstrap_context_dialogue_read(
     expression: ExpressionIntentReadPort,
     effects: EffectOperationReadPort,
     voice: ContextVoiceResponseReadPort,
+    opportunities: OpportunityTransitionPort,
 ) -> ContextDialogueReadPort:
     return PostgreSQLContextDialogueRead(
         storage=storage,
@@ -147,6 +149,7 @@ def bootstrap_context_dialogue_read(
         expression=expression,
         effects=effects,
         voice=voice,
+        opportunities=opportunities,
     )
 
 

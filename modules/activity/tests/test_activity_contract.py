@@ -85,3 +85,18 @@ def test_scheduler_selects_the_oldest_ready_head() -> None:
 
     assert decision.disposition is ActivitySchedulingDisposition.ADMIT
     assert decision.activity_revision_id == older.revision_id
+
+
+@pytest.mark.parametrize(
+    "status", [ActivityStatus.CONSIDERING, ActivityStatus.IN_PROGRESS]
+)
+def test_new_autonomous_round_can_consider_existing_activity_without_extra_cooldown(
+    status,
+) -> None:
+    now = datetime(2026, 9, 16, 10, tzinfo=UTC)
+    head = ActivityHeadSnapshot(ActivityId(uuid7()), uuid7(), 1, status, now, None)
+    decision = ActivityScheduler().select(
+        ActivitySchedulingSnapshot(now, (head,), (), False, 1, 0)
+    )
+    assert decision.disposition is ActivitySchedulingDisposition.ADMIT
+    assert decision.activity_revision_id == head.revision_id

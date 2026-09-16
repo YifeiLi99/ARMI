@@ -1,5 +1,6 @@
 """Shared local control infrastructure; no subject authority or Admin credentials."""
 
+from .autonomy_contracts import AutonomyHistory, AutonomyStatus
 from .configuration import (
     ConfigurationViolation,
     DeploymentProfile,
@@ -25,6 +26,8 @@ from .runtime_process import RuntimeProcessManager
 from .usage_contracts import UsageCall, UsageCalls, UsageSummary
 
 __all__ = (
+    "AutonomyHistory",
+    "AutonomyStatus",
     "ConfigurationViolation",
     "DeploymentProfile",
     "EffectiveConfig",

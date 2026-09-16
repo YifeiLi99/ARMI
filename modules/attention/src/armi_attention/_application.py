@@ -15,8 +15,6 @@ from armi_kernel.application import (
     CreatorResourceKind,
 )
 from armi_kernel.contracts import Instant
-from armi_material.api import MaterialReadPort
-from armi_relationship.api import RelationshipPolicyPort, RelationshipReadPort
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
     RuntimeTransactionFailure,
@@ -26,7 +24,7 @@ from armi_subject_state.api import SubjectStateReadPort
 
 from ._postgresql import PostgreSQLLifeOpportunityRepository
 from .api import (
-    CreatorOutreachPolicy,
+    AutonomyPolicy,
     LifeOpportunityFactsPort,
     LifeOpportunitySourcePort,
     LifeViolation,
@@ -147,10 +145,11 @@ class MaintenanceCoordinator:
 
 class OpportunityPipeline(LifeOpportunitySourcePort):
     __slots__ = (
+        "_autonomy_policy",
         "_factory",
+        "_facts",
         "_maintenance",
         "_model_concurrency",
-        "_outreach_policy",
         "_repository",
         "_stop",
         "_wakeups",
@@ -162,9 +161,6 @@ class OpportunityPipeline(LifeOpportunitySourcePort):
         factory: PostgreSQLRuntimeUnitOfWorkFactory,
         facts: LifeOpportunityFactsPort,
         activity_read: ActivityReadPort,
-        material_read: MaterialReadPort,
-        relationship_read: RelationshipReadPort,
-        relationship_policy: RelationshipPolicyPort,
         sleep_maintenance: SleepMaintenancePort,
         sleep_read: SleepReadPort,
         subject_state_read: SubjectStateReadPort,
@@ -172,27 +168,21 @@ class OpportunityPipeline(LifeOpportunitySourcePort):
         model_concurrency: int = 2,
         maintenance_consideration_seconds: int = 57_600,
         maintenance_deadline_seconds: int = 86_400,
-        creator_outreach_absence_seconds: int = 259_200,
-        creator_outreach_minimum_interval_seconds: int = 86_400,
         notifier: CreatorProjectionNotifier | None = None,
+        autonomy_policy: AutonomyPolicy | None = None,
     ) -> None:
+        self._autonomy_policy = autonomy_policy or AutonomyPolicy()
         self._factory = factory
+        self._facts = facts
         self._repository = PostgreSQLLifeOpportunityRepository(
-            relationship_read,
-            relationship_policy,
             sleep_read,
             activity_read,
-            material_read,
             subject_state_read,
             facts,
         )
         self._stop = asyncio.Event()
         self._wakeups = wakeups or _NoopWakeups()
         self._model_concurrency = model_concurrency
-        self._outreach_policy = CreatorOutreachPolicy(
-            creator_outreach_absence_seconds,
-            creator_outreach_minimum_interval_seconds,
-        )
         self._maintenance = MaintenanceCoordinator(
             factory=factory,
             repository=sleep_maintenance,
@@ -212,8 +202,17 @@ class OpportunityPipeline(LifeOpportunitySourcePort):
 
     async def admit_once(self) -> OpportunityAdmissionOutcome:
         try:
+            # Local channel inspection may perform I/O and must precede the write transaction.
+            outlet_health = await self._facts.outlet_health(
+                self._autonomy_policy.outlet
+            )
             async with self._factory.unit_of_work() as unit_of_work:
-                result = await self._repository.admit_generation_available(unit_of_work)
+                result = await self._repository.admit_autonomy(
+                    unit_of_work,
+                    policy=self._autonomy_policy,
+                    model_concurrency=self._model_concurrency,
+                    outlet_health=outlet_health,
+                )
         except LifeViolation:
             raise
         except RuntimeTransactionFailure:
@@ -223,34 +222,14 @@ class OpportunityPipeline(LifeOpportunitySourcePort):
         return result
 
     async def run(self) -> None:
-        await self.admit_once()
         while not self._stop.is_set():
             try:
                 maintenance = await self.maintain_sleep_once()
                 if maintenance.opportunity_id is not None:
                     self._wakeups.notify(OPPORTUNITY_AVAILABLE)
-                material = await self.admit_life_material_once()
-                if material.status is OpportunityAdmissionStatus.ADMITTED:
-                    self._wakeups.notify(OPPORTUNITY_AVAILABLE)
-                outreach = await self.admit_creator_outreach_once()
-                if outreach.status is OpportunityAdmissionStatus.ADMITTED:
-                    self._wakeups.notify(OPPORTUNITY_AVAILABLE)
-                internal_work = await self.admit_internal_work_once()
-                if internal_work.status is OpportunityAdmissionStatus.ADMITTED:
-                    self._wakeups.notify(OPPORTUNITY_AVAILABLE)
-                result = await self.admit_attention_once()
-                if result.status is OpportunityAdmissionStatus.ADMITTED:
-                    self._wakeups.notify(OPPORTUNITY_AVAILABLE)
+                await self.admit_once()
             except LifeViolation as exc:
-                if not exc.code.startswith("LIFE-BACKPRESSURE-") and exc.code not in {
-                    "LIFE-SCHEDULER-IDLE",
-                    "LIFE-SCHEDULER-COOLDOWN",
-                    "LIFE-OUTREACH-IDLE",
-                    "LIFE-OUTREACH-COOLDOWN",
-                    "LIFE-OUTREACH-AWAITING-CREATOR",
-                    "LIFE-OUTREACH-RELATIONSHIP-BOUNDARY",
-                    "LIFE-OUTREACH-SCENE-UNAVAILABLE",
-                }:
+                if not exc.code.startswith("LIFE-BACKPRESSURE-"):
                     raise
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._stop.wait(), timeout=5)
@@ -262,27 +241,6 @@ class OpportunityPipeline(LifeOpportunitySourcePort):
             raise
         except SleepViolation as error:
             raise LifeViolation(f"LIFE-{error.code.removeprefix('SLEEP-')}") from None
-        except RuntimeTransactionFailure:
-            raise LifeViolation("LIFE-DATABASE") from None
-
-    async def admit_life_material_once(self) -> OpportunityAdmissionOutcome:
-        try:
-            async with self._factory.unit_of_work() as unit_of_work:
-                return await self._repository.admit_life_material_revision(unit_of_work)
-        except LifeViolation:
-            raise
-        except RuntimeTransactionFailure:
-            raise LifeViolation("LIFE-DATABASE") from None
-
-    async def admit_creator_outreach_once(self) -> OpportunityAdmissionOutcome:
-        try:
-            async with self._factory.unit_of_work() as unit_of_work:
-                return await self._repository.admit_creator_outreach(
-                    unit_of_work,
-                    policy=self._outreach_policy,
-                )
-        except LifeViolation:
-            raise
         except RuntimeTransactionFailure:
             raise LifeViolation("LIFE-DATABASE") from None
 
@@ -303,39 +261,12 @@ class OpportunityPipeline(LifeOpportunitySourcePort):
         except RuntimeTransactionFailure:
             raise LifeViolation("LIFE-DATABASE") from None
 
-    async def admit_attention_once(self) -> OpportunityAdmissionOutcome:
-        try:
-            async with self._factory.unit_of_work() as unit_of_work:
-                return await self._repository.admit_activity_attention(
-                    unit_of_work,
-                    model_concurrency=self._model_concurrency,
-                )
-        except LifeViolation:
-            raise
-        except RuntimeTransactionFailure:
-            raise LifeViolation("LIFE-DATABASE") from None
-
-    async def admit_internal_work_once(self) -> OpportunityAdmissionOutcome:
-        try:
-            async with self._factory.unit_of_work() as unit_of_work:
-                return await self._repository.admit_activity_internal_work(
-                    unit_of_work,
-                    model_concurrency=self._model_concurrency,
-                )
-        except LifeViolation:
-            raise
-        except RuntimeTransactionFailure:
-            raise LifeViolation("LIFE-DATABASE") from None
-
 
 def compose_opportunity_pipeline(
     *,
     factory: PostgreSQLRuntimeUnitOfWorkFactory,
     facts: LifeOpportunityFactsPort,
     activity_read: ActivityReadPort,
-    material_read: MaterialReadPort,
-    relationship_read: RelationshipReadPort,
-    relationship_policy: RelationshipPolicyPort,
     sleep_maintenance: SleepMaintenancePort,
     sleep_read: SleepReadPort,
     subject_state_read: SubjectStateReadPort,
@@ -343,17 +274,14 @@ def compose_opportunity_pipeline(
     model_concurrency: int = 2,
     maintenance_consideration_seconds: int = 57_600,
     maintenance_deadline_seconds: int = 86_400,
-    creator_outreach_absence_seconds: int = 259_200,
-    creator_outreach_minimum_interval_seconds: int = 86_400,
     notifier: CreatorProjectionNotifier | None = None,
+    autonomy_policy: AutonomyPolicy | None = None,
 ) -> OpportunityPipeline:
     return OpportunityPipeline(
+        autonomy_policy=autonomy_policy,
         factory=factory,
         facts=facts,
         activity_read=activity_read,
-        material_read=material_read,
-        relationship_read=relationship_read,
-        relationship_policy=relationship_policy,
         sleep_maintenance=sleep_maintenance,
         sleep_read=sleep_read,
         subject_state_read=subject_state_read,
@@ -361,10 +289,6 @@ def compose_opportunity_pipeline(
         model_concurrency=model_concurrency,
         maintenance_consideration_seconds=maintenance_consideration_seconds,
         maintenance_deadline_seconds=maintenance_deadline_seconds,
-        creator_outreach_absence_seconds=creator_outreach_absence_seconds,
-        creator_outreach_minimum_interval_seconds=(
-            creator_outreach_minimum_interval_seconds
-        ),
         notifier=notifier,
     )
 

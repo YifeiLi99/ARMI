@@ -117,7 +117,6 @@ class ContextEpisodeSnapshot:
     capability_state_payloads: tuple[CapabilityContextStatePayload, ...]
     scene_bytes: bytes | None
     evidence: ContextArtifactSource | None
-    outreach_trigger_bytes: bytes | None
     opportunity_source_kind: str
     opportunity_source_ref: UUID
     opportunity_source_version: int
@@ -127,6 +126,7 @@ class ContextEpisodeSnapshot:
     creator_prompt: ContextArtifactSource | None = None
     subject_prompt: ContextArtifactSource | None = None
     recent_scene_sources: tuple[ContextDialogueItem, ...] = ()
+    autonomy_context: bytes | None = None
 
 
 class PostgreSQLContextRepository:
@@ -319,7 +319,10 @@ class PostgreSQLContextRepository:
         )
         if opportunity.activity_id is not None and (
             target_activity is None
-            or target_activity.status is not ActivityStatus.IN_PROGRESS
+            or (
+                episode.purpose != "consider_autonomous_life"
+                and target_activity.status is not ActivityStatus.IN_PROGRESS
+            )
         ):
             raise ContextViolation("CTX-WORK-STALE")
         capabilities = (
@@ -402,27 +405,14 @@ class PostgreSQLContextRepository:
                 before_interaction_id=current_interaction_id,
                 before_time=(
                     opportunity.available_after
-                    if episode.purpose == "consider_creator_outreach"
+                    if episode.purpose == "consider_autonomous_life"
                     else None
                 ),
                 limit=8,
             )
 
-        outreach = (
-            rfc8785.dumps(
-                {
-                    "schema_version": "armi.creator-outreach-trigger.v1",
-                    "kind": opportunity.source_kind,
-                    "source_ref": str(opportunity.source_ref),
-                    "source_version": opportunity.source_version,
-                    "available_after": opportunity.available_after.isoformat(),
-                    "scene_id": str(episode.scene_id),
-                }
-            )
-            if episode.purpose == "consider_creator_outreach"
-            else None
-        )
         return ContextEpisodeSnapshot(
+            autonomy_context=opportunity.autonomy_context,
             episode_id=episode.episode_id,
             opportunity_id=episode.opportunity_id,
             subject_id=episode.subject_id,
@@ -450,7 +440,6 @@ class PostgreSQLContextRepository:
             capability_state_payloads=capabilities,
             scene_bytes=scene_bytes,
             evidence=evidence_source,
-            outreach_trigger_bytes=outreach,
             opportunity_source_kind=opportunity.source_kind,
             opportunity_source_ref=opportunity.source_ref,
             opportunity_source_version=opportunity.source_version,

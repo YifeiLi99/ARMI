@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
@@ -67,7 +67,6 @@ class ActivitySchedulingDisposition(StrEnum):
     IDLE = "idle"
 
 
-_COOLDOWN = timedelta(seconds=60)
 _TERMINAL = {
     ActivityStatus.COMPLETED,
     ActivityStatus.ABANDONED,
@@ -92,20 +91,13 @@ def select_activity(snapshot: ActivitySchedulingSnapshot) -> ActivitySchedulingD
     eligible: list[ActivityHeadSnapshot] = []
     next_times: list[datetime] = []
     for activity in snapshot.activities:
-        if (
-            activity.status in _TERMINAL
-            or activity.status is ActivityStatus.CONSIDERING
-        ):
+        if activity.status in _TERMINAL:
             continue
-        if activity.status is ActivityStatus.READY:
+        if activity.status in {ActivityStatus.CONSIDERING, ActivityStatus.READY}:
             eligible.append(activity)
             continue
         if activity.status in {ActivityStatus.IN_PROGRESS, ActivityStatus.RESUMING}:
-            available = activity.created_at + _COOLDOWN
-            if available <= snapshot.now:
-                eligible.append(activity)
-            else:
-                next_times.append(available)
+            eligible.append(activity)
             continue
         if activity.status in {ActivityStatus.WAITING, ActivityStatus.PAUSED}:
             ready = (

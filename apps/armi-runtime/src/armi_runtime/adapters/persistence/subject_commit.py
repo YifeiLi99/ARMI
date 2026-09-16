@@ -21,6 +21,7 @@ from armi_codex.api import (
     CodexCommitContext,
     CodexCommitPort,
     CodexDelegationViolation,
+    CodexPreparedTask,
 )
 from armi_cognition.api import (
     CandidateExactLifeQueryDraft,
@@ -510,6 +511,7 @@ class PostgreSQLSubjectCommitRepository:
         owner_drafts: SubjectCommitOwnerDrafts,
         response_artifact: ArtifactRef | None = None,
         research_artifact: ArtifactRef | None = None,
+        prepared_codex: tuple[CodexPreparedTask, ...] = (),
         material_artifacts: dict[str, ArtifactRef] | None = None,
         prompt_artifacts: dict[str, ArtifactRef] | None = None,
     ) -> SubjectCommitResult:
@@ -642,6 +644,7 @@ class PostgreSQLSubjectCommitRepository:
             owner_drafts=owner_drafts,
             response_artifact=response_artifact,
             research_artifact=research_artifact,
+            prepared_codex=prepared_codex,
             material_artifacts=material_artifacts or {},
             prompt_artifacts=prompt_artifacts or {},
         )
@@ -656,6 +659,7 @@ class PostgreSQLSubjectCommitRepository:
         owner_drafts: SubjectCommitOwnerDrafts,
         response_artifact: ArtifactRef | None,
         research_artifact: ArtifactRef | None,
+        prepared_codex: tuple[CodexPreparedTask, ...],
         material_artifacts: dict[str, ArtifactRef],
         prompt_artifacts: dict[str, ArtifactRef],
     ) -> SubjectCommitResult:
@@ -1010,6 +1014,7 @@ class PostgreSQLSubjectCommitRepository:
                 context=_codex_commit_context(snapshot),
                 commit_id=commit_id.value,
                 delegations=change_set.codex_delegations,
+                prepared_tasks=prepared_codex,
             )
         except CodexDelegationViolation as error:
             raise SubjectCommitViolation(f"SUBJECT-{error.code}") from None
@@ -1085,6 +1090,7 @@ class PostgreSQLSubjectCommitRepository:
             snapshot=snapshot,
             status=CandidateApplicationStatus.APPLIED,
             result_ref=application_id.value,
+            next_consideration_seconds=change_set.next_consideration_seconds,
         )
         await unit_of_work.audit.append(
             _audit(
@@ -1175,15 +1181,6 @@ async def _settle_without_commit(
 ) -> SubjectCommitResult:
     application_id = CandidateApplicationId(uuid7())
     try:
-        activity_reconsideration = activity_commit.requests_reconsideration(
-            context=_activity_commit_context(snapshot),
-            drafts=owner_drafts.activity,
-        )
-    except ActivityViolation as error:
-        raise SubjectCommitViolation(
-            f"SUBJECT-{error.code.removeprefix('ACTIVITY-')}"
-        ) from None
-    try:
         sleep_reconsideration = sleep_commit.requests_reconsideration(
             context=_sleep_commit_context(snapshot),
             drafts=owner_drafts.sleep,
@@ -1192,23 +1189,8 @@ async def _settle_without_commit(
         raise SubjectCommitViolation(
             f"SUBJECT-{error.code.removeprefix('SLEEP-')}"
         ) from None
-    if activity_reconsideration and sleep_reconsideration:
-        raise SubjectCommitViolation("SUBJECT-SUCCESSOR-CONFLICT")
     successor_id: UUID | None = None
-    if activity_reconsideration:
-        if snapshot.source_activity_id is None:
-            raise SubjectCommitViolation("SUBJECT-ACTIVITY-SOURCE")
-        successor = await opportunity_transition.reconsider_activity(
-            unit_of_work.transaction,
-            subject_id=snapshot.subject_id,
-            root_opportunity_id=snapshot.root_opportunity_id,
-            predecessor_opportunity_id=snapshot.opportunity_id,
-            source_ref=snapshot.source_ref,
-            source_version=snapshot.source_version,
-            activity_id=snapshot.source_activity_id,
-        )
-        successor_id = None if successor is None else successor.value
-    elif sleep_reconsideration:
+    if sleep_reconsideration:
         successor = await opportunity_transition.reconsider_sleep(
             unit_of_work.transaction,
             predecessor_opportunity_id=snapshot.opportunity_id,
@@ -1268,6 +1250,7 @@ async def _settle_without_commit(
         snapshot=snapshot,
         status=status,
         result_ref=application_id.value,
+        next_consideration_seconds=change_set.next_consideration_seconds,
     )
     audit_status = (
         AuditResultStatus.COMPLETED
@@ -1360,6 +1343,7 @@ async def _finish_episode_and_work(
     snapshot: SubjectCommitSnapshot,
     status: CandidateApplicationStatus,
     result_ref: UUID,
+    next_consideration_seconds: int | None = None,
 ) -> None:
     await cognition_commit.finish_episode(
         unit_of_work.transaction,
@@ -1371,6 +1355,10 @@ async def _finish_episode_and_work(
         await opportunity_transition.resolve_subject_commit(
             unit_of_work.transaction,
             opportunity_id=snapshot.opportunity_id,
+            next_consideration_seconds=next_consideration_seconds,
+            source_episode_id=(
+                snapshot.episode_id if next_consideration_seconds is not None else None
+            ),
         )
     except LifeViolation:
         raise SubjectCommitViolation("SUBJECT-OPPORTUNITY-STATE") from None

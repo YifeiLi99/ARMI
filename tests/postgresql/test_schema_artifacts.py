@@ -27,6 +27,7 @@ BASELINE_DOCUMENTS = [
     "75_admin_management.sql",
     "80_cross_domain_constraints_and_indexes.sql",
     "85_provider_usage.sql",
+    "86_autonomy.sql",
     "90_static_catalog.sql",
     "99_privileges.sql",
 ]
@@ -114,7 +115,7 @@ def test_active_cognition_contracts_are_in_the_current_baseline() -> None:
     assert "reflect_mood" in baseline
     for contract in (
         "armi.other-human-dialogue-candidate.v8",
-        "armi.autonomous-activity-candidate.v6",
+        "armi.autonomous-activity-candidate.v7",
         "armi.activity-attention-candidate.v5",
         "armi.activity-internal-work-candidate.v5",
     ):
@@ -128,7 +129,7 @@ def test_gateway_exposes_install_and_status_only() -> None:
     assert callable(PostgreSQLSchemaGateway.install)
     assert callable(PostgreSQLSchemaGateway.status)
     assert not hasattr(PostgreSQLSchemaGateway, "migrate")
-    assert "armi.schema-baseline.v20" in (
+    assert "armi.schema-baseline.v21" in (
         RESOURCE / "baseline" / "10_runtime_and_subject.sql"
     ).read_text(encoding="utf-8")
 

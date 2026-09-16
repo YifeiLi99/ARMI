@@ -18,7 +18,11 @@ from armi_activity.api import (
     CandidateActivityDecisionDraft,
     CandidateActivityDraft,
 )
-from armi_codex.api import CodexDelegationDraft, CodexTaskSourceId
+from armi_codex.api import (
+    CodexDelegationDraft,
+    CodexTaskSourceId,
+    bind_autonomous_codex_task,
+)
 from armi_expression.api import (
     CreatorReplyDraft,
     FormalNoActionDraft,
@@ -135,26 +139,22 @@ from armi_web_observation.api import WebResearchRequestDraft
 from pydantic import BaseModel, ValidationError
 
 from . import _creator_cognitive_act_contract as creator_act
-from ._activity_attention_contract import (
-    ACTIVITY_ATTENTION_CANDIDATE_VERSION,
-    ActivityAttentionCandidate,
-    AttentionSimpleDecision,
-)
 from ._activity_internal_work_contract import (
-    ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION,
-    ActivityInternalWorkCandidate,
-    InternalWorkAbandonDecision,
-    InternalWorkCompleteDecision,
     InternalWorkMaterialChange,
     InternalWorkMaterialCreate,
-    InternalWorkNeedInformationDecision,
-    InternalWorkNoResultDecision,
-    InternalWorkProgressDecision,
 )
 from ._autonomous_activity_contract import (
     AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
+    AutonomousAbandonDecision,
+    AutonomousCodexDecision,
+    AutonomousCompleteDecision,
+    AutonomousLifeQueryDecision,
+    AutonomousNoResultDecision,
+    AutonomousProgressDecision,
     AutonomousTerminalDecision,
     AutonomousVisualObservationDecision,
+    AutonomousWaitDecision,
+    AutonomousWebResearchDecision,
     StartActivityDecision,
 )
 from ._creator_appraisal_contract import (
@@ -240,7 +240,7 @@ from .api import (
 
 CANDIDATE_POLICY_VERSION = "armi.cognition-candidate-policy.v4"
 CANDIDATE_VALIDATOR_IDENTITY = "armi.candidate-validator.deterministic-v1"
-ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v35"
+ACTIVE_CHANGE_SET_VERSION = "armi.subject-change-set.v36"
 _CODEX_CAPABILITY_ID = UUID("01985d00-0000-7000-8000-000000000038")
 
 
@@ -590,11 +590,7 @@ class DeterministicCandidateValidator:
                     allowed_context_refs=frozenset(basis_by_ref),
                     purpose=self._context.purpose,
                     expected_version=(
-                        ACTIVITY_ATTENTION_CANDIDATE_VERSION
-                        if self._context.purpose == "consider_activity_attention"
-                        else ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION
-                        if self._context.purpose == "consider_activity_internal_work"
-                        else AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION
+                        AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION
                         if self._context.purpose == "consider_autonomous_life"
                         else SLEEP_DECISION_CANDIDATE_VERSION
                         if self._context.purpose == "consider_sleep"
@@ -663,11 +659,11 @@ class DeterministicCandidateValidator:
         if isinstance(
             parsed_candidate,
             (
-                InternalWorkProgressDecision,
-                InternalWorkCompleteDecision,
-                InternalWorkNeedInformationDecision,
-                InternalWorkAbandonDecision,
-                InternalWorkNoResultDecision,
+                AutonomousProgressDecision,
+                AutonomousCompleteDecision,
+                AutonomousAbandonDecision,
+                AutonomousNoResultDecision,
+                AutonomousWaitDecision,
             ),
         ):
             return self._validate_internal_work(
@@ -676,18 +672,13 @@ class DeterministicCandidateValidator:
             )
         if isinstance(
             parsed_candidate,
-            AttentionSimpleDecision,
-        ):
-            return self._validate_attention(
-                parsed_candidate,
-                bases=bases,
-            )
-        if isinstance(
-            parsed_candidate,
             (
                 StartActivityDecision,
+                AutonomousCodexDecision,
                 AutonomousTerminalDecision,
                 AutonomousVisualObservationDecision,
+                AutonomousWebResearchDecision,
+                AutonomousLifeQueryDecision,
             ),
         ):
             return self._validate_autonomous(
@@ -1587,8 +1578,11 @@ class DeterministicCandidateValidator:
         self,
         candidate: (
             StartActivityDecision
+            | AutonomousCodexDecision
             | AutonomousTerminalDecision
             | AutonomousVisualObservationDecision
+            | AutonomousWebResearchDecision
+            | AutonomousLifeQueryDecision
         ),
         *,
         bases: tuple[CandidateBasis, ...],
@@ -1596,8 +1590,10 @@ class DeterministicCandidateValidator:
         if (
             self._context.purpose != "consider_autonomous_life"
             or self._context.opportunity_id is None
-            or self._context.scene_id is not None
-            or self._context.creator_party_id is not None
+            or (
+                (self._context.scene_id is None)
+                != (self._context.creator_party_id is None)
+            )
         ):
             return _rejected("CANDIDATE-ACTIVITY-CONTEXT")
         source = next(
@@ -1612,7 +1608,66 @@ class DeterministicCandidateValidator:
         )
         if source is None:
             return _rejected("CANDIDATE-ACTIVITY-SOURCE")
+        expressions: tuple[CreatorReplyDraft, ...] = ()
+        if candidate.expression is not None:
+            if self._context.scene_id is None or self._context.creator_party_id is None:
+                return _rejected("CANDIDATE-AUTONOMY-OUTLET-UNAVAILABLE")
+            expressions = (
+                CreatorReplyDraft(
+                    "proposal:3",
+                    "group:1",
+                    (source.ordinal,),
+                    self._context.subject_id,
+                    self._context.scene_id,
+                    self._context.creator_party_id,
+                    candidate.expression.encode("utf-8"),
+                ),
+            )
         visual_requests: tuple[VisualObservationRequestDraft, ...] = ()
+        web_requests: tuple[WebResearchRequestDraft, ...] = ()
+        codex_delegations: tuple[CodexDelegationDraft, ...] = ()
+        exact_queries: tuple[CandidateExactLifeQueryDraft, ...] = ()
+        if isinstance(candidate, AutonomousCodexDecision):
+            if not self._context.codex_active:
+                return _rejected("CANDIDATE-CODEX-NOT-ACTIVE")
+            codex_delegations = (
+                bind_autonomous_codex_task(
+                    objective=candidate.objective,
+                    model_id=candidate.model_id,
+                    reasoning_effort=candidate.reasoning_effort,
+                    web_search=candidate.web_search,
+                    proposal_ref="proposal:1",
+                    atomic_group_ref="group:1",
+                    basis_ordinals=(source.ordinal,),
+                ),
+            )
+        if isinstance(candidate, AutonomousWebResearchDecision):
+            if not self._context.web_search_active:
+                return _rejected("CANDIDATE-WEB-NOT-ACTIVE")
+            if (
+                "http://" in candidate.query.casefold()
+                or "https://" in candidate.query.casefold()
+            ):
+                return _rejected("CANDIDATE-WEB-URL-FORBIDDEN")
+            web_requests = (
+                WebResearchRequestDraft(
+                    "proposal:1",
+                    "group:1",
+                    (source.ordinal,),
+                    candidate.query.encode("utf-8"),
+                ),
+            )
+        elif isinstance(candidate, AutonomousLifeQueryDecision):
+            exact_queries = (
+                CandidateExactLifeQueryDraft(
+                    "proposal:1",
+                    "group:1",
+                    (source.ordinal,),
+                    CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
+                    LifeRecordKind(candidate.record_kind),
+                    candidate.query,
+                ),
+            )
         if isinstance(candidate, AutonomousVisualObservationDecision):
             if candidate.source_kind not in self._context.visual_sources_active:
                 return _rejected("CANDIDATE-VISION-SOURCE-NOT-ACTIVE")
@@ -1627,6 +1682,9 @@ class DeterministicCandidateValidator:
         disposition = {
             "start_activity": CandidateDisposition.CHANGE,
             "visual_observation": CandidateDisposition.CHANGE,
+            "web_research": CandidateDisposition.CHANGE,
+            "exact_life_query": CandidateDisposition.CHANGE,
+            "codex_delegation": CandidateDisposition.CHANGE,
             "no_activity": CandidateDisposition.NO_CHANGE,
             "defer": CandidateDisposition.DEFER,
             "need_information": CandidateDisposition.NEED_INFORMATION,
@@ -1648,11 +1706,19 @@ class DeterministicCandidateValidator:
         owner_drafts = list(
             self._activity_cognition.bind_create(item) for item in activities
         )
+        if expressions:
+            disposition = CandidateDisposition.CHANGE
         if candidate.appraisal is not None:
             mood_draft, mood_error = _bind_appraisal_draft(
                 candidate.appraisal,
                 proposal_ref=(
-                    "proposal:2" if activities or visual_requests else "proposal:1"
+                    "proposal:2"
+                    if activities
+                    or visual_requests
+                    or web_requests
+                    or exact_queries
+                    or codex_delegations
+                    else "proposal:1"
                 ),
                 bases=bases,
                 context=self._context,
@@ -1676,15 +1742,22 @@ class DeterministicCandidateValidator:
             },
             "disposition": disposition.value,
             "experiences": [],
-            "action_choices": [],
-            "web_research_requests": [],
+            "action_choices": [_action_wire(item) for item in expressions],
+            "web_research_requests": [
+                _web_research_wire(item) for item in web_requests
+            ],
             "visual_observation_requests": [
                 _visual_observation_request_wire(item) for item in visual_requests
             ],
-            "codex_delegations": [],
+            "codex_delegations": [
+                _codex_delegation_wire(item) for item in codex_delegations
+            ],
             "owner_drafts": [_owner_draft_wire(item) for item in owner_drafts],
-            "exact_life_queries": [],
+            "exact_life_queries": [
+                _exact_life_query_wire(item) for item in exact_queries
+            ],
             "rejections": [],
+            "next_consideration_seconds": candidate.next_consideration_seconds,
         }
         canonical = rfc8785.dumps(cast(Any, value))
         change_set = SubjectChangeSet(
@@ -1699,17 +1772,25 @@ class DeterministicCandidateValidator:
             self._context.context_digest,
             disposition,
             experiences=(),
-            action_choices=(),
-            web_research_requests=(),
+            action_choices=expressions,
+            web_research_requests=web_requests,
+            codex_delegations=codex_delegations,
+            exact_life_queries=exact_queries,
             rejections=(),
             visual_observation_requests=visual_requests,
             owner_drafts=tuple(owner_drafts),
+            next_consideration_seconds=candidate.next_consideration_seconds,
         )
         return CandidateValidationResult(
             CandidateValidationId(uuid7()),
             CandidateValidationStatus.ACCEPTED,
             change_set,
-            len(owner_drafts) + len(visual_requests),
+            len(owner_drafts)
+            + len(visual_requests)
+            + len(expressions)
+            + len(web_requests)
+            + len(exact_queries)
+            + len(codex_delegations),
             0,
             None,
         )
@@ -1805,142 +1886,30 @@ class DeterministicCandidateValidator:
             None,
         )
 
-    def _validate_attention(
-        self,
-        candidate: ActivityAttentionCandidate,
-        *,
-        bases: tuple[CandidateBasis, ...],
-    ) -> CandidateValidationResult:
-        context = self._context
-        if (
-            context.purpose != "consider_activity_attention"
-            or context.opportunity_id is None
-            or context.scene_id is not None
-            or context.creator_party_id is not None
-            or context.current_activity_id is None
-            or context.current_activity_revision_id is None
-            or context.current_activity_head_version is None
-            or context.current_activity_status is None
-        ):
-            return _rejected("CANDIDATE-ACTIVITY-ATTENTION-CONTEXT")
-        source = next(
-            (
-                item
-                for item in bases
-                if item.item_kind == "current_activity"
-                and item.trust_class == "runtime_authority"
-                and item.source_ref == context.current_activity_revision_id
-            ),
-            None,
-        )
-        if source is None:
-            return _rejected("CANDIDATE-ACTIVITY-ATTENTION-SOURCE")
-        kind = ActivityAttentionDecisionKind(candidate.kind)
-        if not _attention_transition_allowed(context.current_activity_status, kind):
-            return _rejected("CANDIDATE-ACTIVITY-TRANSITION")
-        decision = CandidateActivityDecisionDraft(
-            "proposal:1",
-            "group:1",
-            (source.ordinal,),
-            context.current_activity_id,
-            context.current_activity_revision_id,
-            context.current_activity_head_version,
-            kind,
-        )
-        disposition = (
-            CandidateDisposition.CHANGE
-            if kind
-            not in {
-                ActivityAttentionDecisionKind.NO_ACTION,
-                ActivityAttentionDecisionKind.DEFER,
-                ActivityAttentionDecisionKind.NEED_INFORMATION,
-            }
-            else CandidateDisposition.NO_ACTION
-            if kind is ActivityAttentionDecisionKind.NO_ACTION
-            else CandidateDisposition.DEFER
-            if kind is ActivityAttentionDecisionKind.DEFER
-            else CandidateDisposition.NEED_INFORMATION
-        )
-        owner_drafts = [self._activity_cognition.bind_decision(decision)]
-        if candidate.appraisal is not None:
-            mood_draft, mood_error = _bind_appraisal_draft(
-                candidate.appraisal,
-                proposal_ref="proposal:2",
-                bases=bases,
-                context=context,
-                cognition=self._mood_cognition,
-            )
-            if mood_draft is None:
-                return _rejected(mood_error or "CANDIDATE-MOOD-CONTEXT")
-            owner_drafts.append(mood_draft)
-            disposition = CandidateDisposition.CHANGE
-        value = {
-            "schema_version": ACTIVE_CHANGE_SET_VERSION,
-            "subject_id": str(context.subject_id),
-            "generation_id": str(context.generation_id),
-            "episode_id": str(context.episode_id),
-            "model_attempt_id": str(context.model_attempt_id),
-            "base": {
-                "subject_version": context.base_subject_version,
-                "state_epoch": context.base_state_epoch,
-                "bundle_activation_id": str(context.bundle_activation_id),
-                "context_digest": context.context_digest.value,
-            },
-            "disposition": disposition.value,
-            "experiences": [],
-            "action_choices": [],
-            "web_research_requests": [],
-            "visual_observation_requests": [],
-            "codex_delegations": [],
-            "owner_drafts": [_owner_draft_wire(item) for item in owner_drafts],
-            "exact_life_queries": [],
-            "rejections": [],
-        }
-        canonical = rfc8785.dumps(cast(Any, value))
-        change_set = SubjectChangeSet(
-            canonical,
-            context.subject_id,
-            context.generation_id,
-            context.episode_id,
-            context.model_attempt_id,
-            context.base_subject_version,
-            context.base_state_epoch,
-            context.bundle_activation_id,
-            context.context_digest,
-            disposition,
-            (),
-            (),
-            (),
-            (),
-            (),
-            (),
-            owner_drafts=tuple(owner_drafts),
-        )
-        return CandidateValidationResult(
-            CandidateValidationId(uuid7()),
-            CandidateValidationStatus.ACCEPTED,
-            change_set,
-            len(owner_drafts),
-            0,
-            None,
-        )
-
     def _validate_internal_work(
         self,
-        candidate: ActivityInternalWorkCandidate,
+        candidate: AutonomousProgressDecision
+        | AutonomousCompleteDecision
+        | AutonomousAbandonDecision
+        | AutonomousNoResultDecision
+        | AutonomousWaitDecision,
         *,
         bases: tuple[CandidateBasis, ...],
     ) -> CandidateValidationResult:
         context = self._context
         if (
-            context.purpose != "consider_activity_internal_work"
+            context.purpose != "consider_autonomous_life"
             or context.opportunity_id is None
-            or context.scene_id is not None
-            or context.creator_party_id is not None
             or context.current_activity_id is None
             or context.current_activity_revision_id is None
             or context.current_activity_head_version is None
-            or context.current_activity_status is not ActivityStatus.IN_PROGRESS
+            or context.current_activity_status
+            in {
+                None,
+                ActivityStatus.COMPLETED,
+                ActivityStatus.ABANDONED,
+                ActivityStatus.FAILED,
+            }
         ):
             return _rejected("CANDIDATE-ACTIVITY-WORK-CONTEXT")
         source = next(
@@ -1956,24 +1925,41 @@ class DeterministicCandidateValidator:
         if source is None:
             return _rejected("CANDIDATE-ACTIVITY-WORK-SOURCE")
 
+        expressions: tuple[CreatorReplyDraft, ...] = ()
+        if candidate.expression is not None:
+            if context.scene_id is None or context.creator_party_id is None:
+                return _rejected("CANDIDATE-AUTONOMY-OUTLET-UNAVAILABLE")
+            expressions = (
+                CreatorReplyDraft(
+                    "proposal:4",
+                    "group:1",
+                    (source.ordinal,),
+                    context.subject_id,
+                    context.scene_id,
+                    context.creator_party_id,
+                    candidate.expression.encode("utf-8"),
+                ),
+            )
+        next_consideration = candidate.next_consideration_seconds
+
         progress = next_step = waiting = cue = terminal = None
         waiting_kind = None
         delay = None
         material_change: InternalWorkMaterialChange | None = None
-        if isinstance(candidate, InternalWorkProgressDecision):
+        if isinstance(candidate, AutonomousProgressDecision):
             kind = ActivityAttentionDecisionKind.PROGRESS
             progress, next_step = candidate.progress_summary, candidate.next_step
             material_change = candidate.material_change
-        elif isinstance(candidate, InternalWorkCompleteDecision):
+        elif isinstance(candidate, AutonomousCompleteDecision):
             kind = ActivityAttentionDecisionKind.COMPLETE
             progress, terminal = candidate.progress_summary, candidate.terminal_reason
             material_change = candidate.material_change
-        elif isinstance(candidate, InternalWorkNeedInformationDecision):
+        elif isinstance(candidate, AutonomousWaitDecision):
             kind = ActivityAttentionDecisionKind.WAIT
             progress, next_step = candidate.progress_summary, candidate.next_step
             waiting, cue = candidate.information_needed, candidate.resumption_cue
             waiting_kind = ActivityWaitingKind.CREATOR_INPUT
-        elif isinstance(candidate, InternalWorkAbandonDecision):
+        elif isinstance(candidate, AutonomousAbandonDecision):
             kind = ActivityAttentionDecisionKind.ABANDON
             progress, terminal = candidate.progress_summary, candidate.terminal_reason
         else:
@@ -1983,7 +1969,7 @@ class DeterministicCandidateValidator:
             waiting = candidate.reason
             cue = candidate.resumption_cue
             waiting_kind = ActivityWaitingKind.SCHEDULED_REVIEW
-            delay = candidate.review_after_seconds
+            delay = candidate.next_consideration_seconds
 
         decision = CandidateActivityDecisionDraft(
             "proposal:1",
@@ -2045,13 +2031,14 @@ class DeterministicCandidateValidator:
             },
             "disposition": CandidateDisposition.CHANGE.value,
             "experiences": [],
-            "action_choices": [],
+            "action_choices": [_action_wire(item) for item in expressions],
             "web_research_requests": [],
             "visual_observation_requests": [],
             "codex_delegations": [],
             "owner_drafts": [_owner_draft_wire(item) for item in owner_drafts],
             "exact_life_queries": [],
             "rejections": [],
+            "next_consideration_seconds": next_consideration,
         }
         canonical = rfc8785.dumps(cast(Any, value))
         change_set = SubjectChangeSet(
@@ -2066,16 +2053,17 @@ class DeterministicCandidateValidator:
             context_digest=context.context_digest,
             disposition=CandidateDisposition.CHANGE,
             experiences=(),
-            action_choices=(),
+            action_choices=expressions,
             web_research_requests=(),
             rejections=(),
             owner_drafts=tuple(owner_drafts),
+            next_consideration_seconds=next_consideration,
         )
         return CandidateValidationResult(
             CandidateValidationId(uuid7()),
             CandidateValidationStatus.ACCEPTED,
             change_set,
-            len(owner_drafts),
+            len(owner_drafts) + len(expressions),
             0,
             None,
         )
@@ -2871,11 +2859,7 @@ def _expand_dialogue_candidate(
             and (
                 item.trust_class == "external_claim"
                 or (
-                    context.purpose
-                    in {
-                        "consider_life_query_result",
-                        "consider_creator_outreach",
-                    }
+                    context.purpose == "consider_life_query_result"
                     and item.trust_class == "runtime_authority"
                 )
             )
@@ -2906,22 +2890,6 @@ def _expand_dialogue_candidate(
     ):
         return None, None, "CANDIDATE-CONTRACT"
     decision = source
-    if context.purpose == "consider_creator_outreach":
-        if not isinstance(decision, (DialogueReplyDecision, DialogueTerminalDecision)):
-            return None, None, "CANDIDATE-CREATOR-OUTREACH-SCOPE"
-        if isinstance(decision, DialogueReplyDecision) and any(
-            value is not None
-            for value in (
-                decision.experience,
-                decision.self_change,
-                decision.mind_change,
-                decision.memory_change,
-                decision.relationship_change,
-                decision.material_change,
-                decision.subject_prompt_change,
-            )
-        ):
-            return None, None, "CANDIDATE-CREATOR-OUTREACH-SCOPE"
     if context.purpose == "consider_life_query_result" and not isinstance(
         decision,
         (DialogueReplyDecision, DialogueTerminalDecision),
@@ -4500,8 +4468,7 @@ def _action_failure(
         and (
             basis.trust_class == "external_claim"
             or (
-                context.purpose
-                in {"consider_life_query_result", "consider_creator_outreach"}
+                context.purpose == "consider_life_query_result"
                 and basis.trust_class == "runtime_authority"
             )
         )
@@ -4512,15 +4479,6 @@ def _action_failure(
         if (
             context.current_relationship is not None
             and context.current_relationship.status is RelationshipStatus.ENDED
-        ):
-            return "CANDIDATE-RELATIONSHIP-BOUNDARY"
-        if context.purpose == "consider_creator_outreach" and (
-            context.current_relationship is not None
-            and any(
-                boundary.kind
-                in {RelationshipBoundaryKind.CONTACT, RelationshipBoundaryKind.EXIT}
-                for boundary in context.current_relationship.boundaries
-            )
         ):
             return "CANDIDATE-RELATIONSHIP-BOUNDARY"
         return None
@@ -4624,31 +4582,6 @@ def _codex_delegation_failure(
     ):
         return "CANDIDATE-CODEX-TASK-BASIS"
     return None
-
-
-def _attention_transition_allowed(
-    status: ActivityStatus, decision: ActivityAttentionDecisionKind
-) -> bool:
-    passive = {
-        ActivityAttentionDecisionKind.NO_ACTION,
-        ActivityAttentionDecisionKind.DEFER,
-        ActivityAttentionDecisionKind.NEED_INFORMATION,
-    }
-    if decision in passive:
-        return status in {
-            ActivityStatus.READY,
-            ActivityStatus.IN_PROGRESS,
-            ActivityStatus.WAITING,
-            ActivityStatus.PAUSED,
-            ActivityStatus.RESUMING,
-        }
-    return decision in {
-        ActivityStatus.READY: {ActivityAttentionDecisionKind.ENGAGE},
-        ActivityStatus.IN_PROGRESS: {ActivityAttentionDecisionKind.ENGAGE},
-        ActivityStatus.WAITING: {ActivityAttentionDecisionKind.RESUME},
-        ActivityStatus.PAUSED: {ActivityAttentionDecisionKind.RESUME},
-        ActivityStatus.RESUMING: {ActivityAttentionDecisionKind.ENGAGE},
-    }.get(status, set())
 
 
 def _rejected(
@@ -4866,6 +4799,9 @@ def _exact_life_query_wire(
 
 def _codex_delegation_wire(value: CodexDelegationDraft) -> dict[str, object]:
     return {
+        "source_origin": "subject_commit"
+        if value.new_task is not None
+        else "registered_task",
         "proposal_ref": value.proposal_ref,
         "atomic_group_ref": value.atomic_group_ref,
         "basis_ordinals": list(value.basis_ordinals),

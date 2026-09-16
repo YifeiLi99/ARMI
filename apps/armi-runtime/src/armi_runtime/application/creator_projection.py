@@ -560,10 +560,16 @@ def _operation_outcome_wire(operation: CreatorOperation) -> dict[str, object]:
                 ErrorCategory.DEPENDENCY, "DEPENDENCY_REPLY_DESTINATION_UNAVAILABLE"
             ),
         ).to_wire()
-    if operation.phase is CreatorOperationPhase.ACCEPTED:
+    if (
+        operation.phase is CreatorOperationPhase.ACCEPTED
+        and operation.acceptance is not None
+    ):
         return _accepted_wire(operation.acceptance)
-    result_ref = ResultRef(operation.acceptance.opportunity_id.value)
-    if operation.phase is CreatorOperationPhase.CONTEXT_PREPARING:
+    result_ref = ResultRef(operation.opportunity_id.value)
+    if (
+        operation.phase is CreatorOperationPhase.ACCEPTED
+        or operation.phase is CreatorOperationPhase.CONTEXT_PREPARING
+    ):
         return WaitingOutcome(
             **_outcome_common(),
             message="The Context snapshot is being prepared.",
@@ -775,7 +781,7 @@ def operation_wire(operation: CreatorOperation) -> dict[str, object]:
     outcome = _operation_outcome(phase)
     wire["details"] = {
         "projection_version": "creator-operation.v7",
-        "operation_ref": str(operation.acceptance.opportunity_id),
+        "operation_ref": str(operation.opportunity_id),
         "operation_kind": operation.operation_kind,
         "stage": stage,
         "outcome": outcome,

@@ -7,6 +7,7 @@ import rfc8785
 from armi_codex.api import (
     CodexDelegationViolation,
     CreatorCodexTaskCommand,
+    bind_autonomous_codex_task,
 )
 from armi_codex.bootstrap import bootstrap_codex_timeline_projection
 from armi_kernel.application import (
@@ -16,6 +17,39 @@ from armi_kernel.application import (
     ArtifactRef,
 )
 from armi_kernel.contracts import Digest, IdempotencyKey, TraceId
+
+
+def test_autonomous_task_has_own_source_and_preserves_execution_boundaries() -> None:
+    import io
+    import json
+    import zipfile
+
+    draft = bind_autonomous_codex_task(
+        objective="整理我正在进行的研究。",
+        model_id="gpt-5.6-sol",
+        reasoning_effort="medium",
+        web_search=False,
+        proposal_ref="proposal:1",
+        atomic_group_ref="group:1",
+        basis_ordinals=(1,),
+    )
+    assert draft.new_task is not None
+    manifest = json.loads(draft.new_task.manifest_bytes)
+    assert manifest["objective"] == "整理我正在进行的研究。"
+    assert manifest["web_search"] is False
+    assert manifest["forbidden_paths"] == [".armi-task-id"]
+    assert manifest["source_tree_digest"] == draft.new_task.source_tree_digest.value
+    assert (
+        Digest.from_bytes(draft.new_task.manifest_bytes) == draft.task_manifest_digest
+    )
+    assert "creator_party_id" not in manifest
+    assert "input_id" not in manifest
+    with zipfile.ZipFile(io.BytesIO(draft.new_task.bundle_bytes)) as archive:
+        assert set(archive.namelist()) == {".armi-task-id", "result.md"}
+        assert archive.read(".armi-task-id").decode().strip() == str(
+            draft.task_source_id.value
+        )
+        assert archive.read("result.md") == b"PENDING\n"
 
 
 def test_creator_codex_task_command_preserves_exact_objective() -> None:

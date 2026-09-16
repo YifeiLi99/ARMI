@@ -16,6 +16,7 @@ from .admin_transactions import (
     PostgreSQLAdminUnitOfWork,
     PostgreSQLAdminUnitOfWorkFactory,
 )
+from .autonomy_query import autonomy_result, autonomy_statement
 from .projection_cursor import (
     ProjectionCursorCodec,
     ProjectionCursorInvalid,
@@ -93,6 +94,8 @@ __all__ = (
     "RecoveryWorkSnapshot",
     "RuntimeTransactionFailure",
     "StopSignal",
+    "autonomy_result",
+    "autonomy_statement",
     "usage_result",
     "usage_statement",
 )

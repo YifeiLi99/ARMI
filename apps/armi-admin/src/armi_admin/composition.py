@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from armi_sleep.bootstrap import bootstrap_sleep_admin_read
+
 if TYPE_CHECKING:
     from .application.installation import SetupApplication, SetupPaths
     from .machine import AdminSession
@@ -113,6 +115,7 @@ def bootstrap_admin(
         subject_state = bootstrap_subject_state_admin_correction()
         web = bootstrap_web_observation_admin()
         observation = AdminObservationGateway(
+            sleep=bootstrap_sleep_admin_read(),
             factory=pool,
             runtime=runtime,
             artifacts=artifacts,

@@ -12,12 +12,14 @@ from armi_runtime_foundation import (
     RecoveryParticipant,
 )
 
+from ._admin import PostgreSQLSleepAdminRead
 from ._application import SleepApplication
 from ._commit import PostgreSQLSleepCommit
 from ._data_rights import PostgreSQLSleepDataRightsParticipant
 from ._maintenance import PostgreSQLMaintenanceRepository
 from ._postgresql import PostgreSQLSleepRead
 from .api import (
+    SleepAdminReadPort,
     SleepCognitionPort,
     SleepCommitPort,
     SleepMaintenancePort,
@@ -25,6 +27,10 @@ from .api import (
     SleepReadPort,
     SleepRuntimeFactsPort,
 )
+
+
+def bootstrap_sleep_admin_read() -> SleepAdminReadPort:
+    return PostgreSQLSleepAdminRead()
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +90,7 @@ def bootstrap_sleep_recovery() -> RecoveryParticipant:
 __all__ = (
     "SleepModule",
     "bootstrap_sleep",
+    "bootstrap_sleep_admin_read",
     "bootstrap_sleep_cognition",
     "bootstrap_sleep_data_rights",
     "bootstrap_sleep_recovery",

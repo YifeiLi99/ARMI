@@ -15,8 +15,6 @@ from armi_cognition._dialogue_contract import DialogueDecision
 from armi_cognition._model_contract import (
     ACTIVE_MODEL_ID,
     ACTIVE_VERSION_POLICY,
-    ACTIVITY_ATTENTION_CANDIDATE_VERSION,
-    ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION,
     AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
     DIALOGUE_CANDIDATE_VERSION,
     MAINTENANCE_WORK_CANDIDATE_VERSION,
@@ -136,7 +134,7 @@ def test_other_human_social_contract_versions_relationship_context_refs() -> Non
 
 def test_autonomous_activity_contract_is_strict_and_character_bounded() -> None:
     parsed = parse_candidate(
-        b'{"kind":"start_activity","goal":"learn","next_step":"read"}',
+        b'{"kind":"start_activity","goal":"learn","next_step":"read","next_consideration_seconds":60}',
         allowed_context_refs=frozenset(),
         expected_version=AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
     )
@@ -147,9 +145,14 @@ def test_autonomous_activity_contract_is_strict_and_character_bounded() -> None:
     }
 
     for value in (
-        b'{"kind":"start_activity","goal":"learn","next_step":"read","status":"ready"}',
+        b'{"kind":"start_activity","goal":"learn","next_step":"read","status":"ready","next_consideration_seconds":60}',
         json.dumps(
-            {"kind": "start_activity", "goal": "界" * 2049, "next_step": "read"}
+            {
+                "kind": "start_activity",
+                "goal": "界" * 2049,
+                "next_step": "read",
+                "next_consideration_seconds": 60,
+            }
         ).encode(),
     ):
         with pytest.raises(ModelViolation):
@@ -160,43 +163,28 @@ def test_autonomous_activity_contract_is_strict_and_character_bounded() -> None:
             )
 
 
-def test_activity_attention_contract_rejects_authority_and_invalid_wait_shapes() -> (
-    None
-):
-    parsed = parse_candidate(
-        b'{"kind":"engage"}',
-        allowed_context_refs=frozenset(),
-        expected_version=ACTIVITY_ATTENTION_CANDIDATE_VERSION,
-    )
-    assert getattr(parsed, "kind", None) == "engage"
-    schema_text = json.dumps(
-        candidate_schema(ACTIVITY_ATTENTION_CANDIDATE_VERSION), separators=(",", ":")
-    )
-    assert "activity_id" not in schema_text
-    assert '"failed"' not in schema_text
-
-    invalid = (
-        {"kind": "engage", "activity_id": str(uuid7())},
-        {"kind": "progress", "progress_summary": "done", "next_step": "continue"},
-        {"kind": "complete", "progress_summary": "done", "terminal_reason": "done"},
-    )
-    for value in invalid:
+def test_removed_activity_contracts_are_not_executable() -> None:
+    for version in (
+        "armi.activity-attention-candidate.v5",
+        "armi.activity-internal-work-candidate.v5",
+    ):
+        with pytest.raises(ModelViolation, match="MODEL-BINDING"):
+            candidate_schema(version)
         with pytest.raises(ModelViolation):
             parse_candidate(
-                json.dumps(value).encode(),
+                b'{"kind":"engage"}',
                 allowed_context_refs=frozenset(),
-                expected_version=ACTIVITY_ATTENTION_CANDIDATE_VERSION,
+                expected_version=version,
             )
 
 
-def test_activity_internal_work_contract_is_bounded_and_has_no_external_execution() -> (
-    None
-):
+def test_autonomous_activity_progress_preserves_materials_and_schedule() -> None:
     parsed = parse_candidate(
         json.dumps(
             {
                 "kind": "progress",
                 "progress_summary": "formed a real outline",
+                "next_consideration_seconds": 60,
                 "next_step": "review one section later",
                 "material_change": {
                     "action": "create",
@@ -209,20 +197,18 @@ def test_activity_internal_work_contract_is_bounded_and_has_no_external_executio
             }
         ).encode(),
         allowed_context_refs=frozenset(),
-        expected_version=ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION,
+        expected_version=AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
     )
     assert getattr(parsed, "kind", None) == "progress"
     schema_text = json.dumps(
-        candidate_schema(ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION),
+        candidate_schema(AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION),
         separators=(",", ":"),
     )
     assert "material_change" in schema_text
-    assert "web" not in schema_text
-    assert "tool" not in schema_text
     assert "activity_id" not in schema_text
-    binding = load_purpose_binding("consider_activity_internal_work")
-    assert binding.profile == "activity_internal_work"
-    assert binding.response_contract_version == ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION
+    binding = load_purpose_binding("consider_autonomous_life")
+    assert binding.profile == "autonomous_activity"
+    assert binding.response_contract_version == AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION
     assert binding.output_token_limit == 4096
 
     with pytest.raises(ModelViolation):
@@ -233,11 +219,11 @@ def test_activity_internal_work_contract_is_bounded_and_has_no_external_executio
                     "reason": "nothing reliable",
                     "next_step": "retry later",
                     "resumption_cue": "scheduled review",
-                    "review_after_seconds": 1,
+                    "next_consideration_seconds": 1,
                 }
             ).encode(),
             allowed_context_refs=frozenset(),
-            expected_version=ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION,
+            expected_version=AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
         )
 
 
@@ -701,11 +687,17 @@ def test_other_human_dialogue_uses_the_same_compact_native_message_plan() -> Non
     assert source_id not in json.dumps(request, ensure_ascii=False)
 
 
-def test_creator_outreach_has_a_narrow_compact_purpose_profile() -> None:
-    outreach = load_purpose_binding("consider_creator_outreach")
-    assert outreach.profile == "creator_outreach"
-    assert outreach.response_contract_version == DIALOGUE_CANDIDATE_VERSION
-    assert outreach.output_token_limit == 512
+@pytest.mark.parametrize(
+    "purpose",
+    [
+        "consider_creator_outreach",
+        "consider_activity_attention",
+        "consider_activity_internal_work",
+    ],
+)
+def test_replaced_autonomy_purposes_have_no_executable_binding(purpose: str) -> None:
+    with pytest.raises(ModelViolation, match="MODEL-BINDING"):
+        load_purpose_binding(purpose)
 
 
 def test_dialogue_domain_growth_contract_requires_same_turn_experience() -> None:

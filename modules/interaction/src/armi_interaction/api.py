@@ -213,6 +213,7 @@ class InteractionOutreachScene:
     latest_input_id: UUID | None
     latest_input_at: datetime | None
     latest_timeline_at: datetime | None
+    outlet: str = "creator_web"
 
 
 @dataclass(frozen=True, slots=True)
@@ -427,14 +428,6 @@ class InteractionIdentityPort(Protocol):
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID
     ) -> tuple[InteractionOutreachScene, ...]: ...
 
-    async def input_after(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        scene_id: UUID,
-        party_id: UUID,
-        after: datetime,
-    ) -> bool: ...
     async def creator_context(
         self,
         transaction: PostgreSQLTransaction,

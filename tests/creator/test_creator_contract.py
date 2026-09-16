@@ -137,6 +137,8 @@ class CreatorContractTests(unittest.TestCase):
                 "/v1/relationships/{relationship_id}/timeline",
                 "/v1/runtime/status",
                 "/v1/usage/summary",
+                "/v1/autonomy/status",
+                "/v1/autonomy/history",
                 "/v1/usage/calls",
                 "/v1/usage/calls/{call_id}",
                 "/v1/operations/{result_ref}",

@@ -1,25 +1,18 @@
-"""Strict compact model contract for one bounded internal Activity work step."""
+"""Shared activity payloads embedded in the current autonomous contract."""
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field
 
 from ._creator_appraisal_contract import AppraisalEventSignalV2
 from ._dialogue_contract import ContextRef
-from ._strict_model_json import strict_model_value
 from ._text_contract import Metadata, Text256, Text1024, Text2048, Text65536
-
-ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION = "armi.activity-internal-work-candidate.v5"
 
 
 class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    @property
-    def schema_version(self) -> str:
-        return ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION
 
 
 class InternalWorkMaterialCreate(_StrictModel):
@@ -62,15 +55,6 @@ class InternalWorkCompleteDecision(_StrictModel):
     appraisal: AppraisalEventSignalV2 | None = None
 
 
-class InternalWorkNeedInformationDecision(_StrictModel):
-    kind: Literal["need_information"]
-    progress_summary: Text2048
-    next_step: Text1024
-    information_needed: Text2048
-    resumption_cue: Text2048
-    appraisal: AppraisalEventSignalV2 | None = None
-
-
 class InternalWorkAbandonDecision(_StrictModel):
     kind: Literal["abandon"]
     progress_summary: Text2048
@@ -83,44 +67,15 @@ class InternalWorkNoResultDecision(_StrictModel):
     reason: Text2048
     next_step: Text1024
     resumption_cue: Text2048
-    review_after_seconds: int = Field(ge=60, le=86_400)
     appraisal: AppraisalEventSignalV2 | None = None
 
 
-ActivityInternalWorkCandidate = Annotated[
-    InternalWorkProgressDecision
-    | InternalWorkCompleteDecision
-    | InternalWorkNeedInformationDecision
-    | InternalWorkAbandonDecision
-    | InternalWorkNoResultDecision,
-    Field(discriminator="kind"),
-]
-_ADAPTER: TypeAdapter[ActivityInternalWorkCandidate] = TypeAdapter(
-    ActivityInternalWorkCandidate
-)
-
-
-def activity_internal_work_candidate_schema() -> dict[str, Any]:
-    return _ADAPTER.json_schema()
-
-
-def parse_activity_internal_work_candidate(
-    value: object,
-) -> ActivityInternalWorkCandidate:
-    return _ADAPTER.validate_python(strict_model_value(value), strict=True)
-
-
 __all__ = (
-    "ACTIVITY_INTERNAL_WORK_CANDIDATE_VERSION",
-    "ActivityInternalWorkCandidate",
     "InternalWorkAbandonDecision",
     "InternalWorkCompleteDecision",
     "InternalWorkMaterialChange",
     "InternalWorkMaterialCreate",
     "InternalWorkMaterialUpdate",
-    "InternalWorkNeedInformationDecision",
     "InternalWorkNoResultDecision",
     "InternalWorkProgressDecision",
-    "activity_internal_work_candidate_schema",
-    "parse_activity_internal_work_candidate",
 )

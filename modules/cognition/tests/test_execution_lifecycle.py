@@ -112,7 +112,7 @@ class _Execution(model.ModelPipeline):
     async def _snapshot(self, work):
         return self.episode
 
-    def _adapter_for(self, purpose) -> Any:
+    def _adapter_for(self, purpose, context_bytes) -> Any:
         return self.adapter
 
     async def _read_context(self, snapshot):

@@ -361,7 +361,7 @@ class Desktop:
         )
         ttk.Label(
             frame,
-            text="布尔值填写 true / false；设备身份请从“设备”页选择。保存状态会说明是否需要重启。",
+            text="布尔值填写 true / false；设备身份请从“设备”页选择。自主生活的考虑时间单位为秒，主动出口填写 qq 或 creator_web。保存状态会说明是否需要重启。",
             wraplength=760,
         ).pack(anchor="w")
         self.setting_values: dict[str, Any] = {}
@@ -1008,7 +1008,26 @@ class Desktop:
                     parent,
                     "end",
                     iid=item,
-                    text=key,
+                    text=cast(
+                        dict[tuple[str, ...], str],
+                        {
+                            ("autonomy",): "自主生活",
+                            ("autonomy", "enabled"): "启用自主生活",
+                            (
+                                "autonomy",
+                                "daily_request_limit",
+                            ): "每日自主云端请求额度（北京时间）",
+                            (
+                                "autonomy",
+                                "minimum_consideration_seconds",
+                            ): "最短考虑间隔（秒）",
+                            (
+                                "autonomy",
+                                "maximum_consideration_seconds",
+                            ): "最长考虑间隔（秒）",
+                            ("autonomy", "outlet"): "主动表达出口",
+                        },
+                    ).get(parts, key),
                     values=(
                         ""
                         if isinstance(value, dict)

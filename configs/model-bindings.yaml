@@ -52,25 +52,13 @@ purpose_profiles:
     profile: creator_cognitive_act
     response_contract_version: armi.creator-cognitive-act-candidate.v4
     output_token_limit: 2048
-  consider_creator_outreach:
-    profile: creator_outreach
-    response_contract_version: armi.creator-dialogue-candidate.v26
-    output_token_limit: 512
   consider_other_human_input:
     profile: other_human_dialogue
     response_contract_version: armi.other-human-dialogue-candidate.v8
     output_token_limit: 1024
   consider_autonomous_life:
     profile: autonomous_activity
-    response_contract_version: armi.autonomous-activity-candidate.v6
-    output_token_limit: 1024
-  consider_activity_attention:
-    profile: activity_attention
-    response_contract_version: armi.activity-attention-candidate.v5
-    output_token_limit: 1024
-  consider_activity_internal_work:
-    profile: activity_internal_work
-    response_contract_version: armi.activity-internal-work-candidate.v5
+    response_contract_version: armi.autonomous-activity-candidate.v7
     output_token_limit: 4096
   consider_sleep:
     profile: sleep_decision

@@ -14,6 +14,7 @@ from armi_kernel.application import (
     BeforeCommitHook,
     DurableWorkWriter,
     PostCommitAction,
+    ProviderCallReceipt,
     RuntimeFence,
     TransactionIsolation,
 )
@@ -112,7 +113,7 @@ class PostgreSQLRuntimeUnitOfWorkFactory(Protocol):
     ) -> PostgreSQLRuntimeUnitOfWorkContext: ...
 
     def provider_usage_unit_of_work(
-        self, *, registration: bool
+        self, *, receipt: ProviderCallReceipt
     ) -> PostgreSQLRuntimeUnitOfWorkContext:
         """Register under the current fence, or settle only an existing receipt.
 

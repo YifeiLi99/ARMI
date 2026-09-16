@@ -58,6 +58,11 @@ from armi_runtime_foundation import (
 from armi_sleep.api import MaintenancePhase, SleepReadPort
 from armi_web_observation.api import WebContextReadPort
 
+from armi_runtime.application.opportunity_origin import (
+    HUMAN_INPUT_PURPOSES,
+    RuntimeOpportunityOrigin,
+)
+
 _MECHANISM = "armi.context-compiler.layered-v3"
 
 
@@ -151,6 +156,7 @@ class RuntimeCognitionCycleSelector:
         codex_sources: CodexTaskSourceReadPort,
         effects: EffectOperationReadPort,
         expression: ExpressionIntentReadPort,
+        origins: RuntimeOpportunityOrigin,
     ) -> None:
         self._factory = factory
         self._opportunities = opportunities
@@ -164,6 +170,7 @@ class RuntimeCognitionCycleSelector:
         self._codex_sources = codex_sources
         self._effects = effects
         self._expression = expression
+        self._origins = origins
 
     async def select_once(self) -> CognitiveEpisodeId | None:
         async with self._factory.unit_of_work() as unit:
@@ -202,8 +209,30 @@ class RuntimeCognitionCycleSelector:
                 if candidate is None:
                     return None
                 cursor = OpportunitySelectionCursor(
-                    candidate.available_after, candidate.opportunity_id
+                    candidate.available_after,
+                    candidate.opportunity_id,
+                    candidate.selection_priority,
                 )
+                _, origin_purpose = await self._origins.resolve(
+                    unit.transaction, candidate.root_opportunity_id
+                )
+                if origin_purpose not in HUMAN_INPUT_PURPOSES:
+                    if not await self._opportunities.can_consider_autonomy(
+                        unit.transaction, subject_id=fence.subject_id
+                    ):
+                        continue
+                    active = await self._episodes.active_opportunities(
+                        unit.transaction, subject_id=fence.subject_id
+                    )
+                    active_origins = [
+                        await self._origins.resolve(unit.transaction, identity)
+                        for identity in active
+                    ]
+                    if any(
+                        purpose not in HUMAN_INPUT_PURPOSES
+                        for _, purpose in active_origins
+                    ):
+                        continue
                 if (
                     candidate.context_party_id is not None
                     and await self._data_rights.blocks_cognition(

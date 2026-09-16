@@ -94,6 +94,7 @@ def read_case():
                 "materials",
                 "mood",
                 "subject_state",
+                "sleep",
             )
         },
     )

@@ -181,16 +181,6 @@ _PROFILES = {
         ),
         retrieval=frozenset({"current_memory", "current_material"}),
     ),
-    "consider_activity_attention": _profile(
-        "consider_activity_attention",
-        required=frozenset({"resource_snapshot", "current_activity"}),
-        retrieval=frozenset({"current_memory", "current_material"}),
-    ),
-    "consider_activity_internal_work": _profile(
-        "consider_activity_internal_work",
-        required=frozenset({"resource_snapshot", "current_activity"}),
-        retrieval=frozenset({"current_memory", "current_material"}),
-    ),
     "consider_sleep": _profile(
         "consider_sleep",
         required=frozenset(
@@ -234,13 +224,6 @@ _PROFILES = {
         "reflect_prompt",
         required=frozenset({"current_maintenance_phase", "self", "mind"}),
         forbidden=_PRIVATE_RECALL,
-    ),
-    "consider_creator_outreach": _profile(
-        "consider_creator_outreach",
-        required=frozenset(
-            {"current_scene", "current_relationship", "current_evidence"}
-        ),
-        retrieval=frozenset({"current_memory", "current_material"}),
     ),
     "consider_other_human_input": _profile(
         "consider_other_human_input",

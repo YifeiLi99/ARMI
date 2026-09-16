@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from uuid import UUID
 
 from armi_runtime_foundation import PostgreSQLTransaction
@@ -30,7 +29,13 @@ class PostgreSQLInteractionIdentity:
                        latest.interaction_id, latest.received_at,
                        (SELECT max(occurred_at) FROM armi.scene_timeline_items
                         WHERE scene_id=scene.scene_id
-                          AND source_kind IN ('creator_input','party_response'))
+                          AND source_kind IN ('creator_input','party_response')),
+                       CASE WHEN EXISTS (
+                           SELECT 1 FROM armi.external_channel_bindings b
+                           WHERE b.scene_id=scene.scene_id AND b.party_id=scene.primary_party_id
+                             AND b.party_kind='creator' AND b.channel_kind='qq'
+                             AND b.external_kind='person' AND b.status='active'
+                       ) THEN 'qq' ELSE 'creator_web' END
                 FROM armi.interaction_scenes AS scene
                 LEFT JOIN LATERAL (
                     SELECT interaction_id, received_at
@@ -41,6 +46,13 @@ class PostgreSQLInteractionIdentity:
                 ) AS latest ON true
                 WHERE scene.subject_id=%s AND scene.current_status='open'
                   AND scene.scene_kind='creator_dialogue'
+                  AND (scene.scene_key='default' OR EXISTS (
+                      SELECT 1 FROM armi.external_channel_bindings binding
+                      WHERE binding.scene_id=scene.scene_id
+                        AND binding.party_id=scene.primary_party_id
+                        AND binding.party_kind='creator' AND binding.channel_kind='qq'
+                        AND binding.external_kind='person' AND binding.status='active'
+                  ))
                 ORDER BY latest.received_at DESC NULLS LAST,
                          (scene.scene_key='default') DESC, scene.scene_id
                 """,
@@ -49,27 +61,10 @@ class PostgreSQLInteractionIdentity:
         ).fetchall()
         return tuple(
             InteractionOutreachScene(
-                row[0], row[1], str(row[2]), row[3], row[4], row[5]
+                row[0], row[1], str(row[2]), row[3], row[4], row[5], str(row[6])
             )
             for row in rows
         )
-
-    async def input_after(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        scene_id: UUID,
-        party_id: UUID,
-        after: datetime,
-    ) -> bool:
-        row = await (
-            await transaction.execute(
-                """SELECT 1 FROM armi.party_input_interactions
-                   WHERE scene_id=%s AND source_party_id=%s AND received_at>%s LIMIT 1""",
-                (scene_id, party_id, after),
-            )
-        ).fetchone()
-        return row is not None
 
     async def creator_party(
         self,

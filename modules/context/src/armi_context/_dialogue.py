@@ -7,6 +7,7 @@ from datetime import datetime
 from uuid import UUID
 
 from armi_artifact_store import ContentAddressedArtifactStore
+from armi_attention.api import OpportunityTransitionPort
 from armi_effect.api import EffectOperationReadPort
 from armi_evidence.api import EvidenceReadPort
 from armi_expression.api import ExpressionIntentReadPort
@@ -39,6 +40,7 @@ class PostgreSQLContextDialogueRead:
         expression: ExpressionIntentReadPort,
         effects: EffectOperationReadPort,
         voice: ContextVoiceResponseReadPort,
+        opportunities: OpportunityTransitionPort,
     ) -> None:
         self._storage = storage
         self._catalog = catalog
@@ -47,6 +49,7 @@ class PostgreSQLContextDialogueRead:
         self._expression = expression
         self._effects = effects
         self._voice = voice
+        self._opportunities = opportunities
 
     async def recent_creator_dialogue(
         self,
@@ -136,6 +139,7 @@ class PostgreSQLContextDialogueRead:
             )
 
         artifact_id: UUID | None = None
+        response_origin_purpose: str | None = None
         speaker = "armi"
         modality = "text"
         if turn.source_kind in {"creator_input", "other_human_input"}:
@@ -160,6 +164,13 @@ class PostgreSQLContextDialogueRead:
                     action_intent_revision_id=effect.action_intent_revision_id,
                 )
                 artifact_id = intent.response_artifact_id
+                (
+                    _,
+                    _,
+                    response_origin_purpose,
+                ) = await self._opportunities.origin_snapshot(
+                    unit.transaction, opportunity_id=intent.root_opportunity_id
+                )
         if artifact_id is None:
             return None
         ref = await self._artifact_ref(unit, artifact_id)
@@ -182,6 +193,7 @@ class PostgreSQLContextDialogueRead:
             turn.speaker_label,
             ref,
             turn.delegate_id,
+            response_origin_purpose,
         )
 
     async def hydrate(

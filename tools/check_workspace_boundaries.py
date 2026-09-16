@@ -391,8 +391,6 @@ DISTRIBUTIONS = (
         dependencies=(
             "armi-activity==0.0.0",
             "armi-kernel==0.0.0",
-            "armi-material==0.0.0",
-            "armi-relationship==0.0.0",
             "armi-runtime-foundation==0.0.0",
             "armi-sleep==0.0.0",
             "armi-subject-state==0.0.0",
@@ -682,6 +680,7 @@ DISTRIBUTIONS = (
             "armi-perception==0.0.0",
             "armi-prompt==0.0.0",
             "armi-subject-state==0.0.0",
+            "armi-sleep==0.0.0",
             "armi-web-observation==0.0.0",
             "armi-runtime-foundation==0.0.0",
             "armi-postgresql-contract==0.0.0",
@@ -1297,9 +1296,7 @@ def _check_import(
                 None,
                 "armi-activity",
                 "armi-kernel",
-                "armi-material",
                 "armi-attention",
-                "armi-relationship",
                 "armi-runtime-foundation",
                 "armi-sleep",
                 "armi-subject-state",
@@ -1665,15 +1662,19 @@ def _check_import(
                     "memory bootstrap is reserved for Runtime composition",
                 )
             )
-        if imported_module == "armi_sleep.bootstrap" and not source_module.startswith(
-            "armi_runtime.composition"
+        if imported_module == "armi_sleep.bootstrap" and not (
+            source_module.startswith("armi_runtime.composition")
+            or (
+                source_module == "armi_admin.composition"
+                and tuple(imported_names) == ("bootstrap_sleep_admin_read",)
+            )
         ):
             violations.append(
                 Violation(
                     "ARC-SURFACE-BOOTSTRAP",
                     path,
                     line,
-                    "sleep bootstrap is reserved for Runtime composition",
+                    "sleep bootstrap is reserved for Runtime composition; Admin can bind only its read port",
                 )
             )
         if (
@@ -2805,7 +2806,7 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         "Cognition owner": "cognition_owner = bootstrap_cognition_owner()",
         "Experience owner": "experience_owner = bootstrap_experience_owner()",
         "Effect owner": "effect_owner = bootstrap_effect_operation_read()",
-        "Attention owner": "opportunity_owner = bootstrap_opportunity_owner()",
+        "Attention owner": "opportunity_owner = bootstrap_opportunity_owner(",
         "owner participant roster": "owner_roster = compose_runtime_owner_roster(",
         "Runtime UoW pool": (
             "runtime_unit_of_work_factory = compose_runtime_unit_of_work_factory("

@@ -1,5 +1,9 @@
 -- Current ARMI role grants. Table-level DML only; column-level writes are forbidden.
 
+GRANT SELECT ON TABLE armi.autonomy_plans, armi.autonomy_request_admissions TO armi_admin;
+GRANT SELECT, INSERT, UPDATE ON TABLE armi.autonomy_plans TO armi_runtime;
+GRANT SELECT, INSERT ON TABLE armi.autonomy_request_admissions TO armi_runtime;
+
 GRANT USAGE ON SCHEMA armi TO armi_admin;
 GRANT USAGE ON SCHEMA armi TO armi_migrator;
 GRANT USAGE ON SCHEMA armi TO armi_runtime;

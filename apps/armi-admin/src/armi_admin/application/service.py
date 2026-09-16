@@ -36,6 +36,7 @@ from armi_local_control.maintenance import (
     MaintenanceParameters,
 )
 from armi_local_control.runtime_errors import RuntimeViolation
+from armi_postgresql_contract import BASELINE_IDENTITY
 from psycopg import Error as PostgreSQLError
 from pydantic import BaseModel, JsonValue
 
@@ -129,6 +130,8 @@ ObservationToolName = Literal[
     "tail_diagnostics",
     "trace_flow",
     "cognition_read",
+    "autonomy_status",
+    "autonomy_history",
     "usage_summary",
     "usage_list",
     "usage_read",
@@ -861,6 +864,15 @@ class AdminToolService:
                         artifact_id=typed_read.artifact_id,
                         offset=typed_read.offset,
                         length=typed_read.length,
+                    )
+                elif name in {"autonomy_status", "autonomy_history"}:
+                    arguments = request.model_dump()
+                    result = gateway.autonomy(
+                        cast(
+                            Literal["status", "history"], name.removeprefix("autonomy_")
+                        ),
+                        arguments.get("limit", 25),
+                        arguments.get("offset", 0),
                     )
                 elif name in {"usage_summary", "usage_list", "usage_read"}:
                     arguments = request.model_dump(
@@ -1943,7 +1955,7 @@ class AdminToolService:
             or snapshot.encoding != "UTF8"
             or snapshot.timezone != "UTC"
             or snapshot.revision != "0000"
-            or snapshot.baseline_identity != "armi.schema-baseline.v20"
+            or snapshot.baseline_identity != BASELINE_IDENTITY
         ):
             raise ValueError("ADMIN-DB-IDENTITY")
 

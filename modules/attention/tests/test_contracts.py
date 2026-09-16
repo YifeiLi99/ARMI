@@ -16,18 +16,10 @@ from armi_activity.api import (
     ActivityWaitingKind,
 )
 from armi_attention.api import (
-    CreatorOutreachPolicy,
     LifeViolation,
     OpportunityAdmissionOutcome,
     OpportunityAdmissionStatus,
 )
-
-
-def test_creator_outreach_policy_and_activity_source_are_explicit() -> None:
-    policy = CreatorOutreachPolicy(259_200, 86_400)
-    assert policy.absence_after_seconds == 259_200
-    with pytest.raises(LifeViolation, match="LIFE-OUTREACH-POLICY"):
-        CreatorOutreachPolicy(3_599, 86_400)
 
 
 def test_admission_outcome_preserves_duplicate_identity_and_rejection_reason() -> None:
@@ -112,7 +104,7 @@ def test_scheduler_uses_idle_single_slot_and_preserves_focus_and_capacity() -> N
         assert decision.reason_code is not None and code in decision.reason_code
 
 
-def test_scheduler_applies_cooldown_wait_signals_terminal_filter_and_fairness() -> None:
+def test_scheduler_uses_wait_signals_and_fairness_without_a_second_cooldown() -> None:
     now = datetime.now(UTC)
     scheduler = ActivityScheduler()
     cooling = _head(status=ActivityStatus.IN_PROGRESS, created_at=now)
@@ -144,8 +136,8 @@ def test_scheduler_applies_cooldown_wait_signals_terminal_filter_and_fairness() 
     )
     assert decision.activity_revision_id == timed.revision_id
 
-    deferred = scheduler.select(
+    available = scheduler.select(
         ActivitySchedulingSnapshot(now, (cooling,), (), False, 2, 0)
     )
-    assert deferred.disposition is ActivitySchedulingDisposition.DEFER
-    assert deferred.available_after == now + timedelta(seconds=60)
+    assert available.disposition is ActivitySchedulingDisposition.ADMIT
+    assert available.available_after == now

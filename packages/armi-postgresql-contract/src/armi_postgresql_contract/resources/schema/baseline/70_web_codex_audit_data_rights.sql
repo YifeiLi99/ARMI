@@ -75,6 +75,7 @@ CREATE TABLE armi.codex_task_sources (
     deadline_seconds integer NOT NULL,
     trace_id text NOT NULL,
     admitted_at timestamp(6) with time zone DEFAULT statement_timestamp() NOT NULL,
+    origin_subject_commit_id uuid,
     CONSTRAINT codex_task_sources_codex_task_source_id_check CHECK ((uuid_extract_version(codex_task_source_id) = 7)),
     CONSTRAINT codex_task_sources_deadline_seconds_check CHECK (((deadline_seconds >= 60) AND (deadline_seconds <= 1800))),
     CONSTRAINT codex_task_sources_source_bundle_digest_check CHECK ((source_bundle_digest ~ '^sha256:[0-9a-f]{64}$'::text)),

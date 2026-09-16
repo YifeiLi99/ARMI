@@ -12,6 +12,7 @@ from uuid import UUID
 from armi_kernel.application import CandidateOwnerDraft
 from armi_kernel.contracts import OpaqueCursor
 from armi_runtime_foundation import (
+    PostgreSQLAdminTransaction,
     PostgreSQLRuntimeUnitOfWork,
     PostgreSQLTransaction,
 )
@@ -663,6 +664,13 @@ class SleepReadPort(CreatorMaintenanceQueryPort, Protocol):
     ) -> SleepMaintenanceSnapshot | None: ...
 
 
+@runtime_checkable
+class SleepAdminReadPort(Protocol):
+    def has_active_maintenance(
+        self, transaction: PostgreSQLAdminTransaction
+    ) -> bool: ...
+
+
 __all__ = (
     "MAINTENANCE_PROJECTION_VERSION",
     "CandidateMaintenanceDecisionDraft",
@@ -685,6 +693,7 @@ __all__ = (
     "MaintenanceTriggerKind",
     "MaintenanceViolation",
     "MaintenanceWorkOutcome",
+    "SleepAdminReadPort",
     "SleepCognitionPort",
     "SleepCommitContext",
     "SleepCommitPort",

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal
+import json
+from typing import Annotated, Any, Literal, cast
 
+from armi_kernel.application import ModelViolation
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -11,15 +13,24 @@ from pydantic import (
     TypeAdapter,
 )
 
+from ._activity_internal_work_contract import (
+    InternalWorkAbandonDecision,
+    InternalWorkCompleteDecision,
+    InternalWorkNoResultDecision,
+    InternalWorkProgressDecision,
+)
 from ._creator_appraisal_contract import AppraisalEventSignalV2
+from ._creator_cognitive_act_contract import RecordKind
 from ._strict_model_json import strict_model_value
-from ._text_contract import Text1024, Text2048
+from ._text_contract import Text1024, Text2048, Text65536
 
-AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION = "armi.autonomous-activity-candidate.v6"
+AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION = "armi.autonomous-activity-candidate.v7"
 
 
 class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    next_consideration_seconds: int = Field(ge=60, le=21_600)
+    expression: Text65536 | None = None
 
     @property
     def schema_version(self) -> str:
@@ -44,10 +55,65 @@ class AutonomousVisualObservationDecision(_StrictModel):
     appraisal: AppraisalEventSignalV2 | None = None
 
 
+class AutonomousWebResearchDecision(_StrictModel):
+    kind: Literal["web_research"]
+    query: Text2048
+    appraisal: AppraisalEventSignalV2 | None = None
+
+
+class AutonomousLifeQueryDecision(_StrictModel):
+    kind: Literal["exact_life_query"]
+    record_kind: RecordKind
+    query: Text1024 | None = None
+    appraisal: AppraisalEventSignalV2 | None = None
+
+
+class AutonomousCodexDecision(_StrictModel):
+    kind: Literal["codex_delegation"]
+    objective: Text2048
+    model_id: Literal["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"] = "gpt-5.6-sol"
+    reasoning_effort: Literal["low", "medium", "high", "xhigh", "max"] = "medium"
+    web_search: bool = False
+    appraisal: AppraisalEventSignalV2 | None = None
+
+
+class AutonomousWaitDecision(_StrictModel):
+    kind: Literal["wait"]
+    progress_summary: Text2048
+    next_step: Text1024
+    information_needed: Text2048
+    resumption_cue: Text2048
+    appraisal: AppraisalEventSignalV2 | None = None
+
+
+class AutonomousProgressDecision(_StrictModel, InternalWorkProgressDecision):
+    pass
+
+
+class AutonomousCompleteDecision(_StrictModel, InternalWorkCompleteDecision):
+    pass
+
+
+class AutonomousAbandonDecision(_StrictModel, InternalWorkAbandonDecision):
+    pass
+
+
+class AutonomousNoResultDecision(_StrictModel, InternalWorkNoResultDecision):
+    pass
+
+
 AutonomousActivityCandidate = Annotated[
     StartActivityDecision
     | AutonomousTerminalDecision
-    | AutonomousVisualObservationDecision,
+    | AutonomousVisualObservationDecision
+    | AutonomousWebResearchDecision
+    | AutonomousLifeQueryDecision
+    | AutonomousWaitDecision
+    | AutonomousCodexDecision
+    | AutonomousProgressDecision
+    | AutonomousCompleteDecision
+    | AutonomousAbandonDecision
+    | AutonomousNoResultDecision,
     Field(discriminator="kind"),
 ]
 _ADAPTER: TypeAdapter[AutonomousActivityCandidate] = TypeAdapter(
@@ -59,16 +125,99 @@ def autonomous_activity_candidate_schema() -> dict[str, Any]:
     return _ADAPTER.json_schema()
 
 
+def autonomous_schema_for_context(compiled_context: bytes) -> dict[str, Any]:
+    """Expose only enabled tools from the same frozen catalog shown to cognition."""
+    try:
+        compiled = json.loads(compiled_context)
+        items = [item for layer in compiled["layers"] for item in layer["items"]]
+        catalog = json.loads(
+            next(
+                item["content"]
+                for item in items
+                if item["item_kind"] == "capability_catalog"
+            )
+        )
+        opportunity = json.loads(
+            next(
+                item["content"]
+                for item in items
+                if item["item_kind"] == "current_life_opportunity"
+            )
+        )
+        policy = opportunity["autonomy"]["policy"]
+        enabled = {
+            entry["capability_kind"]
+            for entry in catalog["capabilities"]
+            if entry["enabled"]
+        }
+    except KeyError, TypeError, ValueError, StopIteration:
+        raise ModelViolation("MODEL-AUTONOMY-CONTEXT") from None
+    schema = autonomous_activity_candidate_schema()
+    definitions = cast(dict[str, Any], schema["$defs"])
+    blocked: set[str] = set()
+    if "web.search" not in enabled:
+        blocked.add("AutonomousWebResearchDecision")
+    if "codex.delegated-work" not in enabled:
+        blocked.add("AutonomousCodexDecision")
+    if "life.query" not in enabled:
+        blocked.add("AutonomousLifeQueryDecision")
+    sources = [
+        source for source in ("camera", "screen") if f"vision.{source}" in enabled
+    ]
+    if not sources:
+        blocked.add("AutonomousVisualObservationDecision")
+    else:
+        definitions["AutonomousVisualObservationDecision"]["properties"][
+            "source_kind"
+        ] = {"type": "string", "enum": sources}
+    for definition in definitions.values():
+        properties = definition.get("properties", {})
+        if "next_consideration_seconds" in properties:
+            properties["next_consideration_seconds"]["minimum"] = policy[
+                "minimum_consideration_seconds"
+            ]
+            properties["next_consideration_seconds"]["maximum"] = policy[
+                "maximum_consideration_seconds"
+            ]
+        if "expression" in properties and (
+            not opportunity["autonomy"]["outlet_bound"]
+            or opportunity["autonomy"]["outlet_state"] != "ready"
+        ):
+            properties["expression"] = {"type": "null", "default": None}
+    schema["oneOf"] = [
+        branch
+        for branch in schema["oneOf"]
+        if branch["$ref"].rsplit("/", 1)[1] not in blocked
+    ]
+    schema["discriminator"]["mapping"] = {
+        kind: ref
+        for kind, ref in schema["discriminator"]["mapping"].items()
+        if ref.rsplit("/", 1)[1] not in blocked
+    }
+    for name in blocked:
+        del definitions[name]
+    return schema
+
+
 def parse_autonomous_activity_candidate(value: object) -> AutonomousActivityCandidate:
     return _ADAPTER.validate_python(strict_model_value(value), strict=True)
 
 
 __all__ = (
     "AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION",
+    "AutonomousAbandonDecision",
     "AutonomousActivityCandidate",
+    "AutonomousCodexDecision",
+    "AutonomousCompleteDecision",
+    "AutonomousLifeQueryDecision",
+    "AutonomousNoResultDecision",
+    "AutonomousProgressDecision",
     "AutonomousTerminalDecision",
     "AutonomousVisualObservationDecision",
+    "AutonomousWaitDecision",
+    "AutonomousWebResearchDecision",
     "StartActivityDecision",
     "autonomous_activity_candidate_schema",
+    "autonomous_schema_for_context",
     "parse_autonomous_activity_candidate",
 )

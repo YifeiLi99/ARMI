@@ -23,6 +23,7 @@ dependencies = [
     "armi-perception==0.0.0",
     "armi-prompt==0.0.0",
     "armi-subject-state==0.0.0",
+    "armi-sleep==0.0.0",
     "armi-web-observation==0.0.0",
     "armi-runtime-foundation==0.0.0",
     "armi-postgresql-contract==0.0.0",
@@ -56,6 +57,7 @@ armi-attention = { workspace = true }
 armi-perception = { workspace = true }
 armi-prompt = { workspace = true }
 armi-subject-state = { workspace = true }
+armi-sleep = { workspace = true }
 armi-web-observation = { workspace = true }
 armi-runtime-foundation = { workspace = true }
 armi-postgresql-contract = { workspace = true }

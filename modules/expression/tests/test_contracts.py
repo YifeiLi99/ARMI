@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 from uuid import uuid7
 
 import pytest
@@ -171,6 +171,60 @@ def test_declared_response_effect_draft_freezes_the_cross_owner_contract() -> No
         max_attempts=1,
     )
     assert draft.destination_binding_id == ids[8]
+
+
+@pytest.mark.asyncio
+async def test_autonomous_expression_checks_contact_boundary_before_any_write() -> None:
+    subject, scene, creator = uuid7(), uuid7(), uuid7()
+    context = ExpressionCommitContext(
+        uuid7(),
+        uuid7(),
+        uuid7(),
+        uuid7(),
+        subject,
+        uuid7(),
+        scene,
+        creator,
+        None,
+        "consider_autonomous_life",
+        TraceId(uuid7().hex),
+    )
+    relationship = object()
+    relationships = AsyncMock()
+    relationships.current_for_party.return_value = relationship
+    policy = Mock()
+    policy.allows_snapshot_outreach.return_value = False
+    registration = AsyncMock()
+    owner = PostgreSQLExpressionOwner(
+        relationships,
+        policy,
+        registration,
+        AsyncMock(),
+        AsyncMock(),
+        AsyncMock(),
+    )
+    transaction = AsyncMock()
+    with pytest.raises(ResponseViolation, match="SUBJECT-RELATIONSHIP-BOUNDARY"):
+        await owner.commit(
+            cast(Any, SimpleNamespace(transaction=transaction)),
+            context=context,
+            commit_id=uuid7(),
+            choices=(
+                CreatorReplyDraft(
+                    "proposal:1",
+                    "group:1",
+                    (1,),
+                    subject,
+                    scene,
+                    creator,
+                    b"hello",
+                ),
+            ),
+            response_artifact=cast(Any, object()),
+        )
+    policy.allows_snapshot_outreach.assert_called_once_with(relationship)
+    transaction.execute.assert_not_awaited()
+    registration.register_declared_response.assert_not_awaited()
 
 
 @pytest.mark.asyncio

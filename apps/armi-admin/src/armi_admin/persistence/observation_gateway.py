@@ -9,7 +9,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import asdict
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import cast
+from typing import Literal, cast
 from uuid import UUID
 
 from armi_artifact_store.api import ArtifactAdminPort
@@ -30,9 +30,12 @@ from armi_mood.api import MoodAdminReadPort
 from armi_runtime_foundation import (
     PostgreSQLAdminTransaction,
     PostgreSQLAdminUnitOfWorkFactory,
+    autonomy_result,
+    autonomy_statement,
     usage_result,
     usage_statement,
 )
+from armi_sleep.api import SleepAdminReadPort
 from armi_subject_state.api import SubjectStateAdminReadPort
 
 from .role_session import AdminRoleBoundPool
@@ -165,6 +168,7 @@ class AdminObservationGateway:
         "_mood",
         "_opportunity",
         "_runtime",
+        "_sleep",
         "_subject_state",
     )
 
@@ -183,6 +187,7 @@ class AdminObservationGateway:
         materials: MaterialAdminReadPort,
         mood: MoodAdminReadPort,
         subject_state: SubjectStateAdminReadPort,
+        sleep: SleepAdminReadPort,
     ) -> None:
         self._factory = factory
         self._runtime = runtime
@@ -196,6 +201,7 @@ class AdminObservationGateway:
         self._materials = materials
         self._mood = mood
         self._subject_state = subject_state
+        self._sleep = sleep
 
     def environment(self) -> dict[str, object] | None:
         with self._factory.repeatable_read() as uow:
@@ -219,6 +225,23 @@ class AdminObservationGateway:
             return usage_result(
                 uow.transaction.execute(statement, parameters).fetchone()
             )
+
+    def autonomy(
+        self,
+        mode: Literal["status", "history"],
+        limit: int,
+        offset: int,
+    ) -> dict[str, object]:
+        with self._factory.repeatable_read() as uow:
+            statement, parameters = autonomy_statement(
+                mode,
+                limit,
+                offset,
+                sleeping=mode == "status"
+                and self._sleep.has_active_maintenance(uow.transaction),
+            )
+            row = uow.transaction.execute(statement, parameters).fetchone()
+        return autonomy_result(row)
 
     def cognition_read(
         self, *, episode_id: str, artifact_id: str | None, offset: int, length: int

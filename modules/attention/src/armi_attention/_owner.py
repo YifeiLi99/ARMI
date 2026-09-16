@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
+from dataclasses import replace
 from datetime import datetime
 from typing import cast
 from uuid import UUID, uuid7
 
+import rfc8785
 from armi_runtime_foundation import PostgreSQLTransaction
 from armi_sleep.api import (
     SleepOpportunityDraft,
@@ -13,7 +16,9 @@ from armi_sleep.api import (
     SleepOpportunityState,
 )
 
+from ._autonomy_postgresql import PostgreSQLAutonomyOwner
 from .api import (
+    AutonomyPolicy,
     ExternalEvidenceOpportunityDraft,
     LifeQueryResultOpportunityDraft,
     LifeViolation,
@@ -30,6 +35,9 @@ from .api import (
 
 
 class PostgreSQLOpportunityOwner:
+    def __init__(self, autonomy_policy: AutonomyPolicy | None = None) -> None:
+        self._autonomy_policy = autonomy_policy or AutonomyPolicy()
+
     async def interrupt_cognition(
         self, transaction: PostgreSQLTransaction, *, opportunity_ids: tuple[UUID, ...]
     ) -> None:
@@ -54,7 +62,7 @@ class PostgreSQLOpportunityOwner:
                    WHERE root.subject_id=%s AND root.purpose IN (
                      'consider_creator_input','consider_creator_voice_input',
                      'consider_creator_outreach','consider_codex_task',
-                     'consider_codex_result')""",
+                     'consider_codex_result','consider_autonomous_life')""",
                 (subject_id,),
             )
         ).fetchall()
@@ -170,6 +178,12 @@ class PostgreSQLOpportunityOwner:
         scope: OpportunityCognitionSelectionScope,
         after: OpportunitySelectionCursor | None = None,
     ) -> OpportunityCognitionCandidate | None:
+        # Serialize autonomous selection with plan/request admission. The lock is
+        # held only through Context-work registration, never through model I/O.
+        await transaction.execute(
+            "SELECT subject_id FROM armi.autonomy_plans WHERE subject_id=%s FOR UPDATE",
+            (scope.subject_id,),
+        )
         row = await (
             await transaction.execute(
                 """
@@ -177,21 +191,29 @@ class PostgreSQLOpportunityOwner:
                        subject_id, scene_id, context_party_id, purpose,
                        source_kind, source_ref, source_version,
                        available_after, expires_at, activity_id
-                FROM armi.opportunities
+                FROM (
+                    SELECT opportunities.*, CASE WHEN purpose IN (
+                        'consider_creator_input','consider_creator_voice_input',
+                        'consider_other_human_input','consider_codex_task'
+                    ) THEN 0 ELSE 1 END AS selection_priority
+                    FROM armi.opportunities
+                ) AS candidates
                 WHERE subject_id=%s AND eligibility_status='eligible'
                   AND current_disposition='open'
                   AND available_after <= transaction_timestamp()
                   AND (expires_at IS NULL OR expires_at > transaction_timestamp())
-                  AND (%s::timestamptz IS NULL OR (available_after, opportunity_id) > (%s, %s))
+                  AND (%s::integer IS NULL OR
+                       (selection_priority,available_after,opportunity_id) > (%s,%s,%s))
                   AND (%s::uuid IS NULL OR (
                        source_kind='maintenance_phase_revision'
                        AND source_ref=%s AND source_version=%s AND purpose=%s))
-                ORDER BY available_after, opportunity_id
+                ORDER BY selection_priority,available_after,opportunity_id
                 FOR UPDATE SKIP LOCKED LIMIT 1
                 """,
                 (
                     scope.subject_id,
-                    None if after is None else after.available_after,
+                    None if after is None else after.priority,
+                    None if after is None else after.priority,
                     None if after is None else after.available_after,
                     None if after is None else after.opportunity_id,
                     scope.maintenance_source_ref,
@@ -204,6 +226,22 @@ class PostgreSQLOpportunityOwner:
         if row is None:
             return None
         return _cognition_candidate(row)
+
+    async def can_consider_autonomy(
+        self, transaction: PostgreSQLTransaction, *, subject_id: UUID
+    ) -> bool:
+        row = await (
+            await transaction.execute(
+                """SELECT (policy->>'enabled')::boolean AND
+                 (SELECT count(*) FROM armi.autonomy_request_admissions admission
+                  WHERE admission.subject_id=plan.subject_id
+                    AND admission.quota_date=(statement_timestamp() AT TIME ZONE 'Asia/Shanghai')::date)
+                 < (policy->>'daily_request_limit')::integer
+               FROM armi.autonomy_plans plan WHERE subject_id=%s""",
+                (subject_id,),
+            )
+        ).fetchone()
+        return row is not None and bool(row[0])
 
     async def context_snapshot(
         self, transaction: PostgreSQLTransaction, *, opportunity_id: UUID
@@ -220,7 +258,37 @@ class PostgreSQLOpportunityOwner:
         ).fetchone()
         if row is None:
             raise LifeViolation("LIFE-OPPORTUNITY-STATE")
-        return _cognition_candidate(row)
+        candidate = _cognition_candidate(row)
+        if candidate.purpose != "consider_autonomous_life":
+            return candidate
+        state = await (
+            await transaction.execute(
+                """SELECT statement_timestamp(),p.policy::text,
+                      GREATEST(0,(p.policy->>'daily_request_limit')::integer-
+                        (SELECT count(*) FROM armi.autonomy_request_admissions a
+                         WHERE a.subject_id=p.subject_id AND a.quota_date=
+                           (statement_timestamp() AT TIME ZONE 'Asia/Shanghai')::date)),
+                      p.outlet_state,p.outlet_reason_code
+               FROM armi.autonomy_plans p WHERE p.subject_id=%s""",
+                (candidate.subject_id,),
+            )
+        ).fetchone()
+        if state is None:
+            raise LifeViolation("LIFE-AUTONOMY-PLAN-MISSING")
+        return replace(
+            candidate,
+            autonomy_context=rfc8785.dumps(
+                {
+                    "current_time": state[0].isoformat(),
+                    "timezone": "Asia/Shanghai",
+                    "policy": json.loads(state[1]),
+                    "remaining_requests": int(state[2]),
+                    "outlet_bound": candidate.scene_id is not None,
+                    "outlet_state": state[3],
+                    "outlet_reason_code": state[4],
+                }
+            ),
+        )
 
     async def select_for_cognition(
         self, transaction: PostgreSQLTransaction, *, opportunity_id: UUID
@@ -274,16 +342,19 @@ class PostgreSQLOpportunityOwner:
                 ) AS current ON true
                 WHERE root.opportunity_id=%s
                   AND root.root_opportunity_id=root.opportunity_id
-                  AND current.context_party_id=%s
+                  AND (current.context_party_id=%s OR (
+                    root.purpose='consider_autonomous_life'
+                    AND current.context_party_id IS NULL
+                  ))
                   AND root.purpose IN ('consider_creator_input','consider_codex_task',
-                                       'consider_codex_result')
+                                       'consider_codex_result','consider_autonomous_life')
                   AND current.eligibility_status='eligible'
                   AND current.expires_at IS NULL
                 """,
                 (root_opportunity_id, context_party_id),
             )
         ).fetchone()
-        if row is None or row[2] is None or row[4] is None or row[5] is None:
+        if row is None:
             return None
         return OpportunityOperationSnapshot(
             row[0],
@@ -296,6 +367,20 @@ class PostgreSQLOpportunityOwner:
             str(row[7]),
             int(row[8]),
         )
+
+    async def origin_snapshot(
+        self, transaction: PostgreSQLTransaction, *, opportunity_id: UUID
+    ) -> tuple[UUID, UUID | None, str]:
+        row = await (
+            await transaction.execute(
+                """SELECT root_opportunity_id,evidence_id,purpose FROM armi.opportunities
+               WHERE opportunity_id=%s""",
+                (opportunity_id,),
+            )
+        ).fetchone()
+        if row is None:
+            raise LifeViolation("LIFE-OPPORTUNITY-STATE")
+        return row[0], row[1], str(row[2])
 
     async def subject_commit_snapshot(
         self, transaction: PostgreSQLTransaction, *, opportunity_id: UUID
@@ -339,6 +424,8 @@ class PostgreSQLOpportunityOwner:
         *,
         opportunity_id: UUID,
         disposition: str = "resolved",
+        next_consideration_seconds: int | None = None,
+        source_episode_id: UUID | None = None,
     ) -> None:
         if disposition not in {"resolved", "superseded"}:
             raise LifeViolation("LIFE-OPPORTUNITY-STATE")
@@ -349,7 +436,7 @@ class PostgreSQLOpportunityOwner:
                 SET current_disposition = %s, resolved_at = statement_timestamp(),
                     resolution_reason_code = %s
                 WHERE opportunity_id = %s AND current_disposition = 'selected'
-                RETURNING opportunity_id
+                RETURNING opportunity_id, subject_id, source_version, source_kind
                 """,
                 (
                     disposition,
@@ -362,6 +449,34 @@ class PostgreSQLOpportunityOwner:
         ).fetchone()
         if row is None:
             raise LifeViolation("LIFE-OPPORTUNITY-STATE")
+        if (
+            row[3] == "autonomy_plan"
+            and disposition == "resolved"
+            and source_episode_id is not None
+        ):
+            if next_consideration_seconds is None:
+                raise LifeViolation("LIFE-AUTONOMY-SCHEDULE-REQUIRED")
+            await PostgreSQLAutonomyOwner().commit_plan(
+                transaction,
+                subject_id=row[1],
+                expected_version=int(row[2]),
+                episode_id=source_episode_id,
+                opportunity_id=opportunity_id,
+                delay_seconds=next_consideration_seconds,
+                policy=self._autonomy_policy,
+            )
+        elif row[3] != "autonomy_plan" and self._autonomy_policy.enabled:
+            # A settled external event or tool/maintenance result may bring the
+            # next consideration forward. Its one-way terminal transition is the
+            # deduplication boundary; an autonomy commit never wakes itself.
+            await transaction.execute(
+                """UPDATE armi.autonomy_plans
+                   SET next_consideration_at=LEAST(next_consideration_at,
+                       statement_timestamp() + %s * interval '1 second'),
+                       updated_at=statement_timestamp()
+                   WHERE subject_id=%s AND opportunity_id IS NULL""",
+                (self._autonomy_policy.minimum_consideration_seconds, row[1]),
+            )
 
     async def supersede_subject_commit(
         self, transaction: PostgreSQLTransaction, *, opportunity_id: UUID
@@ -370,7 +485,7 @@ class PostgreSQLOpportunityOwner:
             transaction, opportunity_id=opportunity_id
         )
         successor: OpportunityId | None = None
-        if source.reconsideration_no == 0:
+        if source.reconsideration_no == 0 and source.source_kind != "autonomy_plan":
             successor_id = uuid7()
             row = await (
                 await transaction.execute(
@@ -410,7 +525,11 @@ class PostgreSQLOpportunityOwner:
         await self.resolve_subject_commit(
             transaction,
             opportunity_id=opportunity_id,
-            disposition="superseded" if successor is not None else "resolved",
+            disposition=(
+                "superseded"
+                if successor is not None or source.source_kind == "autonomy_plan"
+                else "resolved"
+            ),
         )
         return successor
 
@@ -450,47 +569,6 @@ class PostgreSQLOpportunityOwner:
         if row is None:
             raise LifeViolation("LIFE-ADMISSION-CONFLICT")
         return OpportunityId(row[0])
-
-    async def reconsider_activity(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        subject_id: UUID,
-        root_opportunity_id: UUID,
-        predecessor_opportunity_id: UUID,
-        source_ref: UUID,
-        source_version: int,
-        activity_id: UUID,
-    ) -> OpportunityId | None:
-        successor_id = uuid7()
-        row = await (
-            await transaction.execute(
-                """
-                INSERT INTO armi.opportunities (
-                    opportunity_id, evidence_id, subject_id, scene_id,
-                    context_party_id, purpose, eligibility_status,
-                    current_disposition, available_after, root_opportunity_id,
-                    predecessor_opportunity_id, reconsideration_no, source_kind,
-                    source_ref, source_version, activity_id) VALUES (
-                    %s, NULL, %s, NULL, NULL, 'consider_activity_attention',
-                    'eligible', 'open',
-                    statement_timestamp() + make_interval(secs => 60),
-                    %s, %s, 1, 'activity_revision', %s, %s, %s)
-                ON CONFLICT (predecessor_opportunity_id) DO NOTHING
-                RETURNING opportunity_id
-                """,
-                (
-                    successor_id,
-                    subject_id,
-                    root_opportunity_id,
-                    predecessor_opportunity_id,
-                    source_ref,
-                    source_version,
-                    activity_id,
-                ),
-            )
-        ).fetchone()
-        return None if row is None else OpportunityId(row[0])
 
     async def reconsider_sleep(
         self,

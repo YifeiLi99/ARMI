@@ -24,6 +24,18 @@ class PostgreSQLCognitionContextLifecycle:
     def __init__(self, experiences: ExperienceReadPort) -> None:
         self._experiences = experiences
 
+    async def active_opportunities(
+        self, transaction: PostgreSQLTransaction, *, subject_id: UUID
+    ) -> tuple[UUID, ...]:
+        rows = await (
+            await transaction.execute(
+                """SELECT opportunity_id FROM armi.cognitive_episodes
+               WHERE subject_id=%s AND status IN ('preparing','prepared','calling_model','finalizing')""",
+                (subject_id,),
+            )
+        ).fetchall()
+        return tuple(row[0] for row in rows)
+
     async def create_context_episode(
         self, transaction: PostgreSQLTransaction, draft: CognitionContextEpisodeDraft
     ) -> bool:

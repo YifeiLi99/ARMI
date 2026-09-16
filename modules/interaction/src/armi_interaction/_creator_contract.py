@@ -238,7 +238,7 @@ class CreatorCodexExecutionSummary:
 
 @dataclass(frozen=True, slots=True)
 class CreatorOperation:
-    acceptance: CreatorInputAcceptance
+    acceptance: CreatorInputAcceptance | None
     phase: CreatorOperationPhase
     failure_code: str | None = None
     subject_version: int | None = None
@@ -255,10 +255,27 @@ class CreatorOperation:
     work_ref: UUID | None = None
     operation_kind: str = "cognition"
     codex_execution: CreatorCodexExecutionSummary | None = None
+    autonomous_opportunity_id: OpportunityId | None = None
+
+    @property
+    def opportunity_id(self) -> OpportunityId:
+        if self.acceptance is not None:
+            return self.acceptance.opportunity_id
+        assert self.autonomous_opportunity_id is not None
+        return self.autonomous_opportunity_id
 
     def __post_init__(self) -> None:
         if (
-            type(self.acceptance) is not CreatorInputAcceptance
+            not (
+                (
+                    type(self.acceptance) is CreatorInputAcceptance
+                    and self.autonomous_opportunity_id is None
+                )
+                or (
+                    self.acceptance is None
+                    and type(self.autonomous_opportunity_id) is OpportunityId
+                )
+            )
             or type(self.phase) is not CreatorOperationPhase
         ):
             raise CreatorInputViolation("CON-INPUT-OPERATION")

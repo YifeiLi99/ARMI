@@ -1,8 +1,8 @@
 -- Read projection over owner facts. This view is not a second ledger.
-CREATE VIEW armi.provider_usage_calls AS
+CREATE OR REPLACE VIEW armi.provider_usage_calls AS
 WITH parents AS (
     SELECT 'cognition'::text AS owner, a.model_attempt_id AS attempt_id,
-           o.root_opportunity_id AS operation_id, 'episode'::text AS reference_kind,
+           COALESCE(codex_origin.root_opportunity_id,o.root_opportunity_id) AS operation_id, 'episode'::text AS reference_kind,
            a.cognitive_episode_id AS reference_id, a.result_status AS business_result,
            a.settled_at, a.provider_calls, a.usage_contract_version,
            a.provider, a.model_id AS model, 'generation'::text AS service, e.purpose,
@@ -13,6 +13,11 @@ WITH parents AS (
     FROM armi.cognitive_attempts a
     JOIN armi.cognitive_episodes e USING (cognitive_episode_id)
     JOIN armi.opportunities o USING (opportunity_id)
+    LEFT JOIN armi.external_evidence evidence ON evidence.evidence_id=o.evidence_id
+    LEFT JOIN armi.codex_verification_results verification
+      ON verification.codex_verification_id=evidence.codex_verification_id
+    LEFT JOIN armi.effects effect ON effect.effect_id=verification.effect_id
+    LEFT JOIN armi.action_intents codex_origin ON codex_origin.action_intent_id=effect.action_intent_id
     WHERE e.purpose <> 'reflect_mood'
     UNION ALL
     SELECT 'perception', a.recognition_attempt_id, origin.operation_id, 'interaction',

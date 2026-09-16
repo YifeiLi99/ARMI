@@ -323,7 +323,7 @@ class ContextPipeline:
                     )
                 )
             if (
-                snapshot.purpose == "consider_creator_outreach"
+                snapshot.purpose == "consider_autonomous_life"
                 and snapshot.scene_id is not None
             ):
                 requests.append(
@@ -366,9 +366,7 @@ class ContextPipeline:
             )
             recalled = await self._recall(
                 snapshot,
-                evidence_bytes
-                or snapshot.outreach_trigger_bytes
-                or snapshot.activity_summary_bytes,
+                evidence_bytes or snapshot.activity_summary_bytes,
             )
             material_payloads: list[tuple[ContextMaterialSource, bytes]] = []
             for source in snapshot.material_sources:
@@ -383,6 +381,17 @@ class ContextPipeline:
                         rfc8785.dumps(
                             {
                                 "speaker": source.speaker,
+                                "occurred_at": source.occurred_at.isoformat(),
+                                "response_origin_purpose": source.response_origin_purpose,
+                                "creator_input_after": (
+                                    any(
+                                        later.speaker == "creator"
+                                        and later.occurred_at > source.occurred_at
+                                        for later in snapshot.recent_scene_sources
+                                    )
+                                    if source.speaker == "armi"
+                                    else None
+                                ),
                                 "input_origin": "creator_delegate"
                                 if source.delegate_id is not None
                                 else "party",
@@ -688,26 +697,6 @@ def _context_request(
         ),
         _item(
             profile,
-            ContextSection.RUNTIME_TRUTH,
-            "resource_snapshot",
-            UUID("01985d00-0000-7000-8000-000000000029"),
-            1,
-            rfc8785.dumps(
-                {
-                    "schema_version": "armi.life-resource-snapshot.v1",
-                    "model_concurrency": 2,
-                    "reserved_creator_slots": 1,
-                    "activity_burst_limit": 1,
-                }
-            ),
-            ContextTrustClass.RUNTIME_AUTHORITY,
-            required=snapshot.purpose
-            in {"consider_activity_attention", "consider_activity_internal_work"},
-            relevance=100,
-            source_kind="resource_snapshot",
-        ),
-        _item(
-            profile,
             ContextSection.PURPOSE,
             "current_purpose",
             snapshot.opportunity_id,
@@ -778,7 +767,7 @@ def _context_request(
                     "consider_creator_input",
                     "consider_creator_voice_input",
                     "consider_life_query_result",
-                    "consider_creator_outreach",
+                    "consider_autonomous_life",
                     "consider_other_human_input",
                 },
                 relevance=80,
@@ -1114,6 +1103,9 @@ def _context_request(
                         "source_kind": snapshot.opportunity_source_kind,
                         "source_ref": str(snapshot.opportunity_source_ref),
                         "source_version": snapshot.opportunity_source_version,
+                        "autonomy": None
+                        if snapshot.autonomy_context is None
+                        else json.loads(snapshot.autonomy_context),
                     }
                 ),
                 ContextTrustClass.RUNTIME_AUTHORITY,
@@ -1195,8 +1187,6 @@ def _context_request(
                 required=snapshot.purpose
                 in {
                     "consider_autonomous_life",
-                    "consider_activity_attention",
-                    "consider_activity_internal_work",
                     "consider_sleep",
                     "perform_subject_self_check",
                 },
@@ -1213,8 +1203,7 @@ def _context_request(
                 target_activity.head_version,
                 target_activity.canonical_state,
                 ContextTrustClass.RUNTIME_AUTHORITY,
-                required=snapshot.purpose
-                in {"consider_activity_attention", "consider_activity_internal_work"},
+                required=snapshot.purpose == "consider_autonomous_life",
                 relevance=100,
                 source_kind="activity_revision",
             )
@@ -1324,21 +1313,6 @@ def _context_request(
                 required=True,
                 relevance=100,
                 source_kind=snapshot.evidence.source_kind,
-            )
-        )
-    if snapshot.outreach_trigger_bytes is not None:
-        items.append(
-            _item(
-                profile,
-                ContextSection.EVIDENCE,
-                "current_evidence",
-                snapshot.opportunity_source_ref,
-                snapshot.opportunity_source_version,
-                snapshot.outreach_trigger_bytes,
-                ContextTrustClass.RUNTIME_AUTHORITY,
-                required=True,
-                relevance=100,
-                source_kind=snapshot.opportunity_source_kind,
             )
         )
     dialogue_purpose = snapshot.purpose in {

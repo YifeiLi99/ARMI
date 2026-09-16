@@ -10,6 +10,7 @@ from armi_interaction.api import CreatorInputAcceptance
 from armi_kernel.application import (
     ArtifactId,
     ArtifactPort,
+    ArtifactPublication,
 )
 from armi_kernel.contracts import Digest, TraceId
 from armi_runtime_foundation import (
@@ -18,11 +19,13 @@ from armi_runtime_foundation import (
     PostgreSQLTransaction,
 )
 
+from ._cognition import bind_autonomous_codex_task
 from ._delegation_contract import (
     CodexCleanupStatus,
     CodexDelegationDraft,
     CodexDelegationPort,
     CodexDelegationViolation,
+    CodexNewTaskContent,
     CodexResultEvidence,
     CodexResultEvidenceKind,
     CodexResultSourceId,
@@ -74,8 +77,23 @@ class CodexCommitContext:
             raise CodexDelegationViolation("CODEX-DELEGATION-COMMIT-CONTEXT")
 
 
+@dataclass(frozen=True, slots=True)
+class CodexPreparedTask:
+    task_source_id: UUID
+    bundle: ArtifactPublication
+    manifest: ArtifactPublication
+
+
 @runtime_checkable
 class CodexCommitPort(Protocol):
+    async def prepare_tasks(
+        self,
+        *,
+        delegations: tuple[CodexDelegationDraft, ...],
+        storage: ArtifactPort,
+        trace_id: TraceId,
+    ) -> tuple[CodexPreparedTask, ...]: ...
+
     async def commit_delegations(
         self,
         unit_of_work: PostgreSQLRuntimeUnitOfWork,
@@ -83,6 +101,7 @@ class CodexCommitPort(Protocol):
         context: CodexCommitContext,
         commit_id: UUID,
         delegations: tuple[CodexDelegationDraft, ...],
+        prepared_tasks: tuple[CodexPreparedTask, ...] = (),
     ) -> None: ...
 
 
@@ -212,6 +231,8 @@ __all__ = (
     "CodexExecutionReadPort",
     "CodexExecutionSnapshot",
     "CodexModel",
+    "CodexNewTaskContent",
+    "CodexPreparedTask",
     "CodexReasoningEffort",
     "CodexResultEvidence",
     "CodexResultEvidenceKind",
@@ -234,4 +255,5 @@ __all__ = (
     "CodexVerificationStatus",
     "CreatorCodexTaskAdmissionPort",
     "CreatorCodexTaskCommand",
+    "bind_autonomous_codex_task",
 )

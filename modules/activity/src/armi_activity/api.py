@@ -629,13 +629,6 @@ class ActivityCommitPort(Protocol):
         drafts: tuple[CandidateActivityDraft | CandidateActivityDecisionDraft, ...],
     ) -> bool: ...
 
-    def requests_reconsideration(
-        self,
-        *,
-        context: ActivityCommitContext,
-        drafts: tuple[CandidateActivityDraft | CandidateActivityDecisionDraft, ...],
-    ) -> bool: ...
-
     async def commit(
         self,
         transaction: PostgreSQLTransaction,

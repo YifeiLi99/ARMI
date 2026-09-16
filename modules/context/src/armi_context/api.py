@@ -433,6 +433,7 @@ class ContextDialogueItem:
     speaker_label: str | None = None
     artifact_ref: ArtifactRef | None = None
     delegate_id: UUID | None = None
+    response_origin_purpose: str | None = None
 
     def __post_init__(self) -> None:
         _require_uuid7(self.timeline_item_id)

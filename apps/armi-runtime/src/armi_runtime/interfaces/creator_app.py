@@ -7,6 +7,7 @@ from uuid import UUID
 
 from armi_kernel.application import UsageQueryPort
 
+from armi_runtime.application.autonomy_query import AutonomyQueryPort
 from armi_runtime.application.creator_commands import CreatorCommands
 from armi_runtime.application.creator_media import CreatorMedia
 from armi_runtime.application.creator_system import CreatorSystem
@@ -64,6 +65,7 @@ from .creator_http import (
     datetime,
     re,
 )
+from .creator_routes_autonomy import register_autonomy_routes
 from .creator_routes_governance import register_governance_routes
 from .creator_routes_operations import register_operation_routes
 from .creator_routes_scenes import register_scene_routes
@@ -100,6 +102,7 @@ def create_runtime_app(
     creator_input: CreatorInputAcceptancePort | None = None,
     creator_operations: CreatorOperationQueryPort | None = None,
     usage_query: UsageQueryPort | None = None,
+    autonomy_query: AutonomyQueryPort | None = None,
     subject_summary: SubjectSummaryProvider | None = None,
     creator_prompt: CreatorPromptPort | None = None,
     creator_export: CreatorExportPort | None = None,
@@ -180,6 +183,7 @@ def create_runtime_app(
     )
     system = CreatorSystem(
         usage=usage_query,
+        autonomy=autonomy_query,
         readiness=readiness,
         runtime_status=runtime_status,
         qq_health=qq_channel_health,
@@ -261,6 +265,13 @@ def create_runtime_app(
             response.headers.setdefault(name, value)
         return response
 
+    register_autonomy_routes(
+        app=app,
+        bearer=bearer,
+        canonical_origin=canonical_origin,
+        browser_sessions=browser_sessions,
+        system=system,
+    )
     register_usage_routes(
         app=app,
         bearer=bearer,

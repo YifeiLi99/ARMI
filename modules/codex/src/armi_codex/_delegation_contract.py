@@ -166,6 +166,13 @@ class CreatorCodexTaskAdmissionPort(Protocol[_CreatorCodexAcceptanceT_co]):
 
 
 @dataclass(frozen=True, slots=True)
+class CodexNewTaskContent:
+    bundle_bytes: bytes
+    manifest_bytes: bytes
+    source_tree_digest: Digest
+
+
+@dataclass(frozen=True, slots=True)
 class CodexDelegationDraft:
     proposal_ref: str
     atomic_group_ref: str
@@ -176,6 +183,7 @@ class CodexDelegationDraft:
     purpose: str = "delegate_codex_work"
     capability_kind: str = "codex.delegated-work"
     operation: str = "execute"
+    new_task: CodexNewTaskContent | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -197,6 +205,11 @@ class CodexDelegationDraft:
             or self.purpose != "delegate_codex_work"
             or self.capability_kind != "codex.delegated-work"
             or self.operation != "execute"
+            or (
+                self.new_task is not None
+                and Digest.from_bytes(self.new_task.manifest_bytes)
+                != self.task_manifest_digest
+            )
         ):
             raise CodexDelegationViolation("CODEX-DELEGATION-DRAFT")
 

@@ -9,6 +9,7 @@ repositories remain reachable only from their own distribution bootstrap.
 from armi_activity.bootstrap import bootstrap_activity, bootstrap_activity_cognition
 from armi_artifact_store.bootstrap import bootstrap_artifact_catalog
 from armi_attention.bootstrap import (
+    bootstrap_autonomy,
     bootstrap_opportunity,
     bootstrap_opportunity_admission,
     bootstrap_opportunity_cognition,
@@ -126,6 +127,7 @@ __all__ = (
     "bootstrap_activity",
     "bootstrap_activity_cognition",
     "bootstrap_artifact_catalog",
+    "bootstrap_autonomy",
     "bootstrap_capability",
     "bootstrap_codex_commit",
     "bootstrap_codex_read_ports",

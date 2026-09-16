@@ -304,9 +304,7 @@ class PostgreSQLLiveVoiceJournal:
         attempt_id: UUID,
         receipt: ProviderCallReceipt,
     ) -> None:
-        async with self._factory.provider_usage_unit_of_work(
-            registration=receipt.registration
-        ) as unit:
+        async with self._factory.provider_usage_unit_of_work(receipt=receipt) as unit:
             result = await unit.transaction.execute(
                 """UPDATE armi.live_voice_provider_attempts
                    SET provider_calls=jsonb_set(provider_calls,ARRAY[%s],%s::jsonb)
