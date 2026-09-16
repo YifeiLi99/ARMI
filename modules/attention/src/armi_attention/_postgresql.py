@@ -480,12 +480,6 @@ class PostgreSQLLifeOpportunityRepository:
         fence = unit_of_work.runtime_fence
         if fence is None:
             raise LifeViolation("LIFE-FENCE-REQUIRED")
-        if model_concurrency < 2:
-            return OpportunityAdmissionOutcome(
-                OpportunityAdmissionStatus.REJECTED,
-                None,
-                "LIFE-BACKPRESSURE-MODEL-CONCURRENCY",
-            )
         connection = unit_of_work.transaction
         maintenance = await self._sleep.active_maintenance(
             connection, subject_id=fence.subject_id
@@ -520,7 +514,7 @@ class PostgreSQLLifeOpportunityRepository:
                 None,
                 "LIFE-BACKPRESSURE-INTERNAL-WORK-OUTSTANDING",
             )
-        if active_cognition >= model_concurrency - 1:
+        if active_cognition >= max(1, model_concurrency - 1):
             return OpportunityAdmissionOutcome(
                 OpportunityAdmissionStatus.REJECTED,
                 None,

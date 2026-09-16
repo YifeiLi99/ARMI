@@ -74,17 +74,19 @@ def _head(
     )
 
 
-def test_scheduler_preserves_one_cognition_slot_and_single_focus() -> None:
+def test_scheduler_uses_idle_single_slot_and_preserves_focus_and_capacity() -> None:
     now = datetime.now(UTC)
     scheduler = ActivityScheduler()
     ready = _head(status=ActivityStatus.READY, created_at=now)
     snapshot = ActivitySchedulingSnapshot(now, (ready,), (), False, 2, 0)
     assert scheduler.select(snapshot).activity_revision_id == ready.revision_id
+    single_slot = ActivitySchedulingSnapshot(now, (ready,), (), False, 1, 0)
+    assert scheduler.select(single_slot).activity_revision_id == ready.revision_id
 
     for constrained, code in (
         (
-            ActivitySchedulingSnapshot(now, (ready,), (), False, 1, 0),
-            "MODEL-CONCURRENCY",
+            ActivitySchedulingSnapshot(now, (ready,), (), False, 1, 1),
+            "COGNITION-CAPACITY",
         ),
         (
             ActivitySchedulingSnapshot(now, (ready,), (), True, 2, 0),

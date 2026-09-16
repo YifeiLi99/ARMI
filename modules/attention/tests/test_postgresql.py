@@ -82,7 +82,7 @@ class _LifeFacts:
         self, _transaction: object, *, subject_id: UUID
     ) -> int:
         del subject_id
-        return 0
+        return int(getattr(_transaction, "active_cognition", 0))
 
     async def attention_retry(
         self,
@@ -365,6 +365,7 @@ class _InternalWorkConnection:
         self._activity_id = activity_id
         self._revision_id = revision_id
         self._opportunity_id: UUID | None = None
+        self.active_cognition = 0
 
     async def execute(
         self,
@@ -410,7 +411,10 @@ class _InternalWorkConnection:
         raise AssertionError(statement)
 
 
-def test_active_in_progress_activity_admits_one_durable_internal_work_step() -> None:
+@pytest.mark.parametrize("model_concurrency", [1, 2, 4])
+def test_active_in_progress_activity_admits_one_durable_internal_work_step(
+    model_concurrency: int,
+) -> None:
     connection = _InternalWorkConnection(
         activity_id=uuid7(),
         revision_id=uuid7(),
@@ -421,13 +425,13 @@ def test_active_in_progress_activity_admits_one_durable_internal_work_step() -> 
     first = asyncio.run(
         repository.admit_activity_internal_work(
             cast(PostgreSQLRuntimeUnitOfWork, unit_of_work),
-            model_concurrency=2,
+            model_concurrency=model_concurrency,
         )
     )
     replay = asyncio.run(
         repository.admit_activity_internal_work(
             cast(PostgreSQLRuntimeUnitOfWork, unit_of_work),
-            model_concurrency=2,
+            model_concurrency=model_concurrency,
         )
     )
 
@@ -435,6 +439,26 @@ def test_active_in_progress_activity_admits_one_durable_internal_work_step() -> 
     assert replay.status is OpportunityAdmissionStatus.DUPLICATE
     assert replay.opportunity_id == first.opportunity_id
     assert len(unit_of_work.audit.events) == 1
+
+
+@pytest.mark.parametrize("model_concurrency,active_cognition", [(1, 1), (2, 1), (4, 3)])
+def test_internal_work_capacity_block_does_not_admit_or_audit(
+    model_concurrency: int,
+    active_cognition: int,
+) -> None:
+    connection = _InternalWorkConnection(activity_id=uuid7(), revision_id=uuid7())
+    connection.active_cognition = active_cognition
+    unit_of_work = _UnitOfWork(cast(_Connection, connection))
+    outcome = asyncio.run(
+        _repository().admit_activity_internal_work(
+            cast(PostgreSQLRuntimeUnitOfWork, unit_of_work),
+            model_concurrency=model_concurrency,
+        )
+    )
+    assert outcome.status is OpportunityAdmissionStatus.REJECTED
+    assert outcome.reason_code == "LIFE-BACKPRESSURE-COGNITION-CAPACITY"
+    assert connection._opportunity_id is None
+    assert not unit_of_work.audit.events
 
 
 class _AttentionRetryConnection:

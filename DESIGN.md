@@ -237,6 +237,8 @@ ESP32 心情窗只接收 Mood 映射后的不透明 face、color、energy 和 ve
 
 Work 以 ready/leased/completed/failed/cancelled 管理执行资格；业务 owner 决定 attempt/result 和是否可恢复。慢 I/O 前短事务登记，事务外调用，结算事务重新检查 lease/fence/generation/current state。重启后由固定 recovery roster 检查 owner head、过期 work、artifact、effect unknown 和投影 coverage；框架不猜业务修复。
 
+活动注意与内部工作在模型并发为 1 且空闲时仍可获得执行机会；已有认知占用唯一容量时明确背压。并发大于 1 时继续为交互保留一个槽位。容量不足不登记活动机会，也不记作主体选择沉默。
+
 Creator export 使用 `armi.creator-export.v5`，由 Data Rights 管理导出路径及涉及的 party scope；外部副本无法删除时必须保持 partial/operator action，而非伪报完成。
 
 ## 10. 意愿、授权与 Effect

@@ -82,13 +82,11 @@ def select_activity(snapshot: ActivitySchedulingSnapshot) -> ActivitySchedulingD
 
     if type(snapshot) is not ActivitySchedulingSnapshot:
         raise TypeError("snapshot must be ActivitySchedulingSnapshot")
-    if snapshot.model_concurrency < 2:
-        return _blocked("LIFE-BACKPRESSURE-MODEL-CONCURRENCY")
     if snapshot.unresolved_attention:
         return _blocked("LIFE-BACKPRESSURE-ATTENTION-OUTSTANDING")
     if snapshot.active_activity_ids:
         return _blocked("LIFE-BACKPRESSURE-FOCUS-HELD")
-    if snapshot.model_in_flight >= snapshot.model_concurrency - 1:
+    if snapshot.model_in_flight >= max(1, snapshot.model_concurrency - 1):
         return _blocked("LIFE-BACKPRESSURE-COGNITION-CAPACITY")
 
     eligible: list[ActivityHeadSnapshot] = []
