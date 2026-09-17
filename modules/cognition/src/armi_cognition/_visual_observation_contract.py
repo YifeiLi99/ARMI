@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
+from armi_kernel.contracts import NONBLANK_TEXT_PATTERN
 from armi_mind.api import ConcernChange, MindAppraisal
 from armi_mood.api import AppraisalEventSignalV3
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter
@@ -22,10 +23,19 @@ class _StrictModel(BaseModel):
 
 
 class VisualExperience(_StrictModel):
-    first_person_gist: Annotated[str, StringConstraints(min_length=1, max_length=1024)]
+    first_person_gist: Annotated[
+        str,
+        StringConstraints(min_length=1, max_length=1024, pattern=NONBLANK_TEXT_PATTERN),
+    ]
     fact_class: Literal["external_claim", "inference", "unknown"]
     uncertainty: (
-        Annotated[str, StringConstraints(min_length=1, max_length=512)] | None
+        Annotated[
+            str,
+            StringConstraints(
+                min_length=1, max_length=512, pattern=NONBLANK_TEXT_PATTERN
+            ),
+        ]
+        | None
     ) = None
 
 

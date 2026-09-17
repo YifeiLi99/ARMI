@@ -629,6 +629,8 @@ def test_duplicate_appraisal_targets_are_rejected_by_mood_owner():
     assert result.change_set is None
     assert result.diagnostics[0].stage == "owner_validation"
     assert result.diagnostics[0].owner == "mood"
+    assert result.error_code == "CANDIDATE-MOOD-TARGET-CONFLICT"
+    assert result.diagnostics[0].field_path == ("appraisal", "concerns")
 
 
 def test_visual_observation_ignore_produces_no_action_without_side_effects() -> None:
@@ -774,10 +776,18 @@ def test_other_human_expression_rejection_has_owner_and_content_path(
     )
     assert result.status is CandidateValidationStatus.REJECTED
     assert result.change_set is None
-    assert result.error_code == "CANDIDATE-EXPRESSION-CONTENT"
-    assert result.diagnostics[0].owner == "expression"
-    assert result.diagnostics[0].stage == "owner_validation"
-    assert result.diagnostics[0].field_path == ("decision", "content")
+    if content == "你" * 21846:
+        # The encoded artifact capacity is still enforced by its Owner.
+        assert result.error_code == "CANDIDATE-EXPRESSION-CONTENT"
+        assert result.diagnostics[0].owner == "expression"
+        assert result.diagnostics[0].stage == "owner_validation"
+        assert result.diagnostics[0].field_path == ("decision", "content")
+    else:
+        assert result.error_code == "CANDIDATE-CONTRACT"
+        assert result.diagnostics[0].owner == "cognition"
+        assert result.diagnostics[0].stage == "structure"
+        assert result.diagnostics[0].code == "string_pattern_mismatch"
+        assert result.diagnostics[0].field_path == ("decision", "reply", "content")
 
 
 def test_other_human_dialogue_builds_only_current_party_relationship() -> None:

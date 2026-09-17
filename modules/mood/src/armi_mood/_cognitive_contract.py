@@ -2,9 +2,27 @@
 
 from __future__ import annotations
 
+import re
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+)
+
+Gist = Annotated[
+    str,
+    StringConstraints(
+        min_length=1,
+        max_length=64,
+        # A bare dollar also matches before a final newline in ECMA/Python regexes.
+        pattern=re.compile(
+            r"^[^\s\x00\x1c-\x1f](?:[^\x00]*[^\s\x00\x1c-\x1f])?$(?![\s\S])"
+        ),
+    ),
+]
 
 ContextRef = Annotated[
     str, StringConstraints(pattern=r"^ctx:[1-9][0-9]{0,2}$", max_length=7)
@@ -88,6 +106,7 @@ class AppraisalSemanticSignal(_StrictModel, frozen=True):
         description="Assess meaningful engagement. Quiet waiting alone is not understimulation; describe the situation, not an emotion label.",
     )
     concerns: tuple[AppraisalConcernSignal, ...] = Field(min_length=1, max_length=3)
+
     expectedness: Literal[
         "expected", "somewhat_unexpected", "expectation_broken", "unknown"
     ]
@@ -127,7 +146,7 @@ class AppraisalEventSignalV3(_StrictModel, frozen=True):
         NewAppraisal | ExistingAppraisal, Field(discriminator="transition")
     ]
     event_phase: Literal["anticipated", "ongoing", "realized", "averted"]
-    gist: Annotated[str, StringConstraints(min_length=1, max_length=64)]
+    gist: Gist
     appraisal: AppraisalSemanticSignal
     basis_refs: tuple[ContextRef, ...] = Field(min_length=1, max_length=8)
 
@@ -187,7 +206,7 @@ class MoodSemanticAppraisalCommand(_StrictModel, frozen=True):
     transition: Literal["new", "reinforce", "reappraise", "resolve"]
     previous_episode_id: str | None
     event_phase: Literal["anticipated", "ongoing", "realized", "averted"]
-    gist: Annotated[str, StringConstraints(min_length=1, max_length=64)]
+    gist: Gist
     change_from_previous: (
         Literal["improved", "unchanged", "worsened", "mixed", "unknown"] | None
     )

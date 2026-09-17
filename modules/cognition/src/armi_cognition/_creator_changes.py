@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
+from armi_kernel.contracts import NONBLANK_TEXT_PATTERN, NUL_FREE_TEXT_PATTERN
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from ._dialogue_contract import (
@@ -22,12 +23,19 @@ class _Change(BaseModel, frozen=True):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
 
-Content = Annotated[str, StringConstraints(min_length=1, max_length=1024)]
-MaterialTitle = Annotated[str, StringConstraints(min_length=1, max_length=256)]
-MaterialBody = Annotated[str, StringConstraints(min_length=1, max_length=65536)]
+Content = Annotated[
+    str, StringConstraints(min_length=1, max_length=1024, pattern=NONBLANK_TEXT_PATTERN)
+]
+MaterialTitle = Annotated[
+    str, StringConstraints(min_length=1, max_length=256, pattern=NONBLANK_TEXT_PATTERN)
+]
+MaterialBody = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=65536, pattern=NONBLANK_TEXT_PATTERN),
+]
 MaterialMetadata = dict[
     Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9._-]{0,63}$")],
-    Annotated[str, StringConstraints(max_length=512)],
+    Annotated[str, StringConstraints(max_length=512, pattern=NUL_FREE_TEXT_PATTERN)],
 ]
 
 

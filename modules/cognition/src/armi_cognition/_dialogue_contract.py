@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
+from armi_kernel.contracts import NONBLANK_TEXT_PATTERN, NUL_FREE_TEXT_PATTERN
 from armi_mind.api import DialogueMindChange
 from pydantic import (
     BaseModel,
@@ -15,7 +16,9 @@ from pydantic import (
 
 DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v26"
 
-type Summary = Annotated[str, StringConstraints(min_length=1, max_length=512)]
+type Summary = Annotated[
+    str, StringConstraints(min_length=1, max_length=512, pattern=NONBLANK_TEXT_PATTERN)
+]
 type ContextRef = Annotated[
     str,
     StringConstraints(pattern=r"^ctx:[1-9][0-9]{0,2}$", max_length=7),
@@ -27,32 +30,36 @@ class _StrictModel(BaseModel, frozen=True):
 
 
 class DialogueNameReplacement(_StrictModel, frozen=True):
-    value: Annotated[str, StringConstraints(min_length=1, max_length=128)] | None
-
-    @model_validator(mode="after")
-    def validate_text(self) -> DialogueNameReplacement:
-        if self.value is not None and (not self.value.strip() or "\x00" in self.value):
-            raise ValueError("name replacement is invalid")
-        return self
+    value: (
+        Annotated[
+            str,
+            StringConstraints(
+                min_length=1, max_length=128, pattern=NONBLANK_TEXT_PATTERN
+            ),
+        ]
+        | None
+    )
 
 
 class DialogueLongTextReplacement(_StrictModel, frozen=True):
-    value: Annotated[str, StringConstraints(min_length=1, max_length=2048)] | None
-
-    @model_validator(mode="after")
-    def validate_text(self) -> DialogueLongTextReplacement:
-        if self.value is not None and (not self.value.strip() or "\x00" in self.value):
-            raise ValueError("text replacement is invalid")
-        return self
+    value: (
+        Annotated[
+            str,
+            StringConstraints(
+                min_length=1, max_length=2048, pattern=NONBLANK_TEXT_PATTERN
+            ),
+        ]
+        | None
+    )
 
 
 class DialogueSummaryListReplacement(_StrictModel, frozen=True):
-    values: tuple[Summary, ...] = Field(max_length=16)
+    values: tuple[Summary, ...] = Field(
+        max_length=16, json_schema_extra={"uniqueItems": True}
+    )
 
     @model_validator(mode="after")
     def validate_values(self) -> DialogueSummaryListReplacement:
-        if any(not value.strip() or "\x00" in value for value in self.values):
-            raise ValueError("summary replacement is invalid")
         if len(self.values) != len(set(self.values)):
             raise ValueError("summary replacement contains duplicates")
         return self
@@ -79,22 +86,11 @@ class DialogueSubjectPromptChange(_StrictModel, frozen=True):
     expression_method: Summary
     reflection_method: Summary
 
-    @model_validator(mode="after")
-    def validate_methods(self) -> DialogueSubjectPromptChange:
-        values = (
-            self.cognition_method,
-            self.expression_method,
-            self.reflection_method,
-        )
-        if any(not value.strip() or "\x00" in value for value in values):
-            raise ValueError("subject prompt method is invalid")
-        return self
-
 
 class DialogueExperience(_StrictModel, frozen=True):
     first_person_gist: Annotated[
         str,
-        StringConstraints(min_length=1, max_length=1024),
+        StringConstraints(min_length=1, max_length=1024, pattern=NONBLANK_TEXT_PATTERN),
     ]
     uncertainty: Summary | None = None
     memory_summary: Summary | None = None
@@ -161,9 +157,15 @@ class DialogueCommitmentChange(_StrictModel, frozen=True):
     commitment_ref: ContextRef | None = None
     party: Literal["armi", "creator"] | None = None
     scope: Summary | None = None
-    content: Annotated[str, StringConstraints(min_length=1, max_length=1024)] | None = (
-        None
-    )
+    content: (
+        Annotated[
+            str,
+            StringConstraints(
+                min_length=1, max_length=1024, pattern=NONBLANK_TEXT_PATTERN
+            ),
+        ]
+        | None
+    ) = None
     conflicts_with_ref: ContextRef | None = None
     event_summary: Summary
 
@@ -237,11 +239,21 @@ class DialogueMaterialContentChange(_StrictModel, frozen=True):
     action: Literal["create", "update"]
     material_ref: ContextRef | None = None
     material_kind: Literal["diary", "work", "collection", "draft"] | None = None
-    title: Annotated[str, StringConstraints(min_length=1, max_length=256)]
-    body: Annotated[str, StringConstraints(min_length=1, max_length=65536)]
+    title: Annotated[
+        str,
+        StringConstraints(min_length=1, max_length=256, pattern=NONBLANK_TEXT_PATTERN),
+    ]
+    body: Annotated[
+        str,
+        StringConstraints(
+            min_length=1, max_length=65536, pattern=NONBLANK_TEXT_PATTERN
+        ),
+    ]
     metadata: dict[
         Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9._-]{0,63}$")],
-        Annotated[str, StringConstraints(max_length=512)],
+        Annotated[
+            str, StringConstraints(max_length=512, pattern=NUL_FREE_TEXT_PATTERN)
+        ],
     ] = Field(default_factory=dict, max_length=32)
     material_status: Literal["active", "archived"] = "active"
 
@@ -252,14 +264,6 @@ class DialogueMaterialContentChange(_StrictModel, frozen=True):
                 raise ValueError("material create shape is invalid")
         elif self.material_ref is None or self.material_kind is not None:
             raise ValueError("material update shape is invalid")
-        if (
-            not self.title.strip()
-            or "\x00" in self.title
-            or not self.body.strip()
-            or "\x00" in self.body
-            or any("\x00" in value for value in self.metadata.values())
-        ):
-            raise ValueError("material content is invalid")
         return self
 
 
@@ -284,7 +288,12 @@ class CreatorDialogueCandidate(_StrictModel, frozen=True):
 
 class DialogueReplyDecision(CreatorDialogueCandidate, frozen=True):
     kind: Literal["reply"]
-    content: Annotated[str, StringConstraints(min_length=1, max_length=65536)]
+    content: Annotated[
+        str,
+        StringConstraints(
+            min_length=1, max_length=65536, pattern=NONBLANK_TEXT_PATTERN
+        ),
+    ]
     experience: DialogueExperience | None = None
     memory_change: DialogueMemoryChange | None = None
     relationship_change: DialogueRelationshipChange | None = None
@@ -318,7 +327,12 @@ class DialogueTerminalDecision(CreatorDialogueCandidate, frozen=True):
 
 class DialogueWebResearchDecision(CreatorDialogueCandidate, frozen=True):
     kind: Literal["web_research"]
-    query: Annotated[str, StringConstraints(min_length=1, max_length=16384)]
+    query: Annotated[
+        str,
+        StringConstraints(
+            min_length=1, max_length=16384, pattern=NONBLANK_TEXT_PATTERN
+        ),
+    ]
 
 
 class DialogueVisualObservationDecision(CreatorDialogueCandidate, frozen=True):
@@ -337,16 +351,14 @@ class DialogueExactLifeQueryDecision(CreatorDialogueCandidate, frozen=True):
         "self_change",
     ]
     query_text: (
-        Annotated[str, StringConstraints(min_length=1, max_length=1024)] | None
+        Annotated[
+            str,
+            StringConstraints(
+                min_length=1, max_length=1024, pattern=NONBLANK_TEXT_PATTERN
+            ),
+        ]
+        | None
     ) = None
-
-    @model_validator(mode="after")
-    def validate_query_text(self) -> DialogueExactLifeQueryDecision:
-        if self.query_text is not None and (
-            not self.query_text.strip() or "\x00" in self.query_text
-        ):
-            raise ValueError("exact life query text is invalid")
-        return self
 
 
 DialogueDecision = Annotated[

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
+from armi_kernel.contracts import NONBLANK_TEXT_PATTERN
 from pydantic import BaseModel, ConfigDict, StringConstraints
 
 from ._dialogue_contract import Summary
@@ -14,7 +15,10 @@ class _StrictModel(BaseModel):
 
 
 class CreatorAppraisalExperience(_StrictModel):
-    first_person_gist: Annotated[str, StringConstraints(min_length=1, max_length=1024)]
+    first_person_gist: Annotated[
+        str,
+        StringConstraints(min_length=1, max_length=1024, pattern=NONBLANK_TEXT_PATTERN),
+    ]
     uncertainty: Summary | None = None
     memory_summary: Summary | None = None
 

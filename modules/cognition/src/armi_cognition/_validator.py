@@ -4521,6 +4521,8 @@ def _codex_delegation_failure(
 def _rejected(
     code: str, *, field_path: tuple[str | int, ...] = ()
 ) -> CandidateValidationResult:
+    if code == "CANDIDATE-MOOD-TARGET-CONFLICT" and not field_path:
+        field_path = ("appraisal", "concerns")
     owner = code.removeprefix("CANDIDATE-").partition("-")[0].lower()
     if owner == "commitment":
         owner = "relationship"

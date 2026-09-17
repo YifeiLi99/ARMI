@@ -133,6 +133,10 @@ def bind_appraisal_event(
         MoodSemanticAppraisalCommand,
     )
 
+    if len({item.target for item in signal.appraisal.concerns}) != len(
+        signal.appraisal.concerns
+    ):
+        return None, "CANDIDATE-MOOD-TARGET-CONFLICT"
     current = next(
         (
             (version, canonical)

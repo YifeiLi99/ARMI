@@ -21,7 +21,7 @@ from armi_kernel.application import (
     UsageUnit,
     estimate_cost,
 )
-from armi_kernel.contracts import Digest
+from armi_kernel.contracts import NONBLANK_TEXT_PATTERN, Digest
 from armi_mind.api import (
     MIND_COGNITIVE_INSTRUCTIONS,
     ConcernChange,
@@ -219,7 +219,9 @@ AtomicGroupRef = Annotated[
     str,
     StringConstraints(pattern=r"^group:[1-9][0-9]{0,2}$", max_length=9),
 ]
-Summary = Annotated[str, StringConstraints(min_length=1, max_length=512)]
+Summary = Annotated[
+    str, StringConstraints(min_length=1, max_length=512, pattern=NONBLANK_TEXT_PATTERN)
+]
 DigestValue = Annotated[
     str,
     StringConstraints(pattern=r"^sha256:[0-9a-f]{64}$", max_length=71),
@@ -255,7 +257,10 @@ class CandidateBase(_StrictModel, frozen=True):
 
 
 class CandidateUnderstanding(_StrictModel, frozen=True):
-    text: Annotated[str, StringConstraints(min_length=1, max_length=1024)]
+    text: Annotated[
+        str,
+        StringConstraints(min_length=1, max_length=1024, pattern=NONBLANK_TEXT_PATTERN),
+    ]
     fact_class: FactClass
     basis_refs: tuple[ContextRef, ...] = Field(min_length=1, max_length=8)
 
@@ -264,16 +269,36 @@ class SelfState(_StrictModel, frozen=True):
     schema_version: Literal["armi.self.v1"]
     identity_kind: Literal["electronic_person"]
     creator_role_awareness: Literal["unique_primary_creator"]
-    name: Annotated[str, StringConstraints(min_length=1, max_length=128)] | None
+    name: (
+        Annotated[
+            str,
+            StringConstraints(
+                min_length=1, max_length=128, pattern=NONBLANK_TEXT_PATTERN
+            ),
+        ]
+        | None
+    )
     self_description: (
-        Annotated[str, StringConstraints(min_length=1, max_length=2048)] | None
+        Annotated[
+            str,
+            StringConstraints(
+                min_length=1, max_length=2048, pattern=NONBLANK_TEXT_PATTERN
+            ),
+        ]
+        | None
     )
     interests: tuple[Summary, ...] = Field(max_length=16)
     values: tuple[Summary, ...] = Field(max_length=16)
     preferences: tuple[Summary, ...] = Field(max_length=16)
     goals: tuple[Summary, ...] = Field(max_length=16)
     self_narrative: (
-        Annotated[str, StringConstraints(min_length=1, max_length=2048)] | None
+        Annotated[
+            str,
+            StringConstraints(
+                min_length=1, max_length=2048, pattern=NONBLANK_TEXT_PATTERN
+            ),
+        ]
+        | None
     )
     tensions: tuple[Summary, ...] = Field(max_length=16)
 
@@ -287,7 +312,10 @@ class LifeModeState(_StrictModel, frozen=True):
 class ExperiencePayload(_StrictModel, frozen=True):
     proposal_kind: Literal["experiences"]
     fact_class: FactClass
-    first_person_gist: Annotated[str, StringConstraints(min_length=1, max_length=1024)]
+    first_person_gist: Annotated[
+        str,
+        StringConstraints(min_length=1, max_length=1024, pattern=NONBLANK_TEXT_PATTERN),
+    ]
     source_perspective: Literal["creator_claim", "web_claim", "codex_observation"]
     uncertainty: Summary | None = None
     privacy_scope: Literal["private"]
@@ -359,7 +387,12 @@ class RuntimeBoundCreatorReplyPayload(_StrictModel, frozen=True):
     data_scope: Literal["creator_visible_response"]
     purpose: Literal["respond_to_creator"]
     media_type: Literal["text/plain"]
-    content: Annotated[str, StringConstraints(min_length=1, max_length=65536)]
+    content: Annotated[
+        str,
+        StringConstraints(
+            min_length=1, max_length=65536, pattern=NONBLANK_TEXT_PATTERN
+        ),
+    ]
 
 
 class FormalNoActionPayload(_StrictModel, frozen=True):
@@ -438,7 +471,12 @@ class WebResearchRequestPayload(_StrictModel, frozen=True):
     fact_class: Literal["subjective_understanding", "inference"]
     purpose: Literal["public_web_research"]
     operation_class: Literal["search_read_public"]
-    query: Annotated[str, StringConstraints(min_length=1, max_length=16384)]
+    query: Annotated[
+        str,
+        StringConstraints(
+            min_length=1, max_length=16384, pattern=NONBLANK_TEXT_PATTERN
+        ),
+    ]
 
 
 class WebResearchRequestProposal(_StrictModel, frozen=True):

@@ -21,10 +21,13 @@ from .outcomes import (
     WaitingOutcome,
 )
 from .pagination import Page, PageRequest
+from .text import NONBLANK_TEXT_PATTERN, NUL_FREE_TEXT_PATTERN
 from .values import Digest, IdempotencyKey, Instant, OpaqueCursor, Purpose
 
 __all__ = (
     "CONTRACT_VERSION",
+    "NONBLANK_TEXT_PATTERN",
+    "NUL_FREE_TEXT_PATTERN",
     "AcceptedOutcome",
     "AppliedOutcome",
     "CompletedOutcome",

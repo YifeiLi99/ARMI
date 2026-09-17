@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal, cast
 
+from armi_kernel.contracts import NONBLANK_TEXT_PATTERN
 from armi_mind.api import MIND_COGNITIVE_INSTRUCTIONS, ConcernChange, MindAppraisal
 from armi_mood.api import AppraisalEventSignalV3
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter
@@ -39,7 +40,10 @@ class _StrictModel(BaseModel, frozen=True):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
 
-Content = Annotated[str, StringConstraints(min_length=1, max_length=65536)]
+Content = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=65536, pattern=NONBLANK_TEXT_PATTERN),
+]
 RecordKind = Literal[
     "activity", "conversation", "material", "memory", "relationship", "self_change"
 ]
@@ -58,14 +62,25 @@ class TerminalDecision(_StrictModel, frozen=True):
 class ExactLifeQueryDecision(_StrictModel, frozen=True):
     kind: Literal["exact_life_query"]
     record_kind: RecordKind
-    query: Annotated[str, StringConstraints(min_length=1, max_length=1024)] | None = (
-        None
-    )
+    query: (
+        Annotated[
+            str,
+            StringConstraints(
+                min_length=1, max_length=1024, pattern=NONBLANK_TEXT_PATTERN
+            ),
+        ]
+        | None
+    ) = None
 
 
 class WebResearchDecision(_StrictModel, frozen=True):
     kind: Literal["web_research"]
-    query: Annotated[str, StringConstraints(min_length=1, max_length=16384)]
+    query: Annotated[
+        str,
+        StringConstraints(
+            min_length=1, max_length=16384, pattern=NONBLANK_TEXT_PATTERN
+        ),
+    ]
 
 
 class VisualObservationDecision(_StrictModel, frozen=True):
@@ -133,13 +148,22 @@ class CreatorCognitiveActCandidate(_StrictModel, frozen=True):
 
 
 class VoiceReplyDecision(ReplyDecision, frozen=True):
-    content: Annotated[str, StringConstraints(min_length=1, max_length=60)]
+    content: Annotated[
+        str,
+        StringConstraints(min_length=1, max_length=60, pattern=NONBLANK_TEXT_PATTERN),
+    ]
 
 
 class VoiceTerminalDecision(TerminalDecision, frozen=True):
-    content: Annotated[str, StringConstraints(min_length=1, max_length=60)] | None = (
-        None
-    )
+    content: (
+        Annotated[
+            str,
+            StringConstraints(
+                min_length=1, max_length=60, pattern=NONBLANK_TEXT_PATTERN
+            ),
+        ]
+        | None
+    ) = None
 
 
 VoiceDecision = Annotated[

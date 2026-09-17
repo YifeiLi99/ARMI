@@ -5,6 +5,7 @@ from __future__ import annotations
 # ruff: noqa: RUF001
 from typing import Annotated, Literal, cast
 
+from armi_kernel.contracts import NONBLANK_TEXT_PATTERN
 from armi_mind.api import MIND_APPRAISAL_INSTRUCTIONS, MindAppraisal
 from pydantic import (
     BaseModel,
@@ -48,7 +49,10 @@ class MoodReflectionRequest(_StrictModel, frozen=True):
 class OwnerReflectionCandidate(_StrictModel, frozen=True):
     kind: Literal["no_change", "update"]
     target: Literal["self", "mind", "mood", "prompt"]
-    summary: Annotated[str, StringConstraints(min_length=1, max_length=512)]
+    summary: Annotated[
+        str,
+        StringConstraints(min_length=1, max_length=512, pattern=NONBLANK_TEXT_PATTERN),
+    ]
     basis_refs: tuple[ContextRef, ...] = Field(max_length=8)
     expected_version: int | None
     next_state: (

@@ -6,6 +6,7 @@ import json
 from typing import Annotated, Literal, cast
 
 from armi_kernel.application import ModelViolation
+from armi_kernel.contracts import NONBLANK_TEXT_PATTERN
 from armi_mood.api import AppraisalEventSignalV3
 from pydantic import (
     BaseModel,
@@ -23,7 +24,7 @@ from ._strict_model_json import strict_model_value
 OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION = "armi.other-human-dialogue-candidate.v9"
 
 type CommitmentContent = Annotated[
-    str, StringConstraints(min_length=1, max_length=1024)
+    str, StringConstraints(min_length=1, max_length=1024, pattern=NONBLANK_TEXT_PATTERN)
 ]
 
 
@@ -38,7 +39,7 @@ class _StrictModel(BaseModel, frozen=True):
 class OtherHumanExperience(_StrictModel, frozen=True):
     first_person_gist: Annotated[
         str,
-        StringConstraints(min_length=1, max_length=1024),
+        StringConstraints(min_length=1, max_length=1024, pattern=NONBLANK_TEXT_PATTERN),
     ]
     uncertainty: Summary | None = None
 
@@ -192,13 +193,24 @@ class OtherHumanSocialExperience(_StrictModel, frozen=True):
 
 class OtherHumanReplyDecision(_StrictModel, frozen=True):
     kind: Literal["reply"]
-    content: Annotated[str, StringConstraints(min_length=1, max_length=65536)]
+    content: Annotated[
+        str,
+        StringConstraints(
+            min_length=1, max_length=65536, pattern=NONBLANK_TEXT_PATTERN
+        ),
+    ]
 
 
 class OtherHumanTerminalDecision(_StrictModel, frozen=True):
     kind: Literal["silence", "defer"]
     content: (
-        Annotated[str, StringConstraints(min_length=1, max_length=65536)] | None
+        Annotated[
+            str,
+            StringConstraints(
+                min_length=1, max_length=65536, pattern=NONBLANK_TEXT_PATTERN
+            ),
+        ]
+        | None
     ) = None
 
 

@@ -11,6 +11,7 @@ from datetime import datetime
 from math import exp2
 from typing import Annotated, Literal
 
+from armi_kernel.contracts import NONBLANK_TEXT_PATTERN
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 EvidenceRef = Annotated[str, StringConstraints(pattern=r"^ctx:[1-9][0-9]{0,2}$")]
@@ -26,7 +27,10 @@ class MindAppraisalParameters(BaseModel, frozen=True):
     progress: Literal["advancing", "stalled", "repetitive", "unknown"]
     opportunity: Literal["available", "later", "unavailable", "unknown"]
     resolution: Literal["open", "satisfied", "released"]
-    explanation: Annotated[str, StringConstraints(min_length=1, max_length=512)]
+    explanation: Annotated[
+        str,
+        StringConstraints(min_length=1, max_length=512, pattern=NONBLANK_TEXT_PATTERN),
+    ]
 
 
 class MindAppraisal(MindAppraisalParameters, frozen=True):

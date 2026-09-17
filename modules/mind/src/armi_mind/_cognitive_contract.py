@@ -1,12 +1,15 @@
 """Mind-owned cognitive state shape; storage additionally retains owner records."""
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
+from armi_kernel.contracts import NONBLANK_TEXT_PATTERN
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from ._appraisal import MIND_APPRAISAL_INSTRUCTIONS
 
-Summary = Annotated[str, StringConstraints(min_length=1, max_length=512)]
+Summary = Annotated[
+    str, StringConstraints(min_length=1, max_length=512, pattern=NONBLANK_TEXT_PATTERN)
+]
 
 
 class _StrictModel(BaseModel, frozen=True):
@@ -44,18 +47,44 @@ MIND_COGNITIVE_INSTRUCTIONS = (
 
 
 class DialogueSummaryListReplacement(_StrictModel, frozen=True):
-    values: tuple[Summary, ...] = Field(max_length=16)
+    values: tuple[Summary, ...] = Field(
+        max_length=16, json_schema_extra={"uniqueItems": True}
+    )
 
     @model_validator(mode="after")
     def validate_values(self) -> DialogueSummaryListReplacement:
-        if any(not value.strip() or "\x00" in value for value in self.values):
-            raise ValueError("summary replacement is invalid")
         if len(self.values) != len(set(self.values)):
             raise ValueError("summary replacement contains duplicates")
         return self
 
 
+def _nonempty_change_schema(schema: dict[str, Any]) -> None:
+    """Express a nonempty update with complete object alternatives, not predicates."""
+    properties = schema.pop("properties")
+    schema.pop("type", None)
+    schema.pop("additionalProperties", None)
+    schema["anyOf"] = [
+        {
+            "type": "object",
+            "properties": {
+                **properties,
+                name: {
+                    "anyOf": [
+                        branch
+                        for branch in value["anyOf"]
+                        if branch.get("type") != "null"
+                    ]
+                },
+            },
+            "required": [name],
+            "additionalProperties": False,
+        }
+        for name, value in properties.items()
+    ]
+
+
 class DialogueMindChange(_StrictModel, frozen=True):
+    model_config = ConfigDict(json_schema_extra=_nonempty_change_schema)
     understanding: DialogueSummaryListReplacement | None = None
     attention: DialogueSummaryListReplacement | None = None
     thoughts: DialogueSummaryListReplacement | None = None

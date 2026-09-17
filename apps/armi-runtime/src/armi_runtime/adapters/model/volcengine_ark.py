@@ -23,6 +23,7 @@ from armi_kernel.application import (
     ModelViolation,
     provider_call,
 )
+from armi_kernel.contracts import NONBLANK_TEXT_PATTERN
 from openai import (
     APIConnectionError,
     APIStatusError,
@@ -566,7 +567,6 @@ def _share_schema_nodes(schema: dict[str, Any]) -> dict[str, Any]:
     for name, value in original_definitions:
         definitions[name] = rewrite(value, root=True)
     result["$defs"] = definitions
-    names = {name: f"D{index}" for index, name in enumerate(definitions)}
 
     def rename(value: Any) -> Any:
         if isinstance(value, list):
@@ -580,8 +580,6 @@ def _share_schema_nodes(schema: dict[str, Any]) -> dict[str, Any]:
             for key, child in cast(dict[str, Any], value).items()
         }
 
-    result = rename(result)
-    result["$defs"] = {names[name]: value for name, value in result["$defs"].items()}
     # A definition used once costs more tokens than its inline form. Keep shared
     # nodes shared, and preserve every constraint while removing that indirection.
     references: dict[str, int] = {}
@@ -620,6 +618,9 @@ def _share_schema_nodes(schema: dict[str, Any]) -> dict[str, Any]:
         if f"#/$defs/{name}" not in single
     }
     result = inline(result)
+    names = {name: f"D{index}" for index, name in enumerate(result["$defs"])}
+    result = rename(result)
+    result["$defs"] = {names[name]: value for name, value in result["$defs"].items()}
     return result
 
 
@@ -663,6 +664,13 @@ def _strict_provider_schema(
         result["additionalProperties"] = False
     elif result.get("type") == "object" and "additionalProperties" not in result:
         result["additionalProperties"] = False
+    # const fixes the value and its type. Keep enum types explicit for providers.
+    if result.get("type") == "string" and isinstance(result.get("const"), str):
+        result.pop("type")
+    if result.get("minLength") == 1 and result.get("pattern") == NONBLANK_TEXT_PATTERN:
+        result.pop(
+            "minLength"
+        )  # The shared pattern itself requires a nonblank character.
     return result
 
 
