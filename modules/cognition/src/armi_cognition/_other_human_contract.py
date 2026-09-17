@@ -7,7 +7,7 @@ from typing import Annotated, Literal, cast
 
 from armi_kernel.application import ModelViolation
 from armi_kernel.contracts import NONBLANK_TEXT_PATTERN
-from armi_mood.api import AppraisalEventSignalV3
+from armi_mood.api import MOOD_APPRAISAL_INSTRUCTIONS, AppraisalEventSignalV3
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -265,6 +265,7 @@ OTHER_HUMAN_DIALOGUE_INSTRUCTIONS = (
 若本轮事件意义发生变化,可填写 appraisal;只用 Schema 给出的语义标签评价,不能填写评价分数、情绪、VAD、强度、重要性或持续时间。unknown 只表示资料不足,不适用的可选评价组省略。
 """
     + CONVERSATIONAL_EXPRESSION_INSTRUCTIONS
+    + MOOD_APPRAISAL_INSTRUCTIONS
 )
 
 

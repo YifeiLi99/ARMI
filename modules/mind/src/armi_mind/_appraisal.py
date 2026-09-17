@@ -42,6 +42,13 @@ MIND_APPRAISAL_INSTRUCTIONS = (
     "评价自身当前处境。每项对应 Context 中一个具体对象和依据。已有动机应引用 current_motivation 沿原对象更新。"
     "desired_outcome 表示希望理解、交流或投入有意义活动;不输出情绪名称、强度或增量。"
     "significance 是对象的重要性;discrepancy 是希望与现实的差距,不是经过的时间。"
+    "central 需要已有核心目标或长期重要关系的依据;眼前出现一个话题不使它自动成为核心。"
+    "explanation 简述愿望及差距的具体依据;信息不足时不编造目标、承诺或不满。"
+    "understand 需要值得弄清的具体未知,不把所有无进展都变成理解问题;"
+    "engage 是希望投入有意义活动,自愿休息或独处可以已经满足。"
+    "engage 的差距特指缺少有意义投入,不是所有工作受阻;保护成果、兑现承诺、修复错误等"
+    "不能仅因有困难就硬归为 engage。三类都不适用时可以不返回数值动机评价,"
+    "通过本轮可用的 Mind 文字变化保留其他愿望,不制造新的枚举或强度。"
     "understanding 描述理解程度;progress 描述有效进展或重复;opportunity 描述可行机会。"
     "没有依据选 unknown,无相关愿望返回空列表;不必填满三类。"
     "未回复不等于拒绝,没聊天不等于无聊;正在投入有价值活动可以没有差距。"
@@ -75,8 +82,6 @@ def _target(value: MindAppraisalParameters) -> float | None:
         return 0.0
     importance = {"none": 0.0, "peripheral": 0.25, "important": 0.65, "central": 1.0}
     gap = {"none": 0.0, "small": 0.3, "substantial": 1.0}
-    if value.significance not in importance or value.discrepancy not in gap:
-        return None
     factor: float | None = 1.0
     if value.desired_outcome == "understand":
         factor = {"sufficient": 0.0, "partial": 0.5, "unexplained": 1.0}.get(
@@ -86,9 +91,15 @@ def _target(value: MindAppraisalParameters) -> float | None:
         factor = {"advancing": 0.0, "stalled": 0.6, "repetitive": 1.0}.get(
             value.progress
         )
-    if factor is None:
+    # A known absence of need is decisive even when another dimension is unknown.
+    # Otherwise an old nonzero target would keep growing after the gap disappeared.
+    importance_value = importance.get(value.significance)
+    gap_value = gap.get(value.discrepancy)
+    if 0.0 in (importance_value, gap_value, factor):
+        return 0.0
+    if importance_value is None or gap_value is None or factor is None:
         return None
-    return 100 * importance[value.significance] * gap[value.discrepancy] * factor
+    return 100 * importance_value * gap_value * factor
 
 
 def project_motivation(

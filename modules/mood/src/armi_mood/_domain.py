@@ -902,7 +902,8 @@ def derive_semantic_appraisal(
                     concern_relevance,
                     negative,
                     other_agent,
-                    intentionality,
+                    # Unclear intent is not half-strength evidence of deliberate harm.
+                    float(intentionality == 1.0),
                     max(known_control, power),
                 ),
                 concern_goal,
@@ -971,7 +972,11 @@ def derive_semantic_appraisal(
             min(
                 relevance,
                 _negative(pleasantness_pole),
-                max(_negative(norm_compatibility), low_adjustment),
+                # Loss and norm conflict can be unpleasant without repulsion.
+                float(
+                    event.appraisal.intrinsic_quality
+                    is AppraisalQuality.STRONGLY_AVERSIVE
+                ),
             ),
             goal,
         )

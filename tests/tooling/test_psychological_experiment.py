@@ -58,6 +58,43 @@ def test_live_requires_explicit_credential_source(experiment, tmp_path):
         asyncio.run(experiment["run"](tmp_path / "probe", None, live=True))
 
 
+@pytest.mark.parametrize("mode", ["appraisal", "autonomous"])
+def test_experiment_evidence_matches_actual_transport_schema_order(
+    experiment, tmp_path, mode
+):
+    case = experiment["appraisal_case" if mode == "appraisal" else "prepare_case"](
+        "合成处境"
+    )
+    prices = experiment["load_price_catalog"](ROOT / "configs/provider-pricing.yaml")
+    request = experiment["checked_model_request"](
+        binding=case["binding"],
+        request_bytes=case["request"],
+        context_digest=case["digest"],
+        input_tokens=100,
+        prices=prices,
+    )
+    transport = experiment["EvidenceTransport"](
+        case["schema"],
+        instructions="合成测试",
+        schema_name="test",
+        output=tmp_path / "response.json",
+    )
+    adapter = experiment["VolcengineArkModelAdapter"](
+        binding=case["binding"],
+        credential_port=None,  # No tokenization or network invocation in this test.
+        locator=None,
+        candidate_schema=experiment["CognitionSchemaDocument"](
+            experiment["rfc8785"].dumps(case["schema"])
+        ),
+        instructions="合成测试",
+        schema_name="test",
+        transport=transport,
+    )
+    actual = transport.request_parameters(case["binding"], request)
+    recorded = json.loads(adapter.request_evidence(request))["provider_request"]
+    assert actual == recorded
+
+
 def test_appraisal_contract_derives_but_does_not_accept_emotion_scores(experiment):
     def evaluate(candidate):
         return experiment["validate_appraisal_response"](
@@ -100,6 +137,48 @@ def test_appraisal_contract_derives_but_does_not_accept_emotion_scores(experimen
         evaluate({"mind": [assessment, assessment], "mood": None})["validation"]
         == "rejected"
     )
+
+
+@pytest.mark.parametrize("phase", ["anticipated", "realized"])
+def test_appraisal_probe_preserves_loss_phase_in_owner_derivation(experiment, phase):
+    command = {
+        "schema_version": "armi.mood-appraisal.v3",
+        "transition": "new",
+        "event_phase": phase,
+        "gist": "重要作品丢失",
+        "appraisal": {
+            "engagement": "not_applicable",
+            "concerns": [
+                {
+                    "target": "self_goal",
+                    "significance": "core",
+                    "direction": "major_setback",
+                }
+            ],
+            "expectedness": "expectation_broken",
+            "outcome_certainty": "settled",
+            "intrinsic_quality": "unpleasant",
+            "self_involvement": "important",
+            "coping": {
+                "response_access": "none",
+                "power_balance": "overmatched",
+                "adjustment": "blocked",
+            },
+        },
+    }
+    result = experiment["validate_appraisal_response"](
+        {},
+        json.dumps(
+            {
+                "schema_version": "armi.model-response-artifact.v3",
+                "output_text": json.dumps({"candidate": {"mind": [], "mood": command}}),
+            }
+        ).encode(),
+    )
+    assert result["validation"] == "accepted"
+    assert result["mood_assessment"]["event_phase"] == phase
+    families = {c["component"]["family"] for c in result["mood"]["components"]}
+    assert ("sadness" in families) == (phase == "realized")
 
 
 def test_autonomous_mind_change_can_coexist_with_silence_and_rejects_unknown_basis(

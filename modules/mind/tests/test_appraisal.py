@@ -94,6 +94,30 @@ def test_no_opportunity_does_not_erase_wish_or_force_action():
     assert view.opportunity == "unavailable"
 
 
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"discrepancy": "none", "understanding": "unknown"},
+        {"significance": "none", "discrepancy": "unknown"},
+        {"understanding": "sufficient", "significance": "unknown"},
+    ],
+)
+def test_known_absence_of_need_does_not_preserve_old_target(changes):
+    original = appraisal(desired_outcome="understand", understanding="unexplained")
+    state = evaluate_motivation(original, references=REFS, at=NOW)
+    later = NOW + timedelta(hours=1)
+    level = project_motivation(state, at=later).level
+    updated = evaluate_motivation(
+        appraisal(desired_outcome="understand", **changes),
+        references=REFS,
+        at=later,
+        previous=state,
+    )
+    assert updated.target_level == 0
+    assert project_motivation(updated, at=later).level == level
+    assert project_motivation(updated, at=later + timedelta(hours=2)).level < level
+
+
 def test_new_feedback_reduces_target_and_ends_the_same_object():
     curious = appraisal(desired_outcome="understand", understanding="unexplained")
     state = evaluate_motivation(curious, references=REFS, at=NOW)

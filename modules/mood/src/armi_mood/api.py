@@ -23,6 +23,7 @@ from ._cognitive_binding import (
     semantic_appraisal_from_command,
 )
 from ._cognitive_contract import (
+    MOOD_APPRAISAL_INSTRUCTIONS,
     MOOD_CONTEXT_REFERENCES,
     AppraisalEventSignalV3,
     AppraisalSemanticSignal,
@@ -666,6 +667,7 @@ class MoodAdminCorrectionPort(Protocol):
 
 
 __all__ = (
+    "MOOD_APPRAISAL_INSTRUCTIONS",
     "MOOD_CONTEXT_REFERENCES",
     "VAD",
     "ActionTendency",

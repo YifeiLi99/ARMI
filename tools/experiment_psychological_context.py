@@ -47,8 +47,8 @@ from armi_mind.api import (
     project_motivation,
 )
 from armi_mood.api import (
-    AppraisalSemanticSignal,
-    MoodSemanticAppraisalCommand,
+    MOOD_APPRAISAL_INSTRUCTIONS,
+    NewMoodAppraisalCommand,
     preview_appraisal,
     semantic_appraisal_from_command,
 )
@@ -284,7 +284,7 @@ def save(path: Path, value: Any) -> None:
 class PsychologicalEvaluation(BaseModel, frozen=True):
     model_config = ConfigDict(extra="forbid", strict=True)
     mind: tuple[MindAppraisal, ...] = Field(max_length=4)
-    mood: AppraisalSemanticSignal | None
+    mood: NewMoodAppraisalCommand | None
 
 
 class SchemaProbe(BaseModel, frozen=True):
@@ -337,27 +337,26 @@ def validate_appraisal_response(
             )
         mood = None
         if value.mood is not None:
-            mood = preview_appraisal(
-                semantic_appraisal_from_command(
-                    MoodSemanticAppraisalCommand(
-                        schema_version="armi.mood-appraisal.v3",
-                        transition="new",
-                        previous_episode_id=None,
-                        event_phase="ongoing",
-                        gist="合成处境评价",
-                        change_from_previous=None,
-                        appraisal=value.mood,
-                    )
-                )
-            )
-        return {"validation": "accepted", "mind": projections, "mood": mood}
+            mood = preview_appraisal(semantic_appraisal_from_command(value.mood))
+        return {
+            "validation": "accepted",
+            "mind": projections,
+            "mood_assessment": None
+            if value.mood is None
+            else value.mood.model_dump(mode="json"),
+            "mood": mood,
+        }
     except (CandidateViolation, ValidationError, ValueError) as error:
         return {"validation": "rejected", "error": str(error)}
 
 
 class EvidenceTransport(OpenAIArkTransport):
-    def __init__(self, *args: Any, output: Path, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self, schema: dict[str, Any], *args: Any, output: Path, **kwargs: Any
+    ) -> None:
+        # The adapter renderer reads CognitionSchemaDocument's canonical JSON.
+        # Use that same ordering so recorded evidence describes the actual request.
+        super().__init__(json.loads(rfc8785.dumps(schema)), *args, **kwargs)
         self.output = output
 
     async def invoke(self, **kwargs: Any) -> dict[str, Any]:
@@ -533,7 +532,10 @@ async def run(
         if mode in {"autonomous", "trajectory"}
         else (
             MIND_APPRAISAL_INSTRUCTIONS
+            + MOOD_APPRAISAL_INSTRUCTIONS
             + "Mood 使用同一处境的语义评价,没有情绪变化可以为 null。"
+            "有评价时使用给定 Mood 新事件合同;event_phase 依据事实区分 anticipated、ongoing、realized、averted,"
+            "不把已经发生的事件都写成 ongoing。实验未提供旧情绪事件,不可虚构历史事件或变化。"
         )
     )
     save(output / "instructions.txt", instructions.encode())

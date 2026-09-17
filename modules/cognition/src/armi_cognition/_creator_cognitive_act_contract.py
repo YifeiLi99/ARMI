@@ -8,7 +8,7 @@ from typing import Annotated, Literal, cast
 
 from armi_kernel.contracts import NONBLANK_TEXT_PATTERN
 from armi_mind.api import MIND_COGNITIVE_INSTRUCTIONS, ConcernChange, MindAppraisal
-from armi_mood.api import AppraisalEventSignalV3
+from armi_mood.api import MOOD_APPRAISAL_INSTRUCTIONS, AppraisalEventSignalV3
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter
 
 from ._creator_appraisal_contract import (
@@ -28,6 +28,7 @@ CREATOR_COGNITIVE_ACT_INSTRUCTIONS = (
 只依据冻结 Context；不虚构主体身份、权限、情绪数值或现实执行结果。
 只有 Creator 明确要求记住时才提出记忆摘要；评价使用语义标签，保留来源与不确定性。
 {MIND_COGNITIVE_INSTRUCTIONS}
+{MOOD_APPRAISAL_INSTRUCTIONS}
 """
     + CONVERSATIONAL_EXPRESSION_INSTRUCTIONS
 )

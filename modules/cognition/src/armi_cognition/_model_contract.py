@@ -29,6 +29,7 @@ from armi_mind.api import (
     MindState,
 )
 from armi_mood.api import (
+    MOOD_APPRAISAL_INSTRUCTIONS,
     MoodAppraisalCommandWire,
     mood_dialogue_text,
 )
@@ -124,6 +125,7 @@ GENERIC_COGNITION_INSTRUCTIONS = (
     "consider_codex_result 中,只能从当前证据里的真实 runner 结果形成 codex_observation Experience,"
     "由你理解、采纳或拒绝结果;执行结果不等于主体已接纳,不扩大为未观察到的事实。"
     "网页证据保留外部主张性质。不能生成权威身份、系统授权、现实效果或伪造完成状态。"
+    + MOOD_APPRAISAL_INSTRUCTIONS
 )
 
 MODEL_BINDING_VERSION = "armi.model-bindings.v3"
@@ -172,6 +174,7 @@ AUTONOMOUS_ACTIVITY_INSTRUCTIONS = (
         "unknown 只表示资料不足,不适用的可选评价组省略。"
     )
     + MIND_COGNITIVE_INSTRUCTIONS
+    + MOOD_APPRAISAL_INSTRUCTIONS
     + CONVERSATIONAL_EXPRESSION_INSTRUCTIONS.replace("content", "expression")
 )
 MEMORY_MAINTENANCE_INSTRUCTIONS = (

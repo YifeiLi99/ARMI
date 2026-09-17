@@ -143,6 +143,74 @@ def test_quiet_waiting_only_becomes_boredom_with_grounded_understimulation(engag
     assert bool(boredom) == (engagement == "understimulated")
 
 
+@pytest.mark.parametrize(
+    "quality,norm,expected",
+    [
+        (AppraisalQuality.UNPLEASANT, AppraisalCompatibility.NOT_APPLICABLE, False),
+        (
+            AppraisalQuality.STRONGLY_AVERSIVE,
+            AppraisalCompatibility.NOT_APPLICABLE,
+            True,
+        ),
+        (AppraisalQuality.UNPLEASANT, AppraisalCompatibility.VIOLATION, False),
+    ],
+)
+def test_disgust_requires_repulsion_not_loss_or_norm_conflict_alone(
+    quality, norm, expected
+):
+    event = _semantic_event(
+        concerns=(
+            AppraisalConcern(
+                AppraisalConcernTarget.SELF_GOAL,
+                AppraisalSignificance.CORE,
+                AppraisalDirection.MAJOR_SETBACK,
+            ),
+        ),
+        quality=quality,
+        coping=AppraisalCoping(
+            AppraisalResponseAccess.NONE,
+            AppraisalPowerBalance.OVERMATCHED,
+            AppraisalAdjustment.BLOCKED,
+        ),
+        standards=AppraisalStandards(
+            AppraisalCompatibility.NOT_APPLICABLE, norm, AppraisalSelfScope.NONE
+        ),
+    )
+    families = {c.component.family for c in derive_semantic_appraisal(event).components}
+    assert (EmotionFamily.DISGUST in families) is expected
+    assert EmotionFamily.SADNESS in families
+
+
+@pytest.mark.parametrize(
+    "intent,expected",
+    [
+        (AppraisalIntentionality.UNCLEAR, False),
+        (AppraisalIntentionality.UNKNOWN, False),
+        (AppraisalIntentionality.ACCIDENTAL, False),
+        (AppraisalIntentionality.DELIBERATE, True),
+    ],
+)
+def test_anger_does_not_treat_uncertain_intent_as_deliberate_harm(intent, expected):
+    event = _semantic_event(
+        concerns=(
+            AppraisalConcern(
+                AppraisalConcernTarget.SELF_GOAL,
+                AppraisalSignificance.CORE,
+                AppraisalDirection.MAJOR_SETBACK,
+            ),
+        ),
+        quality=AppraisalQuality.UNPLEASANT,
+        causality=AppraisalCausality(AppraisalAgency.OTHER, intent),
+        coping=AppraisalCoping(
+            AppraisalResponseAccess.DIRECT,
+            AppraisalPowerBalance.ADVANTAGED,
+            AppraisalAdjustment.MANAGEABLE,
+        ),
+    )
+    families = {c.component.family for c in derive_semantic_appraisal(event).components}
+    assert (EmotionFamily.ANGER in families) is expected
+
+
 def _component(
     family: EmotionFamily = EmotionFamily.HOPE,
     *,
