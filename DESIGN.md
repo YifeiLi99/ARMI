@@ -136,6 +136,8 @@ Profile 同时声明 required、optional、retrieval、forbidden：Creator 文�
 
 ### 6.4 Subject Commit
 
+Creator 文本和语音候选直接绑定为内部提议及 Owner 草稿，只构造一次公共认知候选。行动、经历、评价和资料/关系变化共用这次绑定，不经过旧版对话决定模型或复制候选再补字段。Self、Mind、Prompt 的整体反思及既有记忆维护由各自 purpose 入口处理；保留当前合同中的语义评价与 concern changes。
+
 ```text
 frozen Context + expected subject/owner versions
   → model attempt outside transaction

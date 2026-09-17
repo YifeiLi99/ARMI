@@ -75,9 +75,6 @@ from ._expression_instructions import CONVERSATIONAL_EXPRESSION_INSTRUCTIONS
 
 if TYPE_CHECKING:
     from ._reflection_contract import OwnerReflectionCandidate
-from ._dialogue_contract import (
-    DIALOGUE_CANDIDATE_VERSION,
-)
 from ._maintenance_contract import (
     MAINTENANCE_WORK_CANDIDATE_VERSION,
     MaintenanceWorkCandidate,
@@ -802,8 +799,6 @@ def parse_candidate(
 
 def load_active_binding(
     path: Path | None = None,
-    *,
-    expected_dialogue_version: str = DIALOGUE_CANDIDATE_VERSION,
 ) -> ModelBinding:
     manifest_path = path or Path("configs/model-bindings.yaml")
     try:
@@ -910,8 +905,6 @@ def load_active_binding(
 def load_purpose_binding(
     purpose: str,
     path: Path | None = None,
-    *,
-    expected_dialogue_version: str = DIALOGUE_CANDIDATE_VERSION,
 ) -> ModelBinding:
     if type(purpose) is not str or not purpose:
         raise ModelViolation("MODEL-BINDING")
@@ -926,7 +919,6 @@ def load_purpose_binding(
         raise ModelViolation("MODEL-BINDING-MANIFEST") from None
     load_active_binding(
         manifest_path,
-        expected_dialogue_version=expected_dialogue_version,
     )
     if profile is None:
         raise ModelViolation("MODEL-BINDING")
@@ -1562,7 +1554,6 @@ def build_request_bytes(
     except UnicodeDecodeError, json.JSONDecodeError:
         raise ModelViolation("MODEL-CONTEXT") from None
     if binding.response_contract_version in {
-        DIALOGUE_CANDIDATE_VERSION,
         OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
     }:
         try:
@@ -1657,7 +1648,6 @@ __all__ = (
     "ACTIVE_MODEL_ID",
     "ACTIVE_VERSION_POLICY",
     "CANDIDATE_VERSION",
-    "DIALOGUE_CANDIDATE_VERSION",
     "DIALOGUE_INSTRUCTIONS",
     "DIALOGUE_MODEL_INPUT_VERSION",
     "MAINTENANCE_WORK_CANDIDATE_VERSION",

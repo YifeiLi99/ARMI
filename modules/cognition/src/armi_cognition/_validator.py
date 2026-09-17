@@ -75,7 +75,6 @@ from armi_mind.api import (
     MindAppraisal,
     MindCognitionPort,
     MindViolation,
-    apply_mind_text_change,
     bind_concern_changes,
     bind_mind_appraisals,
     bind_mind_change,
@@ -150,18 +149,10 @@ from ._autonomous_activity_contract import (
 from ._creator_changes import translate_creator_changes
 from ._creator_cognitive_act_contract import CreatorCognitiveActCandidate
 from ._dialogue_contract import (
-    CreatorDialogueCandidate,
     DialogueCommitmentChange,
-    DialogueExactLifeQueryDecision,
-    DialogueExperience,
     DialogueMaterialChange,
     DialogueMaterialContentChange,
-    DialogueMemoryChange,
     DialogueRelationshipChange,
-    DialogueReplyDecision,
-    DialogueTerminalDecision,
-    DialogueVisualObservationDecision,
-    DialogueWebResearchDecision,
 )
 from ._maintenance_contract import (
     MAINTENANCE_WORK_CANDIDATE_VERSION,
@@ -317,10 +308,8 @@ class CandidateRelationshipContext:
 
 @dataclass(frozen=True, slots=True)
 class DialogueBoundChanges:
-    memory_revision: CandidateMemoryRevisionDraft | None = None
     relationship: CandidateRelationshipDraft | None = None
     material: CandidateLifeMaterialDraft | None = None
-    prompt: CandidatePromptDraft | None = None
     exact_life_query: CandidateExactLifeQueryDraft | None = None
 
 
@@ -816,16 +805,6 @@ class DeterministicCandidateValidator:
             )
             if candidate is None:
                 return _rejected(expansion_error or "CANDIDATE-CONTRACT")
-        elif isinstance(parsed_candidate, CreatorDialogueCandidate):
-            candidate, dialogue_bound_changes, expansion_error = (
-                _expand_dialogue_candidate(
-                    parsed_candidate,
-                    bases=bases,
-                    context=self._context,
-                )
-            )
-            if candidate is None:
-                return _rejected(expansion_error or "CANDIDATE-CONTRACT")
         else:
             candidate = cast(CognitionCandidate, parsed_candidate)
         if not self._base_matches(candidate):
@@ -1140,15 +1119,6 @@ class DeterministicCandidateValidator:
 
         if (
             dialogue_bound_changes is not None
-            and dialogue_bound_changes.memory_revision is not None
-        ):
-            memory_revision = dialogue_bound_changes.memory_revision
-            group_members[memory_revision.atomic_group_ref].append(
-                memory_revision.proposal_ref
-            )
-            accepted[memory_revision.proposal_ref] = memory_revision
-        if (
-            dialogue_bound_changes is not None
             and dialogue_bound_changes.relationship is not None
         ):
             relationship = dialogue_bound_changes.relationship
@@ -1163,13 +1133,6 @@ class DeterministicCandidateValidator:
             material = dialogue_bound_changes.material
             group_members[material.atomic_group_ref].append(material.proposal_ref)
             accepted[material.proposal_ref] = material
-        if (
-            dialogue_bound_changes is not None
-            and dialogue_bound_changes.prompt is not None
-        ):
-            prompt = dialogue_bound_changes.prompt
-            group_members[prompt.atomic_group_ref].append(prompt.proposal_ref)
-            accepted[prompt.proposal_ref] = prompt
         if (
             dialogue_bound_changes is not None
             and dialogue_bound_changes.exact_life_query is not None
@@ -1527,11 +1490,10 @@ class DeterministicCandidateValidator:
             )
             proposal_no += 1
         if candidate.relationship_change is not None:
-            dialogue_experience = cast(DialogueExperience, candidate.experience)
             experience_draft = cast(CandidateExperienceDraft, experience)
             relationship, relationship_error = _bind_dialogue_relationship(
                 candidate.relationship_change,
-                experience=dialogue_experience,
+                first_person_gist=experience_draft.first_person_gist,
                 source_experience_ref=experience_draft.proposal_ref,
                 proposal_ref=f"proposal:{proposal_no}",
                 evidence=evidence,
@@ -2597,43 +2559,201 @@ def _expand_creator_cognitive_act(
     DialogueBoundChanges | None,
     str | None,
 ]:
-    response: CreatorDialogueCandidate
-    decision = source.decision
-    if isinstance(decision, creator_act.ReplyDecision):
-        response = DialogueReplyDecision(kind="reply", content=decision.content)
-    elif isinstance(decision, creator_act.ExactLifeQueryDecision):
-        response = DialogueExactLifeQueryDecision(
-            kind=decision.kind,
-            record_kind=decision.record_kind,
-            query_text=decision.query,
-        )
-    elif isinstance(decision, creator_act.WebResearchDecision):
-        response = DialogueWebResearchDecision(kind=decision.kind, query=decision.query)
-    elif isinstance(decision, creator_act.VisualObservationDecision):
-        response = DialogueVisualObservationDecision(
-            kind=decision.kind, source_kind=decision.source_kind
-        )
-    elif decision.content is not None:
-        response = DialogueReplyDecision(kind="reply", content=decision.content)
-    else:
-        response = DialogueTerminalDecision(kind=decision.kind)
-    candidate, bound, error = _expand_dialogue_candidate(
-        response,
-        bases=bases,
-        context=context,
+    evidence = next(
+        (
+            item
+            for item in bases
+            if item.item_kind == "current_evidence"
+            and (
+                item.trust_class == "external_claim"
+                or (
+                    context.purpose == "consider_life_query_result"
+                    and item.trust_class == "runtime_authority"
+                )
+            )
+        ),
+        None,
     )
-    if candidate is None or bound is None or error is not None:
-        return candidate, bound, error
+    scene = next(
+        (
+            item
+            for item in bases
+            if item.item_kind == "current_scene" and item.source_ref == context.scene_id
+        ),
+        None,
+    )
+    if evidence is None:
+        return None, None, "CANDIDATE-EVIDENCE-REQUIRED"
+    evidence_ref = f"ctx:{evidence.ordinal}"
+    scene_ref = None if scene is None else f"ctx:{scene.ordinal}"
+    decision = source.decision
+    if context.purpose == "consider_life_query_result" and not isinstance(
+        decision, (creator_act.ReplyDecision, creator_act.TerminalDecision)
+    ):
+        return None, None, "CANDIDATE-LIFE-QUERY-RESULT-SCOPE"
+    summary = {
+        "reply": "Creator dialogue reply selected.",
+        "decline": "Creator dialogue decline selected.",
+        "no_action": "Creator dialogue no action selected.",
+        "no_change": "Creator dialogue no change selected.",
+        "defer": "Creator dialogue defer selected.",
+        "need_information": "Creator dialogue needs information.",
+        "web_research": "Creator dialogue selected public Web research.",
+        "exact_life_query": "ARMI selected an exact life-record query.",
+        "visual_observation": "ARMI selected a visual observation.",
+    }[decision.kind]
     if source.content is not None and source.kind != "reply":
         summary = f"Creator dialogue {source.kind} selected with an explanation."
-        candidate = candidate.model_copy(
-            update={
-                "reason_summary": summary,
-                "understanding": candidate.understanding.model_copy(
-                    update={"text": summary}
-                ),
+    disposition = decision.kind
+    experiences: list[ExperienceProposal] = []
+    component_changes: list[ComponentChangeProposal] = []
+    memory_changes: list[MemoryChangeProposal] = []
+    action_choices: list[dict[str, Any]] = []
+    web_requests: list[dict[str, Any]] = []
+    visual_requests: list[dict[str, Any]] = []
+    exact_query: CandidateExactLifeQueryDraft | None = None
+    relationship: CandidateRelationshipDraft | None = None
+    material: CandidateLifeMaterialDraft | None = None
+    experience_ref: str | None = None
+    understanding_basis_refs = (evidence_ref,)
+    if source.content is not None:
+        if scene_ref is None:
+            return None, None, "CANDIDATE-ACTION-SCENE-BASIS"
+        shared_bases = (evidence_ref, scene_ref)
+        action_choices.append(
+            {
+                "proposal_ref": "proposal:1",
+                "atomic_group_ref": "group:1",
+                "basis_refs": shared_bases,
+                "payload": {
+                    "proposal_kind": "action_choices",
+                    "action_kind": "creator_reply",
+                    "fact_class": "subjective_understanding",
+                    "capability_kind": "creator.scene.reply",
+                    "operation": "send",
+                    "audience_scope": "creator",
+                    "data_scope": "creator_visible_response",
+                    "purpose": "respond_to_creator",
+                    "media_type": "text/plain",
+                    "content": source.content,
+                },
             }
         )
+        disposition = "change"
+    elif decision.kind in {"decline", "no_action"}:
+        if scene_ref is None:
+            return None, None, "CANDIDATE-ACTION-SCENE-BASIS"
+        action_choices.append(
+            {
+                "proposal_ref": "proposal:1",
+                "atomic_group_ref": "group:1",
+                "basis_refs": (evidence_ref, scene_ref),
+                "payload": {
+                    "proposal_kind": "action_choices",
+                    "action_kind": "formal_no_action",
+                    "fact_class": "subjective_understanding",
+                    "decision": decision.kind,
+                    "reason_class": (
+                        "subjective_refusal"
+                        if decision.kind == "decline"
+                        else "subjective_silence"
+                    ),
+                },
+            }
+        )
+    elif isinstance(decision, creator_act.ExactLifeQueryDecision):
+        purpose = next(
+            (
+                item
+                for item in bases
+                if item.item_kind == "current_purpose" and item.trust_class == "policy"
+            ),
+            None,
+        )
+        if purpose is None:
+            return None, None, "CANDIDATE-EXACT-LIFE-QUERY-PURPOSE-BASIS"
+        query_bases = (evidence.ordinal, purpose.ordinal)
+        exact_query = CandidateExactLifeQueryDraft(
+            "proposal:1",
+            "group:1",
+            query_bases,
+            CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
+            LifeRecordKind(decision.record_kind),
+            decision.query,
+        )
+        understanding_basis_refs = tuple(f"ctx:{ordinal}" for ordinal in query_bases)
+        disposition = "change"
+    elif isinstance(decision, creator_act.WebResearchDecision):
+        purpose = next(
+            (
+                item
+                for item in bases
+                if item.item_kind == "current_purpose" and item.trust_class == "policy"
+            ),
+            None,
+        )
+        availability = next(
+            (
+                item
+                for item in bases
+                if item.item_kind == "web_search_availability"
+                and item.trust_class == "policy"
+            ),
+            None,
+        )
+        if purpose is None:
+            return None, None, "CANDIDATE-WEB-PURPOSE-BASIS"
+        if availability is None:
+            return None, None, "CANDIDATE-WEB-AVAILABILITY-BASIS"
+        understanding_basis_refs = (
+            evidence_ref,
+            f"ctx:{purpose.ordinal}",
+            f"ctx:{availability.ordinal}",
+        )
+        disposition = "change"
+        web_requests.append(
+            {
+                "proposal_ref": "proposal:1",
+                "atomic_group_ref": "group:1",
+                "basis_refs": understanding_basis_refs,
+                "payload": {
+                    "proposal_kind": "web_research_requests",
+                    "fact_class": "subjective_understanding",
+                    "purpose": "public_web_research",
+                    "operation_class": "search_read_public",
+                    "query": decision.query,
+                },
+            }
+        )
+    elif isinstance(decision, creator_act.VisualObservationDecision):
+        purpose = next(
+            (
+                item
+                for item in bases
+                if item.item_kind == "current_purpose" and item.trust_class == "policy"
+            ),
+            None,
+        )
+        if purpose is None:
+            return None, None, "CANDIDATE-VISION-PURPOSE-BASIS"
+        basis_refs = (evidence_ref, f"ctx:{purpose.ordinal}")
+        disposition = "change"
+        understanding_basis_refs = basis_refs
+        visual_requests.append(
+            {
+                "proposal_ref": "proposal:1",
+                "atomic_group_ref": "group:1",
+                "basis_refs": basis_refs,
+                "payload": {
+                    "proposal_kind": "visual_observation_requests",
+                    "fact_class": "inference",
+                    "source_kind": decision.source_kind,
+                },
+            }
+        )
+    proposal_no = (
+        2 if action_choices or web_requests or visual_requests or exact_query else 1
+    )
     material_events = tuple(
         item for item in source.changes if item.op.startswith("material.")
     )
@@ -2642,38 +2762,6 @@ def _expand_creator_cognitive_act(
         for item in source.changes
         if item.op.startswith(("relationship.", "commitment."))
     )
-    if (
-        source.experience is None
-        and source.appraisal is None
-        and not relationship_events
-        and not material_events
-    ):
-        return candidate, bound, None
-    evidence = next(
-        (
-            item
-            for item in bases
-            if item.item_kind == "current_evidence"
-            and item.trust_class in {"external_claim", "runtime_authority"}
-        ),
-        None,
-    )
-    if evidence is None:
-        return None, None, "CANDIDATE-EVIDENCE-REQUIRED"
-    evidence_ref = f"ctx:{evidence.ordinal}"
-    used_refs = [proposal.proposal_ref for _, proposal in _all_proposals(candidate)]
-    used_refs.extend(
-        item.proposal_ref
-        for item in (
-            bound.memory_revision,
-            bound.relationship,
-            bound.material,
-            bound.prompt,
-            bound.exact_life_query,
-        )
-        if item is not None
-    )
-    proposal_no = max((int(ref.partition(":")[2]) for ref in used_refs), default=0) + 1
     if material_events:
         try:
             translated_material = translate_creator_changes(material_events)
@@ -2688,12 +2776,8 @@ def _expand_creator_cognitive_act(
         )
         if material is None:
             return None, None, material_error or "CANDIDATE-MATERIAL-CONTEXT"
-        bound = replace(bound, material=replace(material, atomic_group_ref="group:4"))
+        material = replace(material, atomic_group_ref="group:4")
         proposal_no += 1
-    experiences = list(candidate.experiences)
-    component_changes = list(candidate.component_changes)
-    memory_changes = list(candidate.memory_changes)
-    experience_ref: str | None = None
     if source.experience is not None:
         experience_ref = f"proposal:{proposal_no}"
         experiences.append(
@@ -2751,7 +2835,6 @@ def _expand_creator_cognitive_act(
                 )
             )
             proposal_no += 1
-    relationship = None
     if relationship_events:
         if source.experience is None or experience_ref is None:
             return None, None, "CANDIDATE-RELATIONSHIP-EXPERIENCE"
@@ -2764,11 +2847,7 @@ def _expand_creator_cognitive_act(
             return None, None, "CANDIDATE-RELATIONSHIP-CONTRACT"
         relationship, relationship_error = _bind_dialogue_relationship(
             relationship_change,
-            experience=DialogueExperience(
-                first_person_gist=source.experience.first_person_gist,
-                uncertainty=source.experience.uncertainty,
-                memory_summary=source.experience.memory_summary,
-            ),
+            first_person_gist=source.experience.first_person_gist,
             source_experience_ref=experience_ref,
             proposal_ref=f"proposal:{proposal_no}",
             evidence=evidence,
@@ -2785,378 +2864,8 @@ def _expand_creator_cognitive_act(
         or relationship is not None
         or material_events
     )
-    candidate = candidate.model_copy(
-        update={
-            "experiences": tuple(experiences),
-            "component_changes": tuple(component_changes),
-            "memory_changes": tuple(memory_changes),
-            "disposition": "change" if has_internal_change else candidate.disposition,
-        }
-    )
-    return candidate, replace(bound, relationship=relationship), None
-
-
-def _expand_dialogue_candidate(
-    source: CreatorDialogueCandidate,
-    *,
-    bases: tuple[CandidateBasis, ...],
-    context: CandidateValidationContext,
-) -> tuple[
-    CognitionCandidate | None,
-    DialogueBoundChanges | None,
-    str | None,
-]:
-    evidence = next(
-        (
-            item
-            for item in bases
-            if item.item_kind == "current_evidence"
-            and (
-                item.trust_class == "external_claim"
-                or (
-                    context.purpose == "consider_life_query_result"
-                    and item.trust_class == "runtime_authority"
-                )
-            )
-        ),
-        None,
-    )
-    scene = next(
-        (
-            item
-            for item in bases
-            if item.item_kind == "current_scene" and item.source_ref == context.scene_id
-        ),
-        None,
-    )
-    if evidence is None:
-        return None, None, "CANDIDATE-EVIDENCE-REQUIRED"
-    evidence_ref = f"ctx:{evidence.ordinal}"
-    scene_ref = None if scene is None else f"ctx:{scene.ordinal}"
-    if not isinstance(
-        source,
-        (
-            DialogueReplyDecision,
-            DialogueTerminalDecision,
-            DialogueExactLifeQueryDecision,
-            DialogueWebResearchDecision,
-            DialogueVisualObservationDecision,
-        ),
-    ):
-        return None, None, "CANDIDATE-CONTRACT"
-    decision = source
-    if context.purpose == "consider_life_query_result" and not isinstance(
-        decision,
-        (DialogueReplyDecision, DialogueTerminalDecision),
-    ):
-        return None, None, "CANDIDATE-LIFE-QUERY-RESULT-SCOPE"
-    if (
-        context.purpose == "consider_life_query_result"
-        and isinstance(decision, DialogueReplyDecision)
-        and any(
-            value is not None
-            for value in (
-                decision.experience,
-                decision.self_change,
-                decision.mind_change,
-                decision.memory_change,
-                decision.relationship_change,
-                decision.material_change,
-                decision.subject_prompt_change,
-            )
-        )
-    ):
-        return None, None, "CANDIDATE-LIFE-QUERY-RESULT-SCOPE"
-    summary = {
-        "reply": "Creator dialogue reply selected.",
-        "decline": "Creator dialogue decline selected.",
-        "no_action": "Creator dialogue no action selected.",
-        "no_change": "Creator dialogue no change selected.",
-        "defer": "Creator dialogue defer selected.",
-        "need_information": "Creator dialogue needs information.",
-        "web_research": "Creator dialogue selected public Web research.",
-        "exact_life_query": "ARMI selected an exact life-record query.",
-        "visual_observation": "ARMI selected a visual observation.",
-    }[decision.kind]
-    disposition = decision.kind
-    experiences: list[dict[str, Any]] = []
-    component_changes: list[dict[str, Any]] = []
-    memory_changes: list[dict[str, Any]] = []
-    action_choices: list[dict[str, Any]] = []
-    web_requests: list[dict[str, Any]] = []
-    visual_requests: list[dict[str, Any]] = []
-    exact_query: CandidateExactLifeQueryDraft | None = None
-    memory_revision: CandidateMemoryRevisionDraft | None = None
-    relationship: CandidateRelationshipDraft | None = None
-    material: CandidateLifeMaterialDraft | None = None
-    prompt: CandidatePromptDraft | None = None
-    experience_ref: str | None = None
-    understanding_basis_refs = (evidence_ref,)
-    if isinstance(decision, DialogueReplyDecision):
-        if scene_ref is None:
-            return None, None, "CANDIDATE-ACTION-SCENE-BASIS"
-        proposal_no = 1
-        if decision.experience is not None:
-            experience_ref = f"proposal:{proposal_no}"
-            experiences.append(
-                {
-                    "proposal_ref": experience_ref,
-                    "atomic_group_ref": "group:2",
-                    "basis_refs": (evidence_ref,),
-                    "payload": {
-                        "proposal_kind": "experiences",
-                        "fact_class": "external_claim",
-                        "first_person_gist": decision.experience.first_person_gist,
-                        "source_perspective": "creator_claim",
-                        "uncertainty": decision.experience.uncertainty,
-                        "privacy_scope": "private",
-                    },
-                }
-            )
-            proposal_no += 1
-            if decision.experience.memory_summary is not None:
-                memory_changes.append(
-                    {
-                        "proposal_ref": f"proposal:{proposal_no}",
-                        "atomic_group_ref": "group:2",
-                        "basis_refs": (evidence_ref,),
-                        "payload": {
-                            "proposal_kind": "memory_changes",
-                            "fact_class": "external_claim",
-                            "summary": decision.experience.memory_summary,
-                        },
-                    }
-                )
-                proposal_no += 1
-        self_change = getattr(decision, "self_change", None)
-        mind_change = getattr(decision, "mind_change", None)
-        if mind_change is not None and any(
-            getattr(mind_change, field, None) is not None
-            for field in ("emotions", "mood")
-        ):
-            return None, None, "CANDIDATE-MOOD-EVENT-REQUIRED"
-        component_inputs: tuple[
-            tuple[CandidateOwner, Any, type[SelfState] | type[MindState]],
-            ...,
-        ] = (
-            (CandidateOwner.SELF, self_change, SelfState),
-            (
-                CandidateOwner.MIND,
-                mind_change,
-                MindState,
-            ),
-        )
-        for owner, change, state_type in component_inputs:
-            if change is None:
-                continue
-            component_change, component_error = _bind_dialogue_component_change(
-                owner=owner,
-                change=change,
-                state_type=state_type,
-                proposal_ref=f"proposal:{proposal_no}",
-                evidence_ref=evidence_ref,
-                bases=bases,
-                context=context,
-            )
-            if component_change is None:
-                return (
-                    None,
-                    None,
-                    component_error or "CANDIDATE-COMPONENT-CONTEXT",
-                )
-            component_change["atomic_group_ref"] = "group:2"
-            component_changes.append(component_change)
-            proposal_no += 1
-        if decision.memory_change is not None:
-            memory_revision, memory_error = _bind_dialogue_memory_revision(
-                decision.memory_change,
-                proposal_ref=f"proposal:{proposal_no}",
-                evidence=evidence,
-                bases=bases,
-                context=context,
-            )
-            if memory_revision is None:
-                return None, None, memory_error or "CANDIDATE-MEMORY-CONTEXT"
-            memory_revision = replace(memory_revision, atomic_group_ref="group:2")
-            proposal_no += 1
-        if decision.relationship_change is not None:
-            if decision.experience is None:
-                return None, None, "CANDIDATE-RELATIONSHIP-EXPERIENCE"
-            relationship, relationship_error = _bind_dialogue_relationship(
-                decision.relationship_change,
-                experience=decision.experience,
-                source_experience_ref=experience_ref,
-                proposal_ref=f"proposal:{proposal_no}",
-                evidence=evidence,
-                bases=bases,
-                context=context,
-            )
-            if relationship is None:
-                return (
-                    None,
-                    None,
-                    relationship_error or "CANDIDATE-RELATIONSHIP-CONTEXT",
-                )
-            relationship = replace(relationship, atomic_group_ref="group:2")
-            proposal_no += 1
-        material_change = getattr(decision, "material_change", None)
-        if material_change is not None:
-            material, material_error = _bind_dialogue_material(
-                material_change,
-                proposal_ref=f"proposal:{proposal_no}",
-                evidence=evidence,
-                bases=bases,
-                context=context,
-            )
-            if material is None:
-                return None, None, material_error or "CANDIDATE-MATERIAL-CONTEXT"
-            material = replace(material, atomic_group_ref="group:2")
-            proposal_no += 1
-        subject_prompt_change = getattr(decision, "subject_prompt_change", None)
-        if subject_prompt_change is not None:
-            prompt, prompt_error = _bind_dialogue_subject_prompt(
-                subject_prompt_change,
-                proposal_ref=f"proposal:{proposal_no}",
-                evidence=evidence,
-                bases=bases,
-                context=context,
-            )
-            if prompt is None:
-                return None, None, prompt_error or "CANDIDATE-SUBJECT-PROMPT-CONTEXT"
-            prompt = replace(prompt, atomic_group_ref="group:2")
-            proposal_no += 1
-        shared_bases = (evidence_ref, scene_ref)
-        action_choices.append(
-            {
-                "proposal_ref": f"proposal:{proposal_no}",
-                "atomic_group_ref": "group:1",
-                "basis_refs": shared_bases,
-                "payload": {
-                    "proposal_kind": "action_choices",
-                    "action_kind": "creator_reply",
-                    "fact_class": "subjective_understanding",
-                    "capability_kind": "creator.scene.reply",
-                    "operation": "send",
-                    "audience_scope": "creator",
-                    "data_scope": "creator_visible_response",
-                    "purpose": "respond_to_creator",
-                    "media_type": "text/plain",
-                    "content": decision.content,
-                },
-            }
-        )
+    if has_internal_change:
         disposition = "change"
-    elif decision.kind in {"decline", "no_action"}:
-        if scene_ref is None:
-            return None, None, "CANDIDATE-ACTION-SCENE-BASIS"
-        action_choices.append(
-            {
-                "proposal_ref": "proposal:1",
-                "atomic_group_ref": "group:1",
-                "basis_refs": (evidence_ref, scene_ref),
-                "payload": {
-                    "proposal_kind": "action_choices",
-                    "action_kind": "formal_no_action",
-                    "fact_class": "subjective_understanding",
-                    "decision": decision.kind,
-                    "reason_class": (
-                        "subjective_refusal"
-                        if decision.kind == "decline"
-                        else "subjective_silence"
-                    ),
-                },
-            }
-        )
-    elif isinstance(decision, DialogueExactLifeQueryDecision):
-        purpose = next(
-            (
-                item
-                for item in bases
-                if item.item_kind == "current_purpose" and item.trust_class == "policy"
-            ),
-            None,
-        )
-        if purpose is None:
-            return None, None, "CANDIDATE-EXACT-LIFE-QUERY-PURPOSE-BASIS"
-        query_bases = (evidence.ordinal, purpose.ordinal)
-        exact_query = CandidateExactLifeQueryDraft(
-            "proposal:1",
-            "group:1",
-            query_bases,
-            CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
-            LifeRecordKind(decision.record_kind),
-            decision.query_text,
-        )
-        understanding_basis_refs = tuple(f"ctx:{ordinal}" for ordinal in query_bases)
-        disposition = "change"
-    elif isinstance(decision, DialogueWebResearchDecision):
-        purpose = next(
-            (
-                item
-                for item in bases
-                if item.item_kind == "current_purpose" and item.trust_class == "policy"
-            ),
-            None,
-        )
-        availability = next(
-            (
-                item
-                for item in bases
-                if item.item_kind == "web_search_availability"
-                and item.trust_class == "policy"
-            ),
-            None,
-        )
-        if purpose is None:
-            return None, None, "CANDIDATE-WEB-PURPOSE-BASIS"
-        if availability is None:
-            return None, None, "CANDIDATE-WEB-AVAILABILITY-BASIS"
-        understanding_basis_refs = (
-            evidence_ref,
-            f"ctx:{purpose.ordinal}",
-            f"ctx:{availability.ordinal}",
-        )
-        disposition = "change"
-        web_requests.append(
-            {
-                "proposal_ref": "proposal:1",
-                "atomic_group_ref": "group:1",
-                "basis_refs": understanding_basis_refs,
-                "payload": {
-                    "proposal_kind": "web_research_requests",
-                    "fact_class": "subjective_understanding",
-                    "purpose": "public_web_research",
-                    "operation_class": "search_read_public",
-                    "query": decision.query,
-                },
-            }
-        )
-    elif isinstance(decision, DialogueVisualObservationDecision):
-        purpose = next(
-            (
-                item
-                for item in bases
-                if item.item_kind == "current_purpose" and item.trust_class == "policy"
-            ),
-            None,
-        )
-        if purpose is None:
-            return None, None, "CANDIDATE-VISION-PURPOSE-BASIS"
-        basis_refs = (evidence_ref, f"ctx:{purpose.ordinal}")
-        disposition = "change"
-        understanding_basis_refs = basis_refs
-        visual_requests.append(
-            {
-                "proposal_ref": "proposal:1",
-                "atomic_group_ref": "group:1",
-                "basis_refs": basis_refs,
-                "payload": {
-                    "proposal_kind": "visual_observation_requests",
-                    "fact_class": "inference",
-                    "source_kind": decision.source_kind,
-                },
-            }
-        )
     return (
         CognitionCandidate.model_construct(
             schema_version="armi.cognition-candidate.v16",
@@ -3172,20 +2881,9 @@ def _expand_dialogue_candidate(
                 fact_class="inference",
                 basis_refs=understanding_basis_refs,
             ),
-            experiences=tuple(
-                _translated_proposal(ExperienceProposal, ExperiencePayload, item)
-                for item in experiences
-            ),
-            component_changes=tuple(
-                _translated_proposal(
-                    ComponentChangeProposal, ComponentChangePayload, item
-                )
-                for item in component_changes
-            ),
-            memory_changes=tuple(
-                _translated_proposal(MemoryChangeProposal, MemoryChangePayload, item)
-                for item in memory_changes
-            ),
+            experiences=tuple(experiences),
+            component_changes=tuple(component_changes),
+            memory_changes=tuple(memory_changes),
             relationship_changes=(),
             activity_changes=(),
             action_choices=tuple(
@@ -3216,7 +2914,7 @@ def _expand_dialogue_candidate(
             reason_summary=summary,
         ),
         DialogueBoundChanges(
-            memory_revision, relationship, material, prompt, exact_query
+            relationship=relationship, material=material, exact_life_query=exact_query
         ),
         None,
     )
@@ -3235,203 +2933,6 @@ def _translated_proposal[P: BaseModel](
         "payload": payload_type.model_construct(**value["payload"]),
     }
     return proposal_type.model_construct(**translated)
-
-
-def _bind_dialogue_component_change(
-    *,
-    owner: CandidateOwner,
-    change: Any,
-    state_type: type[SelfState] | type[MindState],
-    proposal_ref: str,
-    evidence_ref: str,
-    bases: tuple[CandidateBasis, ...],
-    context: CandidateValidationContext,
-) -> tuple[dict[str, Any] | None, str | None]:
-    current = next(
-        (
-            (version, canonical)
-            for current_owner, version, canonical in context.current_components
-            if current_owner is owner
-        ),
-        None,
-    )
-    basis = next(
-        (
-            item
-            for item in bases
-            if item.item_kind == owner.value
-            and current is not None
-            and item.source_version == current[0]
-        ),
-        None,
-    )
-    if current is None or basis is None:
-        return None, "CANDIDATE-COMPONENT-CONTEXT"
-    try:
-        if owner is CandidateOwner.MIND:
-            validated = apply_mind_text_change(current[1], change)
-        else:
-            current_state = state_type.model_validate_json(current[1], strict=True)
-            next_state = current_state.model_dump(mode="json")
-            field_names = (
-                "name",
-                "self_description",
-                "interests",
-                "values",
-                "preferences",
-                "goals",
-                "self_narrative",
-            )
-            for field_name in field_names:
-                replacement = getattr(change, field_name, None)
-                if replacement is None:
-                    continue
-                next_state[field_name] = (
-                    list(replacement.values)
-                    if hasattr(replacement, "values")
-                    else replacement.value
-                )
-            validated = state_type.model_validate_json(
-                rfc8785.dumps(cast(Any, next_state)), strict=True
-            )
-    except ValidationError, rfc8785.CanonicalizationError:
-        return None, "CANDIDATE-COMPONENT-STATE"
-    return (
-        {
-            "proposal_ref": proposal_ref,
-            "atomic_group_ref": "group:1",
-            "basis_refs": (evidence_ref, f"ctx:{basis.ordinal}"),
-            "payload": {
-                "proposal_kind": "component_changes",
-                "fact_class": "subjective_understanding",
-                "owner": owner.value,
-                "expected_version": current[0],
-                "next_state": validated,
-            },
-        },
-        None,
-    )
-
-
-def _bind_dialogue_subject_prompt(
-    change: Any,
-    *,
-    proposal_ref: str,
-    evidence: CandidateBasis,
-    bases: tuple[CandidateBasis, ...],
-    context: CandidateValidationContext,
-) -> tuple[CandidatePromptDraft | None, str | None]:
-    current = context.current_subject_prompt
-    self_component = next(
-        (
-            (version, canonical)
-            for owner, version, canonical in context.current_components
-            if owner is CandidateOwner.SELF
-        ),
-        None,
-    )
-    self_basis = next(
-        (
-            item
-            for item in bases
-            if item.item_kind == "self"
-            and self_component is not None
-            and item.source_version == self_component[0]
-        ),
-        None,
-    )
-    if current is None or self_component is None or self_basis is None:
-        return None, "CANDIDATE-SUBJECT-PROMPT-CONTEXT"
-    prompt_basis = None
-    if current.current_revision_id is not None:
-        prompt_basis = next(
-            (
-                item
-                for item in bases
-                if item.item_kind == "subject_prompt"
-                and item.source_ref == current.current_revision_id
-                and item.source_version == current.revision_no
-                and item.trust_class == "policy"
-            ),
-            None,
-        )
-        if prompt_basis is None:
-            return None, "CANDIDATE-SUBJECT-PROMPT-CONTEXT"
-    methods = {
-        "cognition_method": change.cognition_method,
-        "expression_method": change.expression_method,
-        "reflection_method": change.reflection_method,
-    }
-    try:
-        self_state = SelfState.model_validate_json(self_component[1], strict=True)
-        self_document = self_state.model_dump(mode="python")
-        self_values = {
-            value.strip().casefold()
-            for field_name in (
-                "name",
-                "self_description",
-                "interests",
-                "values",
-                "preferences",
-                "goals",
-                "self_narrative",
-            )
-            for value in _nested_text_values(self_document.get(field_name))
-            if value.strip()
-        }
-    except ValidationError:
-        return None, "CANDIDATE-SUBJECT-PROMPT-CONTEXT"
-    if any(
-        self_value in method.strip().casefold()
-        for method in methods.values()
-        for self_value in self_values
-    ):
-        return None, "CANDIDATE-SUBJECT-PROMPT-SELF-DUPLICATE"
-    content = rfc8785.dumps(
-        cast(
-            Any,
-            {
-                "schema_version": "armi.subject-prompt.v1",
-                **methods,
-            },
-        )
-    )
-    basis_ordinals = (
-        evidence.ordinal,
-        self_basis.ordinal,
-        *((prompt_basis.ordinal,) if prompt_basis is not None else ()),
-    )
-    return (
-        CandidatePromptDraft(
-            proposal_ref,
-            "group:1",
-            basis_ordinals,
-            CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
-            current.prompt_document_id,
-            current.current_revision_id,
-            current.revision_no,
-            content,
-        ),
-        None,
-    )
-
-
-def _nested_text_values(value: object) -> tuple[str, ...]:
-    if type(value) is str:
-        return (value,)
-    if type(value) is list:
-        return tuple(
-            text
-            for item in cast(list[object], value)
-            for text in _nested_text_values(item)
-        )
-    if type(value) is dict:
-        return tuple(
-            text
-            for item in cast(dict[object, object], value).values()
-            for text in _nested_text_values(item)
-        )
-    return ()
 
 
 def _bind_dialogue_material(
@@ -3636,105 +3137,6 @@ def _bind_internal_work_material(
     )
 
 
-def _bind_dialogue_memory_revision(
-    change: DialogueMemoryChange,
-    *,
-    proposal_ref: str,
-    evidence: CandidateBasis,
-    bases: tuple[CandidateBasis, ...],
-    context: CandidateValidationContext,
-) -> tuple[CandidateMemoryRevisionDraft | None, str | None]:
-    basis_by_ref = {f"ctx:{item.ordinal}": item for item in bases}
-    target_basis = basis_by_ref.get(change.memory_ref)
-    if (
-        target_basis is None
-        or target_basis.section != "memory"
-        or target_basis.item_kind != "current_memory"
-        or target_basis.trust_class != "subjective_state"
-        or target_basis.source_ref is None
-    ):
-        return None, "CANDIDATE-MEMORY-CONTEXT"
-    current = next(
-        (
-            item
-            for item in context.current_memories
-            if item.memory_id == target_basis.source_ref
-        ),
-        None,
-    )
-
-    if current is None or current.head_version != target_basis.source_version:
-        return None, "CANDIDATE-MEMORY-STALE"
-
-    related_memory_id: UUID | None = None
-    relation_kind: MemoryRelationKind | None = None
-    related_basis: CandidateBasis | None = None
-    if change.related_memory_ref is not None:
-        related_basis = basis_by_ref.get(change.related_memory_ref)
-        if (
-            related_basis is None
-            or related_basis.section != "memory"
-            or related_basis.item_kind != "current_memory"
-            or related_basis.source_ref is None
-            or not any(
-                item.memory_id == related_basis.source_ref
-                and item.head_version == related_basis.source_version
-                for item in context.current_memories
-            )
-        ):
-            return None, "CANDIDATE-MEMORY-RELATION"
-        related_memory_id = related_basis.source_ref
-        relation_kind = MemoryRelationKind(cast(str, change.relation_kind))
-
-    revision_kind = {
-        "recall": MemoryRevisionKind.RECALLED,
-        "fade": MemoryRevisionKind.FADED,
-        "forget": MemoryRevisionKind.FORGOTTEN,
-        "reinterpret": MemoryRevisionKind.REINTERPRETED,
-    }[change.action]
-    accessibility = {
-        "recall": MemoryAccessibility.AVAILABLE,
-        "fade": MemoryAccessibility.FADED,
-        "forget": MemoryAccessibility.FORGOTTEN,
-        "reinterpret": current.accessibility,
-    }[change.action]
-    summary = change.summary if change.summary is not None else current.summary
-    uncertainty = (
-        change.uncertainty if change.action == "reinterpret" else current.uncertainty
-    )
-    if change.action == "fade" and current.accessibility is MemoryAccessibility.FADED:
-        return None, "CANDIDATE-MEMORY-NO-OP"
-    if (
-        change.action == "reinterpret"
-        and summary == current.summary
-        and uncertainty == current.uncertainty
-        and related_memory_id is None
-    ):
-        return None, "CANDIDATE-MEMORY-NO-OP"
-    basis_ordinals = [evidence.ordinal, target_basis.ordinal]
-    if related_basis is not None:
-        basis_ordinals.append(related_basis.ordinal)
-    return (
-        CandidateMemoryRevisionDraft(
-            proposal_ref,
-            "group:1",
-            tuple(dict.fromkeys(basis_ordinals)),
-            current.fact_class,
-            current.memory_id,
-            current.current_revision_id,
-            current.head_version,
-            revision_kind,
-            accessibility,
-            current.source_kind,
-            summary,
-            uncertainty,
-            related_memory_id,
-            relation_kind,
-        ),
-        None,
-    )
-
-
 def _bind_maintenance_memory_revision(
     change: MemoryMaintenanceChange,
     *,
@@ -3853,7 +3255,7 @@ def _other_human_reply_boundary_failure(
 def _bind_dialogue_relationship(
     change: DialogueRelationshipChange | OtherHumanRelationshipChange,
     *,
-    experience: Any,
+    first_person_gist: str,
     source_experience_ref: str | None,
     proposal_ref: str,
     evidence: CandidateBasis,
@@ -3906,7 +3308,7 @@ def _bind_dialogue_relationship(
     shared_experience = RelationshipFact(
         _derived_uuid7(context.model_attempt_id, b"relationship-shared-fact"),
         RelationshipFactKind.SHARED_EXPERIENCE,
-        experience.first_person_gist,
+        first_person_gist,
     )
     if not any(
         item.kind is shared_experience.kind

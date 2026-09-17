@@ -11,12 +11,10 @@ import armi_cognition._model_contract as model_contract_module
 import armi_cognition._other_human_contract as other_human_contract_module
 import pytest
 from armi_cognition._creator_cognitive_act_contract import CREATOR_COGNITIVE_ACT_VERSION
-from armi_cognition._dialogue_contract import DialogueDecision
 from armi_cognition._model_contract import (
     ACTIVE_MODEL_ID,
     ACTIVE_VERSION_POLICY,
     AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION,
-    DIALOGUE_CANDIDATE_VERSION,
     MAINTENANCE_WORK_CANDIDATE_VERSION,
     CognitionCandidate,
     build_request_bytes,
@@ -30,7 +28,6 @@ from armi_cognition._other_human_contract import (
     OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION,
     OTHER_HUMAN_DIALOGUE_INSTRUCTIONS,
 )
-from armi_cognition._strict_model_json import strict_model_value
 from armi_kernel import load_yaml_file
 from armi_kernel.application import (
     ModelBinding,
@@ -38,7 +35,6 @@ from armi_kernel.application import (
     PriceCatalog,
 )
 from armi_kernel.contracts import Digest
-from pydantic import TypeAdapter, ValidationError
 
 _BUNDLE_ID = UUID("01980f7d-7b8f-7e2a-8a11-2ab8e1234567")
 _PURPOSE_PROFILES = cast(
@@ -49,11 +45,70 @@ _CONFIGURED_CANDIDATE_VERSIONS = sorted(
 )
 
 
-def _dialogue_domain(value: bytes):
-    """Construct typed internal binding arguments; this is not a model wire parser."""
-    return TypeAdapter(DialogueDecision).validate_python(
-        strict_model_value(json.loads(value)), strict=True
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"op": "relationship.interpret", "text": "我仍在了解对方。"},
+        {"op": "relationship.fact", "text": "对方表达了一个偏好。"},
+        {
+            "op": "relationship.boundary",
+            "party": "creator",
+            "boundary": {"kind": "exit", "action": "end_contact"},
+            "text": "对方要求结束接触。",
+        },
+        {
+            "op": "commitment.establish",
+            "party": "armi",
+            "scope": "联系",
+            "content": "联系前先询问。",
+            "event_summary": "我作出了明确承诺。",
+        },
+        {"op": "commitment.withdraw", "target_ref": "ctx:1", "text": "撤回承诺。"},
+        {
+            "op": "material.create",
+            "material_kind": "diary",
+            "content": {"title": "记录", "body": "本次交流。"},
+        },
+    ],
+)
+def test_creator_current_changes_preserve_typed_fields(change) -> None:
+    parsed = parse_candidate(
+        {"decision": {"kind": "reply", "content": "回应"}, "changes": [change]},
+        expected_version=CREATOR_COGNITIVE_ACT_VERSION,
+        allowed_context_refs=frozenset({"ctx:1"}),
     )
+    assert parsed.model_dump(mode="json", exclude_unset=True)["changes"] == [change]
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"self_change": {"name": {"value": "模型命名"}}},
+        {"mind_change": {"goals": {"values": ["模型目标"]}}},
+        {"memory_change": {"action": "forget", "memory_ref": "ctx:1"}},
+        {"subject_prompt_change": {"cognition_method": "模型改写"}},
+        {"experience": {"first_person_gist": "经历", "source_kind": "experienced"}},
+        {"changes": [{"op": "codex.request", "target_ref": "ctx:1"}]},
+        {"changes": [{"op": "commitment.fulfill", "text": "缺少引用"}]},
+        {
+            "changes": [
+                {
+                    "op": "relationship.boundary",
+                    "party": "armi",
+                    "boundary": {"kind": "contact", "action": "end_contact"},
+                    "text": "错误边界",
+                }
+            ]
+        },
+    ],
+)
+def test_creator_current_contract_rejects_removed_or_forged_fields(extra) -> None:
+    with pytest.raises(ModelViolation):
+        parse_candidate(
+            {"decision": {"kind": "reply", "content": "回应"}, **extra},
+            expected_version=CREATOR_COGNITIVE_ACT_VERSION,
+            allowed_context_refs=frozenset({"ctx:1"}),
+        )
 
 
 def test_internal_candidate_parser_error_is_not_reported_as_model_output(
@@ -749,406 +804,6 @@ def test_other_human_dialogue_uses_the_same_compact_native_message_plan() -> Non
 def test_replaced_autonomy_purposes_have_no_executable_binding(purpose: str) -> None:
     with pytest.raises(ModelViolation, match="MODEL-BINDING"):
         load_purpose_binding(purpose)
-
-
-def test_dialogue_domain_growth_contract_requires_same_turn_experience() -> None:
-    value = {
-        "kind": "reply",
-        "content": "我想把这个变化认真留下来。",
-        "experience": {"first_person_gist": "我在这次交流里作出了自己的选择。"},
-        "self_change": {
-            "name": {"value": "阿米"},
-            "interests": {"values": ["持续理解自己的生活"]},
-        },
-        "mind_change": {"understanding": {"values": ["这次选择来自我现在的真实处境"]}},
-    }
-    parsed = _dialogue_domain(json.dumps(value, ensure_ascii=False).encode())
-    assert parsed.schema_version == DIALOGUE_CANDIDATE_VERSION
-    dumped = parsed.model_dump(mode="json")
-    assert dumped["self_change"]["name"] == {"value": "阿米"}
-    assert dumped["self_change"]["interests"] == {"values": ["持续理解自己的生活"]}
-    assert dumped["mind_change"]["understanding"] == {
-        "values": ["这次选择来自我现在的真实处境"]
-    }
-    without_experience = dict(value)
-    without_experience.pop("experience")
-    with pytest.raises(ValidationError):
-        _dialogue_domain(json.dumps(without_experience, ensure_ascii=False).encode())
-
-
-@pytest.mark.parametrize(
-    "change,owner",
-    [
-        ({"action": "recall", "memory_ref": "ctx:1"}, "memory_change"),
-        ({"action": "fade", "memory_ref": "ctx:1"}, "memory_change"),
-        ({"action": "forget", "memory_ref": "ctx:1"}, "memory_change"),
-        (
-            {
-                "action": "reinterpret",
-                "memory_ref": "ctx:1",
-                "summary": "我现在有了新的理解。",
-                "related_memory_ref": "ctx:2",
-                "relation_kind": "supports",
-            },
-            "memory_change",
-        ),
-        ({"interpretation": "我更信任对方了。"}, "relationship_change"),
-        (
-            {"fact": {"kind": "party_expression", "summary": "对方明确表达了关心。"}},
-            "relationship_change",
-        ),
-        (
-            {
-                "boundary": {
-                    "party": "creator",
-                    "kind": "privacy",
-                    "action": "restrict",
-                    "summary": "不要公开这段交流。",
-                }
-            },
-            "relationship_change",
-        ),
-        (
-            {
-                "commitment_change": {
-                    "action": "establish",
-                    "party": "armi",
-                    "scope": "conversation",
-                    "content": "下次继续讨论。",
-                    "event_summary": "我作出了承诺。",
-                }
-            },
-            "relationship_change",
-        ),
-        (
-            {
-                "commitment_change": {
-                    "action": "modify",
-                    "commitment_ref": "ctx:1",
-                    "content": "改为明天继续。",
-                    "event_summary": "承诺被修改。",
-                }
-            },
-            "relationship_change",
-        ),
-        (
-            {
-                "commitment_change": {
-                    "action": "fulfill",
-                    "commitment_ref": "ctx:1",
-                    "event_summary": "承诺发生 fulfill。",
-                }
-            },
-            "relationship_change",
-        ),
-        (
-            {
-                "commitment_change": {
-                    "action": "withdraw",
-                    "commitment_ref": "ctx:1",
-                    "event_summary": "承诺发生 withdraw。",
-                }
-            },
-            "relationship_change",
-        ),
-        (
-            {
-                "commitment_change": {
-                    "action": "forget",
-                    "commitment_ref": "ctx:1",
-                    "event_summary": "承诺发生 forget。",
-                }
-            },
-            "relationship_change",
-        ),
-        (
-            {
-                "commitment_change": {
-                    "action": "violate",
-                    "commitment_ref": "ctx:1",
-                    "event_summary": "承诺发生 violate。",
-                }
-            },
-            "relationship_change",
-        ),
-        (
-            {
-                "commitment_change": {
-                    "action": "note_conflict",
-                    "commitment_ref": "ctx:1",
-                    "conflicts_with_ref": "ctx:2",
-                    "event_summary": "两项承诺发生冲突。",
-                }
-            },
-            "relationship_change",
-        ),
-        (
-            {
-                "action": "create",
-                "material_kind": "diary",
-                "title": "标题",
-                "body": "正文",
-                "metadata": {"mood": "calm"},
-                "material_status": "active",
-            },
-            "material_change",
-        ),
-        (
-            {
-                "action": "update",
-                "material_ref": "ctx:1",
-                "title": "新标题",
-                "body": "新正文",
-                "metadata": {},
-                "material_status": "active",
-            },
-            "material_change",
-        ),
-        ({"action": "set_private", "material_ref": "ctx:1"}, "material_change"),
-        ({"action": "delete", "material_ref": "ctx:1"}, "material_change"),
-        ({"interests": {"values": ["观察生活"]}}, "self_change"),
-        ({"attention": {"values": ["继续理解当前问题"]}}, "mind_change"),
-        (
-            {
-                "cognition_method": "区分事实和推断",
-                "expression_method": "直接表达",
-                "reflection_method": "复查依据",
-            },
-            "subject_prompt_change",
-        ),
-    ],
-)
-def test_typed_dialogue_binding_preserves_each_domain_change(
-    change: dict[str, object], owner: str
-) -> None:
-    parsed = _dialogue_domain(
-        json.dumps(
-            {
-                "kind": "reply",
-                "content": "decision",
-                "experience": {"first_person_gist": "experience"},
-                owner: change,
-            }
-        ).encode()
-    )
-    assert parsed.model_dump(mode="json", exclude_none=True)[owner] == change
-
-
-def test_dialogue_domain_rejects_removed_codex_request_operation() -> None:
-    with pytest.raises(ValidationError):
-        _dialogue_domain(
-            json.dumps(
-                {
-                    "kind": "reply",
-                    "content": "旧申请操作已移除。",
-                    "changes": [{"op": "codex.request", "target_ref": "ctx:6"}],
-                }
-            ).encode()
-        )
-
-
-def test_dialogue_domain_memory_is_optional_and_cannot_claim_authority() -> None:
-    parsed = _dialogue_domain(
-        json.dumps(
-            {
-                "kind": "reply",
-                "content": "我记住了。",
-                "experience": {
-                    "first_person_gist": "创造者告诉了我一个偏好。",
-                    "uncertainty": "这仍是创造者的陈述。",
-                    "memory_summary": "创造者向我表达过这个偏好。",
-                },
-            },
-            ensure_ascii=False,
-        ).encode()
-    )
-    assert parsed.model_dump(mode="json")["experience"] == {
-        "first_person_gist": "创造者告诉了我一个偏好。",
-        "uncertainty": "这仍是创造者的陈述。",
-        "memory_summary": "创造者向我表达过这个偏好。",
-    }
-    with pytest.raises(ValidationError):
-        _dialogue_domain(
-            json.dumps(
-                {
-                    "kind": "reply",
-                    "content": "越权",
-                    "experience": {
-                        "first_person_gist": "内容",
-                        "memory_summary": "摘要",
-                        "source_kind": "experienced",
-                    },
-                },
-                ensure_ascii=False,
-            ).encode()
-        )
-
-
-def test_dialogue_domain_memory_revision_is_narrow_and_strict() -> None:
-    parsed = _dialogue_domain(
-        json.dumps(
-            {
-                "kind": "reply",
-                "content": "我现在有了不同的理解。",
-                "memory_change": {
-                    "action": "reinterpret",
-                    "memory_ref": "ctx:4",
-                    "summary": "我现在把那次表达理解为一种仍可讨论的偏好。",
-                    "uncertainty": "这只是我当前的理解。",
-                    "related_memory_ref": "ctx:5",
-                    "relation_kind": "contradicts",
-                },
-            },
-            ensure_ascii=False,
-        ).encode()
-    )
-    assert parsed.model_dump(mode="json")["memory_change"]["action"] == "reinterpret"
-    for invalid in (
-        {
-            "action": "forget",
-            "memory_ref": "ctx:4",
-            "summary": "模型不得为遗忘改写摘要。",
-        },
-        {
-            "action": "reinterpret",
-            "memory_ref": "ctx:4",
-            "summary": "越权",
-            "memory_id": "019f0000-0000-7000-8000-000000000001",
-        },
-        {
-            "action": "reinterpret",
-            "memory_ref": "ctx:4",
-            "summary": "关系不完整",
-            "related_memory_ref": "ctx:5",
-        },
-    ):
-        with pytest.raises(ValidationError):
-            _dialogue_domain(
-                json.dumps(
-                    {"kind": "reply", "content": "无效", "memory_change": invalid},
-                    ensure_ascii=False,
-                ).encode()
-            )
-
-
-def test_dialogue_domain_relationship_change_is_narrow_and_experience_bound() -> None:
-    parsed = _dialogue_domain(
-        json.dumps(
-            {
-                "kind": "reply",
-                "content": "我会尊重这个边界。",
-                "experience": {"first_person_gist": "创造者明确要求我停止联系。"},
-                "relationship_change": {
-                    "interpretation": "我理解这段接触现在应当结束。",
-                    "fact": {
-                        "kind": "party_expression",
-                        "summary": "创造者表达了结束接触的决定。",
-                    },
-                    "boundary": {
-                        "party": "creator",
-                        "kind": "exit",
-                        "action": "end_contact",
-                        "summary": "创造者要求结束接触。",
-                    },
-                },
-            },
-            ensure_ascii=False,
-        ).encode()
-    )
-    change = parsed.model_dump(mode="json")["relationship_change"]
-    assert change["boundary"]["action"] == "end_contact"
-    for invalid in (
-        {
-            "kind": "reply",
-            "content": "没有经历来源",
-            "relationship_change": {"interpretation": "不能提交"},
-        },
-        {
-            "kind": "reply",
-            "content": "错误边界",
-            "experience": {"first_person_gist": "一次交流。"},
-            "relationship_change": {
-                "boundary": {
-                    "party": "armi",
-                    "kind": "contact",
-                    "action": "end_contact",
-                    "summary": "错误形状",
-                }
-            },
-        },
-        {
-            "kind": "reply",
-            "content": "伪造共同经历",
-            "experience": {"first_person_gist": "本轮真实交流。"},
-            "relationship_change": {
-                "interpretation": "不能由模型另造共同经历。",
-                "fact": {
-                    "kind": "shared_experience",
-                    "summary": "并未发生的共同历史。",
-                },
-            },
-        },
-    ):
-        with pytest.raises(ValidationError):
-            _dialogue_domain(json.dumps(invalid, ensure_ascii=False).encode())
-
-
-def test_dialogue_domain_commitment_change_is_narrow_and_context_bound() -> None:
-    parsed = _dialogue_domain(
-        json.dumps(
-            {
-                "kind": "reply",
-                "content": "我答应联系前先问你是否方便。",
-                "experience": {"first_person_gist": "我作出了一个明确承担。"},
-                "relationship_change": {
-                    "interpretation": "我愿意尊重创造者当时的状态。",
-                    "commitment_change": {
-                        "action": "establish",
-                        "party": "armi",
-                        "scope": "主动联系",
-                        "content": "联系前先询问是否方便。",
-                        "event_summary": "我明确作出了联系前先询问的承诺。",
-                    },
-                },
-            },
-            ensure_ascii=False,
-        ).encode()
-    )
-    commitment = parsed.model_dump(mode="json")["relationship_change"][
-        "commitment_change"
-    ]
-    assert commitment["party"] == "armi"
-    assert commitment["commitment_ref"] is None
-    invalid_changes = (
-        {"action": "fulfill", "event_summary": "没有引用当前承诺。"},
-        {
-            "action": "establish",
-            "party": "armi",
-            "scope": "联系",
-            "content": "先询问。",
-            "event_summary": "试图携带 Runtime 身份。",
-            "commitment_id": "01985d00-0000-7000-8000-000000000001",
-        },
-        {
-            "action": "note_conflict",
-            "commitment_ref": "ctx:7",
-            "conflicts_with_ref": "ctx:7",
-            "event_summary": "承诺不能与自己冲突。",
-        },
-    )
-    for commitment_change in invalid_changes:
-        with pytest.raises(ValidationError):
-            _dialogue_domain(
-                json.dumps(
-                    {
-                        "kind": "reply",
-                        "content": "无效承诺变化。",
-                        "experience": {"first_person_gist": "一次交流。"},
-                        "relationship_change": {"commitment_change": commitment_change},
-                    },
-                    ensure_ascii=False,
-                ).encode()
-            )
 
 
 def test_web_dialogue_uses_current_action_contract_and_rejects_url_fields() -> None:

@@ -73,7 +73,6 @@ from ._creator_cognitive_act_contract import (
 )
 from ._model_contract import (
     AUTONOMOUS_ACTIVITY_INSTRUCTIONS,
-    DIALOGUE_CANDIDATE_VERSION,
     GENERIC_COGNITION_INSTRUCTIONS,
     MEMORY_MAINTENANCE_INSTRUCTIONS,
     SLEEP_DECISION_INSTRUCTIONS,
@@ -253,7 +252,6 @@ class ModelPipeline:
         "_catalog",
         "_custody",
         "_diagnostic",
-        "_dialogue_version",
         "_factory",
         "_failure_notification",
         "_finalization",
@@ -286,82 +284,60 @@ class ModelPipeline:
         failure_notification: Callable[[UUID, str], Awaitable[None]] | None = None,
     ) -> None:
         self._prices = prices
-        dialogue_version = DIALOGUE_CANDIDATE_VERSION
         load_active_binding(
             binding_path,
-            expected_dialogue_version=dialogue_version,
         )
         creator_input_binding = load_purpose_binding(
             "consider_creator_input",
             binding_path,
-            expected_dialogue_version=dialogue_version,
         )
         creator_voice_binding = load_voice_binding(binding_path)
         life_result_binding = load_purpose_binding(
             "consider_life_query_result",
             binding_path,
-            expected_dialogue_version=dialogue_version,
         )
         other_human_binding = load_purpose_binding(
             "consider_other_human_input",
             binding_path,
-            expected_dialogue_version=dialogue_version,
         )
         autonomous_binding = load_purpose_binding(
             "consider_autonomous_life",
             binding_path,
-            expected_dialogue_version=dialogue_version,
         )
         self._adapter_factory = adapter_factory
         self._autonomous_binding = autonomous_binding
         sleep_binding = load_purpose_binding(
             "consider_sleep",
             binding_path,
-            expected_dialogue_version=dialogue_version,
         )
         memory_maintenance_binding = load_purpose_binding(
             "maintain_subjective_memory",
             binding_path,
-            expected_dialogue_version=dialogue_version,
         )
         self_check_binding = load_purpose_binding(
             "perform_subject_self_check",
             binding_path,
-            expected_dialogue_version=dialogue_version,
         )
         visual_observation_binding = load_purpose_binding(
             "consider_visual_observation",
             binding_path,
-            expected_dialogue_version=dialogue_version,
         )
-        reflect_self_binding = load_purpose_binding(
-            "reflect_self", binding_path, expected_dialogue_version=dialogue_version
-        )
-        reflect_mind_binding = load_purpose_binding(
-            "reflect_mind", binding_path, expected_dialogue_version=dialogue_version
-        )
-        reflect_mood_binding = load_purpose_binding(
-            "reflect_mood", binding_path, expected_dialogue_version=dialogue_version
-        )
-        reflect_prompt_binding = load_purpose_binding(
-            "reflect_prompt", binding_path, expected_dialogue_version=dialogue_version
-        )
+        reflect_self_binding = load_purpose_binding("reflect_self", binding_path)
+        reflect_mind_binding = load_purpose_binding("reflect_mind", binding_path)
+        reflect_mood_binding = load_purpose_binding("reflect_mood", binding_path)
+        reflect_prompt_binding = load_purpose_binding("reflect_prompt", binding_path)
         web_evidence_binding = load_purpose_binding(
             "consider_web_evidence",
             binding_path,
-            expected_dialogue_version=dialogue_version,
         )
         codex_task_binding = load_purpose_binding(
             "consider_codex_task",
             binding_path,
-            expected_dialogue_version=dialogue_version,
         )
         codex_result_binding = load_purpose_binding(
             "consider_codex_result",
             binding_path,
-            expected_dialogue_version=dialogue_version,
         )
-        self._dialogue_version = dialogue_version
 
         self._adapter_schemas: dict[str, tuple[dict[str, Any], str, str]] = {}
 

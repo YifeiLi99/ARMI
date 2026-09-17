@@ -1,11 +1,10 @@
-"""Current compact model output contract for Creator dialogue."""
+"""Shared typed data for Creator changes and owner reflection."""
 
 from __future__ import annotations
 
 from typing import Annotated, Literal
 
 from armi_kernel.contracts import NONBLANK_TEXT_PATTERN, NUL_FREE_TEXT_PATTERN
-from armi_mind.api import DialogueMindChange
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -13,8 +12,6 @@ from pydantic import (
     StringConstraints,
     model_validator,
 )
-
-DIALOGUE_CANDIDATE_VERSION = "armi.creator-dialogue-candidate.v26"
 
 type Summary = Annotated[
     str, StringConstraints(min_length=1, max_length=512, pattern=NONBLANK_TEXT_PATTERN)
@@ -29,101 +26,10 @@ class _StrictModel(BaseModel, frozen=True):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
 
-class DialogueNameReplacement(_StrictModel, frozen=True):
-    value: (
-        Annotated[
-            str,
-            StringConstraints(
-                min_length=1, max_length=128, pattern=NONBLANK_TEXT_PATTERN
-            ),
-        ]
-        | None
-    )
-
-
-class DialogueLongTextReplacement(_StrictModel, frozen=True):
-    value: (
-        Annotated[
-            str,
-            StringConstraints(
-                min_length=1, max_length=2048, pattern=NONBLANK_TEXT_PATTERN
-            ),
-        ]
-        | None
-    )
-
-
-class DialogueSummaryListReplacement(_StrictModel, frozen=True):
-    values: tuple[Summary, ...] = Field(
-        max_length=16, json_schema_extra={"uniqueItems": True}
-    )
-
-    @model_validator(mode="after")
-    def validate_values(self) -> DialogueSummaryListReplacement:
-        if len(self.values) != len(set(self.values)):
-            raise ValueError("summary replacement contains duplicates")
-        return self
-
-
-class DialogueSelfChange(_StrictModel, frozen=True):
-    name: DialogueNameReplacement | None = None
-    self_description: DialogueLongTextReplacement | None = None
-    interests: DialogueSummaryListReplacement | None = None
-    values: DialogueSummaryListReplacement | None = None
-    preferences: DialogueSummaryListReplacement | None = None
-    goals: DialogueSummaryListReplacement | None = None
-    self_narrative: DialogueLongTextReplacement | None = None
-
-    @model_validator(mode="after")
-    def validate_change(self) -> DialogueSelfChange:
-        if all(getattr(self, field) is None for field in type(self).model_fields):
-            raise ValueError("self change is empty")
-        return self
-
-
 class DialogueSubjectPromptChange(_StrictModel, frozen=True):
     cognition_method: Summary
     expression_method: Summary
     reflection_method: Summary
-
-
-class DialogueExperience(_StrictModel, frozen=True):
-    first_person_gist: Annotated[
-        str,
-        StringConstraints(min_length=1, max_length=1024, pattern=NONBLANK_TEXT_PATTERN),
-    ]
-    uncertainty: Summary | None = None
-    memory_summary: Summary | None = None
-
-
-class DialogueMemoryChange(_StrictModel, frozen=True):
-    action: Literal["recall", "fade", "forget", "reinterpret"]
-    memory_ref: ContextRef
-    summary: Summary | None = None
-    uncertainty: Summary | None = None
-    related_memory_ref: ContextRef | None = None
-    relation_kind: Literal["supports", "contradicts", "reinterprets"] | None = None
-
-    @model_validator(mode="after")
-    def validate_shape(self) -> DialogueMemoryChange:
-        if self.action == "reinterpret":
-            if self.summary is None:
-                raise ValueError("reinterpret requires a summary")
-            if (self.related_memory_ref is None) != (self.relation_kind is None):
-                raise ValueError("memory relation is incomplete")
-            if self.related_memory_ref == self.memory_ref:
-                raise ValueError("memory cannot relate to itself")
-        elif any(
-            value is not None
-            for value in (
-                self.summary,
-                self.uncertainty,
-                self.related_memory_ref,
-                self.relation_kind,
-            )
-        ):
-            raise ValueError("only reinterpret accepts new meaning")
-        return self
 
 
 class DialogueRelationshipFact(_StrictModel, frozen=True):
@@ -276,121 +182,3 @@ DialogueMaterialChange = Annotated[
     DialogueMaterialContentChange | DialogueMaterialStateChange,
     Field(discriminator="action"),
 ]
-
-
-class CreatorDialogueCandidate(_StrictModel, frozen=True):
-    """A subjective dialogue choice; wire metadata belongs to the adapter."""
-
-    @property
-    def schema_version(self) -> str:
-        return DIALOGUE_CANDIDATE_VERSION
-
-
-class DialogueReplyDecision(CreatorDialogueCandidate, frozen=True):
-    kind: Literal["reply"]
-    content: Annotated[
-        str,
-        StringConstraints(
-            min_length=1, max_length=65536, pattern=NONBLANK_TEXT_PATTERN
-        ),
-    ]
-    experience: DialogueExperience | None = None
-    memory_change: DialogueMemoryChange | None = None
-    relationship_change: DialogueRelationshipChange | None = None
-    material_change: DialogueMaterialChange | None = None
-    self_change: DialogueSelfChange | None = None
-    mind_change: DialogueMindChange | None = None
-    subject_prompt_change: DialogueSubjectPromptChange | None = None
-
-    @model_validator(mode="after")
-    def validate_experience_basis(self) -> DialogueReplyDecision:
-        if self.relationship_change is not None and self.experience is None:
-            raise ValueError("relationship change requires an experience")
-        if (
-            self.self_change is not None
-            or self.mind_change is not None
-            or self.subject_prompt_change is not None
-        ) and self.experience is None:
-            raise ValueError("subject growth requires an experience")
-        return self
-
-
-class DialogueTerminalDecision(CreatorDialogueCandidate, frozen=True):
-    kind: Literal[
-        "decline",
-        "no_action",
-        "no_change",
-        "defer",
-        "need_information",
-    ]
-
-
-class DialogueWebResearchDecision(CreatorDialogueCandidate, frozen=True):
-    kind: Literal["web_research"]
-    query: Annotated[
-        str,
-        StringConstraints(
-            min_length=1, max_length=16384, pattern=NONBLANK_TEXT_PATTERN
-        ),
-    ]
-
-
-class DialogueVisualObservationDecision(CreatorDialogueCandidate, frozen=True):
-    kind: Literal["visual_observation"]
-    source_kind: Literal["camera", "screen"]
-
-
-class DialogueExactLifeQueryDecision(CreatorDialogueCandidate, frozen=True):
-    kind: Literal["exact_life_query"]
-    record_kind: Literal[
-        "activity",
-        "conversation",
-        "material",
-        "memory",
-        "relationship",
-        "self_change",
-    ]
-    query_text: (
-        Annotated[
-            str,
-            StringConstraints(
-                min_length=1, max_length=1024, pattern=NONBLANK_TEXT_PATTERN
-            ),
-        ]
-        | None
-    ) = None
-
-
-DialogueDecision = Annotated[
-    DialogueReplyDecision
-    | DialogueTerminalDecision
-    | DialogueWebResearchDecision
-    | DialogueVisualObservationDecision
-    | DialogueExactLifeQueryDecision,
-    Field(discriminator="kind"),
-]
-
-
-__all__ = (
-    "DIALOGUE_CANDIDATE_VERSION",
-    "CreatorDialogueCandidate",
-    "DialogueCommitmentChange",
-    "DialogueExactLifeQueryDecision",
-    "DialogueExperience",
-    "DialogueLongTextReplacement",
-    "DialogueMaterialChange",
-    "DialogueMaterialContentChange",
-    "DialogueMaterialStateChange",
-    "DialogueMemoryChange",
-    "DialogueMindChange",
-    "DialogueNameReplacement",
-    "DialogueRelationshipBoundary",
-    "DialogueRelationshipChange",
-    "DialogueRelationshipFact",
-    "DialogueReplyDecision",
-    "DialogueSelfChange",
-    "DialogueSubjectPromptChange",
-    "DialogueSummaryListReplacement",
-    "DialogueTerminalDecision",
-    "DialogueWebResearchDecision",
-)
