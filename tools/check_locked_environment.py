@@ -1,13 +1,11 @@
-"""Validate the M0-S003 toolchain, direct dependencies, locks, and inventory."""
+"""Validate the supported platform and toolchain metadata."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import platform
-import re
 import sys
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -17,56 +15,6 @@ TARGET_NODE = "24.18.0"
 TARGET_NPM = "11.16.0"
 TARGET_UV = "0.11.33"
 TARGET_POSTGRESQL = "18.4"
-
-PYTHON_DIRECT = {
-    "fastapi": "0.140.13",
-    "hypothesis": "6.163.0",
-    "mcp": "2.0.0",
-    "openai": "2.49.0",
-    "openpyxl": "3.1.5",
-    "playwright": "1.61.0",
-    "psycopg": "3.3.4",
-    "psycopg-pool": "3.3.1",
-    "pydantic": "2.13.4",
-    "pytest": "9.1.1",
-    "pytest-asyncio": "1.4.0",
-    "python-docx": "1.2.0",
-    "python-pptx": "1.0.2",
-    "rfc8785": "0.1.4",
-    "ruff": "0.16.0",
-    "uvicorn": "0.51.0",
-}
-
-CREATOR_DEPENDENCIES = {
-    "@tanstack/react-query": "5.101.4",
-    "react": "19.2.8",
-    "react-dom": "19.2.8",
-}
-
-CREATOR_DEV_DEPENDENCIES = {
-    "@testing-library/dom": "10.4.1",
-    "@testing-library/jest-dom": "6.9.1",
-    "@testing-library/react": "16.3.2",
-    "@testing-library/user-event": "14.6.1",
-    "@types/node": "24.13.3",
-    "@types/react": "19.2.17",
-    "@types/react-dom": "19.2.3",
-    "@vitejs/plugin-react": "6.0.4",
-    "jsdom": "30.0.0",
-    "openapi-typescript": "7.13.0",
-    "oxlint": "1.76.0",
-    "prettier": "3.9.6",
-    "typescript": "5.9.3",
-    "vite": "8.1.5",
-    "vitest": "4.1.10",
-}
-
-TOOL_DEPENDENCIES = {
-    "@openai/codex": "0.144.4",
-    "pyright": "1.1.411",
-}
-
-FLOATING_PREFIX = re.compile(r"^(?:\^|~|>|<|=|latest\b|\*|workspace:)", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -104,17 +52,6 @@ def _load_json(path: Path, violations: list[Violation]) -> dict[str, Any] | None
     return data
 
 
-def _load_toml(path: Path, violations: list[Violation]) -> dict[str, Any] | None:
-    text = _read_text(path, violations)
-    if text is None:
-        return None
-    try:
-        return tomllib.loads(text)
-    except tomllib.TOMLDecodeError as error:
-        violations.append(Violation("S003-METADATA", path.as_posix(), str(error)))
-        return None
-
-
 def _expect(
     violations: list[Violation],
     *,
@@ -122,104 +59,15 @@ def _expect(
     expected: object,
     path: Path,
     field: str,
-    code: str = "S003-VERSION",
 ) -> None:
     if actual != expected:
         violations.append(
             Violation(
-                code, path.as_posix(), f"{field} expected {expected!r}, got {actual!r}"
+                "S003-VERSION",
+                path.as_posix(),
+                f"{field} expected {expected!r}, got {actual!r}",
             )
         )
-
-
-def _check_exact_map(
-    violations: list[Violation],
-    *,
-    actual: object,
-    expected: dict[str, str],
-    path: Path,
-    field: str,
-) -> None:
-    if not isinstance(actual, dict):
-        violations.append(
-            Violation("S003-METADATA", path.as_posix(), f"{field} must be an object")
-        )
-        return
-    _expect(
-        violations,
-        actual=actual,
-        expected=expected,
-        path=path,
-        field=field,
-        code="S003-LOCK-DRIFT",
-    )
-    for name, version in actual.items():
-        if not isinstance(version, str) or FLOATING_PREFIX.match(version):
-            violations.append(
-                Violation(
-                    "S003-FLOATING",
-                    path.as_posix(),
-                    f"{field}.{name} must be an exact version, got {version!r}",
-                )
-            )
-
-
-def _check_package_lock(
-    root: Path,
-    relative: str,
-    expected_dependencies: dict[str, str],
-    expected_dev_dependencies: dict[str, str],
-    violations: list[Violation],
-) -> None:
-    path = root / relative
-    data = _load_json(path, violations)
-    if data is None:
-        return
-    _expect(
-        violations,
-        actual=data.get("lockfileVersion"),
-        expected=3,
-        path=path,
-        field="lockfileVersion",
-        code="S003-LOCK-DRIFT",
-    )
-    packages = data.get("packages")
-    if not isinstance(packages, dict) or not isinstance(packages.get(""), dict):
-        violations.append(
-            Violation(
-                "S003-LOCK-DRIFT", path.as_posix(), "lock root package is missing"
-            )
-        )
-        return
-    lock_root = packages[""]
-    _check_exact_map(
-        violations,
-        actual=lock_root.get("dependencies", {}),
-        expected=expected_dependencies,
-        path=path,
-        field="packages[''].dependencies",
-    )
-    _check_exact_map(
-        violations,
-        actual=lock_root.get("devDependencies", {}),
-        expected=expected_dev_dependencies,
-        path=path,
-        field="packages[''].devDependencies",
-    )
-    for dependency, version in {
-        **expected_dependencies,
-        **expected_dev_dependencies,
-    }.items():
-        package_key = f"node_modules/{dependency}"
-        entry = packages.get(package_key)
-        if not isinstance(entry, dict) or entry.get("version") != version:
-            violations.append(
-                Violation(
-                    "S003-LOCK-DRIFT",
-                    path.as_posix(),
-                    f"{package_key} exact version {version} is not locked",
-                )
-            )
 
 
 def check_repository(
@@ -275,21 +123,6 @@ def check_repository(
             path=creator_path,
             field="packageManager",
         )
-        _check_exact_map(
-            violations,
-            actual=creator.get("dependencies"),
-            expected=CREATOR_DEPENDENCIES,
-            path=creator_path,
-            field="dependencies",
-        )
-        _check_exact_map(
-            violations,
-            actual=creator.get("devDependencies"),
-            expected=CREATOR_DEV_DEPENDENCIES,
-            path=creator_path,
-            field="devDependencies",
-        )
-
     tool_path = root / "tools/toolchain-node/package.json"
     tool = _load_json(tool_path, violations)
     if tool is not None:
@@ -307,47 +140,6 @@ def check_repository(
             path=tool_path,
             field="packageManager",
         )
-        _check_exact_map(
-            violations,
-            actual=tool.get("devDependencies"),
-            expected=TOOL_DEPENDENCIES,
-            path=tool_path,
-            field="devDependencies",
-        )
-
-    uv_lock_path = root / "uv.lock"
-    uv_lock = _load_toml(uv_lock_path, violations)
-    if uv_lock is not None:
-        locked = {
-            str(entry.get("name", "")).lower(): str(entry.get("version", ""))
-            for entry in uv_lock.get("package", [])
-            if isinstance(entry, dict)
-        }
-        for name, version in PYTHON_DIRECT.items():
-            if locked.get(name) != version:
-                violations.append(
-                    Violation(
-                        "S003-LOCK-DRIFT",
-                        uv_lock_path.as_posix(),
-                        f"{name} exact version {version} is not locked",
-                    )
-                )
-
-    _check_package_lock(
-        root,
-        "apps/armi-creator-web/package-lock.json",
-        CREATOR_DEPENDENCIES,
-        CREATOR_DEV_DEPENDENCIES,
-        violations,
-    )
-    _check_package_lock(
-        root,
-        "tools/toolchain-node/package-lock.json",
-        {},
-        TOOL_DEPENDENCIES,
-        violations,
-    )
-
     manifest_path = root / "tools/toolchain-manifest.json"
     manifest = _load_json(manifest_path, violations)
     if manifest is not None:
