@@ -31,6 +31,11 @@ from armi_material.bootstrap import (
     bootstrap_material_admin_read,
 )
 from armi_memory.bootstrap import bootstrap_memory_admin_content
+from armi_mind.bootstrap import (
+    bootstrap_mind_admin_content,
+    bootstrap_mind_admin_correction,
+    bootstrap_mind_admin_read,
+)
 from armi_mood.bootstrap import (
     bootstrap_mood_admin_content,
     bootstrap_mood_admin_correction,
@@ -128,6 +133,7 @@ def bootstrap_admin(
             materials=materials,
             mood=bootstrap_mood_admin_read(),
             subject_state=bootstrap_subject_state_admin_read(),
+            mind=bootstrap_mind_admin_read(),
         )
         correction_gateway = AdminCorrectionGateway(
             factory=pool,
@@ -149,6 +155,7 @@ def bootstrap_admin(
             mood=mood,
             prompts=bootstrap_prompt_admin_reference(),
             subject_state=subject_state,
+            mind=bootstrap_mind_admin_correction(),
         )
         control = AdminControlPlane(config, credentials, observation)
         corrections = AdminCorrectionCoordinator(
@@ -172,6 +179,7 @@ def bootstrap_admin(
                     "material": bootstrap_material_admin_content(),
                     "prompt": bootstrap_prompt_admin_content(),
                     "subject_state": bootstrap_subject_state_admin_content(),
+                    "mind": bootstrap_mind_admin_content(),
                     "mood": bootstrap_mood_admin_content(),
                 },
                 guards=(

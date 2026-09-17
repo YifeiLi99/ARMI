@@ -9,7 +9,6 @@ import rfc8785
 from armi_kernel.application import CandidateFactClass, CandidateOwnerDraft
 
 from .api import (
-    CONCERN_CHANGES,
     CandidateSubjectStateDraft,
     SubjectStateKind,
     SubjectStateViolation,
@@ -24,14 +23,13 @@ _KEYS = {
     "kind",
     "expected_version",
     "next_state",
-    "concern_changes",
 }
 
 
 def encode(value: CandidateSubjectStateDraft) -> bytes:
     next_state = cast(object, json.loads(value.canonical_next_state))
     document: dict[str, object] = {
-        "schema_version": "armi.subject-state-candidate.v2",
+        "schema_version": "armi.subject-state-candidate.v3",
         "proposal_ref": value.proposal_ref,
         "atomic_group_ref": value.atomic_group_ref,
         "basis_ordinals": list(value.basis_ordinals),
@@ -39,9 +37,6 @@ def encode(value: CandidateSubjectStateDraft) -> bytes:
         "kind": value.kind.value,
         "expected_version": value.expected_version,
         "next_state": next_state,
-        "concern_changes": [
-            item.model_dump(mode="json") for item in value.concern_changes
-        ],
     }
     return rfc8785.dumps(cast(Any, document))
 
@@ -54,7 +49,7 @@ def decode(payload: bytes) -> CandidateSubjectStateDraft:
         raw = cast(dict[str, object], raw_value)
         if (
             set(raw) != _KEYS
-            or raw["schema_version"] != "armi.subject-state-candidate.v2"
+            or raw["schema_version"] != "armi.subject-state-candidate.v3"
             or rfc8785.dumps(cast(Any, raw)) != payload
         ):
             raise ValueError
@@ -79,9 +74,6 @@ def decode(payload: bytes) -> CandidateSubjectStateDraft:
             SubjectStateKind(raw["kind"]),
             raw["expected_version"],
             rfc8785.dumps(cast(Any, raw["next_state"])),
-            CONCERN_CHANGES.validate_json(
-                json.dumps(raw["concern_changes"]), strict=True
-            ),
         )
     except UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError:
         raise SubjectStateViolation("SUBJECT-STATE-CODEC") from None

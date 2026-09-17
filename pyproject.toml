@@ -35,6 +35,7 @@ members = [
     "modules/activity",
     "modules/material",
     "modules/subject-state",
+    "modules/mind",
     "modules/mood",
     "modules/prompt",
     "modules/evidence",

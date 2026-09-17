@@ -68,6 +68,13 @@ from armi_memory.api import (
     MemoryRevisionKind,
     MemorySourceKind,
 )
+from armi_mind.api import (
+    CandidateMindDraft,
+    ConcernChange,
+    MindCognitionPort,
+    apply_mind_text_change,
+    bind_concern_changes,
+)
 from armi_mood.api import (
     CandidateMoodDraft,
     MoodCandidateKind,
@@ -110,11 +117,8 @@ from armi_sleep.api import (
 )
 from armi_subject_state.api import (
     CandidateSubjectStateDraft,
-    ConcernChange,
     SubjectStateCognitionPort,
     SubjectStateKind,
-    bind_concern_changes,
-    mind_editable_state,
 )
 from armi_web_observation.api import WebResearchRequestDraft
 from pydantic import BaseModel, ValidationError
@@ -493,6 +497,7 @@ class DeterministicCandidateValidator:
         "_context",
         "_material_cognition",
         "_memory_cognition",
+        "_mind_cognition",
         "_mood_cognition",
         "_prompt_cognition",
         "_relationship_cognition",
@@ -512,6 +517,7 @@ class DeterministicCandidateValidator:
         relationship_cognition: RelationshipCognitionPort,
         sleep_cognition: SleepCognitionPort,
         subject_state_cognition: SubjectStateCognitionPort,
+        mind_cognition: MindCognitionPort,
     ) -> None:
         self._context = context
         self._activity_cognition = activity_cognition
@@ -522,6 +528,7 @@ class DeterministicCandidateValidator:
         self._relationship_cognition = relationship_cognition
         self._sleep_cognition = sleep_cognition
         self._subject_state_cognition = subject_state_cognition
+        self._mind_cognition = mind_cognition
 
     def _bind_relationship(
         self, value: CandidateRelationshipDraft
@@ -639,35 +646,32 @@ class DeterministicCandidateValidator:
             (item for item in change_set.owner_drafts if item.owner == "mind"), None
         )
         if existing is not None:
-            ordinals.update(
-                cast(CandidateSubjectStateDraft, existing.candidate).basis_ordinals
-            )
+            ordinals.update(cast(CandidateMindDraft, existing.candidate).basis_ordinals)
         if len(ordinals) > 8:
             return _rejected(
                 "CANDIDATE-CONCERN-BASIS-CAPACITY",
                 field_path=("concern_changes", "basis_refs"),
             )
         if existing is not None:
-            previous = cast(CandidateSubjectStateDraft, existing.candidate)
+            previous = cast(CandidateMindDraft, existing.candidate)
             draft = replace(
                 previous,
                 concern_changes=tuple(bound),
                 basis_ordinals=tuple(sorted(set(previous.basis_ordinals) | ordinals)),
             )
         else:
-            draft = CandidateSubjectStateDraft(
+            draft = CandidateMindDraft(
                 "proposal:99",
                 "group:1",
                 tuple(sorted(ordinals)),
                 CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
-                SubjectStateKind.MIND,
                 current[0],
                 current[1],
                 tuple(bound),
             )
         owners = (
             *(item for item in change_set.owner_drafts if item.owner != "mind"),
-            self._subject_state_cognition.bind(draft),
+            self._mind_cognition.bind(draft),
         )
         wire = json.loads(change_set.canonical_bytes)
         wire["owner_drafts"] = [_owner_draft_wire(item) for item in owners]
@@ -937,7 +941,18 @@ class DeterministicCandidateValidator:
                         cast(Any, component.payload.next_state.model_dump(mode="json"))
                     )
                     accepted[proposal.proposal_ref] = (
-                        self._subject_state_cognition.bind(
+                        self._mind_cognition.bind(
+                            CandidateMindDraft(
+                                proposal.proposal_ref,
+                                proposal.atomic_group_ref,
+                                tuple(basis.ordinal for basis in proposal_bases),
+                                CandidateFactClass(component.payload.fact_class),
+                                component.payload.expected_version,
+                                next_bytes,
+                            )
+                        )
+                        if owner is CandidateOwner.MIND
+                        else self._subject_state_cognition.bind(
                             CandidateSubjectStateDraft(
                                 proposal.proposal_ref,
                                 proposal.atomic_group_ref,
@@ -2234,15 +2249,28 @@ class DeterministicCandidateValidator:
                     )
                     if next_bytes == current[1]:
                         return _rejected("CANDIDATE-REFLECTION-NOOP")
-                    owner_draft = self._subject_state_cognition.bind(
-                        CandidateSubjectStateDraft(
-                            "proposal:1",
-                            "group:1",
-                            tuple(item.ordinal for item in cited),
-                            CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
-                            SubjectStateKind(target),
-                            cast(int, candidate.expected_version),
-                            next_bytes,
+                    owner_draft = (
+                        self._mind_cognition.bind(
+                            CandidateMindDraft(
+                                "proposal:1",
+                                "group:1",
+                                tuple(item.ordinal for item in cited),
+                                CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
+                                cast(int, candidate.expected_version),
+                                next_bytes,
+                            )
+                        )
+                        if target == "mind"
+                        else self._subject_state_cognition.bind(
+                            CandidateSubjectStateDraft(
+                                "proposal:1",
+                                "group:1",
+                                tuple(item.ordinal for item in cited),
+                                CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
+                                SubjectStateKind(target),
+                                cast(int, candidate.expected_version),
+                                next_bytes,
+                            )
                         )
                     )
             else:
@@ -2871,19 +2899,7 @@ def _expand_dialogue_candidate(
             (CandidateOwner.SELF, self_change, SelfState),
             (
                 CandidateOwner.MIND,
-                mind_change
-                if mind_change is not None
-                and any(
-                    getattr(mind_change, field, None) is not None
-                    for field in (
-                        "understanding",
-                        "attention",
-                        "thoughts",
-                        "wishes",
-                        "motivations",
-                    )
-                )
-                else None,
+                mind_change,
                 MindState,
             ),
         )
@@ -3209,15 +3225,12 @@ def _bind_dialogue_component_change(
     if current is None or basis is None:
         return None, "CANDIDATE-COMPONENT-CONTEXT"
     try:
-        current_state = state_type.model_validate_json(
-            mind_editable_state(current[1])
-            if owner is CandidateOwner.MIND
-            else current[1],
-            strict=True,
-        )
-        next_state = current_state.model_dump(mode="json")
-        field_names = (
-            (
+        if owner is CandidateOwner.MIND:
+            validated = apply_mind_text_change(current[1], change)
+        else:
+            current_state = state_type.model_validate_json(current[1], strict=True)
+            next_state = current_state.model_dump(mode="json")
+            field_names = (
                 "name",
                 "self_description",
                 "interests",
@@ -3226,29 +3239,18 @@ def _bind_dialogue_component_change(
                 "goals",
                 "self_narrative",
             )
-            if owner is CandidateOwner.SELF
-            else (
-                "understanding",
-                "attention",
-                "thoughts",
-                "wishes",
-                "motivations",
+            for field_name in field_names:
+                replacement = getattr(change, field_name, None)
+                if replacement is None:
+                    continue
+                next_state[field_name] = (
+                    list(replacement.values)
+                    if hasattr(replacement, "values")
+                    else replacement.value
+                )
+            validated = state_type.model_validate_json(
+                rfc8785.dumps(cast(Any, next_state)), strict=True
             )
-            if owner is CandidateOwner.MIND
-            else ()
-        )
-        for field_name in field_names:
-            replacement = getattr(change, field_name, None)
-            if replacement is None:
-                continue
-            next_state[field_name] = (
-                list(replacement.values)
-                if hasattr(replacement, "values")
-                else replacement.value
-            )
-        validated = state_type.model_validate_json(
-            rfc8785.dumps(cast(Any, next_state)), strict=True
-        )
     except ValidationError, rfc8785.CanonicalizationError:
         return None, "CANDIDATE-COMPONENT-STATE"
     return (

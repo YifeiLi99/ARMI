@@ -2,8 +2,8 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid7
 
 import pytest
-from armi_subject_state._concerns import apply_concern_changes
-from armi_subject_state.api import (
+from armi_mind._concerns import apply_concern_changes
+from armi_mind.api import (
     CloseConcern,
     CreateConcern,
     TimedReview,
@@ -151,7 +151,7 @@ def test_attention_projection_reports_time_without_mutating_the_concern() -> Non
 
 
 def test_owner_signals_keep_condition_identity_across_time_and_exclude_own_activity_round():
-    from armi_subject_state._concerns import concern_signals
+    from armi_mind._concerns import concern_signals
 
     now = datetime(2026, 9, 17, tzinfo=UTC)
     records = apply_concern_changes(
@@ -179,8 +179,8 @@ def test_owner_signals_keep_condition_identity_across_time_and_exclude_own_activ
 
 
 def test_event_review_requires_new_creator_input_or_related_result_and_preserves_waiting():
-    from armi_subject_state._concerns import concern_signals
-    from armi_subject_state.api import ActivityReview, CreatorInputReview
+    from armi_mind._concerns import concern_signals
+    from armi_mind.api import ActivityReview, CreatorInputReview
 
     now = datetime(2026, 9, 17, tzinfo=UTC)
     records = apply_concern_changes(
@@ -263,8 +263,8 @@ def test_event_review_requires_new_creator_input_or_related_result_and_preserves
 
 def test_scripted_curiosity_asks_waits_and_resolves_only_after_feedback():
     """Scripted owner candidates verify the mechanism, not model behavior."""
-    from armi_subject_state._concerns import concern_signals
-    from armi_subject_state.api import CreatorInputReview
+    from armi_mind._concerns import concern_signals
+    from armi_mind.api import CreatorInputReview
 
     now = datetime(2026, 9, 17, tzinfo=UTC)
     records = apply_concern_changes(

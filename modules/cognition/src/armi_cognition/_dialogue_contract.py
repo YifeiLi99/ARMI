@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
+from armi_mind.api import DialogueMindChange
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -70,20 +71,6 @@ class DialogueSelfChange(_StrictModel, frozen=True):
     def validate_change(self) -> DialogueSelfChange:
         if all(getattr(self, field) is None for field in type(self).model_fields):
             raise ValueError("self change is empty")
-        return self
-
-
-class DialogueMindChange(_StrictModel, frozen=True):
-    understanding: DialogueSummaryListReplacement | None = None
-    attention: DialogueSummaryListReplacement | None = None
-    thoughts: DialogueSummaryListReplacement | None = None
-    wishes: DialogueSummaryListReplacement | None = None
-    motivations: DialogueSummaryListReplacement | None = None
-
-    @model_validator(mode="after")
-    def validate_change(self) -> DialogueMindChange:
-        if all(getattr(self, field) is None for field in type(self).model_fields):
-            raise ValueError("mind change is empty")
         return self
 
 

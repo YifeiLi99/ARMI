@@ -34,7 +34,7 @@ class SubjectStateRecoveryParticipant:
         return RecoveryContribution(
             self.owner_identity,
             findings=()
-            if count == 3
+            if count == 2
             else (
                 RecoveryFindingContribution(
                     "subject_state",

@@ -18,21 +18,23 @@ from armi_kernel.application import (
     SubjectCommitViolation,
 )
 from armi_kernel.contracts import Digest, TraceId
-from armi_subject_state.api import (
+from armi_runtime.application.subject_summary import (
+    SubjectComponentKind,
     SubjectComponentSummary,
-    SubjectStateKind,
-    SubjectStateViolation,
     SubjectSummary,
 )
+from armi_subject_state.api import SubjectStateViolation
 
 
 def test_subject_summary_is_private_and_ordered() -> None:
     summary = SubjectSummary(
         2,
         (
-            SubjectComponentSummary(SubjectStateKind.SELF, 2, "armi.self.v1"),
-            SubjectComponentSummary(SubjectStateKind.MIND, 1, "armi.mind.v3"),
-            SubjectComponentSummary(SubjectStateKind.LIFE_MODE, 1, "armi.life-mode.v1"),
+            SubjectComponentSummary(SubjectComponentKind.SELF, 2, "armi.self.v1"),
+            SubjectComponentSummary(SubjectComponentKind.MIND, 1, "armi.mind.v3"),
+            SubjectComponentSummary(
+                SubjectComponentKind.LIFE_MODE, 1, "armi.life-mode.v1"
+            ),
         ),
         uuid7(),
         datetime.now(UTC),
@@ -40,7 +42,7 @@ def test_subject_summary_is_private_and_ordered() -> None:
     assert summary.subject_version == 2
     assert all(value.content_visibility == "private" for value in summary.components)
     with pytest.raises(SubjectStateViolation, match="SUBJECT-STATE-SUMMARY"):
-        SubjectComponentSummary(SubjectStateKind.SELF, 2, "armi.self.unsupported")
+        SubjectComponentSummary(SubjectComponentKind.SELF, 2, "armi.self.unsupported")
 
 
 def test_commit_result_requires_exact_applied_shape_and_redacts_error() -> None:

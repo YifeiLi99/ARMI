@@ -126,9 +126,6 @@ class PostgreSQLSubjectStateDataRightsParticipant:
                                     WHERE value::uuid<>ALL(%s::uuid[])
                                   ),'[]'::jsonb)
                                 )
-                              WHEN head.component_kind='mind' THEN
-                                jsonb_set(safe.semantic_payload,'{schema_version}','"armi.mind.v3"'::jsonb)
-                                || jsonb_build_object('concerns',COALESCE(safe.semantic_payload->'concerns','[]'::jsonb))
                               ELSE safe.semantic_payload END,
                               'private'
                        FROM armi.subject_component_heads AS head

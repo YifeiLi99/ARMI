@@ -499,9 +499,34 @@ def test_psychological_storage_cannot_leak_into_business_consumers() -> None:
     from tools.check_workspace_boundaries import analyze_source
 
     findings = analyze_source(
-        "from armi_subject_state.api import CONCERN_RECORDS",
+        "from armi_mind.api import CONCERN_RECORDS",
         path="modules/context/src/armi_context/example.py",
         module="armi_context.example",
         distribution="armi-context",
     )
     assert any(item.code == "ARC-PSYCHOLOGY-STORAGE" for item in findings)
+
+
+def test_mind_and_subject_state_cannot_depend_on_each_other_or_mood():
+    for source, target in (
+        ("mind", "subject_state"),
+        ("mind", "mood"),
+        ("mind", "runtime"),
+        ("subject-state", "mind"),
+    ):
+        findings = analyze_source(
+            f"from armi_{target}.api import Example",
+            path=f"modules/{source}/src/armi_{source.replace('-', '_')}/example.py",
+            module=f"armi_{source.replace('-', '_')}.example",
+            distribution=f"armi-{source}",
+        )
+        assert any(item.code == "ARC-SURFACE-REVERSE" for item in findings)
+
+
+def test_subject_state_public_contract_has_no_psychological_responsibilities():
+    import armi_subject_state.api as api
+
+    assert {item.value for item in api.SubjectStateKind} == {"self", "life_mode"}
+    assert not any(
+        "mind" in name.lower() or "concern" in name.lower() for name in api.__all__
+    )

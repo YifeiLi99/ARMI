@@ -44,6 +44,7 @@ from armi_kernel.contracts import (
     TraceId,
 )
 from armi_memory.api import MemoryReadPort
+from armi_mind.api import MindReadPort
 from armi_mood.api import MoodReadPort, mood_snapshot_bytes
 from armi_prompt.api import PromptContextSource, PromptReadPort
 from armi_relationship.api import RelationshipReadPort
@@ -153,6 +154,7 @@ class PostgreSQLContextRepository:
         mood: MoodReadPort,
         prompts: PromptReadPort,
         subject_state: SubjectStateReadPort,
+        mind: MindReadPort,
         dialogue: ContextDialogueReadPort,
     ) -> None:
         self._relationships = relationships
@@ -172,6 +174,7 @@ class PostgreSQLContextRepository:
         self._mood = mood
         self._prompts = prompts
         self._subject_state = subject_state
+        self._mind = mind
         self._dialogue = dialogue
 
     async def select_one(self) -> CognitiveEpisodeId | None:
@@ -211,7 +214,11 @@ class PostgreSQLContextRepository:
             )
             for item in components
         )
-        signals = await self._subject_state.consideration_signals(
+        mind = await self._mind.current_head(tx, subject_id=episode.subject_id)
+        component_payloads += (
+            ("mind", mind.current_revision_id, mind.version, mind.canonical_state),
+        )
+        signals = await self._mind.consideration_signals(
             tx,
             subject_id=subject.subject_id,
             event_purpose=opportunity.purpose,

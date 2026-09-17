@@ -12,9 +12,9 @@ from armi_attention.api import (
 from armi_cognition.api import CognitionOperationReadPort
 from armi_interaction.api import InteractionIdentityPort
 from armi_kernel.application import ConsiderationSignal
+from armi_mind.api import MindReadPort
 from armi_mood.api import MoodReadPort
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWork, PostgreSQLTransaction
-from armi_subject_state.api import SubjectStateReadPort
 
 from armi_runtime.application.cognition_cycle import RuntimeCognitionState
 
@@ -23,9 +23,9 @@ class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
     __slots__ = (
         "_cognition",
         "_interaction",
+        "_mind",
         "_mood",
         "_outlet_health",
-        "_subject_state",
     )
 
     def __init__(
@@ -34,13 +34,13 @@ class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
         cognition: CognitionOperationReadPort,
         interaction: InteractionIdentityPort,
         mood: MoodReadPort,
-        subject_state: SubjectStateReadPort,
+        mind: MindReadPort,
         outlet_health: Callable[[str], Awaitable[tuple[str, str | None]]],
     ) -> None:
         self._cognition = cognition
         self._interaction = interaction
         self._mood = mood
-        self._subject_state = subject_state
+        self._mind = mind
         self._outlet_health = outlet_health
 
     async def outlet_health(self, outlet: str) -> tuple[str, str | None]:
@@ -53,7 +53,7 @@ class RuntimeLifeOpportunityFacts(LifeOpportunityFactsPort):
         subject_id: UUID,
         minimum_delay_seconds: int,
     ) -> tuple[ConsiderationSignal, ...]:
-        mind = await self._subject_state.consideration_signals(
+        mind = await self._mind.consideration_signals(
             transaction,
             subject_id=subject_id,
         )

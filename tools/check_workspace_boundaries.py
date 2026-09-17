@@ -340,6 +340,21 @@ DISTRIBUTIONS = (
         ),
     ),
     Distribution(
+        name="armi-mind",
+        module="armi_mind",
+        project_dir=Path("modules/mind"),
+        layers=(),
+        dependencies=(
+            "armi-data-rights==0.0.0",
+            "armi-kernel==0.0.0",
+            "armi-runtime-foundation==0.0.0",
+            "pydantic==2.13.4",
+            "psycopg[binary]==3.3.4",
+            "psycopg-pool==3.3.1",
+            "rfc8785==0.1.4",
+        ),
+    ),
+    Distribution(
         name="armi-mood",
         module="armi_mood",
         project_dir=Path("modules/mood"),
@@ -425,6 +440,7 @@ DISTRIBUTIONS = (
             "armi-relationship==0.0.0",
             "armi-runtime-foundation==0.0.0",
             "armi-sleep==0.0.0",
+            "armi-mind==0.0.0",
             "armi-subject-state==0.0.0",
             "rfc8785==0.1.4",
         ),
@@ -541,6 +557,7 @@ DISTRIBUTIONS = (
             "armi-relationship==0.0.0",
             "armi-runtime-foundation==0.0.0",
             "armi-sleep==0.0.0",
+            "armi-mind==0.0.0",
             "armi-subject-state==0.0.0",
             "armi-web-observation==0.0.0",
             "pydantic==2.13.4",
@@ -624,6 +641,7 @@ DISTRIBUTIONS = (
             "armi-sleep==0.0.0",
             "armi-activity==0.0.0",
             "armi-material==0.0.0",
+            "armi-mind==0.0.0",
             "armi-subject-state==0.0.0",
             "armi-web-observation==0.0.0",
             "armi-mood==0.0.0",
@@ -685,6 +703,7 @@ DISTRIBUTIONS = (
             "armi-attention==0.0.0",
             "armi-perception==0.0.0",
             "armi-prompt==0.0.0",
+            "armi-mind==0.0.0",
             "armi-subject-state==0.0.0",
             "armi-sleep==0.0.0",
             "armi-web-observation==0.0.0",
@@ -723,6 +742,7 @@ DATA_RIGHTS_PARTICIPANT_DISTRIBUTIONS = frozenset(
         "armi-relationship",
         "armi-sleep",
         "armi-subject-state",
+        "armi-mind",
         "armi-web-observation",
     }
 )
@@ -1176,6 +1196,11 @@ def _check_import(
             and target_distribution not in {None, "armi-kernel"}
         )
         or (
+            source_distribution in {"armi-mind", "armi-subject-state"}
+            and target_distribution
+            not in {None, source_distribution, "armi-kernel", "armi-runtime-foundation"}
+        )
+        or (
             source_distribution == "armi-channel-napcat"
             and target_distribution not in {None, "armi-channel-napcat"}
         )
@@ -1333,6 +1358,7 @@ def _check_import(
                 "armi-runtime-foundation",
                 "armi-sleep",
                 "armi-subject-state",
+                "armi-mind",
             }
         )
         or (
@@ -1427,6 +1453,7 @@ def _check_import(
                 "armi-runtime-foundation",
                 "armi-sleep",
                 "armi-subject-state",
+                "armi-mind",
                 "armi-web-observation",
             }
         )
@@ -1577,6 +1604,13 @@ def _check_import(
                 "armi_subject_state.bootstrap",
             }
         ),
+        "armi-mind": frozenset(
+            {
+                "armi_mind",
+                "armi_mind.api",
+                "armi_mind.bootstrap",
+            }
+        ),
         "armi-mood": frozenset({"armi_mood", "armi_mood.api", "armi_mood.bootstrap"}),
         "armi-prompt": frozenset(
             {"armi_prompt", "armi_prompt.api", "armi_prompt.bootstrap"}
@@ -1718,6 +1752,18 @@ def _check_import(
                     path,
                     line,
                     "subject-state bootstrap is reserved for Runtime/Admin composition",
+                )
+            )
+        if imported_module == "armi_mind.bootstrap" and not (
+            source_module.startswith("armi_runtime.composition")
+            or source_module == "armi_admin.composition"
+        ):
+            violations.append(
+                Violation(
+                    "ARC-SURFACE-BOOTSTRAP",
+                    path,
+                    line,
+                    "mind bootstrap is reserved for Runtime/Admin composition",
                 )
             )
         if imported_module == "armi_mood.bootstrap" and not (
@@ -1984,8 +2030,8 @@ def analyze_source(
             )
             names = tuple(alias.name for alias in node.names)
             if (
-                imported_module == "armi_subject_state.api"
-                and distribution != "armi-subject-state"
+                imported_module == "armi_mind.api"
+                and distribution != "armi-mind"
                 and "/src/" in path.replace("\\", "/")
                 and any(
                     name
@@ -2116,6 +2162,9 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
         / "modules/subject-state/src/armi_subject_state/api.py",
         "armi_subject_state.bootstrap": root
         / "modules/subject-state/src/armi_subject_state/bootstrap.py",
+        "armi_mind": root / "modules/mind/src/armi_mind/__init__.py",
+        "armi_mind.api": root / "modules/mind/src/armi_mind/api.py",
+        "armi_mind.bootstrap": root / "modules/mind/src/armi_mind/bootstrap.py",
         "armi_mood": root / "modules/mood/src/armi_mood/__init__.py",
         "armi_mood.api": root / "modules/mood/src/armi_mood/api.py",
         "armi_mood.bootstrap": root / "modules/mood/src/armi_mood/bootstrap.py",
@@ -2404,6 +2453,24 @@ def validate_source_boundaries(root: Path) -> list[Violation]:
                         relative,
                         1,
                         "subject-state table SQL is owned by armi-subject-state",
+                    )
+                )
+            if (
+                distribution.name != "armi-mind"
+                and ".runtime_resources.schema.alembic." not in module
+                and re.search(
+                    r"\b(?:FROM|JOIN|INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+armi\."
+                    r"(?:mind_heads|mind_revisions)\b",
+                    source,
+                    re.IGNORECASE,
+                )
+            ):
+                violations.append(
+                    Violation(
+                        "ARC-MIND-SQL",
+                        relative,
+                        1,
+                        "mind table SQL is owned by armi-mind",
                     )
                 )
             if (

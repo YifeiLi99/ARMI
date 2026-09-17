@@ -26,6 +26,7 @@ from armi_kernel.application import (
 )
 from armi_local_control.runtime_errors import RuntimeViolation
 from armi_material.api import MaterialAdminItem, MaterialAdminReadPort
+from armi_mind.api import MindAdminReadPort, mind_attention_projection, mind_signals
 from armi_mood.api import MoodAdminReadPort
 from armi_runtime_foundation import (
     PostgreSQLAdminTransaction,
@@ -36,11 +37,7 @@ from armi_runtime_foundation import (
     usage_statement,
 )
 from armi_sleep.api import SleepAdminReadPort
-from armi_subject_state.api import (
-    SubjectStateAdminReadPort,
-    mind_attention_projection,
-    mind_signals,
-)
+from armi_subject_state.api import SubjectStateAdminReadPort
 
 from .role_session import AdminRoleBoundPool
 from .runtime_foundation import RuntimeFoundationAdminAdapter
@@ -169,6 +166,7 @@ class AdminObservationGateway:
         "_factory",
         "_interaction",
         "_materials",
+        "_mind",
         "_mood",
         "_opportunity",
         "_runtime",
@@ -191,6 +189,7 @@ class AdminObservationGateway:
         materials: MaterialAdminReadPort,
         mood: MoodAdminReadPort,
         subject_state: SubjectStateAdminReadPort,
+        mind: MindAdminReadPort,
         sleep: SleepAdminReadPort,
     ) -> None:
         self._factory = factory
@@ -205,6 +204,7 @@ class AdminObservationGateway:
         self._materials = materials
         self._mood = mood
         self._subject_state = subject_state
+        self._mind = mind
         self._sleep = sleep
 
     def environment(self) -> dict[str, object] | None:
@@ -251,17 +251,8 @@ class AdminObservationGateway:
                 for key in cast(list[list[str]], result.pop("consumed_signal_keys", []))
             )
             if mode == "status" and result.get("observed_at") is not None:
-                components = self._subject_state.current_components(
-                    uow.transaction, private=True
-                )
-                mind = next(
-                    (item for item in components if item.kind.value == "mind"), None
-                )
-                signals = (
-                    ()
-                    if mind is None
-                    else mind_signals(json.dumps(mind.payload).encode("utf-8"))
-                )
+                mind = self._mind.current(uow.transaction, private=True)
+                signals = mind_signals(json.dumps(mind.payload).encode("utf-8"))
                 mood_signals = self._mood.consideration_signals(
                     uow.transaction,
                     as_of=datetime.fromisoformat(str(result["observed_at"])),
@@ -292,12 +283,11 @@ class AdminObservationGateway:
                     ),
                     consumed,
                 )
-                if mind is not None:
-                    result["concerns"] = mind_attention_projection(
-                        json.dumps(mind.payload).encode("utf-8"),
-                        as_of=datetime.fromisoformat(str(result["observed_at"])),
-                        consumed=consumed,
-                    )
+                result["concerns"] = mind_attention_projection(
+                    json.dumps(mind.payload).encode("utf-8"),
+                    as_of=datetime.fromisoformat(str(result["observed_at"])),
+                    consumed=consumed,
+                )
             return result
 
     def cognition_read(
@@ -472,6 +462,7 @@ class AdminObservationGateway:
                 }
             components = self._subject_state.current_components(tx, private=private)
             mood = self._mood.current_component(tx, private=private)
+            mind = self._mind.current(tx, private=private)
             material = (
                 self._materials.private_snapshot(tx, subject.subject_id)
                 if private
@@ -499,6 +490,15 @@ class AdminObservationGateway:
                 for item in combined
             ],
         }
+        cast(list[object], result["components"]).insert(
+            1,
+            {
+                "component_kind": "mind",
+                "component_version": mind.version,
+                "privacy_scope": mind.privacy_scope,
+                **({"payload": _safe(mind.payload)} if private else {}),
+            },
+        )
         if material is not None:
             result["materials"] = [
                 self._private_material(item) for item in material.items

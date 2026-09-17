@@ -137,6 +137,8 @@ TABLE_OWNERSHIP: Mapping[str, TableOwnership] = {
     ),
     "prompt_documents": TableOwnership("prompt", maintenance_writable=True),
     "prompt_revisions": TableOwnership("prompt", maintenance_writable=True),
+    "mind_heads": TableOwnership("mind", maintenance_writable=True),
+    "mind_revisions": TableOwnership("mind", maintenance_writable=True),
     "mood_heads": TableOwnership("mood", maintenance_writable=True),
     "mood_revisions": TableOwnership("mood", maintenance_writable=True),
     "mood_appraisal_events": TableOwnership("mood", maintenance_writable=True),

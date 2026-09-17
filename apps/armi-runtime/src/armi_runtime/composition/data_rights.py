@@ -205,6 +205,7 @@ def compose_data_rights_participants(
         "activity",
         "material",
         "subject-state",
+        "mind",
         "mood",
         "prompt",
         "sleep",

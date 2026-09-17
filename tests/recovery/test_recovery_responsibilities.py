@@ -8,6 +8,7 @@ import pytest
 from armi_data_rights.api import EmptyDataRightsParticipant
 from armi_mood.api import MoodReadPort
 from armi_prompt.api import PromptReadPort
+from armi_runtime.composition.database import compose_mind_module as bootstrap_mind
 from armi_runtime.composition.owner_roster import compose_runtime_owner_roster
 from armi_runtime_foundation import (
     EmptyRecoveryParticipant,
@@ -24,23 +25,25 @@ def _scope() -> RecoveryScope:
     return RecoveryScope(uuid7(), uuid7(), uuid7(), uuid7(), uuid7(), 1)
 
 
-def test_runtime_composition_builds_the_fixed_twenty_two_owner_roster() -> None:
+def test_runtime_composition_builds_the_fixed_twenty_three_owner_roster() -> None:
     roster = compose_runtime_owner_roster(
         data_rights=EmptyDataRightsParticipant("data-rights"),
         mood_read=cast(MoodReadPort, object()),
         prompt_read=cast(PromptReadPort, object()),
         subject_state_read=cast(SubjectStateReadPort, object()),
+        mind_read=bootstrap_mind().read,
     )
     participants = roster.recovery
     expected = roster.expected_recovery_owners
 
-    assert len(participants) == 22
+    assert len(participants) == 23
     assert tuple(item.owner_identity for item in participants) == expected
-    assert len(set(expected)) == 22
+    assert len(set(expected)) == 23
     assert expected == tuple(
         RecoveryOwnerIdentity(value)
         for value in (
             "subject-state",
+            "mind",
             "mood",
             "prompt",
             "activity",

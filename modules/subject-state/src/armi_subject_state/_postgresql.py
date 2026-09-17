@@ -3,19 +3,15 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
 from typing import Any, cast
 from uuid import UUID, uuid7
 
 import rfc8785
-from armi_kernel.application import ConsiderationSignal
 from armi_runtime_foundation import PostgreSQLAdminTransaction, PostgreSQLTransaction
 
 from ._application import SubjectStateApplication
-from ._concerns import CONCERN_RECORDS, apply_concern_changes, concern_signals
 from .api import (
     CandidateSubjectStateDraft,
-    ConcernRecord,
     LifeModeHead,
     SubjectStateBirthContinuity,
     SubjectStateHead,
@@ -38,15 +34,6 @@ _INITIAL: dict[SubjectStateKind, dict[str, object]] = {
         "self_narrative": None,
         "tensions": [],
     },
-    SubjectStateKind.MIND: {
-        "schema_version": "armi.mind.v3",
-        "understanding": [],
-        "attention": [],
-        "thoughts": [],
-        "wishes": [],
-        "motivations": [],
-        "concerns": [],
-    },
     SubjectStateKind.LIFE_MODE: {
         "schema_version": "armi.life-mode.v1",
         "mode": "awake",
@@ -60,49 +47,6 @@ class PostgreSQLSubjectStateOwner:
 
     def __init__(self, application: SubjectStateApplication) -> None:
         self._application = application
-
-    async def attention_status(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        subject_id: UUID,
-        as_of: datetime,
-        consumed: frozenset[tuple[str, str, str]],
-    ) -> list[dict[str, object]]:
-        from ._concerns import concern_attention_status
-
-        return concern_attention_status(
-            await self.concerns(transaction, subject_id=subject_id),
-            as_of=as_of,
-            consumed=consumed,
-        )
-
-    async def consideration_signals(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        subject_id: UUID,
-        event_purpose: str | None = None,
-        event_ref: UUID | None = None,
-        event_at: datetime | None = None,
-        activity_id: UUID | None = None,
-    ) -> tuple[ConsiderationSignal, ...]:
-        return concern_signals(
-            await self.concerns(transaction, subject_id=subject_id),
-            event_purpose=event_purpose,
-            event_ref=event_ref,
-            event_at=event_at,
-            activity_id=activity_id,
-        )
-
-    async def concerns(
-        self, transaction: PostgreSQLTransaction, *, subject_id: UUID
-    ) -> tuple[ConcernRecord, ...]:
-        heads = await self.current_heads(transaction, subject_id=subject_id)
-        mind = next(item for item in heads if item.kind is SubjectStateKind.MIND)
-        return CONCERN_RECORDS.validate_json(
-            json.dumps(json.loads(mind.canonical_state)["concerns"]), strict=True
-        )
 
     def continuity(
         self, transaction: PostgreSQLAdminTransaction, *, subject_id: UUID | None
@@ -150,12 +94,12 @@ class PostgreSQLSubjectStateOwner:
             JOIN armi.subject_component_revisions AS revision
               ON revision.component_revision_id = head.current_revision_id
             WHERE head.subject_id = %s
-            ORDER BY CASE head.component_kind WHEN 'self' THEN 1 WHEN 'mind' THEN 2 WHEN 'life_mode' THEN 3 END
+            ORDER BY CASE head.component_kind WHEN 'self' THEN 1 WHEN 'life_mode' THEN 2 END
         """,
                 (subject_id,),
             )
         ).fetchall()
-        if tuple(str(row[0]) for row in rows) != ("self", "mind", "life_mode"):
+        if tuple(str(row[0]) for row in rows) != ("self", "life_mode"):
             raise SubjectStateViolation("SUBJECT-STATE-MISSING")
         return tuple(
             SubjectStateHead(
@@ -239,7 +183,7 @@ class PostgreSQLSubjectStateOwner:
     ) -> int:
         row = await (
             await transaction.execute(
-                "SELECT count(*) FROM armi.subject_component_heads WHERE subject_id = %s AND component_kind IN ('self','mind','life_mode')",
+                "SELECT count(*) FROM armi.subject_component_heads WHERE subject_id = %s AND component_kind IN ('self','life_mode')",
                 (subject_id,),
             )
         ).fetchone()
@@ -287,38 +231,6 @@ class PostgreSQLSubjectStateOwner:
             if head is None or int(head[1]) != draft.expected_version:
                 raise SubjectStateViolation("SUBJECT-STATE-HEAD-STALE")
             next_payload = json.loads(draft.canonical_next_state)
-            if draft.kind is SubjectStateKind.MIND:
-                current = await (
-                    await transaction.execute(
-                        "SELECT semantic_payload,statement_timestamp() FROM armi.subject_component_revisions WHERE component_revision_id=%s",
-                        (head[0],),
-                    )
-                ).fetchone()
-                if current is None:
-                    raise SubjectStateViolation("SUBJECT-STATE-MISSING")
-                records = CONCERN_RECORDS.validate_json(
-                    json.dumps(current[0]["concerns"]), strict=True
-                )
-                if (
-                    "concerns" in next_payload
-                    and next_payload["concerns"] != current[0]["concerns"]
-                ):
-                    raise SubjectStateViolation("SUBJECT-STATE-CONCERN-REPLACEMENT")
-                try:
-                    records = apply_concern_changes(
-                        records,
-                        draft.concern_changes,
-                        now=cast(datetime, current[1]),
-                        commit_id=commit_id,
-                        basis_ordinals=draft.basis_ordinals,
-                    )
-                except ValueError as error:
-                    raise SubjectStateViolation(
-                        "SUBJECT-STATE-CONCERN-CHANGE"
-                    ) from error
-                next_payload["concerns"] = [
-                    item.model_dump(mode="json") for item in records
-                ]
             revision_id = uuid7()
             await transaction.execute(
                 """INSERT INTO armi.subject_component_revisions (component_revision_id, subject_id, component_kind, component_version, previous_revision_id, origin_kind, origin_ref, subject_commit_id, proposal_ref, semantic_payload, privacy_scope) VALUES (%s,%s,%s,%s,%s,'subject_commit',%s,%s,%s,%s::jsonb,'private')""",

@@ -11,6 +11,7 @@ import psycopg
 from armi_interaction.api import InteractionBirthPort
 from armi_kernel.application import BirthManifest, BirthResult, BirthViolation
 from armi_kernel.contracts import Digest
+from armi_mind.api import MindBirthPort
 from armi_mood.api import MoodBirthPort
 from armi_prompt.api import (
     PromptBirthPort,
@@ -37,6 +38,7 @@ def probe_continuity(
     birth_contract_digest: Digest,
     interaction: InteractionBirthPort,
     subject_state: SubjectStateBirthPort,
+    mind: MindBirthPort,
     mood: MoodBirthPort,
     prompts: PromptBirthPort,
 ) -> ContinuityState:
@@ -80,6 +82,7 @@ def probe_continuity(
                 prompt_counts = prompts.continuity(transaction, subject_id=None)
                 subject_counts = subject_state.continuity(transaction, subject_id=None)
                 mood_counts = mood.continuity(transaction, subject_id=None)
+                mind_counts = mind.continuity(transaction, subject_id=None)
                 return (
                     ContinuityState.UNBORN
                     if counts is not None
@@ -91,6 +94,8 @@ def probe_continuity(
                     and prompt_counts.revision_count == 0
                     and subject_counts.head_count == 0
                     and subject_counts.revision_count == 0
+                    and mind_counts.head_count == 0
+                    and mind_counts.revision_count == 0
                     and mood_counts.head_count == 0
                     and mood_counts.revision_count == 0
                     else ContinuityState.INVALID
@@ -104,6 +109,7 @@ def probe_continuity(
                 transaction, subject_id=rows[0][0]
             )
             mood_counts = mood.continuity(transaction, subject_id=rows[0][0])
+            mind_counts = mind.continuity(transaction, subject_id=rows[0][0])
     except psycopg.Error, PromptViolation, RuntimeError:
         return ContinuityState.INVALID
     if len(rows) != 1:
@@ -117,8 +123,10 @@ def probe_continuity(
         or interaction_counts.party_count != 2
         or prompt_counts.document_count != 3
         or prompt_counts.revision_count < 1
-        or subject_counts.head_count != 3
-        or subject_counts.revision_count < 3
+        or subject_counts.head_count != 2
+        or subject_counts.revision_count < 2
+        or mind_counts.head_count != 1
+        or mind_counts.revision_count < 1
         or mood_counts.head_count != 1
         or mood_counts.revision_count < 1
         or interaction_counts.default_scene_count != 1
@@ -156,16 +164,18 @@ class BirthArtifacts:
 class BirthRepository:
     """Write all birth facts through the caller's active SERIALIZABLE UoW."""
 
-    __slots__ = ("_interaction", "_mood", "_prompts", "_subject_state")
+    __slots__ = ("_interaction", "_mind", "_mood", "_prompts", "_subject_state")
 
     def __init__(
         self,
         subject_state: SubjectStateBirthPort,
+        mind: MindBirthPort,
         mood: MoodBirthPort,
         prompts: PromptBirthPort,
         interaction: InteractionBirthPort,
     ) -> None:
         self._subject_state = subject_state
+        self._mind = mind
         self._prompts = prompts
         self._mood = mood
         self._interaction = interaction
@@ -292,6 +302,7 @@ class BirthRepository:
         await self._subject_state.initialize(
             unit_of_work.transaction, subject_id=subject_id
         )
+        await self._mind.initialize(unit_of_work.transaction, subject_id=subject_id)
         await self._mood.initialize(unit_of_work.transaction, subject_id=subject_id)
         return BirthResult(
             subject_id=subject_id,

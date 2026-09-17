@@ -135,6 +135,7 @@ from armi_live_vision.bootstrap import bootstrap_live_vision_commit
 from armi_live_voice.bootstrap import bootstrap_live_voice_context_read
 from armi_local_control.configuration import EnvironmentFileCredentialPort
 from armi_local_control.runtime_process import RuntimeProcessManager
+from armi_mind.api import CandidateMindDraft
 from armi_perception.api import (
     ExternalContentRecognitionResult,
     ExternalContentRecognitionStatus,
@@ -185,9 +186,11 @@ from armi_runtime.composition.artifacts import (
 )
 from armi_runtime.composition.birth import BirthTransaction
 from armi_runtime.composition.birth_manifest import packaged_birth_digests
+from armi_runtime.composition.candidate_validation_tool import bootstrap_mind_cognition
 from armi_runtime.composition.data_rights_contracts import (
     DATA_RIGHTS_OWNER_CONTRACTS,
 )
+from armi_runtime.composition.database import compose_mind_module as bootstrap_mind
 from armi_runtime.composition.model_verification import GENERIC_COGNITION_INSTRUCTIONS
 from armi_runtime.composition.owner_roster import compose_runtime_owner_roster
 from armi_runtime.composition.postgresql_test import (
@@ -298,7 +301,7 @@ def _life_opportunity_facts(
         cognition=bootstrap_cognition_operation(),
         interaction=bootstrap_interaction_identity(_TEST_IDENTITY_TOKENS),
         mood=bootstrap_mood().read,
-        subject_state=bootstrap_subject_state().read,
+        mind=bootstrap_mind().read,
         outlet_health=outlet_health,
     )
 
@@ -309,6 +312,7 @@ _ADMIN_DSN = os.environ.get("S009_ADMIN_DSN")
 def _birth_repository() -> BirthRepository:
     return BirthRepository(
         bootstrap_subject_state().birth,
+        bootstrap_mind().birth,
         bootstrap_mood().birth,
         bootstrap_prompt().birth,
         bootstrap_interaction_birth(),
@@ -1339,7 +1343,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     )
                     self.assertEqual(changed, repeated)
                     if concern:
-                        from armi_subject_state.api import ConcernRecord, TimedReview
+                        from armi_mind.api import ConcernRecord, TimedReview
 
                         now = datetime.now(UTC) - timedelta(hours=8)
                         records = (
@@ -1363,8 +1367,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             ),
                         )
                         await unit.transaction.execute(
-                            "UPDATE armi.subject_component_revisions SET semantic_payload="
-                            "jsonb_set(semantic_payload,'{concerns}',%s::jsonb) WHERE subject_id=%s AND component_kind='mind'",
+                            "UPDATE armi.mind_revisions SET semantic_payload="
+                            "jsonb_set(semantic_payload,'{concerns}',%s::jsonb) WHERE subject_id=%s",
                             (
                                 json.dumps(
                                     [item.model_dump(mode="json") for item in records]
@@ -1762,6 +1766,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
     def test_supported_v22_database_upgrade_preserves_mind_history(self) -> None:
         self._assert_supported_database_upgrade("v22")
 
+    def test_supported_v23_database_upgrade_preserves_mind_history(self) -> None:
+        self._assert_supported_database_upgrade("v23")
+
     def _assert_supported_database_upgrade(self, source_version: str) -> None:
         from zipfile import ZipFile
 
@@ -1852,6 +1859,25 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 (historical_artifact, historical_object, "a" * 32),
             )
 
+        class SourceSchemaMindFixture:
+            async def initialize(self, transaction, *, subject_id):
+                from armi_mind.api import initial_mind_state
+
+                revision_id = uuid7()
+                await transaction.execute(
+                    "INSERT INTO armi.subject_component_revisions (component_revision_id,subject_id,component_kind,component_version,origin_kind,origin_ref,semantic_payload,privacy_scope) VALUES (%s,%s,'mind',1,'bootstrap',%s,%s::jsonb,'private')",
+                    (
+                        revision_id,
+                        subject_id,
+                        subject_id,
+                        initial_mind_state().decode(),
+                    ),
+                )
+                await transaction.execute(
+                    "INSERT INTO armi.subject_component_heads (subject_id,component_kind,current_revision_id,component_version) VALUES (%s,'mind',%s,1)",
+                    (subject_id, revision_id),
+                )
+
         async def historical_subject():
             factory = PostgreSQLUnitOfWorkFactory(
                 old.runtime_dsn,
@@ -1867,7 +1893,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     Path(artifact_directory.name) / "birth", factory
                 ),
                 ArtifactCatalogRepository(),
-                _birth_repository(),
+                BirthRepository(
+                    bootstrap_subject_state().birth,
+                    cast(Any, SourceSchemaMindFixture()),
+                    bootstrap_mood().birth,
+                    bootstrap_prompt().birth,
+                    bootstrap_interaction_birth(),
+                ),
                 factory,
             )
             await factory.open()
@@ -1927,9 +1959,30 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     born.subject_id,
                 ),
             )
+            revision_id = uuid7()
+            connection.execute(
+                """INSERT INTO armi.subject_component_revisions
+                   (component_revision_id,subject_id,component_kind,component_version,previous_revision_id,
+                    origin_kind,origin_ref,semantic_payload,privacy_scope)
+                   SELECT %s,subject_id,'mind',2,component_revision_id,'admin_correction',%s,
+                          semantic_payload,'private'
+                   FROM armi.subject_component_revisions WHERE subject_id=%s AND component_kind='mind'""",
+                (revision_id, revision_id, born.subject_id),
+            )
+            connection.execute(
+                "UPDATE armi.subject_component_heads SET current_revision_id=%s,component_version=2 WHERE subject_id=%s AND component_kind='mind'",
+                (revision_id, born.subject_id),
+            )
+            old_mind_history = connection.execute(
+                """SELECT to_jsonb(r)-'component_kind'-'component_revision_id'-'component_version'
+                          || jsonb_build_object('mind_revision_id',r.component_revision_id,'mind_version',r.component_version)
+                   FROM armi.subject_component_revisions r WHERE subject_id=%s AND component_kind='mind'
+                   ORDER BY component_version""",
+                (born.subject_id,),
+            ).fetchall()
             old_mind = connection.execute(
                 "SELECT component_revision_id,component_version,semantic_payload "
-                "FROM armi.subject_component_revisions WHERE subject_id=%s AND component_kind='mind'",
+                "FROM armi.subject_component_revisions WHERE subject_id=%s AND component_kind='mind' ORDER BY component_version DESC LIMIT 1",
                 (born.subject_id,),
             ).fetchone()
             assert old_mind is not None
@@ -1994,17 +2047,31 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             self.assertEqual(apply_upgrade(connection)["state"], "current")
             self.assertEqual(
                 connection.execute(
-                    "SELECT component_revision_id,component_version,semantic_payload "
-                    "FROM armi.subject_component_revisions WHERE component_revision_id=%s",
+                    "SELECT to_jsonb(r) FROM armi.mind_revisions r WHERE subject_id=%s AND mind_version<=2 ORDER BY mind_version",
+                    (born.subject_id,),
+                ).fetchall(),
+                old_mind_history,
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT count(*) FROM armi.subject_component_revisions WHERE component_kind='mind'"
+                ).fetchone(),
+                (0,),
+            )
+
+            self.assertEqual(
+                connection.execute(
+                    "SELECT mind_revision_id,mind_version,semantic_payload "
+                    "FROM armi.mind_revisions WHERE mind_revision_id=%s",
                     (old_mind[0],),
                 ).fetchone(),
                 old_mind,
             )
             migrated_mind = connection.execute(
-                "SELECT r.origin_kind,r.previous_revision_id,r.component_version,r.semantic_payload "
-                "FROM armi.subject_component_heads h JOIN armi.subject_component_revisions r "
-                "ON r.component_revision_id=h.current_revision_id "
-                "WHERE h.subject_id=%s AND h.component_kind='mind'",
+                "SELECT r.origin_kind,r.previous_revision_id,r.mind_version,r.semantic_payload "
+                "FROM armi.mind_heads h JOIN armi.mind_revisions r "
+                "ON r.mind_revision_id=h.current_revision_id "
+                "WHERE h.subject_id=%s",
                 (born.subject_id,),
             ).fetchone()
             if source_version == "v21":
@@ -2024,7 +2091,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             else:
                 assert migrated_mind is not None
                 self.assertEqual(migrated_mind[2:], old_mind[1:])
-                self.assertEqual(migrated_mind[0], "bootstrap")
+                self.assertEqual(migrated_mind[0], "admin_correction")
             self.assertEqual(
                 connection.execute(
                     "SELECT environment_id,incarnation FROM armi.deployment_environments"
@@ -2335,6 +2402,22 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         "SELECT mood_version,semantic_payload FROM armi.mood_revisions WHERE subject_id=%s",
                         (born.subject_id,),
                     )
+                with psycopg.connect(fixture.provisioner_dsn) as connection:
+                    mind = one(
+                        connection,
+                        "SELECT mind_version,semantic_payload FROM armi.mind_revisions WHERE subject_id=%s",
+                        (born.subject_id,),
+                    )
+                invoke(
+                    request(
+                        "mind",
+                        "update",
+                        str(born.subject_id),
+                        mind[0],
+                        {"replacement": mind[1]},
+                        "mind-update",
+                    )
+                )
                 for kind, version, payload in components:
                     invoke(
                         request(
@@ -5885,12 +5968,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     (0, 1),
                 )
                 head = runtime.execute(
-                    "SELECT head.component_version, revision.origin_kind, "
+                    "SELECT head.mind_version, revision.origin_kind, "
                     "revision.semantic_payload, revision.previous_revision_id "
-                    "FROM armi.subject_component_heads head "
-                    "JOIN armi.subject_component_revisions revision "
-                    "ON revision.component_revision_id = head.current_revision_id "
-                    "WHERE head.component_kind = 'mind'"
+                    "FROM armi.mind_heads head "
+                    "JOIN armi.mind_revisions revision "
+                    "ON revision.mind_revision_id = head.current_revision_id"
                 ).fetchone()
                 assert head is not None
                 self.assertEqual(head[0:2], (2, "admin_correction"))
@@ -7399,6 +7481,32 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             request_digest=Digest.from_bytes(b"second-request"),
                         )
                     )
+                async with factory.unit_of_work(read_only=True) as unit:
+                    mind = bootstrap_mind().read
+                    head = await mind.current_head(
+                        unit.transaction, subject_id=first.subject_id
+                    )
+                    history = await mind.history(
+                        unit.transaction, subject_id=first.subject_id, limit=1
+                    )
+                    self.assertEqual(
+                        [item.revision_id for item in history],
+                        [head.current_revision_id],
+                    )
+                    self.assertEqual(history[0].canonical_state, head.canonical_state)
+                    self.assertTrue(
+                        await mind.history_is_continuous(
+                            unit.transaction, subject_id=first.subject_id
+                        )
+                    )
+                    self.assertEqual(
+                        await mind.history(
+                            unit.transaction,
+                            subject_id=first.subject_id,
+                            before_version=1,
+                        ),
+                        (),
+                    )
                 return first, replay
             finally:
                 await factory.close()
@@ -7423,12 +7531,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     (SELECT count(*) FROM armi.prompt_revisions),
                     (SELECT count(*) FROM armi.subject_component_heads),
                     (SELECT count(*) FROM armi.subject_component_revisions),
+                    (SELECT count(*) FROM armi.mind_heads),
+                    (SELECT count(*) FROM armi.mind_revisions),
                     (SELECT count(*) FROM armi.interaction_scenes),
                     (SELECT count(*) FROM armi.artifacts),
                     (SELECT count(*) FROM armi.audit_events)
                 """
             ).fetchone()
-            self.assertEqual(counts, (1, 1, 1, 2, 3, 1, 3, 3, 1, 1, 2))
+            self.assertEqual(counts, (1, 1, 1, 2, 3, 1, 2, 2, 1, 1, 1, 1, 2))
             self_payload = connection.execute(
                 """
                 SELECT semantic_payload
@@ -7451,6 +7561,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 birth_contract_digest=packaged["birth_contract_digest"],
                 interaction=bootstrap_interaction_birth(),
                 subject_state=bootstrap_subject_state().birth,
+                mind=bootstrap_mind().birth,
                 mood=bootstrap_mood().birth,
                 prompts=bootstrap_prompt().birth,
             ),
@@ -7716,7 +7827,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             interruption_stage="rollback", autonomous_codex=True
         )
 
-    def test_concern_and_expression_share_atomic_commit(self) -> None:
+    def test_concern_mood_activity_and_expression_share_atomic_commit(self) -> None:
         self._exercise_creator_reply(interruption_stage="rollback", concerns=True)
 
     def _exercise_creator_reply(
@@ -8115,6 +8226,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     relationship_cognition=bootstrap_relationship_cognition(),
                     sleep_cognition=bootstrap_sleep_cognition(),
                     subject_state_cognition=bootstrap_subject_state_cognition(),
+                    mind_cognition=bootstrap_mind_cognition(),
                 ).validate(
                     candidate_bytes,
                     bases=(
@@ -8215,27 +8327,21 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 next_consideration_seconds=3600,
             )
         if concerns:
-            from armi_subject_state.api import (
-                CandidateSubjectStateDraft,
-                CreateConcern,
-                SubjectStateKind,
-                TimedReview,
-            )
+            from armi_mind.api import CreateConcern, TimedReview
 
             with psycopg.connect(fixture.provisioner_dsn) as connection:
                 mind = connection.execute(
-                    "SELECT r.semantic_payload FROM armi.subject_component_heads h JOIN armi.subject_component_revisions r "
-                    "ON r.component_revision_id=h.current_revision_id WHERE h.subject_id=%s AND h.component_kind='mind'",
+                    "SELECT r.semantic_payload FROM armi.mind_heads h JOIN armi.mind_revisions r "
+                    "ON r.mind_revision_id=h.current_revision_id WHERE h.subject_id=%s",
                     (born.subject_id,),
                 ).fetchone()
             assert mind is not None
-            draft = bootstrap_subject_state_cognition().bind(
-                CandidateSubjectStateDraft(
+            draft = bootstrap_mind_cognition().bind(
+                CandidateMindDraft(
                     "proposal:4",
                     "group:2",
                     (1,),
                     CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
-                    SubjectStateKind.MIND,
                     1,
                     rfc8785.dumps(mind[0]),
                     (
@@ -8256,6 +8362,65 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     ),
                 )
             )
+            from armi_activity.api import CandidateActivityDraft
+            from armi_mood.api import (
+                AppraisalCertainty,
+                AppraisalConcern,
+                AppraisalConcernTarget,
+                AppraisalDirection,
+                AppraisalEventPhase,
+                AppraisalExpectedness,
+                AppraisalQuality,
+                AppraisalSelfInvolvement,
+                AppraisalSignificance,
+                AppraisalTransition,
+                CandidateMoodDraft,
+                MoodCandidateKind,
+                SemanticAppraisal,
+                SemanticAppraisalEvent,
+            )
+
+            activity = bootstrap_activity_cognition().bind_create(
+                CandidateActivityDraft(
+                    "proposal:5",
+                    "group:2",
+                    (1,),
+                    CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
+                    uuid7(),
+                    "Explore the synthetic question",
+                    "Review available evidence",
+                )
+            )
+            mood = bootstrap_mood_cognition().bind(
+                CandidateMoodDraft(
+                    "proposal:6",
+                    "group:2",
+                    (1,),
+                    CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
+                    1,
+                    MoodCandidateKind.APPRAISAL,
+                    SemanticAppraisalEvent(
+                        AppraisalTransition.NEW,
+                        None,
+                        AppraisalEventPhase.REALIZED,
+                        "A synthetic observation matters to me",
+                        SemanticAppraisal(
+                            (
+                                AppraisalConcern(
+                                    AppraisalConcernTarget.SELF_GOAL,
+                                    AppraisalSignificance.CORE,
+                                    AppraisalDirection.FULFILLED,
+                                ),
+                            ),
+                            AppraisalExpectedness.EXPECTED,
+                            AppraisalCertainty.SETTLED,
+                            AppraisalQuality.PLEASANT,
+                            AppraisalSelfInvolvement.LIMITED,
+                        ),
+                    ),
+                )
+            )
+            owner_drafts = (draft, activity, mood)
             document = json.loads(change_set.canonical_bytes)
             document["owner_drafts"] = [
                 {
@@ -8266,10 +8431,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     "owner": draft.owner,
                     "payload": json.loads(draft.canonical_payload),
                 }
+                for draft in owner_drafts
             ]
             change_set = replace(
                 change_set,
-                owner_drafts=(draft,),
+                owner_drafts=owner_drafts,
                 canonical_bytes=rfc8785.dumps(document),
             )
         change_set_bytes = change_set.canonical_bytes
@@ -9065,6 +9231,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 relationship_commit=relationship_module.commit,
                 sleep_commit=sleep_module.commit,
                 subject_state_commit=subject_state_module.commit,
+                mind_commit=bootstrap_mind().commit,
                 web_research_commit=bootstrap_web_research_commit(),
                 visual_observation_commit=bootstrap_live_vision_commit(),
             )
@@ -9308,7 +9475,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 if concerns:
                     self.assertEqual(
                         connection.execute(
-                            "SELECT component_version,semantic_payload->'concerns' FROM armi.subject_component_revisions WHERE component_kind='mind'"
+                            "SELECT (SELECT count(*) FROM armi.activities), (SELECT count(*) FROM armi.mood_revisions)"
+                        ).fetchone(),
+                        (0, 1),
+                    )
+                    self.assertEqual(
+                        connection.execute(
+                            "SELECT mind_version,semantic_payload->'concerns' FROM armi.mind_revisions"
                         ).fetchall(),
                         [(1, [])],
                     )
@@ -9320,8 +9493,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertEqual(version, 1)
         if concerns:
             with psycopg.connect(fixture.provisioner_dsn) as connection:
+                self.assertEqual(
+                    connection.execute(
+                        "SELECT (SELECT count(*) FROM armi.activities), (SELECT count(*) FROM armi.mood_revisions)"
+                    ).fetchone(),
+                    (1, 2),
+                )
                 rows = connection.execute(
-                    "SELECT component_version,semantic_payload->'concerns' FROM armi.subject_component_revisions WHERE component_kind='mind' ORDER BY component_version"
+                    "SELECT mind_version,semantic_payload->'concerns' FROM armi.mind_revisions ORDER BY mind_version"
                 ).fetchall()
                 self.assertEqual(rows[0], (1, []))
                 self.assertEqual(rows[1][0], 2)
@@ -9332,6 +9511,103 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     connection.execute("SELECT count(*) FROM armi.effects").fetchone(),
                     (1,),
                 )
+
+            async def govern_mind():
+                from armi_data_rights.api import (
+                    DataRightsApplyRequest,
+                    DataRightsDiscoveryRequest,
+                    DataRightsRelatedRef,
+                )
+
+                factory = PostgreSQLUnitOfWorkFactory(
+                    fixture.runtime_dsn,
+                    environment_id=fixture.environment_id,
+                    pool_min=1,
+                    pool_max=1,
+                    acquire_timeout_seconds=2,
+                    statement_timeout_seconds=5,
+                    require_runtime_fence=False,
+                )
+                mind = bootstrap_mind().read
+                roster = compose_runtime_owner_roster(
+                    data_rights=bootstrap_data_rights_core().participant,
+                    mood_read=bootstrap_mood().read,
+                    prompt_read=bootstrap_prompt().read,
+                    subject_state_read=bootstrap_subject_state().read,
+                    mind_read=mind,
+                )
+                participant = next(
+                    item
+                    for item in roster.data_rights
+                    if item.owner_identity.value == "mind"
+                )
+                await factory.open()
+                try:
+                    async with factory.unit_of_work(read_only=True) as unit:
+                        history = await mind.history(
+                            unit.transaction, subject_id=born.subject_id
+                        )
+                        commit_id = history[0].subject_commit_id
+                        assert commit_id is not None
+                        discovery = await participant.discover(
+                            unit.transaction,
+                            DataRightsDiscoveryRequest(
+                                uuid7(),
+                                manifest.creator_party_id,
+                                (DataRightsRelatedRef("subject-commit", commit_id),),
+                            ),
+                        )
+                    self.assertEqual(len(discovery.related_refs), 1)
+                    request = DataRightsApplyRequest(
+                        uuid7(),
+                        manifest.creator_party_id,
+                        "delete_related",
+                        discovery.related_refs,
+                        tuple(
+                            replace(item, responsible_owner="mind")
+                            for item in discovery.targets
+                        ),
+                        (),
+                    )
+                    with self.assertRaisesRegex(
+                        RuntimeError, "synthetic governance interruption"
+                    ):
+                        async with factory.unit_of_work() as unit:
+                            await participant.apply(unit.transaction, request)
+                            raise RuntimeError("synthetic governance interruption")
+                    async with factory.unit_of_work(read_only=True) as unit:
+                        head = await mind.current_head(
+                            unit.transaction, subject_id=born.subject_id
+                        )
+                        self.assertEqual(head.version, 2)
+                    async with factory.unit_of_work() as unit:
+                        await participant.apply(unit.transaction, request)
+                    async with factory.unit_of_work(read_only=True) as unit:
+                        history = await mind.history(
+                            unit.transaction, subject_id=born.subject_id
+                        )
+                        self.assertEqual([item.version for item in history], [3, 2, 1])
+                        self.assertEqual(history[0].origin_kind, "data_rights")
+                        self.assertIsNone(history[0].subject_commit_id)
+                        self.assertEqual(
+                            json.loads(history[0].canonical_state)["concerns"], []
+                        )
+                        self.assertIsNotNone(history[1].redacted_at)
+                        self.assertEqual(json.loads(history[1].canonical_state), {})
+                        self.assertTrue(
+                            await mind.history_is_continuous(
+                                unit.transaction, subject_id=born.subject_id
+                            )
+                        )
+                finally:
+                    await factory.close()
+
+            asyncio.run(
+                govern_mind(),
+                loop_factory=lambda: asyncio.SelectorEventLoop(
+                    selectors.SelectSelector()
+                ),
+            )
             return
         if autonomous_codex:
             with psycopg.connect(fixture.provisioner_dsn) as connection:
@@ -9693,6 +9969,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 mood_read=bootstrap_mood().read,
                 prompt_read=bootstrap_prompt().read,
                 subject_state_read=bootstrap_subject_state().read,
+                mind_read=bootstrap_mind().read,
             )
             recovery = PostgreSQLRuntimeRecovery(
                 factory,
@@ -10310,6 +10587,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     mood_read=bootstrap_mood().read,
                     prompt_read=bootstrap_prompt().read,
                     subject_state_read=bootstrap_subject_state().read,
+                    mind_read=bootstrap_mind().read,
                 )
                 recovery = PostgreSQLRuntimeRecovery(
                     recovery_factory,

@@ -84,8 +84,19 @@ def mind_attention_projection(
     return concern_attention_status(records, as_of=as_of, consumed=consumed)
 
 
-def mind_signals(payload: bytes) -> tuple[ConsiderationSignal, ...]:
+def mind_signals(
+    payload: bytes,
+    *,
+    event_purpose: str | None = None,
+    event_ref: UUID | None = None,
+    event_at: datetime | None = None,
+    activity_id: UUID | None = None,
+) -> tuple[ConsiderationSignal, ...]:
     document = json.loads(payload)
     return concern_signals(
-        CONCERN_RECORDS.validate_json(json.dumps(document["concerns"]), strict=True)
+        CONCERN_RECORDS.validate_json(json.dumps(document["concerns"]), strict=True),
+        event_purpose=event_purpose,
+        event_ref=event_ref,
+        event_at=event_at,
+        activity_id=activity_id,
     )

@@ -71,6 +71,7 @@ from armi_memory.api import (
     CandidateMemoryRevisionDraft,
     MemoryCommitPort,
 )
+from armi_mind.api import CandidateMindDraft, MindCommitPort
 from armi_mood.api import CandidateMoodDraft, MoodCommitPort
 from armi_prompt.api import CandidatePromptDraft, PromptCommitPort
 from armi_relationship.api import (
@@ -155,6 +156,7 @@ class SubjectCommitPipeline:
         relationship_commit: RelationshipCommitPort,
         sleep_commit: SleepCommitPort,
         subject_state_commit: SubjectStateCommitPort,
+        mind_commit: MindCommitPort,
         web_research_commit: WebResearchCommitPort,
         visual_observation_commit: VisualObservationCommitPort,
         notifier: CreatorProjectionNotifier | None,
@@ -189,6 +191,7 @@ class SubjectCommitPipeline:
             relationship_commit,
             sleep_commit,
             subject_state_commit,
+            mind_commit,
             web_research_commit,
             visual_observation_commit,
         )
@@ -440,6 +443,7 @@ class SubjectCommitPipeline:
             CandidateSleepDecisionDraft | CandidateMaintenanceDecisionDraft
         ] = []
         subject_state: list[CandidateSubjectStateDraft] = []
+        mind: list[CandidateMindDraft] = []
         for item in change_set.owner_drafts:
             value = item.candidate
             if item.owner == "activity" and isinstance(
@@ -466,7 +470,9 @@ class SubjectCommitPipeline:
                 value, (CandidateSleepDecisionDraft, CandidateMaintenanceDecisionDraft)
             ):
                 sleep.append(value)
-            elif item.owner in {"self", "mind", "life_mode"} and isinstance(
+            elif item.owner == "mind" and isinstance(value, CandidateMindDraft):
+                mind.append(value)
+            elif item.owner in {"self", "life_mode"} and isinstance(
                 value, CandidateSubjectStateDraft
             ):
                 subject_state.append(value)
@@ -481,6 +487,7 @@ class SubjectCommitPipeline:
             tuple(relationship),
             tuple(sleep),
             tuple(subject_state),
+            tuple(mind),
         )
 
     @staticmethod
@@ -761,6 +768,7 @@ def build_subject_commit_pipeline(
     relationship_commit: RelationshipCommitPort,
     sleep_commit: SleepCommitPort,
     subject_state_commit: SubjectStateCommitPort,
+    mind_commit: MindCommitPort,
     web_research_commit: WebResearchCommitPort,
     visual_observation_commit: VisualObservationCommitPort,
     notifier: CreatorProjectionNotifier | None,
@@ -797,6 +805,7 @@ def build_subject_commit_pipeline(
         relationship_commit=relationship_commit,
         sleep_commit=sleep_commit,
         subject_state_commit=subject_state_commit,
+        mind_commit=mind_commit,
         web_research_commit=web_research_commit,
         visual_observation_commit=visual_observation_commit,
         notifier=notifier,

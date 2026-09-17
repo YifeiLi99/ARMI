@@ -2,7 +2,7 @@
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 Summary = Annotated[str, StringConstraints(min_length=1, max_length=512)]
 
@@ -34,3 +34,41 @@ MIND_COGNITIVE_INSTRUCTIONS = (
     "工具失败、查询无结果和消息送达不是获得答案。关注不是活动,只有实际探索才创建或关联活动。"
     "不要为证明好奇强制行动、重复提问或无依据地重建原问题。"
 )
+
+
+class DialogueSummaryListReplacement(_StrictModel, frozen=True):
+    values: tuple[Summary, ...] = Field(max_length=16)
+
+    @model_validator(mode="after")
+    def validate_values(self) -> DialogueSummaryListReplacement:
+        if any(not value.strip() or "\x00" in value for value in self.values):
+            raise ValueError("summary replacement is invalid")
+        if len(self.values) != len(set(self.values)):
+            raise ValueError("summary replacement contains duplicates")
+        return self
+
+
+class DialogueMindChange(_StrictModel, frozen=True):
+    understanding: DialogueSummaryListReplacement | None = None
+    attention: DialogueSummaryListReplacement | None = None
+    thoughts: DialogueSummaryListReplacement | None = None
+    wishes: DialogueSummaryListReplacement | None = None
+    motivations: DialogueSummaryListReplacement | None = None
+
+    @model_validator(mode="after")
+    def validate_change(self) -> DialogueMindChange:
+        if all(getattr(self, field) is None for field in type(self).model_fields):
+            raise ValueError("mind change is empty")
+        return self
+
+
+def apply_mind_text_change(payload: bytes, change: DialogueMindChange) -> MindState:
+    from ._projection import mind_editable_state
+
+    current = MindState.model_validate_json(mind_editable_state(payload), strict=True)
+    updates = {
+        field: replacement.values
+        for field in type(change).model_fields
+        if (replacement := getattr(change, field)) is not None
+    }
+    return MindState.model_validate({**current.model_dump(), **updates}, strict=True)

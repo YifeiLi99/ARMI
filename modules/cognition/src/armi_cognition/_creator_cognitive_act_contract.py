@@ -6,8 +6,8 @@ from __future__ import annotations
 
 from typing import Annotated, Literal, cast
 
+from armi_mind.api import MIND_COGNITIVE_INSTRUCTIONS, ConcernChange
 from armi_mood.api import AppraisalEventSignalV2
-from armi_subject_state.api import MIND_COGNITIVE_INSTRUCTIONS, ConcernChange
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter
 
 from ._creator_appraisal_contract import (

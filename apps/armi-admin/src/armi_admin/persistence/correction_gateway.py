@@ -23,6 +23,7 @@ from armi_expression.api import ExpressionAdminPort
 from armi_interaction.api import InteractionAdminPort
 from armi_live_vision.api import LiveVisionAdminPort
 from armi_material.api import MaterialAdminReadPort
+from armi_mind.api import MindAdminCorrectionPort
 from armi_mood.api import MoodAdminCorrectionPort
 from armi_perception.api import PerceptionAdminPort
 from armi_prompt.api import PromptAdminReferencePort
@@ -74,6 +75,7 @@ class AdminCorrectionGateway:
         "_interaction",
         "_live_vision",
         "_material",
+        "_mind",
         "_mood",
         "_opportunity",
         "_perception",
@@ -105,6 +107,7 @@ class AdminCorrectionGateway:
         mood: MoodAdminCorrectionPort,
         prompts: PromptAdminReferencePort,
         subject_state: SubjectStateAdminCorrectionPort,
+        mind: MindAdminCorrectionPort,
     ) -> None:
         self._factory = factory
         self._runtime = runtime
@@ -125,11 +128,22 @@ class AdminCorrectionGateway:
         self._mood = mood
         self._prompts = prompts
         self._subject_state = subject_state
+        self._mind = mind
 
     def _component_owner(
         self, kind: str
-    ) -> SubjectStateAdminCorrectionPort | MoodAdminCorrectionPort:
-        return self._mood if kind == "mood" else self._subject_state
+    ) -> (
+        SubjectStateAdminCorrectionPort
+        | MoodAdminCorrectionPort
+        | MindAdminCorrectionPort
+    ):
+        return (
+            self._mood
+            if kind == "mood"
+            else self._mind
+            if kind == "mind"
+            else self._subject_state
+        )
 
     def canonicalize_spec(self, spec: dict[str, Any]) -> dict[str, Any]:
         if spec.get("correction_kind") != "replace_subject_component":

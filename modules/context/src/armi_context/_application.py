@@ -54,6 +54,7 @@ from armi_kernel.application import (
 from armi_kernel.contracts import Instant, Purpose, SubjectId
 from armi_material.api import MaterialProjectionPort
 from armi_memory.api import MemoryProjectionPort, MemoryReadPort
+from armi_mind.api import MindReadPort, mind_context_items
 from armi_mood.api import MoodReadPort, active_mood_gists, mood_context_items
 from armi_prompt.api import PromptReadPort
 from armi_relationship.api import RelationshipReadPort
@@ -63,7 +64,7 @@ from armi_runtime_foundation import (
     RuntimeTransactionFailure,
 )
 from armi_sleep.api import SleepReadPort
-from armi_subject_state.api import SubjectStateReadPort, mind_context_items
+from armi_subject_state.api import SubjectStateReadPort
 
 from ._compiler import CONTEXT_POLICY_VERSION, DeterministicContextCompiler
 from ._embedding import QUERY_MAX_CHARS
@@ -202,6 +203,7 @@ class ContextPipeline:
         relationship_read: RelationshipReadPort,
         sleep_read: SleepReadPort,
         subject_state_read: SubjectStateReadPort,
+        mind_read: MindReadPort,
         selection: ContextSelectionPort,
         episodes: ContextEpisodePort,
         runtime_subjects: ContextRuntimeSubjectPort,
@@ -234,6 +236,7 @@ class ContextPipeline:
             mood=mood_read,
             prompts=prompt_read,
             subject_state=subject_state_read,
+            mind=mind_read,
             catalog=catalog,
             selection=selection,
             episodes=episodes,

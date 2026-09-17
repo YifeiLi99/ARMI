@@ -31,6 +31,7 @@ from armi_kernel.application import (
     TransactionIsolation,
 )
 from armi_kernel.contracts import Purpose, SubjectId, TraceId
+from armi_mind.bootstrap import bootstrap_mind
 from armi_mood.bootstrap import bootstrap_mood
 from armi_prompt.bootstrap import bootstrap_prompt
 from armi_subject_state.bootstrap import bootstrap_subject_state
@@ -252,6 +253,7 @@ async def execute_birth_with_conninfo(
         catalog,
         BirthRepository(
             bootstrap_subject_state().birth,
+            bootstrap_mind().birth,
             bootstrap_mood().birth,
             bootstrap_prompt().birth,
             bootstrap_interaction_birth(),

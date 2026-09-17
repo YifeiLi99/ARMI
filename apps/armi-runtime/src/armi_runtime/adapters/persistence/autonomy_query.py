@@ -4,13 +4,13 @@ from datetime import datetime
 from typing import Literal, LiteralString, cast
 
 from armi_attention.api import LifeOpportunityFactsPort, project_signal_status
+from armi_mind.api import MindReadPort
 from armi_runtime_foundation import (
     PostgreSQLRuntimeUnitOfWorkFactory,
     autonomy_result,
     autonomy_statement,
 )
 from armi_sleep.api import SleepReadPort
-from armi_subject_state.api import SubjectStateReadPort
 
 
 class PostgreSQLAutonomyQuery:
@@ -18,12 +18,12 @@ class PostgreSQLAutonomyQuery:
         self,
         factory: PostgreSQLRuntimeUnitOfWorkFactory,
         sleep: SleepReadPort,
-        subject_state: SubjectStateReadPort,
+        mind: MindReadPort,
         facts: LifeOpportunityFactsPort,
     ) -> None:
         self._factory = factory
         self._sleep = sleep
-        self._subject_state = subject_state
+        self._mind = mind
         self._facts = facts
 
     async def query(
@@ -70,7 +70,7 @@ class PostgreSQLAutonomyQuery:
                     ),
                 )
                 project_signal_status(result, signals, consumed)
-                result["concerns"] = await self._subject_state.attention_status(
+                result["concerns"] = await self._mind.attention_status(
                     unit.transaction,
                     subject_id=unit.runtime_fence.subject_id,
                     as_of=datetime.fromisoformat(str(result["observed_at"])),

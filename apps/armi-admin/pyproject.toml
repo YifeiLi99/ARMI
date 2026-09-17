@@ -22,6 +22,7 @@ dependencies = [
     "armi-attention==0.0.0",
     "armi-perception==0.0.0",
     "armi-prompt==0.0.0",
+    "armi-mind==0.0.0",
     "armi-subject-state==0.0.0",
     "armi-sleep==0.0.0",
     "armi-web-observation==0.0.0",
@@ -56,6 +57,7 @@ armi-mood = { workspace = true }
 armi-attention = { workspace = true }
 armi-perception = { workspace = true }
 armi-prompt = { workspace = true }
+armi-mind = { workspace = true }
 armi-subject-state = { workspace = true }
 armi-sleep = { workspace = true }
 armi-web-observation = { workspace = true }

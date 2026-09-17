@@ -104,7 +104,11 @@ class PromptPayload(ContentModel):
 
 
 class ComponentPayload(ContentModel):
-    component_kind: Literal["self", "mind", "life_mode", "mood"]
+    component_kind: Literal["self", "life_mode", "mood"]
+    replacement: dict[str, JsonValue]
+
+
+class MindPayload(ContentModel):
     replacement: dict[str, JsonValue]
 
 
@@ -152,6 +156,11 @@ class ComponentChange(ContentChange):
     data: ComponentPayload
 
 
+class MindChange(ContentChange):
+    owner: Literal["mind"]
+    data: MindPayload
+
+
 class ContentWriteRequest(EnvironmentRequest):
     idempotency_key: str = Field(pattern=r"^[A-Za-z0-9._:-]{1,128}$")
     reason: str = Field(min_length=1, max_length=1024)
@@ -162,7 +171,8 @@ class ContentWriteRequest(EnvironmentRequest):
         | MaterialChange
         | ActivityChange
         | PromptChange
-        | ComponentChange,
+        | ComponentChange
+        | MindChange,
         Field(discriminator="owner"),
     ]
 
@@ -183,6 +193,8 @@ class ContentWriteRequest(EnvironmentRequest):
             or (change.owner == "mood") != (change.data.component_kind == "mood")
         ):
             raise ValueError("ADMIN-CONTENT-COMPONENT-OPERATION")
+        if isinstance(change, MindChange) and change.action != "update":
+            raise ValueError("ADMIN-CONTENT-MIND-OPERATION")
         if isinstance(change, RelationshipChange) and change.data is not None:
             if (change.action == "create") != (change.data.other_party_id is not None):
                 raise ValueError("ADMIN-CONTENT-PARTY")

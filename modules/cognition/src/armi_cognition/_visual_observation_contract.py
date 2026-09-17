@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
+from armi_mind.api import ConcernChange
 from armi_mood.api import AppraisalEventSignalV2
-from armi_subject_state.api import ConcernChange
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter
 
 from ._strict_model_json import strict_model_value

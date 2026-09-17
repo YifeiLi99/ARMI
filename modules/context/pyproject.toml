@@ -21,6 +21,7 @@ dependencies = [
     "armi-relationship==0.0.0",
     "armi-runtime-foundation==0.0.0",
     "armi-sleep==0.0.0",
+    "armi-mind==0.0.0",
     "armi-subject-state==0.0.0",
     "rfc8785==0.1.4",
 ]
@@ -44,6 +45,7 @@ armi-prompt = { workspace = true }
 armi-relationship = { workspace = true }
 armi-runtime-foundation = { workspace = true }
 armi-sleep = { workspace = true }
+armi-mind = { workspace = true }
 armi-subject-state = { workspace = true }
 
 [build-system]

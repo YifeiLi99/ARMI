@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Annotated, Literal
 from uuid import UUID, uuid7
@@ -147,20 +148,26 @@ def apply_concern_changes(
     now: datetime,
     commit_id: UUID,
     basis_ordinals: tuple[int, ...],
+    new_identity: Callable[[], UUID] = uuid7,
 ) -> tuple[ConcernRecord, ...]:
     records = {
         item.concern_id: item for item in current if item.state in {"open", "waiting"}
     }
     touched: set[UUID] = set()
     for change in changes:
-        concern_id = (
-            uuid7() if isinstance(change, CreateConcern) else UUID(change.concern_ref)
-        )
+        try:
+            concern_id = (
+                new_identity()
+                if isinstance(change, CreateConcern)
+                else UUID(change.concern_ref)
+            )
+        except ValueError:
+            raise ValueError("MIND-CONCERN-REFERENCE") from None
         previous = records.get(concern_id)
         if concern_id in touched or (
             not isinstance(change, CreateConcern) and previous is None
         ):
-            raise ValueError("SUBJECT-STATE-CONCERN-REFERENCE")
+            raise ValueError("MIND-CONCERN-REFERENCE")
         touched.add(concern_id)
         if isinstance(change, CloseConcern):
             assert previous is not None
@@ -195,7 +202,7 @@ def apply_concern_changes(
                 basis_ordinals=basis_ordinals,
             )
     if sum(item.state in {"open", "waiting"} for item in records.values()) > 4:
-        raise ValueError("SUBJECT-STATE-CONCERN-CAPACITY")
+        raise ValueError("MIND-CONCERN-CAPACITY")
     return tuple(records.values())
 
 

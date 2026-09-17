@@ -61,6 +61,8 @@ from armi_memory.bootstrap import (
     bootstrap_memory_data_rights,
     bootstrap_memory_recovery,
 )
+from armi_mind.api import MindReadPort
+from armi_mind.bootstrap import bootstrap_mind_data_rights, bootstrap_mind_recovery
 from armi_mood.api import MoodReadPort
 from armi_mood.bootstrap import bootstrap_mood_data_rights, bootstrap_mood_recovery
 from armi_perception.bootstrap import (
@@ -129,6 +131,7 @@ _DATA_RIGHTS_ORDER = (
     "activity",
     "material",
     "subject-state",
+    "mind",
     "mood",
     "prompt",
     "sleep",
@@ -142,6 +145,7 @@ _DATA_RIGHTS_ORDER = (
 
 _RECOVERY_ORDER = (
     "subject-state",
+    "mind",
     "mood",
     "prompt",
     "activity",
@@ -172,6 +176,7 @@ def compose_runtime_owner_roster(
     mood_read: MoodReadPort,
     prompt_read: PromptReadPort,
     subject_state_read: SubjectStateReadPort,
+    mind_read: MindReadPort,
 ) -> RuntimeOwnerRoster:
     recovery = {
         "interaction": bootstrap_interaction_recovery(),
@@ -189,6 +194,7 @@ def compose_runtime_owner_roster(
         "activity": bootstrap_activity_recovery(),
         "material": bootstrap_material_recovery(),
         "subject-state": bootstrap_subject_state_recovery(subject_state_read),
+        "mind": bootstrap_mind_recovery(mind_read),
         "mood": bootstrap_mood_recovery(mood_read),
         "prompt": bootstrap_prompt_recovery(prompt_read),
         "sleep": bootstrap_sleep_recovery(),
@@ -213,6 +219,7 @@ def compose_runtime_owner_roster(
         "activity": bootstrap_activity_data_rights(),
         "material": bootstrap_material_data_rights(),
         "subject-state": bootstrap_subject_state_data_rights(),
+        "mind": bootstrap_mind_data_rights(),
         "mood": bootstrap_mood_data_rights(),
         "prompt": bootstrap_prompt_data_rights(),
         "sleep": bootstrap_sleep_data_rights(),

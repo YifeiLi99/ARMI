@@ -112,7 +112,6 @@ from armi_sleep.api import (
     CreatorMaintenanceQueryPort,
     CreatorMaintenanceViolation,
 )
-from armi_subject_state.api import SubjectSummary
 from pydantic import ValidationError
 
 from armi_runtime.application.creator_contract import (
@@ -187,6 +186,7 @@ from armi_runtime.application.creator_contract import (
     SubjectSummaryResponse,
     UnavailableOutcomeResponse,
 )
+from armi_runtime.application.subject_summary import SubjectSummary
 
 from .creator_calls import creator_result
 from .interaction import InteractionResult

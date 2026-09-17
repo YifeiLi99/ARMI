@@ -30,6 +30,7 @@ from armi_memory.api import (
     MemoryCognitionPort,
     MemoryReadPort,
 )
+from armi_mind.api import MindCognitionPort, MindReadPort
 from armi_mood.api import MoodCognitionPort, MoodReadPort
 from armi_prompt.api import PromptCognitionPort, PromptReadPort
 from armi_relationship.api import RelationshipCognitionPort, RelationshipReadPort
@@ -98,6 +99,7 @@ def bootstrap_cognition_validator(
     relationship: RelationshipCognitionPort,
     sleep: SleepCognitionPort,
     subject_state: SubjectStateCognitionPort,
+    mind: MindCognitionPort,
 ) -> CandidateValidator:
     return DeterministicCandidateValidator(
         context,
@@ -109,6 +111,7 @@ def bootstrap_cognition_validator(
         relationship_cognition=relationship,
         sleep_cognition=sleep,
         subject_state_cognition=subject_state,
+        mind_cognition=mind,
     )
 
 
@@ -210,7 +213,9 @@ def bootstrap_cognition_candidate(
     sleep_cognition: SleepCognitionPort,
     sleep_read: SleepReadPort,
     subject_state_cognition: SubjectStateCognitionPort,
+    mind_cognition: MindCognitionPort,
     subject_state_read: SubjectStateReadPort,
+    mind_read: MindReadPort,
     web_search_active: bool = False,
     visual_sources_active: frozenset[str] = frozenset(),
     diagnostic: Callable[[str], None] | None = None,
@@ -247,7 +252,9 @@ def bootstrap_cognition_candidate(
         sleep_cognition=sleep_cognition,
         sleep_read=sleep_read,
         subject_state_cognition=subject_state_cognition,
+        mind_cognition=mind_cognition,
         subject_state_read=subject_state_read,
+        mind_read=mind_read,
         web_search_active=web_search_active,
         visual_sources_active=visual_sources_active,
         diagnostic=diagnostic,

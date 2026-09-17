@@ -6,8 +6,8 @@ import json
 from typing import Annotated, Any, Literal, cast
 
 from armi_kernel.application import ModelViolation
+from armi_mind.api import ConcernChange
 from armi_mood.api import AppraisalEventSignalV2
-from armi_subject_state.api import ConcernChange
 from pydantic import (
     BaseModel,
     ConfigDict,

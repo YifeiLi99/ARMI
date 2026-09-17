@@ -35,6 +35,7 @@ from armi_material.api import (
     MaterialAdminSnapshot,
     MaterialViolation,
 )
+from armi_mind.api import MindAdminState, initial_mind_state
 from armi_mood.api import MoodAdminComponent
 from armi_runtime_foundation import (
     PostgreSQLAdminTransaction,
@@ -96,6 +97,7 @@ def test_trace_connects_input_context_commit_effect_and_delivery_without_private
             "materials",
             "mood",
             "subject_state",
+            "mind",
             "sleep",
             "evidence",
             "opportunity",
@@ -376,6 +378,7 @@ def test_diagnostics_verify_artifacts_outside_database_transaction():
         materials=cast(MaterialAdminReadPort, object()),
         mood=_Mood(),
         subject_state=_SubjectState(),
+        mind=_Mind(),
         sleep=cast(Any, object()),
     )
     result = gateway.diagnostics()
@@ -410,6 +413,15 @@ class _Runtime:
         )
 
 
+class _Mind:
+    def current(self, transaction, *, private):
+        import json
+
+        return MindAdminState(
+            1, "private", json.loads(initial_mind_state()) if private else {}
+        )
+
+
 class _Observation(AdminObservationGateway):
     def __init__(
         self,
@@ -430,6 +442,7 @@ class _Observation(AdminObservationGateway):
             materials=cast(MaterialAdminReadPort, materials),
             mood=_Mood(),
             subject_state=_SubjectState(),
+            mind=_Mind(),
             sleep=cast(Any, object()),
         )
 

@@ -28,6 +28,7 @@ members = [
     "armi-local-control",
     "armi-material",
     "armi-memory",
+    "armi-mind",
     "armi-mood",
     "armi-perception",
     "armi-postgresql-contract",
@@ -172,6 +173,7 @@ dependencies = [
     { name = "armi-local-control" },
     { name = "armi-material" },
     { name = "armi-memory" },
+    { name = "armi-mind" },
     { name = "armi-mood" },
     { name = "armi-perception" },
     { name = "armi-postgresql-contract" },
@@ -207,6 +209,7 @@ requires-dist = [
     { name = "armi-local-control", editable = "packages/armi-local-control" },
     { name = "armi-material", editable = "modules/material" },
     { name = "armi-memory", editable = "modules/memory" },
+    { name = "armi-mind", editable = "modules/mind" },
     { name = "armi-mood", editable = "modules/mood" },
     { name = "armi-perception", editable = "modules/perception" },
     { name = "armi-postgresql-contract", editable = "packages/armi-postgresql-contract" },
@@ -373,6 +376,7 @@ dependencies = [
     { name = "armi-live-vision" },
     { name = "armi-material" },
     { name = "armi-memory" },
+    { name = "armi-mind" },
     { name = "armi-mood" },
     { name = "armi-prompt" },
     { name = "armi-relationship" },
@@ -401,6 +405,7 @@ requires-dist = [
     { name = "armi-live-vision", editable = "modules/live-vision" },
     { name = "armi-material", editable = "modules/material" },
     { name = "armi-memory", editable = "modules/memory" },
+    { name = "armi-mind", editable = "modules/mind" },
     { name = "armi-mood", editable = "modules/mood" },
     { name = "armi-prompt", editable = "modules/prompt" },
     { name = "armi-relationship", editable = "modules/relationship" },
@@ -430,6 +435,7 @@ dependencies = [
     { name = "armi-kernel" },
     { name = "armi-material" },
     { name = "armi-memory" },
+    { name = "armi-mind" },
     { name = "armi-mood" },
     { name = "armi-prompt" },
     { name = "armi-relationship" },
@@ -454,6 +460,7 @@ requires-dist = [
     { name = "armi-kernel", editable = "packages/armi-kernel" },
     { name = "armi-material", editable = "modules/material" },
     { name = "armi-memory", editable = "modules/memory" },
+    { name = "armi-mind", editable = "modules/mind" },
     { name = "armi-mood", editable = "modules/mood" },
     { name = "armi-prompt", editable = "modules/prompt" },
     { name = "armi-relationship", editable = "modules/relationship" },
@@ -726,6 +733,31 @@ requires-dist = [
 ]
 
 [[package]]
+name = "armi-mind"
+version = "0.0.0"
+source = { editable = "modules/mind" }
+dependencies = [
+    { name = "armi-data-rights" },
+    { name = "armi-kernel" },
+    { name = "armi-runtime-foundation" },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "psycopg-pool" },
+    { name = "pydantic" },
+    { name = "rfc8785" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "armi-data-rights", editable = "modules/data-rights" },
+    { name = "armi-kernel", editable = "packages/armi-kernel" },
+    { name = "armi-runtime-foundation", editable = "packages/armi-runtime-foundation" },
+    { name = "psycopg", extras = ["binary"], specifier = "==3.3.4" },
+    { name = "psycopg-pool", specifier = "==3.3.1" },
+    { name = "pydantic", specifier = "==2.13.4" },
+    { name = "rfc8785", specifier = "==0.1.4" },
+]
+
+[[package]]
 name = "armi-mood"
 version = "0.0.0"
 source = { editable = "modules/mood" }
@@ -861,6 +893,7 @@ dependencies = [
     { name = "armi-local-control" },
     { name = "armi-material" },
     { name = "armi-memory" },
+    { name = "armi-mind" },
     { name = "armi-mood" },
     { name = "armi-perception" },
     { name = "armi-postgresql-contract" },
@@ -912,6 +945,7 @@ requires-dist = [
     { name = "armi-local-control", editable = "packages/armi-local-control" },
     { name = "armi-material", editable = "modules/material" },
     { name = "armi-memory", editable = "modules/memory" },
+    { name = "armi-mind", editable = "modules/mind" },
     { name = "armi-mood", editable = "modules/mood" },
     { name = "armi-perception", editable = "modules/perception" },
     { name = "armi-postgresql-contract", editable = "packages/armi-postgresql-contract" },

@@ -206,6 +206,8 @@ from armi_memory.bootstrap import (
     MemoryModule,
     bootstrap_memory,
 )
+from armi_mind.api import MindCognitionPort, MindCommitPort, MindReadPort
+from armi_mind.bootstrap import MindModule, bootstrap_mind
 from armi_mood.api import MoodCognitionPort, MoodCommitPort, MoodReadPort
 from armi_mood.bootstrap import MoodModule, bootstrap_mood
 from armi_perception.api import ExternalMediaFetchPort
@@ -575,6 +577,7 @@ def inspect_runtime_continuity(prepared: PreparedEnvironment) -> ContinuityState
                     birth_contract_digest=digests["birth_contract_digest"],
                     interaction=bootstrap_interaction_birth(),
                     subject_state=bootstrap_subject_state().birth,
+                    mind=bootstrap_mind().birth,
                     mood=bootstrap_mood().birth,
                     prompts=bootstrap_prompt().birth,
                 )
@@ -749,8 +752,12 @@ def compose_activity_module(
     )
 
 
+def compose_mind_module() -> MindModule:
+    return bootstrap_mind()
+
+
 def compose_subject_state_module() -> SubjectStateModule:
-    """Bind the sole active Self, Mind, and life-mode owner."""
+    """Bind the Self and life-mode owner."""
 
     return bootstrap_subject_state()
 
@@ -1302,6 +1309,7 @@ def compose_context_pipeline(
     relationship_read: RelationshipReadPort,
     sleep_read: SleepReadPort,
     subject_state_read: SubjectStateReadPort,
+    mind_read: MindReadPort,
     catalog: ArtifactCatalogPort,
     wakeups: WorkWakeupBus | None = None,
     diagnostic: Callable[[str], None] | None = None,
@@ -1351,6 +1359,7 @@ def compose_context_pipeline(
         relationship_read=relationship_read,
         sleep_read=sleep_read,
         subject_state_read=subject_state_read,
+        mind_read=mind_read,
         selection=selection,
         episodes=RuntimeContextEpisodeAdapter(cognition_context),
         runtime_subjects=runtime_subjects,
@@ -1731,7 +1740,9 @@ def compose_candidate_validation_pipeline(
     sleep_cognition: SleepCognitionPort,
     sleep_read: SleepReadPort,
     subject_state_cognition: SubjectStateCognitionPort,
+    mind_cognition: MindCognitionPort,
     subject_state_read: SubjectStateReadPort,
+    mind_read: MindReadPort,
     catalog: ArtifactCatalogPort,
     visual_sources_active: frozenset[str] = frozenset(),
     diagnostic: Callable[[str], None] | None = None,
@@ -1773,7 +1784,9 @@ def compose_candidate_validation_pipeline(
         sleep_cognition=sleep_cognition,
         sleep_read=sleep_read,
         subject_state_cognition=subject_state_cognition,
+        mind_cognition=mind_cognition,
         subject_state_read=subject_state_read,
+        mind_read=mind_read,
         web_search_active=config.web.enabled,
         visual_sources_active=visual_sources_active,
         diagnostic=diagnostic,
@@ -1802,6 +1815,7 @@ def compose_subject_commit_pipeline(
     relationship_commit: RelationshipCommitPort,
     sleep_commit: SleepCommitPort,
     subject_state_commit: SubjectStateCommitPort,
+    mind_commit: MindCommitPort,
     catalog: ArtifactCatalogPort,
     notifier: CreatorProjectionNotifier | None,
     voice_results: VoiceCognitionResultPort | None = None,
@@ -1836,6 +1850,7 @@ def compose_subject_commit_pipeline(
         relationship_commit=relationship_commit,
         sleep_commit=sleep_commit,
         subject_state_commit=subject_state_commit,
+        mind_commit=mind_commit,
         web_research_commit=bootstrap_web_research_commit(),
         visual_observation_commit=bootstrap_live_vision_commit(),
         notifier=notifier,
@@ -2030,6 +2045,7 @@ __all__ = (
     "compose_life_record_query",
     "compose_material_module",
     "compose_memory_module",
+    "compose_mind_module",
     "compose_model_pipeline",
     "compose_mood_module",
     "compose_opportunity_admission",

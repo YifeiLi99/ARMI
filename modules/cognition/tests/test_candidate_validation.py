@@ -61,6 +61,7 @@ from armi_memory.api import (
     MemoryRevisionKind,
     MemorySourceKind,
 )
+from armi_mind.api import CandidateMindDraft
 from armi_relationship.api import (
     RelationshipBoundary,
     RelationshipBoundaryAction,
@@ -78,6 +79,7 @@ from armi_runtime.composition.candidate_validation_tool import (
     bootstrap_activity_cognition,
     bootstrap_material_cognition,
     bootstrap_memory_cognition,
+    bootstrap_mind_cognition,
     bootstrap_mood_cognition,
     bootstrap_prompt_cognition,
     bootstrap_relationship_cognition,
@@ -167,6 +169,7 @@ def DeterministicCandidateValidator(
         relationship_cognition=bootstrap_relationship_cognition(),
         sleep_cognition=bootstrap_sleep_cognition(),
         subject_state_cognition=bootstrap_subject_state_cognition(),
+        mind_cognition=bootstrap_mind_cognition(),
     )
 
 
@@ -229,7 +232,7 @@ def _subject_states(change_set: Any) -> tuple[Any, ...]:
     return tuple(
         cognition.decode(item.canonical_payload)
         for item in change_set.owner_drafts
-        if item.owner in {"self", "mind", "life_mode"}
+        if item.owner in {"self", "life_mode"}
     )
 
 
@@ -1316,8 +1319,10 @@ def test_mind_and_prompt_reflections_commit_only_the_target_owner() -> None:
     )
     assert mind.status is CandidateValidationStatus.ACCEPTED
     assert mind.change_set is not None
-    assert tuple(item.kind for item in _subject_states(mind.change_set)) == (
-        SubjectStateKind.MIND,
+    assert _subject_states(mind.change_set) == ()
+    assert (
+        len([item for item in mind.change_set.owner_drafts if item.owner == "mind"])
+        == 1
     )
     assert _prompts(mind.change_set) == ()
 
@@ -2896,16 +2901,21 @@ def test_compact_dialogue_binds_grounded_self_and_mind_growth() -> None:
     assert result.status is CandidateValidationStatus.ACCEPTED
     assert result.change_set is not None
     assert len(result.change_set.experiences) == 1
-    assert len(_subject_states(result.change_set)) == 2
+    assert len(_subject_states(result.change_set)) == 1
     components = {item.kind: item for item in _subject_states(result.change_set)}
     self_change = components[SubjectStateKind.SELF]
-    mind_change = components[SubjectStateKind.MIND]
+    mind_change = next(
+        item.candidate
+        for item in result.change_set.owner_drafts
+        if item.owner == "mind"
+    )
     assert self_change.expected_version == 1
     assert self_change.basis_ordinals == (2, 1)
     assert json.loads(self_change.canonical_next_state) == {
         **_self_state(name="阿米"),
         "interests": ["持续理解自己的生活"],
     }
+    assert isinstance(mind_change, CandidateMindDraft)
     assert mind_change.expected_version == 1
     assert mind_change.basis_ordinals == (2, 3)
     assert json.loads(mind_change.canonical_next_state) == {

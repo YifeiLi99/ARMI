@@ -13,20 +13,25 @@ def test_subject_state_owner_draft_round_trip() -> None:
         "group:1",
         (1,),
         CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
-        SubjectStateKind.MIND,
+        SubjectStateKind.SELF,
         1,
         rfc8785.dumps(
             {
-                "schema_version": "armi.mind.v3",
-                "understanding": [],
-                "attention": [],
-                "thoughts": [],
-                "wishes": [],
-                "motivations": [],
+                "schema_version": "armi.self.v1",
+                "identity_kind": "electronic_person",
+                "creator_role_awareness": "unique_primary_creator",
+                "name": None,
+                "self_description": None,
+                "interests": [],
+                "preferences": [],
+                "values": [],
+                "goals": [],
+                "self_narrative": None,
+                "tensions": [],
             }
         ),
     )
     cognition = bootstrap_subject_state_cognition()
     owner = cognition.bind(draft)
-    assert owner.owner == "mind"
+    assert owner.owner == "self"
     assert cognition.decode(owner.canonical_payload) == draft

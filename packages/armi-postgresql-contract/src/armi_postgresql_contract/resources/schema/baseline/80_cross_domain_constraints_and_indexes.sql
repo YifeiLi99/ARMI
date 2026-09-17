@@ -4446,3 +4446,16 @@ ALTER TABLE armi.mood_revisions ADD CONSTRAINT mood_revisions_admin_change_fk FO
 ALTER TABLE armi.prompt_revisions ADD CONSTRAINT prompt_revisions_admin_change_fk FOREIGN KEY (admin_change_id) REFERENCES armi.admin_data_changes(admin_change_id) DEFERRABLE INITIALLY DEFERRED;
 ALTER TABLE armi.activities ADD CONSTRAINT activities_admin_change_fk FOREIGN KEY (admin_change_id) REFERENCES armi.admin_data_changes(admin_change_id) DEFERRABLE INITIALLY DEFERRED;
 ALTER TABLE armi.activity_revisions ADD CONSTRAINT activity_revisions_admin_change_fk FOREIGN KEY (admin_change_id) REFERENCES armi.admin_data_changes(admin_change_id) DEFERRABLE INITIALLY DEFERRED;
+
+
+ALTER TABLE armi.mind_revisions ADD CONSTRAINT mind_revisions_pkey PRIMARY KEY (mind_revision_id);
+ALTER TABLE armi.mind_revisions ADD CONSTRAINT mind_revisions_owner_key UNIQUE (mind_revision_id,subject_id);
+ALTER TABLE armi.mind_revisions ADD CONSTRAINT mind_revisions_version_key UNIQUE (subject_id,mind_version);
+ALTER TABLE armi.mind_heads ADD CONSTRAINT mind_heads_pkey PRIMARY KEY (subject_id);
+ALTER TABLE armi.mind_heads ADD CONSTRAINT mind_heads_revision_fkey FOREIGN KEY (current_revision_id,subject_id) REFERENCES armi.mind_revisions(mind_revision_id,subject_id);
+ALTER TABLE armi.mind_heads ADD CONSTRAINT mind_heads_subject_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
+ALTER TABLE armi.mind_revisions ADD CONSTRAINT mind_revisions_previous_fkey FOREIGN KEY (previous_revision_id,subject_id) REFERENCES armi.mind_revisions(mind_revision_id,subject_id);
+ALTER TABLE armi.mind_revisions ADD CONSTRAINT mind_revisions_subject_fkey FOREIGN KEY (subject_id) REFERENCES armi.subjects(subject_id);
+ALTER TABLE armi.mind_revisions ADD CONSTRAINT mind_revisions_commit_fkey FOREIGN KEY (subject_commit_id) REFERENCES armi.subject_commits(subject_commit_id);
+ALTER TABLE armi.mind_revisions ADD CONSTRAINT mind_revisions_admin_change_fkey FOREIGN KEY (admin_change_id) REFERENCES armi.admin_data_changes(admin_change_id) DEFERRABLE INITIALLY DEFERRED;
+CREATE INDEX mind_revisions_payload_trgm_idx ON armi.mind_revisions USING gin ((semantic_payload::text) armi_extensions.gin_trgm_ops);

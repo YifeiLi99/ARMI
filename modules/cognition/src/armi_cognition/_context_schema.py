@@ -3,8 +3,8 @@
 from copy import deepcopy
 from typing import Any, cast
 
+from armi_mind.api import MIND_CONTEXT_REFERENCES
 from armi_mood.api import MOOD_CONTEXT_REFERENCES
-from armi_subject_state.api import MIND_CONTEXT_REFERENCES
 
 
 def bind_context_schema(

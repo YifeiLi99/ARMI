@@ -650,3 +650,17 @@ GRANT UPDATE ON TABLE armi.web_research_intents TO armi_admin;
 GRANT SELECT ON TABLE armi.admin_data_changes TO armi_runtime;
 
 GRANT SELECT ON TABLE armi.provider_usage_calls TO armi_runtime, armi_admin;
+
+GRANT SELECT ON TABLE armi.mind_heads TO armi_admin;
+GRANT SELECT ON TABLE armi.mind_heads TO armi_runtime;
+GRANT SELECT ON TABLE armi.mind_revisions TO armi_admin;
+GRANT SELECT ON TABLE armi.mind_revisions TO armi_runtime;
+GRANT INSERT ON TABLE armi.mind_revisions TO armi_admin;
+GRANT UPDATE ON TABLE armi.mind_heads TO armi_admin;
+GRANT UPDATE ON TABLE armi.mind_revisions TO armi_runtime;
+GRANT INSERT ON TABLE armi.mind_heads, armi.mind_revisions TO armi_runtime;
+GRANT UPDATE ON TABLE armi.mind_heads TO armi_runtime;
+GRANT DELETE ON TABLE armi.mind_heads TO armi_admin;
+GRANT INSERT ON TABLE armi.mind_heads TO armi_admin;
+GRANT DELETE ON TABLE armi.mind_revisions TO armi_admin;
+GRANT UPDATE ON TABLE armi.mind_revisions TO armi_admin;

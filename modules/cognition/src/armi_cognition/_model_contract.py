@@ -22,12 +22,12 @@ from armi_kernel.application import (
     estimate_cost,
 )
 from armi_kernel.contracts import Digest
+from armi_mind.api import MIND_COGNITIVE_INSTRUCTIONS, ConcernChange, MindState
 from armi_mood.api import (
     MoodAppraisalCommandWire,
     mood_dialogue_text,
 )
 from armi_mood.api import MoodStateWire as MoodState
-from armi_subject_state.api import MIND_COGNITIVE_INSTRUCTIONS, ConcernChange, MindState
 from pydantic import (
     BaseModel,
     ConfigDict,

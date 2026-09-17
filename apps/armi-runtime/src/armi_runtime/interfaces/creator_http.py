@@ -94,7 +94,6 @@ from armi_sleep.api import (
     CreatorMaintenanceQueryPort,
     CreatorMaintenanceViolation,
 )
-from armi_subject_state.api import SubjectSummary
 from fastapi import FastAPI, Query, Request, Security
 from fastapi.responses import (
     JSONResponse,
@@ -187,6 +186,7 @@ from armi_runtime.application.creator_projection import (
     _unavailable,
     operation_wire,
 )
+from armi_runtime.application.subject_summary import SubjectSummary
 
 from .bounded_http import read_bounded_body
 from .browser_sessions import (

@@ -1,4 +1,4 @@
-"""Stable public contract of the Self, Mind, and life-mode owner."""
+"""Stable public contract of the Self and life-mode owner."""
 
 from __future__ import annotations
 
@@ -11,41 +11,13 @@ from uuid import UUID
 from armi_kernel.application import (
     CandidateFactClass,
     CandidateOwnerDraft,
-    ConsiderationSignal,
 )
 from armi_runtime_foundation import AdminContentPort as SubjectStateAdminContentPort
 from armi_runtime_foundation import PostgreSQLAdminTransaction, PostgreSQLTransaction
 
-from ._cognitive_binding import bind_concern_changes
-from ._cognitive_contract import (
-    MIND_COGNITIVE_INSTRUCTIONS,
-    MIND_CONTEXT_REFERENCES,
-    MindState,
-)
-from ._concerns import (
-    CONCERN_CHANGES,
-    CONCERN_RECORDS,
-    ActivityReview,
-    CloseConcern,
-    ConcernChange,
-    ConcernRecord,
-    CreateConcern,
-    CreatorInputReview,
-    TimedReview,
-    UpdateConcern,
-    concern_attention_status,
-)
-from ._projection import (
-    mind_attention_projection,
-    mind_context_items,
-    mind_editable_state,
-    mind_signals,
-)
-
 
 class SubjectStateKind(StrEnum):
     SELF = "self"
-    MIND = "mind"
     LIFE_MODE = "life_mode"
 
 
@@ -71,7 +43,6 @@ class CandidateSubjectStateDraft:
     kind: SubjectStateKind
     expected_version: int
     canonical_next_state: bytes
-    concern_changes: tuple[ConcernChange, ...] = ()
 
     def __post_init__(self) -> None:
         from ._domain import validate_candidate
@@ -103,59 +74,6 @@ class SubjectStateLifeRecordItem:
 
 
 @dataclass(frozen=True, slots=True)
-class SubjectComponentSummary:
-    kind: SubjectStateKind
-    version: int
-    schema_version: str
-    content_visibility: str = "private"
-
-    def __post_init__(self) -> None:
-        expected = {
-            SubjectStateKind.SELF: "armi.self.v1",
-            SubjectStateKind.MIND: "armi.mind.v3",
-            SubjectStateKind.LIFE_MODE: "armi.life-mode.v1",
-        }
-        if (
-            type(self.kind) is not SubjectStateKind
-            or type(self.version) is not int
-            or self.version <= 0
-            or self.schema_version != expected[self.kind]
-            or self.content_visibility != "private"
-        ):
-            raise SubjectStateViolation("SUBJECT-STATE-SUMMARY")
-
-
-@dataclass(frozen=True, slots=True)
-class SubjectSummary:
-    subject_version: int
-    components: tuple[SubjectComponentSummary, ...]
-    latest_commit_ref: UUID | None
-    observed_at: datetime
-
-    def __post_init__(self) -> None:
-        if (
-            type(self.subject_version) is not int
-            or self.subject_version < 0
-            or tuple(item.kind for item in self.components)
-            != (
-                SubjectStateKind.SELF,
-                SubjectStateKind.MIND,
-                SubjectStateKind.LIFE_MODE,
-            )
-            or (
-                self.latest_commit_ref is not None
-                and (
-                    type(self.latest_commit_ref) is not UUID
-                    or self.latest_commit_ref.version != 7
-                )
-            )
-            or type(self.observed_at) is not datetime
-            or self.observed_at.tzinfo is None
-        ):
-            raise SubjectStateViolation("SUBJECT-STATE-SUMMARY")
-
-
-@dataclass(frozen=True, slots=True)
 class SubjectStateAdminComponent:
     kind: SubjectStateKind
     version: int
@@ -173,30 +91,6 @@ class SubjectStateCorrectionHead:
 
 @runtime_checkable
 class SubjectStateReadPort(Protocol):
-    async def attention_status(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        subject_id: UUID,
-        as_of: datetime,
-        consumed: frozenset[tuple[str, str, str]],
-    ) -> list[dict[str, object]]: ...
-
-    async def consideration_signals(
-        self,
-        transaction: PostgreSQLTransaction,
-        *,
-        subject_id: UUID,
-        event_purpose: str | None = None,
-        event_ref: UUID | None = None,
-        event_at: datetime | None = None,
-        activity_id: UUID | None = None,
-    ) -> tuple[ConsiderationSignal, ...]: ...
-
-    async def concerns(
-        self, transaction: PostgreSQLTransaction, *, subject_id: UUID
-    ) -> tuple[ConcernRecord, ...]: ...
-
     async def active_activity_ids(
         self, transaction: PostgreSQLTransaction, *, subject_id: UUID
     ) -> tuple[UUID, ...]: ...
@@ -338,20 +232,8 @@ class SubjectStateAdminCorrectionPort(Protocol):
 
 
 __all__ = (
-    "CONCERN_CHANGES",
-    "CONCERN_RECORDS",
-    "MIND_COGNITIVE_INSTRUCTIONS",
-    "MIND_CONTEXT_REFERENCES",
-    "ActivityReview",
     "CandidateSubjectStateDraft",
-    "CloseConcern",
-    "ConcernChange",
-    "ConcernRecord",
-    "CreateConcern",
-    "CreatorInputReview",
     "LifeModeHead",
-    "MindState",
-    "SubjectComponentSummary",
     "SubjectStateAdminComponent",
     "SubjectStateAdminContentPort",
     "SubjectStateAdminCorrectionPort",
@@ -366,13 +248,4 @@ __all__ = (
     "SubjectStateLifeRecordItem",
     "SubjectStateReadPort",
     "SubjectStateViolation",
-    "SubjectSummary",
-    "TimedReview",
-    "UpdateConcern",
-    "bind_concern_changes",
-    "concern_attention_status",
-    "mind_attention_projection",
-    "mind_context_items",
-    "mind_editable_state",
-    "mind_signals",
 )

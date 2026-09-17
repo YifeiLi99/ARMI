@@ -2,20 +2,77 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import datetime
+from enum import StrEnum
 from uuid import UUID
 
+from armi_mind.api import MindReadPort
 from armi_runtime_foundation import PostgreSQLRuntimeUnitOfWorkFactory
-from armi_subject_state.api import (
-    SubjectComponentSummary,
-    SubjectStateKind,
-    SubjectStateReadPort,
-    SubjectStateViolation,
-    SubjectSummary,
-)
+from armi_subject_state.api import SubjectStateReadPort, SubjectStateViolation
+
+
+class SubjectComponentKind(StrEnum):
+    SELF = "self"
+    MIND = "mind"
+    LIFE_MODE = "life_mode"
+
+
+@dataclass(frozen=True, slots=True)
+class SubjectComponentSummary:
+    kind: SubjectComponentKind
+    version: int
+    schema_version: str
+    content_visibility: str = "private"
+
+    def __post_init__(self) -> None:
+        expected = {
+            SubjectComponentKind.SELF: "armi.self.v1",
+            SubjectComponentKind.MIND: "armi.mind.v3",
+            SubjectComponentKind.LIFE_MODE: "armi.life-mode.v1",
+        }
+        if (
+            type(self.kind) is not SubjectComponentKind
+            or type(self.version) is not int
+            or self.version <= 0
+            or self.schema_version != expected[self.kind]
+            or self.content_visibility != "private"
+        ):
+            raise SubjectStateViolation("SUBJECT-STATE-SUMMARY")
+
+
+@dataclass(frozen=True, slots=True)
+class SubjectSummary:
+    subject_version: int
+    components: tuple[SubjectComponentSummary, ...]
+    latest_commit_ref: UUID | None
+    observed_at: datetime
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.subject_version) is not int
+            or self.subject_version < 0
+            or tuple(item.kind for item in self.components)
+            != (
+                SubjectComponentKind.SELF,
+                SubjectComponentKind.MIND,
+                SubjectComponentKind.LIFE_MODE,
+            )
+            or (
+                self.latest_commit_ref is not None
+                and (
+                    type(self.latest_commit_ref) is not UUID
+                    or self.latest_commit_ref.version != 7
+                )
+            )
+            or type(self.observed_at) is not datetime
+            or self.observed_at.tzinfo is None
+        ):
+            raise SubjectStateViolation("SUBJECT-STATE-SUMMARY")
 
 
 class RuntimeSubjectSummaryAssembler:
-    __slots__ = ("_factory", "_subject_id", "_subject_state")
+    __slots__ = ("_factory", "_mind", "_subject_id", "_subject_state")
 
     def __init__(
         self,
@@ -23,10 +80,12 @@ class RuntimeSubjectSummaryAssembler:
         *,
         subject_id: UUID,
         subject_state: SubjectStateReadPort,
+        mind: MindReadPort,
     ) -> None:
         self._factory = factory
         self._subject_id = subject_id
         self._subject_state = subject_state
+        self._mind = mind
 
     async def __call__(self) -> SubjectSummary:
         async with self._factory.unit_of_work(read_only=True) as unit_of_work:
@@ -47,25 +106,31 @@ class RuntimeSubjectSummaryAssembler:
             heads = await self._subject_state.current_heads(
                 transaction, subject_id=self._subject_id
             )
-        if row is None or len(heads) != 3:
+            mind = await self._mind.current_head(
+                transaction, subject_id=self._subject_id
+            )
+        if row is None or len(heads) != 2:
             raise SubjectStateViolation("SUBJECT-STATE-SUMMARY")
-        schema = {
-            SubjectStateKind.SELF: "armi.self.v1",
-            SubjectStateKind.MIND: "armi.mind.v3",
-            SubjectStateKind.LIFE_MODE: "armi.life-mode.v1",
-        }
-        ordered = sorted(
-            heads, key=lambda item: tuple(SubjectStateKind).index(item.kind)
-        )
-        return SubjectSummary(
-            int(row[0]),
-            tuple(
-                SubjectComponentSummary(item.kind, item.version, schema[item.kind])
-                for item in ordered
+        components = [
+            SubjectComponentSummary(
+                SubjectComponentKind(item.kind.value),
+                item.version,
+                "armi.self.v1" if item.kind.value == "self" else "armi.life-mode.v1",
+            )
+            for item in heads
+        ]
+        components.insert(
+            1,
+            SubjectComponentSummary(
+                SubjectComponentKind.MIND, mind.version, "armi.mind.v3"
             ),
-            row[1],
-            row[2],
         )
+        return SubjectSummary(int(row[0]), tuple(components), row[1], row[2])
 
 
-__all__ = ("RuntimeSubjectSummaryAssembler",)
+__all__ = (
+    "RuntimeSubjectSummaryAssembler",
+    "SubjectComponentKind",
+    "SubjectComponentSummary",
+    "SubjectSummary",
+)

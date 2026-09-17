@@ -115,6 +115,7 @@ DATA_RIGHTS_OWNER_CONTRACTS = (
     _contract("runtime", (), ()),
     _contract("sleep", (), ()),
     _contract("subject-state", ("subject_component",), ()),
+    _contract("mind", ("subject_component",), ()),
     _contract(
         "web-observation",
         ("web_research",),

@@ -13,6 +13,7 @@ from armi_mood.api import MoodReadPort
 from armi_prompt.api import PromptReadPort
 from armi_runtime.composition.data_rights import compose_data_rights_participants
 from armi_runtime.composition.data_rights_contracts import DATA_RIGHTS_OWNER_CONTRACTS
+from armi_runtime.composition.database import compose_mind_module as bootstrap_mind
 from armi_runtime.composition.owner_roster import compose_runtime_owner_roster
 from armi_subject_state.api import SubjectStateReadPort
 
@@ -23,11 +24,12 @@ def _business(data_rights: DataRightsParticipant) -> tuple[DataRightsParticipant
         mood_read=cast(MoodReadPort, object()),
         prompt_read=cast(PromptReadPort, object()),
         subject_state_read=cast(SubjectStateReadPort, object()),
+        mind_read=bootstrap_mind().read,
     ).data_rights
 
 
 class DataRightsCompositionTests(unittest.TestCase):
-    def test_fixed_roster_contains_twenty_two_business_and_two_technical_owners(
+    def test_fixed_roster_contains_twenty_three_business_and_two_technical_owners(
         self,
     ) -> None:
         participants = compose_data_rights_participants(
@@ -35,7 +37,7 @@ class DataRightsCompositionTests(unittest.TestCase):
             catalog=cast(ArtifactCatalogPort, object()),
         )
 
-        self.assertEqual(len(participants), 24)
+        self.assertEqual(len(participants), 25)
         self.assertEqual(
             {item.owner_identity.value for item in participants},
             {item.owner_identity.value for item in DATA_RIGHTS_OWNER_CONTRACTS},
@@ -56,6 +58,7 @@ class DataRightsCompositionTests(unittest.TestCase):
                 "activity",
                 "material",
                 "subject-state",
+                "mind",
                 "mood",
                 "prompt",
                 "sleep",
