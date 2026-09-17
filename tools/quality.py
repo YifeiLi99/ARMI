@@ -188,8 +188,6 @@ def selected_gate_dependencies(selected: Iterable[str]) -> dict[str, tuple[str, 
     for gate_id in ordered:
         declared = _GATE_DEPENDENCIES.get(gate_id, ())
         current = tuple(item for item in declared if item in selected_set)
-        if gate_id != "QLT-LOCKED" and "QLT-LOCKED" in selected_set:
-            current = ("QLT-LOCKED", *current)
         dependencies[gate_id] = current
     return dependencies
 

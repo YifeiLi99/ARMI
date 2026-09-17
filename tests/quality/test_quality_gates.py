@@ -68,9 +68,9 @@ class QualityGateTests(unittest.TestCase):
             ),
             {
                 "QLT-LOCKED": (),
-                "BUILD-WEB": ("QLT-LOCKED",),
-                "BUILD-PY": ("QLT-LOCKED", "BUILD-WEB"),
-                "WHEEL-INSTALL": ("QLT-LOCKED", "BUILD-PY"),
+                "BUILD-WEB": (),
+                "BUILD-PY": ("BUILD-WEB",),
+                "WHEEL-INSTALL": ("BUILD-PY",),
             },
         )
 
@@ -104,10 +104,10 @@ class QualityGateTests(unittest.TestCase):
     def test_failed_prerequisite_skips_only_its_dependents(self) -> None:
         def runner(gate: Gate, environment: dict[str, str]) -> GateResult:
             del environment
-            status = "fail" if gate.gate_id == "QLT-LOCKED" else "pass"
+            status = "fail" if gate.gate_id == "BUILD-WEB" else "pass"
             return GateResult(gate.gate_id, status, 1 if status == "fail" else 0, "")
 
-        selected = ("QLT-LOCKED", "PY-TEST")
+        selected = ("BUILD-WEB", "BUILD-PY", "PY-TEST")
         available = {gate_id: Gate(gate_id, ("unused",), ROOT) for gate_id in selected}
         outcome = schedule_gates(
             selected,
@@ -118,15 +118,15 @@ class QualityGateTests(unittest.TestCase):
         )
         self.assertEqual(
             [result.status for result in outcome.results],
-            ["fail", "skipped"],
+            ["fail", "skipped", "pass"],
         )
-        self.assertIn("QLT-LOCKED=fail", outcome.results[1].output)
+        self.assertIn("BUILD-WEB=fail", outcome.results[1].output)
         self.assertEqual(aggregate_exit_code(outcome.results), 1)
 
     def test_blocked_prerequisite_is_not_reported_as_failure(self) -> None:
         def runner(gate: Gate, environment: dict[str, str]) -> GateResult:
             del environment
-            status = "blocked" if gate.gate_id == "QLT-LOCKED" else "pass"
+            status = "blocked" if gate.gate_id == "BUILD-WEB" else "pass"
             return GateResult(
                 gate.gate_id,
                 status,
@@ -134,7 +134,7 @@ class QualityGateTests(unittest.TestCase):
                 "",
             )
 
-        selected = ("QLT-LOCKED", "PY-TEST")
+        selected = ("BUILD-WEB", "BUILD-PY", "PY-TEST")
         available = {gate_id: Gate(gate_id, ("unused",), ROOT) for gate_id in selected}
         outcome = schedule_gates(
             selected,
@@ -145,9 +145,41 @@ class QualityGateTests(unittest.TestCase):
         )
         self.assertEqual(
             [result.status for result in outcome.results],
-            ["blocked", "skipped"],
+            ["blocked", "skipped", "pass"],
         )
         self.assertEqual(aggregate_exit_code(outcome.results), 2)
+
+    def test_toolchain_failure_does_not_skip_independent_gates(self) -> None:
+        for status, exit_code in (("fail", 1), ("blocked", 2)):
+            with self.subTest(status=status):
+
+                def runner(
+                    gate: Gate,
+                    environment: dict[str, str],
+                    status: str = status,
+                    exit_code: int = exit_code,
+                ) -> GateResult:
+                    del environment
+                    if gate.gate_id == "QLT-LOCKED":
+                        return GateResult(gate.gate_id, status, exit_code, "")
+                    return GateResult(gate.gate_id, "pass", 0, "")
+
+                selected = ("QLT-LOCKED", "PY-FORMAT", "PY-LINT", "PY-TEST")
+                available = {
+                    gate_id: Gate(gate_id, ("unused",), ROOT) for gate_id in selected
+                }
+                outcome = schedule_gates(
+                    selected,
+                    available,
+                    os.environ.copy(),
+                    jobs=1,
+                    runner=runner,
+                )
+                self.assertEqual(
+                    [result.status for result in outcome.results],
+                    [status, "pass", "pass", "pass"],
+                )
+                self.assertEqual(aggregate_exit_code(outcome.results), exit_code)
 
     def test_independent_gate_continues_after_failure(self) -> None:
         def runner(gate: Gate, environment: dict[str, str]) -> GateResult:
