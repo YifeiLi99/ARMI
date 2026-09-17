@@ -1047,6 +1047,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         gateway = PostgreSQLSchemaGateway()
         return gateway.install(conninfo, environment_id=environment_id)
 
+    @pytest.mark.test_group("data-rights", "artifacts")
     def test_data_rights_artifact_fk_contract_matches_installed_catalog(self) -> None:
         fixture = self.create_database()
         self._install_current(
@@ -1087,6 +1088,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(installed, declared)
 
+    @pytest.mark.test_group("admin", "runtime")
     def test_provider_usage_summary_filters_and_pagination_share_receipts(self) -> None:
         from dataclasses import replace
         from datetime import UTC, datetime
@@ -1233,12 +1235,15 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(operation_only.totals.billable_calls, 0)
 
+    @pytest.mark.test_group("attention", "activity")
     def test_autonomy_persistent_plan_and_concurrent_quota(self) -> None:
         self._exercise_autonomy_plan(psychological=False)
 
+    @pytest.mark.test_group("attention", "cognition", "mind", "mood")
     def test_psychological_attention_advances_plan_and_settles_once(self) -> None:
         self._exercise_autonomy_plan(psychological=True)
 
+    @pytest.mark.test_group("attention", "mind", "cognition")
     def test_concern_review_wakes_once_without_mood_or_external_input(self) -> None:
         self._exercise_autonomy_plan(psychological=False, concern=True)
 
@@ -1761,20 +1766,25 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ),
             )
 
+    @pytest.mark.test_group("schema", "admin")
     def test_supported_database_upgrade_preserves_data_and_matches_fresh_schema(
         self,
     ) -> None:
         self._assert_supported_database_upgrade("v21")
 
+    @pytest.mark.test_group("schema", "admin")
     def test_supported_v22_database_upgrade_preserves_mind_history(self) -> None:
         self._assert_supported_database_upgrade("v22")
 
+    @pytest.mark.test_group("schema", "admin")
     def test_supported_v23_database_upgrade_preserves_mind_history(self) -> None:
         self._assert_supported_database_upgrade("v23")
 
+    @pytest.mark.test_group("schema", "admin")
     def test_supported_v24_database_upgrade_preserves_mind_history(self) -> None:
         self._assert_supported_database_upgrade("v24")
 
+    @pytest.mark.test_group("schema", "admin")
     def test_supported_v25_database_upgrade_preserves_psychology(self) -> None:
         self._assert_supported_database_upgrade("v25")
 
@@ -2229,6 +2239,16 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
         self.assertEqual(continuity(), ContinuityState.INVALID)
 
+    @pytest.mark.test_group(
+        "admin",
+        "memory",
+        "relationship",
+        "material",
+        "subject-state",
+        "mind",
+        "mood",
+        "prompt",
+    )
     def test_online_content_owner_revisions_receipts_and_busy_fences(self) -> None:
         from armi_admin.application.content_contracts import ContentWriteRequest
 
@@ -2572,6 +2592,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             finally:
                 composition.close()
 
+    @pytest.mark.test_group("admin", "schema")
     def test_structured_database_management_types_conflicts_and_atomic_receipts(
         self,
     ) -> None:
@@ -2748,6 +2769,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         finally:
             pool.close()
 
+    @pytest.mark.test_group("schema", "admin")
     def test_current_schema_installs_once_into_an_empty_database(self) -> None:
         fixture = self.create_database(environment_id=_SUMMARY_ENVIRONMENT_ID)
         installed = self._install_current(
@@ -2847,6 +2869,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
         self.assertEqual(repeated.exception.code, "DB-SCHEMA-EXISTS")
 
+    @pytest.mark.test_group("live-vision")
     def test_live_vision_allows_one_open_session_per_source(self) -> None:
         fixture = self.create_database()
         self._install_current(
@@ -2923,6 +2946,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(count, (2,))
 
+    @pytest.mark.test_group("schema", "admin")
     def test_runtime_status_rejects_missing_head_dml_capability(self) -> None:
         fixture = self.create_database()
         self._install_current(
@@ -2940,6 +2964,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
         self.assertEqual(rejected.exception.code, "DB-SCHEMA-CONTRACT")
 
+    @pytest.mark.test_group("schema", "admin")
     def test_table_dml_allows_fixed_operations_without_implying_others(self) -> None:
         fixture = self.create_database()
         self._install_current(
@@ -2971,6 +2996,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         with psycopg.connect(fixture.admin_role_dsn) as connection:
             connection.execute("UPDATE armi.effects SET status=status WHERE false")
 
+    @pytest.mark.test_group("schema", "admin")
     def test_schema_identity_tampering_is_rejected_before_runtime(self) -> None:
         fixture = self.create_database()
         self._install_current(
@@ -3367,6 +3393,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             self.assertNotIn(browser_token, log_text)
             self.assertNotIn(message, log_text)
 
+    @pytest.mark.test_group("interaction", "channels")
     def test_external_messages_share_people_but_separate_conversations(
         self,
     ) -> None:
@@ -3819,6 +3846,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             ],
         )
 
+    @pytest.mark.test_group("schema", "admin")
     def test_baseline_failure_rolls_back_all_tables(self) -> None:
         fixture = self.create_database()
         source = Path(
@@ -3849,6 +3877,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertEqual(namespace, ("armi",))
         self.assertEqual(tables, (0,))
 
+    @pytest.mark.test_group("schema", "admin")
     def test_missing_and_unknown_alembic_revisions_are_rejected(self) -> None:
         missing_fixture = self.create_database()
         gateway = PostgreSQLSchemaGateway()
@@ -3885,6 +3914,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
         self.assertEqual(unknown.exception.code, "DB-SCHEMA-CONTRACT")
 
+    @pytest.mark.test_group("context", "memory")
     def test_scalable_semantic_recall_executes_dense_and_lexical_paths(self) -> None:
         fixture = self.create_database()
         self._install_current(
@@ -4007,6 +4037,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertEqual(cast(tuple[Any, ...], lexical_result)[0], memory_id)
         self.assertGreater(float(cast(tuple[Any, ...], lexical_result)[1]), 0.3)
 
+    @pytest.mark.test_group("schema", "admin")
     def test_noncurrent_revision_requires_database_reinstall(self) -> None:
         fixture = self.create_database()
         PostgreSQLSchemaGateway().install(
@@ -4024,6 +4055,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
         self.assertEqual(rejected.exception.code, "DB-SCHEMA-CONTRACT")
 
+    @pytest.mark.test_group("runtime", "configuration")
+    @pytest.mark.installation
     def test_p0_clean_environment_cli_start_restart_and_capacity(self) -> None:
         fixture = self.create_database()
 
@@ -4716,6 +4749,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 if manager.status()["status"] != "stopped":
                     manager.stop()
 
+    @pytest.mark.test_group("attention", "runtime")
     def test_life_generation_source_is_single_under_concurrency_and_restart(
         self,
     ) -> None:
@@ -4995,6 +5029,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         assert row is not None
         self.assertEqual(row, (3, 3, 1, 1, 3))
 
+    @pytest.mark.test_group("runtime", "creator", "admin")
     def test_creator_read_queries_and_maintenance_share_runtime_state(
         self,
     ) -> None:
@@ -5303,6 +5338,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ),
             )
 
+    @pytest.mark.test_group("codex", "interaction")
     def test_creator_codex_task_intake_is_atomic_and_idempotent(self) -> None:
         fixture = self.create_database()
         self._install_current(
@@ -5491,6 +5527,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertEqual(provenance, (command.delegate_id,))
         self.assertEqual(audit, ("creator_delegate", command.delegate_id))
 
+    @pytest.mark.test_group("admin", "schema")
     def test_admin_mcp_health_and_schema_status_use_only_admin_identity(self) -> None:
         fixture = self.create_database()
         self._install_current(
@@ -5598,6 +5635,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "UPDATE armi.deployment_environments SET incarnation = 2"
             )
 
+    @pytest.mark.test_group("admin", "birth")
     def test_admin_reset_is_preview_bound_and_re_registers_without_backup(self) -> None:
         fixture = self.create_database()
         self._install_current(
@@ -5771,6 +5809,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             self.assertEqual(recovery, [])
             self.assertFalse((experiment_root / ".armi-admin-recovery").exists())
 
+    @pytest.mark.test_group("admin", "subject-state")
     def test_t07_component_preview_apply_status_and_role_boundary(self) -> None:
         fixture = self.create_database()
         self._install_current(
@@ -6389,6 +6428,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ).fetchone()
                 self.assertEqual(facts, (4, 0, "ready", "ready"))
 
+    @pytest.mark.test_group("web-observation", "evidence")
     def test_web_observation_admission_attempt_and_result_are_atomic(self) -> None:
         live_environment_root = os.environ.get("S033_LIVE_ENVIRONMENT_ROOT")
         live_credential = None
@@ -6721,6 +6761,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             assert row is not None
             self.assertEqual(row[0], 1)
 
+    @pytest.mark.test_group("schema", "admin")
     def test_runtime_readiness_rejects_catalog_constraint_drift(self) -> None:
         fixture = self.create_database()
         gateway = PostgreSQLSchemaGateway()
@@ -6739,6 +6780,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
         self.assertEqual(raised.exception.code, "DB-SCHEMA-CONTRACT")
 
+    @pytest.mark.test_group("life-query", "memory")
     def test_life_record_query_plans_use_bounded_and_trigram_indexes(self) -> None:
         fixture = self.create_database()
         self._install_current(
@@ -6998,6 +7040,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertIn("accepted_experiences_subject_page_idx", deep_plan)
         self.assertNotIn('"Node Type": "Seq Scan"', deep_plan)
 
+    @pytest.mark.test_group("capability", "schema")
     def test_hardened_permission_shapes_and_operational_indexes(self) -> None:
         fixture = self.create_database()
         self._install_current(
@@ -7154,6 +7197,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             self.assertIn(expected_index, plan)
             self.assertNotIn('"Node Type": "Seq Scan"', plan)
 
+    @pytest.mark.test_group("runtime", "admin")
     def test_role_matrix_cross_environment_and_pool_reset(self) -> None:
         fixture_a = self.create_database()
         fixture_b = self.create_database()
@@ -7213,6 +7257,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         finally:
             admin_pool.close()
 
+    @pytest.mark.test_group("runtime")
     def test_identity_connection_and_runtime_authority_fail_safely(self) -> None:
         fixture = self.create_database()
         gateway = PostgreSQLSchemaGateway()
@@ -7259,6 +7304,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
         self.assertEqual(raised.exception.code, "DB-DATABASE-IDENTITY")
 
+    @pytest.mark.test_group("artifacts")
     def test_artifact_registration_reuse_verified_read_and_role_grants(self) -> None:
         fixture = self.create_database()
         self._install_current(
@@ -7498,6 +7544,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(public_access, (0,))
 
+    @pytest.mark.test_group("birth")
     def test_unique_birth_is_atomic_concurrent_and_idempotent(self) -> None:
         fixture = self.create_database()
         self._install_current(
@@ -7861,22 +7908,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 connection.execute("SELECT * FROM armi.scene_timeline_items")
             connection.rollback()
 
-    def test_all_cognition_purposes_end_without_replaying(self) -> None:
-        for purpose in COGNITION_PURPOSES:
-            for stage in (
-                "context_unfinished",
-                "model_prepared",
-                "cognition_unfinished",
-                "finalizing",
-            ):
-                with self.subTest(purpose=purpose, stage=stage):
-                    self._exercise_creator_reply(
-                        interruption_stage=stage, purpose=purpose.value
-                    )
-
+    @pytest.mark.test_group("cognition", "subject-commit", "data-rights")
     def test_t03_subject_commit_is_atomic_and_private(self) -> None:
         self._exercise_creator_reply()
 
+    @pytest.mark.test_group("interaction", "expression", "effect")
     def test_system_notifications_are_atomic_deduplicated_and_not_replayed(
         self,
     ) -> None:
@@ -7884,11 +7920,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             with self.subTest(stage=stage):
                 self._exercise_creator_reply(system_notification=stage)
 
+    @pytest.mark.test_group("cognition", "expression", "effect")
     def test_explained_decision_retains_its_kind_and_delivers(self) -> None:
         for kind in ("decline", "need_information"):
             with self.subTest(kind=kind):
                 self._exercise_creator_reply(reply_decision_kind=kind)
 
+    @pytest.mark.test_group("cognition", "expression", "effect", "recovery")
     def test_creator_reply_interruption_never_replays_an_old_turn(self) -> None:
         for stage in (
             "cognition_unfinished",
@@ -7901,6 +7939,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             with self.subTest(stage=stage):
                 self._exercise_creator_reply(interruption_stage=stage)
 
+    @pytest.mark.test_group("codex", "cognition", "effect", "recovery")
     def test_codex_direct_commit_and_interruption(self) -> None:
         for stage in (
             "cognition_unfinished",
@@ -7915,14 +7954,17 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             with self.subTest(stage=stage):
                 self._exercise_creator_reply(interruption_stage=stage, codex=True)
 
+    @pytest.mark.test_group("attention", "codex", "cognition", "expression")
     def test_autonomous_codex_and_expression_share_atomic_commit(self) -> None:
         self._exercise_creator_reply(
             interruption_stage="rollback", autonomous_codex=True
         )
 
+    @pytest.mark.test_group("mind", "mood", "activity", "cognition", "expression")
     def test_concern_mood_activity_and_expression_share_atomic_commit(self) -> None:
         self._exercise_creator_reply(interruption_stage="rollback", concerns=True)
 
+    @pytest.mark.test_group("mind", "mood", "cognition")
     def test_neutral_appraisal_is_saved_in_joint_psychology_commit(self) -> None:
         self._exercise_creator_reply(
             interruption_stage="rollback", concerns=True, neutral_mood=True
@@ -10400,6 +10442,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                         [("cancelled",)],
                     )
 
+    @pytest.mark.test_group("runtime", "recovery")
     def test_runtime_authority_heartbeat_takeover_and_fence(self) -> None:
         fixture = self.create_database()
         self._install_current(
@@ -10636,6 +10679,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         ):
             connection.execute("SELECT * FROM armi.runtime_instances")
 
+    @pytest.mark.test_group("runtime", "recovery")
     def test_runtime_recovery_reaches_safe_without_starting_workers(self) -> None:
         fixture = self.create_database()
         self._install_current(
@@ -11539,6 +11583,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         await factory.open()
         return factory
 
+    @pytest.mark.test_group("persistence", "subject-commit")
     def test_uow_commit_rollback_hooks_constraints_and_session_reset(self) -> None:
         fixture = self.create_database()
         self._prepare_s011_schema(fixture)
@@ -11728,6 +11773,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         finally:
             self._drop_s011_schema(fixture)
 
+    @pytest.mark.test_group("persistence", "subject-commit")
     def test_cas_deadlock_timeout_and_commit_unknown_are_not_replayed(self) -> None:
         fixture = self.create_database()
         self._prepare_s011_schema(fixture)
@@ -11887,6 +11933,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         finally:
             self._drop_s011_schema(fixture)
 
+    @pytest.mark.test_group("admin", "runtime")
+    @pytest.mark.installation
     def test_real_cli_uses_fixed_scopes_and_safe_output(self) -> None:
         fixture = self.create_database()
         with tempfile.TemporaryDirectory(dir=Path.cwd() / ".tmp") as temporary:
@@ -11973,6 +12021,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             self.assertIn("DB-ROLE-IDENTITY", error_output.getvalue())
             self.assertNotIn(fixture.database, error_output.getvalue())
 
+    @pytest.mark.test_group("work")
     def test_durable_work_attempt_expiry_and_idempotency(self) -> None:
         fixture = self.create_database()
         self._install_current(
@@ -12240,6 +12289,32 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                 connection.execute("SELECT * FROM armi.durable_work")
             connection.rollback()
+
+
+@pytest.fixture
+def cognition_database_case():
+    case = PostgreSQLIntegrationTests()
+    case.setUpClass()
+    try:
+        yield case
+    finally:
+        case.tearDownClass()
+
+
+@pytest.mark.postgresql
+@pytest.mark.skipif(not _ADMIN_DSN, reason="isolated PostgreSQL is not running")
+@pytest.mark.test_group("cognition", "recovery")
+@pytest.mark.parametrize("purpose", list(COGNITION_PURPOSES), ids=lambda p: p.value)
+@pytest.mark.parametrize(
+    "stage",
+    ("context_unfinished", "model_prepared", "cognition_unfinished", "finalizing"),
+)
+def test_cognition_purpose_ends_without_replaying(
+    cognition_database_case, purpose, stage
+):
+    cognition_database_case._exercise_creator_reply(
+        interruption_stage=stage, purpose=purpose.value
+    )
 
 
 if __name__ == "__main__":

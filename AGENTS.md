@@ -86,10 +86,13 @@
 
 按改动影响选择检查：局部实现验证真实失败路径与受影响行为；公共合同、schema、依赖锁、生成器、composition 或启动变化覆盖受影响消费者。下表提供任务入口，Fast/Release/System 不构成每次任务的固定流水线。适用必需检查通过且完成条件满足后收尾；新改动、失败或影响结论的未决问题才触发扩大或重复验证。使用项目受管工具，缺失时明确报告，不换未核对版本绕过门禁。
 
+用户说“全量测试”时，默认直接运行 `./tools/test.ps1 -All`：收集全仓配置测试根下的 Python 代码测试、隔离 PostgreSQL 测试及前端 Vitest 测试，不启动 Playwright、真实浏览器、打包安装或真实外部服务。不要把它解释为 `quality.ps1 -System`。定向修改先用 `./tools/test.ps1 -Group <组名>`，涉及数据库时加 `-Database`；`-List` 查看实际收集的分组。跨模块改动可指定多个组，不能把分组匹配当作完整依赖分析。全量收集独立于分组，新测试未标分组也不能漏掉。默认总并发最多 14 个测试 worker，数据库最多 4 个，支持 `-Jobs`、`-DatabaseJobs` 调整；缺少数据库或工具必须报告未完成，不以跳过充当通过。详细范围与用法见 [README](README.md#测试与质量检查)。
+
 源码自动化测试可直接运行；数据库与系统测试使用隔离目录、数据库和端口，不要求先安装 MSIX。包身份、执行别名、托盘、自启、安装更新、卸载及数据保留行为必须用真实签名安装包验收。默认不另建常驻开发主体；`.armi/reusable/` 只是可复用资源，不是运行环境。本机验收版已有身份、数据库和凭据属于需保留的数据，不能因名称带“验收”就当作可任意重置的临时测试环境。安装版的破坏性验证使用独立的一次性测试包与数据。安装成功、Runtime 核心就绪和模型对话可用分别核验，不以启动成功代替真实对话验证。
 
 | 任务 | 入口与完成条件 |
 |---|---|
+| 全量与分组测试 | `./tools/test.ps1 -All`；定向 `-Group cognition,expression -Database`；目录自动归组，跨模块场景用 `pytest.mark.test_group(...)` 补充。每次输出目录为 `.tmp/test-runs/<运行标识>/`，含收集清单、各池日志及测试结果。 |
 | 工具链与质量检查 | Windows x86_64 / PowerShell 7，从仓库根运行。首次准备：`./tools/bootstrap_toolchain.ps1 -ApprovedOfficialDirect`，须有联网安装授权。定向：`./tools/quality.ps1 -Gate <ID>`；架构用 `ARC-SURFACE`，仓库卫生用 `SEC-REPOSITORY`。完整 gate 与依赖见 [tools/quality.py](tools/quality.py)。 |
 | 扩大验证 | `./tools/quality.ps1` 为 Fast；`-Release` 增加构建与 wheel 隔离安装；`-System` 再增加隔离 PostgreSQL、固定 Chromium 与 Creator 系统旅程，不调用真实模型、Web、Codex、QQ 或设备。`-Gate`、`-Release`、`-System` 互斥；定向测试沿用脚本环境与 [pytest 配置](pyproject.toml)。 |
 | 数据库变更 | 用获授权的真实 PostgreSQL 验证空库、唯一 `0000` 原子安装、head/identity/digests/ACL、重复 install 合同、注入失败后的业务表回滚与 revision 不前移，并核对残留空 namespace 和受影响 owner 主路径。 |

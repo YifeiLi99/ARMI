@@ -61,6 +61,9 @@ members = [
 addopts = ["--strict-config", "--strict-markers", "--import-mode=importlib"]
 asyncio_mode = "strict"
 markers = [
+    "browser: starts a real browser; excluded from source test runs",
+    "live: calls a real external provider or device; excluded from source test runs",
+    "installation: requires installed product or package deployment; excluded from source test runs",
     "creator_system: requires wheel, isolated PostgreSQL, and pinned Chromium",
     "postgresql: requires the isolated PostgreSQL integration environment",
 ]

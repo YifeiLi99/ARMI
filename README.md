@@ -236,7 +236,25 @@ interaction_config: C:/path/to/client.yaml
 
 在线写入由各 owner 校验并追加管理员版本，删除遵循逻辑删除/遗忘语义，返回历史保留和实际清理范围。资料和提示正文使用正式 Artifact 发布协议；写入和耐久回执同事务提交。遇到认知、效果、数据治理或共享锁占用时返回忙碌/冲突，不停机、不取消回复、不覆盖旧候选；调用方应重新读取版本后作出新操作。修复内部表仍使用明确的停机维护接口。
 
-## 质量门禁
+## 测试与质量检查
+
+日常“全量测试”使用一个源码入口，包含全仓 Python、隔离原生 PostgreSQL 和前端 Vitest（jsdom），不包含 Playwright、真实浏览器、构建安装或真实外部调用：
+
+```powershell
+./tools/test.ps1 -All
+./tools/test.ps1 -Group cognition,expression -Database
+./tools/test.ps1 -Group web
+./tools/test.ps1 -List
+./tools/test.ps1 -All -Jobs 14 -DatabaseJobs 4
+```
+
+`-Group` 默认运行相关代码测试，加 `-Database` 才包含该组数据库场景；`-All` 自动包括数据库。目录决定基本归组，文件名中的完整模块名补充相关组，跨模块场景在测试上声明 `pytest.mark.test_group("cognition", "expression")`。组可以重叠，执行自动去重；新增用例无须登记进全量名单。分组不自动推断所有调用方，公共合同变化应同时选择受影响消费者或运行全量。
+
+Python 与数据库使用 pytest-xdist 持续领取用例，前端使用受限 Vitest worker。默认总预算最多 14 个测试 worker，典型分配为代码 8、数据库 4、前端 2；小预算按可用槽位分批启动。每个数据库 worker 使用独立的临时 PostgreSQL，整轮复用、结束后停止清理，不触及安装版环境。`.tmp/test-runs/<运行标识>/` 保留收集清单、日志、JUnit/Vitest 结果及慢用例信息。数据库未启动、收集错误或测试失败均返回非零。
+
+真实浏览器、安装和外部服务用例分别使用 `creator_system`/`browser`、`installation`、`live` 标记，源码入口明确排除；不要用 `skip` 把必需的数据库测试伪装为通过。下列质量入口保留用于格式、类型、发布与系统验收，和日常全量测试分开：
+
+收集结果的 `out_of_scope` 列出排除用例和原因。目前包括 Creator 浏览器旅程，以及两项要求非 editable 安装包身份的 Admin CLI 集成测试；后两项继续由原 PostgreSQL 发布验证入口执行。认知中断矩阵按 purpose 与 stage 参数化，各场景独立调度，保留相同的数据库断言。
 
 源码修改后先按影响运行自动化测试，不必先安装 MSIX；数据库与系统测试创建隔离环境。安装更新、卸载、包身份、执行别名、自启和托盘等安装版行为再用真实签名包验收。当前不另外维护常驻开发主体，源码测试环境与本机安装的验收版分开；验收版已有身份、生活数据和凭据必须保留，不能当作可随手重置的临时数据。只有要求更新本机或验证安装版效果时，才进入本地打包安装流程。
 
