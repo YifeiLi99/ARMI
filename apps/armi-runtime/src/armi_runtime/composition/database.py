@@ -322,7 +322,10 @@ from armi_runtime.application.operation_assembler import (
 )
 from armi_runtime.application.opportunity_origin import RuntimeOpportunityOrigin
 
-from .birth_manifest import packaged_birth_digests
+from .birth_manifest import (
+    HISTORICAL_BIRTH_CONTRACT_DIGESTS,
+    packaged_birth_digests,
+)
 from .config_assets import runtime_config_path
 from .data_rights import compose_data_rights_participants
 from .environment import PreparedEnvironment
@@ -575,6 +578,7 @@ def inspect_runtime_continuity(prepared: PreparedEnvironment) -> ContinuityState
                 state = probe_continuity(
                     conninfo,
                     birth_contract_digest=digests["birth_contract_digest"],
+                    historical_birth_contract_digests=HISTORICAL_BIRTH_CONTRACT_DIGESTS,
                     interaction=bootstrap_interaction_birth(),
                     subject_state=bootstrap_subject_state().birth,
                     mind=bootstrap_mind().birth,

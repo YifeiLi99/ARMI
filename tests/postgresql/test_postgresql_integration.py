@@ -185,7 +185,10 @@ from armi_runtime.composition.artifacts import (
     ContentAddressedArtifactCoordinator,
 )
 from armi_runtime.composition.birth import BirthTransaction
-from armi_runtime.composition.birth_manifest import packaged_birth_digests
+from armi_runtime.composition.birth_manifest import (
+    HISTORICAL_BIRTH_CONTRACT_DIGESTS,
+    packaged_birth_digests,
+)
 from armi_runtime.composition.candidate_validation_tool import bootstrap_mind_cognition
 from armi_runtime.composition.data_rights_contracts import (
     DATA_RIGHTS_OWNER_CONTRACTS,
@@ -1909,6 +1912,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     (subject_id, revision_id),
                 )
 
+        historical_birth_digest = (
+            "sha256:509201df7bf69f24e3a701e7904fcf43fa075d5aeffda7cb71cc709a142e0a61"
+            if source_version == "v21"
+            else "sha256:0a90eadd62ff80c41fb32368f6e0edc06e99951a50441bac667e4023d9e04131"
+        )
+
         async def historical_subject():
             factory = PostgreSQLUnitOfWorkFactory(
                 old.runtime_dsn,
@@ -1947,9 +1956,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             voice_style="约 16 岁少女口吻",
                             traits=("清醒",),
                         ),
-                        birth_contract_digest=packaged_birth_digests()[
-                            "birth_contract_digest"
-                        ],
+                        birth_contract_digest=Digest(historical_birth_digest),
                         request_digest=Digest.from_bytes(b"usage-upgrade-fixture"),
                     )
                 )
@@ -2195,6 +2202,32 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             self.assertEqual(receipt[1]["cost"]["known_microyuan"], 157)
             self.assertEqual(receipt[1]["cost"]["status"], "legacy")
             self.assertIsNone(receipt[1]["price"])
+
+        def continuity():
+            return probe_continuity(
+                old.runtime_dsn,
+                birth_contract_digest=packaged_birth_digests()["birth_contract_digest"],
+                historical_birth_contract_digests=HISTORICAL_BIRTH_CONTRACT_DIGESTS,
+                interaction=bootstrap_interaction_birth(),
+                subject_state=bootstrap_subject_state().birth,
+                mind=bootstrap_mind().birth,
+                mood=bootstrap_mood().birth,
+                prompts=bootstrap_prompt().birth,
+            )
+
+        self.assertEqual(continuity(), ContinuityState.BORN)
+        with psycopg.connect(old.provisioner_dsn) as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT fixed_policy_digest FROM armi.runtime_bundle_activations"
+                ).fetchone(),
+                (historical_birth_digest,),
+            )
+            connection.execute(
+                "UPDATE armi.runtime_bundle_activations SET fixed_policy_digest=%s",
+                ("sha256:" + "f" * 64,),
+            )
+        self.assertEqual(continuity(), ContinuityState.INVALID)
 
     def test_online_content_owner_revisions_receipts_and_busy_fences(self) -> None:
         from armi_admin.application.content_contracts import ContentWriteRequest

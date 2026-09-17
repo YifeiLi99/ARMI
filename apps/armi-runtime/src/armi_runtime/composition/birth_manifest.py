@@ -19,6 +19,14 @@ from armi_local_control.configuration.paths import has_reparse_point
 
 _RESOURCE_PACKAGE = "armi_runtime.composition.runtime_resources"
 _MAXIMUM_BYTES = 64 * 1024
+# Birth identities remain historical facts across the supported v21-v25 upgrades.
+# These are hashes of the shipped manifests, not executable legacy contracts.
+HISTORICAL_BIRTH_CONTRACT_DIGESTS = frozenset(
+    {
+        "sha256:509201df7bf69f24e3a701e7904fcf43fa075d5aeffda7cb71cc709a142e0a61",
+        "sha256:0a90eadd62ff80c41fb32368f6e0edc06e99951a50441bac667e4023d9e04131",
+    }
+)
 _ROOT_FIELDS = {
     "schema_version",
     "environment_id",
