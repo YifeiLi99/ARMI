@@ -1,0 +1,54 @@
+synthetic: true
+context:
+  - alias: observation
+    kind: creator_input
+    summary: 合成观察：窗边的叶片朝向发生变化。
+steps:
+  - action: snapshot
+    expect: {version: 1, concern_count: 0, signal_count: 0}
+  - action: change
+    save_as: leaf
+    concerns:
+      - operation: create
+        question: 叶片为什么朝向窗户？
+        reason: 我想理解观察到的变化。
+        resolution_condition: 获得解释朝向变化的依据。
+        understanding: 目前只观察到变化，没有解释。
+        state: open
+        review: {kind: review, after_seconds: 300, reason: 稍后重新考虑探索方式。}
+        basis_refs: [observation]
+    expect: {version: 2, concern_count: 1, signal_count: 1}
+  - action: advance
+    seconds: 300
+    expect: {version: 2, concern_count: 1}
+  - action: change
+    concerns:
+      - operation: update
+        concern_ref: leaf
+        question: 叶片为什么朝向窗户？
+        reason: 我仍想理解观察到的变化。
+        resolution_condition: 获得解释朝向变化的依据。
+        understanding: 目前没有新信息，准备询问 Creator。
+        state: waiting
+        review: {kind: creator_input, reason: 等待询问后的反馈。}
+        basis_refs: [observation, leaf]
+    expect: {version: 3, concern_count: 1, signal_count: 0}
+  - action: advance
+    seconds: 60
+  - action: event
+    alias: answer
+    kind: creator_input
+    expect: {version: 3, signal_count: 1}
+  - action: change
+    concerns:
+      - operation: resolve
+        concern_ref: leaf
+        conclusion: 合成反馈解释了向光生长，满足原先的解释条件。
+        basis_refs: [answer, leaf]
+    expect: {version: 4, concern_count: 0, signal_count: 0}
+  - action: change
+    expected_version: 3
+    expect: {accepted: false, code: MIND-HEAD-STALE, version: 4}
+  - action: advance
+    seconds: 21600
+    expect: {version: 4, concern_count: 0, signal_count: 0}
