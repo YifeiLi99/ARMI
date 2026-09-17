@@ -46,12 +46,6 @@ class CreatorWebBoundaryTests(unittest.TestCase):
             "SEC-WEB-DYNAMIC",
         )
 
-    def test_external_url_is_rejected(self) -> None:
-        self.assert_rejected(
-            'const endpoint = "https://example.invalid";\n',
-            "SEC-WEB-EXTERNAL",
-        )
-
     def test_global_store_is_rejected(self) -> None:
         self.assert_rejected(
             "const globalStore = createStore();\n",

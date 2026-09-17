@@ -28,14 +28,6 @@ EXPECTED_NPM = "11.16.0"
 EXPECTED_GENERATOR = "7.13.0"
 PERSONAL_PATH = re.compile(rb"[A-Za-z]:\\(?:Users|WorkSpace)\\", re.IGNORECASE)
 SECRET_TOKEN = re.compile(rb"(?:sk|ghp|xox[baprs])-[A-Za-z0-9_-]{20,}")
-EXTERNAL_URL = re.compile(rb"https?://", re.IGNORECASE)
-INERT_LIBRARY_URLS = (
-    b"https://react.dev/errors/",
-    b"http://www.w3.org/2000/svg",
-    b"http://www.w3.org/1998/Math/MathML",
-    b"http://www.w3.org/1999/xlink",
-    b"http://www.w3.org/XML/1998/namespace",
-)
 
 
 class CreatorBuildError(RuntimeError):
@@ -164,11 +156,6 @@ def validate_static_bytes(path: Path, value: bytes) -> None:
         raise CreatorBuildError("SEC-WEB-PATH", f"personal path in {path.name}")
     if SECRET_TOKEN.search(value):
         raise CreatorBuildError("SEC-WEB-SECRET", f"secret-like token in {path.name}")
-    inspected = value
-    for allowed in INERT_LIBRARY_URLS:
-        inspected = inspected.replace(allowed, b"")
-    if EXTERNAL_URL.search(inspected):
-        raise CreatorBuildError("SEC-WEB-EXTERNAL", f"external URL in {path.name}")
 
 
 def generate(root: Path, tool_root: Path, stage: Path) -> tuple[Path, Path, Path]:

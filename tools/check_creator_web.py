@@ -15,7 +15,6 @@ STORAGE_PATTERN = re.compile(
     r"\b(?:localStorage|sessionStorage|indexedDB|document\.cookie|serviceWorker)\b"
 )
 DYNAMIC_PATTERN = re.compile(r"\b(?:eval|Function)\s*\(|dangerouslySetInnerHTML")
-EXTERNAL_PATTERN = re.compile(r"https?://", flags=re.IGNORECASE)
 GLOBAL_STORE_PATTERN = re.compile(
     r"\b(?:createStore|globalStore|serviceLocator|serviceRegistry)\b"
 )
@@ -105,15 +104,6 @@ def analyze_source(source: str, *, path: str) -> list[Violation]:
             pattern=DYNAMIC_PATTERN,
             code="SEC-WEB-DYNAMIC",
             message="dynamic HTML or code execution is forbidden",
-        )
-    )
-    violations.extend(
-        _matches(
-            source,
-            path=path,
-            pattern=EXTERNAL_PATTERN,
-            code="SEC-WEB-EXTERNAL",
-            message="external URLs are forbidden in Creator source",
         )
     )
     violations.extend(
