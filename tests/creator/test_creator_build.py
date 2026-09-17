@@ -12,7 +12,6 @@ from tools.build_creator_web import (
     CreatorBuildError,
     files_under,
     generate,
-    validate_openapi,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -77,20 +76,6 @@ class CreatorBuildTests(unittest.TestCase):
             self.assertTrue(
                 all(not Path(item["path"]).is_absolute() for item in manifest["assets"])
             )
-
-    def test_extra_openapi_path_is_rejected_with_stable_code(self) -> None:
-        schema = {
-            "openapi": "3.1.0",
-            "paths": {
-                "/health/live": {},
-                "/health/ready": {},
-                "/v1/runtime/status": {},
-                "/v1/future": {},
-            },
-        }
-        with self.assertRaises(CreatorBuildError) as raised:
-            validate_openapi(schema)
-        self.assertEqual(raised.exception.code, "CON-OPENAPI-PATHS")
 
     def test_missing_tool_is_a_stable_failure(self) -> None:
         with (

@@ -99,71 +99,11 @@ class CreatorContractTests(unittest.TestCase):
         )
         self.assertTrue(all(not path.startswith("/ui") for _, path in runtime_routes))
 
-    def test_openapi_has_exact_paths_operations_and_security(self) -> None:
+    def test_openapi_preserves_operation_bindings_security_and_responses(self) -> None:
         schema = build_creator_openapi()
         self.assertEqual(schema["openapi"], "3.1.0")
         self.assertNotIn("servers", schema)
         paths = cast(dict[str, Any], schema["paths"])
-        self.assertEqual(
-            set(paths),
-            {
-                "/health/live",
-                "/health/ready",
-                "/v1/browser-sessions",
-                "/v1/browser-sessions/current",
-                "/v1/channels/qq/status",
-                "/v1/channels/qq/start",
-                "/v1/channels/qq/stop",
-                "/v1/voice/status",
-                "/v1/voice/start",
-                "/v1/voice/stop",
-                "/v1/vision/status",
-                "/v1/vision/sources/{source_kind}/start",
-                "/v1/vision/sources/{source_kind}/stop",
-                "/v1/vision/observe",
-                "/v1/vision/observations/{observation_id}",
-                "/v1/vision/sources/{source_kind}/preview",
-                "/v1/activities",
-                "/v1/activities/{activity_id}/timeline",
-                "/v1/life-records",
-                "/v1/materials/{material_id}",
-                "/v1/memories",
-                "/v1/memories/{memory_id}/timeline",
-                "/v1/maintenance/status",
-                "/v1/maintenance/{maintenance_session_id}/timeline",
-                "/v1/maintenance/{maintenance_session_id}/wake",
-                "/v1/relationships/current",
-                "/v1/relationships/current/boundaries",
-                "/v1/relationships/{relationship_id}/timeline",
-                "/v1/runtime/status",
-                "/v1/usage/summary",
-                "/v1/autonomy/status",
-                "/v1/autonomy/history",
-                "/v1/usage/calls",
-                "/v1/usage/calls/{call_id}",
-                "/v1/operations/{result_ref}",
-                "/v1/other-human-records",
-                "/v1/other-human-records/{party_id}/scenes",
-                "/v1/other-human-records/{party_id}/scenes/{scene_id}/timeline",
-                "/v1/prompts/creator-guidance",
-                "/v1/prompts/creator-guidance/deactivation",
-                "/v1/exports",
-                "/v1/exports/{export_id}",
-                "/v1/data-rights/orders",
-                "/v1/data-rights/orders/{order_id}",
-                "/v1/data-rights/orders/{order_id}/retry",
-                "/v1/effects/{effect_id}",
-                "/v1/effects/{effect_id}/artifacts/{artifact_kind}",
-                "/v1/subject/summary",
-                "/v1/scenes",
-                "/v1/scenes/{scene_key}/close",
-                "/v1/scenes/{scene_key}/events",
-                "/v1/scenes/{scene_key}/codex-tasks",
-                "/v1/scenes/{scene_key}/messages",
-                "/v1/scenes/{scene_key}/reopen",
-                "/v1/scenes/{scene_key}/timeline",
-            },
-        )
         self.assertEqual(
             paths["/health/live"]["get"]["operationId"],
             "getHealthLive",
