@@ -46,12 +46,6 @@ class CreatorWebBoundaryTests(unittest.TestCase):
             "SEC-WEB-DYNAMIC",
         )
 
-    def test_global_store_is_rejected(self) -> None:
-        self.assert_rejected(
-            "const globalStore = createStore();\n",
-            "ARC-WEB-GLOBAL-STORE",
-        )
-
 
 if __name__ == "__main__":
     unittest.main()

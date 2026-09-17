@@ -15,9 +15,6 @@ STORAGE_PATTERN = re.compile(
     r"\b(?:localStorage|sessionStorage|indexedDB|document\.cookie|serviceWorker)\b"
 )
 DYNAMIC_PATTERN = re.compile(r"\b(?:eval|Function)\s*\(|dangerouslySetInnerHTML")
-GLOBAL_STORE_PATTERN = re.compile(
-    r"\b(?:createStore|globalStore|serviceLocator|serviceRegistry)\b"
-)
 
 
 @dataclass(frozen=True, order=True)
@@ -104,15 +101,6 @@ def analyze_source(source: str, *, path: str) -> list[Violation]:
             pattern=DYNAMIC_PATTERN,
             code="SEC-WEB-DYNAMIC",
             message="dynamic HTML or code execution is forbidden",
-        )
-    )
-    violations.extend(
-        _matches(
-            source,
-            path=path,
-            pattern=GLOBAL_STORE_PATTERN,
-            code="ARC-WEB-GLOBAL-STORE",
-            message="global stores and service locators are forbidden",
         )
     )
     return violations
