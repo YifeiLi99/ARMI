@@ -24,7 +24,7 @@ from ._cognitive_binding import (
 )
 from ._cognitive_contract import (
     MOOD_CONTEXT_REFERENCES,
-    AppraisalEventSignalV2,
+    AppraisalEventSignalV3,
     AppraisalSemanticSignal,
     ExistingMoodAppraisalCommand,
     MoodAppraisalCommandWire,
@@ -376,10 +376,19 @@ class SemanticAppraisal:
     causality: AppraisalCausality | None = None
     coping: AppraisalCoping | None = None
     standards: AppraisalStandards | None = None
+    engagement: str = "unknown"
 
     def __post_init__(self) -> None:
         if (
             type(self.concerns) is not tuple
+            or self.engagement
+            not in {
+                "satisfying",
+                "understimulated",
+                "overloaded",
+                "not_applicable",
+                "unknown",
+            }
             or not 1 <= len(self.concerns) <= 3
             or any(type(item) is not AppraisalConcern for item in self.concerns)
             or len({item.target for item in self.concerns}) != len(self.concerns)
@@ -673,7 +682,7 @@ __all__ = (
     "AppraisalDemandLevel",
     "AppraisalDirection",
     "AppraisalEventPhase",
-    "AppraisalEventSignalV2",
+    "AppraisalEventSignalV3",
     "AppraisalExpectedness",
     "AppraisalIntentionality",
     "AppraisalPowerBalance",

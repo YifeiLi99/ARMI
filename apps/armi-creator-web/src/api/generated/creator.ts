@@ -1068,6 +1068,11 @@ export interface components {
       effective_consideration_at?: string | null;
       /** Last Considered At */
       last_considered_at?: string | null;
+      /**
+       * Motivations
+       * @default []
+       */
+      motivations: components["schemas"]["MotivationAttentionStatus"][];
       /** Next Consideration At */
       next_consideration_at?: string | null;
       /** Observed At */
@@ -2743,6 +2748,33 @@ export interface components {
     /** @enum {string} */
     MemoryRevisionKindValue:
       "formed" | "recalled" | "faded" | "forgotten" | "reinterpreted";
+    /** MotivationAttentionStatus */
+    MotivationAttentionStatus: {
+      /** Assessment */
+      assessment: {
+        [key: string]: string;
+      };
+      /**
+       * Condition State
+       * @enum {string}
+       */
+      condition_state: "scheduled" | "due" | "consumed" | "waiting_for_event";
+      /** Level */
+      level: number;
+      /** Motivation Id */
+      motivation_id: string;
+      /** Object Kind */
+      object_kind: string;
+      /** Review At */
+      review_at: string | null;
+      /**
+       * Tendency
+       * @enum {string}
+       */
+      tendency: "explore" | "contact" | "change_activity" | "none";
+      /** Uncertain */
+      uncertain: boolean;
+    };
     /** OperationAcceptedOutcomeResponse */
     OperationAcceptedOutcomeResponse: {
       /**
@@ -3302,7 +3334,7 @@ export interface components {
        * Schema Version
        * @enum {string}
        */
-      schema_version: "armi.self.v1" | "armi.mind.v3" | "armi.life-mode.v1";
+      schema_version: "armi.self.v1" | "armi.mind.v4" | "armi.life-mode.v1";
       /** Version */
       version: number;
     };

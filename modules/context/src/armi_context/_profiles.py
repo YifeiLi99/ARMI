@@ -96,6 +96,7 @@ _PRIVATE_RECALL = frozenset({"current_memory", "current_material", "recall_statu
 _PRIVATE_LIFE = frozenset(
     {
         "current_concern",
+        "current_motivation",
         "current_life_opportunity",
         "current_maintenance_window",
         "current_maintenance_phase",

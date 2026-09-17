@@ -99,10 +99,12 @@ def validate_contract_single_version(root: Path) -> list[Violation]:
             if _relative(path, root) in {
                 "tests/postgresql/fixtures/v17-model-response.json",
                 "tests/postgresql/fixtures/v21-mind.json",
+                "tests/postgresql/fixtures/v25-psychology.json",
                 "packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/upgrades/v21-to-v22.sql",
                 "packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/upgrades/v22-to-v23.sql",
                 "packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/upgrades/v23-to-v24.sql",
                 "packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/upgrades/v24-to-v25.sql",
+                "packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/upgrades/v25-to-v26.sql",
             }:
                 # Exact forward migration mentions its source contracts to retain
                 # history; it never installs an old candidate execution parser.
@@ -127,7 +129,16 @@ def validate_contract_single_version(root: Path) -> list[Violation]:
                     for name in (
                         "CONSTRAINT cognitive_attempts_candidate_schema_version_check CHECK",
                         "CONSTRAINT cognitive_candidate_validation_candidate_contract_version_check CHECK",
+                        "CONSTRAINT mood_appraisal_events_semantic_version_check CHECK",
+                        "CONSTRAINT mood_revisions_payload_check CHECK",
                     )
+                ):
+                    continue
+                # The Owner reads an immutable prior appraisal for trajectory
+                # comparison. This exact legacy tag is not a candidate parser.
+                if (
+                    _relative(path, root) == "modules/mood/src/armi_mood/_domain.py"
+                    and line.strip().startswith('if raw.get("schema_version") ==')
                 ):
                     continue
                 for match in _INTERNAL_CONTRACT_VERSION.finditer(line):

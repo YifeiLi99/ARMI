@@ -121,7 +121,7 @@ def create_subject_life_use_cases(
                         version=item.version,
                         schema_version=cast(
                             Literal[
-                                "armi.self.v1", "armi.mind.v3", "armi.life-mode.v1"
+                                "armi.self.v1", "armi.mind.v4", "armi.life-mode.v1"
                             ],
                             item.schema_version,
                         ),

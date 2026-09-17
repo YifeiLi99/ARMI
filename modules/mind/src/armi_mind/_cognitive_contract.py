@@ -4,6 +4,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
+from ._appraisal import MIND_APPRAISAL_INSTRUCTIONS
+
 Summary = Annotated[str, StringConstraints(min_length=1, max_length=512)]
 
 
@@ -12,7 +14,7 @@ class _StrictModel(BaseModel, frozen=True):
 
 
 class MindState(_StrictModel, frozen=True):
-    schema_version: Literal["armi.mind.v3"]
+    schema_version: Literal["armi.mind.v4"]
     understanding: tuple[Summary, ...] = Field(max_length=16)
     attention: tuple[Summary, ...] = Field(max_length=16)
     thoughts: tuple[Summary, ...] = Field(max_length=16)
@@ -27,7 +29,8 @@ MIND_CONTEXT_REFERENCES = (
 )
 
 MIND_COGNITIVE_INSTRUCTIONS = (
-    "结合当前理解、兴趣、关系和实际生活变化,可以重新评价自己现在在意什么、希望什么以及为何想行动。"
+    MIND_APPRAISAL_INSTRUCTIONS
+    + "结合当前理解、兴趣、关系和实际生活变化,可以重新评价自己现在在意什么、希望什么以及为何想行动。"
     "时间经过、交流间隔、重复或新颖性只是处境依据,不自动等于任何指定情绪或任务。"
     "有新认识或愿望时通过当前合同允许的 Mind 变更保存;没有变化可以保持原状。"
     "普通牵挂、愿望或想换一种活动不必伪装成待解答问题;有具体未知问题时才形成 current_concern。"

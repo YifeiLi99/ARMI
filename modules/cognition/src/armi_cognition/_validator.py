@@ -72,10 +72,12 @@ from armi_mind.api import (
     CandidateMindDraft,
     ConcernChange,
     GroundedMindChange,
+    MindAppraisal,
     MindCognitionPort,
     MindViolation,
     apply_mind_text_change,
     bind_concern_changes,
+    bind_mind_appraisals,
     bind_mind_change,
 )
 from armi_mood.api import (
@@ -614,6 +616,10 @@ class DeterministicCandidateValidator:
         return self._attach_mind_changes(
             result,
             changes,
+            appraisals=cast(
+                tuple[MindAppraisal, ...],
+                getattr(parsed_candidate, "mind_appraisals", ()),
+            ),
             bases=bases,
             basis_by_ref=basis_by_ref,
             mind_change=cast(
@@ -632,8 +638,11 @@ class DeterministicCandidateValidator:
         bases: tuple[CandidateBasis, ...],
         basis_by_ref: dict[str, CandidateBasis],
         mind_change: GroundedMindChange | None,
+        appraisals: tuple[MindAppraisal, ...],
     ) -> CandidateValidationResult:
-        if (not changes and mind_change is None) or result.change_set is None:
+        if (
+            not changes and not appraisals and mind_change is None
+        ) or result.change_set is None:
             return result
         current = next(
             (
@@ -657,6 +666,13 @@ class DeterministicCandidateValidator:
         if bound is None:
             return _rejected(error or "CANDIDATE-CONCERN-REFERENCE", field_path=path)
         ordinals = {mind_basis.ordinal, *concern_ordinals}
+        try:
+            bound_appraisals, appraisal_ordinals = bind_mind_appraisals(
+                appraisals, basis_by_ref=basis_by_ref, payload=current[1]
+            )
+        except MindViolation as error:
+            return _rejected(f"CANDIDATE-{error.code}", field_path=error.field_path)
+        ordinals.update(appraisal_ordinals)
         next_state = current[1]
         if mind_change is not None:
             try:
@@ -682,6 +698,7 @@ class DeterministicCandidateValidator:
             draft = replace(
                 previous,
                 concern_changes=tuple(bound),
+                mind_appraisals=bound_appraisals,
                 basis_ordinals=tuple(sorted(set(previous.basis_ordinals) | ordinals)),
             )
         else:
@@ -693,6 +710,7 @@ class DeterministicCandidateValidator:
                 current[0],
                 next_state,
                 tuple(bound),
+                bound_appraisals,
             )
         owners = (
             *(item for item in change_set.owner_drafts if item.owner != "mind"),
@@ -3141,7 +3159,7 @@ def _expand_dialogue_candidate(
         )
     return (
         CognitionCandidate.model_construct(
-            schema_version="armi.cognition-candidate.v15",
+            schema_version="armi.cognition-candidate.v16",
             base=CandidateBase.model_construct(
                 subject_version=context.base_subject_version,
                 state_epoch=context.base_state_epoch,
@@ -4336,9 +4354,9 @@ def _component_failure(
     next_state = proposal.payload.next_state.model_dump(mode="json")
     schema_owner = {
         "armi.self.v1": CandidateOwner.SELF,
-        "armi.mind.v3": CandidateOwner.MIND,
-        "armi.mood.v3": CandidateOwner.MOOD,
-        "armi.mood-appraisal.v2": CandidateOwner.MOOD,
+        "armi.mind.v4": CandidateOwner.MIND,
+        "armi.mood.v4": CandidateOwner.MOOD,
+        "armi.mood-appraisal.v3": CandidateOwner.MOOD,
         "armi.life-mode.v1": CandidateOwner.LIFE_MODE,
     }.get(str(next_state.get("schema_version")))
     if schema_owner is not owner:
@@ -4351,9 +4369,9 @@ def _component_failure(
         return "CANDIDATE-COMPONENT-STATE"
     if (
         owner is CandidateOwner.MOOD
-        and next_state.get("schema_version") == "armi.mood-appraisal.v2"
+        and next_state.get("schema_version") == "armi.mood-appraisal.v3"
     ):
-        if current_schema != "armi.mood.v3":
+        if current_schema != "armi.mood.v4":
             return "CANDIDATE-COMPONENT-STATE"
     elif current_schema != next_state.get("schema_version"):
         return "CANDIDATE-COMPONENT-STATE"

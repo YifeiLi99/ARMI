@@ -13,6 +13,7 @@ import rfc8785
 from armi_kernel.application import CandidateFactClass
 
 from ._concerns import CONCERN_RECORDS, apply_concern_changes
+from ._motivation import MOTIVATION_RECORDS, apply_mind_appraisals
 
 if TYPE_CHECKING:
     from .api import CandidateMindDraft, MindHead
@@ -21,13 +22,14 @@ if TYPE_CHECKING:
 def initial_mind_state() -> bytes:
     return rfc8785.dumps(
         {
-            "schema_version": "armi.mind.v3",
+            "schema_version": "armi.mind.v4",
             "understanding": [],
             "attention": [],
             "thoughts": [],
             "wishes": [],
             "motivations": [],
             "concerns": [],
+            "motivation_states": [],
         }
     )
 
@@ -35,8 +37,8 @@ def initial_mind_state() -> bytes:
 def validate_state(value: dict[str, object]) -> None:
     fields = {"understanding", "attention", "thoughts", "wishes", "motivations"}
     if (
-        set(value) - {"concerns"} != fields | {"schema_version"}
-        or value["schema_version"] != "armi.mind.v3"
+        set(value) - {"concerns", "motivation_states"} != fields | {"schema_version"}
+        or value["schema_version"] != "armi.mind.v4"
     ):
         raise ValueError("invalid Mind state")
     for field in fields:
@@ -54,6 +56,10 @@ def validate_state(value: dict[str, object]) -> None:
             raise ValueError("invalid Mind text")
     if "concerns" in value:
         CONCERN_RECORDS.validate_json(json.dumps(value["concerns"]), strict=True)
+    if "motivation_states" in value:
+        MOTIVATION_RECORDS.validate_json(
+            json.dumps(value["motivation_states"]), strict=True
+        )
 
 
 def validate_candidate(value: CandidateMindDraft) -> None:
@@ -74,6 +80,7 @@ def validate_candidate(value: CandidateMindDraft) -> None:
         or value.expected_version <= 0
         or type(value.canonical_next_state) is not bytes
         or len(value.concern_changes) > 4
+        or len(value.mind_appraisals) > 4
     ):
         raise MindViolation("MIND-CANDIDATE")
     try:
@@ -119,6 +126,27 @@ def prepare_mind_change(
     except ValueError as error:
         raise MindViolation(str(error), ("concern_changes",)) from error
     next_payload["concerns"] = [item.model_dump(mode="json") for item in records]
+    motivations = MOTIVATION_RECORDS.validate_json(
+        json.dumps(payload["motivation_states"]), strict=True
+    )
+    if (
+        "motivation_states" in next_payload
+        and next_payload["motivation_states"] != payload["motivation_states"]
+    ):
+        raise MindViolation(
+            "MIND-MOTIVATION-REPLACEMENT", ("next_state", "motivation_states")
+        )
+    motivations = apply_mind_appraisals(
+        motivations,
+        draft.mind_appraisals,
+        now=now,
+        commit_id=commit_id,
+        basis_ordinals=draft.basis_ordinals,
+        new_identity=new_identity,
+    )
+    next_payload["motivation_states"] = [
+        item.model_dump(mode="json") for item in motivations
+    ]
     return rfc8785.dumps(next_payload)
 
 

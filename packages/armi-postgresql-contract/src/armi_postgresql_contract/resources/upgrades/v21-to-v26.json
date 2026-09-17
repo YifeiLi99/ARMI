@@ -8,12 +8,13 @@
     "schema_digest": "sha256:bd01acb1a985d89929841bd75d1041ca72401c5d7445649a03b515e2855ec61c",
     "role_policy_digest": "sha256:f20f019d0a6c4c2311b5384d0c52be69e252a8defe20b877ccba4b76d6291f46"
   },
-  "target_baseline": "armi.schema-baseline.v25",
+  "target_baseline": "armi.schema-baseline.v26",
   "steps": [
     "../upgrades/v21-to-v22.sql",
     "../upgrades/v22-to-v23.sql",
     "../upgrades/v23-to-v24.sql",
     "../upgrades/v24-to-v25.sql",
+    "../upgrades/v25-to-v26.sql",
     "baseline/99_privileges.sql"
   ]
 }

@@ -6,8 +6,8 @@ import json
 from typing import Annotated, Any, Literal, cast
 
 from armi_kernel.application import ModelViolation
-from armi_mind.api import ConcernChange, GroundedMindChange
-from armi_mood.api import AppraisalEventSignalV2
+from armi_mind.api import ConcernChange, GroundedMindChange, MindAppraisal
+from armi_mood.api import AppraisalEventSignalV3
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -25,10 +25,11 @@ from ._creator_cognitive_act_contract import RecordKind
 from ._strict_model_json import strict_model_value
 from ._text_contract import Text1024, Text2048, Text65536
 
-AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION = "armi.autonomous-activity-candidate.v9"
+AUTONOMOUS_ACTIVITY_CANDIDATE_VERSION = "armi.autonomous-activity-candidate.v10"
 
 
 class _StrictModel(BaseModel):
+    mind_appraisals: tuple[MindAppraisal, ...] = Field(default=(), max_length=4)
     mind_change: GroundedMindChange | None = None
     concern_changes: tuple[ConcernChange, ...] = Field(default=(), max_length=4)
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
@@ -44,31 +45,31 @@ class StartActivityDecision(_StrictModel):
     kind: Literal["start_activity"]
     goal: Text2048
     next_step: Text1024
-    appraisal: AppraisalEventSignalV2 | None = None
+    appraisal: AppraisalEventSignalV3 | None = None
 
 
 class AutonomousTerminalDecision(_StrictModel):
     kind: Literal["no_activity", "defer", "need_information"]
-    appraisal: AppraisalEventSignalV2 | None = None
+    appraisal: AppraisalEventSignalV3 | None = None
 
 
 class AutonomousVisualObservationDecision(_StrictModel):
     kind: Literal["visual_observation"]
     source_kind: Literal["camera", "screen"]
-    appraisal: AppraisalEventSignalV2 | None = None
+    appraisal: AppraisalEventSignalV3 | None = None
 
 
 class AutonomousWebResearchDecision(_StrictModel):
     kind: Literal["web_research"]
     query: Text2048
-    appraisal: AppraisalEventSignalV2 | None = None
+    appraisal: AppraisalEventSignalV3 | None = None
 
 
 class AutonomousLifeQueryDecision(_StrictModel):
     kind: Literal["exact_life_query"]
     record_kind: RecordKind
     query: Text1024 | None = None
-    appraisal: AppraisalEventSignalV2 | None = None
+    appraisal: AppraisalEventSignalV3 | None = None
 
 
 class AutonomousCodexDecision(_StrictModel):
@@ -77,7 +78,7 @@ class AutonomousCodexDecision(_StrictModel):
     model_id: Literal["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"] = "gpt-5.6-sol"
     reasoning_effort: Literal["low", "medium", "high", "xhigh", "max"] = "medium"
     web_search: bool = False
-    appraisal: AppraisalEventSignalV2 | None = None
+    appraisal: AppraisalEventSignalV3 | None = None
 
 
 class AutonomousWaitDecision(_StrictModel):
@@ -86,7 +87,7 @@ class AutonomousWaitDecision(_StrictModel):
     next_step: Text1024
     information_needed: Text2048
     resumption_cue: Text2048
-    appraisal: AppraisalEventSignalV2 | None = None
+    appraisal: AppraisalEventSignalV3 | None = None
 
 
 class AutonomousProgressDecision(_StrictModel, InternalWorkProgressDecision):

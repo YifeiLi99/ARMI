@@ -22,7 +22,12 @@ from armi_kernel.application import (
     estimate_cost,
 )
 from armi_kernel.contracts import Digest
-from armi_mind.api import MIND_COGNITIVE_INSTRUCTIONS, ConcernChange, MindState
+from armi_mind.api import (
+    MIND_COGNITIVE_INSTRUCTIONS,
+    ConcernChange,
+    MindAppraisal,
+    MindState,
+)
 from armi_mood.api import (
     MoodAppraisalCommandWire,
     mood_dialogue_text,
@@ -126,7 +131,7 @@ MODEL_REQUEST_VERSION = "armi.model-request.v1"
 DIALOGUE_MODEL_INPUT_VERSION = "armi.creator-dialogue-input.v6"
 CREATOR_BRANCH_MODEL_INPUT_VERSION = DIALOGUE_MODEL_INPUT_VERSION
 DialoguePromptVersion = Literal["armi.dialogue-prompt.v4"]
-CANDIDATE_VERSION = "armi.cognition-candidate.v15"
+CANDIDATE_VERSION = "armi.cognition-candidate.v16"
 ACTIVE_MODEL_ID = "doubao-seed-evolving"
 ACTIVE_MODEL_ADAPTER = "armi.model-adapter.volcengine-ark-responses-v1"
 ACTIVE_VERSION_POLICY = "provider_evolving_alias"
@@ -464,8 +469,9 @@ class CandidateUncertainty(_StrictModel, frozen=True):
 
 
 class CognitionCandidate(_StrictModel, frozen=True):
+    mind_appraisals: tuple[MindAppraisal, ...] = Field(default=(), max_length=4)
     concern_changes: tuple[ConcernChange, ...] = Field(default=(), max_length=4)
-    schema_version: Literal["armi.cognition-candidate.v15"]
+    schema_version: Literal["armi.cognition-candidate.v16"]
     base: CandidateBase
     disposition: Literal[
         "change",
@@ -500,7 +506,7 @@ def candidate_schema(
     *,
     purpose: str | None = None,
 ) -> dict[str, Any]:
-    if version == "armi.owner-reflection-candidate.v3":
+    if version == "armi.owner-reflection-candidate.v4":
         from ._reflection_contract import owner_reflection_schema
 
         return cast(
@@ -565,7 +571,7 @@ def parse_candidate(
             )
         elif (
             candidate_object is not None
-            and expected_version == "armi.owner-reflection-candidate.v3"
+            and expected_version == "armi.owner-reflection-candidate.v4"
         ):
             from ._reflection_contract import parse_owner_reflection
 
@@ -834,22 +840,22 @@ def load_active_binding(
             },
             "reflect_self": {
                 "profile": "reflect_self",
-                "response_contract_version": "armi.owner-reflection-candidate.v3",
+                "response_contract_version": "armi.owner-reflection-candidate.v4",
                 "output_token_limit": 2048,
             },
             "reflect_mind": {
                 "profile": "reflect_mind",
-                "response_contract_version": "armi.owner-reflection-candidate.v3",
+                "response_contract_version": "armi.owner-reflection-candidate.v4",
                 "output_token_limit": 2048,
             },
             "reflect_mood": {
                 "profile": "reflect_mood",
-                "response_contract_version": "armi.owner-reflection-candidate.v3",
+                "response_contract_version": "armi.owner-reflection-candidate.v4",
                 "output_token_limit": 1024,
             },
             "reflect_prompt": {
                 "profile": "reflect_prompt",
-                "response_contract_version": "armi.owner-reflection-candidate.v3",
+                "response_contract_version": "armi.owner-reflection-candidate.v4",
                 "output_token_limit": 1024,
             },
         }

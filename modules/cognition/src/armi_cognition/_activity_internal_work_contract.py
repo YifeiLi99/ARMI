@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from armi_mood.api import AppraisalEventSignalV2
+from armi_mood.api import AppraisalEventSignalV3
 from pydantic import BaseModel, ConfigDict, Field
 
 from ._dialogue_contract import ContextRef
@@ -44,7 +44,7 @@ class InternalWorkProgressDecision(_StrictModel):
     progress_summary: Text2048
     next_step: Text1024
     material_change: InternalWorkMaterialChange | None = None
-    appraisal: AppraisalEventSignalV2 | None = None
+    appraisal: AppraisalEventSignalV3 | None = None
 
 
 class InternalWorkCompleteDecision(_StrictModel):
@@ -52,14 +52,14 @@ class InternalWorkCompleteDecision(_StrictModel):
     progress_summary: Text2048
     terminal_reason: Text1024
     material_change: InternalWorkMaterialChange | None = None
-    appraisal: AppraisalEventSignalV2 | None = None
+    appraisal: AppraisalEventSignalV3 | None = None
 
 
 class InternalWorkAbandonDecision(_StrictModel):
     kind: Literal["abandon"]
     progress_summary: Text2048
     terminal_reason: Text1024
-    appraisal: AppraisalEventSignalV2 | None = None
+    appraisal: AppraisalEventSignalV3 | None = None
 
 
 class InternalWorkNoResultDecision(_StrictModel):
@@ -67,7 +67,7 @@ class InternalWorkNoResultDecision(_StrictModel):
     reason: Text2048
     next_step: Text1024
     resumption_cue: Text2048
-    appraisal: AppraisalEventSignalV2 | None = None
+    appraisal: AppraisalEventSignalV3 | None = None
 
 
 __all__ = (

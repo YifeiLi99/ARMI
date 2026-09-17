@@ -29,7 +29,7 @@ def test_mind_owner_draft_round_trip() -> None:
         1,
         rfc8785.dumps(
             {
-                "schema_version": "armi.mind.v3",
+                "schema_version": "armi.mind.v4",
                 "understanding": [],
                 "attention": [],
                 "thoughts": [],

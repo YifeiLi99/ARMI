@@ -110,8 +110,9 @@ class PostgreSQLMindDataRightsParticipant:
                      ) SELECT uuidv7(),head.subject_id,
                               head.mind_version+1,head.current_revision_id,
                               'data_rights',%s,
-                              jsonb_set(safe.semantic_payload,'{schema_version}','"armi.mind.v3"'::jsonb)
-                                || jsonb_build_object('concerns',COALESCE(safe.semantic_payload->'concerns','[]'::jsonb)),
+                              jsonb_set(safe.semantic_payload,'{schema_version}','"armi.mind.v4"'::jsonb)
+                                || jsonb_build_object('concerns',COALESCE(safe.semantic_payload->'concerns','[]'::jsonb),
+                                    'motivation_states',COALESCE(safe.semantic_payload->'motivation_states','[]'::jsonb)),
                               'private'
                        FROM armi.mind_heads AS head
                        JOIN safe ON safe.subject_id=head.subject_id

@@ -18,12 +18,26 @@ from .api import (
     MindViolation,
     initial_mind_state,
     mind_attention_projection,
+    mind_motivation_projection,
     mind_signals,
     prepare_mind_change,
 )
 
 
 class PostgreSQLMindOwner:
+    async def motivation_status(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        as_of: datetime,
+        consumed: frozenset[tuple[str, str, str]],
+    ) -> list[dict[str, object]]:
+        head = await self.current_head(transaction, subject_id=subject_id)
+        return mind_motivation_projection(
+            head.canonical_state, as_of=as_of, consumed=consumed
+        )
+
     async def open(self) -> None:
         return None
 

@@ -224,21 +224,27 @@ Embedding、关键词索引、列表投影、游标和前端缓存可删除重�
 
 ## 8. Mood
 
-### 处境评价实验边界
+### 处境评价合同与算法
 
-Mind 的 `MindAppraisal` 是独立实验合同，模型只返回对象/依据引用、期望结果（理解、交流、有意义投入）、重要性、期望差距、理解程度、进展、行动机会、结束状态及解释；不返回情绪名称或强度增量。Mind 公开 `evaluate_motivation` / `project_motivation`，以宿主绑定的对象身份和时间推导探索、联系、换活动倾向。它尚未接入正式候选、持久状态、Context 或 Attention，不修改 `armi.mind.v3`，不代表安装版已经具备新动机机制。
+Mind 的 `MindAppraisal` 已接入正式认知，模型返回对象/依据引用、期望结果（理解、交流、有意义投入）、重要性、差距、理解程度、进展、行动机会、结束状态及解释，不填写情绪名称或强度增量。Mind v4 保存 `motivation_states`；Owner 绑定身份、时间、版本并在共同 Subject Commit 中计算。最多四个未结束动机，普通文字替换与管理修正不能清空它们。初次观察也可以确认当前愿望已满足，不补造过去的需求。
+
+Mind 公开投影进入 Context；开放且有非零目标的动机在 30 分钟后产生普通 `review_time_reached` 信号，由 Attention 合并与消费。未评价时保留状态，结束后退出当前 Context，历史保留。HTTP/CLI/MCP 自主状态共用 `motivations` 投影。没有第二次模型评价或独立调度器，本轮不更新安装版。
+
+Mood v4 / cpm-fuzzy.v3 增加 `engagement`：满足的投入、投入不足、负荷过大、不适用、未知。只有明确投入不足并满足既有条件才推导 boredom；平静等待不自动成为无聊。中性评价可留存而无情绪成分。其余情绪、VAD、衰减与行动倾向保持原算法；Mind 联系倾向不直接增加悲伤。
 
 实验策略为：目标强度 = 100 × 重要性 × 差距 × 与期望结果有关的条件。理解使用未解释程度，投入使用停滞/重复程度，交流使用关系愿望的差距；可行机会单独保留，不把不能行动当作没有愿望。重要性映射 0/0.25/0.65/1，差距映射 0/0.3/1；部分理解取 0.5，停滞取 0.6。状态按实际时间以 30 分钟半衰期趋近有界目标，重复评价不累加刺激；初始强度为 0，满足/放下立即结束，未知评价保留已有目标并显式标记不确定。这些数值是待检验的工程假设，不是心理学常数。更改评估频率不得改变恒定处境下的轨迹，时间本身不创建未满足愿望。
 
 `tools/experiment_psychological_context.py --mode appraisal` 将 Mind 合同与已有 Mood 语义评价定义组合为一次模型返回；Mood 通过自己的只读 `preview_appraisal` 调用正式推导算法，Mind 不依赖 Mood。宿主保存原始请求/返回、费用和本地推导结果，不进行 Subject Commit、效果执行或每分钟模型调度。`--mode schema_probe` 验证简单结构约束，`--case` 可选择一个预定义合成情境；原自主合同实验仍为默认模式。默认 dry run，真实请求需显式 `--live`，每次运行最多六次、官方估算 ¥2。
 
-2026-09-17 本轮九次调用，官方单价估算 ¥0.124378：简单 Schema 两次、心理处境六次、此前非法 JSON 情境的当前完整自主合同一次，全部返回 completed 且通过对应校验。心理对照在三个情境对中得到不同倾向，但旧 Mood 算法把中性关系等待推导为 boredom，说明映射仍有不足；没有据此改写旧 Mood 行为或宣称拟人化验证成功。完整真实模型的持续行动及反馈结束轨迹仍未验证。
+2026-09-17 前一阶段九次调用，官方估算 ¥0.124378：简单 Schema 两次、心理处境六次、完整自主合同一次，均 completed 且通过对应校验。旧 Mood 把中性等待推为 boredom 的反例促成上述修正，旧评分不重算。
+
+正式接线后六次隔离调用全部通过新版自主 Schema 和候选校验，并将原返回交给正式 Mind 变换离线准备；估算 ¥0.222360，无未知用量。长交流间隔、重复无进展分别产生 contact/change_activity 倾向，两小时投影约 7.03125；刚交流未形成动机，持续投入目标为零。未解释新现象未形成好奇，不能宣称三种心理稳定涌现。实验未提交日常主体或执行效果，原子提交另由隔离数据库测试验证。完整真实模型的持续行动及反馈结束轨迹仍未验证。
 
 供应商适配器使用 Responses `text.format.type=json_schema`、`strict=true`，与[官方结构化输出入口](https://www.volcengine.com/docs/82379/1958523)一致。实验额外保留供应商原响应的 status、incomplete_details 和回显格式，不能仅凭请求设置推断每种复杂 Schema 都得到保证。收到可留存的返回与其可用于认知分开：`ModelInvocationResult.response_error_code` 标记非 completed 返回；Cognition 先保存原始正文和用量，再以具体错误结束 episode，不解析、提交、补答或重试。调用返回事实保留，成功返回不等于本轮业务完成。旧实验未保存供应商完成状态，旧两次结构错误的根因仍未确定；本轮未复现，不归咎于模型或宣称已修复其根因。
 
 ### 心理与自主行动的目标架构
 
-以下为已确认的后续设计方向，不代表完整动态机制已实现。Mind 管理“在意什么、希望怎样、为什么想行动”的持续关切与动机；Mood 管理情绪评价、强度与衰减。保留 Cognition 的一次理解与决策职责，以及 Attention 的机会调度职责，不将它们合并进 Mind。
+以下为当前模块边界；持久动机公式已接通，完整人类心理模拟尚未成立。Mind 管理持续关切与动机；Mood 管理情绪评价、强度与衰减。Cognition 一次理解与决策，Attention 安排机会，不合并进 Mind。
 
 ```mermaid
 flowchart TD
@@ -282,7 +288,7 @@ Mind 与 Mood 的双向影响通过同一轮认知读取快照、分别提出变
 
 自主候选 v9 允许可选的 `mind_change`：引用冻结 Context 依据，复用 Mind 公开的心理文本变更定义。它可与关注、活动、情绪及表达共同提交，也可在沉默时单独提交；不要求把普通愿望、牵挂或换一种活动的意向伪装成待解答的问题。Mind 绑定引用、准备文本状态，原关注仍只能通过关注合同改变。等待新输入本身不应创建活动，提示语义允许从兴趣与关系自主选择投入，不以接到任务为前提。这些能力不等于模型必然形成某种情绪。
 
-Mind v3 的 `concerns` 保存有依据的问题、在意理由、解决条件、已有认识、状态和复查条件。最多四份未结束关注；身份、来源提交与时间由 Mind Owner 产生。建立、更新、等待、解决、放下共用类型定义，与活动、表达、评价和计划原子提交。关注不等于活动，也不是全局好奇数值；只有决定探索时才使用既有 Activity/工具链。普通 Mind 文本更新及反思保留关注，管理替换或回退不能绕过合同清空它们。
+Mind v4 的 `concerns` 保存有依据的问题、在意理由、解决条件、已有认识、状态和复查条件。最多四份未结束关注；身份、来源提交与时间由 Mind Owner 产生。建立、更新、等待、解决、放下共用类型定义，与活动、表达、评价和计划原子提交。关注不等于活动，也不是全局好奇数值；只有决定探索时才使用既有 Activity/工具链。普通 Mind 文本更新及反思保留关注，管理替换或回退不能绕过合同清空它们。
 
 Mind／Mood 分别提供共享候选、认知快照和考虑信号，公共入口为各自 api.py。Cognition 只组合合同并唯一解析，Owner 绑定引用与核验领域语义；Context 只编排、裁剪、隔离与冻结，不解释心理存储或阈值。管理查询复用 Owner 投影。关注、情绪算法及摘要策略可在所属 Owner 内替换，Mind 与 Mood 是同级 Owner，不依赖对方或 Subject State 的业务实现。Mind 独占 mind_heads/mind_revisions；Subject State 不导出 Mind。Runtime 应用层聚合主体总览，保持对外字段与顺序。
 
@@ -423,7 +429,7 @@ Admin 的业务结果模型由操作目录统一生成 CLI/MCP 合同并校验�
 
 ## 13. 数据库与配置
 
-当前数据库要求 PostgreSQL 18.4、UTF-8/UTC/builtin `C.UTF-8`、vector 0.8.6、pg_trgm 1.6、唯一 `0000`、baseline `armi.schema-baseline.v25` 和精确 role policy。Schema 是 package resource，有序 baseline SQL、表策略和 ACL 由 `armi-postgresql-contract` 随包交付；精确目录以当前资源为准。安装只接受无用户 relation 且无现存 `armi` namespace 的目标库：namespace 先在独立短事务建立，随后 `0000` 在一个事务组内写入表、约束、ACL、revision、identity 与 digests；中段失败可以留下空 namespace，但不会留下业务表或前移 revision。Runtime 只验证，不安装或升级。显式 setup 升级接受签名资源声明的精确 v21、v22、v23、v24→v25 路径。v24→v25 仅扩展自主候选 v9 的历史容纳约束，不重写候选、心理或费用历史。v23→v24 将全部 Mind head/revision 迁至独立表，保留 ID、版本、前序、时间、payload、提交与管理来源及治理标记；核验后移除共享表中的 Mind 并收紧 Self/生活模式约束。这次所有权迁移不新增心理 revision。v22 来源先追加机会信号字段；v21 来源先完成 Mind 格式转换：以 `module_migration` 追加当前 Mind v3 revision，关注初始为空，保留原 Mind 文本及全部历史 v2 revision；扩展当前候选版本约束，不恢复旧候选。结构转换、ACL、与新建 baseline 一致的结构核验及身份更新同事务提交。程序部署后数据库失败时保留数据，不自动降级；绑定只在数据库确认后刷新。
+当前数据库要求 PostgreSQL 18.4、UTF-8/UTC/builtin `C.UTF-8`、vector 0.8.6、pg_trgm 1.6、唯一 `0000`、baseline `armi.schema-baseline.v26` 和精确 role policy。Schema 是 package resource，有序 baseline SQL、表策略和 ACL 由 `armi-postgresql-contract` 随包交付；精确目录以当前资源为准。安装只接受无用户 relation 且无现存 `armi` namespace 的目标库：namespace 先在独立短事务建立，随后 `0000` 在一个事务组内写入表、约束、ACL、revision、identity 与 digests；中段失败可以留下空 namespace，但不会留下业务表或前移 revision。Runtime 只验证，不安装或升级。显式 setup 升级接受签名资源声明的精确 v21、v22、v23、v24、v25→v26 路径。v24→v25 仅扩展自主候选 v9 的历史容纳约束，不重写候选、心理或费用历史。v23→v24 将全部 Mind head/revision 迁至独立表，保留 ID、版本、前序、时间、payload、提交与管理来源及治理标记；核验后移除共享表中的 Mind 并收紧 Self/生活模式约束。这次所有权迁移不新增心理 revision。v22 来源先追加机会信号字段；v21 来源先完成 Mind 格式转换：以 `module_migration` 追加当前 Mind v3 revision，关注初始为空，保留原 Mind 文本及全部历史 v2 revision；扩展当前候选版本约束，不恢复旧候选。结构转换、ACL、与新建 baseline 一致的结构核验及身份更新同事务提交。程序部署后数据库失败时保留数据，不自动降级；绑定只在数据库确认后刷新。
 
 配置合并顺序：仓库 `configs/runtime.yaml` → 环境根 `environment.yaml` → 登记的 `ARMI_*` 覆盖。当前 schema v3，strict/frozen/extra-forbid。环境根必须有普通 `environment.yaml`、`data/`、`secrets/`；data root 精确相等，禁止 reparse。Secret 只用 `env:ARMI_SECRET_*` 或位于 `secrets/` 的 `file:` locator，最大 64KiB，经 scoped handle 消费后清零。
 
@@ -467,3 +473,7 @@ Fast gate 覆盖锁、格式、lint、类型、离线 tests、架构/安全和 W
 - 设计正文只描述当前有效结论。外部研究先作为证据，未吸收前不进入产品合同。
 
 更细的产品、系统、实现和运行资料见 [docs/README.md](docs/README.md)。
+
+### 心理合同 v26 数据升级
+
+当前 baseline 为 v26，支持 v21–v25 精确前向升级。最后一步分别追加 Mind v4 / Mood v4 的 module_migration revision，保留旧 ID、payload、来源和情绪评分；不重复出生、不重算旧情绪。Mind 新动机为空，不补造历史需求。旧 Mood 评价只为轨迹比较读取，旧候选不执行。表、Owner 和权限不变；升级事务核验来源摘要及目标结构，失败完整回滚。本轮不更新安装版。

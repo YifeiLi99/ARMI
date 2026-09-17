@@ -15,7 +15,7 @@ from pydantic import ValidationError
 
 if TYPE_CHECKING:
     from .api import (
-        AppraisalEventSignalV2,
+        AppraisalEventSignalV3,
         MoodCognitionPort,
         MoodSemanticAppraisalCommand,
         SemanticAppraisalEvent,
@@ -114,6 +114,7 @@ def semantic_appraisal_from_command(
                 AppraisalCompatibility(value.standards.norm_compatibility),
                 AppraisalSelfScope(value.standards.self_scope),
             ),
+            value.engagement,
         ),
         None
         if command.change_from_previous is None
@@ -122,7 +123,7 @@ def semantic_appraisal_from_command(
 
 
 def bind_appraisal_event(
-    signal: AppraisalEventSignalV2,
+    signal: AppraisalEventSignalV3,
     *,
     proposal_ref: str,
     bases: tuple[CandidateBasis, ...],
@@ -186,7 +187,7 @@ def bind_appraisal_event(
     except ValidationError:
         return None, "CANDIDATE-MOOD-STATE"
     event_command = MoodSemanticAppraisalCommand.model_construct(
-        schema_version="armi.mood-appraisal.v2",
+        schema_version="armi.mood-appraisal.v3",
         transition=signal.transition,
         previous_episode_id=(
             None if episode_basis is None else str(episode_basis.source_ref)
@@ -214,7 +215,7 @@ def bind_appraisal_event(
 
 
 def bind_appraisal_draft(
-    signal: AppraisalEventSignalV2,
+    signal: AppraisalEventSignalV3,
     *,
     proposal_ref: str,
     bases: tuple[CandidateBasis, ...],

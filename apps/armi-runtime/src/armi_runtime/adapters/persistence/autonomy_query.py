@@ -76,4 +76,10 @@ class PostgreSQLAutonomyQuery:
                     as_of=datetime.fromisoformat(str(result["observed_at"])),
                     consumed=consumed,
                 )
+                result["motivations"] = await self._mind.motivation_status(
+                    unit.transaction,
+                    subject_id=unit.runtime_fence.subject_id,
+                    as_of=datetime.fromisoformat(str(result["observed_at"])),
+                    consumed=consumed,
+                )
             return result

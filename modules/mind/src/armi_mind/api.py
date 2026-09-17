@@ -46,10 +46,12 @@ from ._concerns import (
     concern_attention_status,
 )
 from ._domain import initial_mind_state, prepare_mind_change
+from ._motivation import BoundMindAppraisal, bind_mind_appraisals
 from ._projection import (
     mind_attention_projection,
     mind_context_items,
     mind_editable_state,
+    mind_motivation_projection,
     mind_signals,
 )
 
@@ -72,6 +74,7 @@ class CandidateMindDraft:
     expected_version: int
     canonical_next_state: bytes
     concern_changes: tuple[ConcernChange, ...] = ()
+    mind_appraisals: tuple[BoundMindAppraisal, ...] = ()
 
     def __post_init__(self) -> None:
         from ._domain import validate_candidate
@@ -122,6 +125,15 @@ class MindRevision:
 
 
 class MindReadPort(Protocol):
+    async def motivation_status(
+        self,
+        transaction: PostgreSQLTransaction,
+        *,
+        subject_id: UUID,
+        as_of: datetime,
+        consumed: frozenset[tuple[str, str, str]],
+    ) -> list[dict[str, object]]: ...
+
     async def history(
         self,
         transaction: PostgreSQLTransaction,
@@ -253,6 +265,7 @@ __all__ = (
     "MIND_COGNITIVE_INSTRUCTIONS",
     "MIND_CONTEXT_REFERENCES",
     "ActivityReview",
+    "BoundMindAppraisal",
     "CandidateMindDraft",
     "CloseConcern",
     "ConcernChange",
@@ -282,6 +295,7 @@ __all__ = (
     "UpdateConcern",
     "apply_mind_text_change",
     "bind_concern_changes",
+    "bind_mind_appraisals",
     "bind_mind_change",
     "concern_attention_status",
     "evaluate_motivation",
@@ -289,6 +303,7 @@ __all__ = (
     "mind_attention_projection",
     "mind_context_items",
     "mind_editable_state",
+    "mind_motivation_projection",
     "mind_signals",
     "prepare_mind_change",
     "project_motivation",

@@ -160,6 +160,10 @@ class PostgreSQLMindAdmin:
         if "concerns" in value and value["concerns"] != concerns:
             raise MindViolation("MIND-CONCERN-REPLACEMENT")
         value = {**value, "concerns": concerns}
+        motivations = cast(dict[str, object], previous[0])["motivation_states"]
+        if "motivation_states" in value and value["motivation_states"] != motivations:
+            raise MindViolation("MIND-MOTIVATION-REPLACEMENT")
+        value["motivation_states"] = motivations
         transaction.execute(
             "INSERT INTO armi.mind_revisions (mind_revision_id,subject_id,mind_version,previous_revision_id,origin_kind,origin_ref,semantic_payload,privacy_scope) "
             "VALUES (%s,%s,%s,%s,'admin_correction',%s,%s::jsonb,'private')",
@@ -204,8 +208,9 @@ class PostgreSQLMindAdmin:
         if (
             current is None
             or target is None
-            or target.get("schema_version") != "armi.mind.v3"
+            or target.get("schema_version") != "armi.mind.v4"
             or current.get("concerns") != target.get("concerns")
+            or current.get("motivation_states") != target.get("motivation_states")
         ):
             raise MindViolation("MIND-CONCERN-REPLACEMENT")
         return (

@@ -582,6 +582,44 @@ def _share_schema_nodes(schema: dict[str, Any]) -> dict[str, Any]:
 
     result = rename(result)
     result["$defs"] = {names[name]: value for name, value in result["$defs"].items()}
+    # A definition used once costs more tokens than its inline form. Keep shared
+    # nodes shared, and preserve every constraint while removing that indirection.
+    references: dict[str, int] = {}
+
+    def count_refs(value: Any) -> None:
+        if isinstance(value, dict):
+            for key, child in cast(dict[str, Any], value).items():
+                if key == "$ref" and isinstance(child, str):
+                    references[child] = references.get(child, 0) + 1
+                else:
+                    count_refs(child)
+        elif isinstance(value, list):
+            for child in cast(list[Any], value):
+                count_refs(child)
+
+    count_refs(result)
+    single = {
+        f"#/$defs/{name}": value
+        for name, value in result["$defs"].items()
+        if references.get(f"#/$defs/{name}") == 1
+    }
+
+    def inline(value: Any) -> Any:
+        if isinstance(value, list):
+            return [inline(child) for child in cast(list[Any], value)]
+        if not isinstance(value, dict):
+            return value
+        node = cast(dict[str, Any], value)
+        if set(node) == {"$ref"} and node["$ref"] in single:
+            return inline(single[node["$ref"]])
+        return {key: inline(child) for key, child in node.items()}
+
+    result["$defs"] = {
+        name: value
+        for name, value in result["$defs"].items()
+        if f"#/$defs/{name}" not in single
+    }
+    result = inline(result)
     return result
 
 

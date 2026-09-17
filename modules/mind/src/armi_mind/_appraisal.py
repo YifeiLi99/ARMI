@@ -1,4 +1,4 @@
-"""Experimental, object-bound motivational appraisal; no persistence or effects.
+"""Object-bound motivational appraisal shared by the Owner and isolated tests.
 
 These weights are an engineering hypothesis, not a validated human psychology model.
 Clock time approaches a bounded target; evaluating more often cannot add stimulation.
@@ -16,11 +16,9 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 EvidenceRef = Annotated[str, StringConstraints(pattern=r"^ctx:[1-9][0-9]{0,2}$")]
 
 
-class MindAppraisal(BaseModel, frozen=True):
+class MindAppraisalParameters(BaseModel, frozen=True):
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    object_ref: EvidenceRef
-    basis_refs: tuple[EvidenceRef, ...] = Field(min_length=1, max_length=8)
     desired_outcome: Literal["understand", "connect", "engage"]
     significance: Literal["none", "peripheral", "important", "central", "unknown"]
     discrepancy: Literal["none", "small", "substantial", "unknown"]
@@ -31,8 +29,13 @@ class MindAppraisal(BaseModel, frozen=True):
     explanation: Annotated[str, StringConstraints(min_length=1, max_length=512)]
 
 
+class MindAppraisal(MindAppraisalParameters, frozen=True):
+    object_ref: EvidenceRef
+    basis_refs: tuple[EvidenceRef, ...] = Field(min_length=1, max_length=8)
+
+
 MIND_APPRAISAL_INSTRUCTIONS = (
-    "评价合成主体当前处境,不扮演或诊断真人。每项对应 Context 中一个具体对象和依据。"
+    "评价自身当前处境。每项对应 Context 中一个具体对象和依据。已有动机应引用 current_motivation 沿原对象更新。"
     "desired_outcome 表示希望理解、交流或投入有意义活动;不输出情绪名称、强度或增量。"
     "significance 是对象的重要性;discrepancy 是希望与现实的差距,不是经过的时间。"
     "understanding 描述理解程度;progress 描述有效进展或重复;opportunity 描述可行机会。"
@@ -47,7 +50,7 @@ MIND_APPRAISAL_INSTRUCTIONS = (
 class MotivationalState:
     object_id: str
     desired_outcome: str
-    appraisal: MindAppraisal
+    appraisal: MindAppraisalParameters
     anchor_at: datetime
     anchor_level: float
     target_level: float
@@ -63,7 +66,7 @@ class MotivationalProjection:
     explanation: str
 
 
-def _target(value: MindAppraisal) -> float | None:
+def _target(value: MindAppraisalParameters) -> float | None:
     if value.resolution != "open":
         return 0.0
     importance = {"none": 0.0, "peripheral": 0.25, "important": 0.65, "central": 1.0}
@@ -119,6 +122,18 @@ def evaluate_motivation(
     if any(ref not in references for ref in (value.object_ref, *value.basis_refs)):
         raise ValueError("MIND-APPRAISAL-REFERENCE")
     object_id = references[value.object_ref]
+    return evolve_motivation(value, object_id=object_id, at=at, previous=previous)
+
+
+def evolve_motivation(
+    value: MindAppraisalParameters,
+    *,
+    object_id: str,
+    at: datetime,
+    previous: MotivationalState | None,
+) -> MotivationalState:
+    if at.tzinfo is None:
+        raise ValueError("MIND-APPRAISAL-TIME")
     if previous is not None and (
         previous.object_id != object_id
         or previous.desired_outcome != value.desired_outcome

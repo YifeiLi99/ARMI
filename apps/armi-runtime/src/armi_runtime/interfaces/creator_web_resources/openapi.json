@@ -332,6 +332,14 @@
             ],
             "title": "Last Considered At"
           },
+          "motivations": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/MotivationAttentionStatus"
+            },
+            "title": "Motivations",
+            "type": "array"
+          },
           "next_consideration_at": {
             "anyOf": [
               {
@@ -4727,6 +4735,77 @@
         ],
         "type": "string"
       },
+      "MotivationAttentionStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "assessment": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Assessment",
+            "type": "object"
+          },
+          "condition_state": {
+            "enum": [
+              "scheduled",
+              "due",
+              "consumed",
+              "waiting_for_event"
+            ],
+            "title": "Condition State",
+            "type": "string"
+          },
+          "level": {
+            "title": "Level",
+            "type": "number"
+          },
+          "motivation_id": {
+            "title": "Motivation Id",
+            "type": "string"
+          },
+          "object_kind": {
+            "title": "Object Kind",
+            "type": "string"
+          },
+          "review_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review At"
+          },
+          "tendency": {
+            "enum": [
+              "explore",
+              "contact",
+              "change_activity",
+              "none"
+            ],
+            "title": "Tendency",
+            "type": "string"
+          },
+          "uncertain": {
+            "title": "Uncertain",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "motivation_id",
+          "object_kind",
+          "assessment",
+          "tendency",
+          "level",
+          "uncertain",
+          "review_at",
+          "condition_state"
+        ],
+        "title": "MotivationAttentionStatus",
+        "type": "object"
+      },
       "OperationAcceptedOutcomeResponse": {
         "additionalProperties": false,
         "properties": {
@@ -6060,7 +6139,7 @@
           "schema_version": {
             "enum": [
               "armi.self.v1",
-              "armi.mind.v3",
+              "armi.mind.v4",
               "armi.life-mode.v1"
             ],
             "title": "Schema Version",

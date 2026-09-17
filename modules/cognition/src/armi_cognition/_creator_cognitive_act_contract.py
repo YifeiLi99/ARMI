@@ -6,8 +6,8 @@ from __future__ import annotations
 
 from typing import Annotated, Literal, cast
 
-from armi_mind.api import MIND_COGNITIVE_INSTRUCTIONS, ConcernChange
-from armi_mood.api import AppraisalEventSignalV2
+from armi_mind.api import MIND_COGNITIVE_INSTRUCTIONS, ConcernChange, MindAppraisal
+from armi_mood.api import AppraisalEventSignalV3
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter
 
 from ._creator_appraisal_contract import (
@@ -18,8 +18,8 @@ from ._dialogue_contract import ContextRef
 from ._expression_instructions import CONVERSATIONAL_EXPRESSION_INSTRUCTIONS
 from ._strict_model_json import strict_model_value
 
-CREATOR_COGNITIVE_ACT_VERSION = "armi.creator-cognitive-act-candidate.v5"
-CREATOR_VOICE_ACT_VERSION = "armi.creator-voice-act-candidate.v5"
+CREATOR_COGNITIVE_ACT_VERSION = "armi.creator-cognitive-act-candidate.v6"
+CREATOR_VOICE_ACT_VERSION = "armi.creator-voice-act-candidate.v6"
 
 CREATOR_COGNITIVE_ACT_INSTRUCTIONS = (
     f"""一次完成对 Creator 输入的认知：决定行动，以及是否形成经历、评价、关系、承诺或资料变化。
@@ -84,10 +84,11 @@ Decision = Annotated[
 
 
 class CreatorCognitiveActCandidate(_StrictModel, frozen=True):
+    mind_appraisals: tuple[MindAppraisal, ...] = Field(default=(), max_length=4)
     concern_changes: tuple[ConcernChange, ...] = Field(default=(), max_length=4)
     decision: Decision
     experience: CreatorAppraisalExperience | None = None
-    appraisal: AppraisalEventSignalV2 | None = None
+    appraisal: AppraisalEventSignalV3 | None = None
     changes: tuple[CreatorChange, ...] = Field(default=(), max_length=8)
 
     @property
@@ -154,7 +155,7 @@ VoiceDecision = Annotated[
 class CreatorVoiceActCandidate(CreatorCognitiveActCandidate, frozen=True):
     decision: VoiceDecision = Field(alias="d")
     experience: CreatorAppraisalExperience | None = Field(default=None, alias="exp")
-    appraisal: AppraisalEventSignalV2 | None = Field(default=None, alias="app")
+    appraisal: AppraisalEventSignalV3 | None = Field(default=None, alias="app")
     changes: tuple[CreatorChange, ...] = Field(default=(), max_length=8, alias="ops")
 
     @property

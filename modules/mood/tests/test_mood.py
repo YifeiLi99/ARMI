@@ -113,6 +113,36 @@ def _semantic_event(
     )
 
 
+@pytest.mark.parametrize(
+    "engagement", ["satisfying", "not_applicable", "unknown", "understimulated"]
+)
+def test_quiet_waiting_only_becomes_boredom_with_grounded_understimulation(engagement):
+    event = _semantic_event(
+        phase=AppraisalEventPhase.ONGOING,
+        concerns=(
+            AppraisalConcern(
+                AppraisalConcernTarget.RELATIONSHIP,
+                AppraisalSignificance.DIRECT,
+                AppraisalDirection.UNCHANGED,
+            ),
+        ),
+        quality=AppraisalQuality.NEUTRAL,
+        certainty=AppraisalCertainty.OPEN,
+        demand=AppraisalDemand(AppraisalUrgency.NONE, AppraisalDemandLevel.NONE),
+        coping=AppraisalCoping(
+            AppraisalResponseAccess.INDIRECT,
+            AppraisalPowerBalance.BALANCED,
+            AppraisalAdjustment.EASY,
+        ),
+    )
+    event = replace(event, appraisal=replace(event.appraisal, engagement=engagement))
+    result = derive_semantic_appraisal(event)
+    boredom = [
+        c for c in result.components if c.component.family is EmotionFamily.BOREDOM
+    ]
+    assert bool(boredom) == (engagement == "understimulated")
+
+
 def _component(
     family: EmotionFamily = EmotionFamily.HOPE,
     *,
@@ -138,7 +168,7 @@ def test_semantic_mood_candidate_round_trips_without_model_scores() -> None:
     cognition = bootstrap_mood_cognition()
     candidate = _candidate(appraisal=_semantic_event())
     payload = cognition.bind(candidate).canonical_payload
-    assert b"armi.mood-candidate.v4" in payload
+    assert b"armi.mood-candidate.v5" in payload
     assert b"semantic" not in payload
     assert cognition.decode(payload) == candidate
 
@@ -569,13 +599,13 @@ def test_home_base_moves_at_most_two_points_per_axis() -> None:
 def test_state_contract_is_v3_and_rejects_extra_fields() -> None:
     state = parse_state(
         {
-            "schema_version": "armi.mood.v3",
+            "schema_version": "armi.mood.v4",
             "dynamics_version": "recency-reappraisal.v1",
-            "derivation_version": "cpm-fuzzy.v2",
+            "derivation_version": "cpm-fuzzy.v3",
             "home_base": {"valence": 0, "arousal": 0, "dominance": 0},
         }
     )
-    assert state_to_wire(state)["schema_version"] == "armi.mood.v3"
+    assert state_to_wire(state)["schema_version"] == "armi.mood.v4"
     with pytest.raises(MoodViolation):
         parse_state({**state_to_wire(state), "mood": "平静"})
 

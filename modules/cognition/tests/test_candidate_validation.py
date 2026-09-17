@@ -291,7 +291,7 @@ def test_empty_relationship_slot_is_not_loaded_as_persisted_relationship() -> No
 
 def _mind_state(*, thoughts: list[str] | None = None) -> dict[str, object]:
     return {
-        "schema_version": "armi.mind.v3",
+        "schema_version": "armi.mind.v4",
         "understanding": [],
         "attention": [],
         "thoughts": thoughts or [],
@@ -306,7 +306,7 @@ def test_concerns_bind_to_mind_with_grounded_refs(operation: str) -> None:
     context = replace(
         context,
         purpose="consider_creator_input",
-        candidate_contract_version="armi.creator-cognitive-act-candidate.v5",
+        candidate_contract_version="armi.creator-cognitive-act-candidate.v6",
     )
     concern_id = uuid7()
     bases = (
@@ -356,11 +356,63 @@ def test_concerns_bind_to_mind_with_grounded_refs(operation: str) -> None:
     assert rejected.change_set is None
 
 
+def test_mind_appraisal_is_bound_in_the_single_creator_candidate():
+    from armi_mind.api import initial_mind_state
+
+    context, bases = _fixture()
+    context = replace(
+        context,
+        purpose="consider_creator_input",
+        candidate_contract_version="armi.creator-cognitive-act-candidate.v6",
+        current_components=tuple(
+            (
+                owner,
+                version,
+                initial_mind_state() if owner is CandidateOwner.MIND else payload,
+            )
+            for owner, version, payload in context.current_components
+        ),
+    )
+    appraisal = {
+        "object_ref": "ctx:2",
+        "basis_refs": ["ctx:2"],
+        "desired_outcome": "understand",
+        "significance": "important",
+        "discrepancy": "substantial",
+        "understanding": "unexplained",
+        "progress": "stalled",
+        "opportunity": "available",
+        "resolution": "open",
+        "explanation": "A synthetic observation has no explanation yet",
+    }
+    validator = DeterministicCandidateValidator(context)
+    result = validator.validate(
+        {"decision": {"kind": "no_change"}, "mind_appraisals": [appraisal]}, bases=bases
+    )
+    assert result.status is CandidateValidationStatus.ACCEPTED
+    assert result.change_set is not None
+    draft = next(
+        item.candidate
+        for item in result.change_set.owner_drafts
+        if item.owner == "mind"
+    )
+    assert draft.mind_appraisals[0].object_id == bases[1].source_ref
+    assert draft.expected_version == 1
+    rejected = validator.validate(
+        {
+            "decision": {"kind": "no_change"},
+            "mind_appraisals": [{**appraisal, "object_ref": "ctx:999"}],
+        },
+        bases=bases,
+    )
+    assert rejected.change_set is None
+
+
 def _mood_state() -> dict[str, object]:
     return {
-        "schema_version": "armi.mood.v3",
+        "schema_version": "armi.mood.v4",
         "dynamics_version": "recency-reappraisal.v1",
-        "derivation_version": "cpm-fuzzy.v2",
+        "derivation_version": "cpm-fuzzy.v3",
         "home_base": {"valence": 0, "arousal": 0, "dominance": 0},
     }
 
@@ -418,7 +470,7 @@ def test_creator_decision_with_expression_reaches_expression_owner(kind, purpose
     context = replace(
         context,
         purpose=purpose,
-        candidate_contract_version="armi.creator-cognitive-act-candidate.v5",
+        candidate_contract_version="armi.creator-cognitive-act-candidate.v6",
     )
     bases = (
         *bases,
@@ -1373,7 +1425,7 @@ def test_mind_and_prompt_reflections_commit_only_the_target_owner() -> None:
 
 def _candidate(context: CandidateValidationContext) -> dict[str, object]:
     return {
-        "schema_version": "armi.cognition-candidate.v15",
+        "schema_version": "armi.cognition-candidate.v16",
         "base": {
             "subject_version": context.base_subject_version,
             "state_epoch": context.base_state_epoch,
@@ -2353,7 +2405,7 @@ def test_candidate_v5_web_research_is_typed_deterministic_and_inactive_by_defaul
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v15"
+    candidate["schema_version"] = "armi.cognition-candidate.v16"
     candidate["experiences"] = []
     candidate["component_changes"] = []
     candidate["action_choices"] = []
@@ -2534,7 +2586,7 @@ def test_exact_life_query_result_supports_reply_without_becoming_memory() -> Non
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v15"
+    candidate["schema_version"] = "armi.cognition-candidate.v16"
     candidate["understanding"] = {
         "text": "我刚查到一条相关记录。",
         "fact_class": "objective_fact",
@@ -2630,7 +2682,7 @@ def test_codex_delegation_requires_available_executor_and_exact_task() -> None:
         "private",
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v15"
+    candidate["schema_version"] = "armi.cognition-candidate.v16"
     candidate["experiences"] = []
     candidate["component_changes"] = []
     candidate["action_choices"] = [
@@ -2711,7 +2763,7 @@ def test_creator_reply_capability_request_is_not_in_the_contract() -> None:
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v15"
+    candidate["schema_version"] = "armi.cognition-candidate.v16"
     candidate["experiences"] = []
     candidate["component_changes"] = []
     candidate["action_choices"] = []
@@ -2765,7 +2817,7 @@ def test_creator_reply_binds_authority_scope_and_forbids_model_owned_ids() -> No
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v15"
+    candidate["schema_version"] = "armi.cognition-candidate.v16"
     candidate["experiences"] = []
     candidate["component_changes"] = []
     candidate["action_choices"] = [
@@ -4463,7 +4515,7 @@ def test_creator_reply_is_admitted_as_exact_action_choice() -> None:
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v15"
+    candidate["schema_version"] = "armi.cognition-candidate.v16"
     candidate["experiences"] = []
     candidate["component_changes"] = []
     candidate["action_choices"] = [
@@ -4511,7 +4563,7 @@ def test_formal_no_action_is_subjective_and_not_empty_no_change() -> None:
         ),
     )
     candidate = _candidate(context)
-    candidate["schema_version"] = "armi.cognition-candidate.v15"
+    candidate["schema_version"] = "armi.cognition-candidate.v16"
     candidate["disposition"] = "no_action"
     candidate["experiences"] = []
     candidate["component_changes"] = []

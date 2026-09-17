@@ -13,7 +13,7 @@
       "attention": [],
       "concerns": [],
       "motivations": [],
-      "schema_version": "armi.mind.v3",
+      "schema_version": "armi.mind.v4",
       "thoughts": [],
       "understanding": [],
       "wishes": []
@@ -25,7 +25,7 @@
         "dominance": 0,
         "valence": 0
       },
-      "schema_version": "armi.mood.v3"
+      "schema_version": "armi.mood.v4"
     },
     "self": {
       "creator_role_awareness": "unique_primary_creator",

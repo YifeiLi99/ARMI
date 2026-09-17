@@ -6,7 +6,7 @@ import json
 from typing import Annotated, Literal, cast
 
 from armi_kernel.application import ModelViolation
-from armi_mood.api import AppraisalEventSignalV2
+from armi_mood.api import AppraisalEventSignalV3
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -20,7 +20,7 @@ from ._dialogue_contract import ContextRef, Summary
 from ._expression_instructions import CONVERSATIONAL_EXPRESSION_INSTRUCTIONS
 from ._strict_model_json import strict_model_value
 
-OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION = "armi.other-human-dialogue-candidate.v8"
+OTHER_HUMAN_DIALOGUE_CANDIDATE_VERSION = "armi.other-human-dialogue-candidate.v9"
 
 type CommitmentContent = Annotated[
     str, StringConstraints(min_length=1, max_length=1024)
@@ -214,7 +214,7 @@ class OtherHumanDialogueCandidate(_StrictModel, frozen=True):
         Field(discriminator="kind"),
     ]
     social: OtherHumanSocialExperience | None = None
-    appraisal: AppraisalEventSignalV2 | None = None
+    appraisal: AppraisalEventSignalV3 | None = None
 
     @property
     def kind(self):

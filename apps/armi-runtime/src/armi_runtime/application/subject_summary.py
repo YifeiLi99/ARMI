@@ -28,7 +28,7 @@ class SubjectComponentSummary:
     def __post_init__(self) -> None:
         expected = {
             SubjectComponentKind.SELF: "armi.self.v1",
-            SubjectComponentKind.MIND: "armi.mind.v3",
+            SubjectComponentKind.MIND: "armi.mind.v4",
             SubjectComponentKind.LIFE_MODE: "armi.life-mode.v1",
         }
         if (
@@ -122,7 +122,7 @@ class RuntimeSubjectSummaryAssembler:
         components.insert(
             1,
             SubjectComponentSummary(
-                SubjectComponentKind.MIND, mind.version, "armi.mind.v3"
+                SubjectComponentKind.MIND, mind.version, "armi.mind.v4"
             ),
         )
         return SubjectSummary(int(row[0]), tuple(components), row[1], row[2])

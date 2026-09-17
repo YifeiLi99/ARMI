@@ -57,7 +57,7 @@ from .api import (
 _REF = re.compile(r"^proposal:[1-9][0-9]{0,2}$", re.ASCII)
 _GROUP = re.compile(r"^group:[1-9][0-9]{0,2}$", re.ASCII)
 _DYNAMICS_VERSION = "recency-reappraisal.v1"
-_DERIVATION_VERSION = "cpm-fuzzy.v2"
+_DERIVATION_VERSION = "cpm-fuzzy.v3"
 _BASE_WEIGHT = 30.0
 
 
@@ -119,7 +119,7 @@ def initial_state() -> MoodState:
 
 def state_to_wire(state: MoodState) -> dict[str, object]:
     return {
-        "schema_version": "armi.mood.v3",
+        "schema_version": "armi.mood.v4",
         "dynamics_version": state.dynamics_version,
         "derivation_version": state.derivation_version,
         "home_base": vad_to_wire(state.home_base),
@@ -137,7 +137,7 @@ def parse_state(value: object) -> MoodState:
     if (
         set(raw)
         != {"schema_version", "dynamics_version", "derivation_version", "home_base"}
-        or raw["schema_version"] != "armi.mood.v3"
+        or raw["schema_version"] != "armi.mood.v4"
         or raw["dynamics_version"] != _DYNAMICS_VERSION
         or raw["derivation_version"] != _DERIVATION_VERSION
     ):
@@ -220,7 +220,7 @@ def parse_component(value: object) -> EmotionComponent:
 def semantic_appraisal_to_wire(value: SemanticAppraisalEvent) -> dict[str, object]:
     appraisal = value.appraisal
     return {
-        "schema_version": "armi.mood-appraisal.v2",
+        "schema_version": "armi.mood-appraisal.v3",
         "transition": value.transition.value,
         "previous_episode_id": (
             None
@@ -235,6 +235,7 @@ def semantic_appraisal_to_wire(value: SemanticAppraisalEvent) -> dict[str, objec
             else value.change_from_previous.value
         ),
         "appraisal": {
+            "engagement": appraisal.engagement,
             "concerns": [
                 {
                     "target": item.target.value,
@@ -313,12 +314,13 @@ def parse_semantic_appraisal(value: object) -> SemanticAppraisalEvent:
             "change_from_previous",
             "appraisal",
         }
-        or raw.get("schema_version") != "armi.mood-appraisal.v2"
+        or raw.get("schema_version") != "armi.mood-appraisal.v3"
         or type(appraisal_value) is not dict
     ):
         raise MoodViolation("MOOD-APPRAISAL")
     appraisal = cast(dict[str, object], appraisal_value)
     if set(appraisal) != {
+        "engagement",
         "concerns",
         "expectedness",
         "outcome_certainty",
@@ -398,6 +400,7 @@ def parse_semantic_appraisal(value: object) -> SemanticAppraisalEvent:
                     AppraisalCompatibility(cast(str, standards["norm_compatibility"])),
                     AppraisalSelfScope(cast(str, standards["self_scope"])),
                 ),
+                cast(str, appraisal["engagement"]),
             ),
             None if trajectory is None else AppraisalTrajectory(cast(str, trajectory)),
         )
@@ -407,6 +410,19 @@ def parse_semantic_appraisal(value: object) -> SemanticAppraisalEvent:
 
 def _round_to_five(value: float) -> int:
     return max(5, min(100, int((value + 2.5) // 5) * 5))
+
+
+def parse_historical_semantic_appraisal(value: object) -> SemanticAppraisalEvent:
+    """Read preserved facts for trajectory comparison; never an execution decoder."""
+    if type(value) is dict:
+        raw = cast(dict[str, Any], value)
+        if raw.get("schema_version") == "armi.mood-appraisal.v2":
+            value = {
+                **raw,
+                "schema_version": "armi.mood-appraisal.v3",
+                "appraisal": {**raw["appraisal"], "engagement": "unknown"},
+            }
+    return parse_semantic_appraisal(cast(object, value))
 
 
 def _positive(value: float) -> float:
@@ -575,7 +591,8 @@ def semantic_features_to_wire(value: SemanticAppraisal) -> dict[str, object]:
         ]
 
     return {
-        "schema_version": "armi.mood-derived-appraisal.v2",
+        "schema_version": "armi.mood-derived-appraisal.v3",
+        "engagement": value.engagement,
         "concerns": [
             {
                 "target": item.target.value,
@@ -907,6 +924,7 @@ def derive_semantic_appraisal(
             register(
                 EmotionFamily.BOREDOM,
                 score(
+                    float(event.appraisal.engagement == "understimulated"),
                     concern_relevance,
                     ongoing,
                     1.0 - novelty,

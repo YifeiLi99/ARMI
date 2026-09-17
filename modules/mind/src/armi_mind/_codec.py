@@ -8,6 +8,7 @@ from typing import Any, cast
 import rfc8785
 from armi_kernel.application import CandidateFactClass, CandidateOwnerDraft
 
+from ._motivation import BOUND_APPRAISALS
 from .api import (
     CONCERN_CHANGES,
     CandidateMindDraft,
@@ -23,13 +24,14 @@ _KEYS = {
     "expected_version",
     "next_state",
     "concern_changes",
+    "mind_appraisals",
 }
 
 
 def encode(value: CandidateMindDraft) -> bytes:
     next_state = cast(object, json.loads(value.canonical_next_state))
     document: dict[str, object] = {
-        "schema_version": "armi.mind-candidate.v1",
+        "schema_version": "armi.mind-candidate.v2",
         "proposal_ref": value.proposal_ref,
         "atomic_group_ref": value.atomic_group_ref,
         "basis_ordinals": list(value.basis_ordinals),
@@ -38,6 +40,9 @@ def encode(value: CandidateMindDraft) -> bytes:
         "next_state": next_state,
         "concern_changes": [
             item.model_dump(mode="json") for item in value.concern_changes
+        ],
+        "mind_appraisals": [
+            item.model_dump(mode="json") for item in value.mind_appraisals
         ],
     }
     return rfc8785.dumps(cast(Any, document))
@@ -51,7 +56,7 @@ def decode(payload: bytes) -> CandidateMindDraft:
         raw = cast(dict[str, object], raw_value)
         if (
             set(raw) != _KEYS
-            or raw["schema_version"] != "armi.mind-candidate.v1"
+            or raw["schema_version"] != "armi.mind-candidate.v2"
             or rfc8785.dumps(cast(Any, raw)) != payload
         ):
             raise ValueError
@@ -76,6 +81,9 @@ def decode(payload: bytes) -> CandidateMindDraft:
             rfc8785.dumps(cast(Any, raw["next_state"])),
             CONCERN_CHANGES.validate_json(
                 json.dumps(raw["concern_changes"]), strict=True
+            ),
+            BOUND_APPRAISALS.validate_json(
+                json.dumps(raw["mind_appraisals"]), strict=True
             ),
         )
     except UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError:

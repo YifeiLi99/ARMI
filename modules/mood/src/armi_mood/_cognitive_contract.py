@@ -81,6 +81,12 @@ class AppraisalStandardsSignal(_StrictModel, frozen=True):
 
 
 class AppraisalSemanticSignal(_StrictModel, frozen=True):
+    engagement: Literal[
+        "satisfying", "understimulated", "overloaded", "not_applicable", "unknown"
+    ] = Field(
+        default="unknown",
+        description="Assess meaningful engagement. Quiet waiting alone is not understimulation; describe the situation, not an emotion label.",
+    )
     concerns: tuple[AppraisalConcernSignal, ...] = Field(min_length=1, max_length=3)
     expectedness: Literal[
         "expected", "somewhat_unexpected", "expectation_broken", "unknown"
@@ -116,7 +122,7 @@ class ExistingAppraisal(_StrictModel, frozen=True):
     ]
 
 
-class AppraisalEventSignalV2(_StrictModel, frozen=True):
+class AppraisalEventSignalV3(_StrictModel, frozen=True):
     trajectory: Annotated[
         NewAppraisal | ExistingAppraisal, Field(discriminator="transition")
     ]
@@ -147,7 +153,7 @@ class AppraisalEventSignalV2(_StrictModel, frozen=True):
 
 
 __all__ = (
-    "AppraisalEventSignalV2",
+    "AppraisalEventSignalV3",
     "AppraisalSemanticSignal",
 )
 
@@ -170,14 +176,14 @@ class MoodVAD(_StrictModel, frozen=True):
 
 
 class MoodState(_StrictModel, frozen=True):
-    schema_version: Literal["armi.mood.v3"]
+    schema_version: Literal["armi.mood.v4"]
     dynamics_version: Literal["recency-reappraisal.v1"]
-    derivation_version: Literal["cpm-fuzzy.v2"]
+    derivation_version: Literal["cpm-fuzzy.v3"]
     home_base: MoodVAD
 
 
 class MoodSemanticAppraisalCommand(_StrictModel, frozen=True):
-    schema_version: Literal["armi.mood-appraisal.v2"]
+    schema_version: Literal["armi.mood-appraisal.v3"]
     transition: Literal["new", "reinforce", "reappraise", "resolve"]
     previous_episode_id: str | None
     event_phase: Literal["anticipated", "ongoing", "realized", "averted"]

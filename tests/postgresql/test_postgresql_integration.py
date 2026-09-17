@@ -1420,11 +1420,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                                 appraisal_mapping_version,derived_appraisal_payload,occurred_at)
                                SELECT %s,subject_id,current_revision_id,%s,'new','ongoing',
                                       '有件事还没弄明白',ARRAY[1]::smallint[],
-                                      '{"schema_version":"armi.mood-appraisal.v2"}'::jsonb,
+                                      '{"schema_version":"armi.mood-appraisal.v3"}'::jsonb,
                                       60,'{"valence":0,"arousal":20,"dominance":0}'::jsonb,
-                                      %s::jsonb,'cpm-fuzzy.v2','recency-reappraisal.v1','private',
+                                      %s::jsonb,'cpm-fuzzy.v3','recency-reappraisal.v1','private',
                                       'semantic-anchors.v1',
-                                      '{"schema_version":"armi.mood-derived-appraisal.v2"}'::jsonb,
+                                      '{"schema_version":"armi.mood-derived-appraisal.v3"}'::jsonb,
                                       statement_timestamp()-interval '2 minutes'
                                FROM armi.mood_heads WHERE subject_id=%s""",
                             (
@@ -1772,6 +1772,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
     def test_supported_v24_database_upgrade_preserves_mind_history(self) -> None:
         self._assert_supported_database_upgrade("v24")
 
+    def test_supported_v25_database_upgrade_preserves_psychology(self) -> None:
+        self._assert_supported_database_upgrade("v25")
+
     def _assert_supported_database_upgrade(self, source_version: str) -> None:
         from zipfile import ZipFile
 
@@ -1864,20 +1867,45 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
 
         class SourceSchemaMindFixture:
             async def initialize(self, transaction, *, subject_id):
-                from armi_mind.api import initial_mind_state
-
                 revision_id = uuid7()
                 await transaction.execute(
-                    "INSERT INTO armi.subject_component_revisions (component_revision_id,subject_id,component_kind,component_version,origin_kind,origin_ref,semantic_payload,privacy_scope) VALUES (%s,%s,'mind',1,'bootstrap',%s,%s::jsonb,'private')",
+                    "INSERT INTO armi.mind_revisions (mind_revision_id,subject_id,mind_version,origin_kind,origin_ref,semantic_payload,privacy_scope) VALUES (%s,%s,1,'bootstrap',%s,%s::jsonb,'private')"
+                    if source_version in {"v24", "v25"}
+                    else "INSERT INTO armi.subject_component_revisions (component_revision_id,subject_id,component_kind,component_version,origin_kind,origin_ref,semantic_payload,privacy_scope) VALUES (%s,%s,'mind',1,'bootstrap',%s,%s::jsonb,'private')",
                     (
                         revision_id,
                         subject_id,
                         subject_id,
-                        initial_mind_state().decode(),
+                        json.dumps(historical_psychology["mind"]),
                     ),
                 )
                 await transaction.execute(
-                    "INSERT INTO armi.subject_component_heads (subject_id,component_kind,current_revision_id,component_version) VALUES (%s,'mind',%s,1)",
+                    "INSERT INTO armi.mind_heads (subject_id,current_revision_id,mind_version) VALUES (%s,%s,1)"
+                    if source_version in {"v24", "v25"}
+                    else "INSERT INTO armi.subject_component_heads (subject_id,component_kind,current_revision_id,component_version) VALUES (%s,'mind',%s,1)",
+                    (subject_id, revision_id),
+                )
+
+        historical_psychology = json.loads(
+            (Path(__file__).parent / "fixtures/v25-psychology.json").read_text(
+                encoding="utf-8"
+            )
+        )
+
+        class SourceSchemaMoodFixture:
+            async def initialize(self, transaction, *, subject_id):
+                revision_id = uuid7()
+                await transaction.execute(
+                    "INSERT INTO armi.mood_revisions (mood_revision_id,subject_id,mood_version,origin_kind,origin_ref,semantic_payload,privacy_scope) VALUES (%s,%s,1,'bootstrap',%s,%s::jsonb,'private')",
+                    (
+                        revision_id,
+                        subject_id,
+                        subject_id,
+                        json.dumps(historical_psychology["mood"]),
+                    ),
+                )
+                await transaction.execute(
+                    "INSERT INTO armi.mood_heads (subject_id,current_revision_id,mood_version) VALUES (%s,%s,1)",
                     (subject_id, revision_id),
                 )
 
@@ -1898,10 +1926,8 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ArtifactCatalogRepository(),
                 BirthRepository(
                     bootstrap_subject_state().birth,
-                    bootstrap_mind().birth
-                    if source_version == "v24"
-                    else cast(Any, SourceSchemaMindFixture()),
-                    bootstrap_mood().birth,
+                    cast(Any, SourceSchemaMindFixture()),
+                    cast(Any, SourceSchemaMoodFixture()),
                     bootstrap_prompt().birth,
                     bootstrap_interaction_birth(),
                 ),
@@ -1972,7 +1998,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                    SELECT %s,subject_id,2,mind_revision_id,'admin_correction',%s,
                           semantic_payload,'private'
                    FROM armi.mind_revisions WHERE subject_id=%s"""
-                if source_version == "v24"
+                if source_version in {"v24", "v25"}
                 else """INSERT INTO armi.subject_component_revisions
                    (component_revision_id,subject_id,component_kind,component_version,previous_revision_id,
                     origin_kind,origin_ref,semantic_payload,privacy_scope)
@@ -1983,13 +2009,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             connection.execute(
                 "UPDATE armi.mind_heads SET current_revision_id=%s,mind_version=2 WHERE subject_id=%s"
-                if source_version == "v24"
+                if source_version in {"v24", "v25"}
                 else "UPDATE armi.subject_component_heads SET current_revision_id=%s,component_version=2 WHERE subject_id=%s AND component_kind='mind'",
                 (revision_id, born.subject_id),
             )
             old_mind_history = connection.execute(
                 "SELECT to_jsonb(r) FROM armi.mind_revisions r WHERE subject_id=%s ORDER BY mind_version"
-                if source_version == "v24"
+                if source_version in {"v24", "v25"}
                 else """SELECT to_jsonb(r)-'component_kind'-'component_revision_id'-'component_version'
                           || jsonb_build_object('mind_revision_id',r.component_revision_id,'mind_version',r.component_version)
                    FROM armi.subject_component_revisions r WHERE subject_id=%s AND component_kind='mind'
@@ -1998,7 +2024,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             ).fetchall()
             old_mind = connection.execute(
                 "SELECT mind_revision_id,mind_version,semantic_payload FROM armi.mind_revisions WHERE subject_id=%s ORDER BY mind_version DESC LIMIT 1"
-                if source_version == "v24"
+                if source_version in {"v24", "v25"}
                 else "SELECT component_revision_id,component_version,semantic_payload "
                 "FROM armi.subject_component_revisions WHERE subject_id=%s AND component_kind='mind' ORDER BY component_version DESC LIMIT 1",
                 (born.subject_id,),
@@ -2092,24 +2118,38 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 "WHERE h.subject_id=%s",
                 (born.subject_id,),
             ).fetchone()
-            if source_version == "v21":
-                self.assertEqual(
-                    migrated_mind,
+            assert migrated_mind is not None
+            self.assertEqual(migrated_mind[0], "module_migration")
+            self.assertEqual(
+                migrated_mind[2], old_mind[1] + (2 if source_version == "v21" else 1)
+            )
+            self.assertEqual(
+                migrated_mind[3],
+                {
+                    **old_mind[2],
+                    "schema_version": "armi.mind.v4",
+                    "concerns": [],
+                    "motivation_states": [],
+                },
+            )
+            mood_rows = connection.execute(
+                "SELECT origin_kind,semantic_payload FROM armi.mood_revisions WHERE subject_id=%s ORDER BY mood_version",
+                (born.subject_id,),
+            ).fetchall()
+            self.assertEqual(
+                mood_rows,
+                [
+                    ("bootstrap", historical_psychology["mood"]),
                     (
                         "module_migration",
-                        old_mind[0],
-                        old_mind[1] + 1,
                         {
-                            **old_mind[2],
-                            "schema_version": "armi.mind.v3",
-                            "concerns": [],
+                            **historical_psychology["mood"],
+                            "schema_version": "armi.mood.v4",
+                            "derivation_version": "cpm-fuzzy.v3",
                         },
                     ),
-                )
-            else:
-                assert migrated_mind is not None
-                self.assertEqual(migrated_mind[2:], old_mind[1:])
-                self.assertEqual(migrated_mind[0], "admin_correction")
+                ],
+            )
             self.assertEqual(
                 connection.execute(
                     "SELECT environment_id,incarnation FROM armi.deployment_environments"
@@ -5900,7 +5940,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             service = new_service()
             service._register_environment(1)  # pyright: ignore[reportPrivateUsage]
             replacement = {
-                "schema_version": "armi.mind.v3",
+                "schema_version": "armi.mind.v4",
                 "understanding": ["我知道这次变化来自隔离管理纠正"],
                 "attention": [],
                 "thoughts": [],
@@ -5994,7 +6034,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ).fetchone()
                 assert head is not None
                 self.assertEqual(head[0:2], (2, "admin_correction"))
-                self.assertEqual(head[2], {**replacement, "concerns": []})
+                self.assertEqual(
+                    head[2], {**replacement, "concerns": [], "motivation_states": []}
+                )
                 bootstrap_revision_id = str(head[3])
                 with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                     runtime.execute("DELETE FROM armi.subjects")
@@ -7848,6 +7890,11 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
     def test_concern_mood_activity_and_expression_share_atomic_commit(self) -> None:
         self._exercise_creator_reply(interruption_stage="rollback", concerns=True)
 
+    def test_neutral_appraisal_is_saved_in_joint_psychology_commit(self) -> None:
+        self._exercise_creator_reply(
+            interruption_stage="rollback", concerns=True, neutral_mood=True
+        )
+
     def _exercise_creator_reply(
         self,
         *,
@@ -7855,6 +7902,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         codex: bool = False,
         autonomous_codex: bool = False,
         concerns: bool = False,
+        neutral_mood: bool = False,
         purpose: str | None = None,
         system_notification: str | None = None,
         reply_decision_kind: Literal["reply", "decline", "need_information"] = "reply",
@@ -8348,8 +8396,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             from armi_mind.api import (
                 CreateConcern,
                 DialogueMindChange,
+                MindAppraisal,
                 TimedReview,
                 apply_mind_text_change,
+                bind_mind_appraisals,
             )
 
             with psycopg.connect(fixture.provisioner_dsn) as connection:
@@ -8390,6 +8440,38 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                             basis_refs=("ctx:1",),
                         ),
                     ),
+                    mind_appraisals=bind_mind_appraisals(
+                        (
+                            MindAppraisal.model_validate_json(
+                                json.dumps(
+                                    {
+                                        "object_ref": "ctx:1",
+                                        "basis_refs": ["ctx:1"],
+                                        "desired_outcome": "understand",
+                                        "significance": "important",
+                                        "discrepancy": "substantial",
+                                        "understanding": "unexplained",
+                                        "progress": "stalled",
+                                        "opportunity": "available",
+                                        "resolution": "open",
+                                        "explanation": "The described preference has an unknown reason",
+                                    }
+                                )
+                            ),
+                        ),
+                        basis_by_ref={
+                            "ctx:1": CandidateBasis(
+                                1,
+                                "current_evidence",
+                                "current_evidence",
+                                ids["evidence"],
+                                1,
+                                "external_claim",
+                                "private",
+                            )
+                        },
+                        payload=rfc8785.dumps(mind[0]),
+                    )[0],
                 )
             )
             from armi_activity.api import CandidateActivityDraft
@@ -8439,12 +8521,16 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                                 AppraisalConcern(
                                     AppraisalConcernTarget.SELF_GOAL,
                                     AppraisalSignificance.CORE,
-                                    AppraisalDirection.FULFILLED,
+                                    AppraisalDirection.UNCHANGED
+                                    if neutral_mood
+                                    else AppraisalDirection.FULFILLED,
                                 ),
                             ),
                             AppraisalExpectedness.EXPECTED,
                             AppraisalCertainty.SETTLED,
-                            AppraisalQuality.PLEASANT,
+                            AppraisalQuality.NEUTRAL
+                            if neutral_mood
+                            else AppraisalQuality.PLEASANT,
                             AppraisalSelfInvolvement.LIMITED,
                         ),
                     ),
@@ -8501,7 +8587,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             if live_evidence is not None
             else 1
         )
-        candidate_contract_version = "armi.cognition-candidate.v15"
+        candidate_contract_version = "armi.cognition-candidate.v16"
 
         def locator(digest: Digest) -> str:
             value = digest.value.removeprefix("sha256:")
@@ -9523,6 +9609,13 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertEqual(version, 1)
         if concerns:
             with psycopg.connect(fixture.provisioner_dsn) as connection:
+                if neutral_mood:
+                    self.assertEqual(
+                        connection.execute(
+                            "SELECT derived_components FROM armi.mood_appraisal_events"
+                        ).fetchall(),
+                        [([],)],
+                    )
                 self.assertEqual(
                     connection.execute(
                         "SELECT (SELECT count(*) FROM armi.activities), (SELECT count(*) FROM armi.mood_revisions)"
@@ -9532,6 +9625,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 rows = connection.execute(
                     "SELECT mind_version,semantic_payload->'concerns' FROM armi.mind_revisions ORDER BY mind_version"
                 ).fetchall()
+                self.assertEqual(
+                    connection.execute(
+                        "SELECT jsonb_array_length(semantic_payload->'motivation_states') FROM armi.mind_revisions ORDER BY mind_version"
+                    ).fetchall(),
+                    [(0,), (1,)],
+                )
                 self.assertEqual(rows[0], (1, []))
                 self.assertEqual(rows[1][0], 2)
                 self.assertEqual(

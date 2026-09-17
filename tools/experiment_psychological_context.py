@@ -34,9 +34,14 @@ from armi_kernel.contracts import Digest
 from armi_local_control import ProviderCheckReceipts
 from armi_mind.api import (
     MIND_APPRAISAL_INSTRUCTIONS,
+    CandidateMindDraft,
     MindAppraisal,
+    MindHead,
+    MindViolation,
     evaluate_motivation,
     initial_mind_state,
+    mind_motivation_projection,
+    prepare_mind_change,
     project_motivation,
 )
 from armi_mood.api import (
@@ -101,9 +106,9 @@ def prepare_case(text: str) -> dict[str, Any]:
     mind = initial_mind_state()
     mood = rfc8785.dumps(
         {
-            "schema_version": "armi.mood.v3",
+            "schema_version": "armi.mood.v4",
             "dynamics_version": "recency-reappraisal.v1",
-            "derivation_version": "cpm-fuzzy.v2",
+            "derivation_version": "cpm-fuzzy.v3",
             "home_base": {"valence": 0, "arousal": 0, "dominance": 0},
         }
     )
@@ -303,7 +308,7 @@ def validate_appraisal_response(
             mood = preview_appraisal(
                 semantic_appraisal_from_command(
                     MoodSemanticAppraisalCommand(
-                        schema_version="armi.mood-appraisal.v2",
+                        schema_version="armi.mood-appraisal.v3",
                         transition="new",
                         previous_episode_id=None,
                         event_phase="ongoing",
@@ -343,6 +348,44 @@ def validate_response(case: dict[str, Any], response: bytes) -> dict[str, Any]:
     result = build_candidate_validator(case["validation"]).validate(
         candidate, bases=case["bases"]
     )
+    projections = []
+    if result.change_set is not None:
+        now = datetime(2026, 9, 17, 6, tzinfo=UTC)
+        identities = iter(range(109, 130))
+        for draft in result.change_set.owner_drafts:
+            if draft.owner != "mind":
+                continue
+            assert isinstance(draft.candidate, CandidateMindDraft)
+            current = next(
+                item
+                for item in case["validation"].current_components
+                if item[0] is CandidateOwner.MIND
+            )
+            try:
+                payload = prepare_mind_change(
+                    MindHead(identity(1), current[1], current[2]),
+                    draft.candidate,
+                    now=now,
+                    commit_id=identity(108),
+                    new_identity=lambda: identity(next(identities)),
+                )
+                projections.append(
+                    {
+                        "prepared_state": json.loads(payload),
+                        "after_two_hours": mind_motivation_projection(
+                            payload,
+                            as_of=now + timedelta(hours=2),
+                            consumed=frozenset(),
+                        ),
+                    }
+                )
+            except MindViolation as error:
+                return {
+                    "validation": "rejected",
+                    "error_code": error.code,
+                    "stage": "mind_prepare",
+                    "field_path": error.field_path,
+                }
     return {
         "validation": result.status.value,
         "error_code": result.error_code,
@@ -351,6 +394,7 @@ def validate_response(case: dict[str, Any], response: bytes) -> dict[str, Any]:
         "owners": []
         if result.change_set is None
         else [item.owner for item in result.change_set.owner_drafts],
+        "mind_preparations": projections,
     }
 
 

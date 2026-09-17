@@ -27,6 +27,17 @@ class ConcernAttentionStatus(AutonomyResponse):
     condition_state: Literal["scheduled", "due", "consumed", "waiting_for_event"]
 
 
+class MotivationAttentionStatus(AutonomyResponse):
+    motivation_id: str
+    object_kind: str
+    assessment: dict[str, str]
+    tendency: Literal["explore", "contact", "change_activity", "none"]
+    level: float
+    uncertain: bool
+    review_at: str | None
+    condition_state: Literal["scheduled", "due", "consumed", "waiting_for_event"]
+
+
 class ConsiderationSignalItem(AutonomyResponse):
     owner: Literal["mind", "mood"]
     object_ref: str
@@ -47,6 +58,7 @@ class AutonomyStatus(AutonomyResponse):
     consideration_signals: list[ConsiderationSignalItem] = []
     effective_consideration_at: str | None = None
     concerns: list[ConcernAttentionStatus] = []
+    motivations: list[MotivationAttentionStatus] = []
     observed_at: str | None = None
     last_considered_at: str | None = None
     state: Literal[

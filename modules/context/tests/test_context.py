@@ -113,7 +113,8 @@ def test_concerns_are_private_separate_and_exclude_finished_history() -> None:
         "review_at": "2026-01-01T00:05:00+00:00",
     }
     mind = {
-        "schema_version": "armi.mind.v3",
+        "schema_version": "armi.mind.v4",
+        "motivation_states": [],
         "thoughts": [],
         "concerns": [
             concern,
@@ -732,7 +733,7 @@ def test_other_human_context_excludes_unscoped_private_life_content() -> None:
                     "mind",
                     uuid7(),
                     1,
-                    b'{"thoughts":["other-relationship-secret"],"concerns":[]}',
+                    b'{"thoughts":["other-relationship-secret"],"concerns":[],"motivation_states":[]}',
                 ),
             ),
         ),

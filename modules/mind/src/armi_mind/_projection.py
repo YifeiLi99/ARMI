@@ -6,9 +6,11 @@ import json
 from datetime import datetime
 from uuid import UUID
 
+import rfc8785
 from armi_kernel.application import ConsiderationSignal, PsychologicalContextItem
 
 from ._concerns import CONCERN_RECORDS, concern_attention_status, concern_signals
+from ._motivation import MOTIVATION_RECORDS, motivation_signals, motivation_view
 
 
 def mind_context_items(
@@ -23,6 +25,9 @@ def mind_context_items(
     document = json.loads(payload)
     records = CONCERN_RECORDS.validate_json(
         json.dumps(document.pop("concerns")), strict=True
+    )
+    motivations = MOTIVATION_RECORDS.validate_json(
+        json.dumps(document.pop("motivation_states")), strict=True
     )
     result = [
         PsychologicalContextItem(
@@ -59,13 +64,32 @@ def mind_context_items(
                 95,
             )
         )
+    for motivation in motivations:
+        if motivation.parameters.resolution != "open":
+            continue
+        content = motivation_view(motivation, as_of=as_of)
+        content["consideration_reason"] = reasons.get(
+            motivation.motivation_id, "ongoing_motivation"
+        )
+        result.append(
+            PsychologicalContextItem(
+                "current_motivation",
+                "mind_motivation",
+                motivation.motivation_id,
+                version,
+                json.dumps(content, ensure_ascii=False),
+                True,
+                95,
+            )
+        )
     return tuple(result)
 
 
 def mind_editable_state(payload: bytes) -> bytes:
     document = json.loads(payload)
     document.pop("concerns", None)
-    return json.dumps(document, ensure_ascii=False).encode("utf-8")
+    document.pop("motivation_states", None)
+    return rfc8785.dumps(document)
 
 
 __all__ = ("mind_context_items", "mind_editable_state")
@@ -84,6 +108,32 @@ def mind_attention_projection(
     return concern_attention_status(records, as_of=as_of, consumed=consumed)
 
 
+def mind_motivation_projection(
+    payload: bytes,
+    *,
+    as_of: datetime,
+    consumed: frozenset[tuple[str, str, str]],
+) -> list[dict[str, object]]:
+    document = json.loads(payload)
+    motivations = MOTIVATION_RECORDS.validate_json(
+        json.dumps(document["motivation_states"]), strict=True
+    )
+    return [
+        {
+            **motivation_view(r, as_of=as_of),
+            "condition_state": "consumed"
+            if ("mind", str(r.motivation_id), str(r.source_commit_id)) in consumed
+            else "waiting_for_event"
+            if r.review_at is None
+            else "due"
+            if r.review_at <= as_of
+            else "scheduled",
+        }
+        for r in motivations
+        if r.parameters.resolution == "open"
+    ]
+
+
 def mind_signals(
     payload: bytes,
     *,
@@ -99,4 +149,8 @@ def mind_signals(
         event_ref=event_ref,
         event_at=event_at,
         activity_id=activity_id,
+    ) + motivation_signals(
+        MOTIVATION_RECORDS.validate_json(
+            json.dumps(document["motivation_states"]), strict=True
+        )
     )
