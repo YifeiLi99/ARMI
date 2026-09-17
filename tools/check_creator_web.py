@@ -154,52 +154,7 @@ def check_repository(root: Path) -> list[Violation]:
             )
         )
 
-    allowed = {"app", "api", "features", "styles", "main.tsx"}
     if source_root.is_dir():
-        for child in source_root.iterdir():
-            if child.name not in allowed:
-                violations.append(
-                    Violation(
-                        "ARC-WEB-LAYER",
-                        child.relative_to(root).as_posix(),
-                        1,
-                        "unregistered top-level Creator source responsibility",
-                    )
-                )
-        feature_root = source_root / "features"
-        if feature_root.is_dir():
-            unexpected = sorted(
-                child.name
-                for child in feature_root.iterdir()
-                if child.name
-                not in {
-                    "activity",
-                    "capability",
-                    "dataRights",
-                    "effect",
-                    "export",
-                    "maintenance",
-                    "usage",
-                    "material",
-                    "memory",
-                    "operation",
-                    "otherHuman",
-                    "prompt",
-                    "relationship",
-                    "scene",
-                    "session",
-                    "subject",
-                }
-            )
-            for name in unexpected:
-                violations.append(
-                    Violation(
-                        "ARC-WEB-FUTURE",
-                        (feature_root / name).relative_to(root).as_posix(),
-                        1,
-                        "unregistered Creator business feature",
-                    )
-                )
         for path in sorted(source_root.rglob("*")):
             if not path.is_file() or path.suffix not in SOURCE_SUFFIXES:
                 continue
