@@ -15,11 +15,12 @@ from armi_kernel.application import (
 from armi_runtime_foundation import AdminContentPort as MindAdminContentPort
 from armi_runtime_foundation import PostgreSQLAdminTransaction, PostgreSQLTransaction
 
-from ._cognitive_binding import bind_concern_changes
+from ._cognitive_binding import bind_concern_changes, bind_mind_change
 from ._cognitive_contract import (
     MIND_COGNITIVE_INSTRUCTIONS,
     MIND_CONTEXT_REFERENCES,
     DialogueMindChange,
+    GroundedMindChange,
     MindState,
     apply_mind_text_change,
 )
@@ -250,6 +251,7 @@ __all__ = (
     "CreateConcern",
     "CreatorInputReview",
     "DialogueMindChange",
+    "GroundedMindChange",
     "MindAdminContentPort",
     "MindAdminCorrectionPort",
     "MindAdminReadPort",
@@ -268,6 +270,7 @@ __all__ = (
     "UpdateConcern",
     "apply_mind_text_change",
     "bind_concern_changes",
+    "bind_mind_change",
     "concern_attention_status",
     "initial_mind_state",
     "mind_attention_projection",

@@ -71,9 +71,12 @@ from armi_memory.api import (
 from armi_mind.api import (
     CandidateMindDraft,
     ConcernChange,
+    GroundedMindChange,
     MindCognitionPort,
+    MindViolation,
     apply_mind_text_change,
     bind_concern_changes,
+    bind_mind_change,
 )
 from armi_mood.api import (
     CandidateMoodDraft,
@@ -608,19 +611,29 @@ class DeterministicCandidateValidator:
         changes = cast(
             tuple[ConcernChange, ...], getattr(parsed_candidate, "concern_changes", ())
         )
-        return self._attach_concerns(
-            result, changes, bases=bases, basis_by_ref=basis_by_ref
+        return self._attach_mind_changes(
+            result,
+            changes,
+            bases=bases,
+            basis_by_ref=basis_by_ref,
+            mind_change=cast(
+                GroundedMindChange | None,
+                getattr(parsed_candidate, "mind_change", None),
+            )
+            if self._context.purpose == "consider_autonomous_life"
+            else None,
         )
 
-    def _attach_concerns(
+    def _attach_mind_changes(
         self,
         result: CandidateValidationResult,
         changes: tuple[ConcernChange, ...],
         *,
         bases: tuple[CandidateBasis, ...],
         basis_by_ref: dict[str, CandidateBasis],
+        mind_change: GroundedMindChange | None,
     ) -> CandidateValidationResult:
-        if not changes or result.change_set is None:
+        if (not changes and mind_change is None) or result.change_set is None:
             return result
         current = next(
             (
@@ -632,7 +645,10 @@ class DeterministicCandidateValidator:
         )
         mind_basis = next((item for item in bases if item.item_kind == "mind"), None)
         if current is None or mind_basis is None:
-            return _rejected("CANDIDATE-CONCERN-MIND", field_path=("concern_changes",))
+            return _rejected(
+                "CANDIDATE-CONCERN-MIND",
+                field_path=("mind_change" if mind_change else "concern_changes",),
+            )
         bound, concern_ordinals, error, path = bind_concern_changes(
             changes,
             basis_by_ref=basis_by_ref,
@@ -641,6 +657,15 @@ class DeterministicCandidateValidator:
         if bound is None:
             return _rejected(error or "CANDIDATE-CONCERN-REFERENCE", field_path=path)
         ordinals = {mind_basis.ordinal, *concern_ordinals}
+        next_state = current[1]
+        if mind_change is not None:
+            try:
+                next_state, mind_ordinals = bind_mind_change(
+                    current[1], mind_change, basis_by_ref=basis_by_ref
+                )
+            except MindViolation as error:
+                return _rejected(f"CANDIDATE-{error.code}", field_path=error.field_path)
+            ordinals.update(mind_ordinals)
         change_set = result.change_set
         existing = next(
             (item for item in change_set.owner_drafts if item.owner == "mind"), None
@@ -666,7 +691,7 @@ class DeterministicCandidateValidator:
                 tuple(sorted(ordinals)),
                 CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
                 current[0],
-                current[1],
+                next_state,
                 tuple(bound),
             )
         owners = (

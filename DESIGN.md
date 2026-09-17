@@ -268,6 +268,8 @@ Mind 与 Mood 的双向影响通过同一轮认知读取快照、分别提出变
 
 ### 持续关注与好奇
 
+自主候选 v9 允许可选的 `mind_change`：引用冻结 Context 依据，复用 Mind 公开的心理文本变更定义。它可与关注、活动、情绪及表达共同提交，也可在沉默时单独提交；不要求把普通愿望、牵挂或换一种活动的意向伪装成待解答的问题。Mind 绑定引用、准备文本状态，原关注仍只能通过关注合同改变。等待新输入本身不应创建活动，提示语义允许从兴趣与关系自主选择投入，不以接到任务为前提。这些能力不等于模型必然形成某种情绪。
+
 Mind v3 的 `concerns` 保存有依据的问题、在意理由、解决条件、已有认识、状态和复查条件。最多四份未结束关注；身份、来源提交与时间由 Mind Owner 产生。建立、更新、等待、解决、放下共用类型定义，与活动、表达、评价和计划原子提交。关注不等于活动，也不是全局好奇数值；只有决定探索时才使用既有 Activity/工具链。普通 Mind 文本更新及反思保留关注，管理替换或回退不能绕过合同清空它们。
 
 Mind／Mood 分别提供共享候选、认知快照和考虑信号，公共入口为各自 api.py。Cognition 只组合合同并唯一解析，Owner 绑定引用与核验领域语义；Context 只编排、裁剪、隔离与冻结，不解释心理存储或阈值。管理查询复用 Owner 投影。关注、情绪算法及摘要策略可在所属 Owner 内替换，Mind 与 Mood 是同级 Owner，不依赖对方或 Subject State 的业务实现。Mind 独占 mind_heads/mind_revisions；Subject State 不导出 Mind。Runtime 应用层聚合主体总览，保持对外字段与顺序。
@@ -409,7 +411,7 @@ Admin 的业务结果模型由操作目录统一生成 CLI/MCP 合同并校验�
 
 ## 13. 数据库与配置
 
-当前数据库要求 PostgreSQL 18.4、UTF-8/UTC/builtin `C.UTF-8`、vector 0.8.6、pg_trgm 1.6、唯一 `0000`、baseline `armi.schema-baseline.v24` 和精确 role policy。Schema 是 package resource，有序 baseline SQL、表策略和 ACL 由 `armi-postgresql-contract` 随包交付；精确目录以当前资源为准。安装只接受无用户 relation 且无现存 `armi` namespace 的目标库：namespace 先在独立短事务建立，随后 `0000` 在一个事务组内写入表、约束、ACL、revision、identity 与 digests；中段失败可以留下空 namespace，但不会留下业务表或前移 revision。Runtime 只验证，不安装或升级。显式 setup 升级接受签名资源声明的精确 v21、v22、v23→v24 路径。v23→v24 将全部 Mind head/revision 迁至独立表，保留 ID、版本、前序、时间、payload、提交与管理来源及治理标记；核验后移除共享表中的 Mind 并收紧 Self/生活模式约束。这次所有权迁移不新增心理 revision。v22 来源先追加机会信号字段；v21 来源先完成 Mind 格式转换：以 `module_migration` 追加当前 Mind v3 revision，关注初始为空，保留原 Mind 文本及全部历史 v2 revision；扩展当前候选版本约束，不恢复旧候选。结构转换、ACL、与新建 baseline 一致的结构核验及身份更新同事务提交。程序部署后数据库失败时保留数据，不自动降级；绑定只在数据库确认后刷新。
+当前数据库要求 PostgreSQL 18.4、UTF-8/UTC/builtin `C.UTF-8`、vector 0.8.6、pg_trgm 1.6、唯一 `0000`、baseline `armi.schema-baseline.v25` 和精确 role policy。Schema 是 package resource，有序 baseline SQL、表策略和 ACL 由 `armi-postgresql-contract` 随包交付；精确目录以当前资源为准。安装只接受无用户 relation 且无现存 `armi` namespace 的目标库：namespace 先在独立短事务建立，随后 `0000` 在一个事务组内写入表、约束、ACL、revision、identity 与 digests；中段失败可以留下空 namespace，但不会留下业务表或前移 revision。Runtime 只验证，不安装或升级。显式 setup 升级接受签名资源声明的精确 v21、v22、v23、v24→v25 路径。v24→v25 仅扩展自主候选 v9 的历史容纳约束，不重写候选、心理或费用历史。v23→v24 将全部 Mind head/revision 迁至独立表，保留 ID、版本、前序、时间、payload、提交与管理来源及治理标记；核验后移除共享表中的 Mind 并收紧 Self/生活模式约束。这次所有权迁移不新增心理 revision。v22 来源先追加机会信号字段；v21 来源先完成 Mind 格式转换：以 `module_migration` 追加当前 Mind v3 revision，关注初始为空，保留原 Mind 文本及全部历史 v2 revision；扩展当前候选版本约束，不恢复旧候选。结构转换、ACL、与新建 baseline 一致的结构核验及身份更新同事务提交。程序部署后数据库失败时保留数据，不自动降级；绑定只在数据库确认后刷新。
 
 配置合并顺序：仓库 `configs/runtime.yaml` → 环境根 `environment.yaml` → 登记的 `ARMI_*` 覆盖。当前 schema v3，strict/frozen/extra-forbid。环境根必须有普通 `environment.yaml`、`data/`、`secrets/`；data root 精确相等，禁止 reparse。Secret 只用 `env:ARMI_SECRET_*` 或位于 `secrets/` 的 `file:` locator，最大 64KiB，经 scoped handle 消费后清零。
 
@@ -438,6 +440,10 @@ Fast gate 覆盖锁、格式、lint、类型、离线 tests、架构/安全和 W
 ### Mind 离线机制测试
 
 使用仓库受管 Python 执行 `.venv/Scripts/python.exe tools/test_mind.py --scenario tools/scenarios/mind-curiosity.yaml --format json`。场景必须标记 synthetic: true；支持合成 Context 依据、心理候选、对象别名、虚拟时间、Creator/活动结果事件、快照和预期接受/拒绝断言。工具仅从 Mind api.py 导入并调用正式解析、引用绑定、状态变换和信号投影，不读取环境或凭据。生产提交与工具共享可注入时间和身份生成器的 prepare_mind_change。输入事件只产生可考虑条件，不调用模型或模拟思考；询问/探索在此只作为场景候选，Attention 消费、额度及渠道效果由跨模块测试覆盖。完整真实模型好奇轨迹仍未验证成功。
+
+心理情境对照工具为 `tools/experiment_psychological_context.py --output-dir <新的隔离目录>`，默认只生成六个合成输入，不读取凭据、不调用模型。显式授权后加 `--live --environment-root <凭据所属环境>`，只经已有凭据接口取 key；请求、原始返回与诊断保存在隔离目录，费用沿正式 Provider 预登记与 Admin 回执链记录于同一隔离目录。每次运行最多六次收费请求、估算 ¥2；价格或用量不完整时停止，不重试失败或修补模型回答，不执行候选效果或写入主体。场景对比未解释/已解释现象、长/短交流间隔、无进展/持续投入；标签不进入模型输入。
+
+2026-09-17 两轮共 12 次独立候选实验，官方单价估算合计 ¥0.383142。旧合同在未知现象中形成关注，但未观察到长期未交流产生联系意向；新合同轮次的四份候选通过，两份分别因超过考虑时间上限和非法 JSON 被拒绝。未观察到思念或无聊的完整行为闭环，不据本次样本声称心理机制有效。两轮同时改变合同与提示、每情境仅一次采样，不能分离变化的因果效应，也没有进行真实时间的多轮主体提交与反馈验证。详细记录位于本地运行验证正文。
 
 ## 16. 变更原则
 

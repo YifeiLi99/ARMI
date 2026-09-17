@@ -12,7 +12,7 @@ from uuid import uuid7
 
 import pytest
 from armi_cognition import _model_application as model
-from armi_cognition._candidate_application import _candidate_value
+from armi_cognition._candidate_application import model_response_candidate
 from armi_cognition._model_postgresql import ModelEpisodeSnapshot
 from armi_kernel.application import (
     CandidateViolation,
@@ -37,7 +37,7 @@ def test_invalid_saved_response_cannot_reach_subject_commit():
         }
     ).encode()
     with pytest.raises(CandidateViolation, match="CANDIDATE-CONTRACT"):
-        _candidate_value(response)
+        model_response_candidate(response)
 
 
 class _Execution(model.ModelPipeline):

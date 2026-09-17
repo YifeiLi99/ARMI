@@ -409,7 +409,7 @@ class CandidateValidationService:
             mind_cognition=self._mind_cognition,
         )
         try:
-            candidate_value = _candidate_value(response_bytes)
+            candidate_value = model_response_candidate(response_bytes)
         except CandidateViolation as error:
             result = contract_rejection(error)
         else:
@@ -506,7 +506,7 @@ class CandidateValidationService:
         return await self._storage.publish(staged)
 
 
-def _candidate_value(response_bytes: bytes) -> dict[str, Any]:
+def model_response_candidate(response_bytes: bytes) -> dict[str, Any]:
     try:
         raw_response = json.loads(response_bytes)
         if not isinstance(raw_response, dict):

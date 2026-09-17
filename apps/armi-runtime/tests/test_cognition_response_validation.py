@@ -109,6 +109,7 @@ def test_each_purpose_schema_and_parser_accept_its_unchanged_decision(purpose):
         if purpose == "consider_autonomous_life":
             value["next_consideration_seconds"] = 60
             value["expression"] = None
+            value["mind_change"] = None
     elif version == "armi.cognition-candidate.v15":
         value = {
             "schema_version": version,
@@ -144,7 +145,7 @@ def test_each_purpose_schema_and_parser_accept_its_unchanged_decision(purpose):
     if "concern_changes" in schema["properties"]["candidate"].get(
         "properties", {}
     ) or version in {
-        "armi.autonomous-activity-candidate.v8",
+        "armi.autonomous-activity-candidate.v9",
         "armi.visual-observation-candidate.v3",
     }:
         value["concern_changes"] = []

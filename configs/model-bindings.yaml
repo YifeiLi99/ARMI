@@ -58,7 +58,7 @@ purpose_profiles:
     output_token_limit: 1024
   consider_autonomous_life:
     profile: autonomous_activity
-    response_contract_version: armi.autonomous-activity-candidate.v8
+    response_contract_version: armi.autonomous-activity-candidate.v9
     output_token_limit: 4096
   consider_sleep:
     profile: sleep_decision

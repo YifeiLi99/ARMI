@@ -3,7 +3,7 @@
 import json
 
 import pytest
-from armi_cognition._candidate_application import _candidate_value
+from armi_cognition._candidate_application import model_response_candidate
 from armi_cognition._model_contract import parse_candidate
 from armi_cognition._validation_diagnostics import contract_rejection
 from armi_kernel.application import CandidateViolation, ModelViolation
@@ -14,7 +14,7 @@ def test_invalid_json_is_distinguished_from_wrong_field_type():
         {"schema_version": "armi.model-response-artifact.v3", "output_text": "{broken"}
     ).encode()
     with pytest.raises(CandidateViolation) as caught:
-        _candidate_value(raw)
+        model_response_candidate(raw)
     result = contract_rejection(caught.value)
     assert result.diagnostics[0].stage == "parse"
     assert result.diagnostics[0].code == "CANDIDATE-JSON"
@@ -40,4 +40,4 @@ def test_saved_response_has_only_one_candidate_body():
             "output_text": json.dumps({"candidate": value}),
         }
     ).encode()
-    assert _candidate_value(raw) == value
+    assert model_response_candidate(raw) == value

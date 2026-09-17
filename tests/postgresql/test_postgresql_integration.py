@@ -1769,6 +1769,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
     def test_supported_v23_database_upgrade_preserves_mind_history(self) -> None:
         self._assert_supported_database_upgrade("v23")
 
+    def test_supported_v24_database_upgrade_preserves_mind_history(self) -> None:
+        self._assert_supported_database_upgrade("v24")
+
     def _assert_supported_database_upgrade(self, source_version: str) -> None:
         from zipfile import ZipFile
 
@@ -1895,7 +1898,9 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ArtifactCatalogRepository(),
                 BirthRepository(
                     bootstrap_subject_state().birth,
-                    cast(Any, SourceSchemaMindFixture()),
+                    bootstrap_mind().birth
+                    if source_version == "v24"
+                    else cast(Any, SourceSchemaMindFixture()),
                     bootstrap_mood().birth,
                     bootstrap_prompt().birth,
                     bootstrap_interaction_birth(),
@@ -1961,7 +1966,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )
             revision_id = uuid7()
             connection.execute(
-                """INSERT INTO armi.subject_component_revisions
+                """INSERT INTO armi.mind_revisions
+                   (mind_revision_id,subject_id,mind_version,previous_revision_id,
+                    origin_kind,origin_ref,semantic_payload,privacy_scope)
+                   SELECT %s,subject_id,2,mind_revision_id,'admin_correction',%s,
+                          semantic_payload,'private'
+                   FROM armi.mind_revisions WHERE subject_id=%s"""
+                if source_version == "v24"
+                else """INSERT INTO armi.subject_component_revisions
                    (component_revision_id,subject_id,component_kind,component_version,previous_revision_id,
                     origin_kind,origin_ref,semantic_payload,privacy_scope)
                    SELECT %s,subject_id,'mind',2,component_revision_id,'admin_correction',%s,
@@ -1970,18 +1982,24 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 (revision_id, revision_id, born.subject_id),
             )
             connection.execute(
-                "UPDATE armi.subject_component_heads SET current_revision_id=%s,component_version=2 WHERE subject_id=%s AND component_kind='mind'",
+                "UPDATE armi.mind_heads SET current_revision_id=%s,mind_version=2 WHERE subject_id=%s"
+                if source_version == "v24"
+                else "UPDATE armi.subject_component_heads SET current_revision_id=%s,component_version=2 WHERE subject_id=%s AND component_kind='mind'",
                 (revision_id, born.subject_id),
             )
             old_mind_history = connection.execute(
-                """SELECT to_jsonb(r)-'component_kind'-'component_revision_id'-'component_version'
+                "SELECT to_jsonb(r) FROM armi.mind_revisions r WHERE subject_id=%s ORDER BY mind_version"
+                if source_version == "v24"
+                else """SELECT to_jsonb(r)-'component_kind'-'component_revision_id'-'component_version'
                           || jsonb_build_object('mind_revision_id',r.component_revision_id,'mind_version',r.component_version)
                    FROM armi.subject_component_revisions r WHERE subject_id=%s AND component_kind='mind'
                    ORDER BY component_version""",
                 (born.subject_id,),
             ).fetchall()
             old_mind = connection.execute(
-                "SELECT component_revision_id,component_version,semantic_payload "
+                "SELECT mind_revision_id,mind_version,semantic_payload FROM armi.mind_revisions WHERE subject_id=%s ORDER BY mind_version DESC LIMIT 1"
+                if source_version == "v24"
+                else "SELECT component_revision_id,component_version,semantic_payload "
                 "FROM armi.subject_component_revisions WHERE subject_id=%s AND component_kind='mind' ORDER BY component_version DESC LIMIT 1",
                 (born.subject_id,),
             ).fetchone()
@@ -8327,7 +8345,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 next_consideration_seconds=3600,
             )
         if concerns:
-            from armi_mind.api import CreateConcern, TimedReview
+            from armi_mind.api import (
+                CreateConcern,
+                DialogueMindChange,
+                TimedReview,
+                apply_mind_text_change,
+            )
 
             with psycopg.connect(fixture.provisioner_dsn) as connection:
                 mind = connection.execute(
@@ -8343,7 +8366,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                     (1,),
                     CandidateFactClass.SUBJECTIVE_UNDERSTANDING,
                     1,
-                    rfc8785.dumps(mind[0]),
+                    rfc8785.dumps(
+                        apply_mind_text_change(
+                            rfc8785.dumps(mind[0]),
+                            DialogueMindChange.model_validate_json(
+                                '{"motivations":{"values":["Explore the reason behind this preference"]}}'
+                            ),
+                        ).model_dump(mode="json")
+                    ),
                     (
                         CreateConcern(
                             operation="create",
@@ -9504,6 +9534,12 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 ).fetchall()
                 self.assertEqual(rows[0], (1, []))
                 self.assertEqual(rows[1][0], 2)
+                self.assertEqual(
+                    connection.execute(
+                        "SELECT semantic_payload->'motivations' FROM armi.mind_revisions WHERE mind_version=2"
+                    ).fetchone(),
+                    (["Explore the reason behind this preference"],),
+                )
                 self.assertEqual(
                     rows[1][1][0]["question"], "What makes quiet reading appealing?"
                 )

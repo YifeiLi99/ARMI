@@ -101,6 +101,8 @@ def validate_contract_single_version(root: Path) -> list[Violation]:
                 "tests/postgresql/fixtures/v21-mind.json",
                 "packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/upgrades/v21-to-v22.sql",
                 "packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/upgrades/v22-to-v23.sql",
+                "packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/upgrades/v23-to-v24.sql",
+                "packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/upgrades/v24-to-v25.sql",
             }:
                 # Exact forward migration mentions its source contracts to retain
                 # history; it never installs an old candidate execution parser.

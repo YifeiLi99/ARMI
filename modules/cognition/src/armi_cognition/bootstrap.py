@@ -42,13 +42,18 @@ from armi_sleep.api import SleepCognitionPort, SleepReadPort
 from armi_subject_state.api import SubjectStateCognitionPort, SubjectStateReadPort
 
 from ._admin import PostgreSQLCognitionAdmin
-from ._candidate_application import CandidateValidationService
+from ._autonomous_activity_contract import autonomous_schema_for_context
+from ._candidate_application import CandidateValidationService, model_response_candidate
 from ._context_postgresql import PostgreSQLCognitionContextLifecycle
 from ._context_schema import bind_context_schema
 from ._data_rights import PostgreSQLCognitionDataRightsParticipant
 from ._exact_life_query import PostgreSQLCognitionExactLifeQuery
 from ._model_application import ModelPipeline
-from ._model_contract import GENERIC_COGNITION_INSTRUCTIONS
+from ._model_contract import (
+    AUTONOMOUS_ACTIVITY_INSTRUCTIONS,
+    GENERIC_COGNITION_INSTRUCTIONS,
+    load_purpose_binding,
+)
 from ._model_contract import (
     build_request_bytes as build_model_request_bytes,
 )
@@ -67,6 +72,7 @@ from ._model_contract import (
 from ._model_contract import (
     parse_candidate as parse_model_candidate,
 )
+from ._owners import CandidateOwner
 from ._recovery import CognitionRecoveryParticipant
 from ._subject_commit import PostgreSQLCognitionSubjectCommit
 from ._validator import CandidateValidationContext, DeterministicCandidateValidator
@@ -272,7 +278,10 @@ def bootstrap_cognition_recovery(
 
 
 __all__ = (
+    "AUTONOMOUS_ACTIVITY_INSTRUCTIONS",
     "GENERIC_COGNITION_INSTRUCTIONS",
+    "CandidateOwner",
+    "autonomous_schema_for_context",
     "bind_context_schema",
     "bootstrap_cognition_admin",
     "bootstrap_cognition_candidate",
@@ -291,6 +300,8 @@ __all__ = (
     "compose_candidate_validation_context",
     "compose_deterministic_candidate_validator",
     "load_active_model_binding",
+    "load_purpose_binding",
     "load_voice_model_binding",
+    "model_response_candidate",
     "parse_model_candidate",
 )

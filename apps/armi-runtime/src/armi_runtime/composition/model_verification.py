@@ -1,8 +1,13 @@
 """Explicit composition surface for isolated model verification tools."""
 
 from armi_cognition.bootstrap import (
+    AUTONOMOUS_ACTIVITY_INSTRUCTIONS,
     GENERIC_COGNITION_INSTRUCTIONS,
+    CandidateOwner,
+    autonomous_schema_for_context,
     bind_context_schema,
+    load_purpose_binding,
+    model_response_candidate,
 )
 from armi_cognition.bootstrap import (
     build_candidate_schema as candidate_schema,
@@ -24,12 +29,17 @@ from armi_cognition.bootstrap import (
 )
 
 __all__ = (
+    "AUTONOMOUS_ACTIVITY_INSTRUCTIONS",
     "GENERIC_COGNITION_INSTRUCTIONS",
+    "CandidateOwner",
     "CandidateValidationContext",
+    "autonomous_schema_for_context",
     "bind_context_schema",
     "build_request_bytes",
     "candidate_schema",
     "checked_model_request",
     "load_active_binding",
+    "load_purpose_binding",
+    "model_response_candidate",
     "parse_candidate",
 )

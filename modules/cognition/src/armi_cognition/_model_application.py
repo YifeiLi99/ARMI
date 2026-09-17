@@ -905,7 +905,7 @@ class ModelPipeline:
                     )
                 ),
                 instructions=AUTONOMOUS_ACTIVITY_INSTRUCTIONS,
-                schema_name="armi_autonomous_activity_candidate_v7",
+                schema_name="armi_autonomous_activity_candidate_v9",
             )
         try:
             adapter = self._adapters[purpose]

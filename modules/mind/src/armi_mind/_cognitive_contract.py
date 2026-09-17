@@ -27,6 +27,10 @@ MIND_CONTEXT_REFERENCES = (
 )
 
 MIND_COGNITIVE_INSTRUCTIONS = (
+    "结合当前理解、兴趣、关系和实际生活变化,可以重新评价自己现在在意什么、希望什么以及为何想行动。"
+    "时间经过、交流间隔、重复或新颖性只是处境依据,不自动等于任何指定情绪或任务。"
+    "有新认识或愿望时通过当前合同允许的 Mind 变更保存;没有变化可以保持原状。"
+    "普通牵挂、愿望或想换一种活动不必伪装成待解答问题;有具体未知问题时才形成 current_concern。"
     "current_concern 是仍在意的具体问题,可以源于兴趣、困惑或新线索,不必每轮形成关注。"
     "同一问题沿原关注更新;明确区分获得新认识和目前没有新信息,重复表达不算进展。"
     "无新信息时可以等待、换方法或放下。继续等待须给新的复查时间或事件条件;沉默不自动删除关注,也不强制修改关注。"
@@ -60,6 +64,13 @@ class DialogueMindChange(_StrictModel, frozen=True):
         if all(getattr(self, field) is None for field in type(self).model_fields):
             raise ValueError("mind change is empty")
         return self
+
+
+class GroundedMindChange(_StrictModel, frozen=True):
+    change: DialogueMindChange
+    basis_refs: tuple[
+        Annotated[str, StringConstraints(pattern=r"^ctx:[1-9][0-9]{0,2}$")], ...
+    ] = Field(min_length=1, max_length=7)
 
 
 def apply_mind_text_change(payload: bytes, change: DialogueMindChange) -> MindState:
