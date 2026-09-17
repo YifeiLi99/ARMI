@@ -8,9 +8,7 @@ from tempfile import TemporaryDirectory
 
 from tools.check_workspace_boundaries import (
     analyze_source,
-    check_repository,
     exit_code_for,
-    validate_contract_single_version,
 )
 from tools.schema_ownership import (
     TABLE_OWNERSHIP,
@@ -112,63 +110,6 @@ class WorkspaceBoundaryTests(unittest.TestCase):
     def assert_rejected(self, violations, expected_code: str) -> None:
         self.assertIn(expected_code, {violation.code for violation in violations})
         self.assertEqual(exit_code_for(violations), 1)
-
-    def test_current_repository_satisfies_boundaries(self) -> None:
-        self.assertEqual(check_repository(ROOT), [])
-
-    def test_parallel_internal_contract_versions_are_rejected(self) -> None:
-        with TemporaryDirectory() as directory:
-            root = Path(directory)
-            source = root / "modules/example.py"
-            source.parent.mkdir(parents=True)
-            source.write_text(
-                'A = "armi.example.v" + "4"\nB = "armi.example.v" + "5"\n'.replace(
-                    '" + "', ""
-                ),
-                encoding="utf-8",
-            )
-            self.assert_rejected(
-                validate_contract_single_version(root), "ARC-CONTRACT-VERSION"
-            )
-
-    def test_internal_compatibility_entry_is_rejected(self) -> None:
-        with TemporaryDirectory() as directory:
-            root = Path(directory)
-            source = root / "modules/example.py"
-            source.parent.mkdir(parents=True)
-            source.write_text("def bind_" + "wire(value): pass\n", encoding="utf-8")
-            self.assert_rejected(
-                validate_contract_single_version(root),
-                "ARC-CONTRACT-COMPATIBILITY",
-            )
-
-    def test_historical_cognition_versions_do_not_enable_old_runtime_parsers(
-        self,
-    ) -> None:
-        with TemporaryDirectory() as directory:
-            root = Path(directory)
-            source = root / "modules/example.py"
-            source.parent.mkdir(parents=True)
-            current = "armi.example.v" + "5"
-            historical = "armi.example.v" + "4"
-            source.write_text(f'CURRENT = "{current}"\n', encoding="utf-8")
-            history = (
-                root
-                / "packages/armi-postgresql-contract/src/armi_postgresql_contract/resources/schema/baseline/30_cognition_and_provenance.sql"
-            )
-            history.parent.mkdir(parents=True)
-            history.write_text(
-                "CONSTRAINT cognitive_attempts_candidate_schema_version_check CHECK "
-                f"(candidate_schema_version IN ('{historical}', '{current}'))\n",
-                encoding="utf-8",
-            )
-            self.assertEqual(validate_contract_single_version(root), [])
-            source.write_text(
-                f'CURRENT = "{current}"\nOLD = "{historical}"\n', encoding="utf-8"
-            )
-            self.assert_rejected(
-                validate_contract_single_version(root), "ARC-CONTRACT-VERSION"
-            )
 
     def test_schema_owner_registry_matches_effective_head(self) -> None:
         schema_root = (

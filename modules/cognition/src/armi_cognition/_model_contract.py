@@ -662,10 +662,12 @@ def parse_candidate(
                 allowed_context_refs=allowed_context_refs,
                 expected_version=expected_version,
             )
-        else:
+        elif expected_version in (None, CANDIDATE_VERSION):
             candidate = _CANDIDATE_ADAPTER.validate_python(
                 strict_model_value(cast(object, raw)), strict=True
             )
+        else:
+            raise ModelViolation("MODEL-RESPONSE-SCHEMA")
     except (
         UnicodeDecodeError,
         json.JSONDecodeError,

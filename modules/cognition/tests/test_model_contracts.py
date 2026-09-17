@@ -41,6 +41,12 @@ from armi_kernel.contracts import Digest
 from pydantic import TypeAdapter, ValidationError
 
 _BUNDLE_ID = UUID("01980f7d-7b8f-7e2a-8a11-2ab8e1234567")
+_PURPOSE_PROFILES = cast(
+    dict[str, Any], load_yaml_file(Path("configs/model-bindings.yaml"))
+)["purpose_profiles"]
+_CONFIGURED_CANDIDATE_VERSIONS = sorted(
+    {profile["response_contract_version"] for profile in _PURPOSE_PROFILES.values()}
+)
 
 
 def _dialogue_domain(value: bytes):
@@ -296,6 +302,51 @@ def _dialogue_candidate() -> dict[str, object]:
         "content": "Hello, I am here.",
         "changes": [],
     }
+
+
+@pytest.mark.parametrize("version", _CONFIGURED_CANDIDATE_VERSIONS)
+@pytest.mark.parametrize("offset", [-1, 1])
+def test_candidate_schema_and_parser_reject_other_contract_versions(version, offset):
+    family, number = version.rsplit(".v", 1)
+    unsupported = f"{family}.v{int(number) + offset}"
+    assert candidate_schema(version)
+    with pytest.raises(ModelViolation, match="MODEL-BINDING"):
+        candidate_schema(unsupported)
+    # A valid generic candidate must not bypass the selected contract version.
+    with pytest.raises(ModelViolation, match="MODEL-RESPONSE-SCHEMA"):
+        parse_candidate(
+            json.dumps(_candidate()).encode(),
+            allowed_context_refs=frozenset({"ctx:1"}),
+            expected_version=unsupported,
+        )
+
+
+@pytest.mark.parametrize("offset", [-1, 1])
+def test_candidate_wire_rejects_other_schema_versions(offset):
+    value = _candidate()
+    version = str(value["schema_version"])
+    parsed = parse_candidate(
+        json.dumps(value).encode(), allowed_context_refs=frozenset({"ctx:1"})
+    )
+    assert parsed.schema_version == version
+    family, number = version.rsplit(".v", 1)
+    value["schema_version"] = f"{family}.v{int(number) + offset}"
+    with pytest.raises(ModelViolation, match="MODEL-RESPONSE-SCHEMA"):
+        parse_candidate(
+            json.dumps(value).encode(), allowed_context_refs=frozenset({"ctx:1"})
+        )
+
+
+@pytest.mark.parametrize("purpose", sorted(_PURPOSE_PROFILES))
+def test_purpose_binding_rejects_previous_contract_version(tmp_path: Path, purpose):
+    manifest = cast(dict[str, Any], load_yaml_file(Path("configs/model-bindings.yaml")))
+    profile = manifest["purpose_profiles"][purpose]
+    family, number = profile["response_contract_version"].rsplit(".v", 1)
+    profile["response_contract_version"] = f"{family}.v{int(number) - 1}"
+    path = tmp_path / "model-bindings.yaml"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ModelViolation, match="MODEL-BINDING-MANIFEST"):
+        load_active_binding(path)
 
 
 def _request(binding: ModelBinding):
