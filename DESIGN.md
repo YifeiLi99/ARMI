@@ -228,13 +228,15 @@ Embedding、关键词索引、列表投影、游标和前端缓存可删除重�
 
 Mind v3 的 `concerns` 保存有依据的问题、在意理由、解决条件、已有认识、状态和复查条件。最多四份未结束关注；身份、来源提交与时间由 Subject State Owner 产生。建立、更新、等待、解决、放下共用类型定义，与活动、表达、评价和计划原子提交。关注不等于活动，也不是全局好奇数值；只有决定探索时才使用既有 Activity/工具链。普通 Mind 文本更新及反思保留关注，管理替换或回退不能绕过合同清空它们。
 
-Attention 通过 Mind 公开读接口，将带理由的复查时间合并到现有自主计划。Creator 输入和工具/活动结果复用现有机会及结算唤起；事件仅提供重新评价的依据。已消费的到期条件由现有自主机会终结时间判定，不按扫描次数积累强度。Context 单独提供未结束关注及时间信息，结束内容留在组件历史，其他人对话不得获得这些私人内容。等待、沉默不自动删除问题，解决或放下后不再由该关注触发。此机制不声称已模拟孤独、思念或生理需求。
+Mind／Mood 分别提供共享候选、认知快照和考虑信号，公共入口为各自 api.py。Cognition 只组合合同并唯一解析，Owner 绑定引用与核验领域语义；Context 只编排、裁剪、隔离与冻结，不解释心理存储或阈值。管理查询复用 Owner 投影。关注、情绪算法及摘要策略可在所属 Owner 内替换，事实所有权保持不变。
+
+同一问题沿原关注更新；新认识和无新信息必须区分，重复表达、工具失败、空结果和消息送达不能算作答案。解决结论说明依据如何满足原解决条件，放下可以说明不再值得投入；Owner 校验引用与状态，不运行额外语义评分模型。真实实验仍只验证过自发形成，完整形成→自主行动/询问→反馈后结束的模型轨迹尚未验证成功。本轮离线闭环不证明拟人效果成立。
 
 模型只给有 Context 依据的语义 appraisal；Mood owner 确定性推导情绪成分、VAD target、half-life、当前 top emotions 和 action tendencies。权威状态当前为 `armi.mood.v3`，候选为 `armi.mood-candidate.v4`。
 
 事件以 new/reinforce/reappraise/resolve 形成 episode 轨迹。当前快照按数据库 `as_of` 从 home base 和仍有效事件推导，不按秒写库；同一事实和时间得到同一结果。Mood 不能直接改变 Self、Memory、Relationship、Capability 或 Effect。Home base 只在 sleep maintenance 的确定性 `reflect_mood` 阶段小步调整。
 
-心理关注的最小闭环复用 Mood 事件和 Attention 自主计划：Mood 读取每个事件轨迹的最新评价，以现有衰减算法判断是否仍有活跃行动倾向；已解决、已避免、已衰减或仅有暂停/脱离倾向的事件不提前唤起。Attention 只考虑上次自主轮次终结后形成的新评价，将计划提前至该评价发生时间加配置的最小考虑间隔，不推迟更早的计划，也不另建轮次。终结时间来自已有机会记录，沉默及中断同样消费本次关注；自身提交中的评价不会立刻唤起自身。重复扫描及重启不重复消费同一来源，新的强化/重新评价可以再次获得关注。机会仍经过容量、维护和额度检查，再冻结当前 Mood Context，由一次认知决定行动、表达或沉默并原子安排下次计划。这不是按情绪数值强制问候，也尚未构成持续动机或生理需求模拟。
+心理考虑信号通过 Kernel 的 ConsiderationSignal 传递来源对象、条件版本、可考虑时间和原因。Mind 使用关注来源提交标识条件，Mood 使用评价事件标识条件；自身自主提交的情绪评价不直接再次唤起自身。Attention 合并信号与基础自主计划，不改写基础时间。Context 冻结事务仅在机会的 consideration_signals 元数据中确认实际纳入本轮、且已到期的信号；模型执行期间才到期或新增的条件留给下一轮。消费按对象和条件版本去重，不再使用整轮 resolved_at。条件撤销或关注结束后提前影响消失；未选中的旧机会可以撤销，已中断认知与发送不恢复。历史 NULL 明确表示未记录信号明细，不推断消费事实。
 
 ESP32 心情窗只接收 Mood 映射后的不透明 face、color、energy 和 version；情绪名、nuance、事件和 VAD 原值不离开主机。
 
@@ -365,7 +367,7 @@ Admin 的业务结果模型由操作目录统一生成 CLI/MCP 合同并校验�
 
 ## 13. 数据库与配置
 
-当前数据库要求 PostgreSQL 18.4、UTF-8/UTC/builtin `C.UTF-8`、vector 0.8.6、pg_trgm 1.6、唯一 `0000`、baseline `armi.schema-baseline.v22` 和精确 role policy。Schema 是 package resource，有序 baseline SQL、表策略和 ACL 由 `armi-postgresql-contract` 随包交付；精确目录以当前资源为准。安装只接受无用户 relation 且无现存 `armi` namespace 的目标库：namespace 先在独立短事务建立，随后 `0000` 在一个事务组内写入表、约束、ACL、revision、identity 与 digests；中段失败可以留下空 namespace，但不会留下业务表或前移 revision。Runtime 只验证，不安装或升级。显式 setup 升级仅接受签名资源声明的精确 v21 到 v22 来源：以 `module_migration` 追加当前 Mind v3 revision，关注初始为空，保留原 Mind 文本及全部历史 v2 revision；扩展当前候选版本约束，不恢复旧候选。结构转换、ACL、与新建 baseline 一致的结构核验及身份更新同事务提交。程序部署后数据库失败时保留数据，不自动降级；绑定只在数据库确认后刷新。
+当前数据库要求 PostgreSQL 18.4、UTF-8/UTC/builtin `C.UTF-8`、vector 0.8.6、pg_trgm 1.6、唯一 `0000`、baseline `armi.schema-baseline.v23` 和精确 role policy。Schema 是 package resource，有序 baseline SQL、表策略和 ACL 由 `armi-postgresql-contract` 随包交付；精确目录以当前资源为准。安装只接受无用户 relation 且无现存 `armi` namespace 的目标库：namespace 先在独立短事务建立，随后 `0000` 在一个事务组内写入表、约束、ACL、revision、identity 与 digests；中段失败可以留下空 namespace，但不会留下业务表或前移 revision。Runtime 只验证，不安装或升级。显式 setup 升级接受签名资源声明的精确 v21→v23 和 v22→v23 路径。v22 来源仅追加机会信号字段，不重写心理历史；v21 来源先完成 Mind 格式转换：以 `module_migration` 追加当前 Mind v3 revision，关注初始为空，保留原 Mind 文本及全部历史 v2 revision；扩展当前候选版本约束，不恢复旧候选。结构转换、ACL、与新建 baseline 一致的结构核验及身份更新同事务提交。程序部署后数据库失败时保留数据，不自动降级；绑定只在数据库确认后刷新。
 
 配置合并顺序：仓库 `configs/runtime.yaml` → 环境根 `environment.yaml` → 登记的 `ARMI_*` 覆盖。当前 schema v3，strict/frozen/extra-forbid。环境根必须有普通 `environment.yaml`、`data/`、`secrets/`；data root 精确相等，禁止 reparse。Secret 只用 `env:ARMI_SECRET_*` 或位于 `secrets/` 的 `file:` locator，最大 64KiB，经 scoped handle 消费后清零。
 
