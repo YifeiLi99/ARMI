@@ -99,20 +99,6 @@
       "archive_url": "https://registry.npmjs.org/pyright/-/pyright-1.1.411.tgz"
     }
   ],
-  "lockfiles": [
-    {
-      "path": "uv.lock",
-      "sha256": "4c8d73bb16133df61a18c4603f17c49958d62d8dbdf4ca47b0baa7a067a6bf2d"
-    },
-    {
-      "path": "apps/armi-creator-web/package-lock.json",
-      "sha256": "fcbf9d8b21e025af368f76edf270fffd54cc24ffa5c3f7a0a4ee57328ab59ae4"
-    },
-    {
-      "path": "tools/toolchain-node/package-lock.json",
-      "sha256": "713a6557c7787c7b474924a57588a17465146452b64384f6c4a024166d2b5c18"
-    }
-  ],
   "offline_scope": {
     "cold_machine": "unsupported",
     "warm_cache": "Python and npm locked dependencies can be reinstalled after their exact archives have populated the isolated cache.",

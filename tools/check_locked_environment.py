@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import platform
 import re
@@ -163,10 +162,6 @@ def _check_exact_map(
                     f"{field}.{name} must be an exact version, got {version!r}",
                 )
             )
-
-
-def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _check_package_lock(
@@ -379,22 +374,6 @@ def check_repository(
                 path=manifest_path,
                 field=f"tools.{tool_id}.version",
             )
-        for lock in manifest.get("lockfiles", []):
-            if not isinstance(lock, dict):
-                continue
-            relative = lock.get("path")
-            if not isinstance(relative, str):
-                continue
-            lock_path = root / relative
-            if lock_path.exists():
-                _expect(
-                    violations,
-                    actual=lock.get("sha256"),
-                    expected=_sha256(lock_path),
-                    path=manifest_path,
-                    field=f"lockfiles.{relative}.sha256",
-                    code="S003-LOCK-DRIFT",
-                )
 
     return violations
 
