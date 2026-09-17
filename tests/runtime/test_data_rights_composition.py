@@ -14,26 +14,49 @@ from armi_prompt.api import PromptReadPort
 from armi_runtime.composition.data_rights import compose_data_rights_participants
 from armi_runtime.composition.data_rights_contracts import DATA_RIGHTS_OWNER_CONTRACTS
 from armi_runtime.composition.database import compose_mind_module as bootstrap_mind
-from armi_runtime.composition.owner_roster import compose_runtime_owner_roster
+from armi_runtime.composition.owner_roster import (
+    RuntimeOwnerRoster,
+    compose_runtime_owner_roster,
+)
 from armi_subject_state.api import SubjectStateReadPort
 
 
-def _business(data_rights: DataRightsParticipant) -> tuple[DataRightsParticipant, ...]:
+def _roster(data_rights: DataRightsParticipant) -> RuntimeOwnerRoster:
     return compose_runtime_owner_roster(
         data_rights=data_rights,
         mood_read=cast(MoodReadPort, object()),
         prompt_read=cast(PromptReadPort, object()),
         subject_state_read=cast(SubjectStateReadPort, object()),
         mind_read=bootstrap_mind().read,
-    ).data_rights
+    )
 
 
 class DataRightsCompositionTests(unittest.TestCase):
+    def test_owner_projections_reuse_constructed_participants(self) -> None:
+        data_rights = EmptyDataRightsParticipant("data-rights")
+        roster = _roster(data_rights)
+        owners = {item.owner: item for item in roster.owners}
+        self.assertEqual(len(owners), len(roster.owners))
+        self.assertIs(owners["data-rights"].data_rights, data_rights)
+        for first, second in zip(roster.data_rights, roster.data_rights, strict=True):
+            self.assertIs(first, second)
+            self.assertIs(first, owners[first.owner_identity.value].data_rights)
+        self.assertEqual(len(roster.recovery), len(owners))
+        for expected, first, second in zip(
+            roster.expected_recovery_owners,
+            roster.recovery,
+            roster.recovery,
+            strict=True,
+        ):
+            self.assertEqual(first.owner_identity, expected)
+            self.assertIs(first, second)
+            self.assertIs(first, owners[expected.value].recovery)
+
     def test_fixed_roster_contains_twenty_three_business_and_two_technical_owners(
         self,
     ) -> None:
         participants = compose_data_rights_participants(
-            business=_business(EmptyDataRightsParticipant("data-rights")),
+            business=_roster(EmptyDataRightsParticipant("data-rights")).data_rights,
             catalog=cast(ArtifactCatalogPort, object()),
         )
 
@@ -79,7 +102,7 @@ class DataRightsCompositionTests(unittest.TestCase):
     def test_identity_mismatch_is_rejected_before_database_work(self) -> None:
         with self.assertRaises(DataRightsParticipantViolation) as raised:
             compose_data_rights_participants(
-                business=_business(EmptyDataRightsParticipant("wrong-owner")),
+                business=_roster(EmptyDataRightsParticipant("wrong-owner")).data_rights,
                 catalog=cast(ArtifactCatalogPort, object()),
             )
         self.assertEqual(raised.exception.code, "DATA-RIGHTS-PARTICIPANT-ROSTER")

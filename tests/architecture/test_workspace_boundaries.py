@@ -198,6 +198,32 @@ OWN = "UPDATE armi.cognitive_episodes SET status = 'done'"
             ],
         )
 
+    def test_sql_owner_scanner_uses_registry_for_every_table(self) -> None:
+        for table, ownership in TABLE_OWNERSHIP.items():
+            with self.subTest(table=table):
+                source = f'QUERY = "SELECT * FROM armi.{table}"'
+                self.assertEqual(
+                    scan_source_foreign_table_accesses(
+                        source, path="example.py", source_owner=ownership.owner
+                    ),
+                    (),
+                )
+                accesses = scan_source_foreign_table_accesses(
+                    source, path="example.py", source_owner="unrelated-owner"
+                )
+                self.assertEqual(len(accesses), 1)
+                self.assertEqual(accesses[0].table_owner, ownership.owner)
+
+    def test_sql_owner_scanner_ignores_commented_out_statements(self) -> None:
+        self.assertEqual(
+            scan_source_foreign_table_accesses(
+                '# QUERY = "UPDATE armi.effects SET status = %s"',
+                path="modules/cognition/src/armi_cognition/example.py",
+                source_owner="cognition",
+            ),
+            (),
+        )
+
     def test_startup_recovery_sql_stays_with_each_table_owner(self) -> None:
         sources = {
             "runtime": ROOT
